@@ -7,8 +7,13 @@ import React, {
   useReducer,
   useState,
 } from "react";
-import { AdminSettings, AuditEntry, CartItem, Category, Coupon, CustomPage, DeliveryStatus, DeliveryZone, Driver, EmailTemplate, FooterLogo, FooterPage, MenuLink, MenuItem, Customer, Order, OrderStatus, PaymentMethod, PrinterSettings, SavedAddress, SeoSettings, ReceiptSettings, TaxSettings } from "@/types";
-import type { ColorSettings } from "@/types";
+import { supabase } from "@/lib/supabase";
+import {
+  AdminSettings, AuditEntry, CartItem, Category, ColorSettings, Coupon,
+  DeliveryStatus, DeliveryZone, Driver, MenuItem, Customer, Order, OrderStatus, PaymentMethod,
+  PrinterSettings, SavedAddress, SeoSettings, ReceiptSettings, StockStatus,
+  TaxSettings,
+} from "@/types";
 import { buildColorCss } from "@/lib/colorUtils";
 import { DEFAULT_EMAIL_TEMPLATES } from "@/lib/emailTemplates";
 import { DEFAULT_FOOTER_PAGES } from "@/data/footerPages";
@@ -17,7 +22,7 @@ import { restaurantInfo, defaultSchedule } from "@/data/restaurant";
 import { categories as defaultCategories, menuItems as defaultMenuItems } from "@/data/menu";
 import { mockCustomers } from "@/data/customers";
 
-// ─── Cart ───────────────────────────────────────────────────────────────────
+// ─── Cart (session data — stays in localStorage) ──────────────────────────────
 
 type CartAction =
   | { type: "ADD"; item: CartItem }
@@ -27,25 +32,19 @@ type CartAction =
 
 function cartReducer(state: CartItem[], action: CartAction): CartItem[] {
   switch (action.type) {
-    case "ADD":
-      return [...state, action.item];
-    case "REMOVE":
-      return state.filter((i) => i.id !== action.id);
+    case "ADD":    return [...state, action.item];
+    case "REMOVE": return state.filter((i) => i.id !== action.id);
     case "UPDATE_QTY":
-      return state
-        .map((i) => (i.id === action.id ? { ...i, quantity: action.qty } : i))
-        .filter((i) => i.quantity > 0);
-    case "CLEAR":
-      return [];
-    default:
-      return state;
+      return state.map((i) => (i.id === action.id ? { ...i, quantity: action.qty } : i))
+                  .filter((i) => i.quantity > 0);
+    case "CLEAR":  return [];
+    default:       return state;
   }
 }
 
-// ─── Context shape ───────────────────────────────────────────────────────────
+// ─── Context shape ────────────────────────────────────────────────────────────
 
 interface AppContextValue {
-  // Cart
   cart: CartItem[];
   addToCart: (item: CartItem) => void;
   removeFromCart: (id: string) => void;
@@ -53,23 +52,13 @@ interface AppContextValue {
   clearCart: () => void;
   cartTotal: number;
   cartCount: number;
-
-  // Settings
   settings: AdminSettings;
   updateSettings: (patch: Partial<AdminSettings>) => void;
-
-  // Store state
   isOpen: boolean;
-
-  // Fulfillment type
   fulfillment: "delivery" | "collection";
   setFulfillment: (f: "delivery" | "collection") => void;
-
-  // Scheduled ordering (set when restaurant is closed but customer picks a future slot)
-  scheduledTime: string | null;  // null = ASAP; string = human-readable slot label
+  scheduledTime: string | null;
   setScheduledTime: (t: string | null) => void;
-
-  // Menu management
   categories: Category[];
   menuItems: MenuItem[];
   addCategory: (cat: Category) => void;
@@ -79,54 +68,36 @@ interface AppContextValue {
   updateMenuItem: (item: MenuItem) => void;
   deleteMenuItem: (id: string) => void;
   reorderCategories: (cats: Category[]) => void;
-
-  // Customers
   customers: Customer[];
   addOrder: (customerId: string, order: Order) => void;
   updateOrderStatus: (customerId: string, orderId: string, status: OrderStatus) => void;
   addCustomer: (customer: Customer) => void;
   updateCustomer: (customer: Customer) => void;
-
-  // Auth
   currentUser: Customer | null;
   login: (email: string, password: string) => boolean;
   register: (name: string, email: string, phone: string, password: string) => { success: boolean; error?: string };
   logout: () => void;
-
-  // Favourites
   toggleFavourite: (menuItemId: string) => void;
   isFavourite: (menuItemId: string) => boolean;
-
-  // Payment methods
   updatePaymentMethod: (method: PaymentMethod) => void;
   togglePaymentMethod: (id: string, enabled: boolean) => void;
   reorderPaymentMethods: (methods: PaymentMethod[]) => void;
-
-  // Delivery zones
   addDeliveryZone: (zone: DeliveryZone) => void;
   updateDeliveryZone: (zone: DeliveryZone) => void;
   deleteDeliveryZone: (id: string) => void;
-
-  // Coupons — admin CRUD
   coupons: Coupon[];
   addCoupon: (coupon: Coupon) => void;
   updateCoupon: (coupon: Coupon) => void;
   deleteCoupon: (id: string) => void;
   toggleCoupon: (id: string, active: boolean) => void;
-
-  // Applied coupon — checkout session (ephemeral, not persisted)
   appliedCoupon: { couponId: string; code: string; discountAmount: number } | null;
   applyCoupon: (code: string, cartSubtotal: number) => { valid: boolean; error?: string; discountAmount?: number };
   removeCoupon: () => void;
   incrementCouponUsage: (couponId: string) => void;
-
-  // Saved addresses — customer address book
   addSavedAddress: (customerId: string, address: SavedAddress) => void;
   updateSavedAddress: (customerId: string, address: SavedAddress) => void;
   deleteSavedAddress: (customerId: string, addressId: string) => void;
   setDefaultAddress: (customerId: string, addressId: string) => void;
-
-  // Drivers — admin CRUD + driver auth
   drivers: Driver[];
   currentDriver: Driver | null;
   driverLogin: (email: string, password: string) => boolean;
@@ -141,7 +112,7 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
-// ─── Provider ────────────────────────────────────────────────────────────────
+// ─── Defaults ─────────────────────────────────────────────────────────────────
 
 const NO_RESTRICTION = { restricted: false, minKm: 0, maxKm: 50 };
 
@@ -157,83 +128,33 @@ const DEFAULT_DELIVERY_ZONES: DeliveryZone[] = [
   { id: "zone-3", name: "Extended", minRadiusKm: 8, maxRadiusKm: 15, fee: 4.99, enabled: true, color: "#a855f7" },
 ];
 
-const DEFAULT_COLORS: ColorSettings = {
-  primaryColor:    "#f97316", // orange-500
-  backgroundColor: "#f9fafb", // gray-50
-};
+const DEFAULT_COLORS: ColorSettings = { primaryColor: "#f97316", backgroundColor: "#f9fafb" };
 
-const DEFAULT_TAX_SETTINGS: TaxSettings = {
-  enabled:       false,
-  rate:          20,
-  inclusive:     true,   // UK standard: prices shown inclusive of VAT
-  showBreakdown: true,
-};
+const DEFAULT_TAX: TaxSettings = { enabled: false, rate: 20, inclusive: true, showBreakdown: true };
 
-const DEFAULT_RECEIPT_SETTINGS: ReceiptSettings = {
-  showLogo:         false,
-  logoUrl:          "",
-  restaurantName:   restaurantInfo.name,
-  phone:            restaurantInfo.phone,
-  website:          "",
-  email:            "",
-  vatNumber:        "",
-  thankYouMessage:  "Thank you for your order!",
-  customMessage:    "",
+const DEFAULT_RECEIPT: ReceiptSettings = {
+  showLogo: false, logoUrl: "", restaurantName: restaurantInfo.name,
+  phone: restaurantInfo.phone, website: "", email: "", vatNumber: "",
+  thankYouMessage: "Thank you for your order!", customMessage: "",
 };
 
 const DEFAULT_SEO: SeoSettings = {
-  metaTitle:       `${restaurantInfo.name} — Order Online`,
-  metaDescription: `Order online from ${restaurantInfo.name}. Fast delivery and easy collection.`,
-  metaKeywords:    `food delivery, online order, ${restaurantInfo.name}`,
+  metaTitle: `${restaurantInfo.name} — Order Online`,
+  metaDescription: `Order online from ${restaurantInfo.name}.`,
+  metaKeywords: `food delivery, online order, ${restaurantInfo.name}`,
 };
 
 const DEFAULT_PRINTER: PrinterSettings = {
-  enabled:    false,
-  name:       "Kitchen Printer",
-  ip:         "",
-  port:       9100,
-  autoPrint:  true,
-  paperWidth: 48,   // 80 mm
+  enabled: false, name: "Kitchen Printer", ip: "", port: 9100, autoPrint: true, paperWidth: 48,
 };
-
-// ─── Coupon validator ────────────────────────────────────────────────────────
-
-function validateCouponCode(
-  code: string,
-  cartSubtotal: number,
-  coupons: Coupon[],
-): { valid: true; coupon: Coupon; discountAmount: number } | { valid: false; error: string } {
-  const coupon = coupons.find((c) => c.code.toUpperCase() === code.trim().toUpperCase());
-  if (!coupon)          return { valid: false, error: "Invalid coupon code." };
-  if (!coupon.active)   return { valid: false, error: "This coupon is no longer active." };
-  if (coupon.expiryDate && new Date(coupon.expiryDate) < new Date()) {
-    return { valid: false, error: "This coupon has expired." };
-  }
-  if (coupon.usageLimit > 0 && coupon.usageCount >= coupon.usageLimit) {
-    return { valid: false, error: "This coupon has reached its usage limit." };
-  }
-  if (coupon.minOrderAmount > 0 && cartSubtotal < coupon.minOrderAmount) {
-    return { valid: false, error: `Minimum order of £${coupon.minOrderAmount.toFixed(2)} required for this coupon.` };
-  }
-  const discountAmount =
-    coupon.type === "percentage"
-      ? parseFloat((cartSubtotal * (coupon.value / 100)).toFixed(2))
-      : parseFloat(Math.min(coupon.value, cartSubtotal).toFixed(2));
-  return { valid: true, coupon, discountAmount };
-}
 
 const DEFAULT_SETTINGS: AdminSettings = {
   drivers: [],
   restaurant: restaurantInfo,
   schedule: defaultSchedule,
   manualClosed: false,
-  stripePublicKey: "",
-  stripeSecretKey: "",
-  paypalClientId: "",
-  smtpHost: "",
-  smtpPort: "587",
-  smtpUser: "",
-  smtpPassword: "",
+  stripePublicKey: "", stripeSecretKey: "", paypalClientId: "",
+  smtpHost: "", smtpPort: "587", smtpUser: "", smtpPassword: "",
   paymentMethods: DEFAULT_PAYMENT_METHODS,
   paymentAuditLog: [],
   deliveryZones: DEFAULT_DELIVERY_ZONES,
@@ -241,334 +162,498 @@ const DEFAULT_SETTINGS: AdminSettings = {
   customHeadCode: "",
   printer: DEFAULT_PRINTER,
   emailTemplates: DEFAULT_EMAIL_TEMPLATES,
-  footerPages:    DEFAULT_FOOTER_PAGES,
+  footerPages: DEFAULT_FOOTER_PAGES,
   footerCopyright: `© ${new Date().getFullYear()} ${restaurantInfo.name}. All rights reserved.`,
   customPages: [],
   menuLinks: [],
   colors: DEFAULT_COLORS,
   footerLogos: [],
-  receiptSettings: DEFAULT_RECEIPT_SETTINGS,
+  receiptSettings: DEFAULT_RECEIPT,
   coupons: [],
-  taxSettings: DEFAULT_TAX_SETTINGS,
+  taxSettings: DEFAULT_TAX,
 };
+
+// ─── Store open check ─────────────────────────────────────────────────────────
 
 function isStoreOpen(settings: AdminSettings): boolean {
   if (settings.manualClosed) return false;
-  const days = [
-    "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
-  ];
+  const days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
   const now = new Date();
-  const dayName = days[now.getDay()];
-  const day = settings.schedule[dayName];
+  const day = settings.schedule[days[now.getDay()]];
   if (!day || day.closed) return false;
   const [oh, om] = day.open.split(":").map(Number);
   const [ch, cm] = day.close.split(":").map(Number);
-  const current = now.getHours() * 60 + now.getMinutes();
-  const openMin = oh * 60 + om;
-  const closeMin = ch * 60 + cm;
-  return current >= openMin && current < closeMin;
+  const cur = now.getHours() * 60 + now.getMinutes();
+  return cur >= oh * 60 + om && cur < ch * 60 + cm;
 }
 
+// ─── Coupon validator ─────────────────────────────────────────────────────────
+
+function validateCouponCode(code: string, subtotal: number, coupons: Coupon[]) {
+  const coupon = coupons.find((c) => c.code.toUpperCase() === code.trim().toUpperCase());
+  if (!coupon)         return { valid: false as const, error: "Invalid coupon code." };
+  if (!coupon.active)  return { valid: false as const, error: "This coupon is no longer active." };
+  if (coupon.expiryDate && new Date(coupon.expiryDate) < new Date())
+    return { valid: false as const, error: "This coupon has expired." };
+  if (coupon.usageLimit > 0 && coupon.usageCount >= coupon.usageLimit)
+    return { valid: false as const, error: "This coupon has reached its usage limit." };
+  if (coupon.minOrderAmount > 0 && subtotal < coupon.minOrderAmount)
+    return { valid: false as const, error: `Minimum order of £${coupon.minOrderAmount.toFixed(2)} required.` };
+  const discountAmount =
+    coupon.type === "percentage"
+      ? parseFloat((subtotal * (coupon.value / 100)).toFixed(2))
+      : parseFloat(Math.min(coupon.value, subtotal).toFixed(2));
+  return { valid: true as const, coupon, discountAmount };
+}
+
+// ─── DB row → TypeScript mappers ──────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapCategory(row: any): Category {
+  return { id: row.id, name: row.name, emoji: row.emoji };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapMenuItem(row: any): MenuItem {
+  return {
+    id: row.id, categoryId: row.category_id,
+    name: row.name, description: row.description ?? "",
+    price: Number(row.price),
+    image: row.image || undefined,
+    dietary: row.dietary ?? [],
+    popular: row.popular ?? false,
+    variations: row.variations ?? [],
+    addOns: row.add_ons ?? [],
+    stockQty: row.stock_qty ?? undefined,
+    stockStatus: (row.stock_status as StockStatus) || undefined,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapOrder(row: any): Order {
+  return {
+    id: row.id,
+    customerId: row.customer_id,
+    date: typeof row.date === "string" ? row.date : new Date(row.date).toISOString(),
+    status: row.status as OrderStatus,
+    fulfillment: row.fulfillment,
+    total: Number(row.total),
+    items: row.items ?? [],
+    address: row.address || undefined,
+    note: row.note || undefined,
+    paymentMethod: row.payment_method || undefined,
+    deliveryFee: row.delivery_fee ? Number(row.delivery_fee) : undefined,
+    serviceFee: row.service_fee ? Number(row.service_fee) : undefined,
+    scheduledTime: row.scheduled_time || undefined,
+    couponCode: row.coupon_code || undefined,
+    couponDiscount: row.coupon_discount ? Number(row.coupon_discount) : undefined,
+    vatAmount: row.vat_amount ? Number(row.vat_amount) : undefined,
+    vatInclusive: row.vat_inclusive ?? undefined,
+    driverId: row.driver_id || undefined,
+    driverName: row.driver_name || undefined,
+    deliveryStatus: (row.delivery_status as DeliveryStatus) || undefined,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapCustomer(row: any): Customer {
+  return {
+    id: row.id, name: row.name, email: row.email,
+    phone: row.phone ?? "",
+    password: row.password || undefined,
+    createdAt: typeof row.created_at === "string" ? row.created_at : new Date(row.created_at).toISOString(),
+    tags: row.tags ?? [],
+    orders: (row.orders ?? []).map(mapOrder).sort(
+      (a: Order, b: Order) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    ),
+    favourites: row.favourites ?? [],
+    savedAddresses: row.saved_addresses ?? [],
+  };
+}
+
+// ─── TypeScript → DB row mappers ─────────────────────────────────────────────
+
+function categoryToRow(c: Category, order: number) {
+  return { id: c.id, name: c.name, emoji: c.emoji, sort_order: order };
+}
+
+function menuItemToRow(m: MenuItem) {
+  return {
+    id: m.id, category_id: m.categoryId,
+    name: m.name, description: m.description ?? "",
+    price: m.price, image: m.image ?? "",
+    dietary: m.dietary, popular: m.popular ?? false,
+    variations: m.variations ?? [], add_ons: m.addOns ?? [],
+    stock_qty: m.stockQty ?? null, stock_status: m.stockStatus ?? "in_stock",
+  };
+}
+
+function orderToRow(o: Order) {
+  return {
+    id: o.id, customer_id: o.customerId, date: o.date,
+    status: o.status, fulfillment: o.fulfillment, total: o.total,
+    items: o.items,
+    address: o.address ?? "", note: o.note ?? "",
+    payment_method: o.paymentMethod ?? "",
+    delivery_fee: o.deliveryFee ?? 0, service_fee: o.serviceFee ?? 0,
+    scheduled_time: o.scheduledTime ?? "", coupon_code: o.couponCode ?? "",
+    coupon_discount: o.couponDiscount ?? 0,
+    vat_amount: o.vatAmount ?? 0, vat_inclusive: o.vatInclusive ?? true,
+    driver_id: o.driverId ?? "", driver_name: o.driverName ?? "",
+    delivery_status: o.deliveryStatus ?? "",
+  };
+}
+
+function customerToRow(c: Customer) {
+  return {
+    id: c.id, name: c.name, email: c.email,
+    phone: c.phone ?? "", password: c.password ?? "",
+    created_at: c.createdAt,
+    tags: c.tags ?? [], favourites: c.favourites ?? [],
+    saved_addresses: c.savedAddresses ?? [],
+  };
+}
+
+// ─── Provider ─────────────────────────────────────────────────────────────────
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [cart, dispatch] = useReducer(cartReducer, []);
-  const [settings, setSettings] = useState<AdminSettings>(DEFAULT_SETTINGS);
+  const [cart, dispatch]         = useReducer(cartReducer, []);
+  const [settings, setSettings]  = useState<AdminSettings>(DEFAULT_SETTINGS);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [menuItems, setMenuItems]   = useState<MenuItem[]>([]);
+  const [customers, setCustomers]   = useState<Customer[]>([]);
+  const [currentUser, setCurrentUser]   = useState<Customer | null>(null);
   const [currentDriver, setCurrentDriver] = useState<Driver | null>(null);
   const [fulfillment, setFulfillment] = useState<"delivery" | "collection">("delivery");
   const [scheduledTime, setScheduledTime] = useState<string | null>(null);
-  const [categories, setCategories] = useState<Category[]>(defaultCategories);
-  const [menuItems, setMenuItems] = useState<MenuItem[]>(defaultMenuItems);
-  const [customers, setCustomers] = useState<Customer[]>(mockCustomers);
-  const [currentUser, setCurrentUser] = useState<Customer | null>(null);
-  const [hydrated, setHydrated] = useState(false);
   const [appliedCoupon, setAppliedCoupon] = useState<{
     couponId: string; code: string; discountAmount: number;
   } | null>(null);
 
-  // Hydrate from localStorage — load everything atomically in one effect
+  // ── Session data: cart, user, driver stay in localStorage ─────────────────
+
   useEffect(() => {
     try {
-      const storedSettings = localStorage.getItem("sg_settings");
-      if (storedSettings) {
-        const parsed = JSON.parse(storedSettings);
-
-        // Shallow-merge with defaults so new top-level fields (deliveryZones,
-        // paymentAuditLog, etc.) are present even on old stored snapshots.
-        const merged: AdminSettings = { ...DEFAULT_SETTINGS, ...parsed };
-
-        // Deep-migrate restaurant: older snapshots have a single `address` string
-        // instead of the structured address fields. Backfill from defaults so
-        // the admin location form never shows empty inputs.
-        if (parsed.restaurant) {
-          const storedR = parsed.restaurant;
-          merged.restaurant = {
-            ...DEFAULT_SETTINGS.restaurant,
-            ...storedR,
-            // Ensure all structured address fields are present
-            addressLine1: storedR.addressLine1 ?? DEFAULT_SETTINGS.restaurant.addressLine1,
-            addressLine2: storedR.addressLine2 ?? DEFAULT_SETTINGS.restaurant.addressLine2,
-            city:         storedR.city         ?? DEFAULT_SETTINGS.restaurant.city,
-            postcode:     storedR.postcode      ?? DEFAULT_SETTINGS.restaurant.postcode,
-            country:      storedR.country       ?? DEFAULT_SETTINGS.restaurant.country,
-          };
-        }
-
-        // Deep-migrate seo: backfill any missing fields added after initial release.
-        merged.seo = { ...DEFAULT_SEO, ...(parsed.seo ?? {}) };
-
-        // Deep-migrate printer: backfill all fields for snapshots that predate
-        // the thermal printer feature.
-        merged.printer = { ...DEFAULT_PRINTER, ...(parsed.printer ?? {}) };
-
-        // Deep-migrate emailTemplates: merge stored templates with defaults so
-        // newly added template events appear on old snapshots.
-        if (Array.isArray(parsed.emailTemplates)) {
-          const stored: EmailTemplate[] = parsed.emailTemplates;
-          const storedEvents = new Set(stored.map((t: EmailTemplate) => t.event));
-          const missing = DEFAULT_EMAIL_TEMPLATES.filter((d) => !storedEvents.has(d.event));
-          merged.emailTemplates = [...stored, ...missing];
-        }
-
-        // Deep-migrate footerPages: merge stored pages with defaults so newly
-        // added slugs appear on old snapshots without overwriting admin edits.
-        if (Array.isArray(parsed.footerPages)) {
-          const stored: FooterPage[] = parsed.footerPages;
-          const storedSlugs = new Set(stored.map((p: FooterPage) => p.slug));
-          const missing = DEFAULT_FOOTER_PAGES.filter((d) => !storedSlugs.has(d.slug));
-          merged.footerPages = [...stored, ...missing];
-        }
-        if (!parsed.footerCopyright) {
-          merged.footerCopyright = DEFAULT_SETTINGS.footerCopyright;
-        }
-
-        // Deep-migrate customPages: ensure field exists for old snapshots.
-        if (!Array.isArray(parsed.customPages)) {
-          merged.customPages = [];
-        } else {
-          // Backfill any fields added to the CustomPage type after initial release.
-          merged.customPages = (parsed.customPages as CustomPage[]).map((p) => ({
-            ...{ seoTitle: "", seoDescription: "", published: true, createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString() },
-            ...p,
-          }));
-        }
-
-        // Deep-migrate menuLinks: ensure field exists for old snapshots.
-        if (!Array.isArray(parsed.menuLinks)) {
-          merged.menuLinks = [];
-        } else {
-          merged.menuLinks = (parsed.menuLinks as MenuLink[]).map((l) => ({
-            ...{ active: true, order: 0 },
-            ...l,
-          }));
-        }
-
-        // Deep-migrate colors: backfill missing fields from defaults.
-        merged.colors = { ...DEFAULT_COLORS, ...(parsed.colors ?? {}) };
-
-        // Deep-migrate footerLogos: ensure field exists for old snapshots.
-        merged.footerLogos = Array.isArray(parsed.footerLogos)
-          ? (parsed.footerLogos as FooterLogo[]).map((l) => ({
-              ...{ href: "", enabled: true, order: 0 },
-              ...l,
-            }))
-          : [];
-
-        // Deep-migrate receiptSettings: backfill for snapshots that predate this feature.
-        merged.receiptSettings = { ...DEFAULT_RECEIPT_SETTINGS, ...(parsed.receiptSettings ?? {}) };
-
-        // Deep-migrate taxSettings: backfill for snapshots that predate this feature.
-        merged.taxSettings = { ...DEFAULT_TAX_SETTINGS, ...(parsed.taxSettings ?? {}) };
-
-        // Deep-migrate drivers: ensure field exists for old snapshots.
-        merged.drivers = Array.isArray(parsed.drivers)
-          ? (parsed.drivers as Driver[]).map((d) => ({
-              ...{ active: true, vehicleInfo: "", notes: "", createdAt: new Date(0).toISOString() },
-              ...d,
-            }))
-          : [];
-
-        // Deep-migrate coupons: ensure field exists for old snapshots.
-        const COUPON_DEFAULTS = {
-          usageCount: 0, active: true, expiryDate: "",
-          usageLimit: 0, minOrderAmount: 0, createdAt: new Date(0).toISOString(),
-        };
-        merged.coupons = Array.isArray(parsed.coupons)
-          ? (parsed.coupons as Coupon[]).map((c) => ({ ...COUPON_DEFAULTS, ...c }))
-          : [];
-
-        // Deep-migrate paymentMethods: older stored methods lack deliveryRange.
-        // Preserve all stored fields but backfill any missing ones from the
-        // matching default method, falling back to a safe "unrestricted" value.
-        if (Array.isArray(parsed.paymentMethods)) {
-          merged.paymentMethods = parsed.paymentMethods.map(
-            (stored: PaymentMethod) => {
-              const def = DEFAULT_PAYMENT_METHODS.find((d) => d.id === stored.id);
-              return {
-                ...(def ?? {}),
-                ...stored,
-                deliveryRange: stored.deliveryRange ?? def?.deliveryRange ?? { restricted: false, minKm: 0, maxKm: 50 },
-              };
-            }
-          );
-        }
-
-        setSettings(merged);
-      }
-
-      const storedCart = localStorage.getItem("sg_cart");
-      if (storedCart) {
-        const items: CartItem[] = JSON.parse(storedCart);
-        items.forEach((item) => dispatch({ type: "ADD", item }));
-      }
-
-      const storedCategories = localStorage.getItem("sg_categories");
-      if (storedCategories) setCategories(JSON.parse(storedCategories));
-
-      const storedMenu = localStorage.getItem("sg_menu");
-      if (storedMenu) setMenuItems(JSON.parse(storedMenu));
-
-      const storedCustomers = localStorage.getItem("sg_customers");
-      if (storedCustomers) {
-        const parsed: Customer[] = JSON.parse(storedCustomers);
-        // Backfill favourites and savedAddresses for snapshots that predate these fields
-        setCustomers(parsed.map((c) => ({ favourites: [], savedAddresses: [], ...c })));
-      }
-
-      const storedUser = localStorage.getItem("sg_current_user");
-      if (storedUser) setCurrentUser(JSON.parse(storedUser));
-
-      const storedDriver = localStorage.getItem("sg_driver_session");
-      if (storedDriver) setCurrentDriver(JSON.parse(storedDriver));
-    } catch {
-      // ignore parse errors
-    }
-    // Mark as hydrated AFTER all setState calls above have been queued.
-    // React 18 batches these, so the persist effects below won't fire
-    // with stale (default) data.
-    setHydrated(true);
+      const c = localStorage.getItem("sg_cart");
+      if (c) (JSON.parse(c) as CartItem[]).forEach((item) => dispatch({ type: "ADD", item }));
+      const u = localStorage.getItem("sg_current_user");
+      if (u) setCurrentUser(JSON.parse(u));
+      const d = localStorage.getItem("sg_driver_session");
+      if (d) setCurrentDriver(JSON.parse(d));
+    } catch { /* ignore */ }
   }, []);
 
-  // ── Cross-tab real-time sync ──────────────────────────────────────────────
-  // The Web Storage API fires a `storage` event on every tab that shares the
-  // same origin whenever localStorage changes — but ONLY on the tabs that did
-  // NOT make the write. This gives us free cross-tab reactivity: a customer
-  // placing an order in one tab immediately updates the admin panel in another,
-  // and admin status changes surface instantly in the customer dashboard.
-  useEffect(() => {
-    function onStorageChange(e: StorageEvent) {
-      if (!e.newValue) return; // key was removed — ignore
-      try {
-        const val = JSON.parse(e.newValue);
-        switch (e.key) {
-          case "sg_customers":   setCustomers(val);  break;
-          case "sg_settings":    setSettings(val);   break;
-          case "sg_menu":        setMenuItems(val);  break;
-          case "sg_categories":  setCategories(val); break;
-          case "sg_current_user":
-            // Sync the logged-in session across tabs (e.g. login in one tab
-            // reflects in another open tab of the same origin).
-            setCurrentUser(val);
-            break;
-          case "sg_driver_session":
-            setCurrentDriver(val);
-            break;
-        }
-      } catch {
-        // malformed JSON — ignore silently
-      }
-    }
-    window.addEventListener("storage", onStorageChange);
-    return () => window.removeEventListener("storage", onStorageChange);
-  }, []); // register exactly once
+  useEffect(() => { localStorage.setItem("sg_cart", JSON.stringify(cart)); }, [cart]);
 
-  // Persist — only ever runs AFTER hydration so we never overwrite
-  // localStorage with the default seed data
-  useEffect(() => { if (hydrated) localStorage.setItem("sg_settings",  JSON.stringify(settings));  }, [settings,    hydrated]);
-  useEffect(() => { if (hydrated) localStorage.setItem("sg_cart",      JSON.stringify(cart));      }, [cart,       hydrated]);
-  useEffect(() => { if (hydrated) localStorage.setItem("sg_categories",JSON.stringify(categories));}, [categories,  hydrated]);
-  useEffect(() => { if (hydrated) localStorage.setItem("sg_menu",      JSON.stringify(menuItems)); }, [menuItems,   hydrated]);
-  useEffect(() => { if (hydrated) localStorage.setItem("sg_customers", JSON.stringify(customers)); }, [customers,   hydrated]);
-  useEffect(() => { if (hydrated) localStorage.setItem("sg_current_user", JSON.stringify(currentUser)); }, [currentUser, hydrated]);
   useEffect(() => {
-    if (!hydrated) return;
+    if (currentUser) localStorage.setItem("sg_current_user", JSON.stringify(currentUser));
+    else localStorage.removeItem("sg_current_user");
+  }, [currentUser]);
+
+  useEffect(() => {
     if (currentDriver) localStorage.setItem("sg_driver_session", JSON.stringify(currentDriver));
     else localStorage.removeItem("sg_driver_session");
-  }, [currentDriver, hydrated]);
+  }, [currentDriver]);
 
-  // ── Color theme injection ─────────────────────────────────────────────────
-  // Overrides Tailwind v4's --color-orange-* CSS variables so every orange-*
-  // utility class across the whole app reflects the admin's chosen brand color.
-  // Runs after hydration and whenever the saved color settings change.
+  // ── Initial load from Supabase ─────────────────────────────────────────────
+
+  useEffect(() => {
+    async function init() {
+      // Settings
+      const { data: settingsData } = await supabase
+        .from("app_settings").select("data").eq("id", 1).single();
+      if (settingsData) {
+        setSettings({ ...DEFAULT_SETTINGS, ...settingsData.data });
+      } else {
+        // First run — seed settings
+        await supabase.from("app_settings").insert({ id: 1, data: DEFAULT_SETTINGS });
+      }
+
+      // Categories
+      const { data: catsData } = await supabase
+        .from("categories").select("*").order("sort_order", { ascending: true });
+      if (catsData && catsData.length > 0) {
+        setCategories(catsData.map(mapCategory));
+      } else {
+        // Seed default categories
+        const rows = defaultCategories.map((c, i) => categoryToRow(c, i));
+        await supabase.from("categories").insert(rows);
+        setCategories(defaultCategories);
+      }
+
+      // Menu items
+      const { data: menuData } = await supabase.from("menu_items").select("*");
+      if (menuData && menuData.length > 0) {
+        setMenuItems(menuData.map(mapMenuItem));
+      } else {
+        // Seed default menu items
+        const rows = defaultMenuItems.map(menuItemToRow);
+        await supabase.from("menu_items").insert(rows);
+        setMenuItems(defaultMenuItems);
+      }
+
+      // Customers (with nested orders)
+      const { data: custsData } = await supabase
+        .from("customers").select("*, orders(*)");
+      if (custsData && custsData.length > 0) {
+        setCustomers(custsData.map(mapCustomer));
+      } else {
+        // Seed mock customers + their orders
+        for (const c of mockCustomers) {
+          await supabase.from("customers").insert(customerToRow(c));
+          if (c.orders.length > 0) {
+            await supabase.from("orders").insert(c.orders.map(orderToRow));
+          }
+        }
+        setCustomers(mockCustomers);
+      }
+
+    }
+    init();
+  }, []);
+
+  // ── Realtime subscriptions (replaces storage event listener) ──────────────
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("restaurant-realtime")
+      // Settings
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "app_settings" },
+        ({ new: row }) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          setSettings({ ...DEFAULT_SETTINGS, ...(row as any).data });
+        })
+      // Categories
+      .on("postgres_changes", { event: "*", schema: "public", table: "categories" },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ({ eventType, new: newRow, old: oldRow }: any) => {
+          if (eventType === "DELETE") {
+            setCategories((prev) => prev.filter((c) => c.id !== oldRow.id));
+          } else {
+            const cat = mapCategory(newRow);
+            setCategories((prev) => {
+              const idx = prev.findIndex((c) => c.id === cat.id);
+              return idx >= 0 ? prev.map((c) => (c.id === cat.id ? cat : c)) : [...prev, cat];
+            });
+          }
+        })
+      // Menu items
+      .on("postgres_changes", { event: "*", schema: "public", table: "menu_items" },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ({ eventType, new: newRow, old: oldRow }: any) => {
+          if (eventType === "DELETE") {
+            setMenuItems((prev) => prev.filter((m) => m.id !== oldRow.id));
+          } else {
+            const item = mapMenuItem(newRow);
+            setMenuItems((prev) => {
+              const idx = prev.findIndex((m) => m.id === item.id);
+              return idx >= 0 ? prev.map((m) => (m.id === item.id ? item : m)) : [...prev, item];
+            });
+          }
+        })
+      // Orders
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ({ eventType, new: newRow, old: oldRow }: any) => {
+          if (eventType === "DELETE") {
+            setCustomers((prev) => prev.map((c) => ({
+              ...c, orders: c.orders.filter((o) => o.id !== oldRow.id),
+            })));
+          } else {
+            const order = mapOrder(newRow);
+            const patchOrders = (orders: Order[]) => {
+              const exists = orders.some((o) => o.id === order.id);
+              return exists ? orders.map((o) => (o.id === order.id ? order : o))
+                            : [order, ...orders];
+            };
+            setCustomers((prev) => prev.map((c) =>
+              c.id !== order.customerId ? c : { ...c, orders: patchOrders(c.orders) }
+            ));
+            setCurrentUser((prev) =>
+              prev && prev.id === order.customerId
+                ? { ...prev, orders: patchOrders(prev.orders) }
+                : prev
+            );
+          }
+        })
+      // Customers
+      .on("postgres_changes", { event: "*", schema: "public", table: "customers" },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        async ({ eventType, new: newRow, old: oldRow }: any) => {
+          if (eventType === "DELETE") {
+            setCustomers((prev) => prev.filter((c) => c.id !== oldRow.id));
+          } else if (eventType === "INSERT") {
+            const { data } = await supabase
+              .from("customers").select("*, orders(*)").eq("id", newRow.id).single();
+            if (data) setCustomers((prev) => [...prev, mapCustomer(data)]);
+          } else {
+            // UPDATE — patch fields, keep in-memory orders
+            setCustomers((prev) => prev.map((c) =>
+              c.id !== newRow.id ? c : {
+                ...c,
+                name: newRow.name, email: newRow.email, phone: newRow.phone ?? "",
+                tags: newRow.tags ?? [], favourites: newRow.favourites ?? [],
+                savedAddresses: newRow.saved_addresses ?? [],
+              }
+            ));
+            setCurrentUser((prev) =>
+              prev && prev.id === newRow.id
+                ? {
+                    ...prev,
+                    name: newRow.name, email: newRow.email, phone: newRow.phone ?? "",
+                    tags: newRow.tags ?? [], favourites: newRow.favourites ?? [],
+                    savedAddresses: newRow.saved_addresses ?? [],
+                  }
+                : prev
+            );
+          }
+        })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  // ── Color theme injection ──────────────────────────────────────────────────
+
   useEffect(() => {
     const { primaryColor, backgroundColor } = settings.colors ?? DEFAULT_COLORS;
     const css = buildColorCss(primaryColor, backgroundColor);
     if (!css) return;
     let el = document.getElementById("color-theme-vars");
-    if (!el) {
-      el = document.createElement("style");
-      el.id = "color-theme-vars";
-      document.head.appendChild(el);
-    }
+    if (!el) { el = document.createElement("style"); el.id = "color-theme-vars"; document.head.appendChild(el); }
     el.textContent = css;
   }, [settings.colors]);
 
-  // Cart actions
-  const addToCart = (item: CartItem) => dispatch({ type: "ADD", item });
-  const removeFromCart = (id: string) => dispatch({ type: "REMOVE", id });
-  const updateQty = (id: string, qty: number) => dispatch({ type: "UPDATE_QTY", id, qty });
-  const clearCart = () => dispatch({ type: "CLEAR" });
+  // ─── Cart actions ──────────────────────────────────────────────────────────
+
+  const addToCart    = (item: CartItem) => dispatch({ type: "ADD", item });
+  const removeFromCart = (id: string)   => dispatch({ type: "REMOVE", id });
+  const updateQty    = (id: string, qty: number) => dispatch({ type: "UPDATE_QTY", id, qty });
+  const clearCart    = () => dispatch({ type: "CLEAR" });
+
+  // ─── Settings ─────────────────────────────────────────────────────────────
 
   const updateSettings = (patch: Partial<AdminSettings>) =>
-    setSettings((prev) => ({ ...prev, ...patch }));
+    setSettings((prev) => {
+      const next = { ...prev, ...patch };
+      // Persist only on user-initiated changes (not on realtime remote updates)
+      supabase.from("app_settings")
+        .upsert({ id: 1, data: next, updated_at: new Date().toISOString() })
+        .then(({ error }) => {
+          if (error) console.error("settings persist:", error.message, error.code, error.details);
+        });
+      return next;
+    });
 
-  // Category CRUD
-  const addCategory = (cat: Category) => setCategories((prev) => [...prev, cat]);
-  const updateCategory = (cat: Category) =>
-    setCategories((prev) => prev.map((c) => (c.id === cat.id ? cat : c)));
+  // Internal helper: functional update + Supabase persist.
+  // Use this instead of setSettings directly for any mutation that must survive a refresh.
+  const mutateSettings = (fn: (prev: AdminSettings) => AdminSettings) =>
+    setSettings((prev) => {
+      const next = fn(prev);
+      supabase.from("app_settings")
+        .upsert({ id: 1, data: next, updated_at: new Date().toISOString() })
+        .then(({ error }) => {
+          if (error) console.error("settings mutate:", error.message, error.code, error.details);
+        });
+      return next;
+    });
+
+  // ─── Categories ───────────────────────────────────────────────────────────
+
+  const addCategory = (cat: Category) => {
+    setCategories((prev) => {
+      const next = [...prev, cat];
+      supabase.from("categories").insert(categoryToRow(cat, prev.length))
+        .then(({ error }) => { if (error) console.error("addCategory:", error); });
+      return next;
+    });
+  };
+
+  const updateCategory = (cat: Category) => {
+    setCategories((prev) => {
+      const next = prev.map((c) => (c.id === cat.id ? cat : c));
+      const idx = prev.findIndex((c) => c.id === cat.id);
+      supabase.from("categories").update({ name: cat.name, emoji: cat.emoji }).eq("id", cat.id)
+        .then(({ error }) => { if (error) console.error("updateCategory:", error); });
+      void idx;
+      return next;
+    });
+  };
+
   const deleteCategory = (id: string) => {
     setCategories((prev) => prev.filter((c) => c.id !== id));
-    setMenuItems((prev) => prev.filter((i) => i.categoryId !== id));
+    setMenuItems((prev) => prev.filter((m) => m.categoryId !== id));
+    // DB cascade handles menu_items deletion
+    supabase.from("categories").delete().eq("id", id)
+      .then(({ error }) => { if (error) console.error("deleteCategory:", error); });
   };
-  const reorderCategories = (cats: Category[]) => setCategories(cats);
 
-  // Menu item CRUD
-  const addMenuItem = (item: MenuItem) => setMenuItems((prev) => [...prev, item]);
-  const updateMenuItem = (item: MenuItem) =>
-    setMenuItems((prev) => prev.map((i) => (i.id === item.id ? item : i)));
-  const deleteMenuItem = (id: string) =>
-    setMenuItems((prev) => prev.filter((i) => i.id !== id));
+  const reorderCategories = (cats: Category[]) => {
+    setCategories(cats);
+    const rows = cats.map((c, i) => categoryToRow(c, i));
+    supabase.from("categories").upsert(rows)
+      .then(({ error }) => { if (error) console.error("reorderCategories:", error); });
+  };
 
-  // Customer actions
+  // ─── Menu items ───────────────────────────────────────────────────────────
+
+  const addMenuItem = (item: MenuItem) => {
+    setMenuItems((prev) => [...prev, item]);
+    supabase.from("menu_items").insert(menuItemToRow(item))
+      .then(({ error }) => { if (error) console.error("addMenuItem:", error); });
+  };
+
+  const updateMenuItem = (item: MenuItem) => {
+    setMenuItems((prev) => prev.map((m) => (m.id === item.id ? item : m)));
+    supabase.from("menu_items").update(menuItemToRow(item)).eq("id", item.id)
+      .then(({ error }) => { if (error) console.error("updateMenuItem:", error); });
+  };
+
+  const deleteMenuItem = (id: string) => {
+    setMenuItems((prev) => prev.filter((m) => m.id !== id));
+    supabase.from("menu_items").delete().eq("id", id)
+      .then(({ error }) => { if (error) console.error("deleteMenuItem:", error); });
+  };
+
+  // ─── Customer & order actions ──────────────────────────────────────────────
+
+  const addCustomer = (customer: Customer) => {
+    setCustomers((prev) => [...prev, customer]);
+    supabase.from("customers").insert(customerToRow(customer))
+      .then(({ error }) => { if (error) console.error("addCustomer:", error); });
+  };
+
+  const updateCustomer = (customer: Customer) => {
+    setCustomers((prev) => prev.map((c) => (c.id === customer.id ? customer : c)));
+    supabase.from("customers").update(customerToRow(customer)).eq("id", customer.id)
+      .then(({ error }) => { if (error) console.error("updateCustomer:", error); });
+  };
+
   const addOrder = (customerId: string, order: Order) => {
     setCustomers((prev) =>
       prev.map((c) => (c.id === customerId ? { ...c, orders: [order, ...c.orders] } : c))
     );
-    // Keep currentUser in sync so the account page reflects the new order immediately
     setCurrentUser((prev) =>
       prev && prev.id === customerId ? { ...prev, orders: [order, ...prev.orders] } : prev
     );
+    supabase.from("orders").insert(orderToRow(order))
+      .then(({ error }) => { if (error) console.error("addOrder:", error); });
   };
 
   const updateOrderStatus = (customerId: string, orderId: string, status: OrderStatus) => {
+    const patch = (o: Order) => (o.id === orderId ? { ...o, status } : o);
     setCustomers((prev) =>
-      prev.map((c) =>
-        c.id === customerId
-          ? { ...c, orders: c.orders.map((o) => (o.id === orderId ? { ...o, status } : o)) }
-          : c
-      )
+      prev.map((c) => (c.id === customerId ? { ...c, orders: c.orders.map(patch) } : c))
     );
-    // Mirror status changes onto currentUser too
     setCurrentUser((prev) =>
-      prev && prev.id === customerId
-        ? { ...prev, orders: prev.orders.map((o) => (o.id === orderId ? { ...o, status } : o)) }
-        : prev
+      prev && prev.id === customerId ? { ...prev, orders: prev.orders.map(patch) } : prev
     );
+    supabase.from("orders").update({ status }).eq("id", orderId)
+      .then(({ error }) => { if (error) console.error("updateOrderStatus:", error); });
   };
 
-  const addCustomer = (customer: Customer) => setCustomers((prev) => [...prev, customer]);
-  const updateCustomer = (customer: Customer) =>
-    setCustomers((prev) => prev.map((c) => (c.id === customer.id ? customer : c)));
+  // ─── Auth ─────────────────────────────────────────────────────────────────
 
-  // Auth
   const login = (email: string, password: string): boolean => {
     const found = customers.find(
       (c) => c.email.toLowerCase() === email.toLowerCase() && c.password === password
@@ -582,14 +667,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return { success: false, error: "An account with this email already exists." };
     }
     const newCustomer: Customer = {
-      id: crypto.randomUUID(),
-      name, email, phone, password,
-      createdAt: new Date().toISOString(),
-      tags: [],
-      orders: [],
+      id: crypto.randomUUID(), name, email, phone, password,
+      createdAt: new Date().toISOString(), tags: [], orders: [],
     };
     setCustomers((prev) => [...prev, newCustomer]);
     setCurrentUser(newCustomer);
+    supabase.from("customers").insert(customerToRow(newCustomer))
+      .then(({ error }) => { if (error) console.error("register:", error); });
     return { success: true };
   };
 
@@ -598,7 +682,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem("sg_current_user");
   };
 
-  // Favourites
+  // ─── Favourites ───────────────────────────────────────────────────────────
+
   const isFavourite = (menuItemId: string): boolean =>
     !!(currentUser && (currentUser.favourites ?? []).includes(menuItemId));
 
@@ -610,92 +695,100 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       : [...current, menuItemId];
     const updatedUser = { ...currentUser, favourites: updated };
     setCurrentUser(updatedUser);
-    setCustomers((prev) =>
-      prev.map((c) => (c.id === currentUser.id ? { ...c, favourites: updated } : c))
-    );
+    setCustomers((prev) => prev.map((c) => (c.id === currentUser.id ? { ...c, favourites: updated } : c)));
+    supabase.from("customers").update({ favourites: updated }).eq("id", currentUser.id)
+      .then(({ error }) => { if (error) console.error("toggleFavourite:", error); });
   };
 
-  // Payment method actions
+  // ─── Saved addresses ──────────────────────────────────────────────────────
+
+  function patchAddresses(customerId: string, updater: (addrs: SavedAddress[]) => SavedAddress[]) {
+    const patch = (c: Customer) => {
+      const newAddrs = updater(c.savedAddresses ?? []);
+      return { ...c, savedAddresses: newAddrs };
+    };
+    setCustomers((prev) => prev.map((c) => (c.id === customerId ? patch(c) : c)));
+    setCurrentUser((prev) => {
+      if (!prev || prev.id !== customerId) return prev;
+      const updated = patch(prev);
+      supabase.from("customers").update({ saved_addresses: updated.savedAddresses }).eq("id", customerId)
+        .then(({ error }) => { if (error) console.error("patchAddresses:", error); });
+      return updated;
+    });
+  }
+
+  const addSavedAddress = (customerId: string, address: SavedAddress) =>
+    patchAddresses(customerId, (addrs) => {
+      const isFirst = addrs.length === 0;
+      return [...addrs.map((a) => (isFirst ? { ...a, isDefault: false } : a)), { ...address, isDefault: isFirst || address.isDefault }];
+    });
+
+  const updateSavedAddress = (customerId: string, address: SavedAddress) =>
+    patchAddresses(customerId, (addrs) => addrs.map((a) => (a.id === address.id ? address : a)));
+
+  const deleteSavedAddress = (customerId: string, addressId: string) =>
+    patchAddresses(customerId, (addrs) => {
+      const remaining = addrs.filter((a) => a.id !== addressId);
+      const wasDefault = addrs.find((a) => a.id === addressId)?.isDefault ?? false;
+      if (wasDefault && remaining.length > 0) remaining[0] = { ...remaining[0], isDefault: true };
+      return remaining;
+    });
+
+  const setDefaultAddress = (customerId: string, addressId: string) =>
+    patchAddresses(customerId, (addrs) => addrs.map((a) => ({ ...a, isDefault: a.id === addressId })));
+
+  // ─── Payment methods ──────────────────────────────────────────────────────
+
   const updatePaymentMethod = (method: PaymentMethod) =>
-    setSettings((prev) => ({
+    mutateSettings((prev) => ({
       ...prev,
       paymentMethods: prev.paymentMethods.map((m) => (m.id === method.id ? method : m)),
     }));
 
-  const togglePaymentMethod = (id: string, enabled: boolean) => {
-    setSettings((prev) => {
+  const togglePaymentMethod = (id: string, enabled: boolean) =>
+    mutateSettings((prev) => {
       const method = prev.paymentMethods.find((m) => m.id === id);
       const entry: AuditEntry = {
-        id: crypto.randomUUID(),
-        timestamp: new Date().toISOString(),
-        action: `${enabled ? "Enabled" : "Disabled"} ${method?.name ?? id}`,
-        actor: "Admin",
+        id: crypto.randomUUID(), timestamp: new Date().toISOString(),
+        action: `${enabled ? "Enabled" : "Disabled"} ${method?.name ?? id}`, actor: "Admin",
       };
       return {
         ...prev,
-        paymentMethods: prev.paymentMethods.map((m) =>
-          m.id === id ? { ...m, enabled } : m
-        ),
+        paymentMethods: prev.paymentMethods.map((m) => (m.id === id ? { ...m, enabled } : m)),
         paymentAuditLog: [entry, ...prev.paymentAuditLog].slice(0, 50),
       };
     });
-  };
 
   const reorderPaymentMethods = (methods: PaymentMethod[]) =>
-    setSettings((prev) => ({ ...prev, paymentMethods: methods }));
+    mutateSettings((prev) => ({ ...prev, paymentMethods: methods }));
 
-  // Delivery zone CRUD
+  // ─── Delivery zones ───────────────────────────────────────────────────────
+
   const addDeliveryZone = (zone: DeliveryZone) =>
-    setSettings((prev) => ({ ...prev, deliveryZones: [...prev.deliveryZones, zone] }));
+    mutateSettings((prev) => ({ ...prev, deliveryZones: [...prev.deliveryZones, zone] }));
 
   const updateDeliveryZone = (zone: DeliveryZone) =>
-    setSettings((prev) => ({
-      ...prev,
-      deliveryZones: prev.deliveryZones.map((z) => (z.id === zone.id ? zone : z)),
+    mutateSettings((prev) => ({
+      ...prev, deliveryZones: prev.deliveryZones.map((z) => (z.id === zone.id ? zone : z)),
     }));
 
   const deleteDeliveryZone = (id: string) =>
-    setSettings((prev) => ({
-      ...prev,
-      deliveryZones: prev.deliveryZones.filter((z) => z.id !== id),
-    }));
+    mutateSettings((prev) => ({ ...prev, deliveryZones: prev.deliveryZones.filter((z) => z.id !== id) }));
 
-  // ── Coupon CRUD ───────────────────────────────────────────────────────────
-  const addCoupon = (coupon: Coupon) =>
-    setSettings((prev) => ({ ...prev, coupons: [...(prev.coupons ?? []), coupon] }));
+  // ─── Coupons ──────────────────────────────────────────────────────────────
 
-  const updateCoupon = (coupon: Coupon) =>
-    setSettings((prev) => ({
-      ...prev,
-      coupons: (prev.coupons ?? []).map((c) => (c.id === coupon.id ? coupon : c)),
-    }));
-
-  const deleteCoupon = (id: string) =>
-    setSettings((prev) => ({
-      ...prev,
-      coupons: (prev.coupons ?? []).filter((c) => c.id !== id),
-    }));
-
+  const addCoupon    = (c: Coupon) => mutateSettings((p) => ({ ...p, coupons: [...(p.coupons ?? []), c] }));
+  const updateCoupon = (c: Coupon) => mutateSettings((p) => ({ ...p, coupons: (p.coupons ?? []).map((x) => (x.id === c.id ? c : x)) }));
+  const deleteCoupon = (id: string) => mutateSettings((p) => ({ ...p, coupons: (p.coupons ?? []).filter((x) => x.id !== id) }));
   const toggleCoupon = (id: string, active: boolean) =>
-    setSettings((prev) => ({
-      ...prev,
-      coupons: (prev.coupons ?? []).map((c) => (c.id === id ? { ...c, active } : c)),
-    }));
-
+    mutateSettings((p) => ({ ...p, coupons: (p.coupons ?? []).map((x) => (x.id === id ? { ...x, active } : x)) }));
   const incrementCouponUsage = (couponId: string) =>
-    setSettings((prev) => ({
-      ...prev,
-      coupons: (prev.coupons ?? []).map((c) =>
-        c.id === couponId ? { ...c, usageCount: c.usageCount + 1 } : c
-      ),
+    mutateSettings((p) => ({
+      ...p, coupons: (p.coupons ?? []).map((x) => (x.id === couponId ? { ...x, usageCount: x.usageCount + 1 } : x)),
     }));
 
-  // ── Coupon validation (checkout session) ──────────────────────────────────
-  const applyCoupon = (
-    code: string,
-    cartSubtotal: number,
-  ): { valid: boolean; error?: string; discountAmount?: number } => {
-    const result = validateCouponCode(code, cartSubtotal, settings.coupons ?? []);
+  const applyCoupon = (code: string, subtotal: number): { valid: boolean; error?: string; discountAmount?: number } => {
+    const result = validateCouponCode(code, subtotal, settings.coupons ?? []);
     if (!result.valid) return { valid: false, error: result.error };
     setAppliedCoupon({ couponId: result.coupon.id, code: result.coupon.code, discountAmount: result.discountAmount });
     return { valid: true, discountAmount: result.discountAmount };
@@ -703,35 +796,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const removeCoupon = () => setAppliedCoupon(null);
 
-  // ── Driver CRUD ───────────────────────────────────────────────────────────
-  const addDriver = (driver: Driver) =>
-    setSettings((prev) => ({ ...prev, drivers: [...(prev.drivers ?? []), driver] }));
+  // ─── Drivers ──────────────────────────────────────────────────────────────
 
-  const updateDriver = (driver: Driver) =>
-    setSettings((prev) => ({
-      ...prev,
-      drivers: (prev.drivers ?? []).map((d) => (d.id === driver.id ? driver : d)),
-    }));
-
-  const deleteDriver = (id: string) =>
-    setSettings((prev) => ({
-      ...prev,
-      drivers: (prev.drivers ?? []).filter((d) => d.id !== id),
-    }));
-
+  const addDriver    = (d: Driver) => mutateSettings((p) => ({ ...p, drivers: [...(p.drivers ?? []), d] }));
+  const updateDriver = (d: Driver) => mutateSettings((p) => ({ ...p, drivers: (p.drivers ?? []).map((x) => (x.id === d.id ? d : x)) }));
+  const deleteDriver = (id: string) => mutateSettings((p) => ({ ...p, drivers: (p.drivers ?? []).filter((x) => x.id !== id) }));
   const toggleDriver = (id: string, active: boolean) =>
-    setSettings((prev) => ({
-      ...prev,
-      drivers: (prev.drivers ?? []).map((d) => (d.id === id ? { ...d, active } : d)),
-    }));
+    mutateSettings((p) => ({ ...p, drivers: (p.drivers ?? []).map((x) => (x.id === id ? { ...x, active } : x)) }));
 
-  // ── Driver auth ───────────────────────────────────────────────────────────
   const driverLogin = (email: string, password: string): boolean => {
     const found = (settings.drivers ?? []).find(
-      (d) =>
-        d.email.toLowerCase() === email.toLowerCase() &&
-        d.password === password &&
-        d.active,
+      (d) => d.email.toLowerCase() === email.toLowerCase() && d.password === password && d.active
     );
     if (found) { setCurrentDriver(found); return true; }
     return false;
@@ -739,104 +814,55 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const driverLogout = () => setCurrentDriver(null);
 
-  // ── Driver order management ───────────────────────────────────────────────
-  const assignDriverToOrder = (
-    customerId: string,
-    orderId: string,
-    driverId: string | null,
-  ) => {
-    const driver = driverId
-      ? (settings.drivers ?? []).find((d) => d.id === driverId)
-      : null;
-    setCustomers((prev) =>
-      prev.map((c) =>
-        c.id === customerId
-          ? {
-              ...c,
-              orders: c.orders.map((o) =>
-                o.id === orderId
-                  ? {
-                      ...o,
-                      driverId:       driverId       ?? undefined,
-                      driverName:     driver?.name   ?? undefined,
-                      deliveryStatus: driverId ? ("assigned" as DeliveryStatus) : undefined,
-                    }
-                  : o
-              ),
-            }
-          : c
-      )
-    );
+  const assignDriverToOrder = (customerId: string, orderId: string, driverId: string | null) => {
+    const driver = driverId ? (settings.drivers ?? []).find((d) => d.id === driverId) : null;
+    const patch = {
+      driverId:       driverId       ?? undefined,
+      driverName:     driver?.name   ?? undefined,
+      deliveryStatus: driverId ? ("assigned" as DeliveryStatus) : undefined,
+    };
+    setCustomers((prev) => prev.map((c) =>
+      c.id !== customerId ? c : { ...c, orders: c.orders.map((o) => (o.id === orderId ? { ...o, ...patch } : o)) }
+    ));
+    supabase.from("orders").update({
+      driver_id: driverId ?? "",
+      driver_name: driver?.name ?? "",
+      delivery_status: driverId ? "assigned" : "",
+    }).eq("id", orderId)
+      .then(({ error }) => { if (error) console.error("assignDriver:", error); });
   };
 
-  const updateDeliveryStatus = (
-    customerId: string,
-    orderId: string,
-    status: DeliveryStatus,
-  ) => {
-    const patch: Partial<Order> = {
+  const updateDeliveryStatus = (customerId: string, orderId: string, status: DeliveryStatus) => {
+    const orderPatch: Partial<Order> = {
       deliveryStatus: status,
       ...(status === "delivered" ? { status: "delivered" as OrderStatus } : {}),
     };
-    setCustomers((prev) =>
-      prev.map((c) =>
-        c.id === customerId
-          ? { ...c, orders: c.orders.map((o) => (o.id === orderId ? { ...o, ...patch } : o)) }
-          : c
-      )
-    );
+    const patchOrders = (orders: Order[]) =>
+      orders.map((o) => (o.id === orderId ? { ...o, ...orderPatch } : o));
+    setCustomers((prev) => prev.map((c) =>
+      c.id !== customerId ? c : { ...c, orders: patchOrders(c.orders) }
+    ));
     setCurrentUser((prev) =>
-      prev && prev.id === customerId
-        ? { ...prev, orders: prev.orders.map((o) => (o.id === orderId ? { ...o, ...patch } : o)) }
-        : prev
+      prev && prev.id === customerId ? { ...prev, orders: patchOrders(prev.orders) } : prev
     );
+    const dbPatch: Record<string, string> = { delivery_status: status };
+    if (status === "delivered") dbPatch.status = "delivered";
+    supabase.from("orders").update(dbPatch).eq("id", orderId)
+      .then(({ error }) => { if (error) console.error("updateDeliveryStatus:", error); });
   };
 
-  // ── Saved address CRUD ────────────────────────────────────────────────────
-  function patchCustomerAddresses(customerId: string, updater: (addrs: SavedAddress[]) => SavedAddress[]) {
-    const patch = (c: Customer) => ({ ...c, savedAddresses: updater(c.savedAddresses ?? []) });
-    setCustomers((prev) => prev.map((c) => (c.id === customerId ? patch(c) : c)));
-    setCurrentUser((prev) => (prev && prev.id === customerId ? patch(prev) : prev));
-  }
+  // ─── Derived values ────────────────────────────────────────────────────────
 
-  const addSavedAddress = (customerId: string, address: SavedAddress) =>
-    patchCustomerAddresses(customerId, (addrs) => {
-      // If this is the first address, make it default automatically
-      const isFirst = addrs.length === 0;
-      return [...addrs.map((a) => (isFirst ? { ...a, isDefault: false } : a)), { ...address, isDefault: isFirst || address.isDefault }];
-    });
-
-  const updateSavedAddress = (customerId: string, address: SavedAddress) =>
-    patchCustomerAddresses(customerId, (addrs) =>
-      addrs.map((a) => (a.id === address.id ? address : a))
-    );
-
-  const deleteSavedAddress = (customerId: string, addressId: string) =>
-    patchCustomerAddresses(customerId, (addrs) => {
-      const remaining = addrs.filter((a) => a.id !== addressId);
-      // If the deleted address was default, promote the first remaining one
-      const deletedWasDefault = addrs.find((a) => a.id === addressId)?.isDefault ?? false;
-      if (deletedWasDefault && remaining.length > 0) {
-        remaining[0] = { ...remaining[0], isDefault: true };
-      }
-      return remaining;
-    });
-
-  const setDefaultAddress = (customerId: string, addressId: string) =>
-    patchCustomerAddresses(customerId, (addrs) =>
-      addrs.map((a) => ({ ...a, isDefault: a.id === addressId }))
-    );
-
-  const cartTotal = cart.reduce((sum, i) => sum + i.price * i.quantity, 0);
-  const cartCount = cart.reduce((sum, i) => sum + i.quantity, 0);
-  const isOpen = isStoreOpen(settings);
+  const cartTotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+  const cartCount = cart.reduce((s, i) => s + i.quantity, 0);
+  const isOpen    = isStoreOpen(settings);
 
   return (
     <AppContext.Provider
       value={{
         cart, addToCart, removeFromCart, updateQty, clearCart, cartTotal, cartCount,
-        settings, updateSettings, isOpen, fulfillment, setFulfillment,
-        scheduledTime, setScheduledTime,
+        settings, updateSettings, isOpen,
+        fulfillment, setFulfillment, scheduledTime, setScheduledTime,
         categories, menuItems,
         addCategory, updateCategory, deleteCategory, reorderCategories,
         addMenuItem, updateMenuItem, deleteMenuItem,
@@ -846,17 +872,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updatePaymentMethod, togglePaymentMethod, reorderPaymentMethods,
         addDeliveryZone, updateDeliveryZone, deleteDeliveryZone,
         coupons: settings.coupons ?? [],
-        addCoupon, updateCoupon, deleteCoupon, toggleCoupon, incrementCouponUsage,
-        appliedCoupon, applyCoupon, removeCoupon,
+        addCoupon, updateCoupon, deleteCoupon, toggleCoupon,
+        incrementCouponUsage, appliedCoupon, applyCoupon, removeCoupon,
+        addSavedAddress, updateSavedAddress, deleteSavedAddress, setDefaultAddress,
         drivers: settings.drivers ?? [],
         currentDriver, driverLogin, driverLogout,
         addDriver, updateDriver, deleteDriver, toggleDriver,
         assignDriverToOrder, updateDeliveryStatus,
-        addSavedAddress, updateSavedAddress, deleteSavedAddress, setDefaultAddress,
       }}
     >
-      {/* SeoHead runs on every page — receives settings as a prop so it can
-          live inside the Provider without a circular useApp() dependency */}
       <SeoHead settings={settings} />
       {children}
     </AppContext.Provider>

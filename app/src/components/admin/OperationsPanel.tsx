@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { RestaurantInfo } from "@/types";
 import { restaurantInfo as seedInfo } from "@/data/restaurant";
@@ -102,6 +102,17 @@ function BrandingCard() {
   const [imgErr,  setImgErr]  = useState("");
   const [saved,   setSaved]   = useState(false);
 
+  // Sync local form state when settings load from Supabase (async after mount).
+  // Uses a ref to avoid overwriting in-progress edits once the user starts typing.
+  const dirtyRef = useRef(false);
+  useEffect(() => {
+    if (dirtyRef.current) return;
+    setName(restaurant.name);
+    setTagline(restaurant.tagline);
+    setLogo(restaurant.logoImage);
+    setBanner(restaurant.coverImage);
+  }, [restaurant.name, restaurant.tagline, restaurant.logoImage, restaurant.coverImage]);
+
   const logoRef   = useRef<HTMLInputElement>(null);
   const bannerRef = useRef<HTMLInputElement>(null);
 
@@ -130,9 +141,7 @@ function BrandingCard() {
       restaurant: { ...restaurant, name: newName, tagline: tagline.trim(), logoImage: logo, coverImage: banner },
     };
 
-    // When the restaurant name changes, cascade it into any SEO fields and the
-    // footer copyright that still contain the old name, so there is one source
-    // of truth and the admin doesn't have to update every field manually.
+    // Cascade the new name into every setting that still contains the old name.
     if (oldName && newName !== oldName) {
       const replace = (s: string) => s.split(oldName).join(newName);
       patch.seo = {
@@ -143,9 +152,14 @@ function BrandingCard() {
       if (settings.footerCopyright.includes(oldName)) {
         patch.footerCopyright = replace(settings.footerCopyright);
       }
+      // Keep receipt name in sync if it still matches the old brand name.
+      if (settings.receiptSettings.restaurantName === oldName) {
+        patch.receiptSettings = { ...settings.receiptSettings, restaurantName: newName };
+      }
     }
 
     updateSettings(patch);
+    dirtyRef.current = false;
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   }
@@ -173,7 +187,7 @@ function BrandingCard() {
             <input
               type="text"
               value={name}
-              onChange={(e) => { setName(e.target.value); setNameErr(""); setSaved(false); }}
+              onChange={(e) => { dirtyRef.current = true; setName(e.target.value); setNameErr(""); setSaved(false); }}
               placeholder="Your Restaurant Name"
               className={`w-full px-3 py-2.5 border rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 transition ${
                 nameErr ? "border-red-300 focus:ring-red-300" : "border-gray-200 focus:ring-orange-400"
@@ -191,7 +205,7 @@ function BrandingCard() {
             <input
               type="text"
               value={tagline}
-              onChange={(e) => { setTagline(e.target.value); setSaved(false); }}
+              onChange={(e) => { dirtyRef.current = true; setTagline(e.target.value); setSaved(false); }}
               placeholder="Authentic Indian Cuisine"
               className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
             />

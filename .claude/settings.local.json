@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -X POST https://auzsboqisdhbwemeembh.supabase.co/rest/v1/rpc/query -H 'apikey: sb_publishable_RD0qcl5lXyJIxB5ffrV_aA_ZVu7qvfh' -H 'Authorization: Bearer sb_publishable_RD0qcl5lXyJIxB5ffrV_aA_ZVu7qvfh' -H 'Content-Type: application/json' -d '{\"query\":\"SELECT 1\"}')",
+      "Bash(npm install *)"
+    ]
+  }
+}
