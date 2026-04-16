@@ -355,6 +355,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [appliedCoupon, setAppliedCoupon] = useState<{
     couponId: string; code: string; discountAmount: number;
   } | null>(null);
+  // isOpen is client-only: start false on both server and client to prevent
+  // hydration mismatches caused by timezone differences between the server
+  // (UTC) and the browser (local timezone). Updated after mount via useEffect.
+  const [isOpen, setIsOpen] = useState(false);
 
   // ── Session data: cart, user, driver stay in localStorage ─────────────────
 
@@ -381,59 +385,111 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     else localStorage.removeItem("sg_driver_session");
   }, [currentDriver]);
 
+  // ── isOpen: recompute on client after mount, and whenever settings change ────
+  // This runs only in the browser, avoiding server/client timezone mismatches.
+  useEffect(() => {
+    setIsOpen(isStoreOpen(settings));
+    // Recheck every minute so the banner updates without a page reload
+    const id = setInterval(() => setIsOpen(isStoreOpen(settings)), 60_000);
+    return () => clearInterval(id);
+  }, [settings]);
+
   // ── Initial load from Supabase ─────────────────────────────────────────────
 
   useEffect(() => {
     async function init() {
-      // Settings
-      const { data: settingsData } = await supabase
-        .from("app_settings").select("data").eq("id", 1).single();
-      if (settingsData) {
-        setSettings({ ...DEFAULT_SETTINGS, ...settingsData.data });
-      } else {
-        // First run — seed settings
-        await supabase.from("app_settings").insert({ id: 1, data: DEFAULT_SETTINGS });
-      }
-
-      // Categories
-      const { data: catsData } = await supabase
-        .from("categories").select("*").order("sort_order", { ascending: true });
-      if (catsData && catsData.length > 0) {
-        setCategories(catsData.map(mapCategory));
-      } else {
-        // Seed default categories
-        const rows = defaultCategories.map((c, i) => categoryToRow(c, i));
-        await supabase.from("categories").insert(rows);
-        setCategories(defaultCategories);
-      }
-
-      // Menu items
-      const { data: menuData } = await supabase.from("menu_items").select("*");
-      if (menuData && menuData.length > 0) {
-        setMenuItems(menuData.map(mapMenuItem));
-      } else {
-        // Seed default menu items
-        const rows = defaultMenuItems.map(menuItemToRow);
-        await supabase.from("menu_items").insert(rows);
-        setMenuItems(defaultMenuItems);
-      }
-
-      // Customers (with nested orders)
-      const { data: custsData } = await supabase
-        .from("customers").select("*, orders(*)");
-      if (custsData && custsData.length > 0) {
-        setCustomers(custsData.map(mapCustomer));
-      } else {
-        // Seed mock customers + their orders
-        for (const c of mockCustomers) {
-          await supabase.from("customers").insert(customerToRow(c));
-          if (c.orders.length > 0) {
-            await supabase.from("orders").insert(c.orders.map(orderToRow));
-          }
+      try {
+        // Settings
+        const { data: settingsData, error: settingsErr } = await supabase
+          .from("app_settings").select("data").eq("id", 1).single();
+        if (settingsErr && settingsErr.code !== "PGRST116") {
+          // PGRST116 = no rows (first run) — any other error is unexpected
+          console.error("AppContext: failed to load settings:", settingsErr.message);
         }
-        setCustomers(mockCustomers);
-      }
+        if (settingsData?.data) {
+          // Deep-merge with DEFAULT_SETTINGS so new fields added to the default
+          // are always present even if the stored snapshot pre-dates them.
+          setSettings({
+            ...DEFAULT_SETTINGS,
+            ...settingsData.data,
+            // Ensure critical nested objects always have their default structure
+            restaurant: { ...DEFAULT_SETTINGS.restaurant, ...(settingsData.data.restaurant ?? {}) },
+            schedule:   { ...DEFAULT_SETTINGS.schedule,   ...(settingsData.data.schedule   ?? {}) },
+            colors:     { ...DEFAULT_SETTINGS.colors,     ...(settingsData.data.colors     ?? {}) },
+            taxSettings:{ ...DEFAULT_SETTINGS.taxSettings,...(settingsData.data.taxSettings?? {}) },
+            printer:    { ...DEFAULT_SETTINGS.printer,    ...(settingsData.data.printer    ?? {}) },
+            seo:        { ...DEFAULT_SETTINGS.seo,        ...(settingsData.data.seo        ?? {}) },
+            receiptSettings: { ...DEFAULT_SETTINGS.receiptSettings, ...(settingsData.data.receiptSettings ?? {}) },
+            breakfastMenu: {
+              ...DEFAULT_SETTINGS.breakfastMenu,
+              ...(settingsData.data.breakfastMenu ?? {}),
+              categories: settingsData.data.breakfastMenu?.categories ?? DEFAULT_SETTINGS.breakfastMenu.categories,
+              items:      settingsData.data.breakfastMenu?.items      ?? DEFAULT_SETTINGS.breakfastMenu.items,
+            },
+            emailTemplates: settingsData.data.emailTemplates ?? DEFAULT_SETTINGS.emailTemplates,
+            footerPages:    settingsData.data.footerPages    ?? DEFAULT_SETTINGS.footerPages,
+            paymentMethods: settingsData.data.paymentMethods ?? DEFAULT_SETTINGS.paymentMethods,
+            deliveryZones:  settingsData.data.deliveryZones  ?? DEFAULT_SETTINGS.deliveryZones,
+            coupons:        settingsData.data.coupons        ?? [],
+            drivers:        settingsData.data.drivers        ?? [],
+          });
+        } else if (!settingsData) {
+          // First run — seed settings into the DB
+          await supabase.from("app_settings").insert({ id: 1, data: DEFAULT_SETTINGS });
+        }
 
+        // Categories
+        const { data: catsData, error: catsErr } = await supabase
+          .from("categories").select("*").order("sort_order", { ascending: true });
+        if (catsErr) {
+          console.error("AppContext: failed to load categories:", catsErr.message);
+        } else if (catsData && catsData.length > 0) {
+          setCategories(catsData.map(mapCategory));
+        } else {
+          // Seed default categories
+          const rows = defaultCategories.map((c, i) => categoryToRow(c, i));
+          const { error: seedErr } = await supabase.from("categories").insert(rows);
+          if (seedErr) console.error("AppContext: failed to seed categories:", seedErr.message);
+          setCategories(defaultCategories);
+        }
+
+        // Menu items
+        const { data: menuData, error: menuErr } = await supabase.from("menu_items").select("*");
+        if (menuErr) {
+          console.error("AppContext: failed to load menu items:", menuErr.message);
+        } else if (menuData && menuData.length > 0) {
+          setMenuItems(menuData.map(mapMenuItem));
+        } else {
+          // Seed default menu items
+          const rows = defaultMenuItems.map(menuItemToRow);
+          const { error: seedErr } = await supabase.from("menu_items").insert(rows);
+          if (seedErr) console.error("AppContext: failed to seed menu items:", seedErr.message);
+          setMenuItems(defaultMenuItems);
+        }
+
+        // Customers (with nested orders)
+        const { data: custsData, error: custsErr } = await supabase
+          .from("customers").select("*, orders(*)");
+        if (custsErr) {
+          console.error("AppContext: failed to load customers:", custsErr.message);
+        } else if (custsData && custsData.length > 0) {
+          setCustomers(custsData.map(mapCustomer));
+        } else {
+          // Seed mock customers + their orders
+          for (const c of mockCustomers) {
+            const { error: seedCustErr } = await supabase.from("customers").insert(customerToRow(c));
+            if (seedCustErr) { console.error("AppContext: seed customer:", seedCustErr.message); continue; }
+            if (c.orders.length > 0) {
+              const { error: seedOrdErr } = await supabase.from("orders").insert(c.orders.map(orderToRow));
+              if (seedOrdErr) console.error("AppContext: seed orders:", seedOrdErr.message);
+            }
+          }
+          setCustomers(mockCustomers);
+        }
+      } catch (err) {
+        // Network down, CORS issue, or unexpected data shape — log it clearly
+        console.error("AppContext init failed:", err instanceof Error ? err.message : err);
+      }
     }
     init();
   }, []);
@@ -443,11 +499,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const channel = supabase
       .channel("restaurant-realtime")
-      // Settings
+      // Settings — deep-merge so nested objects (restaurant, schedule, colors, etc.)
+      // are never partially overwritten, which would cause "cannot read property of undefined" crashes.
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "app_settings" },
         ({ new: row }) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          setSettings({ ...DEFAULT_SETTINGS, ...(row as any).data });
+          const d = (row as any).data ?? {};
+          setSettings({
+            ...DEFAULT_SETTINGS,
+            ...d,
+            restaurant:      { ...DEFAULT_SETTINGS.restaurant,      ...(d.restaurant      ?? {}) },
+            schedule:        { ...DEFAULT_SETTINGS.schedule,        ...(d.schedule        ?? {}) },
+            colors:          { ...DEFAULT_SETTINGS.colors,          ...(d.colors          ?? {}) },
+            taxSettings:     { ...DEFAULT_SETTINGS.taxSettings,     ...(d.taxSettings     ?? {}) },
+            printer:         { ...DEFAULT_SETTINGS.printer,         ...(d.printer         ?? {}) },
+            seo:             { ...DEFAULT_SETTINGS.seo,             ...(d.seo             ?? {}) },
+            receiptSettings: { ...DEFAULT_SETTINGS.receiptSettings, ...(d.receiptSettings ?? {}) },
+            breakfastMenu: {
+              ...DEFAULT_SETTINGS.breakfastMenu,
+              ...(d.breakfastMenu ?? {}),
+              categories: d.breakfastMenu?.categories ?? DEFAULT_SETTINGS.breakfastMenu.categories,
+              items:      d.breakfastMenu?.items      ?? DEFAULT_SETTINGS.breakfastMenu.items,
+            },
+            emailTemplates: d.emailTemplates ?? DEFAULT_SETTINGS.emailTemplates,
+            footerPages:    d.footerPages    ?? DEFAULT_SETTINGS.footerPages,
+            paymentMethods: d.paymentMethods ?? DEFAULT_SETTINGS.paymentMethods,
+            deliveryZones:  d.deliveryZones  ?? DEFAULT_SETTINGS.deliveryZones,
+            coupons:        d.coupons        ?? [],
+            drivers:        d.drivers        ?? [],
+          });
         })
       // Categories
       .on("postgres_changes", { event: "*", schema: "public", table: "categories" },
@@ -990,7 +1070,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const cartTotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0);
-  const isOpen    = isStoreOpen(settings);
 
   return (
     <AppContext.Provider

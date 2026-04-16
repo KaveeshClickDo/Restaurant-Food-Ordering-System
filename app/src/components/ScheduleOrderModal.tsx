@@ -51,11 +51,11 @@ export default function ScheduleOrderModal({ onClose }: Props) {
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
           {/* Fulfillment note */}
           <p className="text-sm text-gray-500 leading-relaxed">
-            Choose when you'd like your{" "}
+            Choose when you&apos;d like your{" "}
             <span className="font-semibold text-gray-800">
               {fulfillment === "delivery" ? "delivery" : "collection"}
             </span>{" "}
-            — we'll have your order ready in time.
+            — we&apos;ll have your order ready in time.
           </p>
 
           {days.length === 0 ? (

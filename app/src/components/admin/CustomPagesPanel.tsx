@@ -48,7 +48,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
       </div>
       <h3 className="text-base font-semibold text-gray-800 mb-1">No custom pages yet</h3>
       <p className="text-sm text-gray-400 mb-5 max-w-xs">
-        Create standalone pages like "Our Story", "Catering", or "FAQ" — they appear instantly at their own URL.
+        Create standalone pages like &ldquo;Our Story&rdquo;, &ldquo;Catering&rdquo;, or &ldquo;FAQ&rdquo; — they appear instantly at their own URL.
       </p>
       <button
         onClick={onCreate}

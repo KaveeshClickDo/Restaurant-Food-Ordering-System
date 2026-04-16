@@ -25,7 +25,14 @@ function isBreakfastActive(startTime: string, endTime: string): boolean {
 export default function HomePage() {
   const { cartCount, cartTotal, categories, menuItems, settings } = useApp();
   const bm = settings.breakfastMenu;
-  const showBreakfast = bm?.enabled && isBreakfastActive(bm.startTime, bm.endTime) && (bm.items ?? []).length > 0;
+  // showBreakfast must be client-only: isBreakfastActive uses new Date() which
+  // differs between server (UTC) and browser (local timezone) → hydration mismatch.
+  const [showBreakfast, setShowBreakfast] = useState(false);
+  useEffect(() => {
+    setShowBreakfast(
+      !!(bm?.enabled && isBreakfastActive(bm.startTime, bm.endTime) && (bm.items ?? []).length > 0)
+    );
+  }, [bm]);
   const [activeCategory, setActiveCategory] = useState(categories[0]?.id ?? "");
   const [search, setSearch] = useState("");
   const [dietaryFilters, setDietaryFilters] = useState<DietaryFilter[]>([]);

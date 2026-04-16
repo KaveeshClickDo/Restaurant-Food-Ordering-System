@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useApp } from "@/context/AppContext";
 import { Truck, Eye, EyeOff, AlertCircle } from "lucide-react";
 
@@ -116,9 +117,9 @@ export default function DriverLoginPage() {
 
         <p className="text-center text-gray-600 text-xs mt-6">
           Not a driver?{" "}
-          <a href="/" className="text-orange-500 hover:text-orange-400 font-semibold transition">
+          <Link href="/" className="text-orange-500 hover:text-orange-400 font-semibold transition">
             Back to menu
-          </a>
+          </Link>
         </p>
       </div>
     </div>
