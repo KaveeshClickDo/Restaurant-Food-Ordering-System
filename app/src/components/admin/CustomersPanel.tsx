@@ -8,7 +8,7 @@ import {
   ShoppingBag, Clock, TrendingUp, Star, ArrowUpDown,
   CheckCircle2, ChefHat, Package, Truck, Ban,
   Circle, RefreshCw, Receipt, Printer, Send,
-  CheckCheck, AlertCircle,
+  CheckCheck, AlertCircle, RotateCcw,
 } from "lucide-react";
 
 // ─── Status config ────────────────────────────────────────────────────────────
@@ -19,7 +19,9 @@ const STATUS_CONFIG: Record<OrderStatus, { label: string; className: string; ico
   preparing:  { label: "Preparing",  className: "bg-orange-50 text-orange-700 border-orange-200",  icon: <ChefHat size={11} className="text-orange-500" /> },
   ready:      { label: "Ready",      className: "bg-purple-50 text-purple-700 border-purple-200",  icon: <Package size={11} className="text-purple-500" /> },
   delivered:  { label: "Delivered",  className: "bg-green-50 text-green-700 border-green-200",     icon: <Truck size={11} className="text-green-600" /> },
-  cancelled:  { label: "Cancelled",  className: "bg-red-50 text-red-700 border-red-200",           icon: <Ban size={11} className="text-red-500" /> },
+  cancelled:          { label: "Cancelled",          className: "bg-red-50 text-red-700 border-red-200",     icon: <Ban size={11} className="text-red-500" /> },
+  refunded:           { label: "Refunded",           className: "bg-teal-50 text-teal-700 border-teal-200",   icon: <RotateCcw size={11} className="text-teal-600" /> },
+  partially_refunded: { label: "Partially Refunded", className: "bg-cyan-50 text-cyan-700 border-cyan-200",   icon: <RotateCcw size={11} className="text-cyan-600" /> },
 };
 
 const ORDER_STATUS_FLOW: OrderStatus[] = ["pending", "confirmed", "preparing", "ready", "delivered"];

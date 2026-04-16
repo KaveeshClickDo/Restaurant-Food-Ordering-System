@@ -272,9 +272,26 @@ export interface AdminSettings {
   breakfastMenu: BreakfastMenuSettings;
 }
 
-export type OrderStatus = "pending" | "confirmed" | "preparing" | "ready" | "delivered" | "cancelled";
+export type OrderStatus =
+  | "pending" | "confirmed" | "preparing" | "ready"
+  | "delivered" | "cancelled"
+  | "refunded" | "partially_refunded";
 
 export type DeliveryStatus = "assigned" | "picked_up" | "on_the_way" | "delivered";
+
+export type RefundMethod = "original_payment" | "store_credit" | "cash";
+
+export interface Refund {
+  id: string;
+  orderId: string;
+  amount: number;          // £ amount refunded
+  type: "full" | "partial";
+  reason: string;          // human-readable reason
+  method: RefundMethod;
+  note?: string;           // internal admin note
+  processedAt: string;     // ISO
+  processedBy: string;     // e.g. "Admin"
+}
 
 export interface Driver {
   id: string;
@@ -316,6 +333,10 @@ export interface Order {
   driverId?: string;
   driverName?: string;
   deliveryStatus?: DeliveryStatus;
+  // Refunds
+  refunds?: Refund[];
+  refundedAmount?: number;  // cumulative £ refunded so far
+  storeCreditUsed?: number; // £ of store credit applied at checkout
 }
 
 export interface SavedAddress {
@@ -340,4 +361,5 @@ export interface Customer {
   orders: Order[];
   favourites?: string[];      // array of MenuItem ids
   savedAddresses?: SavedAddress[];
+  storeCredit?: number;   // £ store credit balance (from refunds)
 }

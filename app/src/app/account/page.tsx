@@ -7,7 +7,7 @@ import {
   User, Mail, Phone, Calendar, ShoppingBag, TrendingUp, Clock,
   ChevronDown, ChevronUp, LogOut, ArrowLeft, Star, Package,
   Edit2, Check, X, RotateCcw, ShoppingCart, AlertCircle, RefreshCw,
-  Heart, Plus, PackageX, MapPin, Home, Briefcase, Trash2, Star as StarIcon, Truck,
+  Heart, Plus, PackageX, MapPin, Home, Briefcase, Trash2, Star as StarIcon, Truck, Gift,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { Order, OrderLine, OrderStatus, DeliveryStatus, MenuItem, SavedAddress } from "@/types";
@@ -18,12 +18,14 @@ import { resolveStock } from "@/lib/stockUtils";
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<OrderStatus, { label: string; color: string; dot: string }> = {
-  pending:   { label: "Pending",              color: "bg-yellow-100 text-yellow-700",  dot: "bg-yellow-500"  },
-  confirmed: { label: "Confirmed",            color: "bg-blue-100 text-blue-700",      dot: "bg-blue-500"    },
-  preparing: { label: "Preparing",            color: "bg-orange-100 text-orange-700",  dot: "bg-orange-500"  },
-  ready:     { label: "Ready",                color: "bg-purple-100 text-purple-700",  dot: "bg-purple-500"  },
-  delivered: { label: "Delivered",            color: "bg-green-100 text-green-700",    dot: "bg-green-500"   },
-  cancelled: { label: "Cancelled",            color: "bg-red-100 text-red-700",        dot: "bg-red-400"     },
+  pending:            { label: "Pending",            color: "bg-yellow-100 text-yellow-700", dot: "bg-yellow-500" },
+  confirmed:          { label: "Confirmed",          color: "bg-blue-100 text-blue-700",     dot: "bg-blue-500"   },
+  preparing:          { label: "Preparing",          color: "bg-orange-100 text-orange-700", dot: "bg-orange-500" },
+  ready:              { label: "Ready",              color: "bg-purple-100 text-purple-700", dot: "bg-purple-500" },
+  delivered:          { label: "Delivered",          color: "bg-green-100 text-green-700",   dot: "bg-green-500"  },
+  cancelled:          { label: "Cancelled",          color: "bg-red-100 text-red-700",       dot: "bg-red-400"    },
+  refunded:           { label: "Refunded",           color: "bg-teal-100 text-teal-700",     dot: "bg-teal-500"   },
+  partially_refunded: { label: "Partially Refunded", color: "bg-cyan-100 text-cyan-700",     dot: "bg-cyan-500"   },
 };
 
 // Kitchen-only steps (delivery hands off to driver after "ready")
@@ -289,8 +291,8 @@ function QuickReorder({
 
 function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) => void }) {
   const [expanded, setExpanded] = useState(false);
-  const isActive = !["delivered", "cancelled"].includes(order.status);
-  const canReorder = order.status === "delivered";
+  const isActive = !["delivered", "cancelled", "refunded", "partially_refunded"].includes(order.status);
+  const canReorder = ["delivered", "refunded", "partially_refunded"].includes(order.status);
 
   return (
     <div className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all ${isActive ? "border-orange-200" : "border-gray-100"}`}>
@@ -1018,7 +1020,7 @@ export default function AccountPage() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <div className={`grid gap-4 ${(liveUser.storeCredit ?? 0) > 0 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2 sm:grid-cols-3"}`}>
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
             <div className="flex items-center gap-2 mb-1">
               <ShoppingBag size={16} className="text-orange-500" />
@@ -1042,7 +1044,36 @@ export default function AccountPage() {
               <p className="text-sm font-bold text-gray-900 leading-snug">{favourite}</p>
             </div>
           ) : null}
+
+          {/* Store credit stat card — only when balance > 0 */}
+          {(liveUser.storeCredit ?? 0) > 0 && (
+            <div className="bg-teal-500 rounded-2xl p-5 col-span-2 sm:col-span-1">
+              <div className="flex items-center gap-2 mb-1">
+                <Gift size={16} className="text-teal-100" />
+                <span className="text-xs font-medium text-teal-100">Store credit</span>
+              </div>
+              <p className="text-2xl font-bold text-white">£{(liveUser.storeCredit ?? 0).toFixed(2)}</p>
+              <p className="text-[10px] text-teal-200 mt-1">Auto-applied at checkout</p>
+            </div>
+          )}
         </div>
+
+        {/* Store credit action banner */}
+        {(liveUser.storeCredit ?? 0) > 0 && (
+          <div className="flex items-center gap-4 bg-teal-50 border border-teal-200 rounded-2xl px-5 py-4">
+            <div className="w-10 h-10 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0">
+              <Gift size={18} className="text-white" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-teal-800">
+                You have <span className="text-teal-600">£{(liveUser.storeCredit ?? 0).toFixed(2)}</span> store credit
+              </p>
+              <p className="text-xs text-teal-600 mt-0.5">
+                It will be automatically applied when you open checkout. You can toggle it on/off before paying.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Active orders alert */}
         {activeOrders.length > 0 && (

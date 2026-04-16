@@ -4,7 +4,7 @@ import { useState } from "react";
 import {
   X, CreditCard, Wallet, Banknote, CheckCircle,
   AlertCircle, MapPin, Navigation, Loader2, CalendarDays,
-  Tag, XCircle,
+  Tag, XCircle, Gift,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { DeliveryZone, Order, PaymentMethod, SavedAddress } from "@/types";
@@ -13,7 +13,6 @@ import { sendOrderEmail } from "@/lib/emailTemplates";
 import { computeTax, taxSurcharge } from "@/lib/taxUtils";
 
 interface Props {
-  grandTotal: number;
   onClose: () => void;
 }
 
@@ -174,11 +173,17 @@ function LocationWidget({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function CheckoutModal({ grandTotal, onClose }: Props) {
+export default function CheckoutModal({ onClose }: Props) {
   const {
     cart, settings, clearCart, addOrder, currentUser, fulfillment, scheduledTime, setScheduledTime,
-    appliedCoupon, applyCoupon, removeCoupon, incrementCouponUsage,
+    appliedCoupon, applyCoupon, removeCoupon, incrementCouponUsage, spendStoreCredit,
+    customers,
   } = useApp();
+
+  // Always read from the live customers array (not the login snapshot) so any
+  // store credit issued this session is immediately visible.
+  const liveUser = customers.find((c) => c.id === currentUser?.id) ?? currentUser;
+  const availableCredit = Math.max(0, liveUser?.storeCredit ?? 0);
 
   const savedAddresses: SavedAddress[] = currentUser?.savedAddresses ?? [];
   const defaultAddress = savedAddresses.find((a) => a.isDefault) ?? savedAddresses[0] ?? null;
@@ -200,6 +205,11 @@ export default function CheckoutModal({ grandTotal, onClose }: Props) {
   const [couponInput, setCouponInput] = useState("");
   const [couponError, setCouponError] = useState("");
 
+  // Store credit — auto-apply when the modal opens if the customer has credit.
+  // availableCredit is computed before this useState so the lazy initialiser
+  // captures the correct value on first mount.
+  const [useCredit, setUseCredit] = useState(() => availableCredit > 0);
+
   // Location state
   const [locState, setLocState]   = useState<LocationState>("idle");
   const [distKm,   setDistKm]     = useState<number | null>(null);
@@ -215,7 +225,9 @@ export default function CheckoutModal({ grandTotal, onClose }: Props) {
   const serviceFee     = baseCartTotal * (settings.restaurant.serviceFee / 100);
   const couponDiscount = appliedCoupon?.discountAmount ?? 0;
   const tax            = computeTax(baseCartTotal, settings);
-  const adjustedTotal  = Math.max(0, baseCartTotal + deliveryFee + serviceFee + taxSurcharge(tax) - couponDiscount);
+  const adjustedTotal     = Math.max(0, baseCartTotal + deliveryFee + serviceFee + taxSurcharge(tax) - couponDiscount);
+  const storeCreditApplied = useCredit ? Math.min(availableCredit, adjustedTotal) : 0;
+  const orderTotal         = Math.max(0, adjustedTotal - storeCreditApplied);
 
   function applyCode() {
     setCouponError("");
@@ -257,14 +269,13 @@ export default function CheckoutModal({ grandTotal, onClose }: Props) {
   }
 
   function handlePay(method: PaymentMethod) {
-    const finalTotal = Math.max(0, (zone ? adjustedTotal : grandTotal) - (zone ? 0 : couponDiscount));
     const newOrder: Order = {
       id: `ord-${crypto.randomUUID().slice(0, 8)}`,
       customerId: currentUser?.id ?? "guest",
       date: new Date().toISOString(),
       status: "pending",
       fulfillment,
-      total: finalTotal,
+      total: orderTotal,
       items: cart.map((i) => ({ name: i.name, qty: i.quantity, price: i.price })),
       paymentMethod: method.name,
       deliveryFee: isDelivery ? deliveryFee : 0,
@@ -273,12 +284,16 @@ export default function CheckoutModal({ grandTotal, onClose }: Props) {
       ...(scheduledTime ? { scheduledTime } : {}),
       ...(appliedCoupon ? { couponCode: appliedCoupon.code, couponDiscount: appliedCoupon.discountAmount } : {}),
       ...(tax.enabled && tax.vatAmount > 0 ? { vatAmount: tax.vatAmount, vatInclusive: tax.inclusive } : {}),
+      ...(storeCreditApplied > 0 ? { storeCreditUsed: storeCreditApplied } : {}),
     };
 
     if (currentUser) addOrder(currentUser.id, newOrder);
     if (appliedCoupon) {
       incrementCouponUsage(appliedCoupon.couponId);
       removeCoupon();
+    }
+    if (storeCreditApplied > 0 && currentUser) {
+      spendStoreCredit(currentUser.id, storeCreditApplied);
     }
     setChosenMethod(method);
     setPlacedScheduledTime(scheduledTime);
@@ -399,9 +414,17 @@ export default function CheckoutModal({ grandTotal, onClose }: Props) {
                   <span>−£{appliedCoupon.discountAmount.toFixed(2)}</span>
                 </div>
               )}
+              {storeCreditApplied > 0 && (
+                <div className="flex justify-between text-xs text-teal-700 font-semibold">
+                  <span className="flex items-center gap-1">
+                    <Gift size={11} /> Store credit
+                  </span>
+                  <span>−£{storeCreditApplied.toFixed(2)}</span>
+                </div>
+              )}
               <div className="flex justify-between font-bold text-gray-900 pt-1 border-t border-gray-200 mt-1">
                 <span>Total</span>
-                <span>£{adjustedTotal.toFixed(2)}</span>
+                <span>£{orderTotal.toFixed(2)}</span>
               </div>
               {tax.enabled && tax.inclusive && tax.showBreakdown && (
                 <p className="text-[10px] text-gray-400 text-right">Prices include {tax.rate}% VAT</p>
@@ -455,6 +478,43 @@ export default function CheckoutModal({ grandTotal, onClose }: Props) {
               </div>
             )}
           </div>
+
+          {/* Store credit */}
+          {availableCredit > 0 && (
+            <div>
+              <h3 className="font-semibold text-gray-900 text-sm mb-2">Store credit</h3>
+              <button
+                type="button"
+                onClick={() => setUseCredit((v) => !v)}
+                className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 border-2 transition ${
+                  useCredit
+                    ? "border-teal-400 bg-teal-50"
+                    : "border-gray-200 hover:border-teal-300"
+                }`}
+              >
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                  useCredit ? "bg-teal-500" : "bg-teal-100"
+                }`}>
+                  <Gift size={18} className={useCredit ? "text-white" : "text-teal-600"} />
+                </div>
+                <div className="flex-1 text-left">
+                  <p className="text-sm font-semibold text-gray-900">
+                    Store credit — <span className="text-teal-600">£{availableCredit.toFixed(2)} available</span>
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {useCredit
+                      ? `−£${storeCreditApplied.toFixed(2)} applied · £${Math.max(0, availableCredit - storeCreditApplied).toFixed(2)} remaining after`
+                      : "Tap to apply your credit to this order"}
+                  </p>
+                </div>
+                <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+                  useCredit ? "border-teal-500 bg-teal-500" : "border-gray-300"
+                }`}>
+                  {useCredit && <div className="w-2 h-2 rounded-full bg-white" />}
+                </div>
+              </button>
+            </div>
+          )}
 
           {/* Customer details */}
           <div className="space-y-3">

@@ -11,7 +11,7 @@ import { supabase } from "@/lib/supabase";
 import {
   AdminSettings, AuditEntry, BreakfastMenuSettings, CartItem, Category, ColorSettings, Coupon,
   DeliveryStatus, DeliveryZone, Driver, MenuItem, Customer, Order, OrderStatus, PaymentMethod,
-  PrinterSettings, SavedAddress, SeoSettings, ReceiptSettings, StockStatus,
+  PrinterSettings, Refund, SavedAddress, SeoSettings, ReceiptSettings, StockStatus,
   TaxSettings,
 } from "@/types";
 import { buildColorCss } from "@/lib/colorUtils";
@@ -108,6 +108,8 @@ interface AppContextValue {
   toggleDriver: (id: string, active: boolean) => void;
   assignDriverToOrder: (customerId: string, orderId: string, driverId: string | null) => void;
   updateDeliveryStatus: (customerId: string, orderId: string, status: DeliveryStatus) => void;
+  addRefund: (customerId: string, orderId: string, refund: Refund) => void;
+  spendStoreCredit: (customerId: string, amount: number) => void;
   // ─── Breakfast menu ───────────────────────────────────────────────────────
   updateBreakfastSettings: (patch: Partial<BreakfastMenuSettings>) => void;
   addBreakfastCategory: (cat: Category) => void;
@@ -268,6 +270,9 @@ function mapOrder(row: any): Order {
     driverId: row.driver_id || undefined,
     driverName: row.driver_name || undefined,
     deliveryStatus: (row.delivery_status as DeliveryStatus) || undefined,
+    refunds: row.refunds ?? [],
+    refundedAmount: row.refunded_amount ? Number(row.refunded_amount) : undefined,
+    storeCreditUsed: row.store_credit_used ? Number(row.store_credit_used) : undefined,
   };
 }
 
@@ -284,6 +289,7 @@ function mapCustomer(row: any): Customer {
     ),
     favourites: row.favourites ?? [],
     savedAddresses: row.saved_addresses ?? [],
+    storeCredit: row.store_credit ? Number(row.store_credit) : undefined,
   };
 }
 
@@ -317,6 +323,9 @@ function orderToRow(o: Order) {
     vat_amount: o.vatAmount ?? 0, vat_inclusive: o.vatInclusive ?? true,
     driver_id: o.driverId ?? "", driver_name: o.driverName ?? "",
     delivery_status: o.deliveryStatus ?? "",
+    refunds: o.refunds ?? [],
+    refunded_amount: o.refundedAmount ?? 0,
+    store_credit_used: o.storeCreditUsed ?? 0,
   };
 }
 
@@ -327,6 +336,7 @@ function customerToRow(c: Customer) {
     created_at: c.createdAt,
     tags: c.tags ?? [], favourites: c.favourites ?? [],
     saved_addresses: c.savedAddresses ?? [],
+    store_credit: c.storeCredit ?? 0,
   };
 }
 
@@ -510,6 +520,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 name: newRow.name, email: newRow.email, phone: newRow.phone ?? "",
                 tags: newRow.tags ?? [], favourites: newRow.favourites ?? [],
                 savedAddresses: newRow.saved_addresses ?? [],
+                storeCredit: newRow.store_credit ? Number(newRow.store_credit) : undefined,
               }
             ));
             setCurrentUser((prev) =>
@@ -519,6 +530,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                     name: newRow.name, email: newRow.email, phone: newRow.phone ?? "",
                     tags: newRow.tags ?? [], favourites: newRow.favourites ?? [],
                     savedAddresses: newRow.saved_addresses ?? [],
+                    storeCredit: newRow.store_credit ? Number(newRow.store_credit) : undefined,
                   }
                 : prev
             );
@@ -654,6 +666,78 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
     supabase.from("orders").insert(orderToRow(order))
       .then(({ error }) => { if (error) console.error("addOrder:", error); });
+  };
+
+  const addRefund = (customerId: string, orderId: string, refund: Refund) => {
+    const currentOrder = customers
+      .find((c) => c.id === customerId)
+      ?.orders.find((o) => o.id === orderId);
+    if (!currentOrder) return;
+
+    const newRefunds = [...(currentOrder.refunds ?? []), refund];
+    const newRefundedAmount = (currentOrder.refundedAmount ?? 0) + refund.amount;
+    const newStatus: OrderStatus =
+      newRefundedAmount >= currentOrder.total ? "refunded" : "partially_refunded";
+
+    const patchOrder = (o: Order): Order =>
+      o.id !== orderId
+        ? o
+        : { ...o, refunds: newRefunds, refundedAmount: newRefundedAmount, status: newStatus };
+
+    setCustomers((prev) =>
+      prev.map((c) => {
+        if (c.id !== customerId) return c;
+        const newStoreCredit =
+          refund.method === "store_credit"
+            ? (c.storeCredit ?? 0) + refund.amount
+            : c.storeCredit;
+        return { ...c, orders: c.orders.map(patchOrder), storeCredit: newStoreCredit };
+      })
+    );
+    setCurrentUser((prev) => {
+      if (!prev || prev.id !== customerId) return prev;
+      const newStoreCredit =
+        refund.method === "store_credit"
+          ? (prev.storeCredit ?? 0) + refund.amount
+          : prev.storeCredit;
+      return { ...prev, orders: prev.orders.map(patchOrder), storeCredit: newStoreCredit };
+    });
+
+    // ── Single atomic order update (status + refund log + running total) ───────
+    // One update = one realtime event, no race condition between two events.
+    supabase
+      .from("orders")
+      .update({ status: newStatus, refunds: newRefunds, refunded_amount: newRefundedAmount })
+      .eq("id", orderId)
+      .then(({ error }) => {
+        if (error) console.error("addRefund/order:", error.message ?? error.code ?? JSON.stringify(error));
+      });
+
+    // ── Persist store credit on customer row ────────────────────────────────
+    if (refund.method === "store_credit") {
+      // Capture balance from the customers closure (before setCustomers ran);
+      // adding refund.amount gives the correct new balance.
+      const prevCredit = customers.find((c) => c.id === customerId)?.storeCredit ?? 0;
+      const newStoreCredit = prevCredit + refund.amount;
+      supabase
+        .from("customers")
+        .update({ store_credit: newStoreCredit })
+        .eq("id", customerId)
+        .then(({ error }) => {
+          if (error) console.error("addRefund/store_credit:", error.message ?? error.code ?? JSON.stringify(error));
+        });
+    }
+  };
+
+  const spendStoreCredit = (customerId: string, amount: number) => {
+    // Capture the balance from the closure (current render) before any setCustomers call
+    const prevCredit = customers.find((c) => c.id === customerId)?.storeCredit ?? 0;
+    const newBalance = Math.max(0, prevCredit - amount);
+    const patch = (c: Customer) => ({ ...c, storeCredit: newBalance });
+    setCustomers((prev) => prev.map((c) => (c.id === customerId ? patch(c) : c)));
+    setCurrentUser((prev) => (prev && prev.id === customerId ? patch(prev) : prev));
+    supabase.from("customers").update({ store_credit: newBalance }).eq("id", customerId)
+      .then(({ error }) => { if (error) console.error("spendStoreCredit:", error.message ?? JSON.stringify(error)); });
   };
 
   const updateOrderStatus = (customerId: string, orderId: string, status: OrderStatus) => {
@@ -929,7 +1013,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         drivers: settings.drivers ?? [],
         currentDriver, driverLogin, driverLogout,
         addDriver, updateDriver, deleteDriver, toggleDriver,
-        assignDriverToOrder, updateDeliveryStatus,
+        assignDriverToOrder, updateDeliveryStatus, addRefund, spendStoreCredit,
         updateBreakfastSettings,
         addBreakfastCategory, updateBreakfastCategory, deleteBreakfastCategory, reorderBreakfastCategories,
         addBreakfastItem, updateBreakfastItem, deleteBreakfastItem,

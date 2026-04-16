@@ -8,7 +8,7 @@ import {
   Truck, Package, ChefHat, CheckCircle2, Circle, Ban,
   Clock, MapPin, Phone, ShoppingBag, TrendingUp,
   ChevronRight, X, RefreshCw, Bike, Store,
-  AlertCircle, Search, Filter, Navigation,
+  AlertCircle, Search, Filter, Navigation, RotateCcw,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -94,13 +94,22 @@ const STATUS_CONFIG: Record<OrderStatus, {
     cardBorder: "border-green-200",
   },
   cancelled: {
-    label: "Cancelled",
-    shortLabel: "",
+    label: "Cancelled", shortLabel: "",
     icon: <Ban size={14} className="text-red-500" />,
-    headerBg: "bg-red-50 border-red-200",
-    dotBg: "bg-red-400",
-    badge: "bg-red-50 text-red-700 border-red-200",
-    cardBorder: "border-red-200",
+    headerBg: "bg-red-50 border-red-200", dotBg: "bg-red-400",
+    badge: "bg-red-50 text-red-700 border-red-200", cardBorder: "border-red-200",
+  },
+  refunded: {
+    label: "Refunded", shortLabel: "",
+    icon: <RotateCcw size={14} className="text-teal-600" />,
+    headerBg: "bg-teal-50 border-teal-200", dotBg: "bg-teal-500",
+    badge: "bg-teal-50 text-teal-700 border-teal-200", cardBorder: "border-teal-200",
+  },
+  partially_refunded: {
+    label: "Partially Refunded", shortLabel: "",
+    icon: <RotateCcw size={14} className="text-cyan-600" />,
+    headerBg: "bg-cyan-50 border-cyan-200", dotBg: "bg-cyan-500",
+    badge: "bg-cyan-50 text-cyan-700 border-cyan-200", cardBorder: "border-cyan-200",
   },
 };
 

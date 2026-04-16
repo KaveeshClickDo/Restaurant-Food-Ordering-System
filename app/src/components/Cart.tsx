@@ -201,7 +201,7 @@ export default function Cart() {
       </div>
 
       {showCheckout && (
-        <CheckoutModal grandTotal={grandTotal} onClose={() => setShowCheckout(false)} />
+        <CheckoutModal onClose={() => setShowCheckout(false)} />
       )}
       {showSchedule && (
         <ScheduleOrderModal onClose={() => setShowSchedule(false)} />
