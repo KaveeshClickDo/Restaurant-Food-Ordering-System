@@ -18,38 +18,83 @@ import { resolveStock } from "@/lib/stockUtils";
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<OrderStatus, { label: string; color: string; dot: string }> = {
-  pending:   { label: "Pending",   color: "bg-yellow-100 text-yellow-700",  dot: "bg-yellow-500"  },
-  confirmed: { label: "Confirmed", color: "bg-blue-100 text-blue-700",      dot: "bg-blue-500"    },
-  preparing: { label: "Preparing", color: "bg-orange-100 text-orange-700",  dot: "bg-orange-500"  },
-  ready:     { label: "Ready",     color: "bg-purple-100 text-purple-700",  dot: "bg-purple-500"  },
-  delivered: { label: "Delivered", color: "bg-green-100 text-green-700",    dot: "bg-green-500"   },
-  cancelled: { label: "Cancelled", color: "bg-red-100 text-red-700",        dot: "bg-red-400"     },
+  pending:   { label: "Pending",              color: "bg-yellow-100 text-yellow-700",  dot: "bg-yellow-500"  },
+  confirmed: { label: "Confirmed",            color: "bg-blue-100 text-blue-700",      dot: "bg-blue-500"    },
+  preparing: { label: "Preparing",            color: "bg-orange-100 text-orange-700",  dot: "bg-orange-500"  },
+  ready:     { label: "Ready",                color: "bg-purple-100 text-purple-700",  dot: "bg-purple-500"  },
+  delivered: { label: "Delivered",            color: "bg-green-100 text-green-700",    dot: "bg-green-500"   },
+  cancelled: { label: "Cancelled",            color: "bg-red-100 text-red-700",        dot: "bg-red-400"     },
 };
 
-const STEPS: OrderStatus[] = ["pending", "confirmed", "preparing", "ready", "delivered"];
+// Kitchen-only steps (delivery hands off to driver after "ready")
+const DELIVERY_STEPS:   OrderStatus[] = ["pending", "confirmed", "preparing", "ready"];
+// Collection goes all the way through to "delivered" in the kitchen flow
+const COLLECTION_STEPS: OrderStatus[] = ["pending", "confirmed", "preparing", "ready", "delivered"];
 
-function StatusBadge({ status }: { status: OrderStatus }) {
-  const cfg = STATUS_CONFIG[status];
+function getReadyLabel(fulfillment: string) {
+  return fulfillment === "delivery" ? "Ready for Pickup" : "Ready for Collection";
+}
+
+// While order.status stays "ready" during the driver leg, these configs override
+// the badge so the customer sees meaningful progress rather than "Ready for Pickup".
+const DELIVERY_STATUS_BADGE: Record<DeliveryStatus, { label: string; color: string; dot: string }> = {
+  assigned:   { label: "Driver Assigned",  color: "bg-amber-100 text-amber-700",   dot: "bg-amber-500"  },
+  picked_up:  { label: "Picked Up",        color: "bg-blue-100 text-blue-700",     dot: "bg-blue-500"   },
+  on_the_way: { label: "On the Way",       color: "bg-indigo-100 text-indigo-700", dot: "bg-indigo-500" },
+  delivered:  { label: "Delivered",        color: "bg-green-100 text-green-700",   dot: "bg-green-500"  },
+};
+
+function StatusBadge({ order }: { order: Order }) {
+  // Delivery orders with an active driver leg: show delivery status instead of
+  // order status, because order.status stays "ready" until final delivery.
+  if (
+    order.fulfillment === "delivery" &&
+    order.deliveryStatus &&
+    order.status !== "cancelled"
+  ) {
+    const cfg = DELIVERY_STATUS_BADGE[order.deliveryStatus];
+    return (
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${cfg.color}`}>
+        <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+        {cfg.label}
+      </span>
+    );
+  }
+
+  const cfg = STATUS_CONFIG[order.status];
+  const label = order.status === "ready" ? getReadyLabel(order.fulfillment) : cfg.label;
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${cfg.color}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-      {cfg.label}
+      {label}
     </span>
   );
 }
 
-function OrderTracker({ status }: { status: OrderStatus }) {
-  if (status === "cancelled") return null;
-  const currentIdx = STEPS.indexOf(status);
+function OrderTracker({ order }: { order: Order }) {
+  if (order.status === "cancelled") return null;
+
+  // Delivery orders: kitchen tracker only goes up to "ready" — the driver leg
+  // (assigned → picked_up → on_the_way → delivered) is shown in DeliveryTracker.
+  // Collection orders: full 5-step flow including "delivered".
+  const steps = order.fulfillment === "delivery" ? DELIVERY_STEPS : COLLECTION_STEPS;
+
+  // When a delivery order is fully delivered, treat all kitchen steps as done.
+  const effectiveStatus = (order.status === "delivered" && order.fulfillment === "delivery")
+    ? "ready"   // all 4 kitchen steps done
+    : order.status;
+
+  const currentIdx = steps.indexOf(effectiveStatus);
+
   return (
     <div className="flex items-center gap-1 mt-3">
-      {STEPS.map((step, i) => {
-        const done = i <= currentIdx;
+      {steps.map((step, i) => {
+        const done = i <= currentIdx || order.status === "delivered";
         return (
           <div key={step} className="flex items-center flex-1 last:flex-none">
             <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 transition-colors ${done ? "bg-orange-500" : "bg-gray-200"}`} />
-            {i < STEPS.length - 1 && (
-              <div className={`h-0.5 flex-1 mx-0.5 transition-colors ${i < currentIdx ? "bg-orange-500" : "bg-gray-200"}`} />
+            {i < steps.length - 1 && (
+              <div className={`h-0.5 flex-1 mx-0.5 transition-colors ${i < (order.status === "delivered" ? steps.length : currentIdx) ? "bg-orange-500" : "bg-gray-200"}`} />
             )}
           </div>
         );
@@ -257,7 +302,7 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold text-gray-800 text-sm">#{order.id.slice(0, 8).toUpperCase()}</span>
-            <StatusBadge status={order.status} />
+            <StatusBadge order={order} />
             {isActive && (
               <span className="text-[10px] font-semibold bg-orange-50 text-orange-600 border border-orange-200 rounded-full px-2 py-0.5">
                 Live
@@ -267,7 +312,7 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
           <p className="text-xs text-gray-400 mt-1">
             {formatDate(order.date)} at {formatTime(order.date)} · {order.fulfillment === "delivery" ? "Delivery" : "Collection"}
           </p>
-          {isActive && <OrderTracker status={order.status} />}
+          {isActive && <OrderTracker order={order} />}
           <DeliveryTracker order={order} />
         </div>
         <div className="flex items-center gap-3 flex-shrink-0 ml-4">

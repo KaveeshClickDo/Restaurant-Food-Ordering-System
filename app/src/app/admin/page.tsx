@@ -20,10 +20,12 @@ import ReceiptSettingsPanel from "@/components/admin/ReceiptSettingsPanel";
 import CouponsPanel from "@/components/admin/CouponsPanel";
 import TaxSettingsPanel from "@/components/admin/TaxSettingsPanel";
 import DriversPanel from "@/components/admin/DriversPanel";
-import { LayoutDashboard, ExternalLink, ShieldCheck, Store, Calendar, Plug, ChefHat, Users, Truck, MapPin, Bell, X, Mail, FileText, LayoutTemplate, Navigation, Palette, ImageIcon, Receipt, Tag, Percent, Car } from "lucide-react";
+import BreakfastMenuPanel from "@/components/admin/BreakfastMenuPanel";
+import { LayoutDashboard, ExternalLink, ShieldCheck, Store, Calendar, Plug, ChefHat, Users, Truck, MapPin, Bell, X, Mail, FileText, LayoutTemplate, Navigation, Palette, ImageIcon, Receipt, Tag, Percent, Car, Sunrise } from "lucide-react";
 
 const TABS = [
   { id: "menu",         label: "Menu Items",   icon: ChefHat },
+  { id: "breakfast",    label: "Breakfast",    icon: Sunrise },
   { id: "customers",   label: "Customers",    icon: Users },
   { id: "delivery",    label: "Delivery",     icon: Truck },
   { id: "zones",       label: "Zones",        icon: MapPin },
@@ -193,6 +195,8 @@ export default function AdminPage() {
             <p className="text-orange-100 text-sm mt-0.5">
             {activeTab === "menu"
               ? `Managing ${menuItems.length} items across ${categories.length} categories.`
+              : activeTab === "breakfast"
+              ? `${(settings.breakfastMenu?.items ?? []).length} breakfast items · shown to customers ${settings.breakfastMenu?.enabled ? `${settings.breakfastMenu.startTime}–${settings.breakfastMenu.endTime}` : "(currently disabled)"}.`
               : activeTab === "customers"
               ? `${customers.length} registered customers · manage orders & history.`
               : activeTab === "delivery"
@@ -231,6 +235,7 @@ export default function AdminPage() {
 
         {/* Panel content */}
         {activeTab === "menu"         && <MenuManagementPanel />}
+        {activeTab === "breakfast"    && <BreakfastMenuPanel />}
         {activeTab === "customers"     && <CustomersPanel />}
         {activeTab === "delivery"      && <DeliveryPanel />}
         {activeTab === "zones"         && <DeliveryZonesPanel />}

@@ -233,6 +233,14 @@ export interface ReceiptSettings {
   customMessage: string;      // optional extra line at bottom
 }
 
+export interface BreakfastMenuSettings {
+  enabled: boolean;
+  startTime: string;     // "07:00"
+  endTime: string;       // "11:30"
+  categories: Category[];
+  items: MenuItem[];
+}
+
 export interface AdminSettings {
   drivers: Driver[];
   coupons: Coupon[];
@@ -261,6 +269,7 @@ export interface AdminSettings {
   colors: ColorSettings;
   footerLogos: FooterLogo[];
   receiptSettings: ReceiptSettings;
+  breakfastMenu: BreakfastMenuSettings;
 }
 
 export type OrderStatus = "pending" | "confirmed" | "preparing" | "ready" | "delivered" | "cancelled";

@@ -22,12 +22,22 @@ interface RichOrder extends Order {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const ACTIVE_STATUSES: OrderStatus[] = ["pending", "confirmed", "preparing", "ready"];
+
+// For delivery orders: admin can only advance up to "ready".
+// The driver then drives the order through to "delivered" via delivery status.
+// For collection orders: admin can advance all the way to "delivered".
 const STATUS_NEXT: Partial<Record<OrderStatus, OrderStatus>> = {
   pending:   "confirmed",
   confirmed: "preparing",
   preparing: "ready",
-  ready:     "delivered",
+  ready:     "delivered", // only used for collection orders (guarded in advance())
 };
+
+/** Whether the admin can advance this order to the next status */
+function canAdminAdvance(order: { status: OrderStatus; fulfillment: string }): boolean {
+  if (order.status === "ready" && order.fulfillment === "delivery") return false;
+  return !!STATUS_NEXT[order.status];
+}
 
 const STATUS_CONFIG: Record<OrderStatus, {
   label: string;
@@ -66,8 +76,8 @@ const STATUS_CONFIG: Record<OrderStatus, {
     cardBorder: "border-orange-300",
   },
   ready: {
-    label: "Ready",
-    shortLabel: "Mark delivered",
+    label: "Ready for Pickup",
+    shortLabel: "Mark collected", // only shown for collection orders
     icon: <Package size={14} className="text-purple-500" />,
     headerBg: "bg-purple-50 border-purple-200",
     dotBg: "bg-purple-500",
@@ -171,7 +181,7 @@ function KanbanCard({
   onClick: () => void;
 }) {
   const cfg = STATUS_CONFIG[order.status];
-  const next = STATUS_NEXT[order.status];
+  const adminCanAdvance = canAdminAdvance(order);
 
   return (
     <div
@@ -230,13 +240,19 @@ function KanbanCard({
 
       {/* Card actions */}
       <div className="border-t border-gray-100 px-3 py-2 flex gap-2" onClick={(e) => e.stopPropagation()}>
-        {next && (
+        {adminCanAdvance && (
           <button
             onClick={onAdvance}
             className="flex-1 flex items-center justify-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-[11px] font-bold py-1.5 rounded-lg transition"
           >
             <ChevronRight size={12} /> {cfg.shortLabel}
           </button>
+        )}
+        {/* Delivery orders waiting for a driver cannot be advanced by admin */}
+        {!adminCanAdvance && order.status === "ready" && (
+          <div className="flex-1 flex items-center justify-center gap-1.5 bg-purple-50 border border-purple-200 text-purple-600 text-[11px] font-semibold py-1.5 rounded-lg">
+            <Truck size={10} /> Awaiting driver
+          </div>
         )}
         <button
           onClick={onCancel}
@@ -257,9 +273,15 @@ function OrderModal({ order, onClose, onStatusChange }: {
   onStatusChange: (status: OrderStatus) => void;
 }) {
   const cfg = STATUS_CONFIG[order.status];
-  const next = STATUS_NEXT[order.status];
   const isActive = ACTIVE_STATUSES.includes(order.status);
-  const FLOW: OrderStatus[] = ["pending", "confirmed", "preparing", "ready", "delivered"];
+  const adminCanAdvanceModal = canAdminAdvance(order);
+  const next = adminCanAdvanceModal ? STATUS_NEXT[order.status] : undefined;
+
+  // For delivery orders the final "delivered" step is driven by the driver.
+  // For collection orders the admin marks it delivered.
+  const FLOW: OrderStatus[] = order.fulfillment === "delivery"
+    ? ["pending", "confirmed", "preparing", "ready"]
+    : ["pending", "confirmed", "preparing", "ready", "delivered"];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -432,6 +454,13 @@ function OrderModal({ order, onClose, onStatusChange }: {
                   Mark as {STATUS_CONFIG[next].label}
                 </button>
               )}
+              {/* Delivery orders at "ready" are handed off to the driver — admin cannot mark delivered */}
+              {!adminCanAdvanceModal && order.status === "ready" && (
+                <div className="w-full flex items-center justify-center gap-2 bg-purple-50 border border-purple-200 text-purple-700 font-semibold py-3 rounded-xl text-sm">
+                  <Truck size={15} />
+                  Awaiting driver pickup — driver will mark as delivered
+                </div>
+              )}
               <button
                 onClick={() => { onStatusChange("cancelled"); onClose(); }}
                 className="w-full border-2 border-red-200 text-red-500 hover:bg-red-50 font-semibold py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-sm"
@@ -489,6 +518,7 @@ export default function DeliveryPanel() {
   }
 
   function advance(order: RichOrder) {
+    if (!canAdminAdvance(order)) return; // delivery orders at "ready" wait for driver
     const next = STATUS_NEXT[order.status];
     if (next) {
       const cust = customers.find((c: Customer) => c.id === order.customerId);

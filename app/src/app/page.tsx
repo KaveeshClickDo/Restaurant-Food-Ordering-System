@@ -6,13 +6,26 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import CategoryNav from "@/components/CategoryNav";
 import MenuSection from "@/components/MenuSection";
+import BreakfastSection from "@/components/BreakfastSection";
 import SearchAndFilters, { DietaryFilter } from "@/components/SearchAndFilters";
 import Cart from "@/components/Cart";
 import { useApp } from "@/context/AppContext";
 import { ShoppingBag, X } from "lucide-react";
 
+function isBreakfastActive(startTime: string, endTime: string): boolean {
+  const now = new Date();
+  const [sh, sm] = startTime.split(":").map(Number);
+  const [eh, em] = endTime.split(":").map(Number);
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+  const startMins = sh * 60 + sm;
+  const endMins = eh * 60 + em;
+  return nowMins >= startMins && nowMins < endMins;
+}
+
 export default function HomePage() {
-  const { cartCount, cartTotal, categories, menuItems } = useApp();
+  const { cartCount, cartTotal, categories, menuItems, settings } = useApp();
+  const bm = settings.breakfastMenu;
+  const showBreakfast = bm?.enabled && isBreakfastActive(bm.startTime, bm.endTime) && (bm.items ?? []).length > 0;
   const [activeCategory, setActiveCategory] = useState(categories[0]?.id ?? "");
   const [search, setSearch] = useState("");
   const [dietaryFilters, setDietaryFilters] = useState<DietaryFilter[]>([]);
@@ -126,6 +139,16 @@ export default function HomePage() {
                 onToggle={toggleDietary}
               />
             </div>
+
+            {/* Breakfast section — shown only during configured hours */}
+            {showBreakfast && (
+              <BreakfastSection
+                categories={bm!.categories}
+                items={bm!.items}
+                startTime={bm!.startTime}
+                endTime={bm!.endTime}
+              />
+            )}
 
             {/* Scrollable section */}
             <div ref={scrollRef} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3 sm:p-5">

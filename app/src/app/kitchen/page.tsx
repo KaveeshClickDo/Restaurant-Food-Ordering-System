@@ -28,8 +28,8 @@ type ColumnConfig = {
   textClass: string;
   buttonClass: string;
   colBg: string;
-  nextStatus: OrderStatus;
-  nextLabel: string;
+  nextStatus?: OrderStatus;
+  nextLabel?: string;
 };
 
 // ─── Column config ────────────────────────────────────────────────────────────
@@ -69,10 +69,10 @@ const COLUMNS: ColumnConfig[] = [
     dotClass:    "bg-green-500",
     badgeClass:  "bg-green-500 text-white",
     textClass:   "text-green-400",
-    buttonClass: "bg-green-500 hover:bg-green-400 active:bg-green-600",
+    buttonClass: "",
     colBg:       "bg-green-500/5",
-    nextStatus:  "delivered",
-    nextLabel:   "Complete Order",
+    // No nextStatus — kitchen's job ends here. Driver handles delivery,
+    // admin handles collection (ready → delivered) via the admin panel.
   },
 ];
 
@@ -157,7 +157,7 @@ function OrderCard({
 }: {
   flat: FlatOrder;
   col: ColumnConfig;
-  onAdvance: () => void;
+  onAdvance?: () => void;
 }) {
   const { order, customerName } = flat;
   const isDelivery = order.fulfillment === "delivery";
@@ -254,15 +254,29 @@ function OrderCard({
         </div>
       )}
 
-      {/* Action button */}
-      <div className="px-4 pb-4">
-        <button
-          onClick={onAdvance}
-          className={`w-full ${col.buttonClass} text-white font-bold text-sm py-3.5 rounded-xl transition-all active:scale-[0.97] shadow-lg shadow-black/20`}
-        >
-          {col.nextLabel} →
-        </button>
-      </div>
+      {/* Action button — only shown for columns that have a next step */}
+      {col.nextStatus ? (
+        <div className="px-4 pb-4">
+          <button
+            onClick={onAdvance}
+            className={`w-full ${col.buttonClass} text-white font-bold text-sm py-3.5 rounded-xl transition-all active:scale-[0.97] shadow-lg shadow-black/20`}
+          >
+            {col.nextLabel} →
+          </button>
+        </div>
+      ) : (
+        /* Ready column — kitchen's job is done; show who handles the next step */
+        <div className="px-4 pb-4">
+          <div className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-semibold border ${
+            isDelivery
+              ? "bg-indigo-900/20 border-indigo-700/30 text-indigo-300"
+              : "bg-emerald-900/20 border-emerald-700/30 text-emerald-300"
+          }`}>
+            {isDelivery ? <Truck size={13} /> : <ShoppingBag size={13} />}
+            {isDelivery ? "Awaiting driver pickup" : "Awaiting customer collection"}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -276,7 +290,7 @@ function KanbanColumn({
 }: {
   col: ColumnConfig;
   orders: FlatOrder[];
-  onAdvance: (flat: FlatOrder) => void;
+  onAdvance?: (flat: FlatOrder) => void;
 }) {
   return (
     <div className={`flex flex-col rounded-2xl ${col.colBg} border border-gray-700/40 overflow-hidden`}>
@@ -304,7 +318,7 @@ function KanbanColumn({
               key={flat.order.id}
               flat={flat}
               col={col}
-              onAdvance={() => onAdvance(flat)}
+              onAdvance={onAdvance ? () => onAdvance(flat) : undefined}
             />
           ))
         )}
@@ -336,7 +350,8 @@ export default function KitchenPage() {
 
   function handleAdvance(flat: FlatOrder, nextStatus: OrderStatus) {
     updateOrderStatus(flat.customerId, flat.order.id, nextStatus);
-    if (nextStatus === "delivered") setCompletedToday((n) => n + 1);
+    // Kitchen's job ends when an order is marked ready — count it as completed
+    if (nextStatus === "ready") setCompletedToday((n) => n + 1);
   }
 
   // Fullscreen toggle
@@ -429,7 +444,7 @@ export default function KitchenPage() {
               key={col.label}
               col={col}
               orders={colOrders}
-              onAdvance={(flat) => handleAdvance(flat, col.nextStatus)}
+              onAdvance={col.nextStatus ? (flat) => handleAdvance(flat, col.nextStatus!) : undefined}
             />
           );
         })}

@@ -9,7 +9,7 @@ import React, {
 } from "react";
 import { supabase } from "@/lib/supabase";
 import {
-  AdminSettings, AuditEntry, CartItem, Category, ColorSettings, Coupon,
+  AdminSettings, AuditEntry, BreakfastMenuSettings, CartItem, Category, ColorSettings, Coupon,
   DeliveryStatus, DeliveryZone, Driver, MenuItem, Customer, Order, OrderStatus, PaymentMethod,
   PrinterSettings, SavedAddress, SeoSettings, ReceiptSettings, StockStatus,
   TaxSettings,
@@ -108,6 +108,15 @@ interface AppContextValue {
   toggleDriver: (id: string, active: boolean) => void;
   assignDriverToOrder: (customerId: string, orderId: string, driverId: string | null) => void;
   updateDeliveryStatus: (customerId: string, orderId: string, status: DeliveryStatus) => void;
+  // ─── Breakfast menu ───────────────────────────────────────────────────────
+  updateBreakfastSettings: (patch: Partial<BreakfastMenuSettings>) => void;
+  addBreakfastCategory: (cat: Category) => void;
+  updateBreakfastCategory: (cat: Category) => void;
+  deleteBreakfastCategory: (id: string) => void;
+  reorderBreakfastCategories: (cats: Category[]) => void;
+  addBreakfastItem: (item: MenuItem) => void;
+  updateBreakfastItem: (item: MenuItem) => void;
+  deleteBreakfastItem: (id: string) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -171,6 +180,13 @@ const DEFAULT_SETTINGS: AdminSettings = {
   receiptSettings: DEFAULT_RECEIPT,
   coupons: [],
   taxSettings: DEFAULT_TAX,
+  breakfastMenu: {
+    enabled: false,
+    startTime: "07:00",
+    endTime: "11:30",
+    categories: [],
+    items: [],
+  },
 };
 
 // ─── Store open check ─────────────────────────────────────────────────────────
@@ -851,6 +867,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .then(({ error }) => { if (error) console.error("updateDeliveryStatus:", error); });
   };
 
+  // ─── Breakfast menu ────────────────────────────────────────────────────────
+
+  const bm = () => settings.breakfastMenu ?? { enabled: false, startTime: "07:00", endTime: "11:30", categories: [], items: [] };
+
+  const updateBreakfastSettings = (patch: Partial<BreakfastMenuSettings>) =>
+    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), ...patch } }));
+
+  const addBreakfastCategory = (cat: Category) =>
+    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), categories: [...(bm().categories), cat] } }));
+
+  const updateBreakfastCategory = (cat: Category) =>
+    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), categories: bm().categories.map((c) => (c.id === cat.id ? cat : c)) } }));
+
+  const deleteBreakfastCategory = (id: string) =>
+    mutateSettings((p) => ({
+      ...p,
+      breakfastMenu: {
+        ...bm(),
+        categories: bm().categories.filter((c) => c.id !== id),
+        items: bm().items.filter((i) => i.categoryId !== id),
+      },
+    }));
+
+  const reorderBreakfastCategories = (cats: Category[]) =>
+    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), categories: cats } }));
+
+  const addBreakfastItem = (item: MenuItem) =>
+    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), items: [...bm().items, item] } }));
+
+  const updateBreakfastItem = (item: MenuItem) =>
+    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), items: bm().items.map((i) => (i.id === item.id ? item : i)) } }));
+
+  const deleteBreakfastItem = (id: string) =>
+    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), items: bm().items.filter((i) => i.id !== id) } }));
+
   // ─── Derived values ────────────────────────────────────────────────────────
 
   const cartTotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
@@ -879,6 +930,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         currentDriver, driverLogin, driverLogout,
         addDriver, updateDriver, deleteDriver, toggleDriver,
         assignDriverToOrder, updateDeliveryStatus,
+        updateBreakfastSettings,
+        addBreakfastCategory, updateBreakfastCategory, deleteBreakfastCategory, reorderBreakfastCategories,
+        addBreakfastItem, updateBreakfastItem, deleteBreakfastItem,
       }}
     >
       <SeoHead settings={settings} />

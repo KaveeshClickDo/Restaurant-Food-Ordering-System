@@ -2,15 +2,9 @@
 
 ## 1. Overview
 
-This document describes the architecture of the **Single-Restaurant Food Ordering System** — a full-featured, self-contained web application that combines a customer-facing ordering portal and a restaurant admin control panel into a single Next.js application.
+This document describes the architecture of the **Single-Restaurant Food Ordering System** — a full-featured web application combining a customer-facing ordering portal, a restaurant admin control panel, a kitchen display system, and a driver delivery portal in a single Next.js 15 application.
 
-### Current Implementation (v1 — localStorage)
-
-The v1 system is a **zero-backend, client-rendered** application. All data is persisted in the browser's `localStorage` and synchronised across tabs using the Web Storage API. No external database, message queue, or API server is required to run it.
-
-### Planned Production Evolution (v2 — full backend)
-
-Section 9 of this document outlines the target production architecture with a FastAPI backend, Celery task queue, Redis broker, and MySQL database — to be built on top of the current frontend foundation.
+All data is stored in **Supabase (PostgreSQL)** and synchronised in real time across all connected sessions via Supabase Realtime's `postgres_changes` subscriptions. There is no separate backend server — Next.js API routes proxy print and email side-effects only.
 
 ---
 
@@ -24,280 +18,508 @@ Section 9 of this document outlines the target production architecture with a Fa
 | Styling | Tailwind CSS v4 |
 | Icons | Lucide React |
 | Font | Inter (next/font/google) |
-| State / Persistence | React Context + localStorage |
-| Printer Integration | ESC/POS over TCP (Next.js API route proxy) |
-| Email Integration | SMTP via Next.js API route (nodemailer-compatible) |
+| Database | Supabase (PostgreSQL) |
+| Real-time | Supabase Realtime (`postgres_changes`) |
+| State | React Context + Supabase |
+| Printer | ESC/POS over TCP (Next.js API route proxy) |
+| Email | SMTP via Next.js API route |
 | Dev Server | `next dev --turbopack` |
 
 ---
 
-## 3. Application Structure
+## 3. Database Schema
 
-The entire application lives under `app/src/` and is split into two distinct portals served from the same Next.js process:
+Five tables are used. Supabase Realtime is enabled on all of them.
 
+### `app_settings`
+
+Single-row JSONB table. All admin settings — restaurant info, schedule, zones, payment methods, email templates, pages, nav links, colors, receipt settings, coupons, tax, breakfast menu, printer config, and driver list — are stored as a single JSON object.
+
+```sql
+create table app_settings (
+  id         integer primary key default 1,
+  data       jsonb not null default '{}',
+  updated_at timestamptz default now()
+);
 ```
-app/src/
-├── app/
-│   ├── layout.tsx              # Root layout — Inter font, AppProvider, SEO
-│   ├── page.tsx                # Customer portal — menu page (/)
-│   ├── account/
-│   │   └── page.tsx            # Customer account dashboard (/account)
-│   ├── admin/
-│   │   └── page.tsx            # Admin dashboard (/admin) — 14 tabbed panels
-│   ├── [footerPage]/
-│   │   └── page.tsx            # Dynamic page renderer (/[slug])
-│   └── api/
-│       ├── print/route.ts      # ESC/POS TCP proxy
-│       └── email/route.ts      # SMTP send proxy
-│
-├── components/
-│   ├── Header.tsx              # Restaurant info card + header nav
-│   ├── Footer.tsx              # Footer with managed nav links
-│   ├── Cart.tsx                # Order basket (desktop sidebar + mobile drawer)
-│   ├── MenuItemCard.tsx        # Individual menu item row
-│   ├── MenuSection.tsx         # Category-grouped item list
-│   ├── CategoryNav.tsx         # Sidebar category navigation (desktop)
-│   ├── SearchAndFilters.tsx    # Search input + dietary filter pills
-│   ├── CheckoutModal.tsx       # Checkout flow — form, geolocation, payment
-│   ├── ItemCustomizationModal.tsx  # Add-ons, variations, instructions
-│   ├── AuthModal.tsx           # Login / Register modal
-│   ├── SeoHead.tsx             # Reactive <title> + <meta> from admin settings
-│   └── admin/
-│       ├── MenuManagementPanel.tsx   # Menu item + category CRUD
-│       ├── DeliveryPanel.tsx         # Live order Kanban board
-│       ├── CustomersPanel.tsx        # Customer list + order management
-│       ├── DeliveryZonesPanel.tsx    # Zone editor with fee configuration
-│       ├── OperationsPanel.tsx       # Branding, fees, address, SEO
-│       ├── SchedulePanel.tsx         # Per-day open/close hours
-│       ├── IntegrationsPanel.tsx     # Stripe, PayPal, SMTP, printer keys
-│       ├── EmailTemplatesPanel.tsx   # Email template editor (6 events)
-│       ├── FooterPagesPanel.tsx      # 6 built-in footer pages editor
-│       ├── CustomPagesPanel.tsx      # Custom page CRUD with SEO
-│       ├── MenuLinksPanel.tsx        # Header + footer nav management
-│       ├── ColorSettingsPanel.tsx    # Brand colour + background customisation
-│       ├── FooterLogosPanel.tsx      # Partner / badge logos for the footer
-│       ├── ReceiptSettingsPanel.tsx  # Custom receipt branding (logo, contact, VAT, messages)
-│       └── RichEditor.tsx            # contenteditable rich text editor
-│
-├── context/
-│   └── AppContext.tsx          # Global state, localStorage sync, all mutations
-│
-├── data/
-│   ├── menu.ts                 # Default categories and menu items seed data
-│   ├── restaurant.ts           # Default restaurant settings + schedule
-│   ├── customers.ts            # Mock customer seed data
-│   └── footerPages.ts          # 6 default footer pages (About, Terms, etc.)
-│
-├── lib/
-│   ├── escpos.ts               # ESC/POS receipt formatter (uses receiptSettings)
-│   ├── emailTemplates.ts       # Email template engine with variable interpolation
-│   └── colorUtils.ts           # Brand colour CSS variable generator
-│
-└── types/
-    └── index.ts                # All TypeScript interfaces and types
+
+### `categories`
+
+```sql
+create table categories (
+  id         text primary key,
+  name       text not null,
+  emoji      text not null default '',
+  sort_order integer not null default 0
+);
+```
+
+### `menu_items`
+
+```sql
+create table menu_items (
+  id           text primary key,
+  category_id  text not null references categories(id) on delete cascade,
+  name         text not null,
+  description  text not null default '',
+  price        numeric not null,
+  image        text,
+  dietary      text[] not null default '{}',
+  popular      boolean not null default false,
+  variations   jsonb,
+  add_ons      jsonb,
+  stock_qty    integer,
+  stock_status text,
+  sort_order   integer not null default 0
+);
+```
+
+### `customers`
+
+```sql
+create table customers (
+  id               text primary key,
+  name             text not null,
+  email            text not null unique,
+  phone            text not null default '',
+  password         text not null default '',
+  created_at       timestamptz not null default now(),
+  tags             text[] not null default '{}',
+  favourites       text[] not null default '{}',
+  saved_addresses  jsonb not null default '[]'
+);
+```
+
+### `orders`
+
+```sql
+create table orders (
+  id               text primary key,
+  customer_id      text not null references customers(id) on delete cascade,
+  date             timestamptz not null default now(),
+  status           text not null default 'pending',
+  fulfillment      text not null default 'delivery',
+  total            numeric not null,
+  items            jsonb not null default '[]',
+  address          text,
+  note             text,
+  payment_method   text,
+  delivery_fee     numeric,
+  service_fee      numeric,
+  scheduled_time   text,
+  coupon_code      text,
+  coupon_discount  numeric,
+  vat_amount       numeric,
+  vat_inclusive    boolean,
+  driver_id        text,
+  driver_name      text,
+  delivery_status  text
+);
+```
+
+Enable Realtime on all tables:
+
+```sql
+alter publication supabase_realtime add table app_settings;
+alter publication supabase_realtime add table categories;
+alter publication supabase_realtime add table menu_items;
+alter publication supabase_realtime add table customers;
+alter publication supabase_realtime add table orders;
 ```
 
 ---
 
-## 4. State Management Architecture
+## 4. Application Structure
 
-### 4.1 AppContext (Single Source of Truth)
+```
+app/src/
+├── app/
+│   ├── layout.tsx                  # Root layout — Inter font, AppProvider, SEO
+│   ├── page.tsx                    # Customer portal — menu page (/)
+│   ├── account/page.tsx            # Customer account dashboard (/account)
+│   ├── admin/page.tsx              # Admin dashboard (/admin) — 18 tabbed panels
+│   ├── kitchen/page.tsx            # Kitchen display (/kitchen)
+│   ├── driver/page.tsx             # Driver dashboard (/driver)
+│   ├── driver/login/page.tsx       # Driver login (/driver/login)
+│   ├── [footerPage]/page.tsx       # Dynamic page renderer (/[slug])
+│   └── api/
+│       ├── print/route.ts          # ESC/POS TCP proxy
+│       └── email/route.ts          # SMTP send proxy
+│
+├── components/
+│   ├── Header.tsx
+│   ├── Footer.tsx
+│   ├── Cart.tsx
+│   ├── BreakfastSection.tsx
+│   ├── MenuItemCard.tsx
+│   ├── MenuSection.tsx
+│   ├── CategoryNav.tsx
+│   ├── SearchAndFilters.tsx
+│   ├── CheckoutModal.tsx
+│   ├── ScheduleOrderModal.tsx
+│   ├── ItemCustomizationModal.tsx
+│   ├── AuthModal.tsx
+│   ├── SeoHead.tsx
+│   └── admin/
+│       ├── MenuManagementPanel.tsx
+│       ├── BreakfastMenuPanel.tsx
+│       ├── DeliveryPanel.tsx
+│       ├── CustomersPanel.tsx
+│       ├── DeliveryZonesPanel.tsx
+│       ├── OperationsPanel.tsx
+│       ├── SchedulePanel.tsx
+│       ├── IntegrationsPanel.tsx
+│       ├── EmailTemplatesPanel.tsx
+│       ├── FooterPagesPanel.tsx
+│       ├── CustomPagesPanel.tsx
+│       ├── MenuLinksPanel.tsx
+│       ├── ColorSettingsPanel.tsx
+│       ├── FooterLogosPanel.tsx
+│       ├── ReceiptSettingsPanel.tsx
+│       ├── CouponsPanel.tsx
+│       ├── TaxSettingsPanel.tsx
+│       ├── DriversPanel.tsx
+│       └── RichEditor.tsx
+│
+├── context/AppContext.tsx           # Global state, Supabase sync, all mutations
+├── data/                            # Seed data (menu, restaurant, customers, footer pages)
+├── lib/
+│   ├── supabase.ts                  # Supabase client
+│   ├── escpos.ts                    # ESC/POS receipt formatter
+│   ├── emailTemplates.ts            # Email template engine
+│   ├── colorUtils.ts                # Brand colour CSS variable generator
+│   ├── scheduleUtils.ts             # Store open/close time helpers
+│   ├── stockUtils.ts                # Stock status resolution
+│   └── taxUtils.ts                  # VAT calculation utilities
+└── types/index.ts                   # All TypeScript interfaces
+```
+
+---
+
+## 5. State Management Architecture
+
+### 5.1 AppContext (Single Source of Truth)
 
 All application state flows through a single React Context (`AppContext`) defined in `context/AppContext.tsx`. There is no external state library.
 
 ```
 AppContext provides:
-├── Cart state (cartReducer — ADD / REMOVE / UPDATE_QTY / CLEAR)
-├── AdminSettings (settings, updateSettings)
-├── Menu (categories, menuItems — full CRUD operations)
-├── Customers (customers, addOrder, updateOrderStatus, updateCustomer)
-├── Auth (currentUser, login, logout, registerCustomer)
-├── Store state (isOpen — computed from schedule + manualClosed)
+├── Cart state (ADD / REMOVE / UPDATE_QTY / CLEAR)
+├── AdminSettings (settings, updateSettings, mutateSettings)
+├── Categories + MenuItems (full CRUD, Supabase-persisted)
+├── Customers (CRUD, Supabase-persisted)
+├── Orders (addOrder, updateOrderStatus, updateDeliveryStatus)
+├── Auth — Customer (login, logout, register)
+├── Auth — Driver (driverLogin, driverLogout, currentDriver)
 ├── Fulfillment (delivery | collection)
-└── Derived values (cartTotal, cartCount)
+├── Coupon (applyCoupon, removeCoupon, incrementCouponUsage)
+├── Driver operations (assignDriverToOrder, updateDeliveryStatus)
+├── Breakfast menu CRUD
+└── Derived values (cartTotal, cartCount, isOpen)
 ```
 
-### 4.2 localStorage Persistence
+### 5.2 Supabase Persistence
 
-Everything in `AdminSettings` (restaurant info, menu, customers, orders, zones, payment methods, email templates, pages, nav links, schedule) is persisted to `localStorage` under a single key: `adminSettings`.
+**Two persistence patterns are used:**
 
-**Hydration pattern:**
-1. On mount, AppContext reads `localStorage.adminSettings`
-2. A deep-merge migration is applied — new fields from `DEFAULT_SETTINGS` are grafted onto existing saved data, ensuring backward compatibility after app updates
-3. Every `updateSettings()` call immediately writes back to localStorage
+**`updateSettings(patch)`** — shallow-merges a partial `AdminSettings` object and writes it to `app_settings` in Supabase. Used exclusively for user-initiated settings changes (Operations, Schedule, Integrations, etc.).
 
-**Cross-tab synchronisation:**
-- AppContext listens for the browser's `storage` event
-- When the admin advances an order status in one tab, the customer portal in another tab automatically receives the update without a page reload
-- The admin dashboard's new-order notification bell uses the same mechanism — it detects when `customers` grows (new order placed in the customer tab) and shows a toast
+**`mutateSettings(fn)`** — functional-update pattern that applies a transformation function to the current settings and immediately upserts to Supabase. Used for all mutations that happen inside the provider (addCoupon, updateDriver, addDeliveryZone, etc.) to avoid triggering re-renders or Realtime loops.
 
-### 4.3 Data Types
+**Direct table mutations** — Categories, menu items, customers, and orders are persisted as individual table rows rather than inside the JSONB blob. Each CRUD function writes to the appropriate Supabase table immediately.
 
-All TypeScript interfaces live in `types/index.ts`. Key types:
+### 5.3 Supabase Realtime
+
+`AppContext` subscribes to a single `postgres_changes` channel (`"restaurant-realtime"`) that watches all five tables:
+
+```
+channel("restaurant-realtime")
+  .on(UPDATE, "app_settings", → setSettings)
+  .on(*, "categories",        → update categories state)
+  .on(*, "menu_items",        → update menuItems state)
+  .on(*, "orders",            → update order in customers state)
+  .on(*, "customers",         → update customers state)
+  .subscribe()
+```
+
+This means any write to Supabase — from any device, any tab, any session — immediately reflects in every connected instance. The admin advancing an order status and the customer's live tracker both update without a page reload.
+
+### 5.4 Initialisation / Seed
+
+On first load, `AppContext` queries all five tables. If any table is empty, seed data from `data/` is inserted:
+
+1. `app_settings` is upserted with `DEFAULT_SETTINGS`
+2. `categories` is populated from `data/menu.ts`
+3. `menu_items` is populated from `data/menu.ts`
+4. `customers` and `orders` are populated from `data/customers.ts`
+
+### 5.5 Key TypeScript Types
+
+All types live in `types/index.ts`:
 
 | Type | Purpose |
 |---|---|
-| `AdminSettings` | Root settings object — everything persisted to localStorage |
-| `MenuItem` | Menu item with dietary tags, variations, add-ons, image, stock status |
+| `AdminSettings` | Root settings object — everything in the `app_settings` JSONB row |
+| `MenuItem` | Menu item with dietary tags, variations, add-ons, image, stock |
 | `Category` | Category with emoji and display name |
 | `CartItem` | Cart line with selected variation, add-ons, instructions |
-| `Order` | Order record with status, items, fees, fulfillment type |
-| `Customer` | Customer with auth fields, tags, order history, and favourites |
+| `Order` | Order record with `OrderStatus`, `DeliveryStatus`, driver fields, fees, coupon |
+| `OrderStatus` | `"pending" \| "confirmed" \| "preparing" \| "ready" \| "delivered" \| "cancelled"` |
+| `DeliveryStatus` | `"assigned" \| "picked_up" \| "on_the_way" \| "delivered"` |
+| `Customer` | Customer with auth fields, tags, order history, favourites, saved addresses |
+| `Driver` | Driver account with auth, vehicle info, active flag |
 | `DeliveryZone` | Concentric radius ring with km boundaries and fee |
 | `PaymentMethod` | Payment option with distance-based delivery restriction |
 | `EmailTemplate` | HTML email template with variable placeholders |
+| `Coupon` | Discount code with type, value, limits, expiry, usage tracking |
+| `TaxSettings` | VAT rate, inclusive/exclusive mode, show breakdown flag |
+| `BreakfastMenuSettings` | Enabled toggle, time window, separate categories + items |
+| `ReceiptSettings` | Logo, contact info, VAT number, footer messages |
 | `FooterPage` | Built-in page (About, Terms, etc.) with rich HTML content |
 | `CustomPage` | Admin-created standalone page with SEO fields |
 | `MenuLink` | Header or footer nav link pointing to any page |
 | `ColorSettings` | Brand accent colour and page background hex values |
-| `FooterLogo` | Partner/badge logo with URL, href, label, and enabled flag |
-| `ReceiptSettings` | Custom receipt branding — logo, contact info, VAT number, and footer messages |
+| `FooterLogo` | Partner/badge logo with URL, href, label, enabled flag |
 | `PrinterSettings` | Thermal printer network config — IP, port, paper width, auto-print |
+| `SavedAddress` | Customer-saved delivery address with label, phone override, notes |
 
 ---
 
-## 5. Routing Architecture
-
-The Next.js App Router provides all routing. No external router is used.
+## 6. Routing Architecture
 
 | Route | Portal | Description |
 |---|---|---|
 | `/` | Customer | Menu page — browse, filter, add to cart, checkout |
-| `/account` | Customer | Order history, live status, profile management |
-| `/admin` | Admin | Full restaurant management dashboard |
-| `/[footerPage]` | Public | Dynamic page renderer for footer pages and custom pages |
+| `/account` | Customer | Order history, live tracking, profile, saved addresses |
+| `/admin` | Admin | Full restaurant management dashboard (18 tabs) |
+| `/kitchen` | Kitchen | Full-screen Kanban order display |
+| `/driver` | Driver | Delivery queue and order progression |
+| `/driver/login` | Driver | Driver authentication form |
+| `/[footerPage]` | Public | Dynamic renderer for footer pages and custom pages |
 
 ### Dynamic Page Resolution (`/[footerPage]`)
 
-The `[footerPage]` catch-all route resolves pages in this priority order:
+Priority order:
 
-1. Match against `settings.footerPages` (6 built-in pages: about-us, contact-us, terms, privacy, cookies, accessibility)
-2. Match against `settings.customPages` (admin-created pages, published only)
-3. Render a "Page not found" state if neither matches
-
-Custom pages inject their `seoTitle` and `seoDescription` into the document `<head>`.
+1. Match against `settings.footerPages` (6 built-in pages)
+2. Match against `settings.customPages` (published only)
+3. Render "Page not found"
 
 ---
 
-## 6. Customer Portal
+## 7. Order Status Workflow
 
-### 6.1 Menu Page (`/`)
+The order lifecycle uses two fields: `status` (kitchen/admin leg) and `deliveryStatus` (driver leg).
+
+### Kitchen / Admin leg
 
 ```
-Header (restaurant info card + fulfillment toggle + header nav links)
+pending ──→ confirmed ──→ preparing ──→ ready
+                                          │
+                 (collection) ────────────┴──→ delivered   [admin action]
+                 (delivery)   ────────────────→ [driver takes over]
+```
+
+| Status | Set by | Description |
+|---|---|---|
+| `pending` | Customer checkout | Order placed, awaiting acknowledgement |
+| `confirmed` | Admin | Restaurant has acknowledged |
+| `preparing` | Admin or kitchen | Kitchen is cooking |
+| `ready` | Kitchen | Food is ready; kitchen's job ends here |
+| `delivered` | Admin (collection) or driver (delivery) | Order complete |
+| `cancelled` | Admin | Order cancelled at any stage |
+
+**Role guard in `DeliveryPanel`**: `canAdminAdvance(order)` returns `false` for delivery orders at `"ready"` status — the admin button is hidden and `advance()` is a no-op for those orders. Only the driver can mark delivery orders as delivered.
+
+**Kitchen guard**: The kitchen's "Ready" column in `/kitchen` has no action button. Kitchen staff can only advance orders to `"ready"`; they cannot touch `"delivered"`.
+
+### Driver leg
+
+```
+assigned ──→ picked_up ──→ on_the_way ──→ delivered
+```
+
+`updateDeliveryStatus` in `AppContext` automatically sets `order.status = "delivered"` when `deliveryStatus` reaches `"delivered"`. Both fields are written to Supabase in the same update.
+
+### Customer-visible status
+
+The customer's `StatusBadge` component checks `order.deliveryStatus` first for delivery orders:
+
+| `deliveryStatus` | Badge label |
+|---|---|
+| `assigned` | Driver Assigned |
+| `picked_up` | Picked Up |
+| `on_the_way` | On the Way |
+| `delivered` | Delivered |
+| *(none)* | Falls back to `order.status` label |
+
+The `OrderTracker` uses separate step arrays:
+- **Delivery**: 4 kitchen steps (`pending → confirmed → preparing → ready`)
+- **Collection**: 5 steps including `delivered`
+
+The `DeliveryTracker` component shows the driver leg progress separately, with a live pulse indicator when `deliveryStatus === "on_the_way"`.
+
+---
+
+## 8. Customer Portal
+
+### 8.1 Menu Page (`/`)
+
+```
+Header (restaurant info + fulfillment toggle + header nav)
 │
-├── Mobile category strip (horizontal scroll, hidden lg:)
-├── Desktop category sidebar (CategoryNav, hidden below lg:)
+├── Mobile category strip (horizontal scroll)
+├── Desktop category sidebar (CategoryNav — hidden below lg)
 │
 ├── SearchAndFilters (text search + dietary filter pills)
 │
-├── MenuSection (category groups with ScrollSpy observer)
-│   └── MenuItemCard × N (image, dietary badges, price, + button)
+├── BreakfastSection (shown only during configured time window)
 │
-├── Cart (desktop sticky sidebar hidden below xl:)
-├── Mobile floating cart button (fixed bottom, hidden xl:)
-└── Mobile cart drawer (full-screen overlay)
-```
+└── MenuSection (category groups with IntersectionObserver ScrollSpy)
+    └── MenuItemCard × N (image, dietary, price, + button)
 
-**ScrollSpy:** An `IntersectionObserver` watches category section elements inside the scrollable container. As the user scrolls, the active category in the sidebar updates automatically.
+Cart — desktop sticky sidebar (hidden below xl)
+     — mobile floating button → full-screen drawer
+```
 
 **Checkout flow:**
 1. Cart validates minimum order threshold
-2. `CheckoutModal` opens as bottom sheet on mobile, centred modal on desktop
-3. Optional geolocation detects delivery distance via Haversine formula
-4. Matched `DeliveryZone` updates the displayed delivery fee in real time
-5. `PaymentMethod` list is filtered by distance restrictions if geolocation ran
-6. Selecting a payment method creates the `Order` record and fires print + email side effects
+2. `CheckoutModal` opens
+3. Geolocation detects delivery distance via Haversine formula
+4. Matched `DeliveryZone` updates delivery fee in real time
+5. `PaymentMethod` list filtered by distance restriction
+6. VAT and coupon discounts calculated and displayed
+7. Selecting payment creates the `Order`, fires print + email side effects
 
-### 6.2 Account Dashboard (`/account`)
+### 8.2 Account Dashboard (`/account`)
 
 Tabs: **Orders** | **Profile**
 
-- Orders tab shows full order history sorted by date descending, with live status tracking via the `OrderTracker` step indicator
-- Active orders are highlighted with an orange border and pulsing "Live" badge
-- Re-order: adds all deliverable items from a past order to the current cart, skipping any items no longer on the menu
-- Cross-tab status update banner: when the admin advances an order, a blue toast appears automatically without a page reload
-- Profile tab allows editing name and phone; email is read-only
+- Orders are sorted newest-first; active orders have an orange border and pulsing "Live" badge
+- `StatusBadge` derives its label from `deliveryStatus` for in-progress delivery orders
+- `OrderTracker` — kitchen step dots (4 for delivery, 5 for collection)
+- `DeliveryTracker` — driver leg progress with live animation when en route
+- Re-order: copies all currently-available items from a past order into the current cart
 
 ---
 
-## 7. Admin Dashboard (`/admin`)
+## 9. Admin Dashboard (`/admin`)
 
-The admin dashboard is a single-page tab application with 11 panels:
+18 tabbed panels:
 
 | Tab | Panel | Key Features |
 |---|---|---|
-| Menu Items | `MenuManagementPanel` | Category + item CRUD, dietary tags, variations, add-ons, image URL, stock tracking, popular flag |
-| Customers | `CustomersPanel` | Customer list, order history, VIP/tag management, manual order status override |
-| Delivery | `DeliveryPanel` | Live Kanban order board, status advancement, completed today table |
-| Zones | `DeliveryZonesPanel` | Concentric zone editor, per-zone fee, enable/disable toggle, colour coding |
-| Operations | `OperationsPanel` | Branding, fees, address, GPS coordinates, SEO global settings, custom head code |
-| Schedule | `SchedulePanel` | Per-day open/close times, manual closed override toggle |
-| Integrations | `IntegrationsPanel` | Stripe keys, PayPal client ID, SMTP credentials, thermal printer config |
-| Email | `EmailTemplatesPanel` | 6 event-based HTML email templates with variable substitution and live preview |
-| Footer Pages | `FooterPagesPanel` | Rich HTML editor for 6 built-in pages, visibility toggle, copyright text |
-| Custom Pages | `CustomPagesPanel` | Create/edit unlimited pages, slug management, SEO title/description, publish toggle |
-| Menus | `MenuLinksPanel` | Assign pages to header and footer navigation, reorder, label override, active toggle |
-| Colors | `ColorSettingsPanel` | Brand accent colour and page background — live preview across the entire site |
-| Logos | `FooterLogosPanel` | Partner logos, payment icons, and certification badges for the footer |
-| Receipt | `ReceiptSettingsPanel` | Logo toggle + URL, restaurant name, phone, website, email, VAT number, thank-you and custom messages — applied to all printed and emailed receipts; live thermal-style preview |
+| Menu Items | `MenuManagementPanel` | Category + item CRUD, dietary, variations, add-ons, image, stock, popular flag |
+| Breakfast | `BreakfastMenuPanel` | Separate breakfast categories/items, time-window (start/end), enabled toggle |
+| Customers | `CustomersPanel` | Customer list, order history, VIP/tag management, manual status override |
+| Delivery | `DeliveryPanel` | Kanban board, role-aware advance guard, completed-today table, new-order toast |
+| Zones | `DeliveryZonesPanel` | Concentric km-ring editor, per-zone fee, colour coding, enable/disable |
+| Operations | `OperationsPanel` | Branding (name synced to receiptSettings), fees, address, GPS, SEO, `<head>` injection |
+| Schedule | `SchedulePanel` | Per-day open/close times, manual closed override |
+| Integrations | `IntegrationsPanel` | Stripe, PayPal, SMTP, thermal printer, payment methods with distance rules |
+| Email | `EmailTemplatesPanel` | 6 lifecycle HTML templates, variable substitution, live preview |
+| Footer Pages | `FooterPagesPanel` | 6 built-in pages with rich HTML editor, visibility toggle, copyright |
+| Custom Pages | `CustomPagesPanel` | Unlimited pages, slug management, SEO fields, publish toggle, SERP preview |
+| Menus | `MenuLinksPanel` | Header + footer nav — add, label, reorder, toggle active |
+| Colors | `ColorSettingsPanel` | Brand accent + page background — CSS custom property injection, live preview |
+| Logos | `FooterLogosPanel` | Partner logos, payment icons, certification badges, enable/disable, reorder |
+| Receipt | `ReceiptSettingsPanel` | Logo, contact info, VAT number, messages — applied to all print + email receipts |
+| Coupons | `CouponsPanel` | Percentage and fixed codes, usage limits, min order, expiry, usage counter |
+| Tax | `TaxSettingsPanel` | VAT rate, inclusive/exclusive, breakdown display |
+| Drivers | `DriversPanel` | Driver CRUD, toggle active, view assigned orders |
 
 ### Admin real-time notifications
 
-- A `Bell` button in the admin header shows the count of active (non-terminal) orders
-- When a new order arrives from the customer portal (detected via the `storage` event), a slide-in toast appears with an option to jump to the Delivery tab
-- The Delivery tab badge pulses with the live active order count
+- Bell button in header shows the count of active (non-terminal) orders with a bounce animation
+- When a new order arrives, a slide-in toast appears with a "View in Delivery tab →" shortcut
+- The Delivery tab badge pulses with the live active-order count
 
 ---
 
-## 8. Integrations
+## 10. Kitchen Display (`/kitchen`)
 
-### 8.1 Thermal Printer (ESC/POS)
+Full-screen dark Kanban board:
 
-The admin Integrations panel allows configuring a network thermal printer (Epson/Star or compatible) by IP address and TCP port (default 9100).
+```
+COLUMNS:
+  New Orders  (status: pending | confirmed)  → "Start Preparing"
+  Preparing   (status: preparing)            → "Mark Ready"
+  Ready       (status: ready)                → display-only (no action button)
+```
+
+The "Ready" column shows:
+- Delivery orders: "Awaiting driver pickup" badge
+- Collection orders: "Awaiting customer collection" badge
+
+Urgency colour coding (self-updating every 30 s):
+- Green → < 15 min
+- Amber → 15–29 min
+- Red (pulsing) → ≥ 30 min
+
+`completedToday` counter increments each time an order moves to `ready` (kitchen's final action).
+
+---
+
+## 11. Driver Portal (`/driver`)
+
+Authentication:
+- Driver credentials (email + password) are set by admin in Admin → Drivers
+- `driverLogin()` in `AppContext` matches against `settings.drivers` and sets `currentDriver` state
+- Redirect to `/driver/login` if not authenticated
+
+Order flow:
+1. **Available orders** — delivery orders with `status === "ready" || "preparing"` and no `driverId`, sorted by readiness then age
+2. Driver accepts → `assignDriverToOrder()` sets `driverId`, `driverName`, and `deliveryStatus = "assigned"`
+3. Driver progresses: `assigned → picked_up → on_the_way → delivered`
+4. `updateDeliveryStatus()` writes to Supabase and sets `status = "delivered"` on the final step
+
+---
+
+## 12. Integrations
+
+### 12.1 Thermal Printer (ESC/POS)
 
 Flow:
-1. A new order is placed → `printOrder()` in `lib/escpos.ts` formats the ESC/POS byte sequence
-2. The formatted receipt is `POST`ed to `/api/print`
-3. The Next.js API route opens a raw TCP socket to the printer's IP:port and streams the bytes
-4. Auto-print can be enabled/disabled in admin settings
+1. New order placed → `printOrder()` in `lib/escpos.ts` formats ESC/POS bytes
+2. Receipt is `POST`ed to `/api/print`
+3. API route opens a raw TCP socket to the printer's IP:port and streams the bytes
+4. Auto-print toggle in admin settings
 
-### 8.2 Email (SMTP)
+`buildReceipt()` uses `receiptSettings` for the header (restaurant name, phone, website, email, VAT number) and footer (thank-you message, custom message). Falls back to `restaurant.*` fields when receipt-specific values are not set.
 
-Six order lifecycle events trigger email sends:
+### 12.2 Email (SMTP)
+
+Six lifecycle events trigger email sends:
 
 | Event | Trigger |
 |---|---|
-| `order_confirmation` | Immediately when an order is placed |
-| `order_confirmed` | Admin advances status to Confirmed |
-| `order_preparing` | Admin advances status to Preparing |
-| `order_ready` | Admin advances status to Ready |
-| `order_delivered` | Admin advances status to Delivered |
-| `order_cancelled` | Admin marks an order as Cancelled |
+| `order_confirmation` | Customer completes checkout |
+| `order_confirmed` | Admin advances to Confirmed |
+| `order_preparing` | Admin advances to Preparing |
+| `order_ready` | Admin advances to Ready |
+| `order_delivered` | Order marked as Delivered |
+| `order_cancelled` | Admin marks as Cancelled |
 
-Each template is fully editable in the admin Email tab. Templates support variable interpolation: `{{customerName}}`, `{{orderId}}`, `{{total}}`, `{{items}}`, `{{estimatedTime}}`, etc.
+`sendOrderEmail()` → interpolates `{{variables}}` into the template → `buildEmailDocument()` wraps it with receipt branding (logo, contact, VAT, custom message) → `POST /api/email` → SMTP relay.
 
-Email sends are proxied through `/api/email` to keep SMTP credentials server-side.
+### 12.3 Geolocation + Delivery Zones
 
-### 8.3 Geolocation + Delivery Zones
+At checkout (delivery only):
+1. `navigator.geolocation.getCurrentPosition()` fetches `(lat, lng)`
+2. Haversine formula: `d = 2r · arcsin(√(sin²(Δφ/2) + cos φ₁ · cos φ₂ · sin²(Δλ/2)))`
+3. Smallest matching enabled `DeliveryZone` (`minRadiusKm ≤ d ≤ maxRadiusKm`) is selected
+4. Zone fee replaces the default delivery fee
+5. Payment methods with `deliveryRange.restricted = true` are hidden when `d` falls outside `[minKm, maxKm]`
 
-At checkout (delivery orders only):
-1. Browser Geolocation API retrieves `(lat, lng)` with user permission
-2. Haversine formula calculates the straight-line distance to the restaurant's GPS coordinates
-3. The smallest matching enabled `DeliveryZone` (where `minRadiusKm ≤ distance ≤ maxRadiusKm`) is selected
-4. That zone's `fee` replaces the default delivery fee in the order total
-5. Payment methods with `deliveryRange.restricted = true` are hidden if the customer's distance falls outside `[minKm, maxKm]`
-
-If geolocation is denied or unavailable, all enabled payment methods are shown and the default delivery fee applies.
+If geolocation is denied, all enabled payment methods are shown and the default delivery fee applies.
 
 ---
 
-## 9. Content Management (Pages + Navigation)
+## 13. Content Management
 
+### 13.1 Footer Pages
 
-### 9.1 Footer Pages
-
-Six built-in pages are pre-seeded and always available:
+Six built-in pages pre-seeded in `data/footerPages.ts`:
 
 | Slug | Page |
 |---|---|
@@ -308,213 +530,100 @@ Six built-in pages are pre-seeded and always available:
 | `/cookies` | Cookie Policy |
 | `/accessibility` | Accessibility Statement |
 
-Each page has a rich HTML editor in the admin Footer Pages tab, an enabled/disabled visibility toggle, and a preview link.
+### 13.2 Custom Pages
 
-### 9.2 Custom Pages
+Admin creates unlimited pages with rich HTML content, SEO title (≤60 chars), meta description (≤160 chars), slug (auto-generated, conflict-checked), and a published/draft toggle. Served at `/{slug}` via `[footerPage]`.
 
-Admin can create unlimited custom pages with:
-- Title, URL slug (auto-generated, conflict-checked, reserved slug protection)
-- Rich HTML content via `RichEditor`
-- SEO title (≤60 chars) and meta description (≤160 chars) with live character counters and SERP preview
-- Published/draft toggle
-- Created/updated timestamps
+### 13.3 Navigation Management
 
-Custom pages are served at `/{slug}` via the `[footerPage]` dynamic route.
-
-### 9.3 Navigation Management
-
-The Menus tab (`MenuLinksPanel`) provides separate editors for:
-- **Header navigation** — links appear in the nav bar below the restaurant info card on the customer portal
-- **Footer navigation** — links appear in the site footer
-
-For each location the admin can:
-- Add any custom page or built-in footer page from a grouped picker
-- Customise the display label independently of the page title
-- Reorder with up/down arrows
-- Toggle active/inactive without removing the link
-- Remove links permanently
-
-The `Footer.tsx` component uses `settings.menuLinks[location=footer]` when any managed links exist, falling back to the legacy `settings.footerPages[enabled]` list for zero-config backward compatibility.
+Separate editors for header and footer navigation. Admin can add any page, customise its display label, reorder with up/down arrows, and toggle active/inactive. `Footer.tsx` uses managed links when any exist, falling back to enabled footer pages for backward compatibility.
 
 ---
 
-## 10. Custom Receipt Settings
+## 14. Receipt Settings
 
-### 10.1 Overview
+`ReceiptSettings` is stored inside the `app_settings` JSONB and applied to:
 
-The **Receipt** admin tab (`ReceiptSettingsPanel`) lets the restaurant owner configure the branding and contact information that appears on every printed and emailed receipt. Settings are stored in `AdminSettings.receiptSettings` and persisted to `localStorage` alongside all other admin settings.
+**Thermal printed receipts** (`lib/escpos.ts`):
+- Header: `restaurantName`, `phone`, `website`, `email`, `vatNumber`
+- Footer: `thankYouMessage`, `customMessage`
 
-### 10.2 ReceiptSettings Type
+**Order lifecycle emails** (`lib/emailTemplates.ts`):
+- Email header title: `restaurantName`
+- Logo block: shown when `showLogo = true` and `logoUrl` is set
+- Footer: contact line with VAT number, `customMessage`
+
+---
+
+## 15. VAT / Tax
+
+`TaxSettings` fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `enabled` | boolean | Master on/off switch |
+| `rate` | number | VAT percentage (e.g. 20) |
+| `inclusive` | boolean | `true` = prices include VAT; `false` = VAT added on top |
+| `showBreakdown` | boolean | Whether to show the VAT line to the customer |
+
+VAT is calculated in `lib/taxUtils.ts` and stored on the order as `vatAmount` and `vatInclusive`. It appears in:
+- Cart sidebar
+- Checkout modal order summary
+- Printed ESC/POS receipt
+- Order lifecycle emails
+
+---
+
+## 16. Breakfast Menu
+
+`BreakfastMenuSettings`:
 
 ```ts
-interface ReceiptSettings {
-  showLogo:        boolean;  // whether to display the logo
-  logoUrl:         string;   // hosted URL or base64 data URI
-  restaurantName:  string;   // receipt-specific name (can differ from main brand)
-  phone:           string;   // contact phone number
-  website:         string;   // website URL shown on receipt
-  email:           string;   // contact email shown on receipt
-  vatNumber:       string;   // e.g. "GB 123 4567 89" — omitted if blank
-  thankYouMessage: string;   // bold footer line
-  customMessage:   string;   // optional second footer line (promotions, social)
+{
+  enabled:    boolean;
+  startTime:  string;      // "07:00"
+  endTime:    string;      // "11:30"
+  categories: Category[];  // breakfast-specific categories
+  items:      MenuItem[];  // breakfast-specific items
 }
 ```
 
-### 10.3 Admin UI
-
-The `ReceiptSettingsPanel` provides:
-
-- **Logo section** — toggle to show/hide, URL input with inline thumbnail, base64 support
-- **Top section** — Restaurant Name, Phone, Website, Email, VAT Number
-- **Bottom section** — Thank You Message and Custom Message (textarea)
-- **Live receipt preview** — toggleable side-by-side pane rendering a monospaced thermal-paper style preview (with sprocket hole strips) that reflects draft changes in real time, before saving
-- **Save button** — writes to `settings.receiptSettings` via `updateSettings()`, immediately persisted to localStorage
-
-### 10.4 Thermal Receipt Integration (`lib/escpos.ts`)
-
-`buildReceipt()` reads `settings.receiptSettings` for the header and footer blocks:
-
-**Header block (printed after restaurant address):**
-- Restaurant name from `receiptSettings.restaurantName` (falls back to `restaurant.name`)
-- Phone from `receiptSettings.phone` (falls back to `restaurant.phone`)
-- Website — printed only when non-empty
-- Email — printed only when non-empty
-- VAT number — printed as `VAT: <value>` only when non-empty
-
-**Footer block (printed after totals):**
-- `thankYouMessage` in bold (falls back to `"Thank you for your order!"`)
-- `customMessage` on a second line if non-empty
-
-### 10.5 Email Receipt Integration (`lib/emailTemplates.ts`)
-
-`buildEmailDocument()` accepts an optional `receiptSettings` parameter used to enhance the email wrapper:
-
-| Email element | Source |
-|---|---|
-| Header title | `receiptSettings.restaurantName` → falls back to `restaurant.name` |
-| Header logo | `<img>` block rendered when `showLogo = true` and `logoUrl` is non-empty |
-| Footer contact line | `restaurantName · address · phone · website · email` |
-| Footer VAT | Appended to contact line when `vatNumber` is non-empty |
-| Footer custom message | Second `<p>` below the contact line when `customMessage` is non-empty |
-
-`sendOrderEmail()` automatically forwards `settings.receiptSettings` to `buildEmailDocument()` for every outgoing email.
-
-### 10.6 Data Migration
-
-The hydration migration in `AppContext.tsx` backfills `receiptSettings` for localStorage snapshots that predate this feature:
-
-```ts
-merged.receiptSettings = { ...DEFAULT_RECEIPT_SETTINGS, ...(parsed.receiptSettings ?? {}) };
-```
-
-`DEFAULT_RECEIPT_SETTINGS` seeds the restaurant name and phone from `restaurantInfo` so receipts display sensible defaults on first load.
+Stored inside `app_settings` JSONB alongside the main settings. The customer portal evaluates `isBreakfastActive(startTime, endTime)` on every render and conditionally shows `<BreakfastSection>` above the main menu.
 
 ---
 
-## 11. Mobile Responsiveness
-
-
-
-The application is built mobile-first throughout. Key patterns used:
+## 17. Mobile Responsiveness
 
 | Pattern | Implementation |
 |---|---|
 | Bottom-sheet modals | `items-end sm:items-center` + `rounded-t-2xl sm:rounded-2xl` |
 | Horizontal category scroll | `overflow-x-auto scrollbar-hide` with `flex-shrink-0` pills |
-| Responsive admin sidebars | `flex flex-col md:flex-row md:divide-x` with `max-h-40 md:max-h-none` |
-| Touch-accessible buttons | Minimum `w-10 h-10` (40px) touch targets on interactive elements |
+| Responsive admin sidebars | `flex flex-col md:flex-row` with `max-h-40 md:max-h-none` |
+| Touch-accessible buttons | Minimum `w-10 h-10` (40px) on all interactive elements |
 | Mobile cart | Fixed floating button → full-screen drawer at `z-50` |
-| Always-visible action buttons | `md:opacity-0 md:group-hover:opacity-100` (hidden on hover on desktop, always visible on mobile) |
-| Content clearance | `pb-28 xl:pb-6` bottom padding to prevent floating cart button from obscuring content |
-| Admin tab bar | `hidden sm:inline` labels — icons only on smallest screens |
+| Content clearance | `pb-28 xl:pb-6` bottom padding |
+| Admin tab bar | `hidden sm:inline` labels — icon-only on small screens |
 
 ---
 
-## 12. Planned Production Architecture (v2)
+## 18. Security Notes
 
-When the system is deployed for real-world use, the localStorage persistence layer is replaced with a proper backend. The customer and admin portals continue to run as the existing Next.js app; only the data layer changes.
-
-### 12.1 High-Level Target Architecture
-
-```
-                Internet
-                    │
-                Nginx (HTTPS termination)
-                    │
-      ┌─────────────┼──────────────┐
-      │             │              │
-Customer Portal  Admin Portal  FastAPI API
- (Next.js)        (Next.js)        │
-                                   │
-                         ┌─────────┴──────────┐
-                         │                    │
-                   Celery Worker         Celery Beat
-                         │                    │
-                         └────────┬───────────┘
-                                  │
-                                Redis
-                                  │
-                             MySQL Server
-                                  │
-                     ┌────────────┴────────────┐
-                     │                         │
-                Stripe API             PayPal / SMTP
-```
-
-### 12.2 Backend Service Responsibilities
-
-**FastAPI** — REST API for order placement, menu queries, auth, and order status patching. Delegates all async work to Celery.
-
-**Celery Worker** — Handles the full fulfilment pipeline: payment charging, kitchen notification, email sending, inventory update, delivery dispatch.
-
-**Celery Beat** — Scheduled tasks: daily analytics snapshots, weekly revenue summaries, nightly session cleanup.
-
-**Redis** — Message broker for two logical queues:
-- `orders` — core fulfilment pipeline
-- `notifications` — emails and admin alerts
-
-**MySQL** — Persistent store for all orders, customers, menu, zones, settings, and audit logs.
-
-### 12.3 Order Fulfilment Flow (v2)
-
-```
-Customer Portal → FastAPI
-                     │
-              Enrich: zone, fees, price lock
-              Persist: INSERT orders (status=pending)
-              Queue → Redis (orders queue)
-                     │
-              Celery Worker
-                     │
-    VALIDATE → CHARGE → NOTIFY_KITCHEN → EMAIL → DISPATCH → COMPLETE
-```
-
-### 12.4 Migration Path
-
-| v1 (current) | v2 (production) |
+| Area | Current implementation |
 |---|---|
-| `localStorage` settings | MySQL `admin_settings` table |
-| `localStorage` customers + orders | MySQL `customers` + `orders` tables |
-| `receiptSettings` in localStorage | MySQL `receipt_settings` table |
-| In-process cart | Unchanged (client-side) |
-| `/api/print` route | Unchanged |
-| `/api/email` route | Replaced by Celery `SEND_EMAIL` task |
-| Cross-tab `storage` event | WebSocket or Server-Sent Events from FastAPI |
-| Mock auth (plaintext) | JWT with bcrypt-hashed passwords |
+| Customer auth | Email + password stored in `customers` table (plaintext for demo) |
+| Driver auth | Email + password in `settings.drivers` inside `app_settings` (plaintext for demo) |
+| Admin access | URL-based only (`/admin`) — no authentication in current build |
+| Payment credentials | Stored in `app_settings.stripePublicKey` / `stripeSecretKey` in Supabase |
+| Card data | Never touches the server — Stripe.js / PayPal SDK tokenise client-side |
+| SMTP credentials | Proxied through `/api/email` — not exposed to client bundle |
+| Supabase RLS | Not yet configured — anon key has full table access in current build |
+
+**Recommended production hardening:**
+- Enable Supabase Row Level Security (RLS) with per-role policies
+- Replace plaintext passwords with bcrypt hashing
+- Add session-based authentication for the `/admin` route
+- Move `stripeSecretKey` to a server-side environment variable
 
 ---
 
-## 13. Security Notes
-
-| Area | Current (v1) | Production (v2) |
-|---|---|---|
-| Auth | Mock — email/password stored in localStorage | JWT tokens, bcrypt passwords, httpOnly cookies |
-| Payment credentials | Stored in localStorage (admin only) | Environment variables, never in the repository |
-| Card data | Never touches the server (Stripe.js / PayPal SDK tokenise client-side) | Same |
-| Admin access | URL-based only (`/admin`) | Session-based auth with RBAC |
-| SMTP credentials | Proxied through `/api/email` — not exposed to client | Server-side only via environment variables |
-| HTTPS | Local dev (HTTP) | Nginx TLS termination (Let's Encrypt) |
-
----
-
-*Last updated: April 2026 — added Custom Receipt Settings (section 10), updated admin panel table (14 tabs), component tree, and data types table.*
+*Last updated: April 2026*
