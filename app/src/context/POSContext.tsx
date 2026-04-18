@@ -367,6 +367,10 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       discountAmount: disc,
       discountNote: discount.note,
       taxAmount: tax,
+      // Snapshot the VAT mode at time of sale so receipts always show the correct label,
+      // even if the settings change later.
+      taxRate: settings.taxRate,
+      taxInclusive: settings.taxInclusive,
       tipAmount,
       total,
       paymentMethod,

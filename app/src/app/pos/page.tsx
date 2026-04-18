@@ -389,23 +389,49 @@ function PaymentModal({
 
 // ─── Receipt Modal ─────────────────────────────────────────────────────────────
 
-function ReceiptModal({ sale, currencySymbol, footer, onClose }: { sale: POSSale; currencySymbol: string; footer: string; onClose: () => void }) {
+function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose: () => void }) {
+  const { settings } = usePOS();
+  const sym = settings.currencySymbol;
+
+  // Restaurant name: prefer receipt-specific name, fall back to business name
+  const restaurantName = (settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant").toUpperCase();
+
+  // VAT label and sign — read from the snapshot saved on the sale itself so it's
+  // always accurate even if settings change after the transaction.
+  const taxRate      = sale.taxRate      ?? settings.taxRate;
+  const taxInclusive = sale.taxInclusive ?? settings.taxInclusive;
+  const vatLabel     = taxInclusive
+    ? `VAT (${taxRate}% incl.)`
+    : `VAT (${taxRate}%)`;
+  const vatSign = taxInclusive ? "" : "+";
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl w-full max-w-xs overflow-hidden shadow-2xl">
         <div className="p-6 font-mono text-gray-900 text-xs">
+
+          {/* ── Header ───────────────────────────────────────── */}
           <div className="text-center mb-4">
-            <p className="font-bold text-base">SPICE GARDEN</p>
+            <p className="font-bold text-base">{restaurantName}</p>
+            {settings.receiptPhone && <p className="text-gray-500">{settings.receiptPhone}</p>}
+            {settings.receiptWebsite && <p className="text-gray-500">{settings.receiptWebsite}</p>}
             <p className="text-gray-500">{fmtDate(sale.date)} · {fmtTime(sale.date)}</p>
             <p className="text-gray-500">Receipt #{sale.receiptNo}</p>
             {sale.staffName && <p className="text-gray-500">Served by: {sale.staffName}</p>}
+            {sale.customerName && <p className="text-gray-500">Customer: {sale.customerName}</p>}
+            {settings.receiptVatNumber && (
+              <p className="text-gray-400 text-[10px]">VAT No: {settings.receiptVatNumber}</p>
+            )}
           </div>
+
           <div className="border-t border-dashed border-gray-300 my-3" />
+
+          {/* ── Items ─────────────────────────────────────────── */}
           {sale.items.map((item) => (
             <div key={item.lineId} className="mb-2">
               <div className="flex justify-between">
                 <span className="font-semibold">{item.name} ×{item.quantity}</span>
-                <span>{fmt(item.price * item.quantity, currencySymbol)}</span>
+                <span>{fmt(item.price * item.quantity, sym)}</span>
               </div>
               {item.modifiers.map((m) => (
                 <p key={m.optionId} className="text-gray-500 pl-2">+ {m.optionLabel}</p>
@@ -413,20 +439,92 @@ function ReceiptModal({ sale, currencySymbol, footer, onClose }: { sale: POSSale
               {item.note && <p className="text-gray-500 pl-2 italic">&ldquo;{item.note}&rdquo;</p>}
             </div>
           ))}
+
           <div className="border-t border-dashed border-gray-300 my-3" />
-          <div className="flex justify-between"><span>Subtotal</span><span>{fmt(sale.subtotal, currencySymbol)}</span></div>
-          {sale.discountAmount > 0 && <div className="flex justify-between text-green-600"><span>Discount</span><span>-{fmt(sale.discountAmount, currencySymbol)}</span></div>}
-          {sale.taxAmount > 0 && <div className="flex justify-between text-gray-500"><span>VAT (incl.)</span><span>{fmt(sale.taxAmount, currencySymbol)}</span></div>}
-          {sale.tipAmount > 0 && <div className="flex justify-between"><span>Tip</span><span>{fmt(sale.tipAmount, currencySymbol)}</span></div>}
-          <div className="flex justify-between font-bold text-base mt-2 pt-2 border-t border-gray-300"><span>TOTAL</span><span>{fmt(sale.total, currencySymbol)}</span></div>
-          {sale.cashTendered !== undefined && <div className="flex justify-between text-gray-500 mt-1"><span>Cash</span><span>{fmt(sale.cashTendered, currencySymbol)}</span></div>}
-          {sale.changeGiven !== undefined && sale.changeGiven > 0 && <div className="flex justify-between text-gray-500"><span>Change</span><span>{fmt(sale.changeGiven, currencySymbol)}</span></div>}
+
+          {/* ── Totals ────────────────────────────────────────── */}
+          <div className="flex justify-between">
+            <span>Subtotal</span><span>{fmt(sale.subtotal, sym)}</span>
+          </div>
+          {sale.discountAmount > 0 && (
+            <div className="flex justify-between text-green-600">
+              <span>Discount{sale.discountNote ? ` (${sale.discountNote})` : ""}</span>
+              <span>-{fmt(sale.discountAmount, sym)}</span>
+            </div>
+          )}
+          {sale.taxAmount > 0 && (
+            <div className="flex justify-between text-gray-500">
+              <span>{vatLabel}</span>
+              <span>{vatSign}{fmt(sale.taxAmount, sym)}</span>
+            </div>
+          )}
+          {sale.tipAmount > 0 && (
+            <div className="flex justify-between">
+              <span>Tip</span><span>{fmt(sale.tipAmount, sym)}</span>
+            </div>
+          )}
+
+          <div className="flex justify-between font-bold text-base mt-2 pt-2 border-t border-gray-300">
+            <span>TOTAL</span><span>{fmt(sale.total, sym)}</span>
+          </div>
+
+          {/* ── Payment breakdown ─────────────────────────────── */}
+          <div className="mt-1 space-y-0.5">
+            {sale.paymentMethod === "split" ? (
+              sale.payments.map((p, i) => (
+                <div key={i} className="flex justify-between text-gray-500 capitalize">
+                  <span>{p.method}</span><span>{fmt(p.amount, sym)}</span>
+                </div>
+              ))
+            ) : sale.paymentMethod === "cash" ? (
+              <>
+                <div className="flex justify-between text-gray-500">
+                  <span>Cash</span>
+                  <span>{fmt(sale.cashTendered ?? sale.total, sym)}</span>
+                </div>
+                {(sale.changeGiven ?? 0) > 0 && (
+                  <div className="flex justify-between text-gray-500">
+                    <span>Change</span><span>{fmt(sale.changeGiven!, sym)}</span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex justify-between text-gray-500 capitalize">
+                <span>{sale.paymentMethod}</span><span>{fmt(sale.total, sym)}</span>
+              </div>
+            )}
+          </div>
+
+          {/* ── Footer ────────────────────────────────────────── */}
           <div className="border-t border-dashed border-gray-300 my-3" />
-          <div className="text-center text-gray-500 whitespace-pre-line">{footer}</div>
+          {settings.receiptThankYouMessage && (
+            <p className="text-center text-gray-700 font-semibold">
+              {settings.receiptThankYouMessage}
+            </p>
+          )}
+          {settings.receiptCustomMessage && (
+            <p className="text-center text-gray-500 mt-1">
+              {settings.receiptCustomMessage}
+            </p>
+          )}
+          {/* Legacy footer field kept for backwards-compat */}
+          {!settings.receiptThankYouMessage && settings.receiptFooter && (
+            <p className="text-center text-gray-500 whitespace-pre-line">{settings.receiptFooter}</p>
+          )}
         </div>
+
+        {/* ── Buttons ──────────────────────────────────────────── */}
         <div className="px-4 pb-4 grid grid-cols-2 gap-2">
-          <button onClick={onClose} className="py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 transition-colors">Close</button>
-          <button onClick={() => window.print()} className="py-3 rounded-xl bg-slate-900 text-white font-semibold text-sm hover:bg-slate-800 transition-colors flex items-center justify-center gap-2">
+          <button
+            onClick={onClose}
+            className="py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 transition-colors"
+          >
+            Close
+          </button>
+          <button
+            onClick={() => window.print()}
+            className="py-3 rounded-xl bg-slate-900 text-white font-semibold text-sm hover:bg-slate-800 transition-colors flex items-center justify-center gap-2"
+          >
             <Printer size={14} /> Print
           </button>
         </div>
@@ -682,7 +780,7 @@ function SaleView() {
 
       {/* Receipt modal */}
       {completedSale && (
-        <ReceiptModal sale={completedSale} currencySymbol={settings.currencySymbol} footer={settings.receiptFooter} onClose={() => setCompletedSale(null)} />
+        <ReceiptModal sale={completedSale} onClose={() => setCompletedSale(null)} />
       )}
 
       {/* Discount modal */}

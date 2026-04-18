@@ -142,6 +142,8 @@ export interface POSSale {
   discountAmount: number;
   discountNote?: string;
   taxAmount: number;
+  taxRate: number;       // rate at time of sale, e.g. 20
+  taxInclusive: boolean; // whether VAT was included in item prices
   tipAmount: number;
   total: number;
   paymentMethod: POSPaymentMethod;
@@ -152,6 +154,7 @@ export interface POSSale {
   staffName: string;
   customerId?: string;
   customerName?: string;
+  tableNumber?: number;
   date: string; // ISO
   voided: boolean;
   voidReason?: string;
