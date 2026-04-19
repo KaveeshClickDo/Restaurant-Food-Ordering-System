@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { usePOS } from "@/context/POSContext";
 import {
   POSProduct, POSCategory, POSCartItem, POSModifier, POSModifierOption,
   POSCartModifier, POSCustomer, POSStaff, POSSale, POSSettings,
-  ROLE_PERMISSIONS,
+  ROLE_PERMISSIONS, POSOffer, getOfferPrice, isOfferActive, cartLineTotal, cartLineSaving,
 } from "@/types/pos";
 import {
   ShoppingCart, LayoutDashboard, Users, UserCog, Settings2, ChefHat,
@@ -15,7 +15,7 @@ import {
   ChevronRight, ChevronDown, CheckCircle2, AlertCircle, BadgeDollarSign,
   Pencil, Save, RefreshCw, ToggleLeft, ToggleRight, Printer, Gift,
   Phone, Mail, Calendar, ArrowUpRight, Trophy, Zap, BarChart3,
-  UserPlus, ClockIcon, Timer, PanelLeftClose, Flame, CircleCheck,
+  UserPlus, ClockIcon, Timer, PanelLeftClose, Flame, CircleCheck, Download,
 } from "lucide-react";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -387,10 +387,76 @@ function PaymentModal({
   );
 }
 
+// ─── Receipt HTML builder (used for both display and email) ────────────────────
+
+function buildReceiptHtml(sale: POSSale, settings: POSSettings): string {
+  const sym = settings.currencySymbol;
+  const restaurantName = (settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant").toUpperCase();
+  const taxRate      = sale.taxRate      ?? settings.taxRate;
+  const taxInclusive = sale.taxInclusive ?? settings.taxInclusive;
+  const vatLabel     = taxInclusive ? `VAT (${taxRate}% incl.)` : `VAT (${taxRate}%)`;
+  const vatSign      = taxInclusive ? "" : "+";
+
+  const row = (l: string, r: string, bold = false, color = "#374151") =>
+    `<tr><td style="padding:1px 0;color:${color};${bold?"font-weight:700;":""}font-size:12px">${l}</td><td style="padding:1px 0;color:${color};${bold?"font-weight:700;":""}font-size:12px;text-align:right">${r}</td></tr>`;
+
+  const itemsHtml = sale.items.map((item) => {
+    const mods = item.modifiers.map((m) => `<div style="font-size:11px;color:#6b7280;padding-left:8px">+ ${m.optionLabel}</div>`).join("");
+    const note = item.note ? `<div style="font-size:11px;color:#f97316;padding-left:8px;font-style:italic">"${item.note}"</div>` : "";
+    return `<tr><td style="padding:2px 0;font-size:12px">${item.name} ×${item.quantity}${mods}${note}</td><td style="padding:2px 0;font-size:12px;text-align:right">${sym}${(item.price * item.quantity).toFixed(2)}</td></tr>`;
+  }).join("");
+
+  let paymentHtml = "";
+  if (sale.paymentMethod === "split") {
+    paymentHtml = sale.payments.map((p) =>
+      `<tr><td style="font-size:11px;color:#6b7280;text-transform:capitalize">${p.method}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${p.amount.toFixed(2)}</td></tr>`
+    ).join("");
+  } else if (sale.paymentMethod === "cash") {
+    paymentHtml = `<tr><td style="font-size:11px;color:#6b7280">Cash</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${(sale.cashTendered ?? sale.total).toFixed(2)}</td></tr>`;
+    if ((sale.changeGiven ?? 0) > 0) {
+      paymentHtml += `<tr><td style="font-size:11px;color:#6b7280">Change</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${sale.changeGiven!.toFixed(2)}</td></tr>`;
+    }
+  } else {
+    paymentHtml = `<tr><td style="font-size:11px;color:#6b7280;text-transform:capitalize">${sale.paymentMethod}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${sale.total.toFixed(2)}</td></tr>`;
+  }
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#f9fafb;font-family:monospace">
+<div style="max-width:360px;margin:24px auto;background:#fff;border-radius:12px;padding:24px">
+  <div style="text-align:center;margin-bottom:16px">
+    <div style="font-weight:700;font-size:16px;letter-spacing:1px">${restaurantName}</div>
+    ${settings.receiptPhone ? `<div style="font-size:11px;color:#6b7280">${settings.receiptPhone}</div>` : ""}
+    ${settings.receiptWebsite ? `<div style="font-size:11px;color:#6b7280">${settings.receiptWebsite}</div>` : ""}
+    <div style="font-size:11px;color:#6b7280">${new Date(sale.date).toLocaleString("en-GB")}</div>
+    <div style="font-size:11px;color:#6b7280">Receipt #${sale.receiptNo}</div>
+    ${sale.staffName ? `<div style="font-size:11px;color:#6b7280">Served by: ${sale.staffName}</div>` : ""}
+    ${sale.customerName ? `<div style="font-size:11px;color:#6b7280">Customer: ${sale.customerName}</div>` : ""}
+    ${settings.receiptVatNumber ? `<div style="font-size:10px;color:#9ca3af">VAT No: ${settings.receiptVatNumber}</div>` : ""}
+  </div>
+  <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
+  <table style="width:100%;border-collapse:collapse">${itemsHtml}</table>
+  <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
+  <table style="width:100%;border-collapse:collapse">
+    ${row("Subtotal", `${sym}${sale.subtotal.toFixed(2)}`)}
+    ${sale.discountAmount > 0 ? row(`Discount${sale.discountNote ? ` (${sale.discountNote})` : ""}`, `-${sym}${sale.discountAmount.toFixed(2)}`, false, "#16a34a") : ""}
+    ${sale.taxAmount > 0 ? row(vatLabel, `${vatSign}${sym}${sale.taxAmount.toFixed(2)}`, false, "#6b7280") : ""}
+    ${sale.tipAmount > 0 ? row("Tip", `${sym}${sale.tipAmount.toFixed(2)}`) : ""}
+    ${row("TOTAL", `${sym}${sale.total.toFixed(2)}`, true)}
+    ${paymentHtml}
+  </table>
+  <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
+  ${settings.receiptThankYouMessage ? `<div style="text-align:center;font-weight:600;color:#374151;font-size:12px;margin-bottom:4px">${settings.receiptThankYouMessage}</div>` : ""}
+  ${settings.receiptCustomMessage ? `<div style="text-align:center;color:#6b7280;font-size:11px">${settings.receiptCustomMessage}</div>` : ""}
+</div></body></html>`;
+}
+
 // ─── Receipt Modal ─────────────────────────────────────────────────────────────
 
 function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose: () => void }) {
-  const { settings } = usePOS();
+  const { settings, customers } = usePOS();
+  const customer = customers.find((c) => c.id === sale.customerId);
+  const [emailTo, setEmailTo] = useState(customer?.email ?? "");
+  const [emailStatus, setEmailStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [emailError, setEmailError] = useState("");
   const sym = settings.currencySymbol;
 
   // Restaurant name: prefer receipt-specific name, fall back to business name
@@ -404,6 +470,42 @@ function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose: () => void })
     ? `VAT (${taxRate}% incl.)`
     : `VAT (${taxRate}%)`;
   const vatSign = taxInclusive ? "" : "+";
+
+  async function sendEmail() {
+    if (!emailTo.trim() || !settings.smtpHost?.trim()) return;
+    setEmailStatus("sending");
+    setEmailError("");
+    try {
+      const html = buildReceiptHtml(sale, settings);
+      const fromName = settings.smtpFromName?.trim() || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant";
+      const subject  = `Your receipt from ${fromName} — #${sale.receiptNo}`;
+      const res = await fetch("/api/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: emailTo.trim(),
+          subject,
+          html,
+          smtp: {
+            host:     settings.smtpHost,
+            port:     Number(settings.smtpPort) || 587,
+            user:     settings.smtpUser,
+            password: settings.smtpPassword,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setEmailStatus("sent");
+      } else {
+        setEmailStatus("error");
+        setEmailError(data.error ?? "Failed to send email");
+      }
+    } catch (e) {
+      setEmailStatus("error");
+      setEmailError(e instanceof Error ? e.message : "Network error");
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -513,8 +615,53 @@ function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose: () => void })
           )}
         </div>
 
+        {/* ── Email receipt section ─────────────────────────── */}
+        <div className="px-4 pb-2">
+          <div className="border border-gray-200 rounded-xl p-3 space-y-2">
+            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+              <Mail size={11} /> Email Receipt
+            </p>
+            {emailStatus === "sent" ? (
+              <div className="flex items-center gap-2 text-green-600 text-xs font-semibold">
+                <CheckCircle2 size={14} /> Receipt sent to {emailTo}
+              </div>
+            ) : (
+              <>
+                <div className="flex gap-2">
+                  <input
+                    value={emailTo}
+                    onChange={(e) => { setEmailTo(e.target.value); setEmailStatus("idle"); }}
+                    placeholder="customer@email.com"
+                    type="email"
+                    className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-gray-900 text-xs outline-none focus:border-orange-400 placeholder-gray-400"
+                  />
+                  <button
+                    onClick={sendEmail}
+                    disabled={!emailTo.trim() || emailStatus === "sending" || !settings.smtpHost?.trim()}
+                    title={!settings.smtpHost?.trim() ? "Configure SMTP in Settings → Hardware first" : undefined}
+                    className="px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-white text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 flex-shrink-0"
+                  >
+                    {emailStatus === "sending" ? (
+                      <RefreshCw size={11} className="animate-spin" />
+                    ) : (
+                      <Mail size={11} />
+                    )}
+                    {emailStatus === "sending" ? "Sending…" : "Send"}
+                  </button>
+                </div>
+                {emailStatus === "error" && (
+                  <p className="text-red-500 text-[10px]">{emailError}</p>
+                )}
+                {!settings.smtpHost?.trim() && (
+                  <p className="text-gray-400 text-[10px]">Set up SMTP in Settings → Hardware to enable email.</p>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
         {/* ── Buttons ──────────────────────────────────────────── */}
-        <div className="px-4 pb-4 grid grid-cols-2 gap-2">
+        <div className="px-4 pb-4 grid grid-cols-2 gap-2 mt-2">
           <button
             onClick={onClose}
             className="py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 transition-colors"
@@ -549,7 +696,7 @@ function OrderPanel({
   const {
     cart, updateCartQty, removeFromCart, clearCart,
     subtotal, discountAmount, taxAmount, grandTotal, tipAmount,
-    discount, settings, assignedCustomer,
+    discount, settings, assignedCustomer, currentStaff,
   } = usePOS();
 
   return (
@@ -601,7 +748,7 @@ function OrderPanel({
         ) : (
           <ul className="space-y-1 px-3">
             {cart.map((item) => (
-              <li key={item.lineId} className="bg-slate-800/60 rounded-xl p-3 border border-slate-700/50">
+              <li key={item.lineId} className={`rounded-xl p-3 border ${item.offer?.active ? "bg-amber-500/5 border-amber-500/30" : "bg-slate-800/60 border-slate-700/50"}`}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
                     <p className="text-white text-sm font-semibold leading-snug truncate">{item.name}</p>
@@ -609,8 +756,27 @@ function OrderPanel({
                       <p key={m.optionId} className="text-slate-400 text-xs mt-0.5">+ {m.optionLabel}</p>
                     ))}
                     {item.note && <p className="text-orange-400 text-xs italic mt-0.5">&ldquo;{item.note}&rdquo;</p>}
+                    {/* Offer savings badge */}
+                    {(() => { const saving = cartLineSaving(item); return saving > 0 ? (
+                      <p className="text-amber-400 text-[10px] font-semibold mt-0.5">
+                        Save {fmt(saving, settings.currencySymbol)} offer applied
+                      </p>
+                    ) : null; })()}
                   </div>
-                  <p className="text-white font-bold text-sm flex-shrink-0">{fmt(item.price * item.quantity, settings.currencySymbol)}</p>
+                  <div className="text-right flex-shrink-0">
+                    {(() => {
+                      const total = cartLineTotal(item);
+                      const full  = item.price * item.quantity;
+                      return total < full ? (
+                        <>
+                          <p className="text-amber-400 font-bold text-sm">{fmt(total, settings.currencySymbol)}</p>
+                          <p className="text-slate-500 text-xs line-through">{fmt(full, settings.currencySymbol)}</p>
+                        </>
+                      ) : (
+                        <p className="text-white font-bold text-sm">{fmt(full, settings.currencySymbol)}</p>
+                      );
+                    })()}
+                  </div>
                 </div>
                 <div className="flex items-center justify-between mt-2">
                   <p className="text-slate-500 text-xs">{fmt(item.price, settings.currencySymbol)} each</p>
@@ -643,10 +809,14 @@ function OrderPanel({
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={onOpenDiscount}
+              disabled={!currentStaff?.permissions.canApplyDiscount}
+              title={!currentStaff?.permissions.canApplyDiscount ? "Manager or Admin required" : undefined}
               className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition-all ${
-                discount.pct > 0
-                  ? "bg-green-500/20 text-green-400 border border-green-500/40"
-                  : "bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-600"
+                !currentStaff?.permissions.canApplyDiscount
+                  ? "bg-slate-800/40 text-slate-600 border border-slate-700/40 cursor-not-allowed"
+                  : discount.pct > 0
+                    ? "bg-green-500/20 text-green-400 border border-green-500/40"
+                    : "bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-600"
               }`}
             >
               <Percent size={12} />
@@ -936,41 +1106,97 @@ function SaleView() {
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
               {filtered.map((product) => {
                 const outOfStock = product.trackStock && (product.stockQty ?? 0) <= 0;
+                const offerPrice = getOfferPrice(product);
+                const hasOffer = isOfferActive(product);
+                const offerBadgeText = (() => {
+                  const o = product.offer!;
+                  if (o?.label?.trim()) return o.label.trim();
+                  switch (o?.type) {
+                    case "percent":      return `${o.value}% OFF`;
+                    case "fixed":        return `${settings.currencySymbol}${o.value} OFF`;
+                    case "price":        return "SPECIAL";
+                    case "bogo":         return `BUY ${o.buyQty ?? 1} GET ${o.freeQty ?? 1} FREE`;
+                    case "multibuy":     return `${o.buyQty ?? 2} FOR ${settings.currencySymbol}${o.value}`;
+                    case "qty_discount": return `${o.minQty ?? 2}+ GET ${o.value}% OFF`;
+                    default: return "OFFER";
+                  }
+                });
                 return (
                   <button
                     key={product.id}
                     onClick={() => !outOfStock && handleProductTap(product)}
                     disabled={outOfStock}
-                    className={`relative flex flex-col items-start p-4 rounded-2xl border text-left transition-all active:scale-95 ${
+                    className={`relative flex flex-col items-start rounded-2xl border text-left transition-all active:scale-95 overflow-hidden ${
                       outOfStock
                         ? "bg-slate-800/30 border-slate-700/30 opacity-50 cursor-not-allowed"
-                        : "bg-slate-800 border-slate-700/50 hover:border-orange-500/60 hover:bg-slate-750 hover:shadow-lg hover:shadow-orange-500/10"
+                        : hasOffer
+                          ? "bg-slate-800 border-amber-500/50 hover:border-amber-400/70 hover:shadow-lg hover:shadow-amber-500/10"
+                          : "bg-slate-800 border-slate-700/50 hover:border-orange-500/60 hover:shadow-lg hover:shadow-orange-500/10"
                     }`}
                   >
-                    {/* Emoji / color tile */}
-                    <div
-                      className="w-10 h-10 rounded-xl flex items-center justify-center text-xl mb-3 flex-shrink-0"
-                      style={{ backgroundColor: product.color }}
-                    >
-                      {product.emoji ?? "🍽️"}
-                    </div>
-                    {product.popular && (
-                      <span className="absolute top-2 right-2 text-[9px] bg-orange-500 text-white px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wide">
+                    {/* Image or emoji tile */}
+                    {product.imageUrl ? (
+                      <div className="w-full aspect-[4/3] relative flex-shrink-0">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={product.imageUrl}
+                          alt={product.name}
+                          className="w-full h-full object-cover"
+                        />
+                        {outOfStock && (
+                          <div className="absolute inset-0 bg-slate-900/60 flex items-center justify-center">
+                            <span className="text-[10px] text-white font-bold">Out of stock</span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="w-full p-4 pb-0">
+                        <div
+                          className="w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
+                          style={{ backgroundColor: product.color }}
+                        >
+                          {product.emoji ?? "🍽️"}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Offer badge */}
+                    {hasOffer && (
+                      <span className="absolute top-2 left-2 text-[9px] bg-amber-400 text-slate-900 px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wide leading-none">
+                        {offerBadgeText()}
+                      </span>
+                    )}
+
+                    {!hasOffer && product.popular && (
+                      <span className="absolute top-2 left-2 text-[9px] bg-orange-500 text-white px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wide">
                         Popular
                       </span>
                     )}
-                    <p className="text-white text-xs font-semibold leading-snug mb-1 line-clamp-2">{product.name}</p>
-                    <p className="text-orange-400 font-bold text-sm mt-auto">{fmt(product.price, settings.currencySymbol)}</p>
-                    {product.trackStock && product.stockQty !== undefined && (
-                      <p className={`text-[10px] mt-0.5 ${product.stockQty <= 3 ? "text-red-400" : "text-slate-500"}`}>
-                        {outOfStock ? "Out of stock" : `Stock: ${product.stockQty}`}
-                      </p>
-                    )}
-                    {product.modifiers && product.modifiers.length > 0 && !outOfStock && (
-                      <div className="absolute bottom-2 right-2">
-                        <ChevronRight size={12} className="text-slate-500" />
+
+                    <div className="p-3 w-full">
+                      <p className="text-white text-xs font-semibold leading-snug mb-1 line-clamp-2">{product.name}</p>
+                      <div className="flex items-center justify-between gap-1">
+                        {/* Simple per-unit offer: show discounted + strikethrough */}
+                        {offerPrice !== null ? (
+                          <div className="flex items-baseline gap-1.5">
+                            <p className="text-amber-400 font-bold text-sm">{fmt(offerPrice, settings.currencySymbol)}</p>
+                            <p className="text-slate-500 text-xs line-through">{fmt(product.price, settings.currencySymbol)}</p>
+                          </div>
+                        ) : (
+                          <p className={`font-bold text-sm ${hasOffer ? "text-amber-400" : "text-orange-400"}`}>
+                            {fmt(product.price, settings.currencySymbol)}
+                          </p>
+                        )}
+                        {product.modifiers && product.modifiers.length > 0 && !outOfStock && (
+                          <ChevronRight size={12} className="text-slate-500 flex-shrink-0" />
+                        )}
                       </div>
-                    )}
+                      {product.trackStock && product.stockQty !== undefined && (
+                        <p className={`text-[10px] mt-0.5 ${product.stockQty <= 3 ? "text-red-400" : "text-slate-500"}`}>
+                          {outOfStock ? "Out of stock" : `Stock: ${product.stockQty}`}
+                        </p>
+                      )}
+                    </div>
                   </button>
                 );
               })}
@@ -994,16 +1220,123 @@ function SaleView() {
 
 // ─── Dashboard View ────────────────────────────────────────────────────────────
 
+// ─── Dashboard / Reports helpers ─────────────────────────────────────────────
+
+type POSPeriod = "today" | "yesterday" | "week" | "month" | "last30" | "custom";
+
+const POS_PERIODS: { id: POSPeriod; label: string }[] = [
+  { id: "today",     label: "Today" },
+  { id: "yesterday", label: "Yesterday" },
+  { id: "week",      label: "This Week" },
+  { id: "month",     label: "This Month" },
+  { id: "last30",    label: "Last 30 Days" },
+  { id: "custom",    label: "Custom" },
+];
+
+function getPOSDateRange(period: POSPeriod, customStart: string, customEnd: string): [Date, Date] {
+  const now   = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  switch (period) {
+    case "today":     return [today, now];
+    case "yesterday": {
+      const y  = new Date(today); y.setDate(y.getDate() - 1);
+      const ye = new Date(today); ye.setMilliseconds(-1);
+      return [y, ye];
+    }
+    case "week":  { const w = new Date(today); w.setDate(w.getDate() - 6); return [w, now]; }
+    case "month": return [new Date(today.getFullYear(), today.getMonth(), 1), now];
+    case "last30":{ const l = new Date(today); l.setDate(l.getDate() - 29); return [l, now]; }
+    case "custom": return [
+      customStart ? new Date(customStart)              : new Date(0),
+      customEnd   ? new Date(customEnd + "T23:59:59")  : now,
+    ];
+  }
+}
+
+function posDailyBuckets(sales: POSSale[], start: Date, end: Date) {
+  const map: Record<string, number> = {};
+  const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const endDay  = new Date(end.getFullYear(),  end.getMonth(),   end.getDate());
+  while (cursor <= endDay) {
+    map[cursor.toDateString()] = 0;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  for (const s of sales) {
+    const key = new Date(s.date).toDateString();
+    if (key in map) map[key] = (map[key] ?? 0) + s.total;
+  }
+  return Object.entries(map).map(([key, revenue]) => ({
+    label:   new Date(key).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }),
+    revenue,
+  }));
+}
+
+function posHourlyBuckets(sales: POSSale[]) {
+  const map: number[] = Array(24).fill(0);
+  for (const s of sales) map[new Date(s.date).getHours()] += s.total;
+  return map;
+}
+
+function posExportCSV(sales: POSSale[], sym: string) {
+  const header = ["Receipt No","Date","Time","Staff","Customer","Items","Subtotal","Discount","VAT","Tip","Total","Payment","Voided","Void Reason"].join(",");
+  const rows = sales.map((s) => [
+    s.receiptNo, fmtDate(s.date), fmtTime(s.date),
+    `"${s.staffName}"`, `"${s.customerName ?? ""}"`,
+    s.items.length, s.subtotal.toFixed(2), s.discountAmount.toFixed(2),
+    s.taxAmount.toFixed(2), s.tipAmount.toFixed(2), s.total.toFixed(2),
+    s.paymentMethod, s.voided ? "Yes" : "No", `"${s.voidReason ?? ""}"`,
+  ].join(","));
+  const csv  = [header, ...rows].join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href = url; a.download = `pos-report-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+}
+
+// ─── Dashboard View ───────────────────────────────────────────────────────────
+
 function DashboardView() {
-  const { sales, products, settings } = usePOS();
+  const { sales, products, settings, voidSale, currentStaff } = usePOS();
+  const sym = settings.currencySymbol;
+
+  // Top-level tab
+  const [dashTab, setDashTab] = useState<"overview" | "reports">("overview");
+
+  // Void + refund modal
+  const [voidTarget,      setVoidTarget]      = useState<string | null>(null);
+  const [voidReason,      setVoidReason]      = useState("");
+  const [refundMethod,    setRefundMethod]    = useState<"cash" | "card" | "none">("cash");
+  const [refundAmount,    setRefundAmount]    = useState("");
+
+  function openVoidModal(saleId: string) {
+    const sale = sales.find((s) => s.id === saleId);
+    setVoidTarget(saleId);
+    setVoidReason("");
+    setRefundMethod(sale?.paymentMethod === "card" ? "card" : "cash");
+    setRefundAmount(sale ? sale.total.toFixed(2) : "");
+  }
+
+  function confirmVoid() {
+    if (!voidTarget || !voidReason.trim()) return;
+    const amt = parseFloat(refundAmount);
+    voidSale(
+      voidTarget,
+      voidReason.trim(),
+      refundMethod,
+      isNaN(amt) ? 0 : amt,
+    );
+    setVoidTarget(null);
+  }
+
+  // ── Overview computations ───────────────────────────────────────────────────
   const today = new Date().toDateString();
   const todaySales = sales.filter((s) => !s.voided && new Date(s.date).toDateString() === today);
-  const totalRevenue = todaySales.reduce((sum, s) => sum + s.total, 0);
+  const totalRevenue      = todaySales.reduce((sum, s) => sum + s.total, 0);
   const totalTransactions = todaySales.length;
-  const avgOrder = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
-  const totalTips = todaySales.reduce((sum, s) => sum + s.tipAmount, 0);
+  const todayAvgOrder     = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
+  const totalTips         = todaySales.reduce((sum, s) => sum + s.tipAmount, 0);
 
-  // Best sellers
   const itemCounts: Record<string, { name: string; count: number; revenue: number }> = {};
   for (const sale of sales.filter((s) => !s.voided)) {
     for (const item of sale.items) {
@@ -1012,156 +1345,787 @@ function DashboardView() {
       itemCounts[item.productId].revenue += item.price * item.quantity;
     }
   }
-  const bestSellers = Object.values(itemCounts).sort((a, b) => b.count - a.count).slice(0, 8);
+  const bestSellersOverview = Object.values(itemCounts).sort((a, b) => b.count - a.count).slice(0, 8);
 
-  // Revenue last 7 days
   const last7: { label: string; revenue: number }[] = [];
   for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const dayStr = d.toDateString();
-    const rev = sales.filter((s) => !s.voided && new Date(s.date).toDateString() === dayStr).reduce((s, x) => s + x.total, 0);
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const rev = sales.filter((s) => !s.voided && new Date(s.date).toDateString() === d.toDateString()).reduce((s, x) => s + x.total, 0);
     last7.push({ label: d.toLocaleDateString("en-GB", { weekday: "short" }), revenue: rev });
   }
   const maxRev = Math.max(...last7.map((d) => d.revenue), 1);
 
-  // Payment mix
-  const payMix = { cash: 0, card: 0, split: 0 };
-  for (const s of todaySales) { payMix[s.paymentMethod] = (payMix[s.paymentMethod] || 0) + 1; }
-  const payTotal = totalTransactions || 1;
+  const overviewPayMix = { cash: 0, card: 0, split: 0 };
+  for (const s of todaySales) overviewPayMix[s.paymentMethod] = (overviewPayMix[s.paymentMethod] || 0) + 1;
+  const overviewPayTotal = totalTransactions || 1;
 
-  // Cost/margin (approximate)
-  const totalCost = sales.filter(s=>!s.voided).reduce((sum, sale) => {
-    return sum + sale.items.reduce((s, item) => {
-      const p = products.find(pr => pr.id === item.productId);
-      return s + (p?.cost ?? 0) * item.quantity;
-    }, 0);
-  }, 0);
-  const totalRevAll = sales.filter(s=>!s.voided).reduce((s,x)=>s+x.total,0);
-  const marginPct = totalRevAll > 0 ? ((totalRevAll - totalCost) / totalRevAll) * 100 : 0;
+  const costMap: Record<string, number> = {};
+  for (const p of products) if (p.cost) costMap[p.id] = p.cost;
+  const totalCostAll = sales.filter((s) => !s.voided).reduce((sum, sale) =>
+    sum + sale.items.reduce((s, item) => s + (costMap[item.productId] ?? 0) * item.quantity, 0), 0);
+  const totalRevAll  = sales.filter((s) => !s.voided).reduce((s, x) => s + x.total, 0);
+  const overviewMargin = totalRevAll > 0 ? ((totalRevAll - totalCostAll) / totalRevAll) * 100 : 0;
+
+  // ── Reports state ───────────────────────────────────────────────────────────
+  const [period,      setPeriod]      = useState<POSPeriod>("today");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd,   setCustomEnd]   = useState("");
+  type ReportTab = "overview" | "items" | "staff" | "transactions";
+  const [reportTab,   setReportTab]   = useState<ReportTab>("overview");
+  const [txSearch,    setTxSearch]    = useState("");
+  const [sortField,   setSortField]   = useState<"date" | "total">("date");
+  const [sortDir,     setSortDir]     = useState<"desc" | "asc">("desc");
+  const [showVoided,  setShowVoided]  = useState(false);
+
+  const [startDate, endDate] = useMemo(
+    () => getPOSDateRange(period, customStart, customEnd),
+    [period, customStart, customEnd],
+  );
+
+  const inRange = useMemo(
+    () => sales.filter((s) => { const d = new Date(s.date); return d >= startDate && d <= endDate; }),
+    [sales, startDate, endDate],
+  );
+  const rFiltered  = useMemo(() => inRange.filter((s) => !s.voided), [inRange]);
+  const voidedCount = inRange.filter((s) => s.voided).length;
+
+  // KPIs
+  const rRevenue   = rFiltered.reduce((s, x) => s + x.total, 0);
+  const rTax       = rFiltered.reduce((s, x) => s + x.taxAmount, 0);
+  const rTips      = rFiltered.reduce((s, x) => s + x.tipAmount, 0);
+  const rDiscounts = rFiltered.reduce((s, x) => s + x.discountAmount, 0);
+  const rAvgOrder  = rFiltered.length > 0 ? rRevenue / rFiltered.length : 0;
+  const rCost      = rFiltered.reduce((sum, sale) =>
+    sum + sale.items.reduce((s, item) => s + (costMap[item.productId] ?? 0) * item.quantity, 0), 0);
+  const grossProfit = rRevenue - rCost;
+  const marginPct   = rRevenue > 0 ? (grossProfit / rRevenue) * 100 : 0;
+
+  // Payment mix (reports)
+  const rPayMix = { cash: 0, card: 0, split: 0 };
+  for (const s of rFiltered) rPayMix[s.paymentMethod] = (rPayMix[s.paymentMethod] ?? 0) + 1;
+  const rPayTotal = rFiltered.length || 1;
+
+  // Charts
+  const dailyBuckets  = useMemo(() => posDailyBuckets(rFiltered, startDate, endDate), [rFiltered, startDate, endDate]);
+  const maxDaily      = Math.max(...dailyBuckets.map((d) => d.revenue), 1);
+  const hourlyBuckets = useMemo(() => posHourlyBuckets(rFiltered), [rFiltered]);
+  const maxHourly     = Math.max(...hourlyBuckets, 1);
+
+  // Best sellers (reports)
+  const rItemStats: Record<string, { name: string; qty: number; revenue: number }> = {};
+  for (const sale of rFiltered) {
+    for (const item of sale.items) {
+      if (!rItemStats[item.productId]) rItemStats[item.productId] = { name: item.name, qty: 0, revenue: 0 };
+      rItemStats[item.productId].qty += item.quantity;
+      rItemStats[item.productId].revenue += item.price * item.quantity;
+    }
+  }
+  const rBestSellers = Object.values(rItemStats).sort((a, b) => b.revenue - a.revenue).slice(0, 15);
+  const maxItemRev   = rBestSellers[0]?.revenue || 1;
+
+  // Staff performance (reports)
+  const staffStats: Record<string, { name: string; sales: number; revenue: number }> = {};
+  for (const sale of rFiltered) {
+    if (!staffStats[sale.staffId]) staffStats[sale.staffId] = { name: sale.staffName, sales: 0, revenue: 0 };
+    staffStats[sale.staffId].sales++;
+    staffStats[sale.staffId].revenue += sale.total;
+  }
+  const staffPerf    = Object.values(staffStats).map((s) => ({ ...s, avgOrder: s.sales > 0 ? s.revenue / s.sales : 0 })).sort((a, b) => b.revenue - a.revenue);
+  const maxStaffRev  = staffPerf[0]?.revenue || 1;
+
+  // Transactions
+  const txSource   = showVoided ? inRange : rFiltered;
+  const txFiltered = txSource.filter((s) => {
+    if (!txSearch.trim()) return true;
+    const q = txSearch.toLowerCase();
+    return s.receiptNo.includes(q) || s.staffName.toLowerCase().includes(q) || (s.customerName ?? "").toLowerCase().includes(q);
+  });
+  const txSorted = [...txFiltered].sort((a, b) => {
+    const dir = sortDir === "desc" ? -1 : 1;
+    return sortField === "date"
+      ? dir * (new Date(a.date).getTime() - new Date(b.date).getTime())
+      : dir * (a.total - b.total);
+  });
+  function toggleSort(field: typeof sortField) {
+    if (sortField === field) setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    else { setSortField(field); setSortDir("desc"); }
+  }
+
+  // ── Payment-row helper ──────────────────────────────────────────────────────
+  const reportPaymentRows = [
+    { key: "cash",  label: "Cash",  bar: "bg-green-500",  Icon: Banknote  },
+    { key: "card",  label: "Card",  bar: "bg-blue-500",   Icon: CreditCard },
+    { key: "split", label: "Split", bar: "bg-purple-500", Icon: Shuffle   },
+  ] as const;
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="max-w-5xl mx-auto space-y-6">
-        <div>
-          <h2 className="text-white font-bold text-xl">Sales Dashboard</h2>
-          <p className="text-slate-400 text-sm mt-1">Today · {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}</p>
+
+        {/* ── Header ──────────────────────────────────────────────────────── */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-white font-bold text-xl">Sales Dashboard</h2>
+            <p className="text-slate-400 text-sm mt-1">
+              {dashTab === "overview"
+                ? `Today · ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}`
+                : `${rFiltered.length} transactions · ${fmt(rRevenue, sym)} revenue${voidedCount > 0 ? ` · ${voidedCount} voided` : ""}`}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {dashTab === "reports" && (
+              <button
+                onClick={() => posExportCSV(showVoided ? inRange : rFiltered, sym)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-xs font-semibold transition-colors"
+              >
+                <Download size={13} /> Export CSV
+              </button>
+            )}
+            <div className="flex gap-1 bg-slate-800 border border-slate-700 p-1 rounded-xl">
+              {(["overview", "reports"] as const).map((t) => (
+                <button key={t} onClick={() => setDashTab(t)}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    dashTab === t ? "bg-orange-500 text-white shadow" : "text-slate-400 hover:text-white"
+                  }`}>
+                  {t === "overview" ? "Overview" : "Reports"}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* KPI cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {[
-            { label: "Today's Revenue", value: fmt(totalRevenue, settings.currencySymbol), icon: TrendingUp, color: "text-green-400", bg: "bg-green-500/10" },
-            { label: "Transactions", value: totalTransactions.toString(), icon: Receipt, color: "text-blue-400", bg: "bg-blue-500/10" },
-            { label: "Average Order", value: fmt(avgOrder, settings.currencySymbol), icon: BarChart3, color: "text-purple-400", bg: "bg-purple-500/10" },
-            { label: "Tips Collected", value: fmt(totalTips, settings.currencySymbol), icon: BadgeDollarSign, color: "text-amber-400", bg: "bg-amber-500/10" },
-          ].map((card) => (
-            <div key={card.label} className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
-              <div className={`w-10 h-10 ${card.bg} rounded-xl flex items-center justify-center mb-3`}>
-                <card.icon size={20} className={card.color} />
+        {/* ════════════════ OVERVIEW TAB ════════════════ */}
+        {dashTab === "overview" && (
+          <>
+            {/* KPI cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {[
+                { label: "Today's Revenue",  value: fmt(totalRevenue, sym),   icon: TrendingUp,      color: "text-green-400",  bg: "bg-green-500/10" },
+                { label: "Transactions",     value: `${totalTransactions}`,   icon: Receipt,         color: "text-blue-400",   bg: "bg-blue-500/10"  },
+                { label: "Average Order",    value: fmt(todayAvgOrder, sym),  icon: BarChart3,       color: "text-purple-400", bg: "bg-purple-500/10"},
+                { label: "Tips Collected",   value: fmt(totalTips, sym),      icon: BadgeDollarSign, color: "text-amber-400",  bg: "bg-amber-500/10" },
+              ].map((card) => (
+                <div key={card.label} className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
+                  <div className={`w-10 h-10 ${card.bg} rounded-xl flex items-center justify-center mb-3`}>
+                    <card.icon size={20} className={card.color} />
+                  </div>
+                  <p className={`text-2xl font-bold ${card.color}`}>{card.value}</p>
+                  <p className="text-slate-400 text-xs mt-1">{card.label}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {/* Revenue last-7 chart */}
+              <div className="lg:col-span-2 bg-slate-800 border border-slate-700 rounded-2xl p-5">
+                <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2">
+                  <BarChart3 size={16} className="text-orange-400" /> Revenue — Last 7 Days
+                </h3>
+                <div className="flex items-end gap-2 h-32">
+                  {last7.map((d, i) => (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                      <div className="w-full flex items-end justify-center" style={{ height: "100px" }}>
+                        <div className={`w-full rounded-t-lg transition-all ${i === 6 ? "bg-orange-500" : "bg-slate-600"}`}
+                          style={{ height: `${Math.max(4, (d.revenue / maxRev) * 100)}%` }} />
+                      </div>
+                      <span className="text-slate-500 text-[10px]">{d.label}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <p className={`text-2xl font-bold ${card.color}`}>{card.value}</p>
-              <p className="text-slate-400 text-xs mt-1">{card.label}</p>
-            </div>
-          ))}
-        </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Revenue chart */}
-          <div className="lg:col-span-2 bg-slate-800 border border-slate-700 rounded-2xl p-5">
-            <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2"><BarChart3 size={16} className="text-orange-400" /> Revenue — Last 7 Days</h3>
-            <div className="flex items-end gap-2 h-32">
-              {last7.map((d, i) => (
-                <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                  <div className="w-full flex items-end justify-center" style={{ height: "100px" }}>
-                    <div
-                      className={`w-full rounded-t-lg transition-all ${i === 6 ? "bg-orange-500" : "bg-slate-600"}`}
-                      style={{ height: `${Math.max(4, (d.revenue / maxRev) * 100)}%` }}
-                    />
-                  </div>
-                  <span className="text-slate-500 text-[10px]">{d.label}</span>
+              {/* Payment mix */}
+              <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
+                <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2">
+                  <CreditCard size={16} className="text-blue-400" /> Payment Mix
+                </h3>
+                <div className="space-y-3">
+                  {([["cash","Cash","bg-green-500"],["card","Card","bg-blue-500"],["split","Split","bg-purple-500"]] as [string,string,string][]).map(([key,label,color]) => {
+                    const pct = ((overviewPayMix[key as keyof typeof overviewPayMix] ?? 0) / overviewPayTotal) * 100;
+                    return (
+                      <div key={key}>
+                        <div className="flex justify-between text-xs text-slate-400 mb-1">
+                          <span>{label}</span><span>{overviewPayMix[key as keyof typeof overviewPayMix] ?? 0} txns</span>
+                        </div>
+                        <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                          <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              ))}
+                <div className="mt-4 pt-4 border-t border-slate-700">
+                  <p className="text-slate-400 text-xs">Overall Margin</p>
+                  <p className="text-white font-bold text-xl">{fmtPct(overviewMargin)}</p>
+                  <p className="text-slate-500 text-xs">All-time · excl. voided</p>
+                </div>
+              </div>
             </div>
-          </div>
 
-          {/* Payment mix */}
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
-            <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2"><CreditCard size={16} className="text-blue-400" /> Payment Mix</h3>
-            <div className="space-y-3">
-              {([["cash", "Cash", "bg-green-500"] , ["card", "Card", "bg-blue-500"], ["split", "Split", "bg-purple-500"]] as [string,string,string][]).map(([key, label, color]) => {
-                const pct = ((payMix[key as keyof typeof payMix] ?? 0) / payTotal) * 100;
-                return (
-                  <div key={key}>
-                    <div className="flex justify-between text-xs text-slate-400 mb-1"><span>{label}</span><span>{payMix[key as keyof typeof payMix] ?? 0} txns</span></div>
-                    <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
-                      <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${pct}%` }} />
+            {/* Best sellers */}
+            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
+              <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2">
+                <Flame size={16} className="text-orange-400" /> Best Sellers (All Time)
+              </h3>
+              {bestSellersOverview.length === 0 ? (
+                <p className="text-slate-500 text-sm">No sales recorded yet</p>
+              ) : (
+                <div className="space-y-2">
+                  {bestSellersOverview.map((item, i) => (
+                    <div key={item.name} className="flex items-center gap-4">
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                        i === 0 ? "bg-amber-500 text-white" : i === 1 ? "bg-slate-500 text-white" : i === 2 ? "bg-orange-700 text-white" : "bg-slate-700 text-slate-300"
+                      }`}>{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm font-medium truncate">{item.name}</p>
+                        <div className="h-1.5 bg-slate-700 rounded-full mt-1 overflow-hidden">
+                          <div className="h-full bg-orange-500 rounded-full" style={{ width: `${(item.count / bestSellersOverview[0].count) * 100}%` }} />
+                        </div>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-white text-sm font-bold">{item.count} sold</p>
+                        <p className="text-slate-400 text-xs">{fmt(item.revenue, sym)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Recent transactions */}
+            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
+              <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2">
+                <Receipt size={16} className="text-slate-400" /> Recent Transactions
+              </h3>
+              {sales.length === 0 ? (
+                <p className="text-slate-500 text-sm">No transactions yet</p>
+              ) : (
+                <div className="space-y-2">
+                  {sales.slice(0, 10).map((sale) => (
+                    <div key={sale.id} className={`flex items-center gap-4 px-4 py-3 rounded-xl ${sale.voided ? "bg-red-500/5 border border-red-500/20" : "bg-slate-700/50"}`}>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${sale.voided ? "bg-red-500/20 text-red-400" : "bg-green-500/20 text-green-400"}`}>
+                        {sale.voided ? "V" : "✓"}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm font-medium">#{sale.receiptNo} · {sale.staffName}</p>
+                        <p className="text-slate-400 text-xs">{sale.items.length} item{sale.items.length !== 1 ? "s" : ""} · {sale.paymentMethod} · {relTime(sale.date)}</p>
+                        {sale.voided && sale.voidReason && (
+                          <p className="text-red-400 text-xs italic">Void: {sale.voidReason}</p>
+                        )}
+                        {sale.voided && sale.refundMethod && sale.refundMethod !== "none" && (
+                          <p className="text-xs mt-0.5 flex items-center gap-1">
+                            {sale.refundMethod === "cash" ? <Banknote size={10} className="text-green-400" /> : <CreditCard size={10} className="text-blue-400" />}
+                            <span className={sale.refundMethod === "cash" ? "text-green-400" : "text-blue-400"}>
+                              Refunded {fmt(sale.refundAmount ?? 0, settings.currencySymbol)} via {sale.refundMethod}
+                            </span>
+                          </p>
+                        )}
+                      </div>
+                      <p className={`font-bold text-sm flex-shrink-0 ${sale.voided ? "text-red-400 line-through" : "text-white"}`}>
+                        {fmt(sale.total, sym)}
+                      </p>
+                      {!sale.voided && currentStaff?.permissions.canVoidSale && (
+                        <button onClick={() => { openVoidModal(sale.id); }}
+                          className="text-slate-500 hover:text-red-400 transition-colors flex-shrink-0" title="Void sale">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* ════════════════ REPORTS TAB ════════════════ */}
+        {dashTab === "reports" && (
+          <>
+            {/* Period selector */}
+            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-4">
+              <div className="flex flex-wrap gap-2">
+                {POS_PERIODS.map((p) => (
+                  <button key={p.id} onClick={() => setPeriod(p.id)}
+                    className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                      period === p.id ? "bg-orange-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                    }`}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              {period === "custom" && (
+                <div className="flex flex-wrap gap-3 mt-4 pt-4 border-t border-slate-700">
+                  <div>
+                    <label className="text-xs text-slate-400 mb-1 block">From</label>
+                    <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)}
+                      className="bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-orange-500" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-400 mb-1 block">To</label>
+                    <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)}
+                      className="bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-orange-500" />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Empty state */}
+            {rFiltered.length === 0 && (
+              <div className="bg-slate-800 border border-slate-700 rounded-2xl p-12 text-center">
+                <BarChart3 size={36} className="mx-auto text-slate-600 mb-3" />
+                <p className="text-slate-400 font-medium">No sales found for this period</p>
+                <p className="text-slate-600 text-sm mt-1">Try selecting a different date range.</p>
+              </div>
+            )}
+
+            {rFiltered.length > 0 && (
+              <>
+                {/* KPI cards */}
+                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+                  {[
+                    { label: "Revenue",       value: fmt(rRevenue, sym),    sub: `${rFiltered.length} txns`,    icon: TrendingUp,      color: "text-green-400",  bg: "bg-green-500/10"  },
+                    { label: "Avg Order",      value: fmt(rAvgOrder, sym),   sub: "per transaction",             icon: Receipt,         color: "text-blue-400",   bg: "bg-blue-500/10"   },
+                    { label: "Gross Profit",   value: fmt(grossProfit, sym), sub: `${fmtPct(marginPct)} margin`, icon: BarChart3,       color: "text-purple-400", bg: "bg-purple-500/10" },
+                    { label: "VAT Collected",  value: fmt(rTax, sym),        sub: "excl. voided",                icon: Percent,         color: "text-amber-400",  bg: "bg-amber-500/10"  },
+                    { label: "Tips",           value: fmt(rTips, sym),       sub: "staff tips",                  icon: BadgeDollarSign, color: "text-pink-400",   bg: "bg-pink-500/10"   },
+                    { label: "Discounts",      value: fmt(rDiscounts, sym),  sub: "reductions applied",          icon: Tag,             color: "text-red-400",    bg: "bg-red-500/10"    },
+                  ].map((card) => (
+                    <div key={card.label} className="bg-slate-800 border border-slate-700 rounded-2xl p-4">
+                      <div className={`w-9 h-9 ${card.bg} rounded-xl flex items-center justify-center mb-2.5`}>
+                        <card.icon size={17} className={card.color} />
+                      </div>
+                      <p className={`text-xl font-bold ${card.color}`}>{card.value}</p>
+                      {card.sub && <p className="text-slate-500 text-[10px] mt-0.5">{card.sub}</p>}
+                      <p className="text-slate-400 text-[11px] mt-1">{card.label}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Sub-tab bar */}
+                <div className="flex gap-1 bg-slate-900 border border-slate-700 p-1 rounded-xl">
+                  {(["overview","items","staff","transactions"] as ReportTab[]).map((t) => (
+                    <button key={t} onClick={() => setReportTab(t)}
+                      className={`flex-1 py-2 rounded-lg text-xs font-semibold capitalize transition-all ${
+                        reportTab === t ? "bg-slate-700 text-white shadow-sm" : "text-slate-500 hover:text-slate-300"
+                      }`}>
+                      {t === "transactions" ? "Transactions" : t.charAt(0).toUpperCase() + t.slice(1)}
+                    </button>
+                  ))}
+                </div>
+
+                {/* ── Overview sub-tab ─────────────────────────────────────── */}
+                {reportTab === "overview" && (
+                  <div className="space-y-4">
+                    {/* Daily chart */}
+                    <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
+                      <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2">
+                        <BarChart3 size={16} className="text-orange-400" /> Revenue by Day
+                      </h3>
+                      {dailyBuckets.length <= 1 ? (
+                        <p className="text-slate-500 text-sm">Select a wider date range to see the daily chart.</p>
+                      ) : (
+                        <div className="flex items-end gap-1" style={{ height: 140 }}>
+                          {dailyBuckets.map((d, i) => (
+                            <div key={i} className="flex-1 flex flex-col items-center gap-1" title={`${d.label}: ${fmt(d.revenue, sym)}`}>
+                              <div className="w-full flex items-end justify-center" style={{ height: 110 }}>
+                                <div className={`w-full rounded-t-md transition-all ${d.revenue > 0 ? "bg-orange-500" : "bg-slate-700"}`}
+                                  style={{ height: `${Math.max(4, (d.revenue / maxDaily) * 100)}%` }} />
+                              </div>
+                              {dailyBuckets.length <= 14 && (
+                                <span className="text-[9px] text-slate-500 text-center leading-tight">{d.label.split(" ").slice(0, 2).join(" ")}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {/* Payment methods */}
+                      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
+                        <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2">
+                          <CreditCard size={16} className="text-blue-400" /> Payment Methods
+                        </h3>
+                        <div className="space-y-3">
+                          {reportPaymentRows.map(({ key, label, bar, Icon }) => {
+                            const count = rPayMix[key];
+                            const pct   = (count / rPayTotal) * 100;
+                            const rev   = rFiltered.filter((s) => s.paymentMethod === key).reduce((s, x) => s + x.total, 0);
+                            return (
+                              <div key={key}>
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-sm text-slate-300 flex items-center gap-1.5"><Icon size={13} /> {label}</span>
+                                  <span className="text-sm font-semibold text-white">{fmt(rev, sym)}</span>
+                                </div>
+                                <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                                  <div className={`h-full ${bar} rounded-full transition-all`} style={{ width: `${pct}%` }} />
+                                </div>
+                                <p className="text-xs text-slate-500 mt-0.5">{count} transactions · {fmtPct(pct)}</p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Hourly heatmap */}
+                      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
+                        <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2">
+                          <TrendingUp size={16} className="text-green-400" /> Busiest Hours
+                        </h3>
+                        <div className="grid grid-cols-12 gap-0.5">
+                          {hourlyBuckets.map((rev, h) => {
+                            const p = rev / maxHourly;
+                            const intensity = p > 0.75 ? "bg-orange-500" : p > 0.5 ? "bg-orange-400" : p > 0.25 ? "bg-orange-300" : p > 0 ? "bg-orange-900" : "bg-slate-700";
+                            return <div key={h} title={`${h}:00 — ${fmt(rev, sym)}`} className={`${intensity} rounded aspect-square`} />;
+                          })}
+                        </div>
+                        <div className="flex justify-between text-[10px] text-slate-500 mt-1.5">
+                          <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-3 text-[10px] text-slate-500">
+                          {["bg-slate-700","bg-orange-900","bg-orange-300","bg-orange-400","bg-orange-500"].map((c) => (
+                            <div key={c} className={`w-3 h-3 rounded ${c}`} />
+                          ))}
+                          <span>Low → High</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Financial summary */}
+                    <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
+                      <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2">
+                        <Receipt size={16} className="text-slate-400" /> Financial Summary
+                      </h3>
+                      <table className="w-full text-sm">
+                        <tbody className="divide-y divide-slate-700/40">
+                          {[
+                            ["Gross Sales",    fmt(rFiltered.reduce((s,x)=>s+x.subtotal,0), sym), "text-slate-200"],
+                            ["Discounts",      `–${fmt(rDiscounts, sym)}`,                         "text-red-400"],
+                            ["VAT Collected",  fmt(rTax, sym),                                     "text-amber-400"],
+                            ["Tips",           fmt(rTips, sym),                                    "text-pink-400"],
+                            ["Total Revenue",  fmt(rRevenue, sym),                                 "font-bold text-white"],
+                            ["Est. COGS",      `–${fmt(rCost, sym)}`,                               "text-slate-500"],
+                            ["Gross Profit",   fmt(grossProfit, sym),                              "font-semibold text-green-400"],
+                            ["Gross Margin",   fmtPct(marginPct),                                  "text-purple-400"],
+                          ].map(([label, value, cls]) => (
+                            <tr key={label}>
+                              <td className="py-2 text-slate-400 text-xs">{label}</td>
+                              <td className={`py-2 text-right text-sm ${cls}`}>{value}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-            <div className="mt-4 pt-4 border-t border-slate-700">
-              <p className="text-slate-400 text-xs">Overall Margin</p>
-              <p className="text-white font-bold text-xl">{fmtPct(marginPct)}</p>
-              <p className="text-slate-500 text-xs">All-time · excl. voided</p>
-            </div>
-          </div>
-        </div>
+                )}
 
-        {/* Best sellers */}
-        <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
-          <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2"><Flame size={16} className="text-orange-400" /> Best Sellers (All Time)</h3>
-          {bestSellers.length === 0 ? (
-            <p className="text-slate-500 text-sm">No sales recorded yet</p>
-          ) : (
-            <div className="space-y-2">
-              {bestSellers.map((item, i) => (
-                <div key={item.name} className="flex items-center gap-4">
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${i === 0 ? "bg-amber-500 text-white" : i === 1 ? "bg-slate-500 text-white" : i === 2 ? "bg-orange-700 text-white" : "bg-slate-700 text-slate-300"}`}>
-                    {i + 1}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white text-sm font-medium truncate">{item.name}</p>
-                    <div className="h-1.5 bg-slate-700 rounded-full mt-1 overflow-hidden">
-                      <div className="h-full bg-orange-500 rounded-full" style={{ width: `${(item.count / bestSellers[0].count) * 100}%` }} />
+                {/* ── Items sub-tab ────────────────────────────────────────── */}
+                {reportTab === "items" && (
+                  <div className="bg-slate-800 border border-slate-700 rounded-2xl overflow-hidden">
+                    <div className="px-5 py-4 border-b border-slate-700">
+                      <h3 className="text-white font-semibold text-sm flex items-center gap-2">
+                        <Package size={16} className="text-orange-400" /> Best-Selling Items
+                      </h3>
+                    </div>
+                    {rBestSellers.length === 0 ? (
+                      <p className="p-6 text-slate-500 text-sm">No item data for this period.</p>
+                    ) : (
+                      <div className="divide-y divide-slate-700/40">
+                        {rBestSellers.map((item, i) => (
+                          <div key={item.name} className="px-5 py-4 flex items-center gap-4">
+                            <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                              i === 0 ? "bg-amber-500 text-white" : i === 1 ? "bg-slate-500 text-white" : i === 2 ? "bg-orange-700 text-white" : "bg-slate-700 text-slate-300"
+                            }`}>
+                              {i === 0 ? <Trophy size={12} /> : i + 1}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-white text-sm font-medium truncate">{item.name}</p>
+                              <div className="h-1.5 bg-slate-700 rounded-full mt-1.5 overflow-hidden">
+                                <div className="h-full bg-orange-500 rounded-full" style={{ width: `${(item.revenue / maxItemRev) * 100}%` }} />
+                              </div>
+                            </div>
+                            <div className="text-right flex-shrink-0">
+                              <p className="text-white font-semibold text-sm">{fmt(item.revenue, sym)}</p>
+                              <p className="text-slate-400 text-xs">{item.qty} sold</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Staff sub-tab ────────────────────────────────────────── */}
+                {reportTab === "staff" && (
+                  <div className="bg-slate-800 border border-slate-700 rounded-2xl overflow-hidden">
+                    <div className="px-5 py-4 border-b border-slate-700">
+                      <h3 className="text-white font-semibold text-sm flex items-center gap-2">
+                        <Users size={16} className="text-blue-400" /> Staff Performance
+                      </h3>
+                    </div>
+                    {staffPerf.length === 0 ? (
+                      <p className="p-6 text-slate-500 text-sm">No staff data for this period.</p>
+                    ) : (
+                      <div className="divide-y divide-slate-700/40">
+                        {staffPerf.map((s, i) => (
+                          <div key={s.name} className="px-5 py-4 flex items-center gap-4">
+                            <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                              i === 0 ? "bg-amber-500 text-white" : "bg-slate-700 text-slate-300"
+                            }`}>
+                              {i === 0 ? <Trophy size={12} /> : i + 1}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-white text-sm font-medium">{s.name}</p>
+                              <div className="h-1.5 bg-slate-700 rounded-full mt-1.5 overflow-hidden">
+                                <div className="h-full bg-blue-500 rounded-full" style={{ width: `${(s.revenue / maxStaffRev) * 100}%` }} />
+                              </div>
+                            </div>
+                            <div className="text-right flex-shrink-0">
+                              <p className="text-white font-semibold text-sm">{fmt(s.revenue, sym)}</p>
+                              <p className="text-slate-400 text-xs">{s.sales} sales · avg {fmt(s.avgOrder, sym)}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Transactions sub-tab ─────────────────────────────────── */}
+                {reportTab === "transactions" && (
+                  <div className="bg-slate-800 border border-slate-700 rounded-2xl overflow-hidden">
+                    {/* Toolbar */}
+                    <div className="px-5 py-4 border-b border-slate-700 flex flex-wrap items-center gap-3">
+                      <div className="flex-1 min-w-48 relative">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                        <input value={txSearch} onChange={(e) => setTxSearch(e.target.value)}
+                          placeholder="Search receipt, staff, customer…"
+                          className="w-full bg-slate-900 border border-slate-600 rounded-xl pl-9 pr-4 py-2 text-sm text-white outline-none focus:border-orange-500 placeholder-slate-500" />
+                      </div>
+                      <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+                        <input type="checkbox" checked={showVoided} onChange={(e) => setShowVoided(e.target.checked)} className="rounded accent-orange-500" />
+                        Show voided
+                      </label>
+                      <p className="text-slate-600 text-xs ml-auto">{txSorted.length} rows</p>
+                    </div>
+
+                    {/* Table */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="bg-slate-900/60 text-left">
+                            <th className="px-5 py-3 text-xs text-slate-500 font-semibold">Receipt</th>
+                            <th className="px-5 py-3 text-xs text-slate-500 font-semibold cursor-pointer hover:text-slate-300"
+                                onClick={() => toggleSort("date")}>
+                              Date {sortField === "date" ? (sortDir === "desc" ? "↓" : "↑") : ""}
+                            </th>
+                            <th className="px-5 py-3 text-xs text-slate-500 font-semibold">Staff</th>
+                            <th className="px-5 py-3 text-xs text-slate-500 font-semibold">Customer</th>
+                            <th className="px-5 py-3 text-xs text-slate-500 font-semibold">Payment</th>
+                            <th className="px-5 py-3 text-xs text-slate-500 font-semibold cursor-pointer hover:text-slate-300 text-right"
+                                onClick={() => toggleSort("total")}>
+                              Total {sortField === "total" ? (sortDir === "desc" ? "↓" : "↑") : ""}
+                            </th>
+                            {currentStaff?.permissions.canVoidSale && (
+                              <th className="px-4 py-3 text-xs text-slate-500 font-semibold" />
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-700/30">
+                          {txSorted.length === 0 ? (
+                            <tr><td colSpan={currentStaff?.permissions.canVoidSale ? 7 : 6} className="px-5 py-8 text-center text-slate-500 text-sm">No transactions found</td></tr>
+                          ) : txSorted.map((sale) => (
+                            <tr key={sale.id} className={`hover:bg-slate-700/30 transition-colors ${sale.voided ? "opacity-40" : ""}`}>
+                              <td className="px-5 py-3 font-mono text-xs text-slate-300">
+                                <div>#{sale.receiptNo}</div>
+                                {sale.voided && (
+                                  <span className="text-[10px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-semibold">VOID</span>
+                                )}
+                              </td>
+                              <td className="px-5 py-3 text-slate-400 text-xs whitespace-nowrap">
+                                {fmtDate(sale.date)}<br />
+                                <span className="text-slate-600">{fmtTime(sale.date)}</span>
+                              </td>
+                              <td className="px-5 py-3 text-slate-300">{sale.staffName}</td>
+                              <td className="px-5 py-3 text-slate-500 text-xs">{sale.customerName ?? "—"}</td>
+                              <td className="px-5 py-3">
+                                <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${
+                                  sale.paymentMethod === "cash"  ? "bg-green-500/20 text-green-400"  :
+                                  sale.paymentMethod === "card"  ? "bg-blue-500/20  text-blue-400"   :
+                                                                   "bg-purple-500/20 text-purple-400"
+                                }`}>{sale.paymentMethod}</span>
+                                {sale.voided && sale.refundMethod && sale.refundMethod !== "none" && (
+                                  <div className={`mt-1 text-[10px] flex items-center gap-1 font-semibold ${
+                                    sale.refundMethod === "cash" ? "text-green-400" : "text-blue-400"
+                                  }`}>
+                                    {sale.refundMethod === "cash" ? <Banknote size={10} /> : <CreditCard size={10} />}
+                                    Refund {fmt(sale.refundAmount ?? 0, sym)}
+                                  </div>
+                                )}
+                                {sale.voided && sale.refundMethod === "none" && (
+                                  <div className="mt-1 text-[10px] text-slate-500 font-semibold">No refund</div>
+                                )}
+                              </td>
+                              <td className={`px-5 py-3 text-right font-semibold ${sale.voided ? "text-red-400 line-through" : "text-white"}`}>
+                                {fmt(sale.total, sym)}
+                              </td>
+                              {currentStaff?.permissions.canVoidSale && (
+                                <td className="px-4 py-3 text-center">
+                                  {!sale.voided ? (
+                                    <button
+                                      onClick={() => { openVoidModal(sale.id); }}
+                                      title="Void transaction"
+                                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 transition-all"
+                                    >
+                                      <Trash2 size={11} /> Void
+                                    </button>
+                                  ) : (
+                                    <span className="text-slate-600 text-[11px]">Voided</span>
+                                  )}
+                                </td>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                        {txSorted.length > 0 && (
+                          <tfoot>
+                            <tr className="bg-slate-900/60 border-t-2 border-slate-600">
+                              <td colSpan={currentStaff?.permissions.canVoidSale ? 6 : 5} className="px-5 py-3 text-xs font-semibold text-slate-400">
+                                Total ({txSorted.filter((s) => !s.voided).length} sales)
+                              </td>
+                              <td className="px-5 py-3 text-right font-bold text-white">
+                                {fmt(txSorted.filter((s) => !s.voided).reduce((s, x) => s + x.total, 0), sym)}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        )}
+                      </table>
                     </div>
                   </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-white text-sm font-bold">{item.count} sold</p>
-                    <p className="text-slate-400 text-xs">{fmt(item.revenue, settings.currencySymbol)}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Recent transactions */}
-        <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
-          <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2"><Receipt size={16} className="text-slate-400" /> Recent Transactions</h3>
-          {sales.length === 0 ? (
-            <p className="text-slate-500 text-sm">No transactions yet</p>
-          ) : (
-            <div className="space-y-2">
-              {sales.slice(0, 10).map((sale) => (
-                <div key={sale.id} className={`flex items-center gap-4 px-4 py-3 rounded-xl ${sale.voided ? "bg-red-500/5 border border-red-500/20" : "bg-slate-700/50"}`}>
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${sale.voided ? "bg-red-500/20 text-red-400" : "bg-green-500/20 text-green-400"}`}>
-                    {sale.voided ? "V" : "✓"}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white text-sm font-medium">#{sale.receiptNo} · {sale.staffName}</p>
-                    <p className="text-slate-400 text-xs">{sale.items.length} item{sale.items.length !== 1 ? "s" : ""} · {sale.paymentMethod} · {relTime(sale.date)}</p>
-                  </div>
-                  <p className={`font-bold text-sm flex-shrink-0 ${sale.voided ? "text-red-400 line-through" : "text-white"}`}>
-                    {fmt(sale.total, settings.currencySymbol)}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+                )}
+              </>
+            )}
+          </>
+        )}
       </div>
+
+      {/* ── Void + Refund modal ──────────────────────────────────────────── */}
+      {voidTarget && (() => {
+        const targetSale = sales.find((s) => s.id === voidTarget);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+            <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
+
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
+                <div>
+                  <h3 className="text-white font-bold">Void &amp; Refund</h3>
+                  {targetSale && (
+                    <p className="text-slate-400 text-xs mt-0.5">
+                      #{targetSale.receiptNo} · {fmt(targetSale.total, settings.currencySymbol)} · {targetSale.staffName}
+                    </p>
+                  )}
+                </div>
+                <button onClick={() => setVoidTarget(null)} className="text-slate-400 hover:text-white transition-colors">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                {/* Void reason */}
+                <div>
+                  <label className="text-xs text-slate-400 font-medium mb-1.5 block">Void reason <span className="text-red-400">*</span></label>
+                  <input
+                    value={voidReason}
+                    onChange={(e) => setVoidReason(e.target.value)}
+                    placeholder="e.g. Customer changed mind, wrong order…"
+                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-red-500 placeholder-slate-500"
+                  />
+                </div>
+
+                {/* Refund method */}
+                <div>
+                  <label className="text-xs text-slate-400 font-medium mb-1.5 block">Refund method</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      { id: "cash",  label: "Cash",       icon: Banknote,   color: "border-green-500 bg-green-500/10 text-green-400" },
+                      { id: "card",  label: "Card",        icon: CreditCard, color: "border-blue-500  bg-blue-500/10  text-blue-400"  },
+                      { id: "none",  label: "No Refund",   icon: X,          color: "border-slate-500 bg-slate-700    text-slate-300" },
+                    ] as const).map(({ id, label, icon: Icon, color }) => (
+                      <button
+                        key={id}
+                        onClick={() => setRefundMethod(id)}
+                        className={`flex flex-col items-center gap-1.5 py-3 rounded-xl border-2 transition-all text-xs font-semibold ${
+                          refundMethod === id ? color : "border-slate-600 bg-slate-700/50 text-slate-400 hover:border-slate-500"
+                        }`}
+                      >
+                        <Icon size={16} />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Refund amount */}
+                {refundMethod !== "none" && (
+                  <div>
+                    <label className="text-xs text-slate-400 font-medium mb-1.5 block">Refund amount</label>
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold">
+                        {settings.currencySymbol}
+                      </span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={refundAmount}
+                        onChange={(e) => setRefundAmount(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-600 rounded-xl pl-8 pr-4 py-2.5 text-white text-sm outline-none focus:border-orange-500"
+                      />
+                    </div>
+                    {targetSale && parseFloat(refundAmount) < targetSale.total && parseFloat(refundAmount) > 0 && (
+                      <p className="text-amber-400 text-xs mt-1">
+                        Partial refund — {fmt(targetSale.total - parseFloat(refundAmount), settings.currencySymbol)} retained
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Refund summary banner */}
+                {refundMethod !== "none" && parseFloat(refundAmount) > 0 && (
+                  <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${
+                    refundMethod === "cash"
+                      ? "bg-green-500/10 border-green-500/30 text-green-400"
+                      : "bg-blue-500/10 border-blue-500/30 text-blue-400"
+                  }`}>
+                    {refundMethod === "cash" ? <Banknote size={16} /> : <CreditCard size={16} />}
+                    <span className="text-sm font-semibold">
+                      Return {fmt(parseFloat(refundAmount) || 0, settings.currencySymbol)} in {refundMethod === "cash" ? "cash to customer" : "card refund"}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="px-5 pb-5 grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setVoidTarget(null)}
+                  className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmVoid}
+                  disabled={!voidReason.trim()}
+                  className="py-3 rounded-xl bg-red-500 hover:bg-red-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Void &amp; {refundMethod === "none" ? "No Refund" : `Refund ${fmt(parseFloat(refundAmount) || 0, settings.currencySymbol)}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1587,6 +2551,13 @@ function StaffView() {
   const [, tick] = useState(0);
   useEffect(() => { const id = setInterval(() => tick((n)=>n+1), 10000); return () => clearInterval(id); }, []);
 
+  // Edit state
+  const [editingStaff, setEditingStaff] = useState<POSStaff | null>(null);
+  const [editDraft, setEditDraft] = useState({ name: "", email: "", role: "cashier" as "admin"|"manager"|"cashier", pin: "", hourlyRate: "" });
+
+  // Delete state
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
   function addStaff() {
     if (!newStaff.name.trim() || newStaff.pin.length !== 4) return;
     const s: POSStaff = {
@@ -1600,6 +2571,27 @@ function StaffView() {
     setStaff((prev) => [...prev, s]);
     setNewStaff({ name: "", email: "", role: "cashier", pin: "", hourlyRate: "" });
     setShowAdd(false);
+  }
+
+  function openEdit(member: POSStaff) {
+    setEditingStaff(member);
+    setEditDraft({ name: member.name, email: member.email ?? "", role: member.role, pin: member.pin, hourlyRate: member.hourlyRate?.toString() ?? "" });
+  }
+
+  function saveEdit() {
+    if (!editingStaff || !editDraft.name.trim() || editDraft.pin.length !== 4) return;
+    setStaff((prev) => prev.map((s) => s.id === editingStaff.id
+      ? { ...s, name: editDraft.name.trim(), email: editDraft.email, role: editDraft.role,
+          pin: editDraft.pin, hourlyRate: parseFloat(editDraft.hourlyRate) || undefined,
+          permissions: ROLE_PERMISSIONS[editDraft.role] }
+      : s
+    ));
+    setEditingStaff(null);
+  }
+
+  function deleteStaff(staffId: string) {
+    setStaff((prev) => prev.filter((s) => s.id !== staffId));
+    setDeleteConfirm(null);
   }
 
   function toggleActive(staffId: string) {
@@ -1702,6 +2694,21 @@ function StaffView() {
                       ? <ToggleRight size={24} className="text-green-400" />
                       : <ToggleLeft size={24} className="text-slate-500" />}
                   </button>
+                  <button
+                    onClick={() => openEdit(member)}
+                    title="Edit staff member"
+                    className="text-slate-400 hover:text-orange-400 transition-colors"
+                  >
+                    <Pencil size={16} />
+                  </button>
+                  <button
+                    onClick={() => setDeleteConfirm(member.id)}
+                    disabled={member.id === currentStaff?.id}
+                    title={member.id === currentStaff?.id ? "Cannot delete yourself" : "Delete staff member"}
+                    className={`transition-colors ${member.id === currentStaff?.id ? "opacity-30 cursor-not-allowed" : "text-slate-400 hover:text-red-400"}`}
+                  >
+                    <Trash2 size={16} />
+                  </button>
                 </div>
               </div>
             ))}
@@ -1779,6 +2786,73 @@ function StaffView() {
           </div>
         </div>
       )}
+
+      {/* Edit staff modal */}
+      {editingStaff && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm p-5 shadow-2xl">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-white font-bold">Edit Staff Member</h3>
+              <button onClick={() => setEditingStaff(null)} className="text-slate-400 hover:text-white"><X size={18} /></button>
+            </div>
+            <div className="space-y-3 mb-5">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Full Name *</label>
+                <input value={editDraft.name} onChange={(e) => setEditDraft((p) => ({ ...p, name: e.target.value }))} placeholder="Staff name"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Email</label>
+                <input value={editDraft.email} onChange={(e) => setEditDraft((p) => ({ ...p, email: e.target.value }))} placeholder="email@example.com"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Role</label>
+                <select value={editDraft.role} onChange={(e) => setEditDraft((p) => ({ ...p, role: e.target.value as "admin"|"manager"|"cashier" }))}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500">
+                  <option value="cashier">Cashier</option>
+                  <option value="manager">Manager</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">4-digit PIN *</label>
+                <input type="password" maxLength={4} value={editDraft.pin} onChange={(e) => setEditDraft((p) => ({ ...p, pin: e.target.value.replace(/\D/g,"") }))} placeholder="••••"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Hourly Rate (£)</label>
+                <input type="number" step="0.5" value={editDraft.hourlyRate} onChange={(e) => setEditDraft((p) => ({ ...p, hourlyRate: e.target.value }))} placeholder="10.00"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setEditingStaff(null)} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">Cancel</button>
+              <button onClick={saveEdit} disabled={!editDraft.name.trim() || editDraft.pin.length !== 4}
+                className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-xs p-5 shadow-2xl text-center">
+            <div className="w-12 h-12 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center justify-center mx-auto mb-4">
+              <Trash2 size={22} className="text-red-400" />
+            </div>
+            <h3 className="text-white font-bold mb-1">Delete Staff Member?</h3>
+            <p className="text-slate-400 text-sm mb-5">
+              {staff.find((s) => s.id === deleteConfirm)?.name} will be permanently removed. This cannot be undone.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setDeleteConfirm(null)} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">Cancel</button>
+              <button onClick={() => deleteStaff(deleteConfirm)} className="py-3 rounded-xl bg-red-500 hover:bg-red-400 text-white font-semibold text-sm transition-colors">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1790,9 +2864,19 @@ function SettingsView() {
   const [local, setLocal] = useState({ ...settings });
   const [tab, setTab] = useState<"general"|"menu"|"receipt"|"hardware">("general");
   const [editProduct, setEditProduct] = useState<POSProduct | null>(null);
-  const [editDraft, setEditDraft] = useState({ name: "", categoryId: "", price: "", cost: "", emoji: "", popular: false });
+  const [editDraft, setEditDraft] = useState({
+    name: "", categoryId: "", price: "", cost: "", emoji: "", imageUrl: "", popular: false,
+    offerActive: false, offerType: "percent" as POSOffer["type"],
+    offerValue: "", offerLabel: "", offerStart: "", offerEnd: "",
+    offerBuyQty: "", offerFreeQty: "", offerMinQty: "",
+  });
   const [showAddProduct, setShowAddProduct] = useState(false);
-  const [newProduct, setNewProduct] = useState({ name: "", categoryId: "", price: "", cost: "", emoji: "🍽️" });
+  const [newProduct, setNewProduct] = useState({
+    name: "", categoryId: "", price: "", cost: "", emoji: "🍽️", imageUrl: "",
+    offerActive: false, offerType: "percent" as POSOffer["type"],
+    offerValue: "", offerLabel: "", offerStart: "", offerEnd: "",
+    offerBuyQty: "", offerFreeQty: "", offerMinQty: "",
+  });
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [menuTab, setMenuTab] = useState<"items"|"categories">("items");
 
@@ -1883,14 +2967,49 @@ function SettingsView() {
 
   function openEdit(product: POSProduct) {
     setEditProduct(product);
+    const o = product.offer;
     setEditDraft({
-      name:       product.name,
-      categoryId: product.categoryId,
-      price:      product.price.toString(),
-      cost:       product.cost?.toString() ?? "",
-      emoji:      product.emoji ?? "🍽️",
-      popular:    product.popular ?? false,
+      name:         product.name,
+      categoryId:   product.categoryId,
+      price:        product.price.toString(),
+      cost:         product.cost?.toString() ?? "",
+      emoji:        product.emoji ?? "🍽️",
+      imageUrl:     product.imageUrl ?? "",
+      popular:      product.popular ?? false,
+      offerActive:  o?.active    ?? false,
+      offerType:    o?.type      ?? "percent",
+      offerValue:   o?.value?.toString()   ?? "",
+      offerLabel:   o?.label    ?? "",
+      offerStart:   o?.startDate ?? "",
+      offerEnd:     o?.endDate   ?? "",
+      offerBuyQty:  o?.buyQty?.toString()  ?? "",
+      offerFreeQty: o?.freeQty?.toString() ?? "",
+      offerMinQty:  o?.minQty?.toString()  ?? "",
     });
+  }
+
+  function buildOffer(d: {
+    offerValue: string; offerType: POSOffer["type"]; offerLabel: string;
+    offerActive: boolean; offerStart: string; offerEnd: string;
+    offerBuyQty: string; offerFreeQty: string; offerMinQty: string;
+  }): POSOffer | undefined {
+    const needsValue = ["percent","fixed","price","multibuy","qty_discount"].includes(d.offerType);
+    const needsBuy   = ["bogo","multibuy"].includes(d.offerType);
+    if (needsValue && !d.offerValue) return undefined;
+    if (needsBuy   && !d.offerBuyQty) return undefined;
+    if (d.offerType === "bogo" && !d.offerFreeQty) return undefined;
+    if (d.offerType === "qty_discount" && !d.offerMinQty) return undefined;
+    return {
+      type:      d.offerType,
+      value:     parseFloat(d.offerValue)   || 0,
+      label:     d.offerLabel.trim()        || undefined,
+      active:    d.offerActive,
+      startDate: d.offerStart               || undefined,
+      endDate:   d.offerEnd                 || undefined,
+      buyQty:    d.offerBuyQty  ? parseInt(d.offerBuyQty)  : undefined,
+      freeQty:   d.offerFreeQty ? parseInt(d.offerFreeQty) : undefined,
+      minQty:    d.offerMinQty  ? parseInt(d.offerMinQty)  : undefined,
+    };
   }
 
   function saveEdit() {
@@ -1903,8 +3022,10 @@ function SettingsView() {
             categoryId: editDraft.categoryId,
             price:      parseFloat(editDraft.price),
             cost:       editDraft.cost ? parseFloat(editDraft.cost) : undefined,
-            emoji:      editDraft.emoji || "🍽️",
+            emoji:      editDraft.imageUrl ? undefined : (editDraft.emoji || "🍽️"),
+            imageUrl:   editDraft.imageUrl || undefined,
             popular:    editDraft.popular,
+            offer:      buildOffer(editDraft),
           }
         : p
     ));
@@ -1922,11 +3043,22 @@ function SettingsView() {
     const p: POSProduct = {
       id: `p-${Date.now()}`, categoryId: newProduct.categoryId, name: newProduct.name.trim(),
       price: parseFloat(newProduct.price), cost: parseFloat(newProduct.cost) || undefined,
-      emoji: newProduct.emoji || "🍽️", color: "#e2e8f0", trackStock: false, active: true,
+      emoji: newProduct.imageUrl ? undefined : (newProduct.emoji || "🍽️"),
+      imageUrl: newProduct.imageUrl || undefined,
+      color: "#e2e8f0", trackStock: false, active: true,
+      offer: buildOffer(newProduct),
     };
     setProducts((prev) => [...prev, p]);
-    setNewProduct({ name: "", categoryId: "", price: "", cost: "", emoji: "🍽️" });
+    setNewProduct({ name: "", categoryId: "", price: "", cost: "", emoji: "🍽️", imageUrl: "",
+      offerActive: false, offerType: "percent", offerValue: "", offerLabel: "", offerStart: "", offerEnd: "",
+      offerBuyQty: "", offerFreeQty: "", offerMinQty: "" });
     setShowAddProduct(false);
+  }
+
+  function handleImageFile(file: File, setter: (url: string) => void) {
+    const reader = new FileReader();
+    reader.onload = (e) => { if (e.target?.result) setter(e.target.result as string); };
+    reader.readAsDataURL(file);
   }
 
   return (
@@ -2119,15 +3251,23 @@ function SettingsView() {
                       <div className="divide-y divide-slate-700/50">
                         {catProducts.map((product) => (
                           <div key={product.id} className="px-5 py-3 flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-xl flex items-center justify-center text-base flex-shrink-0" style={{ backgroundColor: product.color }}>
-                              {product.emoji ?? "🍽️"}
+                            <div className="w-9 h-9 rounded-xl flex-shrink-0 overflow-hidden" style={{ backgroundColor: product.imageUrl ? undefined : product.color }}>
+                              {product.imageUrl
+                                // eslint-disable-next-line @next/next/no-img-element
+                                ? <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
+                                : <span className="w-full h-full flex items-center justify-center text-base">{product.emoji ?? "🍽️"}</span>
+                              }
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <p className={`text-sm font-semibold ${product.active ? "text-white" : "text-slate-500"}`}>{product.name}</p>
                                 {product.popular && <span className="text-[10px] bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded-full font-medium">Popular</span>}
+                                {product.offer?.active && <span className="text-[10px] bg-amber-400/20 text-amber-400 px-1.5 py-0.5 rounded-full font-medium">{product.offer.label?.trim() || (product.offer.type === "percent" ? `${product.offer.value}% OFF` : product.offer.type === "fixed" ? `${settings.currencySymbol}${product.offer.value} OFF` : "SPECIAL")}</span>}
                               </div>
-                              <p className="text-slate-400 text-xs">{fmt(product.price, settings.currencySymbol)}{product.cost ? ` · Cost: ${fmt(product.cost, settings.currencySymbol)}` : ""}</p>
+                              <p className="text-slate-400 text-xs">
+                                {(() => { const op = getOfferPrice(product); return op !== null ? <><span className="text-amber-400 font-semibold">{fmt(op, settings.currencySymbol)}</span> <span className="line-through">{fmt(product.price, settings.currencySymbol)}</span></> : fmt(product.price, settings.currencySymbol); })()}
+                                {product.cost ? ` · Cost: ${fmt(product.cost, settings.currencySymbol)}` : ""}
+                              </p>
                             </div>
                             <button onClick={() => openEdit(product)} className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-all">
                               <Pencil size={15} />
@@ -2424,6 +3564,56 @@ function SettingsView() {
               <h3 className="text-white font-semibold text-sm mb-3">Card Terminal</h3>
               <p className="text-slate-400 text-sm">Pair any standalone card terminal (SumUp, Zettle, Square). The POS records the payment — the terminal handles the transaction.</p>
             </div>
+
+            {/* SMTP — Email Receipts */}
+            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4">
+              <div>
+                <h3 className="text-white font-semibold text-sm flex items-center gap-2">
+                  <Mail size={16} className="text-slate-400" /> Email Receipts (SMTP)
+                </h3>
+                <p className="text-slate-400 text-xs mt-1">Configure an outgoing email server to send receipts to customers.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">SMTP Host</label>
+                  <input value={local.smtpHost ?? ""} onChange={(e) => setLocal((l) => ({ ...l, smtpHost: e.target.value }))}
+                    placeholder="smtp.gmail.com"
+                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">Port</label>
+                  <input value={local.smtpPort ?? "587"} onChange={(e) => setLocal((l) => ({ ...l, smtpPort: e.target.value }))}
+                    placeholder="587"
+                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">Username / Email</label>
+                  <input value={local.smtpUser ?? ""} onChange={(e) => setLocal((l) => ({ ...l, smtpUser: e.target.value }))}
+                    placeholder="you@gmail.com"
+                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">Password / App Password</label>
+                  <input type="password" value={local.smtpPassword ?? ""} onChange={(e) => setLocal((l) => ({ ...l, smtpPassword: e.target.value }))}
+                    placeholder="••••••••"
+                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">From Name (shown to customer)</label>
+                <input value={local.smtpFromName ?? ""} onChange={(e) => setLocal((l) => ({ ...l, smtpFromName: e.target.value }))}
+                  placeholder={local.businessName || "Spice Garden Restaurant"}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+              </div>
+              <button
+                onClick={() => setSettings({ ...settings, ...local })}
+                className="w-full py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+              >
+                <Save size={14} /> Save SMTP Settings
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -2623,18 +3813,53 @@ function SettingsView() {
             </div>
 
             {/* Form */}
-            <div className="p-5 space-y-3 max-h-[70vh] overflow-y-auto">
-              {/* Emoji + Name row */}
+            <div className="p-5 space-y-3 max-h-[75vh] overflow-y-auto">
+
+              {/* Image section */}
+              <div>
+                <label className="text-xs text-slate-400 mb-2 block">Item Image</label>
+                {editDraft.imageUrl ? (
+                  <div className="relative rounded-xl overflow-hidden bg-slate-900 border border-slate-600 mb-2" style={{ height: 140 }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={editDraft.imageUrl} alt="preview" className="w-full h-full object-cover" />
+                    <button
+                      onClick={() => setEditDraft((d) => ({ ...d, imageUrl: "" }))}
+                      className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 hover:bg-red-500/80 flex items-center justify-center text-white transition-colors"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center w-full rounded-xl border-2 border-dashed border-slate-600 hover:border-orange-500 bg-slate-900 cursor-pointer transition-colors mb-2" style={{ height: 100 }}>
+                    <Package size={22} className="text-slate-500 mb-1" />
+                    <span className="text-xs text-slate-400">Click to upload image</span>
+                    <input
+                      type="file" accept="image/*" className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageFile(f, (url) => setEditDraft((d) => ({ ...d, imageUrl: url }))); }}
+                    />
+                  </label>
+                )}
+                <input
+                  value={editDraft.imageUrl}
+                  onChange={(e) => setEditDraft((d) => ({ ...d, imageUrl: e.target.value }))}
+                  placeholder="Or paste image URL…"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2 text-white text-xs outline-none focus:border-orange-500 placeholder-slate-500"
+                />
+              </div>
+
+              {/* Emoji + Name row — emoji only shown when no image */}
               <div className="flex gap-3">
-                <div className="w-20 flex-shrink-0">
-                  <label className="text-xs text-slate-400 mb-1 block">Emoji</label>
-                  <input
-                    value={editDraft.emoji}
-                    onChange={(e) => setEditDraft((d) => ({ ...d, emoji: e.target.value }))}
-                    placeholder="🍽️"
-                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2.5 text-white text-center text-xl outline-none focus:border-orange-500"
-                  />
-                </div>
+                {!editDraft.imageUrl && (
+                  <div className="w-20 flex-shrink-0">
+                    <label className="text-xs text-slate-400 mb-1 block">Emoji</label>
+                    <input
+                      value={editDraft.emoji}
+                      onChange={(e) => setEditDraft((d) => ({ ...d, emoji: e.target.value }))}
+                      placeholder="🍽️"
+                      className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2.5 text-white text-center text-xl outline-none focus:border-orange-500"
+                    />
+                  </div>
+                )}
                 <div className="flex-1">
                   <label className="text-xs text-slate-400 mb-1 block">Name *</label>
                   <input
@@ -2695,6 +3920,172 @@ function SettingsView() {
                   </span>
                 </div>
               )}
+
+              {/* Offer section */}
+              <div className="border border-slate-700 rounded-xl overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 bg-slate-900/60">
+                  <div>
+                    <p className="text-white text-sm font-medium">Product Offer</p>
+                    <p className="text-slate-400 text-xs">Discount shown on the sale tile</p>
+                  </div>
+                  <button onClick={() => setEditDraft((d) => ({ ...d, offerActive: !d.offerActive }))} className="transition-colors">
+                    {editDraft.offerActive ? <ToggleRight size={28} className="text-amber-400" /> : <ToggleLeft size={28} className="text-slate-500" />}
+                  </button>
+                </div>
+                {editDraft.offerActive && (
+                  <div className="p-4 space-y-3 bg-slate-900/30">
+                    {/* Type grid — 2 rows of 3 */}
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {([
+                        ["percent",      "% Off"],
+                        ["fixed",        `${settings.currencySymbol} Off`],
+                        ["price",        "Set Price"],
+                        ["bogo",         "BOGO"],
+                        ["multibuy",     "Multi-Buy"],
+                        ["qty_discount", "Qty Deal"],
+                      ] as [POSOffer["type"], string][]).map(([t, label]) => (
+                        <button key={t} onClick={() => setEditDraft((d) => ({ ...d, offerType: t }))}
+                          className={`py-2 rounded-lg text-xs font-semibold transition-all ${editDraft.offerType === t ? "bg-amber-400 text-slate-900" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Type-specific inputs */}
+                    {(editDraft.offerType === "percent" || editDraft.offerType === "fixed" || editDraft.offerType === "price") && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">
+                            {editDraft.offerType === "percent" ? "Discount %" : editDraft.offerType === "fixed" ? `Amount Off (${settings.currencySymbol})` : `Special Price (${settings.currencySymbol})`}
+                          </label>
+                          <input type="number" min="0" step={editDraft.offerType === "percent" ? "1" : "0.01"}
+                            value={editDraft.offerValue} onChange={(e) => setEditDraft((d) => ({ ...d, offerValue: e.target.value }))}
+                            placeholder={editDraft.offerType === "percent" ? "e.g. 20" : "0.00"}
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">Badge label (optional)</label>
+                          <input value={editDraft.offerLabel} onChange={(e) => setEditDraft((d) => ({ ...d, offerLabel: e.target.value }))}
+                            placeholder="e.g. Happy Hour"
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                      </div>
+                    )}
+
+                    {editDraft.offerType === "bogo" && (
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">Buy qty</label>
+                          <input type="number" min="1" step="1" value={editDraft.offerBuyQty}
+                            onChange={(e) => setEditDraft((d) => ({ ...d, offerBuyQty: e.target.value }))} placeholder="1"
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">Get free</label>
+                          <input type="number" min="1" step="1" value={editDraft.offerFreeQty}
+                            onChange={(e) => setEditDraft((d) => ({ ...d, offerFreeQty: e.target.value }))} placeholder="1"
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">Badge (optional)</label>
+                          <input value={editDraft.offerLabel} onChange={(e) => setEditDraft((d) => ({ ...d, offerLabel: e.target.value }))}
+                            placeholder="e.g. BOGOF"
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                      </div>
+                    )}
+
+                    {editDraft.offerType === "multibuy" && (
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">Buy qty</label>
+                          <input type="number" min="2" step="1" value={editDraft.offerBuyQty}
+                            onChange={(e) => setEditDraft((d) => ({ ...d, offerBuyQty: e.target.value }))} placeholder="3"
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">Bundle price ({settings.currencySymbol})</label>
+                          <input type="number" min="0" step="0.01" value={editDraft.offerValue}
+                            onChange={(e) => setEditDraft((d) => ({ ...d, offerValue: e.target.value }))} placeholder="10.00"
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">Badge (optional)</label>
+                          <input value={editDraft.offerLabel} onChange={(e) => setEditDraft((d) => ({ ...d, offerLabel: e.target.value }))}
+                            placeholder={`${editDraft.offerBuyQty||"3"} for ${settings.currencySymbol}${editDraft.offerValue||"10"}`}
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                      </div>
+                    )}
+
+                    {editDraft.offerType === "qty_discount" && (
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">Min qty</label>
+                          <input type="number" min="2" step="1" value={editDraft.offerMinQty}
+                            onChange={(e) => setEditDraft((d) => ({ ...d, offerMinQty: e.target.value }))} placeholder="2"
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">Discount %</label>
+                          <input type="number" min="1" max="100" step="1" value={editDraft.offerValue}
+                            onChange={(e) => setEditDraft((d) => ({ ...d, offerValue: e.target.value }))} placeholder="15"
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">Badge (optional)</label>
+                          <input value={editDraft.offerLabel} onChange={(e) => setEditDraft((d) => ({ ...d, offerLabel: e.target.value }))}
+                            placeholder={`${editDraft.offerMinQty||"2"}+ save ${editDraft.offerValue||"15"}%`}
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Date range */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs text-slate-400 mb-1 block">Start date (optional)</label>
+                        <input type="date" value={editDraft.offerStart} onChange={(e) => setEditDraft((d) => ({ ...d, offerStart: e.target.value }))}
+                          className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-400 mb-1 block">End date (optional)</label>
+                        <input type="date" value={editDraft.offerEnd} onChange={(e) => setEditDraft((d) => ({ ...d, offerEnd: e.target.value }))}
+                          className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400" />
+                      </div>
+                    </div>
+
+                    {/* Live preview */}
+                    {editDraft.price && (() => {
+                      const price = parseFloat(editDraft.price) || 0;
+                      const sym = settings.currencySymbol;
+                      let preview: string | null = null;
+                      if ((editDraft.offerType === "percent" || editDraft.offerType === "fixed" || editDraft.offerType === "price") && editDraft.offerValue) {
+                        const mock: POSProduct = { id:"", categoryId:"", name:"", price, color:"", trackStock:false, active:true,
+                          offer: { type: editDraft.offerType, value: parseFloat(editDraft.offerValue)||0, active:true } };
+                        const op = getOfferPrice(mock);
+                        if (op !== null) preview = `${fmt(op,sym)} per item  (was ${fmt(price,sym)})`;
+                      } else if (editDraft.offerType === "bogo" && editDraft.offerBuyQty && editDraft.offerFreeQty) {
+                        const b = parseInt(editDraft.offerBuyQty), f = parseInt(editDraft.offerFreeQty);
+                        preview = `Buy ${b} get ${f} free · pay for ${b} of every ${b+f}`;
+                      } else if (editDraft.offerType === "multibuy" && editDraft.offerBuyQty && editDraft.offerValue) {
+                        const qty = parseInt(editDraft.offerBuyQty), total = parseFloat(editDraft.offerValue);
+                        const saving = price * qty - total;
+                        preview = `${qty} for ${fmt(total,sym)} · save ${fmt(saving>0?saving:0,sym)}`;
+                      } else if (editDraft.offerType === "qty_discount" && editDraft.offerMinQty && editDraft.offerValue) {
+                        const discounted = price * (1 - parseFloat(editDraft.offerValue)/100);
+                        preview = `Buy ${editDraft.offerMinQty}+ · ${fmt(discounted,sym)} each (was ${fmt(price,sym)})`;
+                      }
+                      return preview ? (
+                        <div className="flex items-center gap-3 bg-amber-400/10 border border-amber-400/30 rounded-xl px-4 py-2.5">
+                          <Tag size={14} className="text-amber-400 flex-shrink-0" />
+                          <span className="text-amber-400 text-xs font-semibold">{preview}</span>
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
+                )}
+              </div>
 
               {/* Popular toggle */}
               <div className="flex items-center justify-between py-1">
@@ -2772,13 +4163,48 @@ function SettingsView() {
               <h3 className="text-white font-bold">Add Menu Item</h3>
               <button onClick={() => setShowAddProduct(false)} className="text-slate-400 hover:text-white"><X size={18} /></button>
             </div>
-            <div className="p-5 space-y-3">
+            <div className="p-5 space-y-3 max-h-[75vh] overflow-y-auto">
+
+              {/* Image section */}
+              <div>
+                <label className="text-xs text-slate-400 mb-2 block">Item Image</label>
+                {newProduct.imageUrl ? (
+                  <div className="relative rounded-xl overflow-hidden bg-slate-900 border border-slate-600 mb-2" style={{ height: 140 }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={newProduct.imageUrl} alt="preview" className="w-full h-full object-cover" />
+                    <button
+                      onClick={() => setNewProduct((p) => ({ ...p, imageUrl: "" }))}
+                      className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 hover:bg-red-500/80 flex items-center justify-center text-white transition-colors"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center w-full rounded-xl border-2 border-dashed border-slate-600 hover:border-orange-500 bg-slate-900 cursor-pointer transition-colors mb-2" style={{ height: 100 }}>
+                    <Package size={22} className="text-slate-500 mb-1" />
+                    <span className="text-xs text-slate-400">Click to upload image</span>
+                    <input
+                      type="file" accept="image/*" className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageFile(f, (url) => setNewProduct((p) => ({ ...p, imageUrl: url }))); }}
+                    />
+                  </label>
+                )}
+                <input
+                  value={newProduct.imageUrl}
+                  onChange={(e) => setNewProduct((p) => ({ ...p, imageUrl: e.target.value }))}
+                  placeholder="Or paste image URL…"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2 text-white text-xs outline-none focus:border-orange-500 placeholder-slate-500"
+                />
+              </div>
+
               <div className="flex gap-3">
-                <div className="w-20 flex-shrink-0">
-                  <label className="text-xs text-slate-400 mb-1 block">Emoji</label>
-                  <input value={newProduct.emoji} onChange={(e) => setNewProduct((p) => ({ ...p, emoji: e.target.value }))} placeholder="🍽️"
-                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2.5 text-white text-center text-xl outline-none focus:border-orange-500" />
-                </div>
+                {!newProduct.imageUrl && (
+                  <div className="w-20 flex-shrink-0">
+                    <label className="text-xs text-slate-400 mb-1 block">Emoji</label>
+                    <input value={newProduct.emoji} onChange={(e) => setNewProduct((p) => ({ ...p, emoji: e.target.value }))} placeholder="🍽️"
+                      className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2.5 text-white text-center text-xl outline-none focus:border-orange-500" />
+                  </div>
+                )}
                 <div className="flex-1">
                   <label className="text-xs text-slate-400 mb-1 block">Name *</label>
                   <input value={newProduct.name} onChange={(e) => setNewProduct((p) => ({ ...p, name: e.target.value }))} placeholder="Item name"
@@ -2804,6 +4230,168 @@ function SettingsView() {
                   <input type="number" step="0.01" min="0" value={newProduct.cost} onChange={(e) => setNewProduct((p) => ({ ...p, cost: e.target.value }))} placeholder="0.00"
                     className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
                 </div>
+              </div>
+
+              {/* Offer section */}
+              <div className="border border-slate-700 rounded-xl overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 bg-slate-900/60">
+                  <div>
+                    <p className="text-white text-sm font-medium">Product Offer</p>
+                    <p className="text-slate-400 text-xs">Optional discount on this item</p>
+                  </div>
+                  <button onClick={() => setNewProduct((p) => ({ ...p, offerActive: !p.offerActive }))} className="transition-colors">
+                    {newProduct.offerActive ? <ToggleRight size={28} className="text-amber-400" /> : <ToggleLeft size={28} className="text-slate-500" />}
+                  </button>
+                </div>
+                {newProduct.offerActive && (
+                  <div className="p-4 space-y-3 bg-slate-900/30">
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {([
+                        ["percent",      "% Off"],
+                        ["fixed",        `${settings.currencySymbol} Off`],
+                        ["price",        "Set Price"],
+                        ["bogo",         "BOGO"],
+                        ["multibuy",     "Multi-Buy"],
+                        ["qty_discount", "Qty Deal"],
+                      ] as [POSOffer["type"], string][]).map(([t, label]) => (
+                        <button key={t} onClick={() => setNewProduct((p) => ({ ...p, offerType: t }))}
+                          className={`py-2 rounded-lg text-xs font-semibold transition-all ${newProduct.offerType === t ? "bg-amber-400 text-slate-900" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {(newProduct.offerType === "percent" || newProduct.offerType === "fixed" || newProduct.offerType === "price") && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">
+                            {newProduct.offerType === "percent" ? "Discount %" : newProduct.offerType === "fixed" ? `Amount Off (${settings.currencySymbol})` : `Special Price (${settings.currencySymbol})`}
+                          </label>
+                          <input type="number" min="0" step={newProduct.offerType === "percent" ? "1" : "0.01"}
+                            value={newProduct.offerValue} onChange={(e) => setNewProduct((p) => ({ ...p, offerValue: e.target.value }))}
+                            placeholder={newProduct.offerType === "percent" ? "e.g. 20" : "0.00"}
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">Badge label (optional)</label>
+                          <input value={newProduct.offerLabel} onChange={(e) => setNewProduct((p) => ({ ...p, offerLabel: e.target.value }))}
+                            placeholder="e.g. Happy Hour"
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                      </div>
+                    )}
+
+                    {newProduct.offerType === "bogo" && (
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">Buy qty</label>
+                          <input type="number" min="1" step="1" value={newProduct.offerBuyQty}
+                            onChange={(e) => setNewProduct((p) => ({ ...p, offerBuyQty: e.target.value }))} placeholder="1"
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">Get free</label>
+                          <input type="number" min="1" step="1" value={newProduct.offerFreeQty}
+                            onChange={(e) => setNewProduct((p) => ({ ...p, offerFreeQty: e.target.value }))} placeholder="1"
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">Badge (optional)</label>
+                          <input value={newProduct.offerLabel} onChange={(e) => setNewProduct((p) => ({ ...p, offerLabel: e.target.value }))}
+                            placeholder="e.g. BOGOF"
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                      </div>
+                    )}
+
+                    {newProduct.offerType === "multibuy" && (
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">Buy qty</label>
+                          <input type="number" min="2" step="1" value={newProduct.offerBuyQty}
+                            onChange={(e) => setNewProduct((p) => ({ ...p, offerBuyQty: e.target.value }))} placeholder="3"
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">Bundle price ({settings.currencySymbol})</label>
+                          <input type="number" min="0" step="0.01" value={newProduct.offerValue}
+                            onChange={(e) => setNewProduct((p) => ({ ...p, offerValue: e.target.value }))} placeholder="10.00"
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">Badge (optional)</label>
+                          <input value={newProduct.offerLabel} onChange={(e) => setNewProduct((p) => ({ ...p, offerLabel: e.target.value }))}
+                            placeholder={`${newProduct.offerBuyQty||"3"} for ${settings.currencySymbol}${newProduct.offerValue||"10"}`}
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                      </div>
+                    )}
+
+                    {newProduct.offerType === "qty_discount" && (
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">Min qty</label>
+                          <input type="number" min="2" step="1" value={newProduct.offerMinQty}
+                            onChange={(e) => setNewProduct((p) => ({ ...p, offerMinQty: e.target.value }))} placeholder="2"
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">Discount %</label>
+                          <input type="number" min="1" max="100" step="1" value={newProduct.offerValue}
+                            onChange={(e) => setNewProduct((p) => ({ ...p, offerValue: e.target.value }))} placeholder="15"
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-400 mb-1 block">Badge (optional)</label>
+                          <input value={newProduct.offerLabel} onChange={(e) => setNewProduct((p) => ({ ...p, offerLabel: e.target.value }))}
+                            placeholder={`${newProduct.offerMinQty||"2"}+ save ${newProduct.offerValue||"15"}%`}
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs text-slate-400 mb-1 block">Start date (optional)</label>
+                        <input type="date" value={newProduct.offerStart} onChange={(e) => setNewProduct((p) => ({ ...p, offerStart: e.target.value }))}
+                          className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-400 mb-1 block">End date (optional)</label>
+                        <input type="date" value={newProduct.offerEnd} onChange={(e) => setNewProduct((p) => ({ ...p, offerEnd: e.target.value }))}
+                          className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400" />
+                      </div>
+                    </div>
+
+                    {newProduct.price && (() => {
+                      const price = parseFloat(newProduct.price) || 0;
+                      const sym = settings.currencySymbol;
+                      let preview: string | null = null;
+                      if ((newProduct.offerType === "percent" || newProduct.offerType === "fixed" || newProduct.offerType === "price") && newProduct.offerValue) {
+                        const mock: POSProduct = { id:"", categoryId:"", name:"", price, color:"", trackStock:false, active:true,
+                          offer: { type: newProduct.offerType, value: parseFloat(newProduct.offerValue)||0, active:true } };
+                        const op = getOfferPrice(mock);
+                        if (op !== null) preview = `${fmt(op,sym)} per item  (was ${fmt(price,sym)})`;
+                      } else if (newProduct.offerType === "bogo" && newProduct.offerBuyQty && newProduct.offerFreeQty) {
+                        const b = parseInt(newProduct.offerBuyQty), f = parseInt(newProduct.offerFreeQty);
+                        preview = `Buy ${b} get ${f} free · pay for ${b} of every ${b+f}`;
+                      } else if (newProduct.offerType === "multibuy" && newProduct.offerBuyQty && newProduct.offerValue) {
+                        const qty = parseInt(newProduct.offerBuyQty), total = parseFloat(newProduct.offerValue);
+                        const saving = price * qty - total;
+                        preview = `${qty} for ${fmt(total,sym)} · save ${fmt(saving>0?saving:0,sym)}`;
+                      } else if (newProduct.offerType === "qty_discount" && newProduct.offerMinQty && newProduct.offerValue) {
+                        const discounted = price * (1 - parseFloat(newProduct.offerValue)/100);
+                        preview = `Buy ${newProduct.offerMinQty}+ · ${fmt(discounted,sym)} each (was ${fmt(price,sym)})`;
+                      }
+                      return preview ? (
+                        <div className="flex items-center gap-3 bg-amber-400/10 border border-amber-400/30 rounded-xl px-4 py-2.5">
+                          <Tag size={14} className="text-amber-400 flex-shrink-0" />
+                          <span className="text-amber-400 text-xs font-semibold">{preview}</span>
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
+                )}
               </div>
             </div>
             <div className="px-5 pb-5 grid grid-cols-2 gap-2">
@@ -2832,8 +4420,18 @@ export default function POSPage() {
 
   useEffect(() => {
     if (!mounted) return;
-    if (!currentStaff) { router.replace("/pos/login"); }
-  }, [mounted, currentStaff, router]);
+    if (!currentStaff) { router.replace("/pos/login"); return; }
+    // Redirect to sale if current view is no longer permitted
+    const p = currentStaff.permissions;
+    const allowed: Record<View, boolean> = {
+      sale: true,
+      dashboard: p.canAccessDashboard,
+      customers: p.canManageCustomers,
+      staff: p.canManageStaff,
+      settings: p.canAccessSettings,
+    };
+    if (!allowed[view]) setView("sale");
+  }, [mounted, currentStaff, router, view]);
 
   useEffect(() => {
     // Only run clock on client after mount
@@ -2845,13 +4443,15 @@ export default function POSPage() {
   // Show nothing until client has hydrated (avoids mismatch between SSR null and client session)
   if (!mounted || !currentStaff) return <div className="min-h-screen bg-slate-950" />;
 
+  const perms = currentStaff.permissions;
+
   const NAV = [
-    { id: "sale" as View, label: "Sale", icon: ShoppingCart },
-    { id: "dashboard" as View, label: "Dashboard", icon: LayoutDashboard },
-    { id: "customers" as View, label: "Customers", icon: Users },
-    { id: "staff" as View, label: "Staff", icon: UserCog },
-    { id: "settings" as View, label: "Settings", icon: Settings2 },
-  ];
+    { id: "sale"      as View, label: "Sale",      icon: ShoppingCart,   show: true },
+    { id: "dashboard" as View, label: "Dashboard", icon: LayoutDashboard, show: perms.canAccessDashboard },
+    { id: "customers" as View, label: "Customers", icon: Users,           show: perms.canManageCustomers },
+    { id: "staff"     as View, label: "Staff",     icon: UserCog,         show: perms.canManageStaff },
+    { id: "settings"  as View, label: "Settings",  icon: Settings2,       show: perms.canAccessSettings },
+  ].filter((n) => n.show);
 
   const viewLabels: Record<View, string> = {
     sale: "Point of Sale",
@@ -2893,7 +4493,13 @@ export default function POSPage() {
           </div>
           <div className="hidden sm:block">
             <p className="text-white text-xs font-semibold leading-none">{currentStaff.name}</p>
-            <p className="text-slate-400 text-[10px] capitalize leading-none mt-0.5">{currentStaff.role}</p>
+            <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wide ${
+              currentStaff.role === "admin"   ? "bg-purple-500/20 text-purple-400" :
+              currentStaff.role === "manager" ? "bg-blue-500/20   text-blue-400"   :
+                                                "bg-slate-600     text-slate-400"
+            }`}>
+              {currentStaff.role}
+            </span>
           </div>
         </div>
 
@@ -2909,10 +4515,10 @@ export default function POSPage() {
       {/* Main content */}
       <div className="flex-1 overflow-hidden flex flex-col">
         {view === "sale" && <SaleView />}
-        {view === "dashboard" && <DashboardView />}
-        {view === "customers" && <CustomersView />}
-        {view === "staff" && <StaffView />}
-        {view === "settings" && <SettingsView />}
+        {view === "dashboard" && perms.canAccessDashboard && <DashboardView />}
+        {view === "customers" && perms.canManageCustomers && <CustomersView />}
+        {view === "staff" && perms.canManageStaff && <StaffView />}
+        {view === "settings" && perms.canAccessSettings && <SettingsView />}
       </div>
 
       {/* Bottom nav */}

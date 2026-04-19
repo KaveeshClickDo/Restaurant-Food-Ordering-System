@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 const uuid = () => crypto.randomUUID();
 import {
   POSStaff, POSProduct, POSCategory, POSCartItem, POSSale, POSCustomer,
-  POSSettings, POSClockEntry, POSCartModifier, ROLE_PERMISSIONS,
+  POSSettings, POSClockEntry, POSCartModifier, ROLE_PERMISSIONS, getOfferPrice, cartLineTotal,
 } from "@/types/pos";
 
 // ─── Seed data ───────────────────────────────────────────────────────────────
@@ -113,6 +113,11 @@ const SEED_SETTINGS: POSSettings = {
   receiptLogoUrl: "",
   receiptThankYouMessage: "Thank you for dining with us!",
   receiptCustomMessage: "",
+  smtpHost: "",
+  smtpPort: "587",
+  smtpUser: "",
+  smtpPassword: "",
+  smtpFromName: "",
 };
 
 const SEED_CUSTOMERS: POSCustomer[] = [
@@ -177,7 +182,7 @@ interface POSContextValue {
     payments: { method: "cash" | "card"; amount: number }[],
     cashTendered?: number
   ) => POSSale;
-  voidSale: (saleId: string, reason: string) => void;
+  voidSale: (saleId: string, reason: string, refundMethod?: "cash" | "card" | "none", refundAmount?: number) => void;
   clockIn: (staffId: string) => void;
   clockOut: (staffId: string) => void;
   isClocked: (staffId: string) => boolean;
@@ -274,7 +279,11 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // ── Cart ─────────────────────────────────────────────────────────────────
   const addToCart = useCallback((product: POSProduct, modifiers: POSCartModifier[]) => {
     const modPrice = modifiers.reduce((sum, m) => sum + m.priceAdjust, 0);
-    const unitPrice = product.price + modPrice;
+    const offerPrice = getOfferPrice(product); // null for cart-level offer types
+    const basePrice = offerPrice ?? product.price;
+    const unitPrice = basePrice + modPrice;
+    // Snapshot offer for cart-level quantity-based types (bogo, multibuy, qty_discount)
+    const cartOffer = product.offer?.active ? product.offer : undefined;
     setCart((prev) => {
       // Merge with existing identical line (same product + same modifiers, no custom note)
       const modKey = JSON.stringify(modifiers);
@@ -294,6 +303,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         price: unitPrice,
         quantity: 1,
         modifiers,
+        offer: cartOffer,
       }];
     });
   }, []);
@@ -322,7 +332,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ── Computed totals ───────────────────────────────────────────────────────
-  const subtotal = cart.reduce((sum, l) => sum + l.price * l.quantity, 0);
+  const subtotal = cart.reduce((sum, l) => sum + cartLineTotal(l), 0);
   const discountAmount = subtotal * (discount.pct / 100);
   const afterDiscount = subtotal - discountAmount;
 
@@ -346,7 +356,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     receiptCounter.current += 1;
     save("pos_receipt_counter", receiptCounter.current);
 
-    const sub = cart.reduce((s, l) => s + l.price * l.quantity, 0);
+    const sub = cart.reduce((s, l) => s + cartLineTotal(l), 0);
     const disc = sub * (discount.pct / 100);
     const after = sub - disc;
     const tax = settings.taxInclusive
@@ -418,9 +428,16 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     return sale;
   }, [cart, discount, tipAmount, settings, currentStaff, assignedCustomer, clearCart]);
 
-  const voidSale = useCallback((saleId: string, reason: string) => {
+  const voidSale = useCallback((
+    saleId: string,
+    reason: string,
+    refundMethod?: "cash" | "card" | "none",
+    refundAmount?: number,
+  ) => {
     setSales((prev) =>
-      prev.map((s) => s.id === saleId ? { ...s, voided: true, voidReason: reason } : s)
+      prev.map((s) => s.id === saleId
+        ? { ...s, voided: true, voidReason: reason, refundMethod, refundAmount }
+        : s)
     );
   }, []);
 

@@ -2,9 +2,17 @@
 
 ## 1. Overview
 
-This document describes the architecture of the **Single-Restaurant Food Ordering System** — a full-featured web application combining a customer-facing ordering portal, a restaurant admin control panel, a kitchen display system, and a driver delivery portal in a single Next.js 15 application.
+The **Single-Restaurant Food Ordering System** is a full-featured web application combining:
 
-All data is stored in **Supabase (PostgreSQL)** and synchronised in real time across all connected sessions via Supabase Realtime's `postgres_changes` subscriptions. There is no separate backend server — Next.js API routes proxy print and email side-effects only.
+- A customer-facing ordering portal (`/`)
+- A restaurant admin control panel (`/admin`)
+- A kitchen display system (`/kitchen`)
+- A driver delivery portal (`/driver`)
+- A full point-of-sale terminal (`/pos`)
+
+All portals are built as a single **Next.js 15** application. Online ordering data is stored in **Supabase (PostgreSQL)** and synchronised in real time via Supabase Realtime's `postgres_changes` subscriptions. POS data is stored entirely in **browser `localStorage`**, making the POS offline-capable with no Supabase dependency.
+
+There is no separate backend server — Next.js API routes proxy print and email side-effects only.
 
 ---
 
@@ -18,22 +26,23 @@ All data is stored in **Supabase (PostgreSQL)** and synchronised in real time ac
 | Styling | Tailwind CSS v4 |
 | Icons | Lucide React |
 | Font | Inter (next/font/google) |
-| Database | Supabase (PostgreSQL) |
-| Real-time | Supabase Realtime (`postgres_changes`) |
-| State | React Context + Supabase |
-| Printer | ESC/POS over TCP (Next.js API route proxy) |
-| Email | SMTP via Next.js API route |
-| Dev Server | `next dev --turbopack` |
+| Online ordering DB | Supabase (PostgreSQL) |
+| Real-time sync | Supabase Realtime (`postgres_changes`) |
+| POS data storage | Browser `localStorage` |
+| State | React Context (`AppContext` + `POSContext`) |
+| Printer integration | ESC/POS over TCP (Next.js API route proxy) |
+| Email integration | SMTP via Next.js API route |
+| Dev server | `next dev --turbopack` |
 
 ---
 
-## 3. Database Schema
+## 3. Database Schema (Supabase — Online Ordering)
 
-Five tables are used. Supabase Realtime is enabled on all of them.
+Five tables. Supabase Realtime is enabled on all of them.
 
 ### `app_settings`
 
-Single-row JSONB table. All admin settings — restaurant info, schedule, zones, payment methods, email templates, pages, nav links, colors, receipt settings, coupons, tax, breakfast menu, printer config, and driver list — are stored as a single JSON object.
+Single-row JSONB table. All admin settings — restaurant info, schedule, zones, payment methods, email templates, pages, nav links, colors, receipt settings, coupons, tax, breakfast menu, printer config, driver list, and refund history — are stored as a single JSON object.
 
 ```sql
 create table app_settings (
@@ -129,7 +138,127 @@ alter publication supabase_realtime add table orders;
 
 ---
 
-## 4. Application Structure
+## 4. POS Data Storage (localStorage)
+
+The POS system uses browser `localStorage` exclusively. No Supabase reads or writes occur from the POS. The admin Finance → POS Reports panel reads these keys from the same browser origin.
+
+| localStorage key | TypeScript type | Contents |
+|---|---|---|
+| `pos_sales` | `POSSale[]` | All completed POS transactions — items, payment, VAT, tips, discounts, void/refund info |
+| `pos_products` | `POSProduct[]` | POS product catalogue with modifiers, offers, images, stock |
+| `pos_categories` | `POSCategory[]` | POS product categories |
+| `pos_staff` | `POSStaff[]` | Staff records with role, 4-digit PIN, permissions, hourly rate |
+| `pos_customers` | `POSCustomer[]` | POS customer records with loyalty points, gift card balance, purchase history |
+| `pos_settings` | `POSSettings` | Tax, tip presets, receipt branding, SMTP config, loyalty config, table mode |
+| `pos_clock_entries` | `POSClockEntry[]` | Staff clock in/out records with duration |
+
+### Key POS Types (`types/pos.ts`)
+
+```ts
+interface POSSale {
+  id: string;
+  receiptNo: string;
+  items: POSCartItem[];
+  subtotal: number;
+  discountAmount: number;
+  discountNote?: string;
+  taxAmount: number;
+  taxRate: number;
+  taxInclusive: boolean;
+  tipAmount: number;
+  total: number;
+  paymentMethod: "cash" | "card" | "split";
+  payments: POSSplitPayment[];
+  cashTendered?: number;
+  changeGiven?: number;
+  staffId: string;
+  staffName: string;
+  customerId?: string;
+  customerName?: string;
+  tableNumber?: number;
+  date: string; // ISO
+  voided: boolean;
+  voidReason?: string;
+  refundMethod?: "cash" | "card" | "none";
+  refundAmount?: number;
+}
+
+interface POSProduct {
+  id: string;
+  categoryId: string;
+  name: string;
+  price: number;
+  imageUrl?: string;       // URL or base64 data URI
+  color: string;           // hex accent colour for tile
+  modifiers?: POSModifier[];
+  trackStock: boolean;
+  stockQty?: number;
+  active: boolean;
+  popular?: boolean;
+  cost?: number;           // cost price for margin calculation
+  offer?: POSOffer;        // active promotional offer
+}
+
+interface POSOffer {
+  type: "percent" | "fixed" | "price" | "bogo" | "multibuy" | "qty_discount";
+  value: number;
+  label?: string;
+  active: boolean;
+  startDate?: string;      // YYYY-MM-DD
+  endDate?: string;        // YYYY-MM-DD
+  buyQty?: number;         // for bogo and multibuy
+  freeQty?: number;        // for bogo
+  minQty?: number;         // for qty_discount
+}
+
+type POSRole = "admin" | "manager" | "cashier";
+
+interface POSStaff {
+  id: string;
+  name: string;
+  role: POSRole;
+  pin: string;             // 4-digit PIN
+  active: boolean;
+  permissions: POSPermissions;
+  hourlyRate?: number;
+  avatarColor: string;
+}
+```
+
+### POS Offer Price Logic
+
+- **Simple per-unit offers** (`percent`, `fixed`, `price`): applied at add-to-cart time. `getOfferPrice(product)` returns the discounted unit price, which is stored as `item.price`.
+- **Quantity-based offers** (`bogo`, `multibuy`, `qty_discount`): snapshotted onto `POSCartItem.offer` at add-to-cart time. Computed at subtotal time via `cartLineTotal(item)`.
+
+```ts
+// cartLineTotal handles all 6 offer types
+export function cartLineTotal(item: POSCartItem): number {
+  const o = item.offer;
+  if (!o?.active) return item.price * item.quantity;
+  switch (o.type) {
+    case "bogo": {
+      const groupSize = o.buyQty + o.freeQty;
+      const paid = Math.floor(item.quantity / groupSize) * o.buyQty
+                 + Math.min(item.quantity % groupSize, o.buyQty);
+      return paid * item.price;
+    }
+    case "multibuy": {
+      const groups = Math.floor(item.quantity / o.buyQty);
+      return groups * o.value + (item.quantity % o.buyQty) * item.price;
+    }
+    case "qty_discount":
+      return item.quantity >= o.minQty
+        ? item.price * item.quantity * (1 - o.value / 100)
+        : item.price * item.quantity;
+    default:
+      return item.price * item.quantity;
+  }
+}
+```
+
+---
+
+## 5. Application Structure
 
 ```
 app/src/
@@ -137,181 +266,216 @@ app/src/
 │   ├── layout.tsx                  # Root layout — Inter font, AppProvider, SEO
 │   ├── page.tsx                    # Customer portal — menu page (/)
 │   ├── account/page.tsx            # Customer account dashboard (/account)
-│   ├── admin/page.tsx              # Admin dashboard (/admin) — 18 tabbed panels
+│   ├── admin/page.tsx              # Admin dashboard (/admin) — 20 tabbed panels
 │   ├── kitchen/page.tsx            # Kitchen display (/kitchen)
 │   ├── driver/page.tsx             # Driver dashboard (/driver)
 │   ├── driver/login/page.tsx       # Driver login (/driver/login)
+│   ├── pos/page.tsx                # POS terminal (/pos)
+│   ├── pos/error.tsx               # POS error boundary
 │   ├── [footerPage]/page.tsx       # Dynamic page renderer (/[slug])
 │   └── api/
 │       ├── print/route.ts          # ESC/POS TCP proxy
 │       └── email/route.ts          # SMTP send proxy
 │
 ├── components/
-│   ├── Header.tsx
-│   ├── Footer.tsx
-│   ├── Cart.tsx
-│   ├── BreakfastSection.tsx
-│   ├── MenuItemCard.tsx
-│   ├── MenuSection.tsx
-│   ├── CategoryNav.tsx
-│   ├── SearchAndFilters.tsx
-│   ├── CheckoutModal.tsx
-│   ├── ScheduleOrderModal.tsx
-│   ├── ItemCustomizationModal.tsx
-│   ├── AuthModal.tsx
-│   ├── SeoHead.tsx
+│   ├── Header.tsx / Footer.tsx / Cart.tsx
+│   ├── BreakfastSection.tsx / MenuItemCard.tsx / MenuSection.tsx
+│   ├── CategoryNav.tsx / SearchAndFilters.tsx
+│   ├── CheckoutModal.tsx / ItemCustomizationModal.tsx
+│   ├── ScheduleOrderModal.tsx / AuthModal.tsx / SeoHead.tsx
 │   └── admin/
-│       ├── MenuManagementPanel.tsx
-│       ├── BreakfastMenuPanel.tsx
-│       ├── DeliveryPanel.tsx
-│       ├── CustomersPanel.tsx
-│       ├── DeliveryZonesPanel.tsx
-│       ├── OperationsPanel.tsx
-│       ├── SchedulePanel.tsx
-│       ├── IntegrationsPanel.tsx
-│       ├── EmailTemplatesPanel.tsx
-│       ├── FooterPagesPanel.tsx
-│       ├── CustomPagesPanel.tsx
-│       ├── MenuLinksPanel.tsx
-│       ├── ColorSettingsPanel.tsx
-│       ├── FooterLogosPanel.tsx
-│       ├── ReceiptSettingsPanel.tsx
-│       ├── CouponsPanel.tsx
-│       ├── TaxSettingsPanel.tsx
-│       ├── DriversPanel.tsx
+│       ├── MenuManagementPanel.tsx / BreakfastMenuPanel.tsx
+│       ├── DeliveryPanel.tsx / RefundsPanel.tsx
+│       ├── CustomersPanel.tsx / DeliveryZonesPanel.tsx
+│       ├── OperationsPanel.tsx / SchedulePanel.tsx
+│       ├── IntegrationsPanel.tsx / EmailTemplatesPanel.tsx
+│       ├── FooterPagesPanel.tsx / CustomPagesPanel.tsx
+│       ├── MenuLinksPanel.tsx / ColorSettingsPanel.tsx
+│       ├── FooterLogosPanel.tsx / ReceiptSettingsPanel.tsx
+│       ├── CouponsPanel.tsx / TaxSettingsPanel.tsx
+│       ├── DriversPanel.tsx / POSReportsPanel.tsx
 │       └── RichEditor.tsx
 │
-├── context/AppContext.tsx           # Global state, Supabase sync, all mutations
-├── data/                            # Seed data (menu, restaurant, customers, footer pages)
+├── context/
+│   ├── AppContext.tsx              # Online ordering — global state, Supabase sync, all mutations
+│   └── POSContext.tsx             # POS — sales, cart, staff, products, settings (localStorage)
+│
+├── data/
+│   ├── menu.ts                     # Default categories + menu items seed data
+│   ├── restaurant.ts               # Default restaurant settings and schedule
+│   ├── customers.ts                # Mock customer seed data
+│   └── footerPages.ts              # 6 default footer pages
+│
 ├── lib/
-│   ├── supabase.ts                  # Supabase client
-│   ├── escpos.ts                    # ESC/POS receipt formatter
-│   ├── emailTemplates.ts            # Email template engine
-│   ├── colorUtils.ts                # Brand colour CSS variable generator
-│   ├── scheduleUtils.ts             # Store open/close time helpers
-│   ├── stockUtils.ts                # Stock status resolution
-│   └── taxUtils.ts                  # VAT calculation utilities
-└── types/index.ts                   # All TypeScript interfaces
+│   ├── supabase.ts                 # Supabase client initialisation
+│   ├── escpos.ts                   # ESC/POS receipt formatter
+│   ├── emailTemplates.ts           # Email template engine ({{variable}} interpolation)
+│   ├── colorUtils.ts               # Brand colour CSS variable generator
+│   ├── scheduleUtils.ts            # Store open/close time helpers
+│   ├── stockUtils.ts               # Stock status resolution
+│   └── taxUtils.ts                 # VAT calculation utilities
+│
+└── types/
+    ├── index.ts                    # Online ordering TypeScript interfaces
+    └── pos.ts                      # POS interfaces + getOfferPrice / cartLineTotal / cartLineSaving
 ```
 
 ---
 
-## 5. State Management Architecture
+## 6. State Management Architecture
 
-### 5.1 AppContext (Single Source of Truth)
+### 6.1 AppContext — Online Ordering (Single Source of Truth)
 
-All application state flows through a single React Context (`AppContext`) defined in `context/AppContext.tsx`. There is no external state library.
+All online ordering state flows through `context/AppContext.tsx`. No external state library.
 
 ```
 AppContext provides:
-├── Cart state (ADD / REMOVE / UPDATE_QTY / CLEAR)
-├── AdminSettings (settings, updateSettings, mutateSettings)
-├── Categories + MenuItems (full CRUD, Supabase-persisted)
-├── Customers (CRUD, Supabase-persisted)
-├── Orders (addOrder, updateOrderStatus, updateDeliveryStatus)
-├── Auth — Customer (login, logout, register)
-├── Auth — Driver (driverLogin, driverLogout, currentDriver)
-├── Fulfillment (delivery | collection)
-├── Coupon (applyCoupon, removeCoupon, incrementCouponUsage)
-├── Driver operations (assignDriverToOrder, updateDeliveryStatus)
+├── Cart state              (ADD / REMOVE / UPDATE_QTY / CLEAR)
+├── AdminSettings           (settings, updateSettings, mutateSettings)
+├── Categories + MenuItems  (full CRUD, Supabase-persisted)
+├── Customers               (CRUD, Supabase-persisted)
+├── Orders                  (addOrder, updateOrderStatus, updateDeliveryStatus)
+├── Auth — Customer         (login, logout, register)
+├── Auth — Driver           (driverLogin, driverLogout, currentDriver)
+├── Fulfillment             (delivery | collection)
+├── Coupon                  (applyCoupon, removeCoupon, incrementCouponUsage)
+├── Driver operations       (assignDriverToOrder, updateDeliveryStatus)
 ├── Breakfast menu CRUD
-└── Derived values (cartTotal, cartCount, isOpen)
+└── Derived values          (cartTotal, cartCount, isOpen)
 ```
 
-### 5.2 Supabase Persistence
+### 6.2 POSContext — POS System
 
-**Two persistence patterns are used:**
+All POS state flows through `context/POSContext.tsx`. State is persisted to `localStorage` on every mutation via `useEffect` watchers.
 
-**`updateSettings(patch)`** — shallow-merges a partial `AdminSettings` object and writes it to `app_settings` in Supabase. Used exclusively for user-initiated settings changes (Operations, Schedule, Integrations, etc.).
+```
+POSContext provides:
+├── currentStaff            (POSStaff | null — the PIN-authenticated staff member)
+├── sales                   (POSSale[] — all completed sales)
+├── cart                    (POSCartItem[] — active order being built)
+├── products                (POSProduct[] — POS catalogue)
+├── categories              (POSCategory[])
+├── staff                   (POSStaff[] — all staff records)
+├── customers               (POSCustomer[])
+├── settings                (POSSettings)
+├── clockEntries            (POSClockEntry[])
+├── discount                ({type, value, note} | null — applied to current cart)
+├── tipAmount               (number)
+├── assignedCustomer        (POSCustomer | null)
+├── addToCart               (product, modifiers) — applies offer price at add time
+├── completeSale            (paymentMethod, payments, ...) → POSSale
+├── voidSale                (saleId, reason, refundMethod?, refundAmount?)
+├── clockIn / clockOut      (staffId)
+└── All CRUD for products, categories, staff, customers, settings
+```
 
-**`mutateSettings(fn)`** — functional-update pattern that applies a transformation function to the current settings and immediately upserts to Supabase. Used for all mutations that happen inside the provider (addCoupon, updateDriver, addDeliveryZone, etc.) to avoid triggering re-renders or Realtime loops.
+### 6.3 Supabase Persistence (AppContext)
 
-**Direct table mutations** — Categories, menu items, customers, and orders are persisted as individual table rows rather than inside the JSONB blob. Each CRUD function writes to the appropriate Supabase table immediately.
+Two patterns:
 
-### 5.3 Supabase Realtime
+- **`updateSettings(patch)`** — shallow-merges a partial `AdminSettings` and writes to `app_settings`. Used for user-initiated settings changes.
+- **`mutateSettings(fn)`** — functional-update pattern that applies a transformation and upserts to Supabase. Used for all mutations inside the provider.
+- **Direct table mutations** — categories, menu items, customers, and orders are persisted as individual table rows.
 
-`AppContext` subscribes to a single `postgres_changes` channel (`"restaurant-realtime"`) that watches all five tables:
+### 6.4 Supabase Realtime
+
+`AppContext` subscribes to a single `postgres_changes` channel (`"restaurant-realtime"`):
 
 ```
 channel("restaurant-realtime")
   .on(UPDATE, "app_settings", → setSettings)
-  .on(*, "categories",        → update categories state)
-  .on(*, "menu_items",        → update menuItems state)
-  .on(*, "orders",            → update order in customers state)
-  .on(*, "customers",         → update customers state)
+  .on(*,      "categories",   → update categories state)
+  .on(*,      "menu_items",   → update menuItems state)
+  .on(*,      "orders",       → update order in customers state)
+  .on(*,      "customers",    → update customers state)
   .subscribe()
 ```
 
-This means any write to Supabase — from any device, any tab, any session — immediately reflects in every connected instance. The admin advancing an order status and the customer's live tracker both update without a page reload.
+Any write — from any device, any tab, any session — reflects in every connected instance without a page reload.
 
-### 5.4 Initialisation / Seed
+### 6.5 Initialisation / Seed
 
 On first load, `AppContext` queries all five tables. If any table is empty, seed data from `data/` is inserted:
 
-1. `app_settings` is upserted with `DEFAULT_SETTINGS`
-2. `categories` is populated from `data/menu.ts`
-3. `menu_items` is populated from `data/menu.ts`
-4. `customers` and `orders` are populated from `data/customers.ts`
+1. `app_settings` upserted with `DEFAULT_SETTINGS`
+2. `categories` populated from `data/menu.ts`
+3. `menu_items` populated from `data/menu.ts`
+4. `customers` and `orders` populated from `data/customers.ts`
 
-### 5.5 Key TypeScript Types
+`POSContext` seeds staff, products, categories, and settings into `localStorage` on first run if the keys are absent.
 
-All types live in `types/index.ts`:
+### 6.6 Key TypeScript Types
+
+**Online ordering (`types/index.ts`)**
 
 | Type | Purpose |
 |---|---|
-| `AdminSettings` | Root settings object — everything in the `app_settings` JSONB row |
-| `MenuItem` | Menu item with dietary tags, variations, add-ons, image, stock |
-| `Category` | Category with emoji and display name |
-| `CartItem` | Cart line with selected variation, add-ons, instructions |
-| `Order` | Order record with `OrderStatus`, `DeliveryStatus`, driver fields, fees, coupon |
+| `AdminSettings` | Root settings JSONB object |
+| `MenuItem` | Menu item with dietary, variations, add-ons, image, stock |
+| `Category` | Category with emoji |
+| `CartItem` | Cart line with variation, add-ons, instructions |
+| `Order` | Order record with `OrderStatus`, `DeliveryStatus`, driver, fees, coupon |
 | `OrderStatus` | `"pending" \| "confirmed" \| "preparing" \| "ready" \| "delivered" \| "cancelled"` |
 | `DeliveryStatus` | `"assigned" \| "picked_up" \| "on_the_way" \| "delivered"` |
-| `Customer` | Customer with auth fields, tags, order history, favourites, saved addresses |
+| `Customer` | Customer with auth, tags, order history, favourites, saved addresses |
 | `Driver` | Driver account with auth, vehicle info, active flag |
 | `DeliveryZone` | Concentric radius ring with km boundaries and fee |
-| `PaymentMethod` | Payment option with distance-based delivery restriction |
+| `PaymentMethod` | Payment option with distance restriction |
 | `EmailTemplate` | HTML email template with variable placeholders |
-| `Coupon` | Discount code with type, value, limits, expiry, usage tracking |
-| `TaxSettings` | VAT rate, inclusive/exclusive mode, show breakdown flag |
-| `BreakfastMenuSettings` | Enabled toggle, time window, separate categories + items |
+| `Coupon` | Discount code with type, value, limits, expiry, usage |
+| `TaxSettings` | VAT rate, inclusive/exclusive, show breakdown |
+| `BreakfastMenuSettings` | Enabled, time window, categories, items |
 | `ReceiptSettings` | Logo, contact info, VAT number, footer messages |
-| `FooterPage` | Built-in page (About, Terms, etc.) with rich HTML content |
-| `CustomPage` | Admin-created standalone page with SEO fields |
-| `MenuLink` | Header or footer nav link pointing to any page |
-| `ColorSettings` | Brand accent colour and page background hex values |
-| `FooterLogo` | Partner/badge logo with URL, href, label, enabled flag |
-| `PrinterSettings` | Thermal printer network config — IP, port, paper width, auto-print |
-| `SavedAddress` | Customer-saved delivery address with label, phone override, notes |
+| `PrinterSettings` | Thermal printer network config |
+
+**POS (`types/pos.ts`)**
+
+| Type | Purpose |
+|---|---|
+| `POSRole` | `"admin" \| "manager" \| "cashier"` |
+| `POSPermissions` | Boolean map of all capability flags |
+| `ROLE_PERMISSIONS` | Record mapping role → default permissions |
+| `POSStaff` | Staff record with PIN, role, permissions, hourly rate |
+| `POSProduct` | POS catalogue item with offer, image, modifiers, stock, cost |
+| `POSOffer` | Promotional offer (6 types) with date window |
+| `POSOfferType` | `"percent" \| "fixed" \| "price" \| "bogo" \| "multibuy" \| "qty_discount"` |
+| `POSCartItem` | Cart line with offer snapshot for quantity-based pricing |
+| `POSSale` | Completed transaction with void/refund fields |
+| `POSCustomer` | POS customer with loyalty, gift card, purchase history |
+| `POSSettings` | All POS configuration including SMTP and receipt branding |
+| `POSClockEntry` | Staff clock in/out record |
+| `getOfferPrice(product)` | Returns discounted unit price for simple offers |
+| `isOfferActive(product)` | Returns true if offer is active and within date window |
+| `cartLineTotal(item)` | Computes line total accounting for quantity-based offers |
+| `cartLineSaving(item)` | Returns saving amount vs full price (0 if none) |
 
 ---
 
-## 6. Routing Architecture
+## 7. Routing Architecture
 
 | Route | Portal | Description |
 |---|---|---|
 | `/` | Customer | Menu page — browse, filter, add to cart, checkout |
 | `/account` | Customer | Order history, live tracking, profile, saved addresses |
-| `/admin` | Admin | Full restaurant management dashboard (18 tabs) |
+| `/admin` | Admin | Full restaurant management dashboard (20 tabs) |
 | `/kitchen` | Kitchen | Full-screen Kanban order display |
 | `/driver` | Driver | Delivery queue and order progression |
 | `/driver/login` | Driver | Driver authentication form |
+| `/pos` | POS | In-restaurant point-of-sale terminal |
 | `/[footerPage]` | Public | Dynamic renderer for footer pages and custom pages |
 
 ### Dynamic Page Resolution (`/[footerPage]`)
 
 Priority order:
-
 1. Match against `settings.footerPages` (6 built-in pages)
 2. Match against `settings.customPages` (published only)
 3. Render "Page not found"
 
 ---
 
-## 7. Order Status Workflow
+## 8. Order Status Workflow (Online Ordering)
 
-The order lifecycle uses two fields: `status` (kitchen/admin leg) and `deliveryStatus` (driver leg).
-
-### Kitchen / Admin leg
+### Kitchen / Admin leg (`status`)
 
 ```
 pending ──→ confirmed ──→ preparing ──→ ready
@@ -323,27 +487,25 @@ pending ──→ confirmed ──→ preparing ──→ ready
 | Status | Set by | Description |
 |---|---|---|
 | `pending` | Customer checkout | Order placed, awaiting acknowledgement |
-| `confirmed` | Admin | Restaurant has acknowledged |
-| `preparing` | Admin or kitchen | Kitchen is cooking |
-| `ready` | Kitchen | Food is ready; kitchen's job ends here |
+| `confirmed` | Admin | Restaurant acknowledged |
+| `preparing` | Admin or kitchen | Kitchen cooking |
+| `ready` | Kitchen | Food ready; kitchen's job ends here |
 | `delivered` | Admin (collection) or driver (delivery) | Order complete |
-| `cancelled` | Admin | Order cancelled at any stage |
+| `cancelled` | Admin | Order cancelled |
 
-**Role guard in `DeliveryPanel`**: `canAdminAdvance(order)` returns `false` for delivery orders at `"ready"` status — the admin button is hidden and `advance()` is a no-op for those orders. Only the driver can mark delivery orders as delivered.
+**Role guard in `DeliveryPanel`**: `canAdminAdvance(order)` returns `false` for delivery orders at `"ready"` — the admin button is hidden and `advance()` is a no-op.
 
-**Kitchen guard**: The kitchen's "Ready" column in `/kitchen` has no action button. Kitchen staff can only advance orders to `"ready"`; they cannot touch `"delivered"`.
-
-### Driver leg
+### Driver leg (`deliveryStatus`)
 
 ```
 assigned ──→ picked_up ──→ on_the_way ──→ delivered
 ```
 
-`updateDeliveryStatus` in `AppContext` automatically sets `order.status = "delivered"` when `deliveryStatus` reaches `"delivered"`. Both fields are written to Supabase in the same update.
+`updateDeliveryStatus` automatically sets `order.status = "delivered"` when `deliveryStatus` reaches `"delivered"`.
 
 ### Customer-visible status
 
-The customer's `StatusBadge` component checks `order.deliveryStatus` first for delivery orders:
+`StatusBadge` checks `order.deliveryStatus` first for delivery orders:
 
 | `deliveryStatus` | Badge label |
 |---|---|
@@ -353,17 +515,101 @@ The customer's `StatusBadge` component checks `order.deliveryStatus` first for d
 | `delivered` | Delivered |
 | *(none)* | Falls back to `order.status` label |
 
-The `OrderTracker` uses separate step arrays:
-- **Delivery**: 4 kitchen steps (`pending → confirmed → preparing → ready`)
-- **Collection**: 5 steps including `delivered`
+---
 
-The `DeliveryTracker` component shows the driver leg progress separately, with a live pulse indicator when `deliveryStatus === "on_the_way"`.
+## 9. POS System Architecture
+
+### Authentication Flow
+
+```
+/pos page load
+     │
+     ▼
+POSContext seeds localStorage if empty (staff, products, categories, settings)
+     │
+     ▼
+PIN entry screen (4-digit animated keypad)
+     │
+PIN matches active POSStaff?
+     ├─ Yes → set currentStaff; show navigation tabs gated by role permissions
+     └─ No  → shake animation; clear input
+```
+
+### POS Navigation (role-gated)
+
+| Tab | Icon | Required permission |
+|---|---|---|
+| Sale | ShoppingCart | always |
+| Dashboard | LayoutDashboard | canAccessDashboard |
+| Customers | Users | canManageCustomers |
+| Staff | UserCog | canManageStaff |
+| Settings | Settings2 | canAccessSettings |
+
+### Sale Flow
+
+```
+Staff selects product tile
+     │
+Product has required modifiers?
+     ├─ Yes → ModifierModal → confirm selections → addToCart()
+     └─ No  → addToCart() directly
+          │
+          ▼
+   Cart panel (OrderPanel)
+     │
+   Apply discount? (Manager/Admin only)
+   Assign customer?
+   Select tip?
+   Set table?
+     │
+     ▼
+   Select payment method: Cash / Card / Split
+     │
+   completeSale() →
+     ├─ Builds POSSale record
+     ├─ Appends to pos_sales in localStorage
+     ├─ Updates customer loyalty points if assigned
+     └─ Opens ReceiptModal (print / email)
+```
+
+### Void & Refund Flow
+
+```
+Staff clicks "Void" button (Manager/Admin only)
+     │
+     ▼
+Void + Refund modal:
+  1. Void reason (required free text)
+  2. Refund method: Cash / Card / No Refund
+  3. Refund amount (pre-filled with sale total, editable)
+     │
+Confirm →
+  voidSale(saleId, reason, refundMethod, refundAmount)
+     │
+  POSSale updated: voided=true, voidReason, refundMethod, refundAmount
+  localStorage updated
+     │
+  Transaction appears with VOID badge + refund info in all views
+  Excluded from revenue KPIs
+```
+
+### POS Reports Data Flow
+
+The Admin Dashboard → Finance → POS Reports tab (`POSReportsPanel`) and the POS Dashboard → Reports tab both read from the same `localStorage` keys:
+
+```
+localStorage["pos_sales"]    → filter by date range → compute KPIs → render charts
+localStorage["pos_products"] → extract cost data for margin calculation
+localStorage["pos_settings"] → read currencySymbol
+```
+
+Since both the admin panel and POS terminal run in the same browser origin, `localStorage` access works seamlessly without any API calls.
 
 ---
 
-## 8. Customer Portal
+## 10. Customer Portal
 
-### 8.1 Menu Page (`/`)
+### Menu Page (`/`)
 
 ```
 Header (restaurant info + fulfillment toggle + header nav)
@@ -376,7 +622,7 @@ Header (restaurant info + fulfillment toggle + header nav)
 ├── BreakfastSection (shown only during configured time window)
 │
 └── MenuSection (category groups with IntersectionObserver ScrollSpy)
-    └── MenuItemCard × N (image, dietary, price, + button)
+    └── MenuItemCard × N
 
 Cart — desktop sticky sidebar (hidden below xl)
      — mobile floating button → full-screen drawer
@@ -391,105 +637,87 @@ Cart — desktop sticky sidebar (hidden below xl)
 6. VAT and coupon discounts calculated and displayed
 7. Selecting payment creates the `Order`, fires print + email side effects
 
-### 8.2 Account Dashboard (`/account`)
+### Account Dashboard (`/account`)
 
 Tabs: **Orders** | **Profile**
 
-- Orders are sorted newest-first; active orders have an orange border and pulsing "Live" badge
+- Orders sorted newest-first; active orders have orange border and pulsing "Live" badge
 - `StatusBadge` derives its label from `deliveryStatus` for in-progress delivery orders
 - `OrderTracker` — kitchen step dots (4 for delivery, 5 for collection)
 - `DeliveryTracker` — driver leg progress with live animation when en route
-- Re-order: copies all currently-available items from a past order into the current cart
 
 ---
 
-## 9. Admin Dashboard (`/admin`)
+## 11. Admin Dashboard (`/admin`)
 
-18 tabbed panels:
+20 tabbed panels in 6 groups:
 
-| Tab | Panel | Key Features |
-|---|---|---|
-| Menu Items | `MenuManagementPanel` | Category + item CRUD, dietary, variations, add-ons, image, stock, popular flag |
-| Breakfast | `BreakfastMenuPanel` | Separate breakfast categories/items, time-window (start/end), enabled toggle |
-| Customers | `CustomersPanel` | Customer list, order history, VIP/tag management, manual status override |
-| Delivery | `DeliveryPanel` | Kanban board, role-aware advance guard, completed-today table, new-order toast |
-| Zones | `DeliveryZonesPanel` | Concentric km-ring editor, per-zone fee, colour coding, enable/disable |
-| Operations | `OperationsPanel` | Branding (name synced to receiptSettings), fees, address, GPS, SEO, `<head>` injection |
-| Schedule | `SchedulePanel` | Per-day open/close times, manual closed override |
-| Integrations | `IntegrationsPanel` | Stripe, PayPal, SMTP, thermal printer, payment methods with distance rules |
-| Email | `EmailTemplatesPanel` | 6 lifecycle HTML templates, variable substitution, live preview |
-| Footer Pages | `FooterPagesPanel` | 6 built-in pages with rich HTML editor, visibility toggle, copyright |
-| Custom Pages | `CustomPagesPanel` | Unlimited pages, slug management, SEO fields, publish toggle, SERP preview |
-| Menus | `MenuLinksPanel` | Header + footer nav — add, label, reorder, toggle active |
-| Colors | `ColorSettingsPanel` | Brand accent + page background — CSS custom property injection, live preview |
-| Logos | `FooterLogosPanel` | Partner logos, payment icons, certification badges, enable/disable, reorder |
-| Receipt | `ReceiptSettingsPanel` | Logo, contact info, VAT number, messages — applied to all print + email receipts |
-| Coupons | `CouponsPanel` | Percentage and fixed codes, usage limits, min order, expiry, usage counter |
-| Tax | `TaxSettingsPanel` | VAT rate, inclusive/exclusive, breakdown display |
-| Drivers | `DriversPanel` | Driver CRUD, toggle active, view assigned orders |
+| Group | Tabs |
+|---|---|
+| Orders | Delivery, Refunds |
+| Menu | Menu Items, Breakfast |
+| Customers | Customers, Drivers |
+| Finance | Coupons, Tax & VAT, POS Reports |
+| Settings | Operations, Schedule, Delivery Zones, Integrations, Email Templates |
+| Content & SEO | Footer Pages, Custom Pages, Navigation, Brand Colors, Footer Logos, Receipt |
 
 ### Admin real-time notifications
 
-- Bell button in header shows the count of active (non-terminal) orders with a bounce animation
-- When a new order arrives, a slide-in toast appears with a "View in Delivery tab →" shortcut
-- The Delivery tab badge pulses with the live active-order count
+- Bell button in header shows count of active (non-terminal) orders with bounce animation
+- New order → slide-in toast with "View in Delivery tab →" shortcut
+- Delivery tab badge pulses with live active-order count
 
 ---
 
-## 10. Kitchen Display (`/kitchen`)
-
-Full-screen dark Kanban board:
+## 12. Kitchen Display (`/kitchen`)
 
 ```
 COLUMNS:
   New Orders  (status: pending | confirmed)  → "Start Preparing"
   Preparing   (status: preparing)            → "Mark Ready"
-  Ready       (status: ready)                → display-only (no action button)
+  Ready       (status: ready)                → display-only (no action)
 ```
-
-The "Ready" column shows:
-- Delivery orders: "Awaiting driver pickup" badge
-- Collection orders: "Awaiting customer collection" badge
 
 Urgency colour coding (self-updating every 30 s):
 - Green → < 15 min
 - Amber → 15–29 min
 - Red (pulsing) → ≥ 30 min
 
-`completedToday` counter increments each time an order moves to `ready` (kitchen's final action).
-
 ---
 
-## 11. Driver Portal (`/driver`)
+## 13. Driver Portal (`/driver`)
 
 Authentication:
-- Driver credentials (email + password) are set by admin in Admin → Drivers
-- `driverLogin()` in `AppContext` matches against `settings.drivers` and sets `currentDriver` state
-- Redirect to `/driver/login` if not authenticated
+- `driverLogin()` in `AppContext` matches credentials against `settings.drivers`
+- Redirects to `/driver/login` if not authenticated
 
 Order flow:
-1. **Available orders** — delivery orders with `status === "ready" || "preparing"` and no `driverId`, sorted by readiness then age
-2. Driver accepts → `assignDriverToOrder()` sets `driverId`, `driverName`, and `deliveryStatus = "assigned"`
-3. Driver progresses: `assigned → picked_up → on_the_way → delivered`
-4. `updateDeliveryStatus()` writes to Supabase and sets `status = "delivered"` on the final step
+1. **Available orders** — delivery orders where `(status === "ready" || "preparing") && !driverId`
+2. Driver accepts → `assignDriverToOrder()` sets `driverId`, `driverName`, `deliveryStatus = "assigned"`
+3. Driver progresses through `assigned → picked_up → on_the_way → delivered`
+4. `updateDeliveryStatus()` writes to Supabase; sets `status = "delivered"` on final step
 
 ---
 
-## 12. Integrations
+## 14. Integrations
 
-### 12.1 Thermal Printer (ESC/POS)
+### 14.1 Thermal Printer (ESC/POS)
 
-Flow:
-1. New order placed → `printOrder()` in `lib/escpos.ts` formats ESC/POS bytes
-2. Receipt is `POST`ed to `/api/print`
-3. API route opens a raw TCP socket to the printer's IP:port and streams the bytes
-4. Auto-print toggle in admin settings
+```
+New order placed
+     │
+printOrder() in lib/escpos.ts formats ESC/POS bytes
+     │
+POST to /api/print
+     │
+API route opens raw TCP socket → streams bytes to printer IP:port
+```
 
-`buildReceipt()` uses `receiptSettings` for the header (restaurant name, phone, website, email, VAT number) and footer (thank-you message, custom message). Falls back to `restaurant.*` fields when receipt-specific values are not set.
+`buildReceipt()` uses `receiptSettings` for header (name, phone, website, email, VAT number) and footer (thank-you, custom message).
 
-### 12.2 Email (SMTP)
+### 14.2 Email (SMTP) — Online Ordering
 
-Six lifecycle events trigger email sends:
+Six lifecycle events:
 
 | Event | Trigger |
 |---|---|
@@ -500,24 +728,36 @@ Six lifecycle events trigger email sends:
 | `order_delivered` | Order marked as Delivered |
 | `order_cancelled` | Admin marks as Cancelled |
 
-`sendOrderEmail()` → interpolates `{{variables}}` into the template → `buildEmailDocument()` wraps it with receipt branding (logo, contact, VAT, custom message) → `POST /api/email` → SMTP relay.
+`sendOrderEmail()` → interpolates `{{variables}}` → `buildEmailDocument()` wraps with receipt branding → `POST /api/email` → SMTP relay.
 
-### 12.3 Geolocation + Delivery Zones
+### 14.3 Email (SMTP) — POS Receipt
 
-At checkout (delivery only):
+Configured in POS Settings → Hardware. When staff click "Email Receipt" in the receipt modal:
+
+```
+buildReceiptHtml(sale, settings) → inline-styled HTML email
+     │
+POST /api/email with { to, subject, html, smtp: settings.smtp... }
+     │
+SMTP relay → customer inbox
+```
+
+### 14.4 Geolocation + Delivery Zones
+
+At checkout (delivery orders only):
 1. `navigator.geolocation.getCurrentPosition()` fetches `(lat, lng)`
 2. Haversine formula: `d = 2r · arcsin(√(sin²(Δφ/2) + cos φ₁ · cos φ₂ · sin²(Δλ/2)))`
-3. Smallest matching enabled `DeliveryZone` (`minRadiusKm ≤ d ≤ maxRadiusKm`) is selected
+3. Smallest matching enabled `DeliveryZone` (`minRadiusKm ≤ d ≤ maxRadiusKm`) selected
 4. Zone fee replaces the default delivery fee
-5. Payment methods with `deliveryRange.restricted = true` are hidden when `d` falls outside `[minKm, maxKm]`
+5. Payment methods with `deliveryRange.restricted = true` hidden when `d` outside range
 
 If geolocation is denied, all enabled payment methods are shown and the default delivery fee applies.
 
 ---
 
-## 13. Content Management
+## 15. Content Management
 
-### 13.1 Footer Pages
+### Footer Pages
 
 Six built-in pages pre-seeded in `data/footerPages.ts`:
 
@@ -530,99 +770,96 @@ Six built-in pages pre-seeded in `data/footerPages.ts`:
 | `/cookies` | Cookie Policy |
 | `/accessibility` | Accessibility Statement |
 
-### 13.2 Custom Pages
+### Custom Pages
 
-Admin creates unlimited pages with rich HTML content, SEO title (≤60 chars), meta description (≤160 chars), slug (auto-generated, conflict-checked), and a published/draft toggle. Served at `/{slug}` via `[footerPage]`.
+Admin creates unlimited pages with rich HTML content, SEO title (≤60 chars), meta description (≤160 chars), slug (auto-generated, conflict-checked), published/draft toggle. Served at `/{slug}` via `[footerPage]`.
 
-### 13.3 Navigation Management
+### Navigation Management
 
-Separate editors for header and footer navigation. Admin can add any page, customise its display label, reorder with up/down arrows, and toggle active/inactive. `Footer.tsx` uses managed links when any exist, falling back to enabled footer pages for backward compatibility.
+Separate editors for header and footer navigation. Admin can add any page, customise its display label, reorder with up/down arrows, and toggle active/inactive.
 
 ---
 
-## 14. Receipt Settings
+## 16. VAT / Tax
 
-`ReceiptSettings` is stored inside the `app_settings` JSONB and applied to:
+### Online Ordering
+
+`TaxSettings` fields: `enabled`, `rate`, `inclusive`, `showBreakdown`
+
+VAT calculated in `lib/taxUtils.ts`; stored on order as `vatAmount` and `vatInclusive`. Appears in cart, checkout, ESC/POS receipt, and order lifecycle emails.
+
+### POS
+
+`POSSettings.taxRate` and `POSSettings.taxInclusive` control VAT on POS sales. Tax is computed at sale completion and stored on `POSSale.taxAmount` and `POSSale.taxInclusive`. POS tax is independent of online ordering tax settings.
+
+---
+
+## 17. Receipt Settings
+
+`ReceiptSettings` (online ordering) applied to:
 
 **Thermal printed receipts** (`lib/escpos.ts`):
 - Header: `restaurantName`, `phone`, `website`, `email`, `vatNumber`
 - Footer: `thankYouMessage`, `customMessage`
 
 **Order lifecycle emails** (`lib/emailTemplates.ts`):
-- Email header title: `restaurantName`
-- Logo block: shown when `showLogo = true` and `logoUrl` is set
-- Footer: contact line with VAT number, `customMessage`
+- Email header title, logo block, footer contact line with VAT number, custom message
+
+`POSSettings` receipt fields (`receiptRestaurantName`, `receiptPhone`, etc.) are applied to POS-printed receipts and POS receipt emails independently.
 
 ---
 
-## 15. VAT / Tax
-
-`TaxSettings` fields:
-
-| Field | Type | Description |
-|---|---|---|
-| `enabled` | boolean | Master on/off switch |
-| `rate` | number | VAT percentage (e.g. 20) |
-| `inclusive` | boolean | `true` = prices include VAT; `false` = VAT added on top |
-| `showBreakdown` | boolean | Whether to show the VAT line to the customer |
-
-VAT is calculated in `lib/taxUtils.ts` and stored on the order as `vatAmount` and `vatInclusive`. It appears in:
-- Cart sidebar
-- Checkout modal order summary
-- Printed ESC/POS receipt
-- Order lifecycle emails
-
----
-
-## 16. Breakfast Menu
-
-`BreakfastMenuSettings`:
+## 18. Breakfast Menu
 
 ```ts
-{
+BreakfastMenuSettings {
   enabled:    boolean;
   startTime:  string;      // "07:00"
   endTime:    string;      // "11:30"
-  categories: Category[];  // breakfast-specific categories
-  items:      MenuItem[];  // breakfast-specific items
+  categories: Category[];  // breakfast-only categories
+  items:      MenuItem[];  // breakfast-only items
 }
 ```
 
-Stored inside `app_settings` JSONB alongside the main settings. The customer portal evaluates `isBreakfastActive(startTime, endTime)` on every render and conditionally shows `<BreakfastSection>` above the main menu.
+Stored inside `app_settings` JSONB. The customer portal evaluates `isBreakfastActive(startTime, endTime)` on every render and conditionally shows `<BreakfastSection>` above the main menu.
 
 ---
 
-## 17. Mobile Responsiveness
+## 19. Mobile Responsiveness
 
 | Pattern | Implementation |
 |---|---|
 | Bottom-sheet modals | `items-end sm:items-center` + `rounded-t-2xl sm:rounded-2xl` |
-| Horizontal category scroll | `overflow-x-auto scrollbar-hide` with `flex-shrink-0` pills |
-| Responsive admin sidebars | `flex flex-col md:flex-row` with `max-h-40 md:max-h-none` |
-| Touch-accessible buttons | Minimum `w-10 h-10` (40px) on all interactive elements |
+| Horizontal category scroll | `overflow-x-auto` with `flex-shrink-0` pills |
+| Responsive admin sidebars | `flex flex-col md:flex-row` |
+| Touch-accessible buttons | Minimum `w-10 h-10` (40 px) on all interactive elements |
 | Mobile cart | Fixed floating button → full-screen drawer at `z-50` |
-| Content clearance | `pb-28 xl:pb-6` bottom padding |
-| Admin tab bar | `hidden sm:inline` labels — icon-only on small screens |
+| Admin sidebar | Collapsible (icon-only at 68 px width) + mobile overlay |
+| POS layout | Single-column on mobile; split sale/cart panel on desktop |
 
 ---
 
-## 18. Security Notes
+## 20. Security Notes
 
 | Area | Current implementation |
 |---|---|
-| Customer auth | Email + password stored in `customers` table (plaintext for demo) |
+| Customer auth | Email + password in `customers` table (plaintext for demo) |
 | Driver auth | Email + password in `settings.drivers` inside `app_settings` (plaintext for demo) |
-| Admin access | URL-based only (`/admin`) — no authentication in current build |
+| POS staff auth | 4-digit PIN in `pos_staff` in `localStorage` (client-side only) |
+| Admin access | URL-based only (`/admin`) — no server-side authentication in current build |
 | Payment credentials | Stored in `app_settings.stripePublicKey` / `stripeSecretKey` in Supabase |
 | Card data | Never touches the server — Stripe.js / PayPal SDK tokenise client-side |
 | SMTP credentials | Proxied through `/api/email` — not exposed to client bundle |
+| POS SMTP | Stored in `pos_settings` in `localStorage` and proxied through `/api/email` |
 | Supabase RLS | Not yet configured — anon key has full table access in current build |
 
 **Recommended production hardening:**
 - Enable Supabase Row Level Security (RLS) with per-role policies
 - Replace plaintext passwords with bcrypt hashing
-- Add session-based authentication for the `/admin` route
+- Add session-based authentication for `/admin` route
 - Move `stripeSecretKey` to a server-side environment variable
+- Move POS SMTP password out of `localStorage` and into a server-side secret
+- Replace POS PIN auth with a server-side session if the terminal is shared
 
 ---
 
