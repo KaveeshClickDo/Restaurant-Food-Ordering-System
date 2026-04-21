@@ -21,20 +21,22 @@ export default function DriverLoginPage() {
     if (currentDriver) router.replace("/driver");
   }, [currentDriver, router]);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
-    // Small delay so the button state is visible
-    setTimeout(() => {
-      const ok = driverLogin(email.trim(), password);
+    try {
+      const ok = await driverLogin(email.trim(), password);
       if (ok) {
         router.replace("/driver");
       } else {
         setError("Invalid email or password, or your account is inactive.");
       }
+    } catch {
+      setError("Connection error. Please try again.");
+    } finally {
       setLoading(false);
-    }, 300);
+    }
   }
 
   return (

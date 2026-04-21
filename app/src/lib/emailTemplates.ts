@@ -440,22 +440,18 @@ export function buildEmailDocument(
 
 // ─── Send helpers ─────────────────────────────────────────────────────────────
 
-interface SmtpConfig {
-  host: string;
-  port: number;
-  user: string;
-  password: string;
-}
-
-/** Low-level send: POSTs to the /api/email route. */
+/**
+ * Low-level send: POSTs to the /api/email route.
+ * SMTP credentials are read from server-side env vars in the API route —
+ * they must NOT be passed from the browser.
+ */
 export async function sendEmailViaApi(params: {
   to: string;
   subject: string;
   html: string;
-  smtp: SmtpConfig;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res  = await fetch("/api/email", {
+    const res = await fetch("/api/email", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify(params),
@@ -468,7 +464,7 @@ export async function sendEmailViaApi(params: {
 
 /**
  * High-level: find the template for an event, apply variables, and send.
- * Silent no-op when SMTP is not configured or template is disabled.
+ * Silent no-op when the template is disabled.
  * Fire-and-forget safe — never throws.
  */
 export function sendOrderEmail(
@@ -482,11 +478,6 @@ export function sendOrderEmail(
 
   const to = customer?.email?.trim();
   if (!to) return;
-
-  if (!settings.smtpHost?.trim()) {
-    console.info("[email] SMTP not configured — skipping", event);
-    return;
-  }
 
   const vars    = buildVarMap(order, customer, settings);
   const subject = applyVars(template.subject, vars);
@@ -506,17 +497,9 @@ export function sendOrderEmail(
     settings.receiptSettings,
   );
 
-  sendEmailViaApi({
-    to,
-    subject,
-    html,
-    smtp: {
-      host:     settings.smtpHost,
-      port:     Number(settings.smtpPort) || 587,
-      user:     settings.smtpUser,
-      password: settings.smtpPassword,
-    },
-  }).then((result) => {
-    if (!result.ok) console.error("[email] Send failed:", result.error);
-  }).catch(console.error);
+  sendEmailViaApi({ to, subject, html })
+    .then((result) => {
+      if (!result.ok) console.error("[email] Send failed:", result.error);
+    })
+    .catch(console.error);
 }

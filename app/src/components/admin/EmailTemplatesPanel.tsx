@@ -295,10 +295,8 @@ function TestSendWidget({
   const [sendState, setSendState] = useState<SendState>("idle");
   const [sendError, setSendError] = useState("");
 
-  const smtpReady = Boolean(settings.smtpHost?.trim() && settings.smtpUser?.trim());
-
   async function handleSend() {
-    if (!email.trim() || !smtpReady) return;
+    if (!email.trim()) return;
     setSendState("sending");
     setSendError("");
 
@@ -317,17 +315,8 @@ function TestSendWidget({
       settings.restaurant.phone,
     );
 
-    const result = await sendEmailViaApi({
-      to: email.trim(),
-      subject: resolvedSubject,
-      html,
-      smtp: {
-        host:     settings.smtpHost,
-        port:     Number(settings.smtpPort) || 587,
-        user:     settings.smtpUser,
-        password: settings.smtpPassword,
-      },
-    });
+    // SMTP credentials are read from server-side env vars in /api/email
+    const result = await sendEmailViaApi({ to: email.trim(), subject: resolvedSubject, html });
 
     if (result.ok) {
       setSendState("success");
@@ -344,15 +333,6 @@ function TestSendWidget({
         <Send size={14} className="text-gray-400" />
         <span className="text-sm font-semibold text-gray-700">Send test email</span>
       </div>
-
-      {!smtpReady && (
-        <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
-          <AlertTriangle size={13} className="text-amber-500 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-amber-700">
-            Configure SMTP credentials in the <strong>Integrations → API Keys & Email</strong> tab first.
-          </p>
-        </div>
-      )}
 
       {sendState === "success" && (
         <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2.5">
@@ -373,12 +353,11 @@ function TestSendWidget({
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="test@example.com"
-          disabled={!smtpReady}
-          className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
         />
         <button
           onClick={handleSend}
-          disabled={!smtpReady || !email.trim() || sendState === "sending"}
+          disabled={!email.trim() || sendState === "sending"}
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-gray-900 hover:bg-gray-800 text-white text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {sendState === "sending"
@@ -434,7 +413,6 @@ export default function EmailTemplatesPanel() {
 
   const cfg = EVENT_CONFIGS.find((c) => c.event === selectedEvent)!;
   const enabledCount = templates.filter((t) => t.enabled).length;
-  const smtpReady    = Boolean(settings.smtpHost?.trim());
 
   return (
     <div className="space-y-5">
@@ -447,18 +425,11 @@ export default function EmailTemplatesPanel() {
           <h2 className="font-bold text-gray-900">Email Templates</h2>
           <p className="text-xs text-gray-400 mt-0.5">
             {enabledCount} of {templates.length} templates enabled
-            {!smtpReady && (
-              <span className="ml-2 text-amber-600 font-medium">
-                · SMTP not configured (Integrations → API Keys)
-              </span>
-            )}
           </p>
         </div>
-        {smtpReady && (
-          <span className="flex items-center gap-1.5 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-full px-2.5 py-1 flex-shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> SMTP ready
-          </span>
-        )}
+        <span className="hidden sm:flex items-center gap-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-full px-2.5 py-1 flex-shrink-0">
+          SMTP via env vars
+        </span>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-5 items-start">

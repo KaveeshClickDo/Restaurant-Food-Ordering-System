@@ -303,10 +303,8 @@ export interface POSSettings {
   receiptLogoUrl: string;
   receiptThankYouMessage: string;
   receiptCustomMessage: string;
-  // SMTP (for emailing receipts to customers)
-  smtpHost: string;
-  smtpPort: string;
-  smtpUser: string;
-  smtpPassword: string;
+  // SMTP credentials are configured via server-side env vars (SMTP_HOST etc.)
+  // and are no longer stored in localStorage. smtpFromName remains local as
+  // it controls the display name in emailed receipts, not authentication.
   smtpFromName: string;
 }

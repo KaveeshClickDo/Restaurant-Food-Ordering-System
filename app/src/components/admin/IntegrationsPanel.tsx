@@ -341,138 +341,87 @@ function PaymentMethodsTab() {
 
 // ─── API Keys & Email Tab ─────────────────────────────────────────────────────
 
+function EnvVarRow({ name, description }: { name: string; description: string }) {
+  return (
+    <div className="flex items-start gap-3 py-3 border-b border-gray-50 last:border-0">
+      <code className="text-xs font-mono font-semibold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-lg whitespace-nowrap flex-shrink-0 mt-0.5">
+        {name}
+      </code>
+      <p className="text-sm text-gray-500">{description}</p>
+    </div>
+  );
+}
+
 function ApiKeysTab() {
   const { settings, updateSettings } = useApp();
   const [saved, setSaved] = useState(false);
-  const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
-
-  function toggleSecret(key: string) {
-    setShowSecrets((prev) => ({ ...prev, [key]: !prev[key] }));
-  }
-
-  function handleSave() {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
-  }
+  const [showPub, setShowPub] = useState(false);
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="p-6 space-y-8">
-        {/* Stripe */}
-        <Section title="Stripe" badge="💳">
-          <SecretField
-            label="Stripe Public Key"
-            value={settings.stripePublicKey}
-            onChange={(v) => updateSettings({ stripePublicKey: v })}
-            placeholder="pk_live_..."
-            visible={showSecrets["stripe_pub"]}
-            onToggle={() => toggleSecret("stripe_pub")}
-          />
-          <SecretField
-            label="Stripe Secret Key"
-            value={settings.stripeSecretKey}
-            onChange={(v) => updateSettings({ stripeSecretKey: v })}
-            placeholder="sk_live_..."
-            visible={showSecrets["stripe_sec"]}
-            onToggle={() => toggleSecret("stripe_sec")}
-          />
-        </Section>
+    <div className="space-y-5">
+      {/* Security notice */}
+      <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4">
+        <ShieldAlert size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="font-semibold text-amber-800 text-sm">Sensitive credentials use environment variables</p>
+          <p className="text-amber-700 text-xs mt-1 leading-relaxed">
+            SMTP passwords, Stripe secret keys, and PayPal credentials are configured as
+            server-side environment variables — they are never stored in the database or sent to
+            the browser. Set them in your <code className="font-mono bg-amber-100 px-1 rounded">.env.local</code> file
+            (or your deployment platform's environment variables panel) and restart the server.
+          </p>
+        </div>
+      </div>
 
-        {/* PayPal */}
-        <Section title="PayPal" badge="🅿️">
-          <SecretField
-            label="PayPal Client ID"
-            value={settings.paypalClientId}
-            onChange={(v) => updateSettings({ paypalClientId: v })}
-            placeholder="AaBbCcDd..."
-            visible={showSecrets["paypal"]}
-            onToggle={() => toggleSecret("paypal")}
-          />
-        </Section>
+      {/* Env var reference */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100">
+          <h3 className="font-semibold text-gray-900 text-sm">Required environment variables</h3>
+          <p className="text-xs text-gray-400 mt-0.5">Add these to <code className="font-mono">.env.local</code> — never commit them to source control.</p>
+        </div>
+        <div className="px-5 divide-y divide-gray-50">
+          <EnvVarRow name="SMTP_HOST"            description="SMTP server hostname (e.g. smtp.gmail.com)" />
+          <EnvVarRow name="SMTP_PORT"            description="SMTP port — 587 for STARTTLS (default), 465 for SSL" />
+          <EnvVarRow name="SMTP_USER"            description="SMTP username / sender address" />
+          <EnvVarRow name="SMTP_PASS"            description="SMTP password or app-specific password" />
+          <EnvVarRow name="STRIPE_SECRET_KEY"    description="Stripe secret key (sk_live_… or sk_test_…)" />
+          <EnvVarRow name="PAYPAL_CLIENT_ID"     description="PayPal REST API client ID" />
+          <EnvVarRow name="SUPABASE_SERVICE_ROLE_KEY" description="Supabase service-role key — used by server API routes only" />
+        </div>
+      </div>
 
-        {/* SMTP */}
-        <Section title="Email (SMTP)" badge="✉️">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <PlainField label="SMTP Host"  value={settings.smtpHost}     onChange={(v) => updateSettings({ smtpHost: v })}     placeholder="smtp.example.com" />
-            <PlainField label="Port"       value={settings.smtpPort}     onChange={(v) => updateSettings({ smtpPort: v })}     placeholder="587" type="number" />
-            <PlainField label="Username"   value={settings.smtpUser}     onChange={(v) => updateSettings({ smtpUser: v })}     placeholder="noreply@restaurant.com" />
-            <SecretField
-              label="Password"
-              value={settings.smtpPassword}
-              onChange={(v) => updateSettings({ smtpPassword: v })}
-              placeholder="••••••••"
-              visible={showSecrets["smtp_pass"]}
-              onToggle={() => toggleSecret("smtp_pass")}
+      {/* Stripe public key — safe to store in DB */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100">
+          <h3 className="font-semibold text-gray-900 text-sm">Stripe publishable key</h3>
+          <p className="text-xs text-gray-400 mt-0.5">This key is public by design and safe to store in settings.</p>
+        </div>
+        <div className="p-5">
+          <div className="relative">
+            <input
+              type={showPub ? "text" : "password"}
+              value={settings.stripePublicKey}
+              onChange={(e) => updateSettings({ stripePublicKey: e.target.value })}
+              placeholder="pk_live_…"
+              className="w-full px-4 pr-10 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
             />
+            <button
+              type="button"
+              onClick={() => setShowPub((v) => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
+            >
+              {showPub ? <EyeOff size={15} /> : <Eye size={15} />}
+            </button>
           </div>
-        </Section>
-
-        <button
-          onClick={handleSave}
-          className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-semibold text-sm transition-all ${
-            saved ? "bg-green-100 text-green-700" : "bg-orange-500 hover:bg-orange-600 text-white"
-          }`}
-        >
-          {saved ? <><CheckCircle size={16} /> Saved!</> : "Save changes"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ─── Shared sub-components ───────────────────────────────────────────────────
-
-function Section({ title, badge, children }: { title: string; badge: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-4">
-        <span className="text-lg">{badge}</span>
-        <h3 className="font-semibold text-gray-900">{title}</h3>
-      </div>
-      <div className="space-y-4">{children}</div>
-    </div>
-  );
-}
-
-function PlainField({ label, value, onChange, placeholder, type = "text" }: {
-  label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string;
-}) {
-  return (
-    <div>
-      <label className="block text-xs font-semibold text-gray-600 mb-1.5">{label}</label>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
-      />
-    </div>
-  );
-}
-
-function SecretField({ label, value, onChange, placeholder, visible, onToggle }: {
-  label: string; value: string; onChange: (v: string) => void;
-  placeholder?: string; visible: boolean; onToggle: () => void;
-}) {
-  return (
-    <div>
-      <label className="block text-xs font-semibold text-gray-600 mb-1.5">{label}</label>
-      <div className="relative">
-        <input
-          type={visible ? "text" : "password"}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          className="w-full px-4 pr-10 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
-        />
-        <button
-          type="button"
-          onClick={onToggle}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
-        >
-          {visible ? <EyeOff size={15} /> : <Eye size={15} />}
-        </button>
+          <button
+            onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 2500); }}
+            className={`mt-3 flex items-center gap-2 px-5 py-2 rounded-xl font-semibold text-sm transition-all ${
+              saved ? "bg-green-100 text-green-700" : "bg-orange-500 hover:bg-orange-600 text-white"
+            }`}
+          >
+            {saved ? <><CheckCircle size={15} /> Saved!</> : "Save"}
+          </button>
+        </div>
       </div>
     </div>
   );

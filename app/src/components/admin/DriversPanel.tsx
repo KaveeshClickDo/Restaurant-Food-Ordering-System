@@ -320,7 +320,7 @@ const DELIVERY_STATUS_CONFIG = {
 
 export default function DriversPanel() {
   const {
-    drivers, customers, settings,
+    drivers, customers,
     addDriver, updateDriver, deleteDriver, toggleDriver,
     assignDriverToOrder,
   } = useApp();
@@ -328,6 +328,7 @@ export default function DriversPanel() {
   const [showForm, setShowForm]       = useState(false);
   const [editDriver, setEditDriver]   = useState<Driver | null>(null);
   const [showActive, setShowActive]   = useState(true);
+  const [apiError, setApiError]       = useState("");
 
   // Flatten all orders for driver-related lookups
   const allOrders = customers.flatMap((c) =>
@@ -359,19 +360,25 @@ export default function DriversPanel() {
   const active   = drivers.filter((d) => d.active).length;
   const onDelivery = new Set(activeDeliveries.map((o) => o.driverId)).size;
 
-  function handleAdd(form: typeof EMPTY_FORM) {
-    addDriver({
-      ...form,
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-    });
-    setShowForm(false);
+  async function handleAdd(form: typeof EMPTY_FORM) {
+    setApiError("");
+    try {
+      await addDriver(form);
+      setShowForm(false);
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : "Failed to add driver.");
+    }
   }
 
-  function handleEdit(form: typeof EMPTY_FORM) {
+  async function handleEdit(form: typeof EMPTY_FORM) {
     if (!editDriver) return;
-    updateDriver({ ...editDriver, ...form });
-    setEditDriver(null);
+    setApiError("");
+    try {
+      await updateDriver(editDriver.id, form);
+      setEditDriver(null);
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : "Failed to update driver.");
+    }
   }
 
   const existingEmails = drivers
@@ -481,6 +488,12 @@ export default function DriversPanel() {
         </div>
 
         <div className="p-4 space-y-3">
+          {apiError && (
+            <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+              <AlertCircle size={15} className="text-red-500 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-700">{apiError}</p>
+            </div>
+          )}
           {showForm && (
             <DriverForm
               existingEmails={existingEmails}
@@ -510,9 +523,9 @@ export default function DriversPanel() {
                   key={driver.id}
                   driver={driver}
                   activeOrderCount={driverActiveCount(driver.id)}
-                  onEdit={() => { setShowForm(false); setEditDriver(driver); }}
-                  onDelete={() => deleteDriver(driver.id)}
-                  onToggle={() => toggleDriver(driver.id, !driver.active)}
+                  onEdit={() => { setShowForm(false); setEditDriver(driver); setApiError(""); }}
+                  onDelete={() => { deleteDriver(driver.id).catch((e) => setApiError(e.message)); }}
+                  onToggle={() => { toggleDriver(driver.id, !driver.active).catch((e) => setApiError(e.message)); }}
                 />
               )
             )

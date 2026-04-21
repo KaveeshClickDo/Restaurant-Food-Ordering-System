@@ -118,7 +118,7 @@ function bannerSubtitle(
     case "receipt":       return "Configure what appears on printed and emailed receipts — name, phone, VAT number, and footer.";
     case "coupons":       return `${(s.coupons ?? []).filter((c) => c.active).length} active coupon${(s.coupons ?? []).filter((c) => c.active).length !== 1 ? "s" : ""} · percentage and fixed-amount discount codes.`;
     case "tax":           return s.taxSettings?.enabled ? `VAT ${s.taxSettings.rate}% · ${s.taxSettings.inclusive ? "inclusive" : "exclusive"} mode.` : "VAT is currently disabled.";
-    case "drivers":       return `${(s.drivers ?? []).length} driver${(s.drivers ?? []).length !== 1 ? "s" : ""} registered · manage accounts and track deliveries.`;
+    case "drivers":       return "Manage driver accounts and track deliveries.";
     case "refunds":       return "Process full or partial refunds, choose refund method, and view the full refund history.";
     case "pos-reports":   return "View POS sales reports — revenue, profit, staff performance, and best-selling items.";
     default:              return "Manage your restaurant settings below.";
@@ -130,6 +130,14 @@ function bannerSubtitle(
 export default function AdminPage() {
   const { isOpen, settings, menuItems, categories, customers } = useApp();
 
+  // ── Admin authentication ──────────────────────────────────────────────────
+  // null = checking, true = authenticated, false = needs login
+  const [adminAuthed,   setAdminAuthed]   = useState<boolean | null>(null);
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError,    setLoginError]    = useState("");
+  const [loginLoading,  setLoginLoading]  = useState(false);
+
+  // ── All hooks must be declared before any early return (Rules of Hooks) ───
   const [activeTab,          setActiveTab]          = useState<TabId>("delivery");
   const [sidebarCollapsed,   setSidebarCollapsed]   = useState(false);
   const [mobileSidebarOpen,  setMobileSidebarOpen]  = useState(false);
@@ -140,10 +148,15 @@ export default function AdminPage() {
     0,
   );
 
-  // ── New-order notification ────────────────────────────────────────────────
   const prevCountRef = useRef(activeOrderCount);
   const [newOrderCount, setNewOrderCount] = useState(0);
   const [showAlert,     setShowAlert]     = useState(false);
+
+  useEffect(() => {
+    fetch("/api/admin/auth")
+      .then((r) => setAdminAuthed(r.ok))
+      .catch(() => setAdminAuthed(false));
+  }, []);
 
   useEffect(() => {
     const prev = prevCountRef.current;
@@ -154,12 +167,96 @@ export default function AdminPage() {
     prevCountRef.current = activeOrderCount;
   }, [activeOrderCount]);
 
-  // Close mobile sidebar on ESC
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMobileSidebarOpen(false); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  async function handleLogin(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setLoginError("");
+    setLoginLoading(true);
+    try {
+      const r = await fetch("/api/admin/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: loginPassword }),
+      });
+      if (r.ok) {
+        setAdminAuthed(true);
+        setLoginPassword("");
+      } else {
+        const j = await r.json().catch(() => ({})) as { error?: string };
+        setLoginError(j.error ?? "Invalid password.");
+      }
+    } catch {
+      setLoginError("Connection error. Please try again.");
+    } finally {
+      setLoginLoading(false);
+    }
+  }
+
+  async function handleLogout() {
+    await fetch("/api/admin/auth", { method: "DELETE" }).catch(() => {});
+    setAdminAuthed(false);
+  }
+
+  // ── Auth loading / login gate ─────────────────────────────────────────────
+  if (adminAuthed === null) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (adminAuthed === false) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+        <div className="w-full max-w-sm bg-gray-900 rounded-2xl border border-gray-800 p-8 shadow-2xl">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center flex-shrink-0">
+              <ShieldCheck size={20} className="text-white" />
+            </div>
+            <div>
+              <h1 className="text-white font-bold text-lg leading-tight">Admin Login</h1>
+              <p className="text-gray-500 text-xs mt-0.5">Enter your admin password to continue</p>
+            </div>
+          </div>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-400 mb-1.5">Password</label>
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                placeholder="••••••••"
+                autoFocus
+                required
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition"
+              />
+            </div>
+            {loginError && (
+              <p className="text-red-400 text-xs">{loginError}</p>
+            )}
+            <button
+              type="submit"
+              disabled={loginLoading || !loginPassword}
+              className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm rounded-lg py-2.5 transition"
+            >
+              {loginLoading ? "Signing in…" : "Sign in"}
+            </button>
+          </form>
+          {!process.env.NEXT_PUBLIC_ADMIN_CONFIGURED && (
+            <p className="mt-4 text-gray-600 text-xs text-center">
+              Set <code className="text-gray-500">ADMIN_PASSWORD</code> in <code className="text-gray-500">.env.local</code>
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   function dismissAlert() { setShowAlert(false); setNewOrderCount(0); }
 
@@ -380,6 +477,29 @@ export default function AdminPage() {
               opacity-0 group-hover/bottom2:opacity-100 transition-opacity duration-150">
               <div className="bg-gray-800 text-white text-xs font-medium px-2.5 py-1.5 rounded-lg shadow-xl whitespace-nowrap border border-gray-700">
                 View site
+              </div>
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 -ml-1.5 border-4 border-transparent border-r-gray-800" />
+            </div>
+          )}
+        </div>
+
+        {/* Logout */}
+        <div className="relative group/logout">
+          <button
+            onClick={handleLogout}
+            className={[
+              "flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-gray-500 hover:bg-red-500/10 hover:text-red-400 transition",
+              sidebarCollapsed ? "justify-center" : "",
+            ].join(" ")}
+          >
+            <ShieldCheck size={15} className="flex-shrink-0" />
+            {!sidebarCollapsed && <span className="text-xs font-medium">Sign out</span>}
+          </button>
+          {sidebarCollapsed && (
+            <div className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 z-50
+              opacity-0 group-hover/logout:opacity-100 transition-opacity duration-150">
+              <div className="bg-gray-800 text-white text-xs font-medium px-2.5 py-1.5 rounded-lg shadow-xl whitespace-nowrap border border-gray-700">
+                Sign out
               </div>
               <div className="absolute left-0 top-1/2 -translate-y-1/2 -ml-1.5 border-4 border-transparent border-r-gray-800" />
             </div>

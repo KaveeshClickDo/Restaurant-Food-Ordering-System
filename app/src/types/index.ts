@@ -242,19 +242,16 @@ export interface BreakfastMenuSettings {
 }
 
 export interface AdminSettings {
-  drivers: Driver[];
   coupons: Coupon[];
   taxSettings: TaxSettings;
   restaurant: RestaurantInfo;
   schedule: WeekSchedule;
   manualClosed: boolean;
+  /** Stripe publishable key — safe to expose to the browser. */
   stripePublicKey: string;
-  stripeSecretKey: string;
-  paypalClientId: string;
-  smtpHost: string;
-  smtpPort: string;
-  smtpUser: string;
-  smtpPassword: string;
+  // stripeSecretKey → STRIPE_SECRET_KEY env var (server-side only)
+  // paypalClientId  → PAYPAL_CLIENT_ID env var  (server-side only)
+  // smtpHost/Port/User/Password → SMTP_HOST/PORT/USER/PASS env vars
   paymentMethods: PaymentMethod[];
   paymentAuditLog: AuditEntry[];
   deliveryZones: DeliveryZone[];
@@ -298,7 +295,8 @@ export interface Driver {
   name: string;
   email: string;
   phone: string;
-  password: string;   // plaintext for demo
+  // password is never sent to the browser — stored as a bcrypt hash in the
+  // drivers Supabase table and validated server-side via /api/auth/driver.
   active: boolean;
   vehicleInfo?: string; // e.g. "Red Honda Civic – AB12 CDE"
   notes?: string;       // internal admin notes

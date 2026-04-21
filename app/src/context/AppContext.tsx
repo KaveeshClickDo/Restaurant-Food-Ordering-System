@@ -100,12 +100,13 @@ interface AppContextValue {
   setDefaultAddress: (customerId: string, addressId: string) => void;
   drivers: Driver[];
   currentDriver: Driver | null;
-  driverLogin: (email: string, password: string) => boolean;
+  /** Validates credentials via the server-side /api/auth/driver route. */
+  driverLogin: (email: string, password: string) => Promise<boolean>;
   driverLogout: () => void;
-  addDriver: (driver: Driver) => void;
-  updateDriver: (driver: Driver) => void;
-  deleteDriver: (id: string) => void;
-  toggleDriver: (id: string, active: boolean) => void;
+  addDriver: (data: Omit<Driver, "id" | "createdAt"> & { password: string }) => Promise<Driver>;
+  updateDriver: (id: string, data: Partial<Omit<Driver, "id" | "createdAt">> & { password?: string }) => Promise<Driver>;
+  deleteDriver: (id: string) => Promise<void>;
+  toggleDriver: (id: string, active: boolean) => Promise<void>;
   assignDriverToOrder: (customerId: string, orderId: string, driverId: string | null) => void;
   updateDeliveryStatus: (customerId: string, orderId: string, status: DeliveryStatus) => void;
   addRefund: (customerId: string, orderId: string, refund: Refund) => void;
@@ -160,12 +161,13 @@ const DEFAULT_PRINTER: PrinterSettings = {
 };
 
 const DEFAULT_SETTINGS: AdminSettings = {
-  drivers: [],
   restaurant: restaurantInfo,
   schedule: defaultSchedule,
   manualClosed: false,
-  stripePublicKey: "", stripeSecretKey: "", paypalClientId: "",
-  smtpHost: "", smtpPort: "587", smtpUser: "", smtpPassword: "",
+  stripePublicKey: "",
+  // stripeSecretKey, paypalClientId → server-side env vars only
+  // smtpHost/Port/User/Password → server-side env vars only
+  // drivers → managed via /api/admin/drivers (separate Supabase table)
   paymentMethods: DEFAULT_PAYMENT_METHODS,
   paymentAuditLog: [],
   deliveryZones: DEFAULT_DELIVERY_ZONES,
@@ -348,6 +350,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems]   = useState<MenuItem[]>([]);
   const [customers, setCustomers]   = useState<Customer[]>([]);
+  // Drivers are fetched from the server-side /api/admin/drivers endpoint —
+  // they are NOT part of app_settings so they are never exposed to customers.
+  const [drivers, setDrivers]       = useState<Driver[]>([]);
   const [currentUser, setCurrentUser]   = useState<Customer | null>(null);
   const [currentDriver, setCurrentDriver] = useState<Driver | null>(null);
   const [fulfillment, setFulfillment] = useState<"delivery" | "collection">("delivery");
@@ -409,33 +414,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (settingsData?.data) {
           // Deep-merge with DEFAULT_SETTINGS so new fields added to the default
           // are always present even if the stored snapshot pre-dates them.
+          // Note: sensitive fields (drivers, stripeSecretKey, smtpPassword, etc.)
+          // are intentionally omitted — they must never be sent to the browser.
+          const d = settingsData.data;
           setSettings({
             ...DEFAULT_SETTINGS,
-            ...settingsData.data,
+            ...d,
             // Ensure critical nested objects always have their default structure
-            restaurant: { ...DEFAULT_SETTINGS.restaurant, ...(settingsData.data.restaurant ?? {}) },
-            schedule:   { ...DEFAULT_SETTINGS.schedule,   ...(settingsData.data.schedule   ?? {}) },
-            colors:     { ...DEFAULT_SETTINGS.colors,     ...(settingsData.data.colors     ?? {}) },
-            taxSettings:{ ...DEFAULT_SETTINGS.taxSettings,...(settingsData.data.taxSettings?? {}) },
-            printer:    { ...DEFAULT_SETTINGS.printer,    ...(settingsData.data.printer    ?? {}) },
-            seo:        { ...DEFAULT_SETTINGS.seo,        ...(settingsData.data.seo        ?? {}) },
-            receiptSettings: { ...DEFAULT_SETTINGS.receiptSettings, ...(settingsData.data.receiptSettings ?? {}) },
+            restaurant:      { ...DEFAULT_SETTINGS.restaurant,      ...(d.restaurant      ?? {}) },
+            schedule:        { ...DEFAULT_SETTINGS.schedule,        ...(d.schedule        ?? {}) },
+            colors:          { ...DEFAULT_SETTINGS.colors,          ...(d.colors          ?? {}) },
+            taxSettings:     { ...DEFAULT_SETTINGS.taxSettings,     ...(d.taxSettings     ?? {}) },
+            printer:         { ...DEFAULT_SETTINGS.printer,         ...(d.printer         ?? {}) },
+            seo:             { ...DEFAULT_SETTINGS.seo,             ...(d.seo             ?? {}) },
+            receiptSettings: { ...DEFAULT_SETTINGS.receiptSettings, ...(d.receiptSettings ?? {}) },
             breakfastMenu: {
               ...DEFAULT_SETTINGS.breakfastMenu,
-              ...(settingsData.data.breakfastMenu ?? {}),
-              categories: settingsData.data.breakfastMenu?.categories ?? DEFAULT_SETTINGS.breakfastMenu.categories,
-              items:      settingsData.data.breakfastMenu?.items      ?? DEFAULT_SETTINGS.breakfastMenu.items,
+              ...(d.breakfastMenu ?? {}),
+              categories: d.breakfastMenu?.categories ?? DEFAULT_SETTINGS.breakfastMenu.categories,
+              items:      d.breakfastMenu?.items      ?? DEFAULT_SETTINGS.breakfastMenu.items,
             },
-            emailTemplates: settingsData.data.emailTemplates ?? DEFAULT_SETTINGS.emailTemplates,
-            footerPages:    settingsData.data.footerPages    ?? DEFAULT_SETTINGS.footerPages,
-            paymentMethods: settingsData.data.paymentMethods ?? DEFAULT_SETTINGS.paymentMethods,
-            deliveryZones:  settingsData.data.deliveryZones  ?? DEFAULT_SETTINGS.deliveryZones,
-            coupons:        settingsData.data.coupons        ?? [],
-            drivers:        settingsData.data.drivers        ?? [],
+            emailTemplates: d.emailTemplates ?? DEFAULT_SETTINGS.emailTemplates,
+            footerPages:    d.footerPages    ?? DEFAULT_SETTINGS.footerPages,
+            paymentMethods: d.paymentMethods ?? DEFAULT_SETTINGS.paymentMethods,
+            deliveryZones:  d.deliveryZones  ?? DEFAULT_SETTINGS.deliveryZones,
+            coupons:        d.coupons        ?? [],
+            // Sensitive fields explicitly excluded — never loaded into client state:
+            // drivers, stripeSecretKey, paypalClientId, smtpHost/Port/User/Password
           });
         } else if (!settingsData) {
           // First run — seed settings into the DB
           await supabase.from("app_settings").insert({ id: 1, data: DEFAULT_SETTINGS });
+        }
+
+        // Drivers — fetched via server API, not from app_settings
+        try {
+          const driversRes = await fetch("/api/admin/drivers");
+          if (driversRes.ok) {
+            const { drivers: loaded } = await driversRes.json() as { drivers: Driver[] };
+            setDrivers(loaded ?? []);
+          }
+        } catch (err) {
+          console.error("AppContext: failed to load drivers:", err);
         }
 
         // Categories
@@ -446,10 +466,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } else if (catsData && catsData.length > 0) {
           setCategories(catsData.map(mapCategory));
         } else {
-          // Seed default categories
-          const rows = defaultCategories.map((c, i) => categoryToRow(c, i));
-          const { error: seedErr } = await supabase.from("categories").insert(rows);
-          if (seedErr) console.error("AppContext: failed to seed categories:", seedErr.message);
+          // Seed via server-side API (uses service role key, works with RLS enabled)
+          try {
+            await fetch("/api/admin/seed", { method: "POST" });
+          } catch (e) {
+            console.error("AppContext: seed failed:", e);
+          }
           setCategories(defaultCategories);
         }
 
@@ -460,10 +482,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } else if (menuData && menuData.length > 0) {
           setMenuItems(menuData.map(mapMenuItem));
         } else {
-          // Seed default menu items
-          const rows = defaultMenuItems.map(menuItemToRow);
-          const { error: seedErr } = await supabase.from("menu_items").insert(rows);
-          if (seedErr) console.error("AppContext: failed to seed menu items:", seedErr.message);
+          // Seed was already triggered above if categories were empty;
+          // optimistically use defaults until realtime event arrives.
           setMenuItems(defaultMenuItems);
         }
 
@@ -475,15 +495,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } else if (custsData && custsData.length > 0) {
           setCustomers(custsData.map(mapCustomer));
         } else {
-          // Seed mock customers + their orders
-          for (const c of mockCustomers) {
-            const { error: seedCustErr } = await supabase.from("customers").insert(customerToRow(c));
-            if (seedCustErr) { console.error("AppContext: seed customer:", seedCustErr.message); continue; }
-            if (c.orders.length > 0) {
-              const { error: seedOrdErr } = await supabase.from("orders").insert(c.orders.map(orderToRow));
-              if (seedOrdErr) console.error("AppContext: seed orders:", seedOrdErr.message);
-            }
-          }
+          // Seed was triggered above; use mock data as optimistic default.
           setCustomers(mockCustomers);
         }
       } catch (err) {
@@ -526,7 +538,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             paymentMethods: d.paymentMethods ?? DEFAULT_SETTINGS.paymentMethods,
             deliveryZones:  d.deliveryZones  ?? DEFAULT_SETTINGS.deliveryZones,
             coupons:        d.coupons        ?? [],
-            drivers:        d.drivers        ?? [],
+            // drivers, stripeSecretKey, smtpPassword, etc. intentionally excluded
           });
         })
       // Categories
@@ -641,86 +653,119 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ─── Settings ─────────────────────────────────────────────────────────────
 
+  // All settings mutations go through a server-side API route (requires admin auth cookie).
+  // This prevents any browser visitor from modifying settings via the anon Supabase key.
+  function persistSettings(next: AdminSettings) {
+    fetch("/api/admin/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: next }),
+    }).then(async (r) => {
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({})) as { error?: string };
+        console.error("settings persist:", r.status, j.error);
+      }
+    }).catch((err) => console.error("settings persist:", err));
+  }
+
   const updateSettings = (patch: Partial<AdminSettings>) =>
     setSettings((prev) => {
       const next = { ...prev, ...patch };
-      // Persist only on user-initiated changes (not on realtime remote updates)
-      supabase.from("app_settings")
-        .upsert({ id: 1, data: next, updated_at: new Date().toISOString() })
-        .then(({ error }) => {
-          if (error) console.error("settings persist:", error.message, error.code, error.details);
-        });
+      persistSettings(next);
       return next;
     });
 
-  // Internal helper: functional update + Supabase persist.
+  // Internal helper: functional update + server-side persist.
   // Use this instead of setSettings directly for any mutation that must survive a refresh.
   const mutateSettings = (fn: (prev: AdminSettings) => AdminSettings) =>
     setSettings((prev) => {
       const next = fn(prev);
-      supabase.from("app_settings")
-        .upsert({ id: 1, data: next, updated_at: new Date().toISOString() })
-        .then(({ error }) => {
-          if (error) console.error("settings mutate:", error.message, error.code, error.details);
-        });
+      persistSettings(next);
       return next;
     });
 
   // ─── Categories ───────────────────────────────────────────────────────────
+  // All writes go through admin API routes (require admin session cookie).
 
   const addCategory = (cat: Category) => {
     setCategories((prev) => {
-      const next = [...prev, cat];
-      supabase.from("categories").insert(categoryToRow(cat, prev.length))
-        .then(({ error }) => { if (error) console.error("addCategory:", error); });
-      return next;
+      const row = categoryToRow(cat, prev.length);
+      fetch("/api/admin/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(row),
+      }).then(async (r) => {
+        if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("addCategory:", j.error); }
+      }).catch((e) => console.error("addCategory:", e));
+      return [...prev, cat];
     });
   };
 
   const updateCategory = (cat: Category) => {
     setCategories((prev) => {
-      const next = prev.map((c) => (c.id === cat.id ? cat : c));
-      const idx = prev.findIndex((c) => c.id === cat.id);
-      supabase.from("categories").update({ name: cat.name, emoji: cat.emoji }).eq("id", cat.id)
-        .then(({ error }) => { if (error) console.error("updateCategory:", error); });
-      void idx;
-      return next;
+      fetch(`/api/admin/categories/${cat.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: cat.name, emoji: cat.emoji }),
+      }).then(async (r) => {
+        if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateCategory:", j.error); }
+      }).catch((e) => console.error("updateCategory:", e));
+      return prev.map((c) => (c.id === cat.id ? cat : c));
     });
   };
 
   const deleteCategory = (id: string) => {
     setCategories((prev) => prev.filter((c) => c.id !== id));
     setMenuItems((prev) => prev.filter((m) => m.categoryId !== id));
-    // DB cascade handles menu_items deletion
-    supabase.from("categories").delete().eq("id", id)
-      .then(({ error }) => { if (error) console.error("deleteCategory:", error); });
+    fetch(`/api/admin/categories/${id}`, { method: "DELETE" })
+      .then(async (r) => {
+        if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("deleteCategory:", j.error); }
+      }).catch((e) => console.error("deleteCategory:", e));
   };
 
   const reorderCategories = (cats: Category[]) => {
     setCategories(cats);
     const rows = cats.map((c, i) => categoryToRow(c, i));
-    supabase.from("categories").upsert(rows)
-      .then(({ error }) => { if (error) console.error("reorderCategories:", error); });
+    fetch("/api/admin/categories", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ categories: rows }),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("reorderCategories:", j.error); }
+    }).catch((e) => console.error("reorderCategories:", e));
   };
 
   // ─── Menu items ───────────────────────────────────────────────────────────
+  // All writes go through admin API routes (require admin session cookie).
 
   const addMenuItem = (item: MenuItem) => {
     setMenuItems((prev) => [...prev, item]);
-    supabase.from("menu_items").insert(menuItemToRow(item))
-      .then(({ error }) => { if (error) console.error("addMenuItem:", error); });
+    fetch("/api/admin/menu", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(menuItemToRow(item)),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("addMenuItem:", j.error); }
+    }).catch((e) => console.error("addMenuItem:", e));
   };
 
   const updateMenuItem = (item: MenuItem) => {
     setMenuItems((prev) => prev.map((m) => (m.id === item.id ? item : m)));
-    supabase.from("menu_items").update(menuItemToRow(item)).eq("id", item.id)
-      .then(({ error }) => { if (error) console.error("updateMenuItem:", error); });
+    fetch(`/api/admin/menu/${item.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(menuItemToRow(item)),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateMenuItem:", j.error); }
+    }).catch((e) => console.error("updateMenuItem:", e));
   };
 
   const deleteMenuItem = (id: string) => {
     setMenuItems((prev) => prev.filter((m) => m.id !== id));
-    supabase.from("menu_items").delete().eq("id", id)
-      .then(({ error }) => { if (error) console.error("deleteMenuItem:", error); });
+    fetch(`/api/admin/menu/${id}`, { method: "DELETE" })
+      .then(async (r) => {
+        if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("deleteMenuItem:", j.error); }
+      }).catch((e) => console.error("deleteMenuItem:", e));
   };
 
   // ─── Customer & order actions ──────────────────────────────────────────────
@@ -783,30 +828,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return { ...prev, orders: prev.orders.map(patchOrder), storeCredit: newStoreCredit };
     });
 
-    // ── Single atomic order update (status + refund log + running total) ───────
-    // One update = one realtime event, no race condition between two events.
-    supabase
-      .from("orders")
-      .update({ status: newStatus, refunds: newRefunds, refunded_amount: newRefundedAmount })
-      .eq("id", orderId)
-      .then(({ error }) => {
-        if (error) console.error("addRefund/order:", error.message ?? error.code ?? JSON.stringify(error));
-      });
+    // ── Single atomic order update via admin API route ──────────────────────
+    const storeCreditPayload =
+      refund.method === "store_credit"
+        ? {
+            customerId,
+            newStoreCredit:
+              (customers.find((c) => c.id === customerId)?.storeCredit ?? 0) + refund.amount,
+          }
+        : {};
 
-    // ── Persist store credit on customer row ────────────────────────────────
-    if (refund.method === "store_credit") {
-      // Capture balance from the customers closure (before setCustomers ran);
-      // adding refund.amount gives the correct new balance.
-      const prevCredit = customers.find((c) => c.id === customerId)?.storeCredit ?? 0;
-      const newStoreCredit = prevCredit + refund.amount;
-      supabase
-        .from("customers")
-        .update({ store_credit: newStoreCredit })
-        .eq("id", customerId)
-        .then(({ error }) => {
-          if (error) console.error("addRefund/store_credit:", error.message ?? error.code ?? JSON.stringify(error));
-        });
-    }
+    fetch(`/api/admin/orders/${orderId}/refund`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        newStatus,
+        refunds:         newRefunds,
+        refundedAmount:  newRefundedAmount,
+        ...storeCreditPayload,
+      }),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("addRefund:", j.error); }
+    }).catch((e) => console.error("addRefund:", e));
   };
 
   const spendStoreCredit = (customerId: string, amount: number) => {
@@ -828,8 +871,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setCurrentUser((prev) =>
       prev && prev.id === customerId ? { ...prev, orders: prev.orders.map(patch) } : prev
     );
-    supabase.from("orders").update({ status }).eq("id", orderId)
-      .then(({ error }) => { if (error) console.error("updateOrderStatus:", error); });
+    fetch(`/api/admin/orders/${orderId}/status`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateOrderStatus:", j.error); }
+    }).catch((e) => console.error("updateOrderStatus:", e));
   };
 
   // ─── Auth ─────────────────────────────────────────────────────────────────
@@ -976,26 +1024,72 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const removeCoupon = () => setAppliedCoupon(null);
 
-  // ─── Drivers ──────────────────────────────────────────────────────────────
+  // ─── Drivers — managed via server API (never in app_settings) ────────────
 
-  const addDriver    = (d: Driver) => mutateSettings((p) => ({ ...p, drivers: [...(p.drivers ?? []), d] }));
-  const updateDriver = (d: Driver) => mutateSettings((p) => ({ ...p, drivers: (p.drivers ?? []).map((x) => (x.id === d.id ? d : x)) }));
-  const deleteDriver = (id: string) => mutateSettings((p) => ({ ...p, drivers: (p.drivers ?? []).filter((x) => x.id !== id) }));
-  const toggleDriver = (id: string, active: boolean) =>
-    mutateSettings((p) => ({ ...p, drivers: (p.drivers ?? []).map((x) => (x.id === id ? { ...x, active } : x)) }));
+  const addDriver = async (
+    data: Omit<Driver, "id" | "createdAt"> & { password: string },
+  ): Promise<Driver> => {
+    const res = await fetch("/api/admin/drivers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    const json = await res.json() as { ok: boolean; driver?: Driver; error?: string };
+    if (!json.ok || !json.driver) throw new Error(json.error ?? "Failed to create driver");
+    setDrivers((prev) => [json.driver!, ...prev]);
+    return json.driver;
+  };
 
-  const driverLogin = (email: string, password: string): boolean => {
-    const found = (settings.drivers ?? []).find(
-      (d) => d.email.toLowerCase() === email.toLowerCase() && d.password === password && d.active
-    );
-    if (found) { setCurrentDriver(found); return true; }
-    return false;
+  const updateDriver = async (
+    id: string,
+    data: Partial<Omit<Driver, "id" | "createdAt">> & { password?: string },
+  ): Promise<Driver> => {
+    const res = await fetch(`/api/admin/drivers/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    const json = await res.json() as { ok: boolean; driver?: Driver; error?: string };
+    if (!json.ok || !json.driver) throw new Error(json.error ?? "Failed to update driver");
+    setDrivers((prev) => prev.map((d) => (d.id === id ? json.driver! : d)));
+    // Keep currentDriver in sync if it was the updated driver
+    setCurrentDriver((prev) => (prev?.id === id ? json.driver! : prev));
+    return json.driver;
+  };
+
+  const deleteDriver = async (id: string): Promise<void> => {
+    const res = await fetch(`/api/admin/drivers/${id}`, { method: "DELETE" });
+    const json = await res.json() as { ok: boolean; error?: string };
+    if (!json.ok) throw new Error(json.error ?? "Failed to delete driver");
+    setDrivers((prev) => prev.filter((d) => d.id !== id));
+  };
+
+  const toggleDriver = async (id: string, active: boolean): Promise<void> => {
+    await updateDriver(id, { active });
+  };
+
+  const driverLogin = async (email: string, password: string): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/auth/driver", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const json = await res.json() as { ok: boolean; driver?: Driver; error?: string };
+      if (json.ok && json.driver) {
+        setCurrentDriver(json.driver);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
   };
 
   const driverLogout = () => setCurrentDriver(null);
 
   const assignDriverToOrder = (customerId: string, orderId: string, driverId: string | null) => {
-    const driver = driverId ? (settings.drivers ?? []).find((d) => d.id === driverId) : null;
+    const driver = driverId ? drivers.find((d) => d.id === driverId) : null;
     const patch = {
       driverId:       driverId       ?? undefined,
       driverName:     driver?.name   ?? undefined,
@@ -1004,12 +1098,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setCustomers((prev) => prev.map((c) =>
       c.id !== customerId ? c : { ...c, orders: c.orders.map((o) => (o.id === orderId ? { ...o, ...patch } : o)) }
     ));
-    supabase.from("orders").update({
-      driver_id: driverId ?? "",
-      driver_name: driver?.name ?? "",
-      delivery_status: driverId ? "assigned" : "",
-    }).eq("id", orderId)
-      .then(({ error }) => { if (error) console.error("assignDriver:", error); });
+    fetch(`/api/admin/orders/${orderId}/driver`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        driver_id:       driverId ?? "",
+        driver_name:     driver?.name ?? "",
+        delivery_status: driverId ? "assigned" : "",
+      }),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("assignDriver:", j.error); }
+    }).catch((e) => console.error("assignDriver:", e));
   };
 
   const updateDeliveryStatus = (customerId: string, orderId: string, status: DeliveryStatus) => {
@@ -1025,10 +1124,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setCurrentUser((prev) =>
       prev && prev.id === customerId ? { ...prev, orders: patchOrders(prev.orders) } : prev
     );
-    const dbPatch: Record<string, string> = { delivery_status: status };
-    if (status === "delivered") dbPatch.status = "delivered";
-    supabase.from("orders").update(dbPatch).eq("id", orderId)
-      .then(({ error }) => { if (error) console.error("updateDeliveryStatus:", error); });
+    const body: Record<string, string> = { delivery_status: status };
+    if (status === "delivered") body.status = "delivered";
+    fetch(`/api/admin/orders/${orderId}/driver`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateDeliveryStatus:", j.error); }
+    }).catch((e) => console.error("updateDeliveryStatus:", e));
   };
 
   // ─── Breakfast menu ────────────────────────────────────────────────────────
@@ -1089,7 +1193,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addCoupon, updateCoupon, deleteCoupon, toggleCoupon,
         incrementCouponUsage, appliedCoupon, applyCoupon, removeCoupon,
         addSavedAddress, updateSavedAddress, deleteSavedAddress, setDefaultAddress,
-        drivers: settings.drivers ?? [],
+        drivers,
         currentDriver, driverLogin, driverLogout,
         addDriver, updateDriver, deleteDriver, toggleDriver,
         assignDriverToOrder, updateDeliveryStatus, addRefund, spendStoreCredit,

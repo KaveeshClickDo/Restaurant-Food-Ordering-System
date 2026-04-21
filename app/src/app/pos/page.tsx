@@ -472,27 +472,18 @@ function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose: () => void })
   const vatSign = taxInclusive ? "" : "+";
 
   async function sendEmail() {
-    if (!emailTo.trim() || !settings.smtpHost?.trim()) return;
+    if (!emailTo.trim()) return;
     setEmailStatus("sending");
     setEmailError("");
     try {
       const html = buildReceiptHtml(sale, settings);
       const fromName = settings.smtpFromName?.trim() || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant";
       const subject  = `Your receipt from ${fromName} — #${sale.receiptNo}`;
+      // SMTP credentials are read from server-side env vars in /api/email
       const res = await fetch("/api/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: emailTo.trim(),
-          subject,
-          html,
-          smtp: {
-            host:     settings.smtpHost,
-            port:     Number(settings.smtpPort) || 587,
-            user:     settings.smtpUser,
-            password: settings.smtpPassword,
-          },
-        }),
+        body: JSON.stringify({ to: emailTo.trim(), subject, html }),
       });
       const data = await res.json();
       if (data.ok) {
@@ -637,8 +628,7 @@ function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose: () => void })
                   />
                   <button
                     onClick={sendEmail}
-                    disabled={!emailTo.trim() || emailStatus === "sending" || !settings.smtpHost?.trim()}
-                    title={!settings.smtpHost?.trim() ? "Configure SMTP in Settings → Hardware first" : undefined}
+                    disabled={!emailTo.trim() || emailStatus === "sending"}
                     className="px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-white text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 flex-shrink-0"
                   >
                     {emailStatus === "sending" ? (
@@ -651,9 +641,6 @@ function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose: () => void })
                 </div>
                 {emailStatus === "error" && (
                   <p className="text-red-500 text-[10px]">{emailError}</p>
-                )}
-                {!settings.smtpHost?.trim() && (
-                  <p className="text-gray-400 text-[10px]">Set up SMTP in Settings → Hardware to enable email.</p>
                 )}
               </>
             )}
@@ -3571,35 +3558,13 @@ function SettingsView() {
                 <h3 className="text-white font-semibold text-sm flex items-center gap-2">
                   <Mail size={16} className="text-slate-400" /> Email Receipts (SMTP)
                 </h3>
-                <p className="text-slate-400 text-xs mt-1">Configure an outgoing email server to send receipts to customers.</p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-slate-400 mb-1 block">SMTP Host</label>
-                  <input value={local.smtpHost ?? ""} onChange={(e) => setLocal((l) => ({ ...l, smtpHost: e.target.value }))}
-                    placeholder="smtp.gmail.com"
-                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 mb-1 block">Port</label>
-                  <input value={local.smtpPort ?? "587"} onChange={(e) => setLocal((l) => ({ ...l, smtpPort: e.target.value }))}
-                    placeholder="587"
-                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-slate-400 mb-1 block">Username / Email</label>
-                  <input value={local.smtpUser ?? ""} onChange={(e) => setLocal((l) => ({ ...l, smtpUser: e.target.value }))}
-                    placeholder="you@gmail.com"
-                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 mb-1 block">Password / App Password</label>
-                  <input type="password" value={local.smtpPassword ?? ""} onChange={(e) => setLocal((l) => ({ ...l, smtpPassword: e.target.value }))}
-                    placeholder="••••••••"
-                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
-                </div>
+                <p className="text-slate-400 text-xs mt-1">
+                  SMTP credentials are configured via server-side environment variables
+                  (<code className="font-mono text-orange-400">SMTP_HOST</code>,{" "}
+                  <code className="font-mono text-orange-400">SMTP_USER</code>,{" "}
+                  <code className="font-mono text-orange-400">SMTP_PASS</code>).
+                  They are never stored in the browser.
+                </p>
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">From Name (shown to customer)</label>
@@ -3611,7 +3576,7 @@ function SettingsView() {
                 onClick={() => setSettings({ ...settings, ...local })}
                 className="w-full py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
               >
-                <Save size={14} /> Save SMTP Settings
+                <Save size={14} /> Save
               </button>
             </div>
           </div>

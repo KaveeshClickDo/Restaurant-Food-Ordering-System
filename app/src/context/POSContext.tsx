@@ -113,10 +113,6 @@ const SEED_SETTINGS: POSSettings = {
   receiptLogoUrl: "",
   receiptThankYouMessage: "Thank you for dining with us!",
   receiptCustomMessage: "",
-  smtpHost: "",
-  smtpPort: "587",
-  smtpUser: "",
-  smtpPassword: "",
   smtpFromName: "",
 };
 
