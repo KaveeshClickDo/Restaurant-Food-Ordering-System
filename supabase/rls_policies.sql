@@ -4,12 +4,17 @@
 -- Run this entire script in:
 --   Supabase dashboard → SQL Editor → New query → Paste → Run
 --
+-- Safe to re-run: all DROP IF EXISTS guards make this idempotent.
+--
 -- What this does:
+--   • Enables RLS on every table so no table is "publicly accessible"
 --   • Blocks all anon writes to app_settings, categories, menu_items
 --     (these now go through /api/admin/* routes using the service role key)
---   • Allows anon INSERT on orders (customer checkout) + customers (registration)
+--   • Blocks anon INSERT on orders and customers (both now go through server-side API routes)
 --   • Blocks anon UPDATE/DELETE on orders (admin-only via API routes)
 --   • Allows anon SELECT everywhere except drivers
+--   • Strips the `password` column from anon SELECT on customers
+--     (column-level privilege — fixes the "sensitive_columns_exposed" warning)
 --   • drivers table: no anon access at all (served via /api/admin/drivers)
 -- ─────────────────────────────────────────────────────────────────────────────
 
@@ -45,10 +50,11 @@ drop policy if exists "anon_select_orders" on orders;
 create policy "anon_select_orders"
   on orders for select to anon using (true);
 
--- Customers need to place orders (checkout)
+-- Order INSERT is now handled server-side via POST /api/orders.
+-- That route validates the payload and enforces status = "pending",
+-- preventing clients from inserting orders with arbitrary statuses or totals.
+-- The anon role must NOT have INSERT on orders — drop the policy entirely.
 drop policy if exists "anon_insert_orders" on orders;
-create policy "anon_insert_orders"
-  on orders for insert to anon with check (true);
 
 -- No anon UPDATE / DELETE → updateOrderStatus, addRefund, assignDriver
 -- are now enforced through /api/admin/orders/* (service role)
@@ -61,15 +67,31 @@ drop policy if exists "anon_select_customers" on customers;
 create policy "anon_select_customers"
   on customers for select to anon using (true);
 
--- Needed for self-registration at checkout
+-- Customer INSERT is now handled server-side via POST /api/auth/register,
+-- which validates input and inserts using the service role key.
+-- The anon role must NOT have INSERT on customers — drop the policy entirely.
 drop policy if exists "anon_insert_customers" on customers;
-create policy "anon_insert_customers"
-  on customers for insert to anon with check (true);
 
--- Needed for profile updates, favourites, saved addresses
+-- Customer UPDATE is now split across three server-side routes:
+--   PATCH /api/customers/[id]             — self-service (favourites, saved_addresses, name, phone only)
+--   POST  /api/customers/[id]/spend-credit — store credit deduction at checkout (amount validated server-side)
+--   PUT   /api/admin/customers/[id]        — full update (requires admin session cookie)
+-- The anon role must NOT have UPDATE on customers — drop the policy entirely.
 drop policy if exists "anon_update_customers" on customers;
-create policy "anon_update_customers"
-  on customers for update to anon using (true) with check (true);
+
+-- ── Column-level security: strip `password` from anon reads ──────────────────
+-- RLS controls rows; column access is controlled separately via GRANT/REVOKE.
+-- The `password` column in customers contains plaintext demo passwords which
+-- triggered Supabase's "sensitive_columns_exposed" warning.
+-- This revoke prevents PostgREST / the anon key from ever returning that column.
+-- The service role (used in API routes) retains full column access.
+revoke select (password) on customers from anon;
+
+-- Also strip password_hash from drivers for the anon role (belt-and-suspenders —
+-- the drivers table already has no anon SELECT policy, but be explicit).
+-- This line is safe even if the column doesn't exist yet; comment it out if
+-- Postgres complains (it will if the drivers table was just created).
+-- revoke select (password_hash) on drivers from anon;
 
 -- ── drivers ──────────────────────────────────────────────────────────────────
 -- Create the table first if it doesn't exist yet
@@ -87,6 +109,20 @@ create table if not exists drivers (
 
 alter table drivers enable row level security;
 
--- No policies at all for anon → complete deny
--- All driver access goes through /api/admin/drivers and /api/auth/driver
--- which use the service role key server-side
+-- Explicit deny for the anon role — makes intent unambiguous and silences the
+-- "RLS enabled, no policies" linter warning. The service role bypasses RLS
+-- entirely, so /api/admin/drivers and /api/auth/driver still work normally.
+-- ── POS walk-in sentinel customer ────────────────────────────────────────────
+-- Pre-seed the sentinel customer used by POS → KDS order routing so that
+-- walk-in POS orders always have a valid customer_id FK and appear in the KDS.
+insert into customers (id, name, email, phone, tags, favourites, store_credit)
+values ('pos-walk-in', 'POS Walk-in', 'pos-walkin@internal', '', '{}', '{}', 0)
+on conflict (id) do nothing;
+
+drop policy if exists "deny_anon_all" on drivers;
+create policy "deny_anon_all"
+  on drivers
+  for all
+  to anon
+  using (false)
+  with check (false);

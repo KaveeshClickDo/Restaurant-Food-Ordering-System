@@ -499,7 +499,11 @@ export function sendOrderEmail(
 
   sendEmailViaApi({ to, subject, html })
     .then((result) => {
-      if (!result.ok) console.error("[email] Send failed:", result.error);
+      if (!result.ok) {
+        // SMTP not configured is expected during development — not an error
+        if (result.error?.toLowerCase().includes("smtp") && result.error?.toLowerCase().includes("not configured")) return;
+        console.error("[email] Send failed:", result.error);
+      }
     })
     .catch(console.error);
 }

@@ -183,6 +183,10 @@ interface POSContextValue {
   clockOut: (staffId: string) => void;
   isClocked: (staffId: string) => boolean;
   receiptCounter: number;
+  // Storage management
+  salesRetentionDays: number;
+  exportSales: () => void;
+  purgeOldSales: () => void;
 }
 
 const POSContext = createContext<POSContextValue | null>(null);
@@ -194,6 +198,10 @@ export function usePOS() {
 }
 
 // ─── Storage helpers ──────────────────────────────────────────────────────────
+
+// Sales older than this are excluded from localStorage to prevent quota exhaustion.
+// Full history remains available in memory for the duration of the session.
+const SALES_RETENTION_DAYS = 90;
 
 function load<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -207,7 +215,16 @@ function load<T>(key: string, fallback: T): T {
 
 function save<T>(key: string, value: T) {
   if (typeof window === "undefined") return;
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* quota */ }
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "QuotaExceededError") {
+      console.warn(
+        `[POS] localStorage quota exceeded writing "${key}". ` +
+        "Consider exporting and purging old sales data from POS Settings → Storage.",
+      );
+    }
+  }
 }
 
 // ─── Provider ────────────────────────────────────────────────────────────────
@@ -251,7 +268,13 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { save("pos_staff", staff); }, [staff]);
   useEffect(() => { save("pos_products", products); }, [products]);
   useEffect(() => { save("pos_categories", categories); }, [categories]);
-  useEffect(() => { save("pos_sales", sales); }, [sales]);
+  useEffect(() => {
+    // Only persist sales within the retention window to prevent localStorage quota exhaustion.
+    // Sales older than SALES_RETENTION_DAYS days remain available in memory for this session
+    // but are not written to disk. Use exportSales() to download a full archive before they age out.
+    const cutoff = Date.now() - SALES_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    save("pos_sales", sales.filter((s) => new Date(s.date).getTime() >= cutoff));
+  }, [sales]);
   useEffect(() => { save("pos_customers", customers); }, [customers]);
   useEffect(() => { save("pos_clock", clockEntries); }, [clockEntries]);
   useEffect(() => { save("pos_settings", settings); }, [settings]);
@@ -393,6 +416,14 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
     setSales((prev) => [sale, ...prev]);
 
+    // Route the sale to the Kitchen Display System via the orders table.
+    // Fire-and-forget — a network failure must never block the POS workflow.
+    fetch("/api/pos/orders", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(sale),
+    }).catch(() => {});
+
     // Update customer loyalty points
     if (assignedCustomer) {
       const pts = Math.floor(total * settings.loyaltyPointsPerPound);
@@ -463,6 +494,27 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     return !!last && !last.clockOut;
   }, [clockEntries]);
 
+  // ── Storage management ────────────────────────────────────────────────────
+
+  // Download all in-memory sales as a JSON file so admins can archive data
+  // before it ages past SALES_RETENTION_DAYS and drops off localStorage.
+  const exportSales = useCallback(() => {
+    const blob = new Blob([JSON.stringify(sales, null, 2)], { type: "application/json" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `pos-sales-export-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [sales]);
+
+  // Drop sales older than SALES_RETENTION_DAYS from both memory and localStorage.
+  // Call this to reclaim localStorage space if the quota warning appears.
+  const purgeOldSales = useCallback(() => {
+    const cutoff = Date.now() - SALES_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    setSales((prev) => prev.filter((s) => new Date(s.date).getTime() >= cutoff));
+  }, []);
+
   return (
     <POSContext.Provider value={{
       currentStaff, login, logout,
@@ -481,6 +533,9 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       completeSale, voidSale,
       clockIn, clockOut, isClocked,
       receiptCounter: receiptCounter.current,
+      salesRetentionDays: SALES_RETENTION_DAYS,
+      exportSales,
+      purgeOldSales,
     }}>
       {children}
     </POSContext.Provider>

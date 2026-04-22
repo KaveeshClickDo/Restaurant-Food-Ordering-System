@@ -107,5 +107,25 @@ export async function POST() {
     results.push("customers: already populated, skipped");
   }
 
+  // ── POS walk-in sentinel customer ──────────────────────────────────────────
+  // Always ensure this record exists so POS → KDS order routing works,
+  // even on a fresh installation before any real customers are registered.
+  const { error: walkInErr } = await supabaseAdmin.from("customers").upsert(
+    {
+      id:             "pos-walk-in",
+      name:           "POS Walk-in",
+      email:          "pos-walkin@internal",
+      phone:          "",
+      password:       "",
+      tags:           [],
+      favourites:     [],
+      saved_addresses: [],
+      store_credit:   0,
+    },
+    { onConflict: "id", ignoreDuplicates: true },
+  );
+  if (walkInErr) results.push(`pos-walk-in: ${walkInErr.message}`);
+  else           results.push("pos-walk-in: ensured");
+
   return NextResponse.json({ ok: true, results });
 }

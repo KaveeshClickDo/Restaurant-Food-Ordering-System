@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useApp } from "@/context/AppContext";
 import type { Order, OrderStatus } from "@/types";
@@ -170,6 +170,31 @@ function OrderCard({
     return () => clearInterval(id);
   }, [order.date]);
 
+  // "Mark as Collected" — two-tap confirm to prevent accidental dismissal
+  const [confirming, setConfirming] = useState(false);
+  const [marking, setMarking]       = useState(false);
+  const confirmTimer                = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleCollectClick() {
+    setConfirming(true);
+    confirmTimer.current = setTimeout(() => setConfirming(false), 4000);
+  }
+  async function handleConfirmCollect() {
+    if (confirmTimer.current) clearTimeout(confirmTimer.current);
+    setConfirming(false);
+    setMarking(true);
+    try {
+      await fetch(`/api/pos/orders/${order.id}/collected`, { method: "PUT" });
+    } catch {
+      setMarking(false);
+    }
+  }
+  function handleCancelCollect() {
+    if (confirmTimer.current) clearTimeout(confirmTimer.current);
+    setConfirming(false);
+  }
+  useEffect(() => () => { if (confirmTimer.current) clearTimeout(confirmTimer.current); }, []);
+
   const u = mins !== null ? urgencyClass(mins) : { ring: "", pulse: false };
 
   return (
@@ -265,8 +290,8 @@ function OrderCard({
           </button>
         </div>
       ) : (
-        /* Ready column — kitchen's job is done; show who handles the next step */
-        <div className="px-4 pb-4">
+        /* Ready column — delivery awaits driver; collection can be marked here */
+        <div className="px-4 pb-4 flex flex-col gap-2">
           <div className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-semibold border ${
             isDelivery
               ? "bg-indigo-900/20 border-indigo-700/30 text-indigo-300"
@@ -275,6 +300,41 @@ function OrderCard({
             {isDelivery ? <Truck size={13} /> : <ShoppingBag size={13} />}
             {isDelivery ? "Awaiting driver pickup" : "Awaiting customer collection"}
           </div>
+
+          {/* Collection orders: staff can mark as collected directly from KDS */}
+          {!isDelivery && (
+            confirming ? (
+              <div className="flex gap-2">
+                <button
+                  onClick={handleConfirmCollect}
+                  className="flex-1 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.97] text-white font-black text-xs py-2.5 rounded-xl transition-all"
+                >
+                  ✓ Confirm Collected
+                </button>
+                <button
+                  onClick={handleCancelCollect}
+                  className="flex-1 bg-gray-700 hover:bg-gray-600 active:scale-[0.97] text-gray-300 font-semibold text-xs py-2.5 rounded-xl transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={handleCollectClick}
+                disabled={marking}
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold text-emerald-500 border border-emerald-800 hover:bg-emerald-900/30 active:scale-[0.97] transition-all disabled:opacity-40"
+              >
+                {marking ? (
+                  <span className="animate-spin">⟳</span>
+                ) : (
+                  <>
+                    <CheckCircle2 size={12} />
+                    Mark as Collected
+                  </>
+                )}
+              </button>
+            )
+          )}
         </div>
       )}
     </div>

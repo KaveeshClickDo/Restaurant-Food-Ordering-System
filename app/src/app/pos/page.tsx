@@ -2847,7 +2847,8 @@ function StaffView() {
 // ─── Settings View ─────────────────────────────────────────────────────────────
 
 function SettingsView() {
-  const { settings, setSettings, products, setProducts, categories, setCategories } = usePOS();
+  const { settings, setSettings, products, setProducts, categories, setCategories,
+          sales, salesRetentionDays, exportSales, purgeOldSales } = usePOS();
   const [local, setLocal] = useState({ ...settings });
   const [tab, setTab] = useState<"general"|"menu"|"receipt"|"hardware">("general");
   const [editProduct, setEditProduct] = useState<POSProduct | null>(null);
@@ -3579,6 +3580,55 @@ function SettingsView() {
                 <Save size={14} /> Save
               </button>
             </div>
+
+            {/* Local Storage */}
+            {(() => {
+              const cutoff   = Date.now() - salesRetentionDays * 24 * 60 * 60 * 1000;
+              const recent   = sales.filter((s) => new Date(s.date).getTime() >= cutoff).length;
+              const archived = sales.length - recent;
+              return (
+                <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4">
+                  <h3 className="text-white font-semibold text-sm flex items-center gap-2">
+                    <Package size={16} className="text-slate-400" /> Local Storage
+                  </h3>
+                  <div className="bg-slate-900 rounded-xl p-4 space-y-2 text-sm">
+                    <div className="flex justify-between text-slate-300">
+                      <span>Sales in memory</span>
+                      <span className="font-mono font-semibold">{sales.length}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-400">
+                      <span>Within {salesRetentionDays}-day window</span>
+                      <span className="font-mono">{recent}</span>
+                    </div>
+                    {archived > 0 && (
+                      <div className="flex justify-between text-amber-400">
+                        <span>Older than {salesRetentionDays} days (not persisted)</span>
+                        <span className="font-mono">{archived}</span>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-slate-500 text-xs">
+                    Only the last {salesRetentionDays} days of sales are written to localStorage to prevent quota exhaustion.
+                    Export a full archive before older records are lost on page refresh.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={exportSales}
+                      className="flex-1 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Receipt size={14} /> Export JSON
+                    </button>
+                    <button
+                      onClick={() => { if (confirm(`Remove ${archived} sale${archived !== 1 ? "s" : ""} older than ${salesRetentionDays} days from memory?`)) purgeOldSales(); }}
+                      disabled={archived === 0}
+                      className="flex-1 py-2.5 rounded-xl border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-30 disabled:cursor-not-allowed text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Trash2 size={14} /> Purge old
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>

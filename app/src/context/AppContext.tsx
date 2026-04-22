@@ -772,14 +772,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const addCustomer = (customer: Customer) => {
     setCustomers((prev) => [...prev, customer]);
-    supabase.from("customers").insert(customerToRow(customer))
-      .then(({ error }) => { if (error) console.error("addCustomer:", error); });
+    fetch("/api/admin/customers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(customerToRow(customer)),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("addCustomer:", j.error); }
+    }).catch((e) => console.error("addCustomer:", e));
   };
 
   const updateCustomer = (customer: Customer) => {
     setCustomers((prev) => prev.map((c) => (c.id === customer.id ? customer : c)));
-    supabase.from("customers").update(customerToRow(customer)).eq("id", customer.id)
-      .then(({ error }) => { if (error) console.error("updateCustomer:", error); });
+    fetch(`/api/admin/customers/${customer.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(customerToRow(customer)),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateCustomer:", j.error); }
+    }).catch((e) => console.error("updateCustomer:", e));
   };
 
   const addOrder = (customerId: string, order: Order) => {
@@ -789,8 +799,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setCurrentUser((prev) =>
       prev && prev.id === customerId ? { ...prev, orders: [order, ...prev.orders] } : prev
     );
-    supabase.from("orders").insert(orderToRow(order))
-      .then(({ error }) => { if (error) console.error("addOrder:", error); });
+    // Insert via server-side route — anon key has no INSERT on orders
+    fetch("/api/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(orderToRow(order)),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("addOrder:", j.error); }
+    }).catch((e) => console.error("addOrder:", e));
   };
 
   const addRefund = (customerId: string, orderId: string, refund: Refund) => {
@@ -853,14 +869,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const spendStoreCredit = (customerId: string, amount: number) => {
-    // Capture the balance from the closure (current render) before any setCustomers call
     const prevCredit = customers.find((c) => c.id === customerId)?.storeCredit ?? 0;
     const newBalance = Math.max(0, prevCredit - amount);
     const patch = (c: Customer) => ({ ...c, storeCredit: newBalance });
     setCustomers((prev) => prev.map((c) => (c.id === customerId ? patch(c) : c)));
     setCurrentUser((prev) => (prev && prev.id === customerId ? patch(prev) : prev));
-    supabase.from("customers").update({ store_credit: newBalance }).eq("id", customerId)
-      .then(({ error }) => { if (error) console.error("spendStoreCredit:", error.message ?? JSON.stringify(error)); });
+    // Server validates current balance and computes the new value — client cannot manipulate the result
+    fetch(`/api/customers/${customerId}/spend-credit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount }),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("spendStoreCredit:", j.error); }
+    }).catch((e) => console.error("spendStoreCredit:", e));
   };
 
   const updateOrderStatus = (customerId: string, orderId: string, status: OrderStatus) => {
@@ -900,8 +921,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     setCustomers((prev) => [...prev, newCustomer]);
     setCurrentUser(newCustomer);
-    supabase.from("customers").insert(customerToRow(newCustomer))
-      .then(({ error }) => { if (error) console.error("register:", error); });
+    // Insert via server-side route — anon key has no INSERT on customers
+    fetch("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: newCustomer.id, name, email, phone, password, createdAt: newCustomer.createdAt }),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("register:", j.error); }
+    }).catch((e) => console.error("register:", e));
     return { success: true };
   };
 
@@ -924,8 +951,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const updatedUser = { ...currentUser, favourites: updated };
     setCurrentUser(updatedUser);
     setCustomers((prev) => prev.map((c) => (c.id === currentUser.id ? { ...c, favourites: updated } : c)));
-    supabase.from("customers").update({ favourites: updated }).eq("id", currentUser.id)
-      .then(({ error }) => { if (error) console.error("toggleFavourite:", error); });
+    fetch(`/api/customers/${currentUser.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ favourites: updated }),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("toggleFavourite:", j.error); }
+    }).catch((e) => console.error("toggleFavourite:", e));
   };
 
   // ─── Saved addresses ──────────────────────────────────────────────────────
@@ -939,8 +971,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setCurrentUser((prev) => {
       if (!prev || prev.id !== customerId) return prev;
       const updated = patch(prev);
-      supabase.from("customers").update({ saved_addresses: updated.savedAddresses }).eq("id", customerId)
-        .then(({ error }) => { if (error) console.error("patchAddresses:", error); });
+      fetch(`/api/customers/${customerId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ saved_addresses: updated.savedAddresses }),
+      }).then(async (r) => {
+        if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("patchAddresses:", j.error); }
+      }).catch((e) => console.error("patchAddresses:", e));
       return updated;
     });
   }
