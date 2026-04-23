@@ -23,10 +23,11 @@ import DriversPanel         from "@/components/admin/DriversPanel";
 import BreakfastMenuPanel   from "@/components/admin/BreakfastMenuPanel";
 import RefundsPanel         from "@/components/admin/RefundsPanel";
 import POSReportsPanel      from "@/components/admin/POSReportsPanel";
+import OnlineReportsPanel  from "@/components/admin/OnlineReportsPanel";
 import {
   LayoutDashboard, ExternalLink, ShieldCheck, Store, Calendar, Plug, ChefHat, Users, Truck,
   MapPin, Bell, X, Mail, FileText, LayoutTemplate, Navigation, Palette, ImageIcon, Receipt,
-  Tag, Percent, Car, Sunrise, RotateCcw, BarChart3,
+  Tag, Percent, Car, Sunrise, RotateCcw, BarChart3, LineChart,
   Menu as MenuIcon, ChevronDown, ChevronRight, ChevronLeft, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 
@@ -60,9 +61,10 @@ const NAV_GROUPS: NavGroup[] = [
   {
     id: "finance", label: "Finance",
     items: [
-      { id: "coupons",     label: "Coupons",        icon: Tag       },
-      { id: "tax",         label: "Tax & VAT",      icon: Percent   },
-      { id: "pos-reports", label: "POS Reports",    icon: BarChart3 },
+      { id: "online-reports", label: "Finance Reports", icon: LineChart },
+      { id: "coupons",        label: "Coupons",          icon: Tag       },
+      { id: "tax",            label: "Tax & VAT",         icon: Percent   },
+      { id: "pos-reports",    label: "POS Reports",       icon: BarChart3 },
     ],
   },
   {
@@ -120,7 +122,8 @@ function bannerSubtitle(
     case "tax":           return s.taxSettings?.enabled ? `VAT ${s.taxSettings.rate}% · ${s.taxSettings.inclusive ? "inclusive" : "exclusive"} mode.` : "VAT is currently disabled.";
     case "drivers":       return "Manage driver accounts and track deliveries.";
     case "refunds":       return "Process full or partial refunds, choose refund method, and view the full refund history.";
-    case "pos-reports":   return "View POS sales reports — revenue, profit, staff performance, and best-selling items.";
+    case "online-reports": return "Revenue, orders, refunds, VAT, and payment breakdowns — filter by date range and export to CSV or PDF.";
+    case "pos-reports":    return "View POS sales reports — revenue, profit, staff performance, and best-selling items.";
     default:              return "Manage your restaurant settings below.";
   }
 }
@@ -662,6 +665,7 @@ export default function AdminPage() {
             {activeTab === "tax"           && <TaxSettingsPanel />}
             {activeTab === "drivers"       && <DriversPanel />}
             {activeTab === "refunds"       && <RefundsPanel />}
+            {activeTab === "online-reports" && <OnlineReportsPanel />}
             {activeTab === "pos-reports"   && <POSReportsPanel />}
           </div>
         </main>
