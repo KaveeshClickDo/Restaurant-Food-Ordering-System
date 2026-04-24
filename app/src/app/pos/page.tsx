@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { usePOS } from "@/context/POSContext";
+import { supabase } from "@/lib/supabase";
 import {
   POSProduct, POSCategory, POSCartItem, POSModifier, POSModifierOption,
   POSCartModifier, POSCustomer, POSStaff, POSSale, POSSettings,
@@ -16,6 +17,7 @@ import {
   Pencil, Save, RefreshCw, ToggleLeft, ToggleRight, Printer, Gift,
   Phone, Mail, Calendar, ArrowUpRight, Trophy, Zap, BarChart3,
   UserPlus, ClockIcon, Timer, PanelLeftClose, Flame, CircleCheck, Download,
+  Utensils, AlertTriangle, RotateCcw, ShieldOff, Loader2,
 } from "lucide-react";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1281,6 +1283,49 @@ function posExportCSV(sales: POSSale[], sym: string) {
   a.click(); URL.revokeObjectURL(url);
 }
 
+// ─── Dine-in order type (from Supabase orders table) ─────────────────────────
+
+interface DineInOrder {
+  id: string;
+  tableLabel: string;
+  staffName: string;
+  covers: number;
+  items: { name: string; qty: number; price: number }[];
+  total: number;
+  status: string;
+  paymentMethod: string;
+  date: string;
+}
+
+function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings): string {
+  const name = (settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant").toUpperCase();
+  const itemsHtml = order.items.map((it) =>
+    `<tr><td style="padding:2px 0;font-size:12px">${it.name} ×${it.qty}</td><td style="padding:2px 0;font-size:12px;text-align:right">£${(it.price * it.qty).toFixed(2)}</td></tr>`
+  ).join("");
+  const payLabel = order.paymentMethod === "cash" ? "Cash" : order.paymentMethod === "card" ? "Card" : "Table Service";
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#f9fafb;font-family:monospace">
+<div style="max-width:320px;margin:24px auto;background:#fff;border-radius:12px;padding:24px">
+  <div style="text-align:center;margin-bottom:16px">
+    <div style="font-weight:700;font-size:16px;letter-spacing:1px">${name}</div>
+    ${settings.receiptPhone ? `<div style="font-size:11px;color:#6b7280">${settings.receiptPhone}</div>` : ""}
+    <div style="font-size:11px;color:#6b7280">${new Date(order.date).toLocaleString("en-GB")}</div>
+    <div style="font-size:11px;color:#6b7280">Table: ${order.tableLabel}</div>
+    <div style="font-size:11px;color:#6b7280">Served by: ${order.staffName}</div>
+    ${order.covers > 0 ? `<div style="font-size:11px;color:#6b7280">${order.covers} cover${order.covers !== 1 ? "s" : ""}</div>` : ""}
+    ${settings.receiptVatNumber ? `<div style="font-size:10px;color:#9ca3af">VAT No: ${settings.receiptVatNumber}</div>` : ""}
+  </div>
+  <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
+  <table style="width:100%;border-collapse:collapse">${itemsHtml}</table>
+  <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
+  <table style="width:100%;border-collapse:collapse">
+    <tr><td style="font-size:13px;font-weight:700">TOTAL</td><td style="font-size:13px;font-weight:700;text-align:right">£${order.total.toFixed(2)}</td></tr>
+    <tr><td style="font-size:11px;color:#6b7280">Payment</td><td style="font-size:11px;color:#6b7280;text-align:right">${payLabel}</td></tr>
+  </table>
+  <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
+  ${settings.receiptThankYouMessage ? `<div style="text-align:center;font-weight:600;font-size:12px">${settings.receiptThankYouMessage}</div>` : ""}
+</div></body></html>`;
+}
+
 // ─── Dashboard View ───────────────────────────────────────────────────────────
 
 function DashboardView() {
@@ -1288,13 +1333,142 @@ function DashboardView() {
   const sym = settings.currencySymbol;
 
   // Top-level tab
-  const [dashTab, setDashTab] = useState<"overview" | "reports">("overview");
+  const [dashTab, setDashTab] = useState<"overview" | "reports" | "dine-in">("overview");
 
-  // Void + refund modal
+  // Void + refund modal (POS sales)
   const [voidTarget,      setVoidTarget]      = useState<string | null>(null);
   const [voidReason,      setVoidReason]      = useState("");
   const [refundMethod,    setRefundMethod]    = useState<"cash" | "card" | "none">("cash");
   const [refundAmount,    setRefundAmount]    = useState("");
+
+  // Dine-in void / refund
+  const [diAction,         setDiAction]         = useState<{ mode: "void" | "refund"; order: DineInOrder } | null>(null);
+  const [diActionReason,   setDiActionReason]   = useState("");
+  const [diRefundType,     setDiRefundType]     = useState<"full" | "partial">("full");
+  const [diRefundAmtStr,   setDiRefundAmtStr]   = useState("");
+  const [diRefundMethod,   setDiRefundMethod]   = useState<"cash" | "card">("cash");
+  const [diActionLoading,  setDiActionLoading]  = useState(false);
+  const [diActionError,    setDiActionError]    = useState<string | null>(null);
+
+  // ── Dine-in orders (fetched from Supabase) ─────────────────────────────────
+  const [dineInOrders,     setDineInOrders]     = useState<DineInOrder[]>([]);
+  const [dineInLoading,    setDineInLoading]    = useState(false);
+  const [dineInEmail,      setDineInEmail]      = useState<Record<string, string>>({});
+  const [dineInEmailSt,    setDineInEmailSt]    = useState<Record<string, "idle"|"sending"|"sent"|"error">>({});
+  const [dineInPrintId,    setDineInPrintId]    = useState<string | null>(null);
+
+  // ── Today's dine-in: always-loaded for Overview KPIs ───────────────────────
+  const [todayDineIn,      setTodayDineIn]      = useState<DineInOrder[]>([]);
+
+  // ── Reports dine-in: all settled dine-in orders for the selected period ─────
+  const [reportsDineIn,    setReportsDineIn]    = useState<DineInOrder[]>([]);
+  const [reportsDineInLoading, setReportsDineInLoading] = useState(false);
+
+  // Shared row mapper ─────────────────────────────────────────────────────────
+  function mapDineInRow(o: Record<string, unknown>): DineInOrder {
+    const n = String(o.note ?? "");
+    return {
+      id:            o.id as string,
+      tableLabel:    n.match(/Table\s+(\S+)/)?.[1] ?? "?",
+      staffName:     n.match(/Staff:\s*([^·\n]+)/)?.[1]?.trim() ?? "—",
+      covers:        parseInt(n.match(/(\d+)\s+cover/)?.[1] ?? "0"),
+      items:         (o.items as DineInOrder["items"]) ?? [],
+      total:         Number(o.total),
+      status:        o.status as string,
+      paymentMethod: (o.payment_method as string) ?? "table-service",
+      date:          o.date as string,
+    };
+  }
+
+  const refreshTodayDineIn = useCallback(async () => {
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd   = new Date(); todayEnd.setHours(23, 59, 59, 999);
+    const { data } = await supabase
+      .from("orders")
+      .select("id, items, total, note, status, payment_method, date")
+      .eq("fulfillment", "dine-in")
+      .gte("date", todayStart.toISOString())
+      .lte("date", todayEnd.toISOString())
+      .order("date", { ascending: false });
+    setTodayDineIn((data ?? []).map(mapDineInRow));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch today's dine-in on mount
+  useEffect(() => { refreshTodayDineIn(); }, [refreshTodayDineIn]);
+
+  const refreshDineInTab = useCallback(async () => {
+    setDineInLoading(true);
+    const { data } = await supabase
+      .from("orders")
+      .select("id, items, total, note, status, payment_method, date")
+      .eq("fulfillment", "dine-in")
+      .order("date", { ascending: false })
+      .limit(200);
+    setDineInOrders((data ?? []).map(mapDineInRow));
+    setDineInLoading(false);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (dashTab !== "dine-in") return;
+    refreshDineInTab();
+  }, [dashTab, refreshDineInTab]);
+
+  async function sendDineInEmail(order: DineInOrder) {
+    const email = dineInEmail[order.id]?.trim();
+    if (!email) return;
+    setDineInEmailSt((p) => ({ ...p, [order.id]: "sending" }));
+    const html = buildDineInReceiptHtml(order, settings);
+    const restaurantName = settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant";
+    const res = await fetch("/api/email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: email, subject: `Your receipt from ${restaurantName} — Table ${order.tableLabel}`, html }),
+    });
+    const d = await res.json().catch(() => ({})) as { ok?: boolean };
+    setDineInEmailSt((p) => ({ ...p, [order.id]: d.ok ? "sent" : "error" }));
+  }
+
+  function printDineInReceipt(order: DineInOrder) {
+    const html = buildDineInReceiptHtml(order, settings);
+    const win = window.open("", "_blank", "width=420,height=650");
+    if (!win) return;
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    win.print();
+    win.onafterprint = () => win.close();
+  }
+
+  async function submitDiVoid() {
+    if (!diAction || !diActionReason.trim()) { setDiActionError("Please enter a reason."); return; }
+    setDiActionLoading(true); setDiActionError(null);
+    const res = await fetch("/api/waiter/void", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderIds: [diAction.order.id], reason: diActionReason.trim(), voidedBy: currentStaff?.name ?? "POS Admin" }),
+    });
+    const d = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+    setDiActionLoading(false);
+    if (d.ok) { setDiAction(null); setDiActionReason(""); refreshDineInTab(); refreshTodayDineIn(); }
+    else setDiActionError(d.error ?? "Failed to void order.");
+  }
+
+  async function submitDiRefund() {
+    if (!diAction || !diActionReason.trim()) { setDiActionError("Please enter a reason."); return; }
+    const amt = diRefundType === "full" ? diAction.order.total : parseFloat(diRefundAmtStr);
+    if (isNaN(amt) || amt <= 0) { setDiActionError("Enter a valid refund amount."); return; }
+    if (amt > diAction.order.total + 0.001) { setDiActionError(`Cannot exceed ${fmt(diAction.order.total, sym)}.`); return; }
+    setDiActionLoading(true); setDiActionError(null);
+    const res = await fetch("/api/waiter/refund", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderIds: [diAction.order.id], refundAmount: amt, refundMethod: diRefundMethod, reason: diActionReason.trim(), refundedBy: currentStaff?.name ?? "POS Admin" }),
+    });
+    const d = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+    setDiActionLoading(false);
+    if (d.ok) { setDiAction(null); setDiActionReason(""); setDiRefundAmtStr(""); refreshDineInTab(); refreshTodayDineIn(); }
+    else setDiActionError(d.error ?? "Failed to process refund.");
+  }
 
   function openVoidModal(saleId: string) {
     const sale = sales.find((s) => s.id === saleId);
@@ -1319,8 +1493,12 @@ function DashboardView() {
   // ── Overview computations ───────────────────────────────────────────────────
   const today = new Date().toDateString();
   const todaySales = sales.filter((s) => !s.voided && new Date(s.date).toDateString() === today);
-  const totalRevenue      = todaySales.reduce((sum, s) => sum + s.total, 0);
-  const totalTransactions = todaySales.length;
+  const todayDineInSettled = todayDineIn.filter(o => o.status === "delivered");
+
+  const posRevenue        = todaySales.reduce((sum, s) => sum + s.total, 0);
+  const diRevToday        = todayDineInSettled.reduce((sum, o) => sum + o.total, 0);
+  const totalRevenue      = posRevenue + diRevToday;
+  const totalTransactions = todaySales.length + todayDineInSettled.length;
   const todayAvgOrder     = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
   const totalTips         = todaySales.reduce((sum, s) => sum + s.tipAmount, 0);
 
@@ -1368,6 +1546,46 @@ function DashboardView() {
     () => getPOSDateRange(period, customStart, customEnd),
     [period, customStart, customEnd],
   );
+
+  const refreshReportsDineIn = useCallback(async () => {
+    setReportsDineInLoading(true);
+    const { data } = await supabase
+      .from("orders")
+      .select("id, items, total, note, status, payment_method, date")
+      .eq("fulfillment", "dine-in")
+      .gte("date", startDate.toISOString())
+      .lte("date", endDate.toISOString())
+      .order("date", { ascending: false })
+      .limit(500);
+    setReportsDineIn((data ?? []).map(mapDineInRow));
+    setReportsDineInLoading(false);
+  }, [startDate, endDate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (dashTab !== "reports") return;
+    refreshReportsDineIn();
+  }, [dashTab, refreshReportsDineIn]);
+
+  // ── Realtime: auto-refresh when a waiter settles a payment ──────────────────
+  useEffect(() => {
+    const channel = supabase
+      .channel("pos-dine-in-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "orders" },
+        (payload) => {
+          const row = payload.new as Record<string, unknown> | undefined;
+          if (!row || row.fulfillment !== "dine-in") return;
+          // Always keep today's overview data fresh
+          refreshTodayDineIn();
+          // Refresh the active tab's data
+          if (dashTab === "dine-in") refreshDineInTab();
+          if (dashTab === "reports") refreshReportsDineIn();
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [dashTab, refreshTodayDineIn, refreshDineInTab, refreshReportsDineIn]);
 
   const inRange = useMemo(
     () => sales.filter((s) => { const d = new Date(s.date); return d >= startDate && d <= endDate; }),
@@ -1420,6 +1638,28 @@ function DashboardView() {
   const staffPerf    = Object.values(staffStats).map((s) => ({ ...s, avgOrder: s.sales > 0 ? s.revenue / s.sales : 0 })).sort((a, b) => b.revenue - a.revenue);
   const maxStaffRev  = staffPerf[0]?.revenue || 1;
 
+  // Dine-in stats for reports
+  const diSettled        = reportsDineIn.filter(o => o.status === "delivered");
+  const diVoided         = reportsDineIn.filter(o => o.status === "cancelled");
+  const diRefundedOrders = reportsDineIn.filter(o => o.status === "refunded" || o.status === "partially_refunded");
+  const diRevenue        = diSettled.reduce((s, o) => s + o.total, 0);
+  const diAvgOrder       = diSettled.length > 0 ? diRevenue / diSettled.length : 0;
+  const diPayMix         = { cash: 0, card: 0, "table-service": 0 } as Record<string, number>;
+  for (const o of diSettled) diPayMix[o.paymentMethod] = (diPayMix[o.paymentMethod] ?? 0) + 1;
+  const diTotalCovers  = diSettled.reduce((s, o) => s + o.covers, 0);
+  const diStaffStats: Record<string, { name: string; orders: number; revenue: number; covers: number; items: number }> = {};
+  for (const o of diSettled) {
+    const k = o.staffName || "—";
+    if (!diStaffStats[k]) diStaffStats[k] = { name: k, orders: 0, revenue: 0, covers: 0, items: 0 };
+    diStaffStats[k].orders++;
+    diStaffStats[k].revenue += o.total;
+    diStaffStats[k].covers  += o.covers;
+    diStaffStats[k].items   += o.items.reduce((s, it) => s + it.qty, 0);
+  }
+  const diStaffPerf  = Object.values(diStaffStats).sort((a, b) => b.revenue - a.revenue);
+  const maxDiRevenue = diStaffPerf[0]?.revenue || 1;
+  const combinedRevenue = rRevenue + diRevenue;
+
   // Transactions
   const txSource   = showVoided ? inRange : rFiltered;
   const txFiltered = txSource.filter((s) => {
@@ -1468,13 +1708,29 @@ function DashboardView() {
                 <Download size={13} /> Export CSV
               </button>
             )}
+            {dashTab === "dine-in" && (
+              <button
+                onClick={() => {
+                  setDineInOrders([]);
+                  setDashTab("dine-in");
+                  setDineInLoading(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-semibold transition-colors"
+              >
+                <RefreshCw size={13} /> Refresh
+              </button>
+            )}
             <div className="flex gap-1 bg-slate-800 border border-slate-700 p-1 rounded-xl">
-              {(["overview", "reports"] as const).map((t) => (
-                <button key={t} onClick={() => setDashTab(t)}
+              {([
+                { id: "overview", label: "Overview" },
+                { id: "reports",  label: "Reports"  },
+                { id: "dine-in",  label: "Dine-In"  },
+              ] as { id: "overview"|"reports"|"dine-in"; label: string }[]).map((t) => (
+                <button key={t.id} onClick={() => setDashTab(t.id)}
                   className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    dashTab === t ? "bg-orange-500 text-white shadow" : "text-slate-400 hover:text-white"
+                    dashTab === t.id ? "bg-orange-500 text-white shadow" : "text-slate-400 hover:text-white"
                   }`}>
-                  {t === "overview" ? "Overview" : "Reports"}
+                  {t.label}
                 </button>
               ))}
             </div>
@@ -1487,10 +1743,10 @@ function DashboardView() {
             {/* KPI cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {[
-                { label: "Today's Revenue",  value: fmt(totalRevenue, sym),   icon: TrendingUp,      color: "text-green-400",  bg: "bg-green-500/10" },
-                { label: "Transactions",     value: `${totalTransactions}`,   icon: Receipt,         color: "text-blue-400",   bg: "bg-blue-500/10"  },
-                { label: "Average Order",    value: fmt(todayAvgOrder, sym),  icon: BarChart3,       color: "text-purple-400", bg: "bg-purple-500/10"},
-                { label: "Tips Collected",   value: fmt(totalTips, sym),      icon: BadgeDollarSign, color: "text-amber-400",  bg: "bg-amber-500/10" },
+                { label: "Today's Revenue",  value: fmt(totalRevenue, sym),   sub: diRevToday > 0 ? `incl. ${fmt(diRevToday, sym)} dine-in` : undefined, icon: TrendingUp,      color: "text-green-400",  bg: "bg-green-500/10" },
+                { label: "Transactions",     value: `${totalTransactions}`,   sub: todayDineInSettled.length > 0 ? `${todaySales.length} POS · ${todayDineInSettled.length} dine-in` : undefined, icon: Receipt,         color: "text-blue-400",   bg: "bg-blue-500/10"  },
+                { label: "Average Order",    value: fmt(todayAvgOrder, sym),  sub: "POS + dine-in",                                                       icon: BarChart3,       color: "text-purple-400", bg: "bg-purple-500/10"},
+                { label: "Tips Collected",   value: fmt(totalTips, sym),      sub: "POS only",                                                            icon: BadgeDollarSign, color: "text-amber-400",  bg: "bg-amber-500/10" },
               ].map((card) => (
                 <div key={card.label} className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
                   <div className={`w-10 h-10 ${card.bg} rounded-xl flex items-center justify-center mb-3`}>
@@ -1498,9 +1754,31 @@ function DashboardView() {
                   </div>
                   <p className={`text-2xl font-bold ${card.color}`}>{card.value}</p>
                   <p className="text-slate-400 text-xs mt-1">{card.label}</p>
+                  {card.sub && <p className="text-slate-500 text-[10px] mt-0.5">{card.sub}</p>}
                 </div>
               ))}
             </div>
+
+            {/* Dine-in today strip */}
+            {diRevToday > 0 && (
+              <div className="bg-violet-500/10 border border-violet-500/20 rounded-2xl px-5 py-3 flex flex-wrap items-center gap-4">
+                <Utensils size={16} className="text-violet-400 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-violet-200 text-sm font-semibold">Dine-In Today</p>
+                  <p className="text-slate-400 text-xs">{todayDineInSettled.length} settled table{todayDineInSettled.length !== 1 ? "s" : ""} · {todayDineIn.filter(o => o.status !== "delivered" && o.status !== "cancelled").length} still open</p>
+                </div>
+                <div className="flex gap-6">
+                  <div className="text-right">
+                    <p className="text-violet-200 font-bold text-lg">{fmt(diRevToday, sym)}</p>
+                    <p className="text-slate-500 text-[10px]">Revenue</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-white font-bold text-lg">{fmt(todayDineInSettled.length > 0 ? diRevToday / todayDineInSettled.length : 0, sym)}</p>
+                    <p className="text-slate-500 text-[10px]">Avg Bill</p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {/* Revenue last-7 chart */}
@@ -1579,46 +1857,80 @@ function DashboardView() {
               )}
             </div>
 
-            {/* Recent transactions */}
+            {/* Recent transactions — POS + dine-in merged */}
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
               <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2">
                 <Receipt size={16} className="text-slate-400" /> Recent Transactions
               </h3>
-              {sales.length === 0 ? (
+              {sales.length === 0 && todayDineIn.length === 0 ? (
                 <p className="text-slate-500 text-sm">No transactions yet</p>
               ) : (
                 <div className="space-y-2">
-                  {sales.slice(0, 10).map((sale) => (
-                    <div key={sale.id} className={`flex items-center gap-4 px-4 py-3 rounded-xl ${sale.voided ? "bg-red-500/5 border border-red-500/20" : "bg-slate-700/50"}`}>
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${sale.voided ? "bg-red-500/20 text-red-400" : "bg-green-500/20 text-green-400"}`}>
-                        {sale.voided ? "V" : "✓"}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-white text-sm font-medium">#{sale.receiptNo} · {sale.staffName}</p>
-                        <p className="text-slate-400 text-xs">{sale.items.length} item{sale.items.length !== 1 ? "s" : ""} · {sale.paymentMethod} · {relTime(sale.date)}</p>
-                        {sale.voided && sale.voidReason && (
-                          <p className="text-red-400 text-xs italic">Void: {sale.voidReason}</p>
-                        )}
-                        {sale.voided && sale.refundMethod && sale.refundMethod !== "none" && (
-                          <p className="text-xs mt-0.5 flex items-center gap-1">
-                            {sale.refundMethod === "cash" ? <Banknote size={10} className="text-green-400" /> : <CreditCard size={10} className="text-blue-400" />}
-                            <span className={sale.refundMethod === "cash" ? "text-green-400" : "text-blue-400"}>
-                              Refunded {fmt(sale.refundAmount ?? 0, settings.currencySymbol)} via {sale.refundMethod}
-                            </span>
-                          </p>
-                        )}
-                      </div>
-                      <p className={`font-bold text-sm flex-shrink-0 ${sale.voided ? "text-red-400 line-through" : "text-white"}`}>
-                        {fmt(sale.total, sym)}
-                      </p>
-                      {!sale.voided && currentStaff?.permissions.canVoidSale && (
-                        <button onClick={() => { openVoidModal(sale.id); }}
-                          className="text-slate-500 hover:text-red-400 transition-colors flex-shrink-0" title="Void sale">
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                  {/* Merge POS sales + dine-in, sort by date desc, show 12 */}
+                  {[
+                    ...sales.map(s => ({ type: "pos" as const, date: s.date, data: s })),
+                    ...todayDineIn.map(o => ({ type: "dine-in" as const, date: o.date, data: o })),
+                  ]
+                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                    .slice(0, 12)
+                    .map((entry) => {
+                      if (entry.type === "pos") {
+                        const sale = entry.data;
+                        return (
+                          <div key={sale.id} className={`flex items-center gap-4 px-4 py-3 rounded-xl ${sale.voided ? "bg-red-500/5 border border-red-500/20" : "bg-slate-700/50"}`}>
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${sale.voided ? "bg-red-500/20 text-red-400" : "bg-green-500/20 text-green-400"}`}>
+                              {sale.voided ? "V" : "✓"}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-white text-sm font-medium">#{sale.receiptNo} · {sale.staffName}</p>
+                              <p className="text-slate-400 text-xs">{sale.items.length} item{sale.items.length !== 1 ? "s" : ""} · {sale.paymentMethod} · {relTime(sale.date)}</p>
+                              {sale.voided && sale.voidReason && <p className="text-red-400 text-xs italic">Void: {sale.voidReason}</p>}
+                              {sale.voided && sale.refundMethod && sale.refundMethod !== "none" && (
+                                <p className="text-xs mt-0.5 flex items-center gap-1">
+                                  {sale.refundMethod === "cash" ? <Banknote size={10} className="text-green-400" /> : <CreditCard size={10} className="text-blue-400" />}
+                                  <span className={sale.refundMethod === "cash" ? "text-green-400" : "text-blue-400"}>
+                                    Refunded {fmt(sale.refundAmount ?? 0, settings.currencySymbol)} via {sale.refundMethod}
+                                  </span>
+                                </p>
+                              )}
+                            </div>
+                            <p className={`font-bold text-sm flex-shrink-0 ${sale.voided ? "text-red-400 line-through" : "text-white"}`}>
+                              {fmt(sale.total, sym)}
+                            </p>
+                            {!sale.voided && currentStaff?.permissions.canVoidSale && (
+                              <button onClick={() => openVoidModal(sale.id)} className="text-slate-500 hover:text-red-400 transition-colors flex-shrink-0" title="Void sale">
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      } else {
+                        const order = entry.data;
+                        const isSettled = order.status === "delivered";
+                        return (
+                          <div key={order.id} className="flex items-center gap-4 px-4 py-3 rounded-xl bg-violet-500/5 border border-violet-500/15">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isSettled ? "bg-violet-500/20" : "bg-blue-500/20"}`}>
+                              <Utensils size={13} className={isSettled ? "text-violet-400" : "text-blue-400"} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-white text-sm font-medium">
+                                Table {order.tableLabel}
+                                {order.staffName && order.staffName !== "—" && <span className="text-slate-400"> · {order.staffName}</span>}
+                              </p>
+                              <p className="text-slate-400 text-xs">
+                                {order.items.reduce((s, i) => s + i.qty, 0)} items · {order.paymentMethod === "cash" ? "Cash" : order.paymentMethod === "card" ? "Card" : "Table Service"} · {relTime(order.date)}
+                              </p>
+                            </div>
+                            <div className="text-right flex-shrink-0">
+                              <p className="text-white font-bold text-sm">{fmt(order.total, sym)}</p>
+                              <p className={`text-[10px] ${isSettled ? "text-violet-400" : "text-blue-400"}`}>
+                                {isSettled ? "Settled" : order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      }
+                    })}
                 </div>
               )}
             </div>
@@ -1656,8 +1968,8 @@ function DashboardView() {
               )}
             </div>
 
-            {/* Empty state */}
-            {rFiltered.length === 0 && (
+            {/* Empty state — only when both POS and dine-in have nothing */}
+            {rFiltered.length === 0 && diSettled.length === 0 && !reportsDineInLoading && (
               <div className="bg-slate-800 border border-slate-700 rounded-2xl p-12 text-center">
                 <BarChart3 size={36} className="mx-auto text-slate-600 mb-3" />
                 <p className="text-slate-400 font-medium">No sales found for this period</p>
@@ -1665,12 +1977,42 @@ function DashboardView() {
               </div>
             )}
 
-            {rFiltered.length > 0 && (
+            {/* Dine-In loading placeholder */}
+            {rFiltered.length === 0 && reportsDineInLoading && (
+              <div className="flex items-center justify-center py-12 text-slate-500 gap-2 text-sm">
+                <RefreshCw size={16} className="animate-spin" /> Loading dine-in data…
+              </div>
+            )}
+
+            {/* Dine-In only KPI strip — visible when POS has no sales but dine-in does */}
+            {rFiltered.length === 0 && diSettled.length > 0 && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {[
+                    { label: "Dine-In Revenue",  value: fmt(diRevenue, sym),  color: "text-violet-300", bg: "bg-violet-500/10", icon: Utensils },
+                    { label: "Tables Served",    value: String(diSettled.length), color: "text-white",  bg: "bg-slate-700",     icon: Receipt  },
+                    { label: "Avg Bill",         value: fmt(diAvgOrder, sym), color: "text-emerald-300",bg: "bg-emerald-500/10",icon: TrendingUp},
+                    { label: "Covers",           value: diTotalCovers > 0 ? String(diTotalCovers) : "—", color: "text-blue-300", bg: "bg-blue-500/10", icon: Users },
+                  ].map(({ label, value, color, bg, icon: Icon }) => (
+                    <div key={label} className="bg-slate-800 border border-slate-700 rounded-2xl p-4">
+                      <div className={`w-9 h-9 ${bg} rounded-xl flex items-center justify-center mb-2.5`}>
+                        <Icon size={17} className={color} />
+                      </div>
+                      <p className={`text-xl font-bold ${color}`}>{value}</p>
+                      <p className="text-slate-400 text-[11px] mt-1">{label}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {(rFiltered.length > 0 || diSettled.length > 0 || reportsDineInLoading) && (
               <>
-                {/* KPI cards */}
+                {/* POS KPI cards — only shown when POS has data */}
+                {rFiltered.length > 0 && (
                 <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
                   {[
-                    { label: "Revenue",       value: fmt(rRevenue, sym),    sub: `${rFiltered.length} txns`,    icon: TrendingUp,      color: "text-green-400",  bg: "bg-green-500/10"  },
+                    { label: "POS Revenue",    value: fmt(rRevenue, sym),    sub: `${rFiltered.length} txns`,    icon: TrendingUp,      color: "text-green-400",  bg: "bg-green-500/10"  },
                     { label: "Avg Order",      value: fmt(rAvgOrder, sym),   sub: "per transaction",             icon: Receipt,         color: "text-blue-400",   bg: "bg-blue-500/10"   },
                     { label: "Gross Profit",   value: fmt(grossProfit, sym), sub: `${fmtPct(marginPct)} margin`, icon: BarChart3,       color: "text-purple-400", bg: "bg-purple-500/10" },
                     { label: "VAT Collected",  value: fmt(rTax, sym),        sub: "excl. voided",                icon: Percent,         color: "text-amber-400",  bg: "bg-amber-500/10"  },
@@ -1687,6 +2029,7 @@ function DashboardView() {
                     </div>
                   ))}
                 </div>
+                )}
 
                 {/* Sub-tab bar */}
                 <div className="flex gap-1 bg-slate-900 border border-slate-700 p-1 rounded-xl">
@@ -1803,6 +2146,94 @@ function DashboardView() {
                         </tbody>
                       </table>
                     </div>
+
+                    {/* Combined total */}
+                    <div className="mt-4 pt-4 border-t border-slate-700 grid grid-cols-2 gap-3">
+                      <div className="bg-slate-700/40 rounded-xl p-3">
+                        <p className="text-slate-400 text-xs">POS Revenue</p>
+                        <p className="text-white font-bold text-lg">{fmt(rRevenue, sym)}</p>
+                        <p className="text-slate-500 text-xs">{rFiltered.length} transactions</p>
+                      </div>
+                      <div className="bg-violet-500/10 border border-violet-500/20 rounded-xl p-3">
+                        <p className="text-violet-300 text-xs">Dine-In Revenue</p>
+                        <p className="text-white font-bold text-lg">{fmt(diRevenue, sym)}</p>
+                        <p className="text-slate-500 text-xs">{diSettled.length} settled orders</p>
+                      </div>
+                      <div className="col-span-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 flex items-center justify-between">
+                        <div>
+                          <p className="text-emerald-300 text-xs font-bold uppercase tracking-wider">Combined Revenue</p>
+                          <p className="text-slate-400 text-xs">{rFiltered.length + diSettled.length} total orders</p>
+                        </div>
+                        <p className="text-emerald-300 font-black text-2xl">{fmt(combinedRevenue, sym)}</p>
+                      </div>
+                      {(diVoided.length > 0 || diRefundedOrders.length > 0) && (
+                        <div className="col-span-2 flex gap-3">
+                          {diVoided.length > 0 && (
+                            <div className="flex-1 flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+                              <AlertTriangle size={13} className="text-red-400 flex-shrink-0" />
+                              <div>
+                                <p className="text-red-300 text-xs font-semibold">{diVoided.length} Voided</p>
+                                <p className="text-slate-500 text-[10px]">Dine-in orders cancelled</p>
+                              </div>
+                            </div>
+                          )}
+                          {diRefundedOrders.length > 0 && (
+                            <div className="flex-1 flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2">
+                              <RotateCcw size={13} className="text-amber-400 flex-shrink-0" />
+                              <div>
+                                <p className="text-amber-300 text-xs font-semibold">{diRefundedOrders.length} Refunded</p>
+                                <p className="text-slate-500 text-[10px]">Dine-in orders refunded</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Dine-In breakdown card */}
+                    {reportsDineInLoading ? (
+                      <div className="flex items-center gap-2 text-slate-500 text-sm py-2">
+                        <RefreshCw size={14} className="animate-spin" /> Loading dine-in data…
+                      </div>
+                    ) : diSettled.length > 0 && (
+                      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4">
+                        <h3 className="text-white font-semibold text-sm flex items-center gap-2">
+                          <Utensils size={16} className="text-violet-400" /> Dine-In Performance
+                        </h3>
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="bg-slate-700/40 rounded-xl p-3 text-center">
+                            <p className="text-violet-300 font-bold text-lg">{fmt(diRevenue, sym)}</p>
+                            <p className="text-slate-500 text-xs">Revenue</p>
+                          </div>
+                          <div className="bg-slate-700/40 rounded-xl p-3 text-center">
+                            <p className="text-white font-bold text-lg">{diSettled.length}</p>
+                            <p className="text-slate-500 text-xs">Tables Served</p>
+                          </div>
+                          <div className="bg-slate-700/40 rounded-xl p-3 text-center">
+                            <p className="text-white font-bold text-lg">{fmt(diAvgOrder, sym)}</p>
+                            <p className="text-slate-500 text-xs">Avg Bill</p>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Payment Methods</p>
+                          {(Object.entries(diPayMix) as [string, number][]).filter(([, v]) => v > 0).map(([key, count]) => {
+                            const pct = (count / diSettled.length) * 100;
+                            const label = key === "cash" ? "Cash" : key === "card" ? "Card" : "Table Service";
+                            const color = key === "cash" ? "bg-green-500" : key === "card" ? "bg-blue-500" : "bg-violet-500";
+                            return (
+                              <div key={key}>
+                                <div className="flex justify-between text-xs text-slate-400 mb-1">
+                                  <span>{label}</span><span>{count} orders · {fmtPct(pct)}</span>
+                                </div>
+                                <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                                  <div className={`h-full ${color} rounded-full`} style={{ width: `${pct}%` }} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1844,42 +2275,144 @@ function DashboardView() {
 
                 {/* ── Staff sub-tab ────────────────────────────────────────── */}
                 {reportTab === "staff" && (
-                  <div className="bg-slate-800 border border-slate-700 rounded-2xl overflow-hidden">
-                    <div className="px-5 py-4 border-b border-slate-700">
-                      <h3 className="text-white font-semibold text-sm flex items-center gap-2">
-                        <Users size={16} className="text-blue-400" /> Staff Performance
-                      </h3>
-                    </div>
-                    {staffPerf.length === 0 ? (
-                      <p className="p-6 text-slate-500 text-sm">No staff data for this period.</p>
-                    ) : (
-                      <div className="divide-y divide-slate-700/40">
-                        {staffPerf.map((s, i) => (
-                          <div key={s.name} className="px-5 py-4 flex items-center gap-4">
-                            <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                              i === 0 ? "bg-amber-500 text-white" : "bg-slate-700 text-slate-300"
-                            }`}>
-                              {i === 0 ? <Trophy size={12} /> : i + 1}
-                            </span>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-white text-sm font-medium">{s.name}</p>
-                              <div className="h-1.5 bg-slate-700 rounded-full mt-1.5 overflow-hidden">
-                                <div className="h-full bg-blue-500 rounded-full" style={{ width: `${(s.revenue / maxStaffRev) * 100}%` }} />
+                  <div className="space-y-4">
+                    {/* POS Staff */}
+                    <div className="bg-slate-800 border border-slate-700 rounded-2xl overflow-hidden">
+                      <div className="px-5 py-4 border-b border-slate-700">
+                        <h3 className="text-white font-semibold text-sm flex items-center gap-2">
+                          <Users size={16} className="text-blue-400" /> POS Staff Performance
+                        </h3>
+                      </div>
+                      {staffPerf.length === 0 ? (
+                        <p className="p-6 text-slate-500 text-sm">No POS staff data for this period.</p>
+                      ) : (
+                        <div className="divide-y divide-slate-700/40">
+                          {staffPerf.map((s, i) => (
+                            <div key={s.name} className="px-5 py-4 flex items-center gap-4">
+                              <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                                i === 0 ? "bg-amber-500 text-white" : "bg-slate-700 text-slate-300"
+                              }`}>
+                                {i === 0 ? <Trophy size={12} /> : i + 1}
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-white text-sm font-medium">{s.name}</p>
+                                <div className="h-1.5 bg-slate-700 rounded-full mt-1.5 overflow-hidden">
+                                  <div className="h-full bg-blue-500 rounded-full" style={{ width: `${(s.revenue / maxStaffRev) * 100}%` }} />
+                                </div>
+                              </div>
+                              <div className="text-right flex-shrink-0">
+                                <p className="text-white font-semibold text-sm">{fmt(s.revenue, sym)}</p>
+                                <p className="text-slate-400 text-xs">{s.sales} sales · avg {fmt(s.avgOrder, sym)}</p>
                               </div>
                             </div>
-                            <div className="text-right flex-shrink-0">
-                              <p className="text-white font-semibold text-sm">{fmt(s.revenue, sym)}</p>
-                              <p className="text-slate-400 text-xs">{s.sales} sales · avg {fmt(s.avgOrder, sym)}</p>
-                            </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Waiter Staff */}
+                    <div className="bg-slate-800 border border-slate-700 rounded-2xl overflow-hidden">
+                      {/* Header */}
+                      <div className="px-5 py-4 border-b border-slate-700 flex items-center justify-between gap-3">
+                        <h3 className="text-white font-semibold text-sm flex items-center gap-2">
+                          <Utensils size={16} className="text-violet-400" /> Waiter Performance — Dine-In
+                        </h3>
+                        {!reportsDineInLoading && diSettled.length > 0 && (
+                          <span className="text-xs text-slate-500">{diSettled.length} settled orders</span>
+                        )}
                       </div>
-                    )}
+
+                      {reportsDineInLoading ? (
+                        <div className="p-6 flex items-center gap-2 text-slate-500 text-sm">
+                          <RefreshCw size={14} className="animate-spin" /> Loading dine-in data…
+                        </div>
+                      ) : diStaffPerf.length === 0 ? (
+                        <div className="p-10 text-center">
+                          <Utensils size={32} className="mx-auto text-slate-700 mb-3" />
+                          <p className="text-slate-500 text-sm">No dine-in orders for this period.</p>
+                        </div>
+                      ) : (
+                        <>
+                          {/* Period KPI strip */}
+                          <div className="grid grid-cols-4 divide-x divide-slate-700 border-b border-slate-700">
+                            {[
+                              { label: "Revenue",      value: fmt(diRevenue, sym),                              color: "text-violet-300" },
+                              { label: "Tables",       value: String(diSettled.length),                         color: "text-white"      },
+                              { label: "Covers",       value: diTotalCovers > 0 ? String(diTotalCovers) : "—",  color: "text-white"      },
+                              { label: "Avg Bill",     value: fmt(diAvgOrder, sym),                             color: "text-emerald-300" },
+                            ].map(({ label, value, color }) => (
+                              <div key={label} className="px-4 py-3 text-center">
+                                <p className={`font-bold text-base ${color}`}>{value}</p>
+                                <p className="text-slate-500 text-[10px] mt-0.5 uppercase tracking-wider">{label}</p>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Per-waiter rows */}
+                          <div className="divide-y divide-slate-700/40">
+                            {diStaffPerf.map((s, i) => {
+                              const pct     = (s.revenue / maxDiRevenue) * 100;
+                              const avgBill = s.orders > 0 ? s.revenue / s.orders : 0;
+                              const initials = s.name.split(" ").map((p: string) => p[0]).join("").slice(0, 2).toUpperCase();
+                              const medals = ["bg-amber-500","bg-slate-400","bg-orange-700"];
+                              return (
+                                <div key={s.name} className="px-5 py-4">
+                                  <div className="flex items-center gap-3 mb-2.5">
+                                    {/* Rank + Avatar */}
+                                    <div className="relative flex-shrink-0">
+                                      <div className="w-9 h-9 rounded-full bg-violet-600/30 border border-violet-500/40 flex items-center justify-center text-violet-200 font-bold text-xs">
+                                        {initials}
+                                      </div>
+                                      <span className={`absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black text-white ${medals[i] ?? "bg-slate-600"}`}>
+                                        {i + 1}
+                                      </span>
+                                    </div>
+
+                                    {/* Name + bar */}
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-white text-sm font-semibold leading-none mb-1.5">{s.name}</p>
+                                      <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                                        <div className="h-full bg-violet-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                                      </div>
+                                    </div>
+
+                                    {/* Revenue */}
+                                    <div className="text-right flex-shrink-0">
+                                      <p className="text-white font-bold text-sm">{fmt(s.revenue, sym)}</p>
+                                      <p className="text-violet-400 text-xs">{fmtPct(pct)} of total</p>
+                                    </div>
+                                  </div>
+
+                                  {/* Stat pills */}
+                                  <div className="flex flex-wrap gap-2 ml-12">
+                                    <span className="text-[11px] bg-slate-700/60 text-slate-300 px-2.5 py-1 rounded-full">
+                                      🍽 {s.orders} table{s.orders !== 1 ? "s" : ""}
+                                    </span>
+                                    {s.covers > 0 && (
+                                      <span className="text-[11px] bg-slate-700/60 text-slate-300 px-2.5 py-1 rounded-full">
+                                        👥 {s.covers} cover{s.covers !== 1 ? "s" : ""}
+                                      </span>
+                                    )}
+                                    <span className="text-[11px] bg-slate-700/60 text-slate-300 px-2.5 py-1 rounded-full">
+                                      📦 {s.items} item{s.items !== 1 ? "s" : ""}
+                                    </span>
+                                    <span className="text-[11px] bg-violet-900/40 text-violet-300 px-2.5 py-1 rounded-full">
+                                      avg {fmt(avgBill, sym)} / table
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
                 )}
 
                 {/* ── Transactions sub-tab ─────────────────────────────────── */}
                 {reportTab === "transactions" && (
+                  <div className="space-y-4">
                   <div className="bg-slate-800 border border-slate-700 rounded-2xl overflow-hidden">
                     {/* Toolbar */}
                     <div className="px-5 py-4 border-b border-slate-700 flex flex-wrap items-center gap-3">
@@ -1989,12 +2522,408 @@ function DashboardView() {
                       </table>
                     </div>
                   </div>
+
+                  {/* Dine-In transactions */}
+                  {reportsDineIn.length > 0 && (
+                    <div className="bg-slate-800 border border-slate-700 rounded-2xl overflow-hidden">
+                      <div className="px-5 py-4 border-b border-slate-700 flex items-center justify-between">
+                        <h3 className="text-white font-semibold text-sm flex items-center gap-2">
+                          <Utensils size={16} className="text-violet-400" /> Dine-In Orders
+                        </h3>
+                        <span className="text-slate-500 text-xs">{reportsDineIn.length} orders</span>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-slate-700 text-left">
+                              <th className="px-5 py-3 text-xs font-semibold text-slate-400">Date / Time</th>
+                              <th className="px-5 py-3 text-xs font-semibold text-slate-400">Table</th>
+                              <th className="px-5 py-3 text-xs font-semibold text-slate-400">Waiter</th>
+                              <th className="px-5 py-3 text-xs font-semibold text-slate-400">Items</th>
+                              <th className="px-5 py-3 text-xs font-semibold text-slate-400">Status</th>
+                              <th className="px-5 py-3 text-xs font-semibold text-slate-400 text-right">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-700/40">
+                            {reportsDineIn.map((o) => (
+                              <tr key={o.id} className="hover:bg-slate-700/30 transition-colors">
+                                <td className="px-5 py-3 text-slate-400 text-xs whitespace-nowrap">
+                                  {new Date(o.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}{" "}
+                                  {new Date(o.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                </td>
+                                <td className="px-5 py-3 text-white font-semibold">T{o.tableLabel}</td>
+                                <td className="px-5 py-3 text-slate-300">{o.staffName}</td>
+                                <td className="px-5 py-3 text-slate-400 text-xs max-w-[180px] truncate">
+                                  {o.items.map(it => `${it.qty}× ${it.name}`).join(", ")}
+                                </td>
+                                <td className="px-5 py-3">
+                                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                                    o.status === "delivered"           ? "bg-emerald-500/20 text-emerald-300" :
+                                    o.status === "cancelled"           ? "bg-red-500/20 text-red-400" :
+                                    o.status === "refunded"            ? "bg-amber-500/20 text-amber-300" :
+                                    o.status === "partially_refunded"  ? "bg-amber-500/15 text-amber-400" :
+                                    "bg-blue-500/20 text-blue-300"
+                                  }`}>
+                                    {o.status === "delivered"          ? "Settled" :
+                                     o.status === "cancelled"          ? "Voided" :
+                                     o.status === "refunded"           ? "Refunded" :
+                                     o.status === "partially_refunded" ? "Part. Refund" :
+                                     o.status.charAt(0).toUpperCase() + o.status.slice(1)}
+                                  </span>
+                                </td>
+                                <td className={`px-5 py-3 text-right font-bold ${
+                                  o.status === "cancelled" ? "text-red-400 line-through opacity-50" :
+                                  o.status === "refunded"  ? "text-amber-400 line-through opacity-70" :
+                                  "text-white"
+                                }`}>{fmt(o.total, sym)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr className="bg-slate-900/60 border-t-2 border-slate-600">
+                              <td colSpan={5} className="px-5 py-3 text-xs font-semibold text-slate-400">
+                                Dine-In Total ({reportsDineIn.filter(o => o.status === "delivered").length} settled)
+                              </td>
+                              <td className="px-5 py-3 text-right font-bold text-violet-300">
+                                {fmt(reportsDineIn.filter(o => o.status === "delivered").reduce((s, o) => s + o.total, 0), sym)}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                  </div>
                 )}
               </>
             )}
           </>
         )}
       </div>
+
+      {/* ── Dine-In Orders tab ───────────────────────────────────────────── */}
+      {dashTab === "dine-in" && (
+        <div className="p-6 space-y-6">
+          {dineInLoading ? (
+            <div className="flex items-center justify-center py-20 text-slate-400">
+              <RefreshCw size={24} className="animate-spin mr-3" />
+              Loading dine-in orders…
+            </div>
+          ) : dineInOrders.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-slate-500">
+              <Utensils size={48} className="mb-4 opacity-30" />
+              <p className="text-lg font-medium">No dine-in orders found</p>
+              <p className="text-sm mt-1">Waiter orders will appear here once placed</p>
+            </div>
+          ) : (
+            <>
+              {/* Open / active orders */}
+              {dineInOrders.filter(o => o.status !== "delivered" && o.status !== "cancelled").length > 0 && (
+                <div>
+                  <h3 className="text-slate-300 font-semibold text-sm uppercase tracking-wider mb-3">
+                    Open Tables ({dineInOrders.filter(o => o.status !== "delivered" && o.status !== "cancelled").length})
+                  </h3>
+                  <div className="space-y-3">
+                    {dineInOrders
+                      .filter(o => o.status !== "delivered" && o.status !== "cancelled")
+                      .map(order => (
+                        <div key={order.id} className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
+                          <div className="flex items-start justify-between gap-4 mb-3">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-white font-bold text-lg">Table {order.tableLabel}</span>
+                                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                                  order.status === "confirmed" ? "bg-blue-500/20 text-blue-300 border border-blue-500/30" :
+                                  order.status === "preparing" ? "bg-orange-500/20 text-orange-300 border border-orange-500/30" :
+                                  order.status === "ready" ? "bg-green-500/20 text-green-300 border border-green-500/30" :
+                                  "bg-slate-600/50 text-slate-300 border border-slate-600"
+                                }`}>
+                                  {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                                </span>
+                              </div>
+                              <p className="text-slate-400 text-sm mt-0.5">
+                                {order.staffName && <span>{order.staffName} · </span>}
+                                {order.covers > 0 && <span>{order.covers} covers · </span>}
+                                <span>{new Date(order.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-white font-bold text-xl">{settings.currencySymbol}{order.total.toFixed(2)}</p>
+                            </div>
+                          </div>
+                          <div className="border-t border-slate-700 pt-3">
+                            <div className="flex flex-wrap gap-2">
+                              {order.items.map((item, i) => (
+                                <span key={i} className="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-lg">
+                                  {item.qty}× {item.name}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="flex gap-2 mt-4">
+                            <button
+                              onClick={() => printDineInReceipt(order)}
+                              className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded-xl transition-colors"
+                            >
+                              <Printer size={14} />
+                              Print
+                            </button>
+                            <div className="flex-1 flex gap-2">
+                              <input
+                                type="email"
+                                placeholder="Email receipt…"
+                                value={dineInEmail[order.id] ?? ""}
+                                onChange={e => setDineInEmail(prev => ({ ...prev, [order.id]: e.target.value }))}
+                                className="flex-1 bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-violet-500 placeholder-slate-500 min-w-0"
+                              />
+                              <button
+                                onClick={() => sendDineInEmail(order)}
+                                disabled={dineInEmailSt[order.id] === "sending" || !dineInEmail[order.id]}
+                                className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-medium rounded-xl transition-colors whitespace-nowrap"
+                              >
+                                <Mail size={14} />
+                                {dineInEmailSt[order.id] === "sending" ? "Sending…" :
+                                 dineInEmailSt[order.id] === "sent" ? "Sent!" :
+                                 dineInEmailSt[order.id] === "error" ? "Failed" : "Send"}
+                              </button>
+                            </div>
+                            {currentStaff?.permissions.canVoidSale && (
+                              <button
+                                onClick={() => { setDiAction({ mode: "void", order }); setDiActionReason(""); setDiActionError(null); }}
+                                className="flex items-center gap-1.5 px-3 py-2 bg-red-900/30 hover:bg-red-900/60 border border-red-800/50 text-red-400 text-sm font-medium rounded-xl transition-colors whitespace-nowrap"
+                              >
+                                <AlertTriangle size={13} /> Void
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Settled orders */}
+              {dineInOrders.filter(o => o.status === "delivered").length > 0 && (
+                <div>
+                  <h3 className="text-slate-300 font-semibold text-sm uppercase tracking-wider mb-3">
+                    Settled Today ({dineInOrders.filter(o => o.status === "delivered").length})
+                  </h3>
+                  <div className="space-y-3">
+                    {dineInOrders
+                      .filter(o => o.status === "delivered")
+                      .map(order => (
+                        <div key={order.id} className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-5 opacity-80">
+                          <div className="flex items-start justify-between gap-4 mb-3">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-slate-300 font-bold text-lg">Table {order.tableLabel}</span>
+                                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                  Settled
+                                </span>
+                                {order.paymentMethod && order.paymentMethod !== "table-service" && (
+                                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-600/50 text-slate-400 border border-slate-600">
+                                    {order.paymentMethod.charAt(0).toUpperCase() + order.paymentMethod.slice(1)}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-slate-500 text-sm mt-0.5">
+                                {order.staffName && <span>{order.staffName} · </span>}
+                                <span>{new Date(order.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-slate-300 font-bold text-xl">{settings.currencySymbol}{order.total.toFixed(2)}</p>
+                            </div>
+                          </div>
+                          <div className="border-t border-slate-700/50 pt-3 mb-4">
+                            <div className="flex flex-wrap gap-2">
+                              {order.items.map((item, i) => (
+                                <span key={i} className="text-xs bg-slate-700/50 text-slate-400 px-2.5 py-1 rounded-lg">
+                                  {item.qty}× {item.name}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => printDineInReceipt(order)}
+                              className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded-xl transition-colors"
+                            >
+                              <Printer size={14} />
+                              Reprint
+                            </button>
+                            <div className="flex-1 flex gap-2">
+                              <input
+                                type="email"
+                                placeholder="Email receipt…"
+                                value={dineInEmail[order.id] ?? ""}
+                                onChange={e => setDineInEmail(prev => ({ ...prev, [order.id]: e.target.value }))}
+                                className="flex-1 bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-violet-500 placeholder-slate-500 min-w-0"
+                              />
+                              <button
+                                onClick={() => sendDineInEmail(order)}
+                                disabled={dineInEmailSt[order.id] === "sending" || !dineInEmail[order.id]}
+                                className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-medium rounded-xl transition-colors whitespace-nowrap"
+                              >
+                                <Mail size={14} />
+                                {dineInEmailSt[order.id] === "sending" ? "Sending…" :
+                                 dineInEmailSt[order.id] === "sent" ? "Sent!" :
+                                 dineInEmailSt[order.id] === "error" ? "Failed" : "Send"}
+                              </button>
+                            </div>
+                            {currentStaff?.permissions.canIssueRefund && (
+                              <button
+                                onClick={() => { setDiAction({ mode: "refund", order }); setDiActionReason(""); setDiRefundType("full"); setDiRefundAmtStr(""); setDiRefundMethod("cash"); setDiActionError(null); }}
+                                className="flex items-center gap-1.5 px-3 py-2 bg-amber-900/30 hover:bg-amber-900/60 border border-amber-800/50 text-amber-400 text-sm font-medium rounded-xl transition-colors whitespace-nowrap"
+                              >
+                                <RotateCcw size={13} /> Refund
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Voided & Refunded orders */}
+              {dineInOrders.filter(o => o.status === "cancelled" || o.status === "refunded" || o.status === "partially_refunded").length > 0 && (
+                <div>
+                  <h3 className="text-slate-400 font-semibold text-sm uppercase tracking-wider mb-3">
+                    Voided / Refunded ({dineInOrders.filter(o => o.status === "cancelled" || o.status === "refunded" || o.status === "partially_refunded").length})
+                  </h3>
+                  <div className="space-y-3">
+                    {dineInOrders
+                      .filter(o => o.status === "cancelled" || o.status === "refunded" || o.status === "partially_refunded")
+                      .map(order => (
+                        <div key={order.id} className="bg-slate-800/30 border border-slate-700/30 rounded-2xl p-5 opacity-60">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-slate-400 font-bold">Table {order.tableLabel}</span>
+                                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${
+                                  order.status === "cancelled"
+                                    ? "bg-red-500/15 text-red-400 border-red-500/25"
+                                    : "bg-amber-500/15 text-amber-400 border-amber-500/25"
+                                }`}>
+                                  {order.status === "cancelled" ? "Voided" : order.status === "refunded" ? "Refunded" : "Partial Refund"}
+                                </span>
+                              </div>
+                              <p className="text-slate-500 text-sm mt-0.5">
+                                {order.staffName && <span>{order.staffName} · </span>}
+                                <span>{new Date(order.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                              </p>
+                            </div>
+                            <p className="text-slate-500 font-bold text-xl line-through">{sym}{order.total.toFixed(2)}</p>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── Dine-in Void / Refund modal ─────────────────────────────────── */}
+      {diAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
+              <div className="flex items-center gap-3">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${diAction.mode === "void" ? "bg-red-500/20" : "bg-amber-500/20"}`}>
+                  {diAction.mode === "void"
+                    ? <AlertTriangle size={17} className="text-red-400" />
+                    : <RotateCcw size={17} className="text-amber-400" />}
+                </div>
+                <div>
+                  <h3 className="text-white font-bold">{diAction.mode === "void" ? "Void Order" : "Refund Order"}</h3>
+                  <p className="text-slate-400 text-xs">Table {diAction.order.tableLabel} · {sym}{diAction.order.total.toFixed(2)}</p>
+                </div>
+              </div>
+              <button onClick={() => setDiAction(null)} className="text-slate-400 hover:text-white transition"><X size={18} /></button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* Refund options */}
+              {diAction.mode === "refund" && (
+                <>
+                  <div>
+                    <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">Refund Amount</p>
+                    <div className="grid grid-cols-2 gap-2 mb-2">
+                      {(["full", "partial"] as const).map(t => (
+                        <button key={t} onClick={() => setDiRefundType(t)}
+                          className={`py-2 rounded-xl text-sm font-semibold border transition ${diRefundType === t ? "bg-amber-500/20 border-amber-500 text-amber-300" : "bg-slate-700 border-slate-600 text-slate-300"}`}>
+                          {t === "full" ? `Full ${sym}${diAction.order.total.toFixed(2)}` : "Partial"}
+                        </button>
+                      ))}
+                    </div>
+                    {diRefundType === "partial" && (
+                      <input type="number" min="0.01" max={diAction.order.total} step="0.01"
+                        value={diRefundAmtStr} onChange={e => setDiRefundAmtStr(e.target.value)}
+                        placeholder={`Max ${sym}${diAction.order.total.toFixed(2)}`}
+                        className="w-full bg-slate-700 border border-slate-600 text-white placeholder-slate-500 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-amber-500" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">Return Method</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {([{ v: "cash", label: "Cash", Ico: Banknote }, { v: "card", label: "Card", Ico: CreditCard }] as const).map(({ v, label, Ico }) => (
+                        <button key={v} onClick={() => setDiRefundMethod(v)}
+                          className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold border transition ${diRefundMethod === v ? "bg-amber-500/20 border-amber-500 text-amber-300" : "bg-slate-700 border-slate-600 text-slate-300"}`}>
+                          <Ico size={14} /> {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Reason */}
+              <div>
+                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">
+                  {diAction.mode === "void" ? "Void Reason" : "Refund Reason"}
+                </p>
+                <textarea rows={2} value={diActionReason}
+                  onChange={e => { setDiActionReason(e.target.value); setDiActionError(null); }}
+                  placeholder={diAction.mode === "void" ? "e.g. Customer cancelled, duplicate order…" : "e.g. Incorrect item, quality issue…"}
+                  className="w-full bg-slate-700 border border-slate-600 text-white placeholder-slate-500 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-500 resize-none" />
+              </div>
+
+              {/* Void warning */}
+              {diAction.mode === "void" && (
+                <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2.5">
+                  <AlertTriangle size={14} className="text-red-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-red-300 text-xs">This will cancel the order for Table {diAction.order.tableLabel}. This cannot be undone.</p>
+                </div>
+              )}
+
+              {diActionError && <p className="text-red-400 text-sm">{diActionError}</p>}
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 pb-5 flex gap-3">
+              <button onClick={() => setDiAction(null)}
+                className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-semibold text-sm transition">
+                Cancel
+              </button>
+              <button
+                onClick={diAction.mode === "void" ? submitDiVoid : submitDiRefund}
+                disabled={diActionLoading || !diActionReason.trim()}
+                className={`flex-1 py-3 disabled:opacity-50 text-white rounded-xl font-bold text-sm transition flex items-center justify-center gap-2 ${diAction.mode === "void" ? "bg-red-600 hover:bg-red-500" : "bg-amber-600 hover:bg-amber-500"}`}>
+                {diActionLoading
+                  ? <><Loader2 size={15} className="animate-spin" /> Processing…</>
+                  : diAction.mode === "void"
+                    ? <><AlertTriangle size={15} /> Void Order</>
+                    : <><RotateCcw size={15} /> Confirm Refund</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Void + Refund modal ──────────────────────────────────────────── */}
       {voidTarget && (() => {

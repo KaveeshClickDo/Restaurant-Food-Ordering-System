@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 const uuid = () => crypto.randomUUID();
 import {
-  POSStaff, POSProduct, POSCategory, POSCartItem, POSSale, POSCustomer,
+  POSStaff, POSProduct, POSCategory, POSModifier, POSCartItem, POSSale, POSCustomer,
   POSSettings, POSClockEntry, POSCartModifier, ROLE_PERMISSIONS, getOfferPrice, cartLineTotal,
 } from "@/types/pos";
 
@@ -227,6 +227,57 @@ function save<T>(key: string, value: T) {
   }
 }
 
+// ─── Supabase menu sync helpers ───────────────────────────────────────────────
+
+function syncMenuToSupabase(products: POSProduct[], categories: POSCategory[]) {
+  // Map POSCategory → categories row
+  const catRows = categories.map((c, i) => ({
+    id: c.id, name: c.name, emoji: c.emoji, sort_order: c.order ?? i,
+  }));
+
+  // Map POSProduct → menu_items row
+  const productRows = products
+    .filter((p) => p.active)
+    .map((p) => {
+      const variations = (p.modifiers ?? [])
+        .filter((m) => !m.multiSelect)
+        .map((m) => ({
+          id: m.id, name: m.name,
+          options: m.options.map((o) => ({
+            id: o.id, label: o.label,
+            price: parseFloat((p.price + o.priceAdjust).toFixed(2)),
+          })),
+        }));
+
+      const addOns: { id: string; name: string; price: number }[] = [];
+      for (const m of (p.modifiers ?? []).filter((m) => m.multiSelect)) {
+        for (const o of m.options) {
+          addOns.push({ id: o.id, name: o.label, price: Math.max(0, o.priceAdjust) });
+        }
+      }
+
+      return {
+        id:          p.id,
+        category_id: p.categoryId,
+        name:        p.name,
+        description: p.description ?? "",
+        price:       p.price,
+        image:       p.imageUrl ?? null,
+        dietary:     [],
+        popular:     p.popular ?? false,
+        variations:  variations.length > 0 ? variations : null,
+        add_ons:     addOns.length > 0 ? addOns : null,
+        stock_qty:   p.trackStock ? (p.stockQty ?? null) : null,
+      };
+    });
+
+  fetch("/api/pos/menu", {
+    method:  "POST",
+    headers: { "Content-Type": "application/json" },
+    body:    JSON.stringify({ categories: catRows, products: productRows }),
+  }).catch(() => {});
+}
+
 // ─── Provider ────────────────────────────────────────────────────────────────
 
 export function POSProvider({ children }: { children: React.ReactNode }) {
@@ -278,6 +329,97 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { save("pos_customers", customers); }, [customers]);
   useEffect(() => { save("pos_clock", clockEntries); }, [clockEntries]);
   useEffect(() => { save("pos_settings", settings); }, [settings]);
+
+  // ── Supabase menu sync ────────────────────────────────────────────────────
+  // On mount: load categories + products from Supabase (the shared source of truth).
+  // If Supabase is empty we seed it from the current localStorage/seed data so the
+  // waiter app immediately has a menu to show.
+  useEffect(() => {
+    fetch("/api/pos/menu")
+      .then((r) => r.json())
+      .then((d: { ok: boolean; categories: Record<string,unknown>[]; items: Record<string,unknown>[] }) => {
+        if (!d.ok) return;
+
+        if (d.categories.length > 0) {
+          setCategories((prev) =>
+            d.categories.map((row, i) => {
+              const existing = prev.find((c) => c.id === row.id);
+              return {
+                id:    row.id    as string,
+                name:  row.name  as string,
+                emoji: (row.emoji as string) ?? "🍽️",
+                color: existing?.color ?? "#f97316",
+                order: (row.sort_order as number) ?? i,
+              } satisfies POSCategory;
+            })
+          );
+        }
+
+        if (d.items.length > 0) {
+          setProducts((prev) =>
+            d.items.map((row) => {
+              const existing = prev.find((p) => p.id === row.id);
+              const basePrice = Number(row.price);
+
+              // Rebuild POS modifiers from online variations + add_ons
+              const modifiers: POSModifier[] = [];
+              for (const v of (row.variations as {id:string;name:string;options:{id:string;label:string;price:number}[]}[] ?? [])) {
+                modifiers.push({
+                  id: v.id, name: v.name, required: false, multiSelect: false,
+                  options: v.options.map((o) => ({
+                    id: o.id, label: o.label,
+                    priceAdjust: parseFloat((o.price - basePrice).toFixed(2)),
+                  })),
+                });
+              }
+              const addOns = (row.add_ons as {id:string;name:string;price:number}[] ?? []);
+              if (addOns.length > 0) {
+                modifiers.push({
+                  id: "add-ons", name: "Add-ons", required: false, multiSelect: true,
+                  options: addOns.map((a) => ({ id: a.id, label: a.name, priceAdjust: a.price })),
+                });
+              }
+
+              return {
+                id:          row.id as string,
+                categoryId:  row.category_id as string,
+                name:        row.name as string,
+                description: (row.description as string) || undefined,
+                price:       basePrice,
+                imageUrl:    (row.image as string) || undefined,
+                emoji:       existing?.emoji  ?? "🍽️",
+                color:       existing?.color  ?? "#fed7aa",
+                popular:     (row.popular as boolean) ?? false,
+                modifiers:   modifiers.length > 0 ? modifiers : undefined,
+                trackStock:  row.stock_qty !== null && row.stock_qty !== undefined,
+                stockQty:    row.stock_qty !== null ? Number(row.stock_qty) : undefined,
+                active:      true,
+                cost:        existing?.cost ?? 0,
+              } satisfies POSProduct;
+            })
+          );
+        } else {
+          // Supabase is empty — seed it with the current POS data so the waiter has a menu
+          syncMenuToSupabase(
+            load<POSProduct[]>("pos_products", SEED_PRODUCTS),
+            load<POSCategory[]>("pos_categories", SEED_CATEGORIES),
+          );
+        }
+      })
+      .catch(() => { /* network error — POS keeps working from localStorage */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Debounced push: whenever the POS menu changes, sync to Supabase so the
+  // waiter app (via AppContext Realtime) sees the update immediately.
+  const menuSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const menuSyncReady = useRef(false); // skip first render (already loaded above)
+  useEffect(() => {
+    if (!menuSyncReady.current) { menuSyncReady.current = true; return; }
+    if (menuSyncTimer.current) clearTimeout(menuSyncTimer.current);
+    menuSyncTimer.current = setTimeout(() => syncMenuToSupabase(products, categories), 1500);
+    return () => { if (menuSyncTimer.current) clearTimeout(menuSyncTimer.current); };
+  }, [products, categories]);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   const login = useCallback((staffId: string, pin: string): boolean => {
@@ -422,7 +564,12 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify(sale),
-    }).catch(() => {});
+    }).then(async (r) => {
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({})) as { error?: string };
+        console.error("POS→KDS sync failed:", r.status, j.error ?? "(no details)");
+      }
+    }).catch((err) => console.error("POS→KDS sync network error:", err));
 
     // Update customer loyalty points
     if (assignedCustomer) {

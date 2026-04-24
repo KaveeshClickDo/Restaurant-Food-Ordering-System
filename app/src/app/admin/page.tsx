@@ -24,10 +24,11 @@ import BreakfastMenuPanel   from "@/components/admin/BreakfastMenuPanel";
 import RefundsPanel         from "@/components/admin/RefundsPanel";
 import POSReportsPanel      from "@/components/admin/POSReportsPanel";
 import OnlineReportsPanel  from "@/components/admin/OnlineReportsPanel";
+import WaitersPanel         from "@/components/admin/WaitersPanel";
 import {
   LayoutDashboard, ExternalLink, ShieldCheck, Store, Calendar, Plug, ChefHat, Users, Truck,
   MapPin, Bell, X, Mail, FileText, LayoutTemplate, Navigation, Palette, ImageIcon, Receipt,
-  Tag, Percent, Car, Sunrise, RotateCcw, BarChart3, LineChart,
+  Tag, Percent, Car, Sunrise, RotateCcw, BarChart3, LineChart, UtensilsCrossed,
   Menu as MenuIcon, ChevronDown, ChevronRight, ChevronLeft, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 
@@ -56,6 +57,12 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "customers", label: "Customers",        icon: Users    },
       { id: "drivers",   label: "Drivers",          icon: Car      },
+    ],
+  },
+  {
+    id: "table-service", label: "Table Service",
+    items: [
+      { id: "waiters", label: "Staff & Tables", icon: UtensilsCrossed },
     ],
   },
   {
@@ -124,6 +131,7 @@ function bannerSubtitle(
     case "refunds":       return "Process full or partial refunds, choose refund method, and view the full refund history.";
     case "online-reports": return "Revenue, orders, refunds, VAT, and payment breakdowns — filter by date range and export to CSV or PDF.";
     case "pos-reports":    return "View POS sales reports — revenue, profit, staff performance, and best-selling items.";
+    case "waiters":        return `${settings.waiters?.length ?? 0} staff · ${settings.diningTables?.length ?? 0} tables — manage waiter accounts, PINs, and dining layout.`;
     default:              return "Manage your restaurant settings below.";
   }
 }
@@ -667,6 +675,7 @@ export default function AdminPage() {
             {activeTab === "refunds"       && <RefundsPanel />}
             {activeTab === "online-reports" && <OnlineReportsPanel />}
             {activeTab === "pos-reports"   && <POSReportsPanel />}
+            {activeTab === "waiters"       && <WaitersPanel />}
           </div>
         </main>
       </div>

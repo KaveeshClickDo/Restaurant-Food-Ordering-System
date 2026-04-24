@@ -115,9 +115,17 @@ alter table drivers enable row level security;
 -- ── POS walk-in sentinel customer ────────────────────────────────────────────
 -- Pre-seed the sentinel customer used by POS → KDS order routing so that
 -- walk-in POS orders always have a valid customer_id FK and appear in the KDS.
-insert into customers (id, name, email, phone, tags, favourites, store_credit)
-values ('pos-walk-in', 'POS Walk-in', 'pos-walkin@internal', '', '{}', '{}', 0)
+insert into customers (id, name, email, phone, tags, favourites, saved_addresses, store_credit)
+values ('pos-walk-in', 'POS Walk-in', 'pos-walkin@internal', '', '{}', '[]', '[]', 0)
 on conflict (id) do nothing;
+
+-- ── Void & Refund metadata columns on orders ─────────────────────────────────
+-- Safe to re-run (ADD COLUMN IF NOT EXISTS is idempotent).
+-- These store who voided an order, why, and when — used by the waiter void flow.
+-- The existing `refunds` (jsonb) and `refunded_amount` columns handle refund data.
+alter table orders add column if not exists voided_by   text;
+alter table orders add column if not exists void_reason text;
+alter table orders add column if not exists voided_at   timestamptz;
 
 drop policy if exists "deny_anon_all" on drivers;
 create policy "deny_anon_all"

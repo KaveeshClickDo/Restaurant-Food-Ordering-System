@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   if (!customer_id || typeof customer_id !== "string") {
     return NextResponse.json({ ok: false, error: "'customer_id' is required." }, { status: 400 });
   }
-  if (fulfillment !== "delivery" && fulfillment !== "collection") {
+  if (fulfillment !== "delivery" && fulfillment !== "collection" && fulfillment !== "dine-in") {
     return NextResponse.json({ ok: false, error: "'fulfillment' must be 'delivery' or 'collection'." }, { status: 400 });
   }
   if (typeof total !== "number" || total < 0) {

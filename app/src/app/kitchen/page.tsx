@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { supabase } from "@/lib/supabase";
 import { useApp } from "@/context/AppContext";
-import type { Order, OrderStatus } from "@/types";
 import {
   ChefHat, Clock, Truck, ShoppingBag, CheckCircle2,
   LayoutDashboard, Maximize2, Minimize2, UtensilsCrossed,
@@ -12,14 +12,22 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface FlatOrder {
-  order: Order;
-  customerId: string;
-  customerName: string;
+type KDSStatus = "pending" | "confirmed" | "preparing" | "ready";
+
+interface KDSOrder {
+  id: string;
+  displayName: string;
+  kitchenNote: string | undefined;
+  items: { name: string; qty: number; price: number }[];
+  status: KDSStatus;
+  fulfillment: string;
+  date: string;
+  address?: string;
+  scheduledTime?: string;
 }
 
 type ColumnConfig = {
-  statuses: OrderStatus[];
+  statuses: KDSStatus[];
   label: string;
   shortLabel: string;
   borderClass: string;
@@ -28,7 +36,7 @@ type ColumnConfig = {
   textClass: string;
   buttonClass: string;
   colBg: string;
-  nextStatus?: OrderStatus;
+  nextStatus?: KDSStatus;
   nextLabel?: string;
 };
 
@@ -71,10 +79,10 @@ const COLUMNS: ColumnConfig[] = [
     textClass:   "text-green-400",
     buttonClass: "",
     colBg:       "bg-green-500/5",
-    // No nextStatus — kitchen's job ends here. Driver handles delivery,
-    // admin handles collection (ready → delivered) via the admin panel.
   },
 ];
+
+const ACTIVE_STATUSES: KDSStatus[] = ["pending", "confirmed", "preparing", "ready"];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -93,31 +101,85 @@ function urgencyClass(mins: number) {
   return             { badge: "bg-red-500",      ring: "ring-2 ring-red-500/40",   pulse: true  };
 }
 
+/**
+ * Derive a human-readable display name for the kitchen card header.
+ * - Waiter / dine-in orders: "Table T4"
+ * - POS walk-in orders: customer name extracted from note, or "Walk-in"
+ * - Online orders: customer name passed in from the join
+ */
+function deriveDisplayName(
+  fulfillment: string,
+  note: string | null,
+  customerName: string | null,
+): string {
+  const n = note ?? "";
+  if (fulfillment === "dine-in" || n.startsWith("[WAITER]")) {
+    const m = n.match(/Table\s+(\S+)/);
+    return m ? `Table ${m[1]}` : "Dine-in";
+  }
+  if (n.startsWith("[POS]")) {
+    const m = n.match(/Customer:\s*([^|]+)/);
+    return m ? m[1].trim() : "Walk-in";
+  }
+  return customerName?.trim() || "Online Order";
+}
+
+/**
+ * Extract the kitchen-facing note from an order note string.
+ * - Waiter: everything after the "Staff: XYZ · " segment (the actual kitchen instruction)
+ * - POS: nothing — the note is internal metadata, not for kitchen staff
+ * - Online: the raw note the customer typed
+ */
+function deriveKitchenNote(fulfillment: string, note: string | null): string | undefined {
+  const n = note ?? "";
+  if (!n) return undefined;
+  if (fulfillment === "dine-in" || n.startsWith("[WAITER]")) {
+    // Format: "[WAITER] Table T1 · 2 covers · Staff: Alex · No onions"
+    const staffIdx = n.indexOf("Staff:");
+    if (staffIdx === -1) return undefined;
+    // Find the separator after the staff name
+    const afterStaff = n.slice(staffIdx);
+    const nextSep = afterStaff.indexOf(" · ");
+    if (nextSep === -1) return undefined;  // no kitchen note after staff
+    return afterStaff.slice(nextSep + 3).trim() || undefined;
+  }
+  if (n.startsWith("[POS]")) return undefined;  // metadata only, not for kitchen
+  return n || undefined;
+}
+
+function mapRow(row: Record<string, unknown>): KDSOrder {
+  const fulfillment = String(row.fulfillment ?? "collection");
+  const note        = (row.note as string | null) ?? null;
+  // The join gives us customer: { name: string } | null
+  const customerRow = row.customer as { name?: string } | null;
+  return {
+    id:            String(row.id),
+    displayName:   deriveDisplayName(fulfillment, note, customerRow?.name ?? null),
+    kitchenNote:   deriveKitchenNote(fulfillment, note),
+    items:         (row.items as KDSOrder["items"]) ?? [],
+    status:        row.status as KDSStatus,
+    fulfillment,
+    date:          String(row.date),
+    address:       (row.address as string) || undefined,
+    scheduledTime: (row.scheduled_time as string) || undefined,
+  };
+}
+
 // ─── Live clock ───────────────────────────────────────────────────────────────
 
 function LiveClock() {
   const [time, setTime] = useState("");
   useEffect(() => {
     const tick = () =>
-      setTime(
-        new Date().toLocaleTimeString("en-GB", {
-          hour: "2-digit", minute: "2-digit", second: "2-digit",
-        })
-      );
+      setTime(new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, []);
-  return (
-    <span className="font-mono text-white font-bold tracking-widest tabular-nums text-lg">
-      {time}
-    </span>
-  );
+  return <span className="font-mono text-white font-bold tracking-widest tabular-nums text-lg">{time}</span>;
 }
 
-// ─── Elapsed badge (self-updating every 30 s) ─────────────────────────────────
-// Initialises as null so SSR and first client render are identical — actual
-// elapsed time is set in useEffect (client-only) to avoid hydration mismatches.
+// ─── Elapsed badge (self-updating) ────────────────────────────────────────────
 
 function ElapsedBadge({ date }: { date: string }) {
   const [mins, setMins] = useState<number | null>(null);
@@ -127,21 +189,16 @@ function ElapsedBadge({ date }: { date: string }) {
     return () => clearInterval(id);
   }, [date]);
 
-  // Neutral placeholder shown on SSR and before first effect fires
   if (mins === null) {
     return (
       <span className="bg-gray-600 text-white text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5 flex-shrink-0">
-        <Clock size={10} />
-        <span className="opacity-0">--</span>
+        <Clock size={10} /><span className="opacity-0">--</span>
       </span>
     );
   }
-
   const u = urgencyClass(mins);
   return (
-    <span
-      className={`${u.badge} ${u.ring} text-white text-xs font-bold px-2.5 py-1 rounded-full tabular-nums flex items-center gap-1.5 flex-shrink-0 ${u.pulse ? "animate-pulse" : ""}`}
-    >
+    <span className={`${u.badge} ${u.ring} text-white text-xs font-bold px-2.5 py-1 rounded-full tabular-nums flex items-center gap-1.5 flex-shrink-0 ${u.pulse ? "animate-pulse" : ""}`}>
       <Clock size={10} />
       {fmtElapsed(mins)}
     </span>
@@ -151,18 +208,21 @@ function ElapsedBadge({ date }: { date: string }) {
 // ─── Order card ───────────────────────────────────────────────────────────────
 
 function OrderCard({
-  flat,
+  order,
   col,
   onAdvance,
 }: {
-  flat: FlatOrder;
+  order: KDSOrder;
   col: ColumnConfig;
   onAdvance?: () => void;
 }) {
-  const { order, customerName } = flat;
   const isDelivery = order.fulfillment === "delivery";
+  const isDineIn   = order.fulfillment === "dine-in";
 
-  // Client-only: initialise null to avoid SSR/client hydration mismatch
+  const tableLabel = isDineIn
+    ? (order.displayName.startsWith("Table ") ? order.displayName.slice(6) : null)
+    : null;
+
   const [mins, setMins] = useState<number | null>(null);
   useEffect(() => {
     setMins(elapsedMin(order.date));
@@ -170,10 +230,9 @@ function OrderCard({
     return () => clearInterval(id);
   }, [order.date]);
 
-  // "Mark as Collected" — two-tap confirm to prevent accidental dismissal
   const [confirming, setConfirming] = useState(false);
-  const [marking, setMarking]       = useState(false);
-  const confirmTimer                = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [marking,    setMarking]    = useState(false);
+  const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function handleCollectClick() {
     setConfirming(true);
@@ -183,11 +242,8 @@ function OrderCard({
     if (confirmTimer.current) clearTimeout(confirmTimer.current);
     setConfirming(false);
     setMarking(true);
-    try {
-      await fetch(`/api/pos/orders/${order.id}/collected`, { method: "PUT" });
-    } catch {
-      setMarking(false);
-    }
+    try { await fetch(`/api/pos/orders/${order.id}/collected`, { method: "PUT" }); }
+    catch { setMarking(false); }
   }
   function handleCancelCollect() {
     if (confirmTimer.current) clearTimeout(confirmTimer.current);
@@ -198,9 +254,7 @@ function OrderCard({
   const u = mins !== null ? urgencyClass(mins) : { ring: "", pulse: false };
 
   return (
-    <div
-      className={`bg-gray-800 rounded-2xl border-l-[5px] ${col.borderClass} ${u.ring} flex flex-col overflow-hidden transition-shadow hover:shadow-xl`}
-    >
+    <div className={`bg-gray-800 rounded-2xl border-l-[5px] ${col.borderClass} ${u.ring} flex flex-col overflow-hidden transition-shadow hover:shadow-xl`}>
       {/* Card header */}
       <div className="px-4 pt-3.5 pb-2 flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
@@ -208,21 +262,22 @@ function OrderCard({
             #{order.id.slice(-8).toUpperCase()}
           </p>
           <p className="text-white font-bold text-lg leading-tight truncate mt-0.5">
-            {customerName}
+            {order.displayName}
           </p>
         </div>
-
         <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
           <ElapsedBadge date={order.date} />
-          <span
-            className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
-              isDelivery
-                ? "bg-indigo-900/60 text-indigo-300"
-                : "bg-emerald-900/60 text-emerald-300"
-            }`}
-          >
-            {isDelivery ? <Truck size={10} /> : <ShoppingBag size={10} />}
-            {isDelivery ? "Delivery" : "Collection"}
+          <span className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+            isDineIn   ? "bg-purple-900/60 text-purple-300"
+            : isDelivery ? "bg-indigo-900/60 text-indigo-300"
+            :              "bg-emerald-900/60 text-emerald-300"
+          }`}>
+            {isDineIn
+              ? <>{`🍽️`} {tableLabel ? `Table ${tableLabel}` : "Dine-in"}</>
+              : isDelivery
+                ? <><Truck size={10} /> Delivery</>
+                : <><ShoppingBag size={10} /> Collection</>
+            }
           </span>
         </div>
       </div>
@@ -231,20 +286,16 @@ function OrderCard({
       {(order.address || order.scheduledTime) && (
         <div className="px-4 pb-2 space-y-0.5">
           {order.address && (
-            <p className="text-gray-400 text-xs truncate">
-              📍 {order.address}
-            </p>
+            <p className="text-gray-400 text-xs truncate">📍 {order.address}</p>
           )}
           {order.scheduledTime && (
             <p className="text-amber-400 text-xs font-semibold flex items-center gap-1.5">
-              <CalendarClock size={11} />
-              {order.scheduledTime}
+              <CalendarClock size={11} />{order.scheduledTime}
             </p>
           )}
         </div>
       )}
 
-      {/* Divider */}
       <div className="mx-4 border-t border-gray-700/60" />
 
       {/* Items */}
@@ -261,17 +312,16 @@ function OrderCard({
         ))}
       </div>
 
-      {/* Note */}
-      {order.note && (
+      {/* Kitchen note — only for waiter kitchen instructions and online customer notes */}
+      {order.kitchenNote && (
         <div className="mx-4 mb-3 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2">
           <p className="text-amber-400 text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-1">
             <AlertTriangle size={10} /> Special Note
           </p>
-          <p className="text-amber-200 text-sm leading-snug">{order.note}</p>
+          <p className="text-amber-200 text-sm leading-snug">{order.kitchenNote}</p>
         </div>
       )}
 
-      {/* Urgency warning for very late orders (client-only — mins is null on SSR) */}
       {mins !== null && mins >= 30 && (
         <div className="mx-4 mb-3 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-1.5 flex items-center gap-2">
           <AlertTriangle size={12} className="text-red-400 flex-shrink-0" />
@@ -279,7 +329,7 @@ function OrderCard({
         </div>
       )}
 
-      {/* Action button — only shown for columns that have a next step */}
+      {/* Action buttons */}
       {col.nextStatus ? (
         <div className="px-4 pb-4">
           <button
@@ -290,48 +340,37 @@ function OrderCard({
           </button>
         </div>
       ) : (
-        /* Ready column — delivery awaits driver; collection can be marked here */
         <div className="px-4 pb-4 flex flex-col gap-2">
           <div className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-semibold border ${
-            isDelivery
-              ? "bg-indigo-900/20 border-indigo-700/30 text-indigo-300"
-              : "bg-emerald-900/20 border-emerald-700/30 text-emerald-300"
+            isDineIn
+              ? "bg-purple-900/20 border-purple-700/30 text-purple-300"
+              : isDelivery
+                ? "bg-indigo-900/20 border-indigo-700/30 text-indigo-300"
+                : "bg-emerald-900/20 border-emerald-700/30 text-emerald-300"
           }`}>
-            {isDelivery ? <Truck size={13} /> : <ShoppingBag size={13} />}
-            {isDelivery ? "Awaiting driver pickup" : "Awaiting customer collection"}
+            {isDineIn
+              ? <>{`🍽️`} Serve at {tableLabel ? `Table ${tableLabel}` : "table"}</>
+              : isDelivery
+                ? <><Truck size={13} /> Awaiting driver pickup</>
+                : <><ShoppingBag size={13} /> Awaiting customer collection</>
+            }
           </div>
-
-          {/* Collection orders: staff can mark as collected directly from KDS */}
-          {!isDelivery && (
+          {!isDelivery && !isDineIn && (
             confirming ? (
               <div className="flex gap-2">
-                <button
-                  onClick={handleConfirmCollect}
-                  className="flex-1 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.97] text-white font-black text-xs py-2.5 rounded-xl transition-all"
-                >
+                <button onClick={handleConfirmCollect}
+                  className="flex-1 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.97] text-white font-black text-xs py-2.5 rounded-xl transition-all">
                   ✓ Confirm Collected
                 </button>
-                <button
-                  onClick={handleCancelCollect}
-                  className="flex-1 bg-gray-700 hover:bg-gray-600 active:scale-[0.97] text-gray-300 font-semibold text-xs py-2.5 rounded-xl transition-all"
-                >
+                <button onClick={handleCancelCollect}
+                  className="flex-1 bg-gray-700 hover:bg-gray-600 active:scale-[0.97] text-gray-300 font-semibold text-xs py-2.5 rounded-xl transition-all">
                   Cancel
                 </button>
               </div>
             ) : (
-              <button
-                onClick={handleCollectClick}
-                disabled={marking}
-                className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold text-emerald-500 border border-emerald-800 hover:bg-emerald-900/30 active:scale-[0.97] transition-all disabled:opacity-40"
-              >
-                {marking ? (
-                  <span className="animate-spin">⟳</span>
-                ) : (
-                  <>
-                    <CheckCircle2 size={12} />
-                    Mark as Collected
-                  </>
-                )}
+              <button onClick={handleCollectClick} disabled={marking}
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold text-emerald-500 border border-emerald-800 hover:bg-emerald-900/30 active:scale-[0.97] transition-all disabled:opacity-40">
+                {marking ? <span className="animate-spin">⟳</span> : <><CheckCircle2 size={12} /> Mark as Collected</>}
               </button>
             )
           )}
@@ -349,23 +388,18 @@ function KanbanColumn({
   onAdvance,
 }: {
   col: ColumnConfig;
-  orders: FlatOrder[];
-  onAdvance?: (flat: FlatOrder) => void;
+  orders: KDSOrder[];
+  onAdvance: (order: KDSOrder) => void;
 }) {
   return (
     <div className={`flex flex-col rounded-2xl ${col.colBg} border border-gray-700/40 overflow-hidden`}>
-      {/* Column header */}
       <div className="flex items-center gap-2.5 px-4 py-3 border-b border-gray-700/60 flex-shrink-0">
         <span className={`w-2.5 h-2.5 rounded-full ${col.dotClass} flex-shrink-0`} />
-        <h2 className="text-gray-200 font-bold text-sm uppercase tracking-widest flex-1">
-          {col.label}
-        </h2>
+        <h2 className="text-gray-200 font-bold text-sm uppercase tracking-widest flex-1">{col.label}</h2>
         <span className={`${col.badgeClass} text-xs font-bold px-2.5 py-0.5 rounded-full min-w-[1.5rem] text-center`}>
           {orders.length}
         </span>
       </div>
-
-      {/* Cards */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
         {orders.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-gray-600 select-none">
@@ -373,12 +407,12 @@ function KanbanColumn({
             <p className="text-sm font-medium">No orders</p>
           </div>
         ) : (
-          orders.map((flat) => (
+          orders.map((order) => (
             <OrderCard
-              key={flat.order.id}
-              flat={flat}
+              key={order.id}
+              order={order}
               col={col}
-              onAdvance={onAdvance ? () => onAdvance(flat) : undefined}
+              onAdvance={col.nextStatus ? () => onAdvance(order) : undefined}
             />
           ))
         )}
@@ -390,31 +424,107 @@ function KanbanColumn({
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function KitchenPage() {
-  const { customers, updateOrderStatus, settings } = useApp();
-  const [completedToday, setCompletedToday] = useState(0);
-  const [isFullscreen, setIsFullscreen]     = useState(false);
+  const { settings } = useApp();          // only used for restaurant name in header
+  const [orders,          setOrders]          = useState<KDSOrder[]>([]);
+  const [loading,         setLoading]         = useState(true);
+  const [completedToday,  setCompletedToday]  = useState(0);
+  const [isFullscreen,    setIsFullscreen]    = useState(false);
 
-  // Flatten all active orders across all customers, oldest-first (most urgent first)
-  const allActive: FlatOrder[] = customers
-    .flatMap((c) =>
-      c.orders
-        .filter((o) =>
-          (["pending", "confirmed", "preparing", "ready"] as OrderStatus[]).includes(o.status)
-        )
-        .map((o) => ({ order: o, customerId: c.id, customerName: c.name }))
-    )
-    .sort(
-      (a, b) =>
-        new Date(a.order.date).getTime() - new Date(b.order.date).getTime()
+  // ── Initial load — direct orders query, no customer-state dependency ─────────
+  useEffect(() => {
+    supabase
+      .from("orders")
+      .select("id, items, total, note, status, fulfillment, date, address, scheduled_time, customer:customers(name)")
+      .in("status", ACTIVE_STATUSES)
+      .order("date", { ascending: true })
+      .then(({ data, error }) => {
+        if (error) console.error("KDS initial load:", error.message);
+        setOrders((data ?? []).map((r) => mapRow(r as Record<string, unknown>)));
+        setLoading(false);
+      });
+  }, []);
+
+  // ── Realtime subscription — direct on orders table ────────────────────────
+  useEffect(() => {
+    const channel = supabase
+      .channel("kds-orders-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "orders" },
+        async (payload) => {
+          if (payload.eventType === "DELETE") {
+            setOrders((prev) => prev.filter((o) => o.id !== (payload.old as { id: string }).id));
+            return;
+          }
+
+          const newRow = payload.new as Record<string, unknown>;
+          const status = newRow.status as string;
+
+          // If status is not a kitchen-active status, remove from KDS
+          if (!ACTIVE_STATUSES.includes(status as KDSStatus)) {
+            setOrders((prev) => prev.filter((o) => o.id !== newRow.id));
+            return;
+          }
+
+          // Fetch the full row with the customer JOIN (Realtime payload doesn't carry join data)
+          const { data } = await supabase
+            .from("orders")
+            .select("id, items, total, note, status, fulfillment, date, address, scheduled_time, customer:customers(name)")
+            .eq("id", newRow.id)
+            .single();
+
+          if (!data) return;
+
+          const mapped = mapRow(data as Record<string, unknown>);
+          setOrders((prev) => {
+            const idx = prev.findIndex((o) => o.id === mapped.id);
+            if (idx >= 0) {
+              const next = [...prev];
+              next[idx] = mapped;
+              return next;
+            }
+            // New order — insert sorted by date (oldest first)
+            return [...prev, mapped].sort(
+              (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+            );
+          });
+        }
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          console.log("KDS: Realtime connected");
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.error("KDS: Realtime subscription error:", status);
+        }
+      });
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  // ── Advance order to next kitchen status ──────────────────────────────────
+  async function advanceOrder(order: KDSOrder, nextStatus: KDSStatus) {
+    // Optimistic update
+    setOrders((prev) =>
+      prev.map((o) => (o.id === order.id ? { ...o, status: nextStatus } : o))
     );
-
-  function handleAdvance(flat: FlatOrder, nextStatus: OrderStatus) {
-    updateOrderStatus(flat.customerId, flat.order.id, nextStatus);
-    // Kitchen's job ends when an order is marked ready — count it as completed
     if (nextStatus === "ready") setCompletedToday((n) => n + 1);
+
+    const res = await fetch(`/api/kds/orders/${order.id}/status`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: nextStatus }),
+    });
+    if (!res.ok) {
+      // Rollback on failure
+      const j = await res.json().catch(() => ({})) as { error?: string };
+      console.error("KDS advance failed:", j.error);
+      setOrders((prev) =>
+        prev.map((o) => (o.id === order.id ? { ...o, status: order.status } : o))
+      );
+    }
   }
 
-  // Fullscreen toggle
+  // ── Fullscreen ────────────────────────────────────────────────────────────
   function toggleFullscreen() {
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().catch(() => {});
@@ -428,7 +538,7 @@ export default function KitchenPage() {
     return () => document.removeEventListener("fullscreenchange", handler);
   }, []);
 
-  const totalActive = allActive.length;
+  const totalActive = orders.length;
 
   return (
     <div className="h-screen bg-gray-900 flex flex-col overflow-hidden">
@@ -448,80 +558,71 @@ export default function KitchenPage() {
         {/* Centre — status pill counters */}
         <div className="flex items-center gap-2 sm:gap-4 flex-1 justify-center">
           {COLUMNS.map((col) => {
-            const count = allActive.filter((f) =>
-              col.statuses.includes(f.order.status)
-            ).length;
+            const count = orders.filter((o) => col.statuses.includes(o.status)).length;
             return (
               <div key={col.label} className="flex items-center gap-1.5">
                 <span className={`w-2 h-2 rounded-full ${col.dotClass}`} />
-                <span className="text-gray-400 text-xs font-semibold hidden sm:inline">
-                  {col.shortLabel}
-                </span>
-                <span
-                  className={`${col.badgeClass} text-xs font-bold px-2 py-0.5 rounded-full min-w-[1.5rem] text-center`}
-                >
+                <span className="text-gray-400 text-xs font-semibold hidden sm:inline">{col.shortLabel}</span>
+                <span className={`${col.badgeClass} text-xs font-bold px-2 py-0.5 rounded-full min-w-[1.5rem] text-center`}>
                   {count}
                 </span>
               </div>
             );
           })}
-          {completedToday > 0 && (
-            <div className="flex items-center gap-1.5 text-gray-500">
-              <CheckCircle2 size={12} />
-              <span className="text-xs">{completedToday} done</span>
-            </div>
-          )}
+          <span className="text-gray-600 text-xs hidden sm:inline">|</span>
+          <span className="text-gray-400 text-xs hidden sm:flex items-center gap-1">
+            <CheckCircle2 size={12} className="text-green-500" />
+            {completedToday} done
+          </span>
         </div>
 
-        {/* Right — clock + controls */}
-        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+        {/* Right — clock + links */}
+        <div className="flex items-center gap-3 flex-shrink-0">
           <LiveClock />
-          <button
-            onClick={toggleFullscreen}
-            className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white transition"
-            title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-          >
-            {isFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-          </button>
           <Link
             href="/admin"
-            className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-gray-400 hover:text-white bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded-lg transition"
+            className="hidden sm:flex items-center gap-1.5 text-gray-400 hover:text-white transition-colors text-xs font-medium"
           >
-            <LayoutDashboard size={13} />
-            Admin
+            <LayoutDashboard size={14} /> Admin
           </Link>
+          <button
+            onClick={toggleFullscreen}
+            className="text-gray-400 hover:text-white transition-colors"
+            title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          >
+            {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
         </div>
       </header>
 
       {/* ── Kanban board ────────────────────────────────────────────────────── */}
-      <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 sm:p-4 min-h-0">
-        {COLUMNS.map((col) => {
-          const colOrders = allActive.filter((f) =>
-            col.statuses.includes(f.order.status)
-          );
-          return (
+      {loading ? (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center space-y-3">
+            <ChefHat size={40} className="text-orange-500 mx-auto animate-pulse" />
+            <p className="text-gray-400 text-sm">Loading orders…</p>
+          </div>
+        </div>
+      ) : totalActive === 0 ? (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center space-y-3">
+            <UtensilsCrossed size={56} className="mx-auto text-gray-700" />
+            <p className="text-gray-500 text-lg font-medium">No active orders</p>
+            <p className="text-gray-600 text-sm">New orders will appear here in real-time</p>
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 grid grid-cols-3 gap-4 p-4 min-h-0 overflow-hidden">
+          {COLUMNS.map((col) => (
             <KanbanColumn
               key={col.label}
               col={col}
-              orders={colOrders}
-              onAdvance={col.nextStatus ? (flat) => handleAdvance(flat, col.nextStatus!) : undefined}
+              orders={orders.filter((o) => col.statuses.includes(o.status))}
+              onAdvance={(order) => col.nextStatus && advanceOrder(order, col.nextStatus)}
             />
-          );
-        })}
-      </div>
-
-      {/* ── Footer bar ──────────────────────────────────────────────────────── */}
-      <footer className="bg-gray-800 border-t border-gray-700 px-4 py-2 flex items-center justify-between flex-shrink-0">
-        <span className="text-gray-500 text-xs">
-          {totalActive > 0
-            ? `${totalActive} active order${totalActive !== 1 ? "s" : ""}`
-            : "No active orders"}
-        </span>
-        <span className="text-gray-600 text-xs flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-          Real-time sync active
-        </span>
-      </footer>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

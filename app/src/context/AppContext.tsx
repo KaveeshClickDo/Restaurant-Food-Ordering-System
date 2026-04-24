@@ -5,6 +5,7 @@ import React, {
   useContext,
   useEffect,
   useReducer,
+  useRef,
   useState,
 } from "react";
 import { supabase } from "@/lib/supabase";
@@ -191,6 +192,16 @@ const DEFAULT_SETTINGS: AdminSettings = {
     categories: [],
     items: [],
   },
+  waiters: [
+    { id: "w-1", name: "Head Waiter", pin: "1111", role: "senior", active: true, avatarColor: "#7c3aed", createdAt: new Date().toISOString() },
+    { id: "w-2", name: "Alex",        pin: "2222", role: "waiter",  active: true, avatarColor: "#0891b2", createdAt: new Date().toISOString() },
+    { id: "w-3", name: "Sophie",      pin: "3333", role: "waiter",  active: true, avatarColor: "#16a34a", createdAt: new Date().toISOString() },
+  ],
+  diningTables: [
+    ...Array.from({ length: 6 },  (_, i) => ({ id: `t-${i+1}`,  number: i+1,  label: `T${i+1}`,  seats: i < 2 ? 2 : 4, section: "Main Hall", active: true })),
+    ...Array.from({ length: 4 },  (_, i) => ({ id: `t-${i+7}`,  number: i+7,  label: `T${i+7}`,  seats: 4,             section: "Terrace",   active: true })),
+    ...Array.from({ length: 2 },  (_, i) => ({ id: `t-${i+11}`, number: i+11, label: `B${i+1}`,  seats: 2,             section: "Bar",       active: true })),
+  ],
 };
 
 // ─── Store open check ─────────────────────────────────────────────────────────
@@ -350,6 +361,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems]   = useState<MenuItem[]>([]);
   const [customers, setCustomers]   = useState<Customer[]>([]);
+  // Mirror of customers state accessible from inside Realtime callbacks without
+  // closure staleness — callbacks capture the ref value, not the state snapshot.
+  const customersRef = useRef<Customer[]>([]);
   // Drivers are fetched from the server-side /api/admin/drivers endpoint —
   // they are NOT part of app_settings so they are never exposed to customers.
   const [drivers, setDrivers]       = useState<Driver[]>([]);
@@ -364,6 +378,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // hydration mismatches caused by timezone differences between the server
   // (UTC) and the browser (local timezone). Updated after mount via useEffect.
   const [isOpen, setIsOpen] = useState(false);
+
+  // Keep customersRef in sync so Realtime callbacks always read current state.
+  useEffect(() => { customersRef.current = customers; }, [customers]);
 
   // ── Session data: cart, user, driver stay in localStorage ─────────────────
 
@@ -439,6 +456,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             paymentMethods: d.paymentMethods ?? DEFAULT_SETTINGS.paymentMethods,
             deliveryZones:  d.deliveryZones  ?? DEFAULT_SETTINGS.deliveryZones,
             coupons:        d.coupons        ?? [],
+            waiters:        d.waiters        ?? DEFAULT_SETTINGS.waiters,
+            diningTables:   d.diningTables   ?? DEFAULT_SETTINGS.diningTables,
             // Sensitive fields explicitly excluded — never loaded into client state:
             // drivers, stripeSecretKey, paypalClientId, smtpHost/Port/User/Password
           });
@@ -538,6 +557,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             paymentMethods: d.paymentMethods ?? DEFAULT_SETTINGS.paymentMethods,
             deliveryZones:  d.deliveryZones  ?? DEFAULT_SETTINGS.deliveryZones,
             coupons:        d.coupons        ?? [],
+            waiters:        d.waiters        ?? DEFAULT_SETTINGS.waiters,
+            diningTables:   d.diningTables   ?? DEFAULT_SETTINGS.diningTables,
             // drivers, stripeSecretKey, smtpPassword, etc. intentionally excluded
           });
         })
@@ -572,7 +593,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Orders
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ({ eventType, new: newRow, old: oldRow }: any) => {
+        async ({ eventType, new: newRow, old: oldRow }: any) => {
           if (eventType === "DELETE") {
             setCustomers((prev) => prev.map((c) => ({
               ...c, orders: c.orders.filter((o) => o.id !== oldRow.id),
@@ -584,6 +605,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               return exists ? orders.map((o) => (o.id === order.id ? order : o))
                             : [order, ...orders];
             };
+
+            // If the order's customer is not yet in state (e.g. pos-walk-in sentinel
+            // or a race condition where the customer INSERT event hasn't arrived yet),
+            // fetch and add them so the order isn't silently dropped.
+            const knownCustomer = customersRef.current.some((c) => c.id === order.customerId);
+            if (!knownCustomer) {
+              const { data: cusData } = await supabase
+                .from("customers").select("*, orders(*)").eq("id", order.customerId).single();
+              if (cusData) {
+                const newCustomer = mapCustomer(cusData);
+                setCustomers((prev) => {
+                  // Another concurrent event may have already added this customer
+                  if (prev.some((c) => c.id === newCustomer.id)) {
+                    return prev.map((c) => c.id !== newCustomer.id ? c : { ...c, orders: patchOrders(c.orders) });
+                  }
+                  return [...prev, { ...newCustomer, orders: patchOrders(newCustomer.orders) }];
+                });
+                return;
+              }
+            }
+
             setCustomers((prev) => prev.map((c) =>
               c.id !== order.customerId ? c : { ...c, orders: patchOrders(c.orders) }
             ));

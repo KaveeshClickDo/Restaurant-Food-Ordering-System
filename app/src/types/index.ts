@@ -241,6 +241,25 @@ export interface BreakfastMenuSettings {
   items: MenuItem[];
 }
 
+export interface WaiterStaff {
+  id: string;
+  name: string;
+  pin: string;
+  role: "senior" | "waiter";
+  active: boolean;
+  avatarColor: string;
+  createdAt: string;
+}
+
+export interface DiningTable {
+  id: string;
+  number: number;
+  label: string;    // e.g. "T1", "Bar 2", "Terrace A"
+  seats: number;
+  section: string;  // e.g. "Main Hall", "Terrace"
+  active: boolean;
+}
+
 export interface AdminSettings {
   coupons: Coupon[];
   taxSettings: TaxSettings;
@@ -267,6 +286,8 @@ export interface AdminSettings {
   footerLogos: FooterLogo[];
   receiptSettings: ReceiptSettings;
   breakfastMenu: BreakfastMenuSettings;
+  waiters: WaiterStaff[];
+  diningTables: DiningTable[];
 }
 
 export type OrderStatus =
@@ -314,7 +335,7 @@ export interface Order {
   customerId: string;
   date: string;             // ISO string
   status: OrderStatus;
-  fulfillment: "delivery" | "collection";
+  fulfillment: "delivery" | "collection" | "dine-in";
   total: number;
   items: OrderLine[];
   address?: string;
