@@ -26,6 +26,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "date, time, and partySize are required." }, { status: 400 });
   }
 
+  // Reject slots in the past. Constructing without "Z" so JS treats it as local server time.
+  // Allow a 5-minute buffer for slow form submissions.
+  const slotMs = new Date(`${date}T${time}`).getTime();
+  if (slotMs < Date.now() - 5 * 60 * 1000) {
+    return NextResponse.json(
+      { ok: false, error: "This time slot has already passed. Please select a future time." },
+      { status: 400 },
+    );
+  }
+
   // Load tables + reservation settings from app_settings
   const { data: settingsRow } = await supabaseAdmin
     .from("app_settings").select("data").limit(1).single();
@@ -33,6 +43,21 @@ export async function GET(req: NextRequest) {
   const tables: DiningTable[]      = settingsRow?.data?.diningTables ?? [];
   const rs: ReservationSystem      = settingsRow?.data?.reservationSystem ?? {};
   const slotDuration: number       = rs.slotDurationMinutes ?? 90;
+  const maxPartySize: number       = rs.maxPartySize ?? 20;
+  const blackoutDates: string[]    = rs.blackoutDates ?? [];
+
+  // Reject if the date is blacked out
+  if (blackoutDates.includes(date)) {
+    return NextResponse.json({ ok: true, availableTables: [], blackout: true });
+  }
+
+  // Reject if party size exceeds restaurant maximum
+  if (partySize > maxPartySize) {
+    return NextResponse.json(
+      { ok: false, error: `Maximum party size is ${maxPartySize}. Please call us for larger groups.` },
+      { status: 400 },
+    );
+  }
 
   // Only tables that are active and can seat the party
   const eligibleTables = tables.filter(

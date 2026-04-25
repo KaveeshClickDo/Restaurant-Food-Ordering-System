@@ -219,6 +219,9 @@ const DEFAULT_SETTINGS: AdminSettings = {
     openTime: "12:00",
     closeTime: "22:00",
     slotIntervalMinutes: 30,
+    maxPartySize: 10,
+    blackoutDates: [],
+    reviewUrl: "",
   },
 };
 

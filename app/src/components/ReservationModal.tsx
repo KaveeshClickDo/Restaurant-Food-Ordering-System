@@ -50,14 +50,25 @@ function fmtDate(dateStr: string): string {
   });
 }
 
+// Use local date components — toISOString() is UTC and can return yesterday east of UTC+0
 function todayStr(): string {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function maxDateStr(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function nowLocalMins(): number {
+  const n = new Date();
+  return n.getHours() * 60 + n.getMinutes();
+}
+
+function isSlotPast(slot: string, selectedDate: string): boolean {
+  return selectedDate === todayStr() && toMins(slot) <= nowLocalMins();
 }
 
 // ─── Step indicator ───────────────────────────────────────────────────────────
@@ -107,7 +118,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
   // ── Form state ────────────────────────────────────────────────────────────
   const [step, setStep] = useState<Step>("datetime");
   const [date,      setDate]      = useState(todayStr());
-  const [time,      setTime]      = useState(slots[0] ?? "12:00");
+  const [time,      setTime]      = useState(() => slots.find((s) => !isSlotPast(s, todayStr())) ?? slots[0] ?? "12:00");
   const [partySize, setPartySize] = useState(2);
   const [selectedTable, setSelectedTable] = useState<AvailableTable | null>(null);
   const [name,  setName]  = useState("");
@@ -124,6 +135,12 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
   const [submitting,     setSubmitting]     = useState(false);
   const [submitError,    setSubmitError]    = useState("");
   const [reservationId,  setReservationId]  = useState("");
+
+  // When date changes to today, re-anchor the selected time to the first future slot
+  useEffect(() => {
+    const firstValid = slots.find((s) => !isSlotPast(s, date));
+    if (firstValid && isSlotPast(time, date)) setTime(firstValid);
+  }, [date]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Fetch available tables when moving to step 2 ──────────────────────────
   const fetchTables = useCallback(async () => {
@@ -286,24 +303,35 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                   Time
                 </label>
                 <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
-                  {slots.map((slot) => (
-                    <button
-                      key={slot}
-                      type="button"
-                      onClick={() => setTime(slot)}
-                      className={[
-                        "py-2.5 rounded-xl text-sm font-semibold border transition-all",
-                        time === slot
-                          ? "bg-orange-500 text-white border-orange-500 shadow-sm"
-                          : "bg-white text-gray-600 border-gray-200 hover:border-orange-300 hover:text-orange-600",
-                      ].join(" ")}
-                    >
-                      {fmt12(slot)}
-                    </button>
-                  ))}
+                  {slots.map((slot) => {
+                    const past = isSlotPast(slot, date);
+                    const selected = time === slot;
+                    return (
+                      <button
+                        key={slot}
+                        type="button"
+                        disabled={past}
+                        onClick={() => !past && setTime(slot)}
+                        title={past ? "Time has passed" : undefined}
+                        className={[
+                          "py-2.5 rounded-xl text-sm font-semibold border transition-all",
+                          past
+                            ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed line-through"
+                            : selected
+                              ? "bg-orange-500 text-white border-orange-500 shadow-sm"
+                              : "bg-white text-gray-600 border-gray-200 hover:border-orange-300 hover:text-orange-600",
+                        ].join(" ")}
+                      >
+                        {fmt12(slot)}
+                      </button>
+                    );
+                  })}
                 </div>
                 {slots.length === 0 && (
                   <p className="text-sm text-gray-400 mt-2">No time slots configured — please contact the restaurant.</p>
+                )}
+                {slots.length > 0 && slots.every((s) => isSlotPast(s, date)) && (
+                  <p className="text-sm text-amber-600 mt-2">All slots for today have passed. Please select a future date.</p>
                 )}
               </div>
             </div>
@@ -565,7 +593,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
             {step === "datetime" && (
               <button
                 type="button"
-                disabled={!date || !time || slots.length === 0}
+                disabled={!date || !time || slots.length === 0 || isSlotPast(time, date)}
                 onClick={() => setStep("table")}
                 className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition-all"
               >

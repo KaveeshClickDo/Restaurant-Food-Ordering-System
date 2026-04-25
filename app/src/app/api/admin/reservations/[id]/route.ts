@@ -82,6 +82,23 @@ export async function PUT(
     ]);
 
     if (resRow) {
+      // Review request email on check-out
+      if (body.status === "checked_out" && settingsRow?.data) {
+        sendReservationEmailServer("reservation_review_request", {
+          id:             resRow.id,
+          customer_name:  resRow.customer_name,
+          customer_email: resRow.customer_email,
+          customer_phone: resRow.customer_phone ?? "",
+          date:           resRow.date,
+          time:           resRow.time,
+          table_label:    resRow.table_label,
+          party_size:     resRow.party_size,
+          status:         resRow.status,
+          note:           resRow.note,
+          section:        resRow.section ?? "",
+        }, settingsRow.data).catch(console.error);
+      }
+
       // Customer upsert (check-in/out)
       if (body.status === "checked_in" || body.status === "checked_out") {
         const email = (resRow.customer_email as string)?.trim().toLowerCase();

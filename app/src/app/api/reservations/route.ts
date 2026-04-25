@@ -24,15 +24,24 @@ export async function POST(req: NextRequest) {
     customerEmail?: string;
     customerPhone?: string;
     note?: string;
+    source?: string;
   };
   try { body = await req.json(); }
   catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
 
-  const { tableId, date, time, partySize, customerName, customerEmail, customerPhone, note } = body;
+  const { tableId, date, time, partySize, customerName, customerEmail, customerPhone, note, source } = body;
 
   if (!tableId || !date || !time || !partySize || !customerName || !customerEmail) {
     return NextResponse.json(
       { ok: false, error: "tableId, date, time, partySize, customerName, and customerEmail are required." },
+      { status: 400 },
+    );
+  }
+
+  // Reject past slots — 5-minute buffer for slow submissions
+  if (new Date(`${date}T${time}`).getTime() < Date.now() - 5 * 60 * 1000) {
+    return NextResponse.json(
+      { ok: false, error: "This time slot has already passed. Please select a future time." },
       { status: 400 },
     );
   }
@@ -82,7 +91,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const id = crypto.randomUUID();
+  const id           = crypto.randomUUID();
+  const cancel_token = crypto.randomUUID();
   const row = {
     id,
     table_id:       table.id,
@@ -97,14 +107,30 @@ export async function POST(req: NextRequest) {
     party_size:     partySize,
     status:         "pending",
     note:           note?.trim() ?? null,
+    source:         source ?? "online",
+    cancel_token,
     created_at:     new Date().toISOString(),
   };
 
-  const { error } = await supabaseAdmin.from("reservations").insert(row);
+  let insertedWithToken = true;
+  let { error } = await supabaseAdmin.from("reservations").insert(row);
+
+  // If cancel_token or source columns don't exist yet (migration not run), retry without them
+  if (error && (error.message?.includes("cancel_token") || error.message?.includes("source"))) {
+    insertedWithToken = false;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { cancel_token: _ct, source: _src, ...baseRow } = row;
+    const { error: retryError } = await supabaseAdmin.from("reservations").insert(baseRow);
+    error = retryError ?? null;
+  }
+
   if (error) {
     console.error("reservations POST:", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
+
+  // Build the origin from the request so the cancel link is absolute
+  const origin = req.headers.get("origin") ?? req.nextUrl.origin;
 
   // Send confirmation email (fire-and-forget — does not block the response)
   sendReservationEmailServer("reservation_confirmation", {
@@ -119,7 +145,9 @@ export async function POST(req: NextRequest) {
     status:         row.status,
     note:           row.note,
     section:        row.section,
-  }, settingsRow?.data ?? {}).catch(console.error);
+    // Only include cancel_token in email if we successfully stored it
+    cancel_token:   insertedWithToken ? cancel_token : undefined,
+  }, settingsRow?.data ?? {}, origin).catch(console.error);
 
   return NextResponse.json({ ok: true, reservationId: id });
 }

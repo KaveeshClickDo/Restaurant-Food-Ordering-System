@@ -5391,16 +5391,39 @@ function TableStatusView() {
 
   const sections = [...new Set(tables.map((t) => t.section).filter(Boolean))];
 
-  const todayStr = () => new Date().toISOString().slice(0, 10);
+  // Local date string — toISOString() is UTC and can return yesterday east of UTC+0
+  const todayStr = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
 
   const fetchToday = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await supabase
-        .from("reservations")
-        .select("id,table_id,customer_name,customer_phone,time,party_size,status,note,checked_in_at,checked_out_at")
-        .eq("date", todayStr())
-        .in("status", ["pending", "confirmed", "checked_in", "checked_out"]);
+      const today = (() => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      })();
+
+      const COLUMN_SETS = [
+        "id,table_id,customer_name,customer_phone,time,party_size,status,note,checked_in_at,checked_out_at",
+        "id,table_id,customer_name,customer_phone,time,party_size,status,note",
+      ];
+
+      let data = null;
+      for (const cols of COLUMN_SETS) {
+        const { data: d, error: e } = await supabase
+          .from("reservations")
+          .select(cols)
+          .eq("date", today)
+          .in("status", ["pending", "confirmed", "checked_in", "checked_out"]);
+        if (!e) { data = d; break; }
+        if (!e.message?.includes("does not exist") && !e.message?.includes("schema cache")) {
+          console.error("TableStatusView fetch:", e.message);
+          break;
+        }
+      }
+
       setReservations((data ?? []) as ResRow[]);
     } catch (err) {
       console.error("TableStatusView fetch:", err);
@@ -5618,31 +5641,176 @@ const RES_STATUS_CFG: Record<string, { label: string; dot: string; badge: string
   no_show:     { label: "No show",     dot: "bg-slate-500",  badge: "bg-slate-700    text-slate-400 border-slate-600"     },
 };
 
+const SOURCE_CFG: Record<string, { label: string; cls: string }> = {
+  online:    { label: "Online",   cls: "bg-blue-900/50 text-blue-300 border-blue-700/50"     },
+  "walk-in": { label: "Walk-in",  cls: "bg-green-900/50 text-green-300 border-green-700/50"  },
+  phone:     { label: "Phone",    cls: "bg-purple-900/50 text-purple-300 border-purple-700/50"},
+  other:     { label: "Other",    cls: "bg-slate-700 text-slate-400 border-slate-600"         },
+};
+
+// Local-date helpers (not UTC-based)
+function localTodayStrRes(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function localMaxDateStrRes(days: number): string {
+  const d = new Date(); d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function nowLocalMinsRes(): number { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); }
+function toMinsRes(t: string): number { const [h, m] = t.split(":").map(Number); return h * 60 + m; }
+function isSlotPastRes(slot: string, date: string): boolean {
+  return date === localTodayStrRes() && toMinsRes(slot) <= nowLocalMinsRes();
+}
+function generateSlotsRes(open: string, close: string, interval: number): string[] {
+  const slots: string[] = [];
+  for (let t = toMinsRes(open); t < toMinsRes(close); t += interval) {
+    slots.push(`${Math.floor(t / 60).toString().padStart(2, "0")}:${(t % 60).toString().padStart(2, "0")}`);
+  }
+  return slots;
+}
+function isNoShowCandidate(r: ResRow & { source?: string }): boolean {
+  if (r.status !== "confirmed") return false;
+  return new Date(`${r.date}T${r.time}`).getTime() < Date.now() - 30 * 60 * 1000;
+}
+
+type ResRowEx = ResRow & { source?: string };
+
+interface AvailTablePos { id: string; label: string; seats: number; section: string; }
+
 function ReservationsView() {
-  const [rows,         setRows]         = useState<ResRow[]>([]);
+  const { settings: appSettings } = useApp();
+  const rs = appSettings.reservationSystem ?? {};
+  const allSlots = generateSlotsRes(rs.openTime ?? "12:00", rs.closeTime ?? "22:00", rs.slotIntervalMinutes ?? 30);
+  const activeTables = (appSettings.diningTables ?? []).filter((t) => t.active);
+
+  const [rows,         setRows]         = useState<ResRowEx[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [actioning,    setActioning]    = useState<string | null>(null);
-  const [filterDate,   setFilterDate]   = useState(() => new Date().toISOString().slice(0, 10));
+  const [filterDate,   setFilterDate]   = useState(localTodayStrRes);
   const [filterStatus, setFilterStatus] = useState("");
+  const [filterSource, setFilterSource] = useState("");
   const [search,       setSearch]       = useState("");
 
+  // ── Add walk-in/phone modal state ─────────────────────────────────────────
+  const [showAdd,        setShowAdd]        = useState(false);
+  const [addSource,      setAddSource]      = useState<"walk-in" | "phone">("walk-in");
+  const [addDate,        setAddDate]        = useState(localTodayStrRes);
+  const [addParty,       setAddParty]       = useState(2);
+  const [addTime,        setAddTime]        = useState(() => {
+    const first = generateSlotsRes(rs.openTime ?? "12:00", rs.closeTime ?? "22:00", rs.slotIntervalMinutes ?? 30)
+      .find((s) => !isSlotPastRes(s, localTodayStrRes()));
+    return first ?? "";
+  });
+  const [addTableId,     setAddTableId]     = useState("");
+  const [addTableMeta,   setAddTableMeta]   = useState<AvailTablePos | null>(null);
+  const [addAvailTables, setAddAvailTables] = useState<AvailTablePos[]>([]);
+  const [addLoadingTbl,  setAddLoadingTbl]  = useState(false);
+  const [addName,        setAddName]        = useState("");
+  const [addEmail,       setAddEmail]       = useState("");
+  const [addPhone,       setAddPhone]       = useState("");
+  const [addNote,        setAddNote]        = useState("");
+  const [addSaving,      setAddSaving]      = useState(false);
+  const [addError,       setAddError]       = useState("");
+
+  // Fetch available tables for the add modal
+  const fetchAddTables = useCallback(async (date: string, time: string, party: number) => {
+    if (!date || !time || !party) return;
+    setAddLoadingTbl(true);
+    try {
+      const res  = await fetch(`/api/reservations/availability?date=${date}&time=${time}&partySize=${party}`);
+      const json = await res.json() as { ok: boolean; availableTables?: AvailTablePos[] };
+      setAddAvailTables(json.ok ? (json.availableTables ?? []) : []);
+    } catch { setAddAvailTables([]); }
+    finally { setAddLoadingTbl(false); }
+  }, []);
+
+  // Re-fetch tables when date/time/party changes in modal
+  useEffect(() => {
+    if (!showAdd) return;
+    setAddTableId(""); setAddTableMeta(null);
+    if (addTime && !isSlotPastRes(addTime, addDate)) fetchAddTables(addDate, addTime, addParty);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addDate, addTime, addParty, showAdd]);
+
+  // Auto-advance time when date changes to today
+  useEffect(() => {
+    if (isSlotPastRes(addTime, addDate)) {
+      const first = allSlots.find((s) => !isSlotPastRes(s, addDate));
+      if (first) setAddTime(first);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addDate]);
+
+  function openAddModal() {
+    const today = localTodayStrRes();
+    const firstSlot = allSlots.find((s) => !isSlotPastRes(s, today)) ?? allSlots[0] ?? "";
+    setAddSource("walk-in"); setAddDate(today); setAddTime(firstSlot);
+    setAddParty(2); setAddTableId(""); setAddTableMeta(null); setAddAvailTables([]);
+    setAddName(""); setAddEmail(""); setAddPhone(""); setAddNote("");
+    setAddError(""); setAddSaving(false); setShowAdd(true);
+  }
+
+  async function handleAddBooking() {
+    if (!addTableMeta || !addName.trim()) return;
+    setAddSaving(true); setAddError("");
+    try {
+      const res  = await fetch("/api/pos/reservations", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tableId: addTableMeta.id, tableLabel: addTableMeta.label,
+          tableSeats: addTableMeta.seats, section: addTableMeta.section,
+          date: addDate, time: addTime, partySize: addParty,
+          customerName: addName.trim(), customerEmail: addEmail.trim(),
+          customerPhone: addPhone.trim(), note: addNote.trim(), source: addSource,
+        }),
+      });
+      const json = await res.json() as { ok: boolean; error?: string };
+      if (json.ok) { setShowAdd(false); fetchRows(); }
+      else setAddError(json.error ?? "Failed to create booking.");
+    } catch { setAddError("Network error — please try again."); }
+    finally { setAddSaving(false); }
+  }
+
+  // ── Main list ──────────────────────────────────────────────────────────────
   const fetchRows = useCallback(async () => {
     setLoading(true);
     try {
-      let q = supabase
-        .from("reservations")
-        .select("id,table_id,table_label,section,customer_name,customer_email,customer_phone,date,time,party_size,status,note,checked_in_at,checked_out_at")
-        .eq("date", filterDate)
-        .order("time", { ascending: true });
-      if (filterStatus) q = q.eq("status", filterStatus);
-      const { data } = await q;
-      setRows((data ?? []) as ResRow[]);
+      // Column sets in descending order of preference.
+      // Each entry is tried in turn; we fall back if a column doesn't exist yet.
+      const COLUMN_SETS = [
+        "id,table_id,table_label,section,customer_name,customer_email,customer_phone,date,time,party_size,status,note,source,checked_in_at,checked_out_at",
+        "id,table_id,table_label,section,customer_name,customer_email,customer_phone,date,time,party_size,status,note,checked_in_at,checked_out_at",
+        "id,table_id,table_label,section,customer_name,customer_email,customer_phone,date,time,party_size,status,note",
+      ];
+
+      let data = null;
+      for (const cols of COLUMN_SETS) {
+        let q = supabase
+          .from("reservations")
+          .select(cols)
+          .eq("date", filterDate)
+          .order("time", { ascending: true });
+        if (filterStatus) q = q.eq("status", filterStatus);
+        // Only filter by source when the column set includes it
+        if (filterSource && cols.includes("source")) q = q.eq("source", filterSource);
+
+        const { data: d, error: e } = await q;
+        if (!e) { data = d; break; }
+        // Any error other than a missing-column schema error is terminal
+        if (!e.message?.includes("does not exist") && !e.message?.includes("schema cache")) {
+          console.error("ReservationsView fetch:", e.message);
+          break;
+        }
+      }
+
+      setRows((data ?? []) as ResRowEx[]);
     } catch (err) {
       console.error("ReservationsView fetch:", err);
     } finally {
       setLoading(false);
     }
-  }, [filterDate, filterStatus]);
+  }, [filterDate, filterStatus, filterSource]);
 
   useEffect(() => { fetchRows(); }, [fetchRows]);
 
@@ -5686,10 +5854,17 @@ function ReservationsView() {
     cancelled: rows.filter((r) => r.status === "cancelled" || r.status === "no_show").length,
   };
 
-  const fmtDate = (d: string) => {
+  const fmtDateShort = (d: string) => {
     const [y, mo, day] = d.split("-").map(Number);
     return new Date(y, mo - 1, day).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
   };
+
+  // Tables grouped by section for the add modal selector
+  const tablesBySection = activeTables.reduce<Record<string, typeof activeTables>>((acc, t) => {
+    (acc[t.section || "Other"] = acc[t.section || "Other"] ?? []).push(t); return acc;
+  }, {});
+
+  const addSlotsForDate = allSlots; // full list; UI disables past ones
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-950 p-4 space-y-4">
@@ -5698,16 +5873,24 @@ function ReservationsView() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h2 className="text-white font-bold text-lg">Reservations</h2>
-          <p className="text-slate-400 text-xs mt-0.5">{fmtDate(filterDate)} · {rows.length} booking{rows.length !== 1 ? "s" : ""}</p>
+          <p className="text-slate-400 text-xs mt-0.5">{fmtDateShort(filterDate)} · {rows.length} booking{rows.length !== 1 ? "s" : ""}</p>
         </div>
-        <button
-          onClick={fetchRows}
-          disabled={loading}
-          className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl px-3 py-2 text-slate-300 text-xs font-medium transition"
-        >
-          <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={openAddModal}
+            className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-400 active:scale-95 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-all"
+          >
+            <UserPlus size={13} /> Add Walk-in
+          </button>
+          <button
+            onClick={fetchRows}
+            disabled={loading}
+            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl px-3 py-2 text-slate-300 text-xs font-medium transition"
+          >
+            <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -5751,6 +5934,17 @@ function ReservationsView() {
           <option value="cancelled">Cancelled</option>
           <option value="no_show">No show</option>
         </select>
+        <select
+          value={filterSource}
+          onChange={(e) => setFilterSource(e.target.value)}
+          className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 text-sm focus:outline-none"
+        >
+          <option value="">All sources</option>
+          <option value="online">Online</option>
+          <option value="walk-in">Walk-in</option>
+          <option value="phone">Phone</option>
+          <option value="other">Other</option>
+        </select>
         <div className="flex items-center gap-2 flex-1 min-w-[160px] bg-slate-800 border border-slate-700 rounded-xl px-3 py-2">
           <Search size={13} className="text-slate-500 flex-shrink-0" />
           <input
@@ -5777,24 +5971,41 @@ function ReservationsView() {
       ) : (
         <div className="space-y-3">
           {filtered.map((r) => {
-            const cfg = RES_STATUS_CFG[r.status] ?? RES_STATUS_CFG.pending;
-            const busy = actioning === r.id;
+            const cfg    = RES_STATUS_CFG[r.status] ?? RES_STATUS_CFG.pending;
+            const srcCfg = SOURCE_CFG[r.source ?? "online"] ?? SOURCE_CFG.other;
+            const busy   = actioning === r.id;
+            const noShow = isNoShowCandidate(r);
             return (
               <div
                 key={r.id}
-                className={`bg-slate-800/70 border rounded-xl p-4 transition ${
-                  r.status === "checked_in" ? "border-blue-500/50" : "border-slate-700"
+                className={`border rounded-xl p-4 transition ${
+                  noShow        ? "bg-amber-950/40 border-amber-500/50" :
+                  r.status === "checked_in" ? "bg-slate-800/70 border-blue-500/50" :
+                  "bg-slate-800/70 border-slate-700"
                 }`}
               >
+                {/* No-show warning */}
+                {noShow && (
+                  <div className="flex items-center gap-2 bg-amber-900/40 border border-amber-600/50 rounded-lg px-3 py-2 mb-3 text-amber-300 text-xs font-semibold">
+                    <AlertTriangle size={13} className="flex-shrink-0" />
+                    Guest may not have shown — reservation time has passed
+                  </div>
+                )}
+
                 <div className="flex items-start justify-between gap-3 flex-wrap">
                   {/* Left */}
                   <div className="flex-1 min-w-0 space-y-2">
-                    {/* Status + ref + timestamps */}
+                    {/* Status + source + ref + timestamps */}
                     <div className="flex flex-wrap items-center gap-2">
                       <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border ${cfg.badge}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
                         {cfg.label}
                       </span>
+                      {r.source && (
+                        <span className={`inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-full border ${srcCfg.cls}`}>
+                          {srcCfg.label}
+                        </span>
+                      )}
                       <span className="text-slate-500 text-xs font-mono">{r.id.slice(0, 8).toUpperCase()}</span>
                       {r.checked_in_at && (
                         <span className="text-blue-400 text-xs flex items-center gap-1">
@@ -5840,7 +6051,7 @@ function ReservationsView() {
                             <CheckCircle2 size={13} /> Confirm
                           </button>
                         )}
-                        {r.status === "confirmed" && (
+                        {(r.status === "confirmed" || noShow) && r.status !== "checked_in" && (
                           <button
                             onClick={() => doStatus(r.id, "checked_in")}
                             className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-all"
@@ -5854,6 +6065,14 @@ function ReservationsView() {
                             className="flex items-center gap-1.5 bg-teal-600 hover:bg-teal-500 active:scale-95 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-all"
                           >
                             <LogOut size={13} /> Check Out
+                          </button>
+                        )}
+                        {noShow && r.status === "confirmed" && (
+                          <button
+                            onClick={() => doStatus(r.id, "no_show")}
+                            className="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 active:scale-95 text-slate-400 text-xs font-semibold px-3 py-2 rounded-xl transition-all"
+                          >
+                            <AlertTriangle size={13} /> No Show
                           </button>
                         )}
                         {(r.status === "pending" || r.status === "confirmed" || r.status === "checked_in") && (
@@ -5871,6 +6090,173 @@ function ReservationsView() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* ── Add Walk-in / Phone Booking Modal ─────────────────────────────── */}
+      {showAdd && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowAdd(false)} />
+          <div className="relative w-full sm:max-w-lg bg-slate-900 border border-slate-700 sm:rounded-2xl shadow-2xl flex flex-col max-h-[95dvh] overflow-hidden">
+
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700 flex-shrink-0">
+              <div>
+                <h3 className="text-white font-bold text-base">Add Booking</h3>
+                <p className="text-slate-400 text-xs mt-0.5">Walk-in or phone reservation</p>
+              </div>
+              <button onClick={() => setShowAdd(false)} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-700 hover:text-white transition">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 p-5 space-y-5">
+
+              {/* Source toggle */}
+              <div>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Source</p>
+                <div className="flex gap-2">
+                  {(["walk-in", "phone"] as const).map((src) => (
+                    <button key={src} type="button" onClick={() => setAddSource(src)}
+                      className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all ${
+                        addSource === src
+                          ? "bg-orange-500 border-orange-500 text-white"
+                          : "bg-slate-800 border-slate-600 text-slate-400 hover:border-slate-500"
+                      }`}>
+                      {src === "walk-in" ? "Walk-in" : "Phone booking"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Date + party */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Date</label>
+                  <input type="date" value={addDate} min={localTodayStrRes()} max={localMaxDateStrRes(rs.maxAdvanceDays ?? 30)}
+                    onChange={(e) => setAddDate(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-600 rounded-xl px-3 py-2.5 text-slate-200 text-sm focus:outline-none focus:border-orange-500 transition" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Guests</label>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setAddParty((p) => Math.max(1, p - 1))}
+                      className="w-9 h-9 rounded-full border border-slate-600 text-slate-400 hover:border-orange-500 hover:text-orange-400 font-bold transition flex items-center justify-center">−</button>
+                    <span className="text-white font-bold text-lg w-6 text-center">{addParty}</span>
+                    <button type="button" onClick={() => setAddParty((p) => Math.min(20, p + 1))}
+                      className="w-9 h-9 rounded-full border border-slate-600 text-slate-400 hover:border-orange-500 hover:text-orange-400 font-bold transition flex items-center justify-center">+</button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Time slots */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Time</label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {addSlotsForDate.map((slot) => {
+                    const past     = isSlotPastRes(slot, addDate);
+                    const selected = addTime === slot;
+                    return (
+                      <button key={slot} type="button" disabled={past}
+                        onClick={() => !past && setAddTime(slot)}
+                        title={past ? "Time has passed" : undefined}
+                        className={`py-2 rounded-lg text-xs font-semibold border transition-all ${
+                          past
+                            ? "bg-slate-900 text-slate-700 border-slate-800 cursor-not-allowed line-through"
+                            : selected
+                              ? "bg-orange-500 text-white border-orange-500"
+                              : "bg-slate-800 text-slate-300 border-slate-700 hover:border-orange-500 hover:text-orange-300"
+                        }`}>{fmt12Pos(slot)}</button>
+                    );
+                  })}
+                </div>
+                {addSlotsForDate.every((s) => isSlotPastRes(s, addDate)) && (
+                  <p className="text-xs text-amber-400 mt-2">All slots for today have passed — select a future date.</p>
+                )}
+              </div>
+
+              {/* Table selector */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                  Table
+                  {addSource === "walk-in" && <span className="text-slate-500 font-normal normal-case ml-1">(select from all active tables)</span>}
+                </label>
+                {addSource === "walk-in" ? (
+                  /* Walk-ins: pick any active table — staff can see what's free */
+                  <div className="space-y-2">
+                    {Object.entries(tablesBySection).map(([sec, tbls]) => (
+                      <div key={sec}>
+                        {sec && <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">{sec}</p>}
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {tbls.map((t) => {
+                            const sel = addTableId === t.id;
+                            return (
+                              <button key={t.id} type="button"
+                                onClick={() => { setAddTableId(t.id); setAddTableMeta({ id: t.id, label: t.label, seats: t.seats, section: t.section }); }}
+                                className={`py-2 rounded-lg text-xs font-semibold border transition-all ${
+                                  sel ? "bg-orange-500 text-white border-orange-500" : "bg-slate-800 text-slate-300 border-slate-700 hover:border-orange-500 hover:text-orange-300"
+                                }`}>{t.label}</button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : addLoadingTbl ? (
+                  <div className="flex items-center gap-2 text-slate-400 text-sm py-2">
+                    <Loader2 size={14} className="animate-spin text-orange-500" /> Checking availability…
+                  </div>
+                ) : addAvailTables.length === 0 ? (
+                  <p className="text-slate-500 text-sm py-2">No available tables for this slot — try a different time.</p>
+                ) : (
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {addAvailTables.map((t) => {
+                      const sel = addTableId === t.id;
+                      return (
+                        <button key={t.id} type="button"
+                          onClick={() => { setAddTableId(t.id); setAddTableMeta(t); }}
+                          className={`py-2 rounded-lg text-xs font-semibold border transition-all ${
+                            sel ? "bg-orange-500 text-white border-orange-500" : "bg-slate-800 text-slate-300 border-slate-700 hover:border-orange-500 hover:text-orange-300"
+                          }`}>{t.label}</button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Guest details */}
+              <div className="space-y-3">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Guest details</p>
+                <input type="text" placeholder="Full name *" value={addName} onChange={(e) => setAddName(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" />
+                <input type="email" placeholder="Email (optional)" value={addEmail} onChange={(e) => setAddEmail(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" />
+                <input type="tel" placeholder="Phone (optional)" value={addPhone} onChange={(e) => setAddPhone(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" />
+                <textarea rows={2} placeholder="Notes (optional)" value={addNote} onChange={(e) => setAddNote(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 text-sm placeholder-slate-500 resize-none focus:outline-none focus:border-orange-500 transition" />
+              </div>
+
+              {addError && (
+                <div className="flex items-start gap-2 bg-red-900/40 border border-red-700/50 rounded-xl p-3 text-sm text-red-300">
+                  <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />{addError}
+                </div>
+              )}
+            </div>
+
+            {/* Modal footer */}
+            <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-slate-700 flex-shrink-0">
+              <button onClick={() => setShowAdd(false)} className="text-slate-400 hover:text-slate-200 text-sm font-semibold transition">Cancel</button>
+              <button
+                onClick={handleAddBooking}
+                disabled={addSaving || !addName.trim() || !addTableMeta || isSlotPastRes(addTime, addDate)}
+                className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-400 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-all"
+              >
+                {addSaving ? <><Loader2 size={14} className="animate-spin" />Saving…</> :
+                 addSource === "walk-in" ? <><LogIn size={14} />Check In Now</> : <><CheckCircle2 size={14} />Create Booking</>}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -5919,13 +6305,18 @@ export default function POSPage() {
 
   const perms = currentStaff.permissions;
 
-  const hasTables = (appSettings.diningTables?.length ?? 0) > 0;
+  // hasTables: any dining tables exist (active or not) — shows Table Service tab
+  const hasTables      = (appSettings.diningTables?.length ?? 0) > 0;
+  // hasReservations: reservation system is explicitly enabled — shows Reservations tab
+  // Use || hasTables so it also appears alongside Table Service when tables are configured.
+  const hasReservations = (appSettings.reservationSystem?.enabled === true) || hasTables;
+
   const NAV = [
     { id: "sale"         as View, label: "Sale",          icon: ShoppingCart,    show: true },
     { id: "dashboard"    as View, label: "Dashboard",     icon: LayoutDashboard, show: perms.canAccessDashboard },
     { id: "customers"    as View, label: "Customers",     icon: Users,           show: perms.canManageCustomers },
     { id: "tables"       as View, label: "Table Service", icon: UtensilsCrossed, show: hasTables },
-    { id: "reservations" as View, label: "Reservations",  icon: CalendarDays,    show: hasTables },
+    { id: "reservations" as View, label: "Reservations",  icon: CalendarDays,    show: hasReservations },
     { id: "staff"        as View, label: "Staff",         icon: UserCog,         show: perms.canManageStaff },
     { id: "settings"     as View, label: "Settings",      icon: Settings2,       show: perms.canAccessSettings },
   ].filter((n) => n.show);

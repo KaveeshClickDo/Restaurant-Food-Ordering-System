@@ -34,4 +34,13 @@ create policy "anon_select_reservations"
 -- No anon INSERT / UPDATE / DELETE policies — absence of policy = deny.
 
 -- Add to Realtime publication so the admin panel receives live updates
-alter publication supabase_realtime add table reservations;
+-- (skip if already a member to avoid duplicate error)
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and tablename = 'reservations'
+  ) then
+    alter publication supabase_realtime add table reservations;
+  end if;
+end $$;

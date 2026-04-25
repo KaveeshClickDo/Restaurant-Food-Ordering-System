@@ -8,7 +8,7 @@ import {
   CalendarDays, Clock, Users, UtensilsCrossed, CheckCircle2, XCircle,
   AlertTriangle, Trash2, RefreshCw, MapPin, ChevronDown, Loader2,
   ToggleLeft, ToggleRight, Settings2, Search, Mail, Phone,
-  LogIn, LogOut,
+  LogIn, LogOut, UserPlus, Ban, Star, Link, ExternalLink,
 } from "lucide-react";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -51,6 +51,8 @@ function ReservationSettings() {
   const rs = settings.reservationSystem;
   const [saving, setSaving] = useState(false);
   const [saved,  setSaved]  = useState(false);
+  const [newBlackout, setNewBlackout] = useState("");
+  const [embedCopied, setEmbedCopied] = useState(false);
 
   const [form, setForm] = useState({
     slotDurationMinutes: rs.slotDurationMinutes,
@@ -58,15 +60,34 @@ function ReservationSettings() {
     openTime:            rs.openTime,
     closeTime:           rs.closeTime,
     slotIntervalMinutes: rs.slotIntervalMinutes,
+    maxPartySize:        rs.maxPartySize ?? 10,
+    reviewUrl:           rs.reviewUrl   ?? "",
   });
 
   async function save() {
     setSaving(true);
     updateSettings({ reservationSystem: { ...rs, ...form } });
     await new Promise((r) => setTimeout(r, 600));
-    setSaving(false);
-    setSaved(true);
+    setSaving(false); setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  }
+
+  function addBlackout() {
+    if (!newBlackout) return;
+    const dates = [...new Set([...(rs.blackoutDates ?? []), newBlackout])].sort();
+    updateSettings({ reservationSystem: { ...rs, blackoutDates: dates } });
+    setNewBlackout("");
+  }
+
+  function removeBlackout(d: string) {
+    updateSettings({ reservationSystem: { ...rs, blackoutDates: (rs.blackoutDates ?? []).filter((x) => x !== d) } });
+  }
+
+  const siteUrl = typeof window !== "undefined" ? window.location.origin : "";
+  const embedCode = `<iframe src="${siteUrl}/book" width="100%" height="700" style="border:none;border-radius:12px" title="Reserve a Table"></iframe>`;
+
+  function copyEmbed() {
+    navigator.clipboard.writeText(embedCode).then(() => { setEmbedCopied(true); setTimeout(() => setEmbedCopied(false), 2000); });
   }
 
   const field = (label: string, node: React.ReactNode) => (
@@ -76,47 +97,110 @@ function ReservationSettings() {
     </div>
   );
 
-  const numInput = (key: keyof typeof form, min: number, max: number) => (
-    <input
-      type="number" min={min} max={max}
-      value={form[key] as number}
+  const numInput = (key: "slotDurationMinutes" | "maxAdvanceDays" | "slotIntervalMinutes" | "maxPartySize", min: number, max: number) => (
+    <input type="number" min={min} max={max} value={form[key] as number}
       onChange={(e) => setForm((p) => ({ ...p, [key]: parseInt(e.target.value, 10) || min }))}
-      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400 transition"
-    />
+      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400 transition" />
   );
 
   const timeInput = (key: "openTime" | "closeTime") => (
-    <input
-      type="time"
-      value={form[key]}
+    <input type="time" value={form[key]}
       onChange={(e) => setForm((p) => ({ ...p, [key]: e.target.value }))}
-      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400 transition"
-    />
+      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400 transition" />
   );
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-4">
-      <div className="flex items-center gap-2 mb-1">
-        <Settings2 size={15} className="text-orange-500" />
-        <h3 className="text-sm font-bold text-gray-800">Booking Settings</h3>
+    <div className="space-y-4">
+      {/* Booking config */}
+      <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-4">
+        <div className="flex items-center gap-2 mb-1">
+          <Settings2 size={15} className="text-orange-500" />
+          <h3 className="text-sm font-bold text-gray-800">Booking Settings</h3>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          {field("Opening time",        timeInput("openTime"))}
+          {field("Closing time",        timeInput("closeTime"))}
+          {field("Slot interval (min)", numInput("slotIntervalMinutes", 15, 120))}
+          {field("Slot duration (min)", numInput("slotDurationMinutes", 30, 360))}
+          {field("Max advance (days)",  numInput("maxAdvanceDays", 1, 365))}
+          {field("Max party size",      numInput("maxPartySize", 1, 50))}
+        </div>
+        {/* Review URL */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-1">
+            <Star size={11} className="text-yellow-500" /> Review link (Google / TripAdvisor)
+          </label>
+          <div className="flex gap-2">
+            <input type="url" value={form.reviewUrl} placeholder="https://g.page/r/…/review"
+              onChange={(e) => setForm((p) => ({ ...p, reviewUrl: e.target.value }))}
+              className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400 transition" />
+            {form.reviewUrl && (
+              <a href={form.reviewUrl} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1 text-xs text-orange-600 border border-orange-200 rounded-xl px-3 py-2 hover:bg-orange-50 transition">
+                <ExternalLink size={12} /> Test
+              </a>
+            )}
+          </div>
+          <p className="text-xs text-gray-400 mt-1">Used in the post-visit review request email (&#123;&#123;review_url&#125;&#125;).</p>
+        </div>
+        <div className="flex items-center gap-3 pt-1">
+          <button onClick={save} disabled={saving}
+            className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold text-sm px-4 py-2 rounded-xl transition">
+            {saving ? <Loader2 size={14} className="animate-spin" /> : null}
+            {saving ? "Saving…" : saved ? "Saved ✓" : "Save settings"}
+          </button>
+          <p className="text-xs text-gray-400">Changes apply to new bookings immediately.</p>
+        </div>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-        {field("Opening time",        timeInput("openTime"))}
-        {field("Closing time",        timeInput("closeTime"))}
-        {field("Slot interval (min)", numInput("slotIntervalMinutes", 15, 120))}
-        {field("Slot duration (min)", numInput("slotDurationMinutes", 30, 360))}
-        {field("Max advance (days)",  numInput("maxAdvanceDays", 1, 365))}
+
+      {/* Blackout dates */}
+      <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <Ban size={15} className="text-red-500" />
+          <h3 className="text-sm font-bold text-gray-800">Blackout Dates</h3>
+          <span className="text-xs text-gray-400 ml-1">Dates the restaurant is closed — no online bookings accepted.</span>
+        </div>
+        <div className="flex gap-2">
+          <input type="date" value={newBlackout} onChange={(e) => setNewBlackout(e.target.value)}
+            className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
+          <button onClick={addBlackout} disabled={!newBlackout}
+            className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold text-sm px-3 py-2 rounded-xl transition">
+            Add date
+          </button>
+        </div>
+        {(rs.blackoutDates ?? []).length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {(rs.blackoutDates ?? []).map((d) => (
+              <span key={d} className="inline-flex items-center gap-1.5 bg-red-50 border border-red-200 text-red-700 text-xs font-semibold px-2.5 py-1 rounded-full">
+                <CalendarDays size={11} />
+                {new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                <button onClick={() => removeBlackout(d)} className="ml-0.5 text-red-400 hover:text-red-700 transition">×</button>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400">No blackout dates set.</p>
+        )}
       </div>
-      <div className="flex items-center gap-3 pt-1">
-        <button
-          onClick={save}
-          disabled={saving}
-          className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold text-sm px-4 py-2 rounded-xl transition"
-        >
-          {saving ? <Loader2 size={14} className="animate-spin" /> : null}
-          {saving ? "Saving…" : saved ? "Saved ✓" : "Save settings"}
-        </button>
-        <p className="text-xs text-gray-400">Changes apply to new bookings immediately.</p>
+
+      {/* Embed widget */}
+      <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <Link size={15} className="text-blue-500" />
+          <h3 className="text-sm font-bold text-gray-800">Embeddable Booking Widget</h3>
+        </div>
+        <p className="text-xs text-gray-500">Paste this iframe code into any website to embed your booking form.</p>
+        <div className="relative">
+          <pre className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-3 text-xs text-gray-700 overflow-x-auto whitespace-pre-wrap break-all">{embedCode}</pre>
+          <button onClick={copyEmbed}
+            className="absolute top-2 right-2 text-xs bg-white border border-gray-200 rounded-lg px-2 py-1 text-gray-600 hover:bg-gray-100 transition">
+            {embedCopied ? "Copied ✓" : "Copy"}
+          </button>
+        </div>
+        <a href="/book" target="_blank" rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-xs text-blue-600 font-semibold hover:text-blue-800 transition">
+          <ExternalLink size={12} /> Preview booking widget
+        </a>
       </div>
     </div>
   );
@@ -147,10 +231,32 @@ function ReservationCard({
   const isActive    = res.status === "pending" || res.status === "confirmed";
   const isCheckedIn = res.status === "checked_in";
 
+  // No-show flag: confirmed booking whose date+time is 30+ min in the past
+  const isNoShowCandidate = res.status === "confirmed" && (() => {
+    const [y, mo, d] = res.date.split("-").map(Number);
+    const [h, m]     = res.time.split(":").map(Number);
+    const bookingMs  = new Date(y, mo - 1, d, h, m).getTime();
+    return Date.now() - bookingMs > 30 * 60 * 1000;
+  })();
+
+  const SOURCE_LABELS: Record<string, { label: string; cls: string }> = {
+    "online":  { label: "Online",   cls: "bg-teal-50 text-teal-700 border-teal-200"   },
+    "walk-in": { label: "Walk-in",  cls: "bg-purple-50 text-purple-700 border-purple-200" },
+    "phone":   { label: "Phone",    cls: "bg-blue-50 text-blue-700 border-blue-200"   },
+    "other":   { label: "Other",    cls: "bg-gray-100 text-gray-600 border-gray-300"  },
+  };
+  const srcInfo = res.source ? (SOURCE_LABELS[res.source] ?? SOURCE_LABELS.other) : null;
+
   return (
     <div className={`bg-white rounded-xl border p-4 transition ${
-      isCheckedIn ? "border-blue-300 bg-blue-50/30" : "border-gray-200 hover:border-gray-300"
+      isNoShowCandidate ? "border-amber-300 bg-amber-50/30" :
+      isCheckedIn       ? "border-blue-300 bg-blue-50/30"   : "border-gray-200 hover:border-gray-300"
     }`}>
+      {isNoShowCandidate && (
+        <div className="flex items-center gap-1.5 text-xs text-amber-700 font-semibold mb-2">
+          <AlertTriangle size={12} /> Possible no-show — booking time has passed
+        </div>
+      )}
       <div className="flex items-start justify-between gap-3">
 
         {/* Left info */}
@@ -160,6 +266,12 @@ function ReservationCard({
               <span className={`w-1.5 h-1.5 rounded-full ${cfg.dotClass}`} />
               {cfg.label}
             </span>
+            {srcInfo && (
+              <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border ${srcInfo.cls}`}>
+                {res.source === "walk-in" ? <UserPlus size={10} /> : res.source === "phone" ? <Phone size={10} /> : null}
+                {srcInfo.label}
+              </span>
+            )}
             <span className="text-xs text-gray-400 font-mono">{res.id.slice(0, 8).toUpperCase()}</span>
             {res.checkedInAt && (
               <span className="text-xs text-blue-600 font-medium flex items-center gap-1">
@@ -304,9 +416,24 @@ export default function ReservationsPanel() {
   const [loading,         setLoading]         = useState(true);
   const [filterDate,      setFilterDate]      = useState(todayStr());
   const [filterStatus,    setFilterStatus]    = useState<"" | ReservationStatus>("");
+  const [filterSource,    setFilterSource]    = useState("");
   const [search,          setSearch]          = useState("");
   const [showSettings,    setShowSettings]    = useState(false);
   const [togglingEnabled, setTogglingEnabled] = useState(false);
+
+  // Walk-in / phone booking modal
+  const [showAddModal,  setShowAddModal]  = useState(false);
+  const [addSource,     setAddSource]     = useState<"walk-in" | "phone">("walk-in");
+  const [addName,       setAddName]       = useState("");
+  const [addEmail,      setAddEmail]      = useState("");
+  const [addPhone,      setAddPhone]      = useState("");
+  const [addParty,      setAddParty]      = useState(2);
+  const [addTableId,    setAddTableId]    = useState("");
+  const [addDate,       setAddDate]       = useState(todayStr());
+  const [addTime,       setAddTime]       = useState("12:00");
+  const [addNote,       setAddNote]       = useState("");
+  const [addSaving,     setAddSaving]     = useState(false);
+  const [addError,      setAddError]      = useState("");
 
   const fetchReservations = useCallback(async () => {
     setLoading(true);
@@ -379,7 +506,38 @@ export default function ReservationsPanel() {
     setReservations((prev) => prev.filter((r) => r.id !== id));
   }
 
+  async function handleAddBooking(e: React.FormEvent) {
+    e.preventDefault();
+    if (!addTableId) { setAddError("Please select a table."); return; }
+    setAddSaving(true); setAddError("");
+    const table = settings.diningTables?.find((t) => t.id === addTableId);
+    const res = await fetch("/api/admin/reservations", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tableId: addTableId, tableLabel: table?.label ?? addTableId,
+        tableSeats: table?.seats ?? 0, section: table?.section ?? "",
+        date: addDate, time: addTime, partySize: addParty,
+        customerName: addName.trim(), customerEmail: addEmail.trim(),
+        customerPhone: addPhone.trim(), note: addNote.trim(),
+        source: addSource,
+        status: addSource === "walk-in" ? "checked_in" : "pending",
+      }),
+    });
+    const json = await res.json() as { ok: boolean; error?: string };
+    if (json.ok) {
+      setShowAddModal(false);
+      setAddName(""); setAddEmail(""); setAddPhone(""); setAddNote("");
+      setAddParty(2); setAddTableId(""); setAddSource("walk-in");
+      setAddDate(todayStr()); setAddTime("12:00");
+      fetchReservations();
+    } else {
+      setAddError(json.error ?? "Failed to create booking.");
+    }
+    setAddSaving(false);
+  }
+
   const filtered = reservations.filter((r) => {
+    if (filterSource && r.source !== filterSource) return false;
     if (!search) return true;
     const q = search.toLowerCase();
     return (
@@ -427,13 +585,21 @@ export default function ReservationsPanel() {
             )}
           </button>
         </div>
-        <button
-          onClick={() => setShowSettings((v) => !v)}
-          className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-orange-600 hover:text-orange-700 transition"
-        >
-          <Settings2 size={13} />
-          {showSettings ? "Hide settings" : "Configure booking settings"}
-        </button>
+        <div className="mt-3 flex items-center gap-4 flex-wrap">
+          <button
+            onClick={() => setShowSettings((v) => !v)}
+            className="flex items-center gap-1.5 text-xs font-semibold text-orange-600 hover:text-orange-700 transition"
+          >
+            <Settings2 size={13} />
+            {showSettings ? "Hide settings" : "Configure booking settings"}
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-1.5 text-xs font-semibold text-white bg-orange-500 hover:bg-orange-600 px-3 py-1.5 rounded-xl transition"
+          >
+            <UserPlus size={13} /> Add Walk-in / Phone Booking
+          </button>
+        </div>
       </div>
 
       {showSettings && <ReservationSettings />}
@@ -478,6 +644,17 @@ export default function ReservationsPanel() {
           <option value="checked_out">Checked out</option>
           <option value="cancelled">Cancelled</option>
           <option value="no_show">No show</option>
+        </select>
+        <select
+          value={filterSource}
+          onChange={(e) => setFilterSource(e.target.value)}
+          className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400 transition"
+        >
+          <option value="">All sources</option>
+          <option value="online">Online</option>
+          <option value="walk-in">Walk-in</option>
+          <option value="phone">Phone</option>
+          <option value="other">Other</option>
         </select>
         <div className="flex items-center gap-2 flex-1 min-w-[180px] border border-gray-200 rounded-xl px-3 py-2">
           <Search size={14} className="text-gray-400 flex-shrink-0" />
@@ -524,6 +701,96 @@ export default function ReservationsPanel() {
               onDelete={handleDelete}
             />
           ))}
+        </div>
+      )}
+
+      {/* Walk-in / Phone booking modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowAddModal(false)} />
+          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <UserPlus size={16} className="text-orange-500" />
+                <h3 className="font-bold text-gray-900">Add Booking</h3>
+              </div>
+              <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-600 transition">
+                <XCircle size={20} />
+              </button>
+            </div>
+            <form onSubmit={handleAddBooking} className="p-5 space-y-4 overflow-y-auto max-h-[75vh]">
+              {/* Source toggle */}
+              <div className="flex rounded-xl border border-gray-200 overflow-hidden">
+                {(["walk-in", "phone"] as const).map((s) => (
+                  <button key={s} type="button" onClick={() => setAddSource(s)}
+                    className={`flex-1 py-2 text-sm font-semibold transition ${addSource === s ? "bg-orange-500 text-white" : "text-gray-500 hover:bg-gray-50"}`}>
+                    {s === "walk-in" ? "Walk-in (check in now)" : "Phone booking"}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Date <span className="text-red-400">*</span></label>
+                  <input type="date" required value={addDate} onChange={(e) => setAddDate(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Time <span className="text-red-400">*</span></label>
+                  <input type="time" required value={addTime} onChange={(e) => setAddTime(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Table <span className="text-red-400">*</span></label>
+                <select required value={addTableId} onChange={(e) => setAddTableId(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition">
+                  <option value="">Select a table…</option>
+                  {(settings.diningTables ?? []).filter((t) => t.active).map((t) => (
+                    <option key={t.id} value={t.id}>{t.label} — {t.section} ({t.seats} seats)</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Party size</label>
+                <input type="number" min={1} max={50} value={addParty} onChange={(e) => setAddParty(parseInt(e.target.value) || 1)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Guest name <span className="text-red-400">*</span></label>
+                <input type="text" required value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="Jane Smith"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Email <span className="text-gray-300 font-normal normal-case">(optional)</span></label>
+                <input type="email" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} placeholder="jane@example.com"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Phone</label>
+                <input type="tel" value={addPhone} onChange={(e) => setAddPhone(e.target.value)} placeholder="+44 7700 900123"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Note</label>
+                <textarea rows={2} value={addNote} onChange={(e) => setAddNote(e.target.value)} placeholder="Allergies, special requests…"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:border-orange-400 transition" />
+              </div>
+              {addError && (
+                <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">
+                  <AlertTriangle size={14} /> {addError}
+                </div>
+              )}
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={() => setShowAddModal(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 transition">Cancel</button>
+                <button type="submit" disabled={addSaving}
+                  className="flex-1 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold text-sm transition flex items-center justify-center gap-2">
+                  {addSaving ? <Loader2 size={14} className="animate-spin" /> : null}
+                  {addSaving ? "Saving…" : addSource === "walk-in" ? "Check In Now" : "Create Booking"}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

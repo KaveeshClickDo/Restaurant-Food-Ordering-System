@@ -62,6 +62,7 @@ export async function sendReservationEmailServer(
   event: EmailTemplateEvent,
   res: ReservationEmailData,
   settings: AdminSettings,
+  siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "",
 ): Promise<void> {
   const template = settings.emailTemplates?.find((t) => t.event === event && t.enabled);
   if (!template) return;
@@ -69,7 +70,7 @@ export async function sendReservationEmailServer(
   const to = res.customer_email?.trim();
   if (!to) return;
 
-  const vars    = buildReservationVarMap(res, settings);
+  const vars    = buildReservationVarMap(res, settings, siteUrl);
   const subject = applyVars(template.subject, vars);
   const body    = applyVars(template.body,    vars);
 

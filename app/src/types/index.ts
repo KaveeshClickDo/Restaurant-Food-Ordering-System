@@ -146,7 +146,8 @@ export type EmailTemplateEvent =
   | "order_cancelled"
   | "reservation_confirmation"
   | "reservation_update"
-  | "reservation_cancellation";
+  | "reservation_cancellation"
+  | "reservation_review_request";
 
 export interface EmailTemplate {
   event: EmailTemplateEvent;
@@ -269,6 +270,8 @@ export interface Reservation {
   createdAt: string;
   checkedInAt?: string;   // ISO timestamp set when staff check-in
   checkedOutAt?: string;  // ISO timestamp set when staff check-out
+  source?: string;        // "online" | "walk-in" | "phone" | "other"
+  cancelToken?: string;   // UUID for guest self-service cancel link
 }
 
 export interface ReservationCustomer {
@@ -293,6 +296,21 @@ export interface ReservationSystem {
   openTime: string;              // "12:00"
   closeTime: string;             // "22:00"
   slotIntervalMinutes: number;   // step between bookable slots, e.g. 30
+  maxPartySize: number;          // maximum guests per booking (default 10)
+  blackoutDates: string[];       // "YYYY-MM-DD" dates the restaurant is closed
+  reviewUrl?: string;            // Google Maps / TripAdvisor review link
+}
+
+export interface WaitlistEntry {
+  id: string;
+  date: string;
+  time: string;
+  partySize: number;
+  name: string;
+  email: string;
+  phone: string;
+  notifiedAt?: string;
+  createdAt: string;
 }
 
 export interface WaiterStaff {

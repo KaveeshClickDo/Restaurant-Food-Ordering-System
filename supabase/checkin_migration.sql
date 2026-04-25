@@ -36,6 +36,14 @@ alter table reservation_customers enable row level security;
 
 -- ── 4. Add reservation_customers to Realtime publication ─────────────────────
 
-alter publication supabase_realtime add table reservation_customers;
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and tablename = 'reservation_customers'
+  ) then
+    alter publication supabase_realtime add table reservation_customers;
+  end if;
+end $$;
 
 -- ── Done ──────────────────────────────────────────────────────────────────────

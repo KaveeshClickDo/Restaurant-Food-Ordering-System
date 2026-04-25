@@ -46,6 +46,8 @@ export const TEMPLATE_VARS: VarDef[] = [
   { name: "party_size",          label: "Party size",          group: "Reservation", preview: "4" },
   { name: "reservation_status",  label: "Reservation status",  group: "Reservation", preview: "confirmed" },
   { name: "reservation_note",    label: "Special note",        group: "Reservation", preview: "Window seat preferred" },
+  { name: "cancel_link",         label: "Cancel booking link", group: "Reservation", preview: "https://yourdomain.com/reservation/token" },
+  { name: "review_url",          label: "Review link (Google/TripAdvisor)", group: "Reservation", preview: "https://g.page/r/yourplaceid/review" },
 ];
 
 // ─── Event metadata ───────────────────────────────────────────────────────────
@@ -66,9 +68,10 @@ export const EVENT_CONFIGS: EventConfig[] = [
   { event: "order_ready",        name: "Order Ready",        description: "Sent when the order is ready",               color: "bg-green-100",  textColor: "text-green-700",  emoji: "🥡" },
   { event: "order_delivered",    name: "Order Delivered",    description: "Sent when the order has been delivered",     color: "bg-emerald-100",textColor: "text-emerald-700",emoji: "🚀" },
   { event: "order_cancelled",         name: "Order Cancelled",         description: "Sent when an order is cancelled",                color: "bg-red-100",     textColor: "text-red-700",     emoji: "❌" },
-  { event: "reservation_confirmation",name: "Reservation Confirmed",    description: "Sent when a customer books a table",             color: "bg-teal-100",    textColor: "text-teal-700",    emoji: "📅" },
-  { event: "reservation_update",      name: "Reservation Update",       description: "Sent when admin confirms or changes the status", color: "bg-blue-100",    textColor: "text-blue-700",    emoji: "🔄" },
-  { event: "reservation_cancellation",name: "Reservation Cancelled",    description: "Sent when a reservation is cancelled",           color: "bg-rose-100",    textColor: "text-rose-700",    emoji: "🚫" },
+  { event: "reservation_confirmation",   name: "Reservation Confirmed",    description: "Sent when a customer books a table",             color: "bg-teal-100",    textColor: "text-teal-700",    emoji: "📅" },
+  { event: "reservation_update",         name: "Reservation Update",       description: "Sent when admin confirms or changes the status", color: "bg-blue-100",    textColor: "text-blue-700",    emoji: "🔄" },
+  { event: "reservation_cancellation",   name: "Reservation Cancelled",    description: "Sent when a reservation is cancelled",           color: "bg-rose-100",    textColor: "text-rose-700",    emoji: "🚫" },
+  { event: "reservation_review_request", name: "Post-Visit Review Request",description: "Sent automatically when a guest checks out",     color: "bg-yellow-100",  textColor: "text-yellow-700",  emoji: "⭐" },
 ];
 
 // ─── Default templates ────────────────────────────────────────────────────────
@@ -178,6 +181,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
 </p>
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
 <p style="color:#6b7280;font-size:14px">Please arrive on time. If your plans change, contact us at <strong>{{restaurant_phone}}</strong>.</p>
+<p style="color:#6b7280;font-size:13px">Need to cancel? <a href="{{cancel_link}}" style="color:#0d9488">Click here to cancel your booking</a>.</p>
 <p>We look forward to welcoming you!</p>`,
     enabled: true,
     lastModified: new Date(0).toISOString(),
@@ -219,6 +223,22 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
 <p>If you have questions or would like to make a new booking, please contact us at <strong>{{restaurant_phone}}</strong>.</p>
 <p>We hope to see you again soon.</p>`,
+    enabled: false,
+    lastModified: new Date(0).toISOString(),
+  },
+  {
+    event: "reservation_review_request",
+    name: "Post-Visit Review Request",
+    subject: "Thank you for dining with us — leave us a review!",
+    body: `<h2 style="color:#d97706;margin:0 0 16px 0">Thank You for Visiting! ⭐</h2>
+<p>Hi <strong>{{customer_name}}</strong>,</p>
+<p>We hope you had a wonderful time at <strong>{{restaurant_name}}</strong> on <strong>{{reservation_date}}</strong>. It was a pleasure to have you.</p>
+<p>If you enjoyed your visit, we'd love it if you could take a moment to share your experience — it means the world to our team.</p>
+<div style="text-align:center;margin:28px 0">
+  <a href="{{review_url}}" style="display:inline-block;background:#ea580c;color:#ffffff;font-weight:700;font-size:15px;padding:14px 32px;border-radius:8px;text-decoration:none">Leave a Review ⭐</a>
+</div>
+<p style="color:#6b7280;font-size:14px">Your feedback helps us improve and lets other guests know what to expect. Thank you for your support!</p>
+<p>We look forward to welcoming you back soon.</p>`,
     enabled: false,
     lastModified: new Date(0).toISOString(),
   },
@@ -549,12 +569,14 @@ export interface ReservationEmailData {
   status: string;
   note?: string | null;
   section?: string;
+  cancel_token?: string;  // used to build the self-service cancel link
 }
 
 /** Build variable map from a real reservation row + settings. */
 export function buildReservationVarMap(
   res: ReservationEmailData,
   settings: AdminSettings,
+  siteUrl = "",
 ): Record<string, string> {
   const [y, mo, d] = res.date.split("-").map(Number);
   const dateObj = new Date(y, mo - 1, d);
@@ -574,6 +596,10 @@ export function buildReservationVarMap(
     settings.restaurant.postcode,
   ].filter(Boolean).join(", ");
 
+  const cancelLink = res.cancel_token
+    ? `${siteUrl}/reservation/${res.cancel_token}`
+    : "";
+
   return {
     customer_name:      res.customer_name,
     customer_email:     res.customer_email,
@@ -587,6 +613,8 @@ export function buildReservationVarMap(
     restaurant_name:    settings.restaurant.name,
     restaurant_phone:   settings.restaurant.phone,
     restaurant_address: restAddr,
+    cancel_link:        cancelLink,
+    review_url:         (settings.reservationSystem as { reviewUrl?: string })?.reviewUrl ?? "",
   };
 }
 
@@ -611,6 +639,8 @@ export function buildReservationPreviewVarMap(settings: AdminSettings): Record<s
     restaurant_name:    settings.restaurant.name,
     restaurant_phone:   settings.restaurant.phone,
     restaurant_address: restAddr,
+    cancel_link:        "https://yourdomain.com/reservation/example-token",
+    review_url:         (settings.reservationSystem as { reviewUrl?: string })?.reviewUrl ?? "https://g.page/r/review",
   };
 }
 

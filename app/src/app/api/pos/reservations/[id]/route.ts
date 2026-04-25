@@ -8,8 +8,9 @@
  * and increments visit_count + sets last_visit_at on check-out.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin }             from "@/lib/supabaseAdmin";
+import { NextRequest, NextResponse }       from "next/server";
+import { supabaseAdmin }                   from "@/lib/supabaseAdmin";
+import { sendReservationEmailServer }      from "@/lib/emailServer";
 
 const ALLOWED = new Set(["checked_in", "checked_out", "confirmed", "cancelled", "no_show"]);
 
@@ -38,7 +39,7 @@ export async function PUT(
     .from("reservations")
     .update(patch)
     .eq("id", id)
-    .select("id,customer_name,customer_email,customer_phone")
+    .select("id,customer_name,customer_email,customer_phone,date,time,table_label,party_size,status,note,section")
     .single();
 
   if (updateErr) {
@@ -46,8 +47,29 @@ export async function PUT(
     return NextResponse.json({ ok: false, error: updateErr.message }, { status: 500 });
   }
 
-  // Customer profile side-effects (fire-and-forget)
+  // Side-effects (fire-and-forget)
   if (resRow) {
+    // Review request email on check-out
+    if (body.status === "checked_out" && resRow.customer_email) {
+      const { data: settingsRow } = await supabaseAdmin
+        .from("app_settings").select("data").limit(1).single();
+      if (settingsRow?.data) {
+        sendReservationEmailServer("reservation_review_request", {
+          id:             resRow.id,
+          customer_name:  resRow.customer_name,
+          customer_email: resRow.customer_email,
+          customer_phone: resRow.customer_phone ?? "",
+          date:           resRow.date,
+          time:           resRow.time,
+          table_label:    resRow.table_label,
+          party_size:     resRow.party_size,
+          status:         resRow.status,
+          note:           resRow.note,
+          section:        resRow.section ?? "",
+        }, settingsRow.data).catch(console.error);
+      }
+    }
+
     const email = (resRow.customer_email as string)?.trim().toLowerCase();
     if (email) {
       if (body.status === "checked_in") {
