@@ -14,7 +14,7 @@ import type { AdminSettings, Customer, EmailTemplate, EmailTemplateEvent, Order 
 export interface VarDef {
   name: string;
   label: string;
-  group: "Customer" | "Order" | "Restaurant";
+  group: "Customer" | "Order" | "Restaurant" | "Reservation";
   preview: string; // value used in the template preview
 }
 
@@ -38,6 +38,14 @@ export const TEMPLATE_VARS: VarDef[] = [
   { name: "restaurant_address",  label: "Restaurant address",  group: "Restaurant",  preview: "42 Curry Lane, London" },
   // Tax
   { name: "order_vat",           label: "VAT amount",          group: "Order",       preview: "£3.33 (incl. 20% VAT)" },
+  // Reservation
+  { name: "booking_ref",         label: "Booking reference",   group: "Reservation", preview: "A1B2C3D4" },
+  { name: "reservation_date",    label: "Reservation date",    group: "Reservation", preview: "25 Apr 2026" },
+  { name: "reservation_time",    label: "Reservation time",    group: "Reservation", preview: "7:30 PM" },
+  { name: "table_label",         label: "Table label",         group: "Reservation", preview: "Table 3" },
+  { name: "party_size",          label: "Party size",          group: "Reservation", preview: "4" },
+  { name: "reservation_status",  label: "Reservation status",  group: "Reservation", preview: "confirmed" },
+  { name: "reservation_note",    label: "Special note",        group: "Reservation", preview: "Window seat preferred" },
 ];
 
 // ─── Event metadata ───────────────────────────────────────────────────────────
@@ -57,7 +65,10 @@ export const EVENT_CONFIGS: EventConfig[] = [
   { event: "order_preparing",    name: "Order Preparing",    description: "Sent when kitchen starts preparing",         color: "bg-amber-100",  textColor: "text-amber-700",  emoji: "🍳" },
   { event: "order_ready",        name: "Order Ready",        description: "Sent when the order is ready",               color: "bg-green-100",  textColor: "text-green-700",  emoji: "🥡" },
   { event: "order_delivered",    name: "Order Delivered",    description: "Sent when the order has been delivered",     color: "bg-emerald-100",textColor: "text-emerald-700",emoji: "🚀" },
-  { event: "order_cancelled",    name: "Order Cancelled",    description: "Sent when an order is cancelled",            color: "bg-red-100",    textColor: "text-red-700",    emoji: "❌" },
+  { event: "order_cancelled",         name: "Order Cancelled",         description: "Sent when an order is cancelled",                color: "bg-red-100",     textColor: "text-red-700",     emoji: "❌" },
+  { event: "reservation_confirmation",name: "Reservation Confirmed",    description: "Sent when a customer books a table",             color: "bg-teal-100",    textColor: "text-teal-700",    emoji: "📅" },
+  { event: "reservation_update",      name: "Reservation Update",       description: "Sent when admin confirms or changes the status", color: "bg-blue-100",    textColor: "text-blue-700",    emoji: "🔄" },
+  { event: "reservation_cancellation",name: "Reservation Cancelled",    description: "Sent when a reservation is cancelled",           color: "bg-rose-100",    textColor: "text-rose-700",    emoji: "🚫" },
 ];
 
 // ─── Default templates ────────────────────────────────────────────────────────
@@ -146,6 +157,68 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
 <p>If you have any questions, please contact us at <strong>{{restaurant_phone}}</strong>.</p>
 <p>We apologise for any inconvenience and hope to serve you again soon.</p>
 <p style="color:#6b7280;font-size:14px">— The team at <strong>{{restaurant_name}}</strong></p>`,
+    enabled: false,
+    lastModified: new Date(0).toISOString(),
+  },
+  // ── Reservation templates ──────────────────────────────────────────────────
+  {
+    event: "reservation_confirmation",
+    name: "Reservation Confirmed",
+    subject: "Your table reservation is confirmed — {{booking_ref}}",
+    body: `<h2 style="color:#0d9488;margin:0 0 16px 0">Reservation Confirmed! 📅</h2>
+<p>Hi <strong>{{customer_name}}</strong>,</p>
+<p>We're delighted to confirm your table reservation at <strong>{{restaurant_name}}</strong>.</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
+<p>
+  <strong>Booking Reference:</strong> {{booking_ref}}<br>
+  <strong>Date:</strong> {{reservation_date}}<br>
+  <strong>Time:</strong> {{reservation_time}}<br>
+  <strong>Table:</strong> {{table_label}}<br>
+  <strong>Party size:</strong> {{party_size}} guests
+</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
+<p style="color:#6b7280;font-size:14px">Please arrive on time. If your plans change, contact us at <strong>{{restaurant_phone}}</strong>.</p>
+<p>We look forward to welcoming you!</p>`,
+    enabled: true,
+    lastModified: new Date(0).toISOString(),
+  },
+  {
+    event: "reservation_update",
+    name: "Reservation Update",
+    subject: "Your reservation update — {{booking_ref}}",
+    body: `<h2 style="color:#2563eb;margin:0 0 16px 0">Reservation Update 🔄</h2>
+<p>Hi <strong>{{customer_name}}</strong>,</p>
+<p>Your reservation at <strong>{{restaurant_name}}</strong> has been updated.</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
+<p>
+  <strong>Booking Reference:</strong> {{booking_ref}}<br>
+  <strong>Date:</strong> {{reservation_date}}<br>
+  <strong>Time:</strong> {{reservation_time}}<br>
+  <strong>Table:</strong> {{table_label}}<br>
+  <strong>Status:</strong> {{reservation_status}}
+</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
+<p style="color:#6b7280;font-size:14px">Questions? Contact us at <strong>{{restaurant_phone}}</strong>.</p>
+<p>— The team at <strong>{{restaurant_name}}</strong></p>`,
+    enabled: true,
+    lastModified: new Date(0).toISOString(),
+  },
+  {
+    event: "reservation_cancellation",
+    name: "Reservation Cancelled",
+    subject: "Your reservation has been cancelled — {{booking_ref}}",
+    body: `<h2 style="color:#dc2626;margin:0 0 16px 0">Reservation Cancelled</h2>
+<p>Hi <strong>{{customer_name}}</strong>,</p>
+<p>We're sorry to inform you that your reservation at <strong>{{restaurant_name}}</strong> has been cancelled.</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
+<p>
+  <strong>Booking Reference:</strong> {{booking_ref}}<br>
+  <strong>Date:</strong> {{reservation_date}}<br>
+  <strong>Time:</strong> {{reservation_time}}
+</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
+<p>If you have questions or would like to make a new booking, please contact us at <strong>{{restaurant_phone}}</strong>.</p>
+<p>We hope to see you again soon.</p>`,
     enabled: false,
     lastModified: new Date(0).toISOString(),
   },
@@ -460,6 +533,130 @@ export async function sendEmailViaApi(params: {
   } catch (err) {
     return { ok: false, error: String(err) };
   }
+}
+
+// ─── Reservation email helpers ────────────────────────────────────────────────
+
+export interface ReservationEmailData {
+  id: string;
+  customer_name: string;
+  customer_email: string;
+  customer_phone?: string;
+  date: string;        // "YYYY-MM-DD"
+  time: string;        // "HH:MM"
+  table_label: string;
+  party_size: number;
+  status: string;
+  note?: string | null;
+  section?: string;
+}
+
+/** Build variable map from a real reservation row + settings. */
+export function buildReservationVarMap(
+  res: ReservationEmailData,
+  settings: AdminSettings,
+): Record<string, string> {
+  const [y, mo, d] = res.date.split("-").map(Number);
+  const dateObj = new Date(y, mo - 1, d);
+  const formattedDate = dateObj.toLocaleDateString("en-GB", {
+    day: "2-digit", month: "short", year: "numeric",
+  });
+
+  const [h, min] = res.time.split(":").map(Number);
+  const timeObj = new Date(2000, 0, 1, h, min);
+  const formattedTime = timeObj
+    .toLocaleTimeString("en-GB", { hour: "numeric", minute: "2-digit", hour12: true })
+    .toUpperCase();
+
+  const restAddr = [
+    settings.restaurant.addressLine1,
+    settings.restaurant.city,
+    settings.restaurant.postcode,
+  ].filter(Boolean).join(", ");
+
+  return {
+    customer_name:      res.customer_name,
+    customer_email:     res.customer_email,
+    booking_ref:        res.id.slice(0, 8).toUpperCase(),
+    reservation_date:   formattedDate,
+    reservation_time:   formattedTime,
+    table_label:        res.table_label,
+    party_size:         String(res.party_size),
+    reservation_status: res.status,
+    reservation_note:   res.note ?? "",
+    restaurant_name:    settings.restaurant.name,
+    restaurant_phone:   settings.restaurant.phone,
+    restaurant_address: restAddr,
+  };
+}
+
+/** Build dummy variable map for the admin preview pane. */
+export function buildReservationPreviewVarMap(settings: AdminSettings): Record<string, string> {
+  const restAddr = [
+    settings.restaurant.addressLine1,
+    settings.restaurant.city,
+    settings.restaurant.postcode,
+  ].filter(Boolean).join(", ");
+
+  return {
+    customer_name:      "Jane Smith",
+    customer_email:     "jane@example.com",
+    booking_ref:        "A1B2C3D4",
+    reservation_date:   "25 Apr 2026",
+    reservation_time:   "7:30 PM",
+    table_label:        "Table 3",
+    party_size:         "4",
+    reservation_status: "confirmed",
+    reservation_note:   "Window seat preferred",
+    restaurant_name:    settings.restaurant.name,
+    restaurant_phone:   settings.restaurant.phone,
+    restaurant_address: restAddr,
+  };
+}
+
+/**
+ * Browser-side: find the reservation template for an event, apply variables,
+ * and send via the /api/email route.
+ * Silent no-op when the template is disabled or email is empty.
+ * Fire-and-forget safe — never throws.
+ */
+export function sendReservationEmail(
+  event: EmailTemplateEvent,
+  res: ReservationEmailData,
+  settings: AdminSettings,
+): void {
+  const template = settings.emailTemplates?.find((t) => t.event === event && t.enabled);
+  if (!template) return;
+
+  const to = res.customer_email?.trim();
+  if (!to) return;
+
+  const vars    = buildReservationVarMap(res, settings);
+  const subject = applyVars(template.subject, vars);
+  const body    = applyVars(template.body,    vars);
+
+  const restAddr = [
+    settings.restaurant.addressLine1,
+    settings.restaurant.city,
+    settings.restaurant.postcode,
+  ].filter(Boolean).join(", ");
+
+  const html = buildEmailDocument(
+    body,
+    settings.restaurant.name,
+    restAddr,
+    settings.restaurant.phone,
+    settings.receiptSettings,
+  );
+
+  sendEmailViaApi({ to, subject, html })
+    .then((result) => {
+      if (!result.ok) {
+        if (result.error?.toLowerCase().includes("smtp") && result.error?.toLowerCase().includes("not configured")) return;
+        console.error("[email] Reservation send failed:", result.error);
+      }
+    })
+    .catch(console.error);
 }
 
 /**

@@ -7,6 +7,7 @@ import Image from "next/image";
 import Link from "next/link";
 import AuthModal from "@/components/AuthModal";
 import ScheduleOrderModal from "@/components/ScheduleOrderModal";
+import ReservationModal from "@/components/ReservationModal";
 import { getNextOpenTime, formatNextOpen } from "@/lib/scheduleUtils";
 
 export default function Header() {
@@ -16,6 +17,7 @@ export default function Header() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
+  const [showReservation, setShowReservation] = useState(false);
 
   const nextOpen = !isOpen ? getNextOpenTime(settings.schedule, settings.manualClosed) : null;
 
@@ -148,6 +150,19 @@ export default function Header() {
                   </button>
                 ))}
               </div>
+
+              {/* Reserve a Table button — only when reservation system is enabled */}
+              {settings.reservationSystem?.enabled && (
+                <div className="mt-3">
+                  <button
+                    onClick={() => setShowReservation(true)}
+                    className="flex items-center gap-2 bg-orange-50 border border-orange-200 hover:bg-orange-100 hover:border-orange-400 active:scale-[0.98] text-orange-700 font-semibold text-sm px-4 py-2 rounded-xl transition-all"
+                  >
+                    <CalendarDays size={15} className="text-orange-500" />
+                    Reserve a Table
+                  </button>
+                </div>
+              )}
 
               {/* Stats row */}
               <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-gray-600">
@@ -287,6 +302,10 @@ export default function Header() {
           initialTab={authModal.tab}
           onClose={() => setAuthModal({ open: false, tab: "login" })}
         />
+      )}
+
+      {showReservation && (
+        <ReservationModal onClose={() => setShowReservation(false)} />
       )}
     </div>
   );

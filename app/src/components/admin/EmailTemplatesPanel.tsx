@@ -9,6 +9,7 @@ import {
   applyVars,
   buildEmailDocument,
   buildPreviewVarMap,
+  buildReservationPreviewVarMap,
   sendEmailViaApi,
 } from "@/lib/emailTemplates";
 import {
@@ -16,17 +17,20 @@ import {
   AlignLeft, AlignCenter, AlignRight, Minus, Undo2,
   CheckCircle, AlertTriangle, Loader2, Eye, Pencil,
   ToggleLeft, ToggleRight, Send, Variable, Strikethrough,
-  Heading1, Heading2,
+  Heading1, Heading2, CalendarDays, ShoppingBag,
 } from "lucide-react";
 
-// ─── Variable span helpers ───────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function isReservationEvent(event: EmailTemplateEvent): boolean {
+  return event.startsWith("reservation_");
+}
 
 const VAR_STYLE =
   "display:inline-block;background:#fef3c7;border:1px solid #f59e0b;" +
   "border-radius:4px;padding:0 5px;font-size:0.82em;font-family:monospace;" +
   "color:#92400e;cursor:default;user-select:none;margin:0 2px;line-height:1.6;";
 
-/** Convert stored {{var}} placeholders → styled non-editable spans. */
 function storageToDisplay(html: string): string {
   return html.replace(
     /\{\{([a-z_]+)\}\}/g,
@@ -35,7 +39,6 @@ function storageToDisplay(html: string): string {
   );
 }
 
-/** Convert styled spans → {{var}} placeholders for storage. */
 function displayToStorage(container: HTMLElement): string {
   const clone = container.cloneNode(true) as HTMLElement;
   clone.querySelectorAll<HTMLElement>("[data-var]").forEach((el) => {
@@ -45,20 +48,19 @@ function displayToStorage(container: HTMLElement): string {
   return clone.innerHTML;
 }
 
-// ─── Rich text editor ────────────────────────────────────────────────────────
+// ─── Rich text editor ─────────────────────────────────────────────────────────
 
 interface RichEditorProps {
-  /** Storage-format HTML ({{var}} placeholders). Re-mounts when this key changes. */
   editorKey: string;
   initialValue: string;
   onChange: (storageHtml: string) => void;
+  varGroupFilter: string[];
 }
 
-function RichEditor({ editorKey, initialValue, onChange }: RichEditorProps) {
-  const editorRef   = useRef<HTMLDivElement>(null);
-  const savedRange  = useRef<Range | null>(null);
+function RichEditor({ editorKey, initialValue, onChange, varGroupFilter }: RichEditorProps) {
+  const editorRef  = useRef<HTMLDivElement>(null);
+  const savedRange = useRef<Range | null>(null);
 
-  // Populate editor when the template changes (editorKey)
   useEffect(() => {
     if (editorRef.current) {
       editorRef.current.innerHTML = storageToDisplay(initialValue);
@@ -66,7 +68,6 @@ function RichEditor({ editorKey, initialValue, onChange }: RichEditorProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editorKey]);
 
-  // Save the current selection so variable buttons don't lose the caret
   function saveRange() {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
@@ -95,7 +96,6 @@ function RichEditor({ editorKey, initialValue, onChange }: RichEditorProps) {
     span.textContent = `{{${varName}}}`;
 
     const sel = window.getSelection();
-    // Restore the saved range if we have one inside the editor
     let range: Range | null = null;
     if (savedRange.current && editor.contains(savedRange.current.commonAncestorContainer)) {
       sel?.removeAllRanges();
@@ -116,37 +116,33 @@ function RichEditor({ editorKey, initialValue, onChange }: RichEditorProps) {
       savedRange.current = after.cloneRange();
     } else {
       editor.appendChild(span);
-      editor.appendChild(document.createTextNode("\u00A0"));
+      editor.appendChild(document.createTextNode(" "));
     }
 
     onChange(displayToStorage(editor));
   }
 
   const TB = ({
-    onClick, title, children, active,
+    onClick, title, children,
   }: {
     onClick: () => void;
     title: string;
     children: React.ReactNode;
-    active?: boolean;
   }) => (
     <button
       type="button"
       onMouseDown={(e) => { e.preventDefault(); saveRange(); }}
       onClick={onClick}
       title={title}
-      className={`w-7 h-7 flex items-center justify-center rounded-lg text-sm transition ${
-        active
-          ? "bg-orange-100 text-orange-600"
-          : "text-gray-500 hover:bg-gray-100 hover:text-gray-800"
-      }`}
+      className="w-7 h-7 flex items-center justify-center rounded-lg text-sm transition text-gray-500 hover:bg-gray-100 hover:text-gray-800"
     >
       {children}
     </button>
   );
 
+  const filteredVars = TEMPLATE_VARS.filter((v) => varGroupFilter.includes(v.group));
   const varGroups = Object.entries(
-    TEMPLATE_VARS.reduce<Record<string, typeof TEMPLATE_VARS>>((acc, v) => {
+    filteredVars.reduce<Record<string, typeof TEMPLATE_VARS>>((acc, v) => {
       (acc[v.group] ??= []).push(v);
       return acc;
     }, {}),
@@ -186,7 +182,7 @@ function RichEditor({ editorKey, initialValue, onChange }: RichEditorProps) {
         <TB onClick={() => exec("removeFormat")}          title="Clear formatting"><Undo2 size={13} /></TB>
       </div>
 
-      {/* Variable insertion */}
+      {/* Variable insertion — filtered by template category */}
       <div className="px-3 py-2 border-b border-gray-100 bg-amber-50">
         <div className="flex items-start gap-2 flex-wrap">
           <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5">
@@ -236,12 +232,16 @@ function EmailPreview({
   subject,
   body,
   settings,
+  isReservation,
 }: {
   subject: string;
   body: string;
   settings: ReturnType<typeof useApp>["settings"];
+  isReservation: boolean;
 }) {
-  const vars = buildPreviewVarMap(settings);
+  const vars = isReservation
+    ? buildReservationPreviewVarMap(settings)
+    : buildPreviewVarMap(settings);
 
   const resolvedSubject = applyVars(subject, vars);
   const resolvedBody    = applyVars(body,    vars);
@@ -272,7 +272,7 @@ function EmailPreview({
         />
       </div>
       <p className="text-[11px] text-gray-400 text-center">
-        Preview uses sample data — actual emails will contain real order details.
+        Preview uses sample data — actual emails will contain real {isReservation ? "reservation" : "order"} details.
       </p>
     </div>
   );
@@ -286,10 +286,12 @@ function TestSendWidget({
   subject,
   body,
   settings,
+  isReservation,
 }: {
   subject: string;
   body: string;
   settings: ReturnType<typeof useApp>["settings"];
+  isReservation: boolean;
 }) {
   const [email,     setEmail]     = useState("");
   const [sendState, setSendState] = useState<SendState>("idle");
@@ -300,7 +302,10 @@ function TestSendWidget({
     setSendState("sending");
     setSendError("");
 
-    const vars = buildPreviewVarMap(settings);
+    const vars = isReservation
+      ? buildReservationPreviewVarMap(settings)
+      : buildPreviewVarMap(settings);
+
     const resolvedSubject = applyVars(subject, vars);
     const resolvedBody    = applyVars(body,    vars);
     const restAddr = [
@@ -315,7 +320,6 @@ function TestSendWidget({
       settings.restaurant.phone,
     );
 
-    // SMTP credentials are read from server-side env vars in /api/email
     const result = await sendEmailViaApi({ to: email.trim(), subject: resolvedSubject, html });
 
     if (result.ok) {
@@ -370,6 +374,21 @@ function TestSendWidget({
   );
 }
 
+// ─── Sidebar section ──────────────────────────────────────────────────────────
+
+const SIDEBAR_GROUPS = [
+  {
+    label: "Order Emails",
+    icon: ShoppingBag,
+    filter: (e: EmailTemplateEvent) => e.startsWith("order_"),
+  },
+  {
+    label: "Reservation Emails",
+    icon: CalendarDays,
+    filter: (e: EmailTemplateEvent) => e.startsWith("reservation_"),
+  },
+];
+
 // ─── Main panel ───────────────────────────────────────────────────────────────
 
 export default function EmailTemplatesPanel() {
@@ -380,7 +399,8 @@ export default function EmailTemplatesPanel() {
   const [activeView,    setActiveView]    = useState<"edit" | "preview">("edit");
   const [saved,         setSaved]         = useState(false);
 
-  // Draft state — reloaded when selected event changes
+  const isResv = isReservationEvent(selectedEvent);
+
   const currentTemplate = templates.find((t) => t.event === selectedEvent);
   const [subject, setSubject] = useState(currentTemplate?.subject ?? "");
   const [body,    setBody]    = useState(currentTemplate?.body    ?? "");
@@ -414,6 +434,11 @@ export default function EmailTemplatesPanel() {
   const cfg = EVENT_CONFIGS.find((c) => c.event === selectedEvent)!;
   const enabledCount = templates.filter((t) => t.enabled).length;
 
+  // Variable groups shown in the editor depend on the template category
+  const varGroupFilter = isResv
+    ? ["Customer", "Reservation", "Restaurant"]
+    : ["Customer", "Order", "Restaurant"];
+
   return (
     <div className="space-y-5">
       {/* Header card */}
@@ -434,37 +459,48 @@ export default function EmailTemplatesPanel() {
 
       <div className="flex flex-col lg:flex-row gap-5 items-start">
         {/* ── Template list (sidebar) ── */}
-        <div className="w-full lg:w-56 flex-shrink-0">
-          <div className="grid grid-cols-2 lg:grid-cols-1 gap-1.5">
-          {EVENT_CONFIGS.map((c) => {
-            const t = templates.find((x) => x.event === c.event);
-            const active = c.event === selectedEvent;
+        <div className="w-full lg:w-60 flex-shrink-0 space-y-4">
+          {SIDEBAR_GROUPS.map(({ label, icon: Icon, filter }) => {
+            const groupEvents = EVENT_CONFIGS.filter((c) => filter(c.event));
             return (
-              <button
-                key={c.event}
-                onClick={() => setSelectedEvent(c.event)}
-                className={`w-full text-left px-3.5 py-3 rounded-xl border-2 transition group ${
-                  active
-                    ? "border-orange-500 bg-orange-50"
-                    : "border-gray-100 bg-white hover:border-gray-200"
-                }`}
-              >
-                <div className="flex items-start gap-2.5">
-                  <span className="text-base flex-shrink-0 mt-0.5">{c.emoji}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-xs font-bold truncate ${active ? "text-orange-700" : "text-gray-800"}`}>
-                      {c.name}
-                    </p>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${t?.enabled ? "bg-green-500" : "bg-gray-300"}`} />
-                      <span className="text-[10px] text-gray-400">{t?.enabled ? "Enabled" : "Disabled"}</span>
-                    </div>
-                  </div>
+              <div key={label}>
+                <div className="flex items-center gap-1.5 px-1 mb-2">
+                  <Icon size={11} className="text-gray-400" />
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{label}</p>
                 </div>
-              </button>
+                <div className="grid grid-cols-1 gap-1.5">
+                  {groupEvents.map((c) => {
+                    const t = templates.find((x) => x.event === c.event);
+                    const active = c.event === selectedEvent;
+                    return (
+                      <button
+                        key={c.event}
+                        onClick={() => setSelectedEvent(c.event)}
+                        className={`w-full text-left px-3.5 py-3 rounded-xl border-2 transition ${
+                          active
+                            ? "border-orange-500 bg-orange-50"
+                            : "border-gray-100 bg-white hover:border-gray-200"
+                        }`}
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <span className="text-base flex-shrink-0 mt-0.5">{c.emoji}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-xs font-bold truncate ${active ? "text-orange-700" : "text-gray-800"}`}>
+                              {c.name}
+                            </p>
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${t?.enabled ? "bg-green-500" : "bg-gray-300"}`} />
+                              <span className="text-[10px] text-gray-400">{t?.enabled ? "Enabled" : "Disabled"}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             );
           })}
-          </div>
         </div>
 
         {/* ── Editor / Preview ── */}
@@ -473,10 +509,10 @@ export default function EmailTemplatesPanel() {
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-2.5">
-                <span className="text-xl">{cfg.emoji}</span>
+                <span className="text-xl">{cfg?.emoji}</span>
                 <div>
-                  <p className="font-bold text-gray-900 text-sm">{cfg.name}</p>
-                  <p className="text-xs text-gray-400">{cfg.description}</p>
+                  <p className="font-bold text-gray-900 text-sm">{cfg?.name}</p>
+                  <p className="text-xs text-gray-400">{cfg?.description}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3 flex-shrink-0">
@@ -535,11 +571,19 @@ export default function EmailTemplatesPanel() {
                       type="text"
                       value={subject}
                       onChange={(e) => setSubject(e.target.value)}
-                      placeholder="e.g. Your order {{order_id}} has been confirmed"
+                      placeholder={
+                        isResv
+                          ? "e.g. Your reservation {{booking_ref}} is confirmed"
+                          : "e.g. Your order {{order_id}} has been confirmed"
+                      }
                       className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
                     />
                     <p className="text-[11px] text-gray-400 mt-1">
-                      Variables like <code className="bg-gray-100 px-1 rounded">{"{{order_id}}"}</code> are replaced with real values when sent.
+                      Variables like{" "}
+                      <code className="bg-gray-100 px-1 rounded">
+                        {isResv ? "{{booking_ref}}" : "{{order_id}}"}
+                      </code>{" "}
+                      are replaced with real values when sent.
                     </p>
                   </div>
 
@@ -552,6 +596,7 @@ export default function EmailTemplatesPanel() {
                       editorKey={selectedEvent}
                       initialValue={body}
                       onChange={setBody}
+                      varGroupFilter={varGroupFilter}
                     />
                   </div>
                 </>
@@ -560,6 +605,7 @@ export default function EmailTemplatesPanel() {
                   subject={subject}
                   body={body}
                   settings={settings}
+                  isReservation={isResv}
                 />
               )}
             </div>
@@ -570,20 +616,27 @@ export default function EmailTemplatesPanel() {
             subject={subject}
             body={body}
             settings={settings}
+            isReservation={isResv}
           />
 
           {/* Variable reference */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-5 py-3.5 border-b border-gray-100">
               <p className="text-sm font-bold text-gray-900">Variable reference</p>
-              <p className="text-xs text-gray-400 mt-0.5">Click any variable in the editor toolbar to insert it at the cursor position</p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {isResv
+                  ? "Reservation variables available for this template"
+                  : "Order variables available for this template"}
+              </p>
             </div>
             <div className="p-5">
               {Object.entries(
-                TEMPLATE_VARS.reduce<Record<string, typeof TEMPLATE_VARS>>((acc, v) => {
-                  (acc[v.group] ??= []).push(v);
-                  return acc;
-                }, {}),
+                TEMPLATE_VARS
+                  .filter((v) => varGroupFilter.includes(v.group))
+                  .reduce<Record<string, typeof TEMPLATE_VARS>>((acc, v) => {
+                    (acc[v.group] ??= []).push(v);
+                    return acc;
+                  }, {}),
               ).map(([group, vars]) => (
                 <div key={group} className="mb-4 last:mb-0">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">{group}</p>

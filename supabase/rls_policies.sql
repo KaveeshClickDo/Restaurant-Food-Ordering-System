@@ -134,3 +134,37 @@ create policy "deny_anon_all"
   to anon
   using (false)
   with check (false);
+
+-- ── reservations ──────────────────────────────────────────────────────────────
+-- Online table reservation system. Dining tables themselves live in app_settings;
+-- reservations are a separate table so they can be queried and Realtime-subscribed.
+create table if not exists reservations (
+  id             text        primary key,
+  table_id       text        not null,
+  table_label    text        not null,
+  table_seats    integer     not null,
+  section        text        not null default '',
+  customer_name  text        not null,
+  customer_email text        not null,
+  customer_phone text        not null default '',
+  date           text        not null,   -- "YYYY-MM-DD"
+  time           text        not null,   -- "HH:MM"
+  party_size     integer     not null,
+  status         text        not null default 'pending',
+  note           text,
+  created_at     timestamptz not null default now()
+);
+
+alter table reservations enable row level security;
+
+-- Anon SELECT is required so the browser Supabase client can subscribe via Realtime.
+-- Reservation rows contain customer names/emails but no payment data.
+drop policy if exists "anon_select_reservations" on reservations;
+create policy "anon_select_reservations"
+  on reservations for select to anon using (true);
+
+-- All writes (INSERT, UPDATE, DELETE) go through API routes using the service role.
+-- No anon INSERT / UPDATE / DELETE — absence of policy = deny.
+
+-- Enable Realtime so the admin panel updates live when customers book.
+alter publication supabase_realtime add table reservations;

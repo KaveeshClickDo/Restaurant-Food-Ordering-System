@@ -23,6 +23,16 @@ import { restaurantInfo, defaultSchedule } from "@/data/restaurant";
 import { categories as defaultCategories, menuItems as defaultMenuItems } from "@/data/menu";
 import { mockCustomers } from "@/data/customers";
 
+// ─── Email template merge ─────────────────────────────────────────────────────
+// Keeps existing edited templates and fills in any new default events that are
+// not yet stored (e.g. new reservation events added after initial setup).
+function mergeEmailTemplates(stored: typeof DEFAULT_EMAIL_TEMPLATES | undefined | null) {
+  if (!stored || stored.length === 0) return DEFAULT_EMAIL_TEMPLATES;
+  const storedEvents = new Set(stored.map((t) => t.event));
+  const missing = DEFAULT_EMAIL_TEMPLATES.filter((t) => !storedEvents.has(t.event));
+  return missing.length > 0 ? [...stored, ...missing] : stored;
+}
+
 // ─── Cart (session data — stays in localStorage) ──────────────────────────────
 
 type CartAction =
@@ -202,6 +212,14 @@ const DEFAULT_SETTINGS: AdminSettings = {
     ...Array.from({ length: 4 },  (_, i) => ({ id: `t-${i+7}`,  number: i+7,  label: `T${i+7}`,  seats: 4,             section: "Terrace",   active: true })),
     ...Array.from({ length: 2 },  (_, i) => ({ id: `t-${i+11}`, number: i+11, label: `B${i+1}`,  seats: 2,             section: "Bar",       active: true })),
   ],
+  reservationSystem: {
+    enabled: false,
+    slotDurationMinutes: 90,
+    maxAdvanceDays: 30,
+    openTime: "12:00",
+    closeTime: "22:00",
+    slotIntervalMinutes: 30,
+  },
 };
 
 // ─── Store open check ─────────────────────────────────────────────────────────
@@ -451,13 +469,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               categories: d.breakfastMenu?.categories ?? DEFAULT_SETTINGS.breakfastMenu.categories,
               items:      d.breakfastMenu?.items      ?? DEFAULT_SETTINGS.breakfastMenu.items,
             },
-            emailTemplates: d.emailTemplates ?? DEFAULT_SETTINGS.emailTemplates,
+            emailTemplates: mergeEmailTemplates(d.emailTemplates),
             footerPages:    d.footerPages    ?? DEFAULT_SETTINGS.footerPages,
             paymentMethods: d.paymentMethods ?? DEFAULT_SETTINGS.paymentMethods,
             deliveryZones:  d.deliveryZones  ?? DEFAULT_SETTINGS.deliveryZones,
             coupons:        d.coupons        ?? [],
-            waiters:        d.waiters        ?? DEFAULT_SETTINGS.waiters,
-            diningTables:   d.diningTables   ?? DEFAULT_SETTINGS.diningTables,
+            waiters:           d.waiters           ?? DEFAULT_SETTINGS.waiters,
+            diningTables:      d.diningTables      ?? DEFAULT_SETTINGS.diningTables,
+            reservationSystem: { ...DEFAULT_SETTINGS.reservationSystem, ...(d.reservationSystem ?? {}) },
             // Sensitive fields explicitly excluded — never loaded into client state:
             // drivers, stripeSecretKey, paypalClientId, smtpHost/Port/User/Password
           });
@@ -552,13 +571,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               categories: d.breakfastMenu?.categories ?? DEFAULT_SETTINGS.breakfastMenu.categories,
               items:      d.breakfastMenu?.items      ?? DEFAULT_SETTINGS.breakfastMenu.items,
             },
-            emailTemplates: d.emailTemplates ?? DEFAULT_SETTINGS.emailTemplates,
+            emailTemplates: mergeEmailTemplates(d.emailTemplates),
             footerPages:    d.footerPages    ?? DEFAULT_SETTINGS.footerPages,
             paymentMethods: d.paymentMethods ?? DEFAULT_SETTINGS.paymentMethods,
             deliveryZones:  d.deliveryZones  ?? DEFAULT_SETTINGS.deliveryZones,
             coupons:        d.coupons        ?? [],
-            waiters:        d.waiters        ?? DEFAULT_SETTINGS.waiters,
-            diningTables:   d.diningTables   ?? DEFAULT_SETTINGS.diningTables,
+            waiters:           d.waiters           ?? DEFAULT_SETTINGS.waiters,
+            diningTables:      d.diningTables      ?? DEFAULT_SETTINGS.diningTables,
+            reservationSystem: { ...DEFAULT_SETTINGS.reservationSystem, ...(d.reservationSystem ?? {}) },
             // drivers, stripeSecretKey, smtpPassword, etc. intentionally excluded
           });
         })

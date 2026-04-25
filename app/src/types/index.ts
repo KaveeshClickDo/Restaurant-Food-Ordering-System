@@ -143,7 +143,10 @@ export type EmailTemplateEvent =
   | "order_preparing"
   | "order_ready"
   | "order_delivered"
-  | "order_cancelled";
+  | "order_cancelled"
+  | "reservation_confirmation"
+  | "reservation_update"
+  | "reservation_cancellation";
 
 export interface EmailTemplate {
   event: EmailTemplateEvent;
@@ -241,6 +244,34 @@ export interface BreakfastMenuSettings {
   items: MenuItem[];
 }
 
+export type ReservationStatus = "pending" | "confirmed" | "cancelled" | "no_show";
+
+export interface Reservation {
+  id: string;
+  tableId: string;
+  tableLabel: string;
+  tableSeats: number;
+  section: string;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  date: string;        // "YYYY-MM-DD"
+  time: string;        // "HH:MM"
+  partySize: number;
+  status: ReservationStatus;
+  note?: string;
+  createdAt: string;
+}
+
+export interface ReservationSystem {
+  enabled: boolean;
+  slotDurationMinutes: number;   // how long one booking occupies the table
+  maxAdvanceDays: number;        // how far ahead customers can book
+  openTime: string;              // "12:00"
+  closeTime: string;             // "22:00"
+  slotIntervalMinutes: number;   // step between bookable slots, e.g. 30
+}
+
 export interface WaiterStaff {
   id: string;
   name: string;
@@ -288,6 +319,7 @@ export interface AdminSettings {
   breakfastMenu: BreakfastMenuSettings;
   waiters: WaiterStaff[];
   diningTables: DiningTable[];
+  reservationSystem: ReservationSystem;
 }
 
 export type OrderStatus =
