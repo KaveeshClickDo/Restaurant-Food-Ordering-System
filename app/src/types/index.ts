@@ -244,7 +244,13 @@ export interface BreakfastMenuSettings {
   items: MenuItem[];
 }
 
-export type ReservationStatus = "pending" | "confirmed" | "cancelled" | "no_show";
+export type ReservationStatus =
+  | "pending"
+  | "confirmed"
+  | "checked_in"
+  | "checked_out"
+  | "cancelled"
+  | "no_show";
 
 export interface Reservation {
   id: string;
@@ -255,12 +261,29 @@ export interface Reservation {
   customerName: string;
   customerEmail: string;
   customerPhone: string;
-  date: string;        // "YYYY-MM-DD"
-  time: string;        // "HH:MM"
+  date: string;           // "YYYY-MM-DD"
+  time: string;           // "HH:MM"
   partySize: number;
   status: ReservationStatus;
   note?: string;
   createdAt: string;
+  checkedInAt?: string;   // ISO timestamp set when staff check-in
+  checkedOutAt?: string;  // ISO timestamp set when staff check-out
+}
+
+export interface ReservationCustomer {
+  id: string;
+  email: string;
+  name: string;
+  phone: string;
+  visitCount: number;
+  firstVisitAt?: string;
+  lastVisitAt?: string;
+  tags: string[];
+  notes: string;
+  marketingOptIn: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ReservationSystem {

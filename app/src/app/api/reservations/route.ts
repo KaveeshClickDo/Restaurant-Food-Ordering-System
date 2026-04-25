@@ -56,10 +56,10 @@ export async function POST(req: NextRequest) {
   // Re-check availability (race condition protection)
   const { data: conflicts, error: conflictErr } = await supabaseAdmin
     .from("reservations")
-    .select("id, time")
+    .select("id, time, status")
     .eq("date", date)
     .eq("table_id", tableId)
-    .in("status", ["pending", "confirmed"]);
+    .in("status", ["pending", "confirmed", "checked_in"]);
 
   // If the table doesn't exist yet, surface a clear setup error rather than a generic 500
   if (conflictErr && (conflictErr.message?.includes("schema cache") || conflictErr.message?.includes("not found"))) {
@@ -70,8 +70,9 @@ export async function POST(req: NextRequest) {
   }
 
   const requestedMins = toMins(time);
-  const hasConflict = (conflicts ?? []).some(
-    (r) => Math.abs(toMins(r.time as string) - requestedMins) < slotDuration
+  const hasConflict = (conflicts ?? []).some((r) =>
+    r.status === "checked_in" ||
+    Math.abs(toMins(r.time as string) - requestedMins) < slotDuration
   );
 
   if (hasConflict) {

@@ -43,12 +43,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: true, availableTables: [] });
   }
 
-  // Fetch all non-cancelled reservations for this date
+  // Fetch all active reservations for this date (pending, confirmed, or currently occupied)
   const { data: existing, error } = await supabaseAdmin
     .from("reservations")
     .select("table_id, time, status")
     .eq("date", date)
-    .in("status", ["pending", "confirmed"]);
+    .in("status", ["pending", "confirmed", "checked_in"]);
 
   if (error) {
     // Table not yet created — treat as zero existing reservations so all eligible
@@ -63,12 +63,18 @@ export async function GET(req: NextRequest) {
 
   const requestedMins = toMins(time);
 
-  // Build set of table IDs that have a conflicting reservation
+  // Build set of table IDs that are unavailable:
+  // - checked_in tables are physically occupied — blocked regardless of time window
+  // - pending/confirmed reservations within the slot duration window are blocked
   const bookedTableIds = new Set<string>();
   for (const r of existing ?? []) {
-    const existingMins = toMins(r.time as string);
-    if (Math.abs(existingMins - requestedMins) < slotDuration) {
+    if (r.status === "checked_in") {
       bookedTableIds.add(r.table_id as string);
+    } else {
+      const existingMins = toMins(r.time as string);
+      if (Math.abs(existingMins - requestedMins) < slotDuration) {
+        bookedTableIds.add(r.table_id as string);
+      }
     }
   }
 

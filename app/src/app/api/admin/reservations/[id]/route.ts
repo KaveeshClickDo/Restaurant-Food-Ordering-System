@@ -1,7 +1,14 @@
 /**
- * PUT  /api/admin/reservations/[id]  — update status (confirmed / cancelled / no_show)
+ * PUT  /api/admin/reservations/[id]  — update status
  * DELETE /api/admin/reservations/[id] — permanently delete a reservation
  * Both require admin session cookie.
+ *
+ * Status transitions and side-effects:
+ *  pending   → confirmed        : sends reservation_update email
+ *  confirmed → checked_in       : records checked_in_at, upserts reservation_customer (first_visit_at)
+ *  checked_in → checked_out     : records checked_out_at, increments reservation_customer visit_count
+ *  any       → cancelled        : sends reservation_cancellation email
+ *  any       → no_show          : no email
  */
 
 import { NextRequest, NextResponse }            from "next/server";
@@ -10,13 +17,23 @@ import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
 import { sendReservationEmailServer }           from "@/lib/emailServer";
 import type { EmailTemplateEvent }              from "@/types";
 
-const VALID_STATUSES = new Set(["pending", "confirmed", "cancelled", "no_show"]);
+const VALID_STATUSES = new Set([
+  "pending", "confirmed", "checked_in", "checked_out", "cancelled", "no_show",
+]);
 
-// Map status → email event (only statuses that warrant a customer notification)
-const STATUS_EMAIL_MAP: Record<string, EmailTemplateEvent> = {
+const STATUS_EMAIL_MAP: Partial<Record<string, EmailTemplateEvent>> = {
   confirmed:  "reservation_update",
   cancelled:  "reservation_cancellation",
 };
+
+// Build the DB update payload for a given status transition
+function buildUpdatePayload(status: string): Record<string, unknown> {
+  const base: Record<string, unknown> = { status };
+  if (status === "checked_in")  base.checked_in_at  = new Date().toISOString();
+  if (status === "checked_out") base.checked_out_at = new Date().toISOString();
+  return base;
+}
+
 
 export async function PUT(
   req: NextRequest,
@@ -36,9 +53,11 @@ export async function PUT(
     );
   }
 
+  const updatePayload = buildUpdatePayload(body.status);
+
   const { error } = await supabaseAdmin
     .from("reservations")
-    .update({ status: body.status })
+    .update(updatePayload)
     .eq("id", id);
 
   if (error) {
@@ -46,10 +65,9 @@ export async function PUT(
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  // Send status-change email if this status has a mapped template
+  // Fire side-effects in parallel (email + customer upsert) — don't block response
   const emailEvent = STATUS_EMAIL_MAP[body.status];
-  if (emailEvent) {
-    // Fetch reservation + settings in parallel for the email
+  if (emailEvent || body.status === "checked_in" || body.status === "checked_out") {
     const [{ data: resRow }, { data: settingsRow }] = await Promise.all([
       supabaseAdmin
         .from("reservations")
@@ -63,20 +81,78 @@ export async function PUT(
         .single(),
     ]);
 
-    if (resRow && settingsRow?.data) {
-      sendReservationEmailServer(emailEvent, {
-        id:             resRow.id,
-        customer_name:  resRow.customer_name,
-        customer_email: resRow.customer_email,
-        customer_phone: resRow.customer_phone ?? "",
-        date:           resRow.date,
-        time:           resRow.time,
-        table_label:    resRow.table_label,
-        party_size:     resRow.party_size,
-        status:         resRow.status,
-        note:           resRow.note,
-        section:        resRow.section ?? "",
-      }, settingsRow.data).catch(console.error);
+    if (resRow) {
+      // Customer upsert (check-in/out)
+      if (body.status === "checked_in" || body.status === "checked_out") {
+        const email = (resRow.customer_email as string)?.trim().toLowerCase();
+        if (email) {
+          if (body.status === "checked_in") {
+            // Upsert customer record, set first_visit_at if this is first visit
+            const { data: existing } = await supabaseAdmin
+              .from("reservation_customers")
+              .select("id, first_visit_at")
+              .eq("email", email)
+              .single();
+
+            if (existing) {
+              await supabaseAdmin
+                .from("reservation_customers")
+                .update({
+                  name:       resRow.customer_name ?? existing,
+                  phone:      resRow.customer_phone ?? "",
+                  updated_at: new Date().toISOString(),
+                  ...(existing.first_visit_at ? {} : { first_visit_at: new Date().toISOString() }),
+                })
+                .eq("email", email);
+            } else {
+              await supabaseAdmin.from("reservation_customers").insert({
+                email,
+                name:           resRow.customer_name ?? "",
+                phone:          resRow.customer_phone ?? "",
+                visit_count:    0,
+                first_visit_at: new Date().toISOString(),
+                created_at:     new Date().toISOString(),
+                updated_at:     new Date().toISOString(),
+              });
+            }
+          } else {
+            // checked_out: increment visit_count + set last_visit_at
+            const { data: existing } = await supabaseAdmin
+              .from("reservation_customers")
+              .select("id, visit_count")
+              .eq("email", email)
+              .single();
+
+            if (existing) {
+              await supabaseAdmin
+                .from("reservation_customers")
+                .update({
+                  visit_count:   (existing.visit_count as number) + 1,
+                  last_visit_at: new Date().toISOString(),
+                  updated_at:    new Date().toISOString(),
+                })
+                .eq("email", email);
+            }
+          }
+        }
+      }
+
+      // Email notification
+      if (emailEvent && settingsRow?.data) {
+        sendReservationEmailServer(emailEvent, {
+          id:             resRow.id,
+          customer_name:  resRow.customer_name,
+          customer_email: resRow.customer_email,
+          customer_phone: resRow.customer_phone ?? "",
+          date:           resRow.date,
+          time:           resRow.time,
+          table_label:    resRow.table_label,
+          party_size:     resRow.party_size,
+          status:         resRow.status,
+          note:           resRow.note,
+          section:        resRow.section ?? "",
+        }, settingsRow.data).catch(console.error);
+      }
     }
   }
 

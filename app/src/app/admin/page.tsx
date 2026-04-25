@@ -25,11 +25,13 @@ import RefundsPanel         from "@/components/admin/RefundsPanel";
 import POSReportsPanel      from "@/components/admin/POSReportsPanel";
 import OnlineReportsPanel  from "@/components/admin/OnlineReportsPanel";
 import WaitersPanel         from "@/components/admin/WaitersPanel";
-import ReservationsPanel    from "@/components/admin/ReservationsPanel";
+import ReservationsPanel         from "@/components/admin/ReservationsPanel";
+import TableStatusPanel          from "@/components/admin/TableStatusPanel";
+import ReservationCustomersPanel from "@/components/admin/ReservationCustomersPanel";
 import {
   LayoutDashboard, ExternalLink, ShieldCheck, Store, Calendar, Plug, ChefHat, Users, Truck,
   MapPin, Bell, X, Mail, FileText, LayoutTemplate, Navigation, Palette, ImageIcon, Receipt,
-  Tag, Percent, Car, Sunrise, RotateCcw, BarChart3, LineChart, UtensilsCrossed, CalendarDays,
+  Tag, Percent, Car, Sunrise, RotateCcw, BarChart3, LineChart, UtensilsCrossed, CalendarDays, BookUser,
   Menu as MenuIcon, ChevronDown, ChevronRight, ChevronLeft, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 
@@ -63,8 +65,10 @@ const NAV_GROUPS: NavGroup[] = [
   {
     id: "table-service", label: "Table Service",
     items: [
-      { id: "waiters",       label: "Staff & Tables",  icon: UtensilsCrossed },
-      { id: "reservations",  label: "Reservations",    icon: CalendarDays    },
+      { id: "waiters",              label: "Staff & Tables",  icon: UtensilsCrossed },
+      { id: "reservations",         label: "Reservations",    icon: CalendarDays    },
+      { id: "table-status",         label: "Table Status",    icon: UtensilsCrossed },
+      { id: "reservation-customers",label: "Guest Profiles",  icon: BookUser        },
     ],
   },
   {
@@ -134,7 +138,9 @@ function bannerSubtitle(
     case "online-reports": return "Revenue, orders, refunds, VAT, and payment breakdowns — filter by date range and export to CSV or PDF.";
     case "pos-reports":    return "View POS sales reports — revenue, profit, staff performance, and best-selling items.";
     case "waiters":        return `${settings.waiters?.length ?? 0} staff · ${settings.diningTables?.length ?? 0} tables — manage waiter accounts, PINs, and dining layout.`;
-    case "reservations":   return settings.reservationSystem?.enabled ? "Reservations are live — customers can book tables from the website." : "Reservations are currently disabled — enable them below.";
+    case "reservations":          return settings.reservationSystem?.enabled ? "Reservations are live — customers can book tables from the website." : "Reservations are currently disabled — enable them below.";
+    case "table-status":          return "Live table occupancy for today — check in arriving guests and free tables on checkout.";
+    case "reservation-customers": return "Guest profiles built from reservation check-ins — add notes, tags, and manage marketing opt-ins.";
     default:              return "Manage your restaurant settings below.";
   }
 }
@@ -679,7 +685,9 @@ export default function AdminPage() {
             {activeTab === "online-reports" && <OnlineReportsPanel />}
             {activeTab === "pos-reports"   && <POSReportsPanel />}
             {activeTab === "waiters"        && <WaitersPanel />}
-            {activeTab === "reservations"  && <ReservationsPanel />}
+            {activeTab === "reservations"          && <ReservationsPanel />}
+            {activeTab === "table-status"          && <TableStatusPanel />}
+            {activeTab === "reservation-customers" && <ReservationCustomersPanel />}
           </div>
         </main>
       </div>

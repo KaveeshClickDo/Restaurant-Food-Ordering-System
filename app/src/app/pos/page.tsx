@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { usePOS } from "@/context/POSContext";
+import { useApp } from "@/context/AppContext";
 import { supabase } from "@/lib/supabase";
 import {
   POSProduct, POSCategory, POSCartItem, POSModifier, POSModifierOption,
@@ -18,6 +19,7 @@ import {
   Phone, Mail, Calendar, ArrowUpRight, Trophy, Zap, BarChart3,
   UserPlus, ClockIcon, Timer, PanelLeftClose, Flame, CircleCheck, Download,
   Utensils, AlertTriangle, RotateCcw, ShieldOff, Loader2,
+  UtensilsCrossed, LogIn, CalendarDays,
 } from "lucide-react";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -43,7 +45,7 @@ function fmtDate(iso: string) {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type View = "sale" | "dashboard" | "customers" | "staff" | "settings";
+type View = "sale" | "dashboard" | "customers" | "staff" | "settings" | "tables" | "reservations";
 
 interface ModifierSelectionState {
   product: POSProduct;
@@ -5350,11 +5352,537 @@ function SettingsView() {
   );
 }
 
+// ─── Table Status View (POS) ───────────────────────────────────────────────────
+
+type ResRow = {
+  id: string; table_id: string; table_label: string; section: string;
+  customer_name: string; customer_email: string; customer_phone: string;
+  date: string; time: string; party_size: number; status: string; note?: string;
+  checked_in_at?: string; checked_out_at?: string;
+};
+
+type TableState = "free" | "reserved" | "occupied" | "done";
+
+const TABLE_STATE_STYLES: Record<TableState, { card: string; badge: string; label: string; dot: string; ring: string }> = {
+  free:     { card: "bg-slate-800/60 border-slate-700",       badge: "bg-slate-700 text-slate-300",       label: "Free",     dot: "bg-slate-500",  ring: "" },
+  reserved: { card: "bg-amber-900/30 border-amber-600/60",    badge: "bg-amber-800/60 text-amber-300",    label: "Reserved", dot: "bg-amber-400",  ring: "ring-1 ring-amber-500/30" },
+  occupied: { card: "bg-blue-900/40 border-blue-500/60",      badge: "bg-blue-800/60 text-blue-300",      label: "Occupied", dot: "bg-blue-400",   ring: "ring-1 ring-blue-400/30" },
+  done:     { card: "bg-teal-900/30 border-teal-600/50",      badge: "bg-teal-800/50 text-teal-300",      label: "Done",     dot: "bg-teal-400",   ring: "" },
+};
+
+function fmt12Pos(time: string): string {
+  const [h, m] = time.split(":").map(Number);
+  return `${h % 12 || 12}:${m.toString().padStart(2, "0")} ${h >= 12 ? "pm" : "am"}`;
+}
+
+function fmtTsPos(iso: string | undefined): string {
+  if (!iso) return "";
+  return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
+
+function TableStatusView() {
+  const { settings: appSettings } = useApp();
+  const tables = (appSettings.diningTables ?? []).filter((t) => t.active);
+
+  const [reservations,  setReservations]  = useState<ResRow[]>([]);
+  const [loading,       setLoading]       = useState(true);
+  const [actioning,     setActioning]     = useState<string | null>(null);
+  const [filterSection, setFilterSection] = useState("");
+
+  const sections = [...new Set(tables.map((t) => t.section).filter(Boolean))];
+
+  const todayStr = () => new Date().toISOString().slice(0, 10);
+
+  const fetchToday = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data } = await supabase
+        .from("reservations")
+        .select("id,table_id,customer_name,customer_phone,time,party_size,status,note,checked_in_at,checked_out_at")
+        .eq("date", todayStr())
+        .in("status", ["pending", "confirmed", "checked_in", "checked_out"]);
+      setReservations((data ?? []) as ResRow[]);
+    } catch (err) {
+      console.error("TableStatusView fetch:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchToday(); }, [fetchToday]);
+
+  useEffect(() => {
+    const ch = supabase
+      .channel("pos-table-status")
+      .on("postgres_changes", { event: "*", schema: "public", table: "reservations" }, fetchToday)
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [fetchToday]);
+
+  async function doAction(resId: string, status: "checked_in" | "checked_out") {
+    setActioning(resId);
+    const now = new Date().toISOString();
+    await fetch(`/api/pos/reservations/${resId}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    setReservations((prev) =>
+      prev.map((r) => r.id !== resId ? r : {
+        ...r, status,
+        ...(status === "checked_in"  ? { checked_in_at:  now } : {}),
+        ...(status === "checked_out" ? { checked_out_at: now } : {}),
+      })
+    );
+    setActioning(null);
+  }
+
+  function resolveState(tableId: string): { state: TableState; res?: ResRow } {
+    const occupied = reservations.find((r) => r.table_id === tableId && r.status === "checked_in");
+    if (occupied) return { state: "occupied", res: occupied };
+    const reserved = reservations.find((r) => r.table_id === tableId && (r.status === "pending" || r.status === "confirmed"));
+    if (reserved) return { state: "reserved", res: reserved };
+    const done = reservations.find((r) => r.table_id === tableId && r.status === "checked_out");
+    if (done) return { state: "done", res: done };
+    return { state: "free" };
+  }
+
+  const visibleTables = tables.filter((t) => !filterSection || t.section === filterSection);
+
+  const counts = { free: 0, reserved: 0, occupied: 0, done: 0 };
+  for (const t of visibleTables) counts[resolveState(t.id).state]++;
+
+  return (
+    <div className="flex-1 overflow-y-auto bg-slate-950 p-4 space-y-4">
+
+      {/* Header strip */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-white font-bold text-lg">Table Status</h2>
+          <p className="text-slate-400 text-xs mt-0.5">
+            {counts.occupied} occupied · {counts.reserved} reserved · {counts.free} free
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {sections.length > 1 && (
+            <select
+              value={filterSection}
+              onChange={(e) => setFilterSection(e.target.value)}
+              className="bg-slate-800 border border-slate-600 text-slate-200 text-sm rounded-xl px-3 py-1.5 focus:outline-none focus:border-orange-500"
+            >
+              <option value="">All sections</option>
+              {sections.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          )}
+          <button
+            onClick={fetchToday}
+            disabled={loading}
+            className="flex items-center gap-1.5 bg-slate-800 border border-slate-600 text-slate-300 hover:text-white text-sm px-3 py-1.5 rounded-xl transition"
+          >
+            <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Stats strip */}
+      <div className="grid grid-cols-4 gap-2">
+        {([
+          { key: "free",     label: "Free",     dot: "bg-slate-500" },
+          { key: "reserved", label: "Reserved", dot: "bg-amber-400" },
+          { key: "occupied", label: "Occupied", dot: "bg-blue-400"  },
+          { key: "done",     label: "Done",     dot: "bg-teal-400"  },
+        ] as { key: TableState; label: string; dot: string }[]).map(({ key, label, dot }) => (
+          <div key={key} className="bg-slate-800/60 border border-slate-700 rounded-xl p-3 text-center">
+            <div className="flex items-center justify-center gap-1.5 mb-1">
+              <span className={`w-2 h-2 rounded-full ${dot}`} />
+              <span className="text-slate-400 text-[10px] font-semibold uppercase tracking-wide">{label}</span>
+            </div>
+            <span className="text-white font-bold text-xl">{counts[key]}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Table grid */}
+      {loading ? (
+        <div className="flex justify-center py-20">
+          <Loader2 size={28} className="animate-spin text-orange-500" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {visibleTables.map((t) => {
+            const { state, res } = resolveState(t.id);
+            const s = TABLE_STATE_STYLES[state];
+            const busy = actioning === res?.id;
+
+            return (
+              <div key={t.id} className={`rounded-2xl border-2 p-3.5 flex flex-col gap-3 transition ${s.card} ${s.ring}`}>
+
+                {/* Table header */}
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <UtensilsCrossed size={13} className="text-orange-400" />
+                      <span className="font-bold text-white text-sm">{t.label}</span>
+                    </div>
+                    <div className="text-slate-400 text-[11px] mt-0.5 flex items-center gap-2">
+                      <span>{t.seats} seats</span>
+                      {t.section && <span>· {t.section}</span>}
+                    </div>
+                  </div>
+                  <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${s.badge}`}>
+                    <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${s.dot}`} />
+                    {s.label}
+                  </span>
+                </div>
+
+                {/* Reservation detail */}
+                {res && (
+                  <div className="bg-slate-900/60 rounded-xl px-3 py-2 space-y-0.5">
+                    <p className="font-semibold text-white text-sm truncate">{res.customer_name}</p>
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-400">
+                      <span className="flex items-center gap-1"><Clock size={10} /> {fmt12Pos(res.time)}</span>
+                      <span className="flex items-center gap-1"><Users size={10} /> {res.party_size} guests</span>
+                      {res.customer_phone && (
+                        <span className="flex items-center gap-1"><Phone size={10} /> {res.customer_phone}</span>
+                      )}
+                    </div>
+                    {res.checked_in_at && (
+                      <p className="text-[11px] text-blue-400 flex items-center gap-1">
+                        <LogIn size={10} /> In {fmtTsPos(res.checked_in_at)}
+                      </p>
+                    )}
+                    {res.checked_out_at && (
+                      <p className="text-[11px] text-teal-400 flex items-center gap-1">
+                        <LogOut size={10} /> Out {fmtTsPos(res.checked_out_at)}
+                      </p>
+                    )}
+                    {res.note && (
+                      <p className="text-[11px] text-amber-400 italic truncate">&ldquo;{res.note}&rdquo;</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Action button */}
+                {busy ? (
+                  <div className="flex justify-center py-1">
+                    <Loader2 size={16} className="animate-spin text-slate-400" />
+                  </div>
+                ) : state === "reserved" && res ? (
+                  <button
+                    onClick={() => doAction(res.id, "checked_in")}
+                    className="w-full flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-bold py-2.5 rounded-xl transition-all"
+                  >
+                    <LogIn size={13} /> Check In
+                  </button>
+                ) : state === "occupied" && res ? (
+                  <button
+                    onClick={() => doAction(res.id, "checked_out")}
+                    className="w-full flex items-center justify-center gap-1.5 bg-teal-600 hover:bg-teal-500 active:scale-95 text-white text-xs font-bold py-2.5 rounded-xl transition-all"
+                  >
+                    <LogOut size={13} /> Check Out
+                  </button>
+                ) : state === "free" ? (
+                  <div className="flex items-center justify-center gap-1 text-slate-500 text-xs py-2">
+                    <CheckCircle2 size={13} /> Available
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center gap-1 text-teal-500 text-xs py-2">
+                    <CheckCircle2 size={13} /> Freed
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {visibleTables.length === 0 && !loading && (
+        <div className="flex flex-col items-center py-20 gap-3 text-center">
+          <UtensilsCrossed size={32} className="text-slate-600" />
+          <p className="text-slate-400 font-semibold">No active tables configured</p>
+          <p className="text-slate-500 text-sm">Add tables in Admin → Staff &amp; Tables.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Reservations View (POS) ──────────────────────────────────────────────────
+
+const RES_STATUS_CFG: Record<string, { label: string; dot: string; badge: string }> = {
+  pending:     { label: "Pending",     dot: "bg-amber-400",  badge: "bg-amber-900/50 text-amber-300 border-amber-600/50"  },
+  confirmed:   { label: "Confirmed",   dot: "bg-green-400",  badge: "bg-green-900/50 text-green-300 border-green-600/50"  },
+  checked_in:  { label: "Dining",      dot: "bg-blue-400",   badge: "bg-blue-900/50  text-blue-300  border-blue-600/50"   },
+  checked_out: { label: "Done",        dot: "bg-teal-400",   badge: "bg-teal-900/50  text-teal-300  border-teal-600/50"   },
+  cancelled:   { label: "Cancelled",   dot: "bg-red-400",    badge: "bg-red-900/50   text-red-300   border-red-600/50"    },
+  no_show:     { label: "No show",     dot: "bg-slate-500",  badge: "bg-slate-700    text-slate-400 border-slate-600"     },
+};
+
+function ReservationsView() {
+  const [rows,         setRows]         = useState<ResRow[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [actioning,    setActioning]    = useState<string | null>(null);
+  const [filterDate,   setFilterDate]   = useState(() => new Date().toISOString().slice(0, 10));
+  const [filterStatus, setFilterStatus] = useState("");
+  const [search,       setSearch]       = useState("");
+
+  const fetchRows = useCallback(async () => {
+    setLoading(true);
+    try {
+      let q = supabase
+        .from("reservations")
+        .select("id,table_id,table_label,section,customer_name,customer_email,customer_phone,date,time,party_size,status,note,checked_in_at,checked_out_at")
+        .eq("date", filterDate)
+        .order("time", { ascending: true });
+      if (filterStatus) q = q.eq("status", filterStatus);
+      const { data } = await q;
+      setRows((data ?? []) as ResRow[]);
+    } catch (err) {
+      console.error("ReservationsView fetch:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [filterDate, filterStatus]);
+
+  useEffect(() => { fetchRows(); }, [fetchRows]);
+
+  useEffect(() => {
+    const ch = supabase
+      .channel("pos-reservations-list")
+      .on("postgres_changes", { event: "*", schema: "public", table: "reservations" }, fetchRows)
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [fetchRows]);
+
+  async function doStatus(resId: string, status: string) {
+    setActioning(resId);
+    await fetch(`/api/pos/reservations/${resId}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    const now = new Date().toISOString();
+    setRows((prev) => prev.map((r) => r.id !== resId ? r : {
+      ...r, status,
+      ...(status === "checked_in"  ? { checked_in_at:  now } : {}),
+      ...(status === "checked_out" ? { checked_out_at: now } : {}),
+    }));
+    setActioning(null);
+  }
+
+  const filtered = rows.filter((r) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return r.customer_name.toLowerCase().includes(q) ||
+           r.customer_email.toLowerCase().includes(q) ||
+           r.table_label.toLowerCase().includes(q);
+  });
+
+  const stats = {
+    total:     rows.length,
+    pending:   rows.filter((r) => r.status === "pending").length,
+    confirmed: rows.filter((r) => r.status === "confirmed").length,
+    dining:    rows.filter((r) => r.status === "checked_in").length,
+    done:      rows.filter((r) => r.status === "checked_out").length,
+    cancelled: rows.filter((r) => r.status === "cancelled" || r.status === "no_show").length,
+  };
+
+  const fmtDate = (d: string) => {
+    const [y, mo, day] = d.split("-").map(Number);
+    return new Date(y, mo - 1, day).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto bg-slate-950 p-4 space-y-4">
+
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-white font-bold text-lg">Reservations</h2>
+          <p className="text-slate-400 text-xs mt-0.5">{fmtDate(filterDate)} · {rows.length} booking{rows.length !== 1 ? "s" : ""}</p>
+        </div>
+        <button
+          onClick={fetchRows}
+          disabled={loading}
+          className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl px-3 py-2 text-slate-300 text-xs font-medium transition"
+        >
+          <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+          Refresh
+        </button>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+        {[
+          { label: "Total",     value: stats.total,     cls: "text-slate-300" },
+          { label: "Pending",   value: stats.pending,   cls: "text-amber-400" },
+          { label: "Confirmed", value: stats.confirmed, cls: "text-green-400" },
+          { label: "Dining",    value: stats.dining,    cls: "text-blue-400"  },
+          { label: "Done",      value: stats.done,      cls: "text-teal-400"  },
+          { label: "Cancelled", value: stats.cancelled, cls: "text-red-400"   },
+        ].map((s) => (
+          <div key={s.label} className="bg-slate-800/60 border border-slate-700 rounded-xl p-3">
+            <div className={`text-xl font-bold ${s.cls}`}>{s.value}</div>
+            <div className="text-xs text-slate-500 mt-0.5">{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-2">
+        <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2">
+          <Calendar size={13} className="text-orange-400 flex-shrink-0" />
+          <input
+            type="date"
+            value={filterDate}
+            onChange={(e) => setFilterDate(e.target.value)}
+            className="bg-transparent text-slate-200 text-sm focus:outline-none"
+          />
+        </div>
+        <select
+          value={filterStatus}
+          onChange={(e) => setFilterStatus(e.target.value)}
+          className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 text-sm focus:outline-none"
+        >
+          <option value="">All statuses</option>
+          <option value="pending">Pending</option>
+          <option value="confirmed">Confirmed</option>
+          <option value="checked_in">Dining</option>
+          <option value="checked_out">Done</option>
+          <option value="cancelled">Cancelled</option>
+          <option value="no_show">No show</option>
+        </select>
+        <div className="flex items-center gap-2 flex-1 min-w-[160px] bg-slate-800 border border-slate-700 rounded-xl px-3 py-2">
+          <Search size={13} className="text-slate-500 flex-shrink-0" />
+          <input
+            type="text"
+            placeholder="Name, email, table…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-transparent text-slate-200 text-sm focus:outline-none placeholder-slate-500"
+          />
+        </div>
+      </div>
+
+      {/* List */}
+      {loading ? (
+        <div className="flex justify-center py-16">
+          <Loader2 size={28} className="animate-spin text-orange-500" />
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center py-16 gap-3 bg-slate-800/40 rounded-2xl border border-slate-700">
+          <CalendarDays size={32} className="text-slate-600" />
+          <p className="text-slate-400 font-semibold">No reservations found</p>
+          <p className="text-slate-500 text-sm">{search ? "Try a different search." : "No bookings for this date / filter."}</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map((r) => {
+            const cfg = RES_STATUS_CFG[r.status] ?? RES_STATUS_CFG.pending;
+            const busy = actioning === r.id;
+            return (
+              <div
+                key={r.id}
+                className={`bg-slate-800/70 border rounded-xl p-4 transition ${
+                  r.status === "checked_in" ? "border-blue-500/50" : "border-slate-700"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  {/* Left */}
+                  <div className="flex-1 min-w-0 space-y-2">
+                    {/* Status + ref + timestamps */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border ${cfg.badge}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                        {cfg.label}
+                      </span>
+                      <span className="text-slate-500 text-xs font-mono">{r.id.slice(0, 8).toUpperCase()}</span>
+                      {r.checked_in_at && (
+                        <span className="text-blue-400 text-xs flex items-center gap-1">
+                          <LogIn size={11} /> {fmtTsPos(r.checked_in_at)}
+                        </span>
+                      )}
+                      {r.checked_out_at && (
+                        <span className="text-teal-400 text-xs flex items-center gap-1">
+                          <LogOut size={11} /> {fmtTsPos(r.checked_out_at)}
+                        </span>
+                      )}
+                    </div>
+                    {/* Time / party / table */}
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-300">
+                      <span className="flex items-center gap-1.5"><Clock size={13} className="text-orange-400" />{fmt12Pos(r.time)}</span>
+                      <span className="flex items-center gap-1.5"><Users size={13} className="text-orange-400" />{r.party_size} {r.party_size === 1 ? "guest" : "guests"}</span>
+                      <span className="flex items-center gap-1.5"><UtensilsCrossed size={13} className="text-orange-400" />{r.table_label}{r.section ? <span className="text-slate-500"> · {r.section}</span> : null}</span>
+                    </div>
+                    {/* Customer */}
+                    <div className="space-y-0.5">
+                      <div className="text-white font-semibold text-sm">{r.customer_name}</div>
+                      {r.customer_email && <div className="text-slate-400 text-xs">{r.customer_email}</div>}
+                      {r.customer_phone && <div className="text-slate-400 text-xs">{r.customer_phone}</div>}
+                    </div>
+                    {r.note && (
+                      <div className="bg-amber-900/30 border border-amber-700/40 rounded-lg px-2.5 py-1.5 text-amber-300 text-xs italic">
+                        &ldquo;{r.note}&rdquo;
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex flex-col gap-2 flex-shrink-0">
+                    {busy ? (
+                      <Loader2 size={16} className="animate-spin text-slate-400 mx-auto" />
+                    ) : (
+                      <>
+                        {r.status === "pending" && (
+                          <button
+                            onClick={() => doStatus(r.id, "confirmed")}
+                            className="flex items-center gap-1.5 bg-green-600 hover:bg-green-500 active:scale-95 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-all"
+                          >
+                            <CheckCircle2 size={13} /> Confirm
+                          </button>
+                        )}
+                        {r.status === "confirmed" && (
+                          <button
+                            onClick={() => doStatus(r.id, "checked_in")}
+                            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-all"
+                          >
+                            <LogIn size={13} /> Check In
+                          </button>
+                        )}
+                        {r.status === "checked_in" && (
+                          <button
+                            onClick={() => doStatus(r.id, "checked_out")}
+                            className="flex items-center gap-1.5 bg-teal-600 hover:bg-teal-500 active:scale-95 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-all"
+                          >
+                            <LogOut size={13} /> Check Out
+                          </button>
+                        )}
+                        {(r.status === "pending" || r.status === "confirmed" || r.status === "checked_in") && (
+                          <button
+                            onClick={() => doStatus(r.id, "cancelled")}
+                            className="flex items-center gap-1.5 bg-slate-700 hover:bg-red-900/60 border border-slate-600 hover:border-red-700/60 active:scale-95 text-slate-400 hover:text-red-400 text-xs font-semibold px-3 py-2 rounded-xl transition-all"
+                          >
+                            <X size={13} /> Cancel
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main POS Page ─────────────────────────────────────────────────────────────
 
 export default function POSPage() {
   const router = useRouter();
   const { currentStaff, logout, settings } = usePOS();
+  const { settings: appSettings } = useApp();
   const [view, setView] = useState<View>("sale");
   const [time, setTime] = useState(""); // empty string on SSR, filled after mount
   const [mounted, setMounted] = useState(false);
@@ -5373,6 +5901,8 @@ export default function POSPage() {
       customers: p.canManageCustomers,
       staff: p.canManageStaff,
       settings: p.canAccessSettings,
+      tables: true,
+      reservations: true,
     };
     if (!allowed[view]) setView("sale");
   }, [mounted, currentStaff, router, view]);
@@ -5389,12 +5919,15 @@ export default function POSPage() {
 
   const perms = currentStaff.permissions;
 
+  const hasTables = (appSettings.diningTables?.length ?? 0) > 0;
   const NAV = [
-    { id: "sale"      as View, label: "Sale",      icon: ShoppingCart,   show: true },
-    { id: "dashboard" as View, label: "Dashboard", icon: LayoutDashboard, show: perms.canAccessDashboard },
-    { id: "customers" as View, label: "Customers", icon: Users,           show: perms.canManageCustomers },
-    { id: "staff"     as View, label: "Staff",     icon: UserCog,         show: perms.canManageStaff },
-    { id: "settings"  as View, label: "Settings",  icon: Settings2,       show: perms.canAccessSettings },
+    { id: "sale"         as View, label: "Sale",          icon: ShoppingCart,    show: true },
+    { id: "dashboard"    as View, label: "Dashboard",     icon: LayoutDashboard, show: perms.canAccessDashboard },
+    { id: "customers"    as View, label: "Customers",     icon: Users,           show: perms.canManageCustomers },
+    { id: "tables"       as View, label: "Table Service", icon: UtensilsCrossed, show: hasTables },
+    { id: "reservations" as View, label: "Reservations",  icon: CalendarDays,    show: hasTables },
+    { id: "staff"        as View, label: "Staff",         icon: UserCog,         show: perms.canManageStaff },
+    { id: "settings"     as View, label: "Settings",      icon: Settings2,       show: perms.canAccessSettings },
   ].filter((n) => n.show);
 
   const viewLabels: Record<View, string> = {
@@ -5403,6 +5936,8 @@ export default function POSPage() {
     customers: "Customers",
     staff: "Staff & Attendance",
     settings: "Settings",
+    tables: "Table Service",
+    reservations: "Reservations",
   };
 
   return (
@@ -5463,6 +5998,8 @@ export default function POSPage() {
         {view === "customers" && perms.canManageCustomers && <CustomersView />}
         {view === "staff" && perms.canManageStaff && <StaffView />}
         {view === "settings" && perms.canAccessSettings && <SettingsView />}
+        {view === "tables" && <TableStatusView />}
+        {view === "reservations" && <ReservationsView />}
       </div>
 
       {/* Bottom nav */}
