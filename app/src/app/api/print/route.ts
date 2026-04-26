@@ -40,7 +40,6 @@ export async function POST(request: Request) {
     );
   }
 
-  // Basic IP validation — accept IPv4 and hostnames
   if (typeof ip !== "string" || ip.trim().length === 0) {
     return NextResponse.json(
       { ok: false, error: "Invalid printer IP address" },
@@ -69,6 +68,35 @@ export async function POST(request: Request) {
 
 // ─── TCP helper ──────────────────────────────────────────────────────────────
 
+function enrichSocketError(err: NodeJS.ErrnoException, ip: string, port: number): Error {
+  switch (err.code) {
+    case "ECONNREFUSED":
+      return new Error(
+        `Printer at ${ip}:${port} refused the connection. ` +
+        `Check that the printer is powered on, not in error/sleep state, and that port ${port} is correct.`
+      );
+    case "ETIMEDOUT":
+      return new Error(
+        `Connection to ${ip}:${port} timed out. ` +
+        `Check the IP address is correct and the printer is on the same network as this server.`
+      );
+    case "EHOSTUNREACH":
+    case "ENETUNREACH":
+      return new Error(
+        `Printer at ${ip} is unreachable. ` +
+        `Ensure the printer and server are on the same network/VLAN.`
+      );
+    case "ENOTFOUND":
+      return new Error(
+        `Host "${ip}" not found. Use a numeric IP address (e.g. 192.168.1.100) instead of a hostname.`
+      );
+    case "EADDRNOTAVAIL":
+      return new Error(`IP address ${ip} is not available on this network.`);
+    default:
+      return new Error(err.message || `Socket error (${err.code ?? "unknown"})`);
+  }
+}
+
 function connectAndSend(
   ip: string,
   port: number,
@@ -90,21 +118,29 @@ function connectAndSend(
     socket.setTimeout(timeoutMs);
 
     socket.connect(port, ip, () => {
-      // Connected — write the ESC/POS payload then close gracefully
       socket.write(data, (writeErr) => {
         if (writeErr) {
-          settle(writeErr);
+          settle(enrichSocketError(writeErr as NodeJS.ErrnoException, ip, port));
           return;
         }
-        // End the write side; wait for the remote to close (or timeout)
+        // Half-close the write side — finish event fires once all bytes are
+        // flushed to the kernel send buffer (fixing the previous settle-too-early bug)
         socket.end();
-        settle();
       });
     });
 
-    socket.on("error",   (err) => settle(err));
-    socket.on("timeout", ()    => settle(new Error(
-      `Printer at ${ip}:${port} did not respond within ${timeoutMs / 1000} s`
-    )));
+    // Wait until the write buffer is fully drained before resolving
+    socket.on("finish", () => settle());
+
+    socket.on("error", (err) =>
+      settle(enrichSocketError(err as NodeJS.ErrnoException, ip, port))
+    );
+
+    socket.on("timeout", () =>
+      settle(new Error(
+        `Printer at ${ip}:${port} did not respond within ${timeoutMs / 1000} s. ` +
+        `Check the printer is powered on and connected to the network.`
+      ))
+    );
   });
 }

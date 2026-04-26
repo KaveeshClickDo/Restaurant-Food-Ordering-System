@@ -182,7 +182,8 @@ export interface CustomPage {
 export interface PrinterSettings {
   enabled: boolean;
   name: string;         // display label, e.g. "Kitchen Printer"
-  ip: string;           // printer's static IP address
+  connection: "network" | "usb" | "browser"; // how to reach the printer
+  ip: string;           // printer's static IP address (network mode only)
   port: number;         // raw TCP port — Epson/Star default: 9100
   autoPrint: boolean;   // send receipt automatically on new order
   paperWidth: number;   // characters per line: 48 = 80 mm, 32 = 58 mm

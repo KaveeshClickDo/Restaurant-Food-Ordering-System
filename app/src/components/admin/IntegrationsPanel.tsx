@@ -9,7 +9,7 @@ import {
   ToggleRight, ToggleLeft, Clock, ShieldAlert, History, Ruler,
   Printer, Wifi, WifiOff, AlertTriangle, Loader2,
 } from "lucide-react";
-import { buildTestReceipt, sendToPrinter } from "@/lib/escpos";
+import { buildTestReceipt, sendToPrinter, sendToPrinterUSB, printReceiptBrowser } from "@/lib/escpos";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -431,6 +431,24 @@ function ApiKeysTab() {
 
 type TestState = "idle" | "connecting" | "success" | "error";
 
+const CONNECTION_OPTIONS = [
+  {
+    value: "network" as const,
+    label: "Network / IP",
+    sub: "ESC/POS over TCP — Epson, Star, Citizen (same LAN as server)",
+  },
+  {
+    value: "usb" as const,
+    label: "USB (direct)",
+    sub: "Web USB API — printer plugged into this device (Chrome/Edge only)",
+  },
+  {
+    value: "browser" as const,
+    label: "Browser print",
+    sub: "window.print() — any printer the OS can see (USB, Bluetooth, network)",
+  },
+] as const;
+
 function PrinterTab() {
   const { settings, updateSettings } = useApp();
   const p = settings.printer;
@@ -438,6 +456,7 @@ function PrinterTab() {
   const [draft, setDraft] = useState({
     enabled:    p.enabled,
     name:       p.name,
+    connection: (p.connection ?? "network") as "network" | "usb" | "browser",
     ip:         p.ip,
     port:       p.port,
     autoPrint:  p.autoPrint,
@@ -454,19 +473,54 @@ function PrinterTab() {
   }
 
   async function handleTest() {
-    if (!draft.ip.trim()) {
-      setTestState("error");
-      setTestError("Enter a printer IP address before testing.");
-      return;
-    }
     setTestState("connecting");
     setTestError("");
 
-    // Build the test receipt using a preview of the current draft settings
     const previewSettings = { ...settings, printer: { ...draft } };
-    const bytes = buildTestReceipt(previewSettings);
 
-    const result = await sendToPrinter(bytes, draft.ip.trim(), draft.port);
+    if (draft.connection === "network") {
+      if (!draft.ip.trim()) {
+        setTestState("error");
+        setTestError("Enter a printer IP address before testing.");
+        return;
+      }
+      const bytes  = buildTestReceipt(previewSettings);
+      const result = await sendToPrinter(bytes, draft.ip.trim(), draft.port);
+      if (result.ok) {
+        setTestState("success");
+        setTimeout(() => setTestState("idle"), 5000);
+      } else {
+        setTestState("error");
+        setTestError(result.error ?? "Unknown error");
+      }
+      return;
+    }
+
+    if (draft.connection === "usb") {
+      const bytes  = buildTestReceipt(previewSettings);
+      const result = await sendToPrinterUSB(bytes);
+      if (result.ok) {
+        setTestState("success");
+        setTimeout(() => setTestState("idle"), 5000);
+      } else {
+        setTestState("error");
+        setTestError(result.error ?? "Unknown error");
+      }
+      return;
+    }
+
+    // browser
+    const dummyOrder = {
+      id: "TEST-001",
+      date: new Date().toISOString(),
+      items: [{ name: "Test Item", qty: 1, price: 0 }],
+      total: 0,
+      fulfillment: "collection" as const,
+      status: "pending" as const,
+      customerId: "",
+      paymentMethod: "Test",
+    };
+    const result = printReceiptBrowser(dummyOrder, previewSettings);
     if (result.ok) {
       setTestState("success");
       setTimeout(() => setTestState("idle"), 5000);
@@ -476,7 +530,18 @@ function PrinterTab() {
     }
   }
 
-  const isConfigured = Boolean(draft.ip.trim());
+  const isConfigured =
+    draft.connection === "network" ? Boolean(draft.ip.trim()) : true;
+
+  const statusLabel = !draft.enabled
+    ? "Disabled"
+    : draft.connection === "network"
+    ? isConfigured
+      ? `${draft.ip}:${draft.port}`
+      : "No IP configured"
+    : draft.connection === "usb"
+    ? "USB (Web USB)"
+    : "Browser print";
 
   return (
     <div className="space-y-5">
@@ -491,10 +556,8 @@ function PrinterTab() {
           <p className="font-bold text-gray-900 text-sm">{draft.name || "Thermal Printer"}</p>
           <p className="text-xs text-gray-400 mt-0.5">
             {draft.enabled && isConfigured
-              ? `${draft.ip}:${draft.port} — auto-print ${draft.autoPrint ? "on" : "off"}`
-              : !isConfigured
-              ? "Not configured — enter IP address below"
-              : "Printer disabled"}
+              ? `${statusLabel} — auto-print ${draft.autoPrint ? "on" : "off"}`
+              : statusLabel}
           </p>
         </div>
         <div className="flex-shrink-0">
@@ -519,10 +582,9 @@ function PrinterTab() {
             </div>
             <div>
               <h3 className="font-bold text-gray-900 text-sm">Printer settings</h3>
-              <p className="text-xs text-gray-400">Supports any ESC/POS-compatible IP thermal printer</p>
+              <p className="text-xs text-gray-400">ESC/POS thermal printer — network, USB, or browser</p>
             </div>
           </div>
-          {/* Master enable toggle */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500 font-medium">{draft.enabled ? "Enabled" : "Disabled"}</span>
             <button
@@ -541,35 +603,87 @@ function PrinterTab() {
         </div>
 
         <div className="p-6 space-y-5">
-          {/* Network */}
+
+          {/* Connection type */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Network</p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Printer IP address</label>
-                <input
-                  type="text"
-                  value={draft.ip}
-                  onChange={(e) => setDraft((d) => ({ ...d, ip: e.target.value }))}
-                  placeholder="192.168.1.100"
-                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-mono text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
-                />
-                <p className="text-[11px] text-gray-400 mt-1">Set a static IP on your printer to prevent address changes</p>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">TCP port</label>
-                <input
-                  type="number"
-                  value={draft.port}
-                  min={1}
-                  max={65535}
-                  onChange={(e) => setDraft((d) => ({ ...d, port: Number(e.target.value) }))}
-                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-mono text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
-                />
-                <p className="text-[11px] text-gray-400 mt-1">Default: 9100</p>
-              </div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Connection type</p>
+            <div className="space-y-2">
+              {CONNECTION_OPTIONS.map(({ value, label, sub }) => (
+                <button
+                  key={value}
+                  onClick={() => setDraft((d) => ({ ...d, connection: value }))}
+                  className={`w-full text-left px-4 py-3 rounded-xl border-2 transition ${
+                    draft.connection === value
+                      ? "border-orange-500 bg-orange-50"
+                      : "border-gray-200 hover:border-gray-300"
+                  }`}
+                >
+                  <p className={`text-sm font-bold ${draft.connection === value ? "text-orange-600" : "text-gray-700"}`}>
+                    {label}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">{sub}</p>
+                </button>
+              ))}
             </div>
           </div>
+
+          {/* Network fields — only shown for network mode */}
+          {draft.connection === "network" && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Network</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Printer IP address</label>
+                  <input
+                    type="text"
+                    value={draft.ip}
+                    onChange={(e) => setDraft((d) => ({ ...d, ip: e.target.value }))}
+                    placeholder="192.168.1.100"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-mono text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                  />
+                  <p className="text-[11px] text-gray-400 mt-1">Set a static IP on your printer to prevent address changes</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">TCP port</label>
+                  <input
+                    type="number"
+                    value={draft.port}
+                    min={1}
+                    max={65535}
+                    onChange={(e) => setDraft((d) => ({ ...d, port: Number(e.target.value) }))}
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-mono text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                  />
+                  <p className="text-[11px] text-gray-400 mt-1">Default: 9100</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* USB info */}
+          {draft.connection === "usb" && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 space-y-1">
+              <p className="text-xs font-semibold text-blue-700">Web USB requirements</p>
+              <ul className="text-xs text-blue-600 space-y-0.5 list-disc list-inside">
+                <li>Requires Google Chrome or Microsoft Edge (Firefox/Safari not supported)</li>
+                <li>Printer must be connected via USB to this device</li>
+                <li>Click "Print test page" below to select your USB printer for the first time</li>
+                <li>The browser will remember the device for future prints</li>
+              </ul>
+            </div>
+          )}
+
+          {/* Browser print info */}
+          {draft.connection === "browser" && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 space-y-1">
+              <p className="text-xs font-semibold text-blue-700">Browser print notes</p>
+              <ul className="text-xs text-blue-600 space-y-0.5 list-disc list-inside">
+                <li>Opens the browser&apos;s built-in print dialog</li>
+                <li>Works with any printer the OS can see — USB, Bluetooth, or network</li>
+                <li>Allow pop-ups for this site if the dialog does not appear</li>
+                <li>Set &quot;Margins: None&quot; and disable headers/footers in the print dialog for clean receipts</li>
+              </ul>
+            </div>
+          )}
 
           {/* Identity */}
           <div>
@@ -657,12 +771,11 @@ function PrinterTab() {
         </div>
 
         <div className="p-6 space-y-4">
-          {/* Status feedback */}
           {testState === "success" && (
             <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
               <CheckCircle size={16} className="text-green-600 flex-shrink-0" />
               <div>
-                <p className="text-sm font-semibold text-green-700">Test page printed successfully!</p>
+                <p className="text-sm font-semibold text-green-700">Test page sent successfully!</p>
                 <p className="text-xs text-green-600 mt-0.5">Your printer is connected and working correctly.</p>
               </div>
             </div>
@@ -671,8 +784,8 @@ function PrinterTab() {
             <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
               <AlertTriangle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
               <div>
-                <p className="text-sm font-semibold text-red-700">Connection failed</p>
-                <p className="text-xs text-red-500 mt-0.5 font-mono break-all">{testError}</p>
+                <p className="text-sm font-semibold text-red-700">Print failed</p>
+                <p className="text-xs text-red-500 mt-0.5 break-all">{testError}</p>
               </div>
             </div>
           )}
@@ -684,7 +797,7 @@ function PrinterTab() {
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm bg-gray-900 hover:bg-gray-800 text-white transition disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {testState === "connecting"
-                ? <><Loader2 size={15} className="animate-spin" /> Connecting…</>
+                ? <><Loader2 size={15} className="animate-spin" /> Sending…</>
                 : <><Printer size={15} /> Print test page</>
               }
             </button>
@@ -698,16 +811,34 @@ function PrinterTab() {
             )}
           </div>
 
-          {/* Help */}
+          {/* Contextual troubleshooting tips */}
           <div className="bg-gray-50 rounded-xl px-4 py-3 space-y-1">
             <p className="text-xs font-semibold text-gray-600">Troubleshooting tips</p>
-            <ul className="text-xs text-gray-500 space-y-0.5 list-disc list-inside">
-              <li>Ensure the printer and this server are on the same network</li>
-              <li>Default port for most thermal printers is <span className="font-mono">9100</span></li>
-              <li>Set a static IP on the printer via its web interface or DHCP reservation</li>
-              <li>Check that the printer is powered on and not in error state</li>
-              <li>Some printers require the ESC/POS mode to be enabled in their settings</li>
-            </ul>
+            {draft.connection === "network" && (
+              <ul className="text-xs text-gray-500 space-y-0.5 list-disc list-inside">
+                <li>Printer and server must be on the same network/VLAN</li>
+                <li>Default port for most thermal printers is <span className="font-mono">9100</span></li>
+                <li>Set a static IP on the printer via its web interface or DHCP reservation</li>
+                <li>Check that the printer is powered on and not in error or sleep state</li>
+                <li>Some printers require ESC/POS mode to be enabled in their settings</li>
+              </ul>
+            )}
+            {draft.connection === "usb" && (
+              <ul className="text-xs text-gray-500 space-y-0.5 list-disc list-inside">
+                <li>Only works in Chrome or Edge — not Firefox or Safari</li>
+                <li>Connect the printer via USB before clicking the test button</li>
+                <li>If no devices appear in the picker, check that the printer driver is installed</li>
+                <li>If the interface claim fails, try unplugging and replugging the USB cable</li>
+              </ul>
+            )}
+            {draft.connection === "browser" && (
+              <ul className="text-xs text-gray-500 space-y-0.5 list-disc list-inside">
+                <li>Allow pop-ups for this site if the print dialog does not appear</li>
+                <li>In the print dialog, set Margins to None and disable headers/footers</li>
+                <li>Select your thermal printer from the destination list</li>
+                <li>Set paper size to match your roll width (80 mm or 58 mm)</li>
+              </ul>
+            )}
           </div>
         </div>
       </div>

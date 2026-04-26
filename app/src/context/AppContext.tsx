@@ -168,7 +168,7 @@ const DEFAULT_SEO: SeoSettings = {
 };
 
 const DEFAULT_PRINTER: PrinterSettings = {
-  enabled: false, name: "Kitchen Printer", ip: "", port: 9100, autoPrint: true, paperWidth: 48,
+  enabled: false, name: "Kitchen Printer", connection: "network", ip: "", port: 9100, autoPrint: true, paperWidth: 48,
 };
 
 const DEFAULT_SETTINGS: AdminSettings = {
