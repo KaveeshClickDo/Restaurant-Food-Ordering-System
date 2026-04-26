@@ -24,6 +24,10 @@ Customer adds items → cart → checkout modal
   → AppContext patches customer.orders in state
   → Admin panel DeliveryPanel shows new order with toast notification
   → Kitchen display shows order in "New Orders" column
+
+  [fire-and-forget, non-blocking]
+  → POST /api/guest-profile { name, email, phone, orderTotal }
+  → Upserts reservation_customers record for CRM use
 ```
 
 ### Status progression
@@ -39,20 +43,56 @@ pending
 
 ### Admin route guard
 
-The admin cannot move a delivery order to `delivered` — the status API checks whether there is a driver assigned and whether the order is delivery type. Only the driver portal can set `deliveryStatus = "delivered"` which then auto-sets `status = "delivered"`.
+The admin cannot move a delivery order to `delivered` — the status API checks whether the order is a delivery type. Only the driver portal can set `deliveryStatus = "delivered"`, which then auto-sets `status = "delivered"`.
+
+### Guest profile capture
+
+After every successful checkout (including guest checkouts with no account), a fire-and-forget `POST /api/guest-profile` call captures the customer's name, email, phone, and order total into `reservation_customers`. This is:
+
+- **Non-blocking** — a failure has no effect on the order confirmation
+- **Idempotent** — uses the email address as the unique key; subsequent orders increment `order_count` and `total_spend`
+- **Unified with reservations** — the same table stores both reservation guests and online orderers, giving admin a single CRM view
 
 ---
 
 ## POS Order Flow
 
 ```
-Staff adds items → cart → complete sale (payment)
-  → POSContext.completeSale() saves sale to localStorage
-  → POST /api/pos/orders (fire-and-forget, logs errors to console)
-    → maps POSSale → orders row (customer_id = "pos-walk-in", fulfillment = "collection")
-    → inserts into Supabase
-  → KDS receives INSERT via Realtime → shows in "New Orders"
+Staff adds items → cart → complete sale (payment selected)
+  │
+  ▼
+POSContext.completeSale()
+  ├─ Builds POSSale record
+  ├─ Appends to pos_sales in localStorage  ← committed first, never lost
+  ├─ Updates customer loyalty points if assigned
+  ├─ Deducts stock (locally)
+  └─ Attempts POST /api/pos/orders (fire-and-forget)
+       ├─ Success → KDS receives INSERT via Realtime → shows in "New Orders"
+       └─ Failure (offline or error) → outboxEnqueue(sale)
+              └─ Entry stored in pos_outbox (localStorage)
+              └─ Retried when connectivity restores → drainOutbox()
 ```
+
+### Offline sale handling
+
+If the POST to `/api/pos/orders` fails (network down, timeout, or server error), the sale is placed in the **outbox queue** (`lib/posOutbox.ts`):
+
+```
+outboxEnqueue(sale):
+  - Adds OutboxEntry { id, payload, addedAt, attempts: 0, status: "pending" }
+  - Persists to localStorage["pos_outbox"]
+
+drainOutbox() — triggered when isOnline flips true:
+  - Iterates pending entries
+  - Retries POST /api/pos/orders for each
+  - 409 Conflict → already exists on server → dequeue (idempotent)
+  - HTTP error → increment attempts; mark "failed" after 5 attempts
+  - Success → dequeue
+
+Back-off schedule: 2 s → 4 s → 8 s → 16 s → 32 s
+```
+
+The POS UI shows an **amber offline banner** while disconnected and a **blue syncing indicator** while draining the outbox. A `beforeunload` handler warns staff before closing the browser if unsynced entries remain.
 
 ### KDS note format
 
@@ -60,18 +100,14 @@ Staff adds items → cart → complete sale (payment)
 [POS] | Customer: John Smith | Staff: Sarah | Receipt: R1005
 ```
 
-The KDS `deriveDisplayName()` extracts `"John Smith"` (or `"Walk-in"` if no customer). The `deriveKitchenNote()` returns `undefined` for POS orders — no amber special note box is shown.
+The KDS `deriveDisplayName()` extracts `"John Smith"` (or `"Walk-in"` if no customer). `deriveKitchenNote()` returns `undefined` for POS orders — no special note box is shown.
 
 ### Collection completion
 
 When kitchen marks food ready:
 - KDS shows "Mark as Collected" button (collection orders only)
 - Calls `PUT /api/pos/orders/[id]/collected`
-- Route validates order is `status = "ready"` before setting `"delivered"`
-
-### Offline resilience
-
-The POS sale is committed to `localStorage` before the API call. If the network is down, the sale is never lost — it simply won't appear on the KDS until the network recovers and the sale is re-sent (manual re-send is not currently implemented; failed syncs are logged to console).
+- Route validates `status = "ready"` before setting `"delivered"`
 
 ---
 
@@ -114,6 +150,18 @@ Senior waiter opens receipt → taps "Refund" → selects full/partial + method 
 
 ---
 
+## Driver Delivery Flow
+
+```
+Admin assigns driver → order.driverId set, deliveryStatus = "assigned"
+  → Driver app shows order in "Available Orders" (status: preparing or ready)
+  → Driver accepts → picks up food → "Picked Up" → on the way → "Delivered"
+  → PUT /api/admin/orders/[id]/driver { delivery_status: "delivered", status: "delivered" }
+  → Customer account tracker updates in real time
+```
+
+---
+
 ## Status Reference
 
 | Status | Meaning | Who sets it |
@@ -138,18 +186,6 @@ Senior waiter opens receipt → taps "Refund" → selects full/partial + method 
 3. Adds the customer to state, carrying the new order along
 
 This ensures orders are never silently dropped in the admin panel or customer account, regardless of the order in which Realtime events arrive.
-
----
-
-## Driver Delivery Flow
-
-```
-Admin assigns driver → order.driverId set, deliveryStatus = "assigned"
-  → Driver app shows order in "Available Orders" (status: preparing or ready)
-  → Driver accepts → picks up food → "Picked Up" → on the way → "Delivered"
-  → PUT /api/admin/orders/[id]/driver { delivery_status: "delivered", status: "delivered" }
-  → Customer account tracker updates in real time
-```
 
 ---
 

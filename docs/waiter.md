@@ -33,9 +33,9 @@ After login, staff see a colour-coded table grid organised by section:
 | Dark card (muted) | Table is free |
 | Amber ring | Table has open orders |
 
-Sections are configurable in Admin → Staff & Tables (default: Main Hall, Terrace, Bar).
+Sections are configurable in **Admin → Staff & Tables** (default: Main Hall, Terrace, Bar).
 
-Table occupancy is determined by querying `orders` for active (`pending`, `confirmed`, `preparing`, `ready`) dine-in orders.
+Table occupancy is determined by querying `orders` for active (`pending`, `confirmed`, `preparing`, `ready`) dine-in orders with the relevant table identifier in their `note` field.
 
 ---
 
@@ -140,7 +140,7 @@ API: `POST /api/waiter/refund`
 
 After settling, a receipt modal opens showing:
 
-- Restaurant name, phone, website (from admin receipt settings)
+- Restaurant name, phone, website (from admin receipt / branding settings — single source of truth)
 - VAT number (if configured)
 - Table number, served-by name, date/time
 - Itemised list with quantities and prices

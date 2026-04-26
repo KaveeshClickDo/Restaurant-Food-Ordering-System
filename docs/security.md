@@ -14,8 +14,8 @@
 | Expiry | 24 hours (`COOKIE_MAX_AGE`) |
 | Route guard | Every admin API route calls `isAdminAuthenticated()` before processing |
 
-Login: `POST /api/admin/auth` → sets `admin_session` cookie.  
-Session check: `GET /api/admin/auth` → returns `{ ok: true/false }`.  
+Login: `POST /api/admin/auth` → sets `admin_session` cookie.
+Session check: `GET /api/admin/auth` → returns `{ ok: true/false }`.
 Logout: `DELETE /api/admin/auth` → clears cookie.
 
 ### Waiter App (`/waiter`)
@@ -55,7 +55,7 @@ The `drivers` table is never accessible to the anon Supabase role — see RLS po
 | Credential | Email + plaintext password (demo system) |
 | Storage | `password` column in `customers` table |
 | Validation | Client-side check in AppContext `login()` |
-| Note | For production, replace with a proper auth provider (Supabase Auth, NextAuth, etc.) |
+| Note | For production, replace with Supabase Auth or NextAuth |
 
 ---
 
@@ -71,8 +71,9 @@ RLS is **enabled on every table**. The anon key — which is exposed in the brow
 | `customers` | Yes (no `password` col — see below) | No | No | No |
 | `orders` | Yes | No | No | No |
 | `drivers` | **No** (explicit deny policy) | No | No | No |
+| `reservation_customers` | **No** | No | No | No |
 
-All write operations (orders, customers, refunds, status changes) go through Next.js API routes that use `SUPABASE_SERVICE_ROLE_KEY` — which bypasses RLS entirely and is never sent to the browser.
+All write operations (orders, customers, refunds, status changes, guest profiles) go through Next.js API routes that use `SUPABASE_SERVICE_ROLE_KEY` — which bypasses RLS entirely and is never sent to the browser.
 
 ### Column-level security
 
@@ -90,7 +91,7 @@ create policy "deny_anon_all" on drivers
   using (false) with check (false);
 ```
 
-Even with RLS enabled and no policies, Postgres defaults to deny. This explicit policy makes the intent unambiguous and silences the "RLS enabled, no policies" linter warning.
+Even with RLS enabled and no policies, Postgres defaults to deny. This explicit policy makes the intent unambiguous and silences the "RLS enabled, no policies" linter warning. The same pattern applies to `reservation_customers`.
 
 ---
 
@@ -117,6 +118,8 @@ Routes that bypass this guard are intentionally public:
 - Waiter routes — PIN-validated at the app level; trusted in-restaurant screen
 - KDS status route — no sensitive data; trusted in-restaurant screen
 - POS routes — POS manages its own staff auth; trusted terminal
+- `/api/ping` — returns 204 only; no data disclosed
+- `/api/guest-profile` — no auth required (anon customer flow); accepts name, email, phone, orderTotal only; cannot read or delete data
 
 ### Order INSERT
 
@@ -124,6 +127,15 @@ Online orders are inserted via `POST /api/orders` (server-side, service role). T
 - Inserting orders with arbitrary statuses (e.g. `"delivered"`)
 - Manipulating totals
 - Bypassing coupon validation
+
+### Guest Profile Upsert
+
+`POST /api/guest-profile` is intentionally unauthenticated — it is called from the browser after a guest checkout completes. Security considerations:
+
+- It can only **upsert** a profile by email — it cannot read profiles or list records
+- It accepts only four fields: `name`, `email`, `phone`, `orderTotal`
+- Invalid or missing email returns a 400 error
+- The `reservation_customers` table has no anon SELECT — data cannot be read back through the API
 
 ### Customer INSERT
 
@@ -142,7 +154,7 @@ Customers are inserted via `POST /api/auth/register` (service role). The anon ro
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-side API routes only | **No** — full DB access |
 | `ADMIN_PASSWORD` | Server-side `lib/adminAuth.ts` only | **No** |
 
-SMTP, Stripe, and PayPal credentials are stored in `app_settings` (Supabase, service role only) and are never sent to the browser in the settings response — they are read and used exclusively inside API routes.
+SMTP, Stripe, and PayPal credentials are stored in `app_settings` (Supabase, service role only) and are never sent to the browser — they are read and used exclusively inside API routes.
 
 ---
 
@@ -155,3 +167,4 @@ SMTP, Stripe, and PayPal credentials are stored in `app_settings` (Supabase, ser
 - [ ] Replace plaintext customer password storage with Supabase Auth or NextAuth
 - [ ] Enable Supabase database backups
 - [ ] Set up Supabase Auth Rate Limiting to prevent brute-force on the anon key
+- [ ] Review `/api/guest-profile` rate limiting if spam submissions are a concern

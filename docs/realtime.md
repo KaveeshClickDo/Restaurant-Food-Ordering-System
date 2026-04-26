@@ -16,7 +16,7 @@ alter publication supabase_realtime add table customers;
 alter publication supabase_realtime add table orders;
 ```
 
-The `drivers` table is intentionally **not** added to the Realtime publication — driver data is fetched on demand via `/api/admin/drivers` and does not require live sync.
+The `drivers` and `reservation_customers` tables are intentionally **not** added to the Realtime publication — their data is fetched on demand via admin API routes and does not require live push.
 
 ---
 
@@ -27,6 +27,8 @@ The `drivers` table is intentionally **not** added to the Realtime publication �
 ### `app_settings` (UPDATE)
 
 Deep-merges the incoming row's `data` JSONB with `DEFAULT_SETTINGS` to ensure all nested objects have their default structure. This prevents "cannot read property of undefined" crashes when new fields are added to the default that don't yet exist in stored snapshots.
+
+The updated settings object is the **single source of truth** for restaurant branding — the POS, receipt panel, and KDS all read from `appSettings.restaurant` and reflect changes instantly across all connected sessions.
 
 ### `categories` (INSERT / UPDATE / DELETE)
 
@@ -78,6 +80,18 @@ The re-fetch on INSERT/UPDATE is intentional — Supabase Realtime payloads cont
 
 ---
 
+## POS — Connectivity Probe (not Realtime)
+
+The POS uses a separate mechanism for its offline detection — a periodic probe to `HEAD /api/ping` rather than a Supabase Realtime subscription. This is intentional:
+
+- The POS operates fully from `localStorage` and doesn't need live DB sync for its own data
+- The probe detects true connectivity (not just navigator.onLine) to determine whether card payments should be enabled
+- When the probe transitions from offline → online, the outbox queue is drained automatically
+
+See `lib/connectivity.ts` and `lib/posOutbox.ts` for the implementation.
+
+---
+
 ## Race Conditions
 
 ### Customer INSERT before order INSERT
@@ -101,3 +115,4 @@ POS and waiter orders use `customer_id = "pos-walk-in"`. This sentinel row is se
 |---|---|---|---|
 | `AppContext` | `"restaurant-realtime"` | `app_settings`, `categories`, `menu_items`, `customers`, `orders` | Global app state — admin, customer portal, account |
 | `kitchen/page.tsx` | `"kds-orders-live"` | `orders` | Self-contained KDS — does not depend on AppContext |
+| POS (`pos/page.tsx`) | none (probe-based) | n/a | Connectivity detection via `HEAD /api/ping` |

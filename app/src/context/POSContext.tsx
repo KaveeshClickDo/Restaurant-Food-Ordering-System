@@ -6,6 +6,7 @@ import {
   POSStaff, POSProduct, POSCategory, POSModifier, POSCartItem, POSSale, POSCustomer,
   POSSettings, POSClockEntry, POSCartModifier, ROLE_PERMISSIONS, getOfferPrice, cartLineTotal,
 } from "@/types/pos";
+import { enqueue as outboxEnqueue } from "@/lib/posOutbox";
 
 // ─── Seed data ───────────────────────────────────────────────────────────────
 
@@ -560,6 +561,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
     // Route the sale to the Kitchen Display System via the orders table.
     // Fire-and-forget — a network failure must never block the POS workflow.
+    // On failure the sale is placed in the outbox and retried when connectivity restores.
     fetch("/api/pos/orders", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
@@ -568,8 +570,12 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       if (!r.ok) {
         const j = await r.json().catch(() => ({})) as { error?: string };
         console.error("POS→KDS sync failed:", r.status, j.error ?? "(no details)");
+        outboxEnqueue(sale);
       }
-    }).catch((err) => console.error("POS→KDS sync network error:", err));
+    }).catch((err) => {
+      console.error("POS→KDS sync network error:", err);
+      outboxEnqueue(sale);
+    });
 
     // Update customer loyalty points
     if (assignedCustomer) {

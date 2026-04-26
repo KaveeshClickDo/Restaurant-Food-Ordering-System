@@ -1,8 +1,8 @@
 # Single-Restaurant Food Ordering System
 
-A full-featured, production-ready web application built on **Next.js 15** that combines six distinct portals into a single codebase: a customer ordering site, a restaurant admin dashboard, a waiter table-service app, a kitchen display system (KDS), a driver delivery portal, and a full Point-of-Sale (POS) terminal.
+A full-featured, production-ready web application built on **Next.js 15** that combines seven distinct portals into a single codebase: a customer ordering site, a restaurant admin dashboard, a waiter table-service app, a kitchen display system (KDS), a driver delivery portal, a full Point-of-Sale (POS) terminal, and a customer display screen.
 
-Online ordering data is persisted in **Supabase (PostgreSQL)** and synchronised in real time across all portals. POS data is stored locally in `localStorage`.
+Online ordering data is persisted in **Supabase (PostgreSQL)** and synchronised in real time across all portals. The POS stores its working data in `localStorage` and is fully offline-capable — completed sales are saved locally first, then synced to Supabase in the background when connectivity is available.
 
 ---
 
@@ -51,10 +51,11 @@ Online ordering data is persisted in **Supabase (PostgreSQL)** and synchronised 
 | Database | Supabase (PostgreSQL) |
 | Real-time | Supabase Realtime (`postgres_changes`) |
 | Auth — admin | `ADMIN_PASSWORD` env var + httpOnly JWT cookie |
-| Auth — drivers | bcrypt hash stored in `drivers` table; validated server-side |
-| Auth — waiters | 4-digit PIN stored in `app_settings`; validated server-side |
-| Auth — POS staff | 4-digit PIN stored in `localStorage` (POS is a trusted local terminal) |
-| POS storage | Browser `localStorage` |
+| Auth — drivers | bcrypt hash in `drivers` table; validated server-side |
+| Auth — waiters | 4-digit PIN in `app_settings`; validated server-side |
+| Auth — POS staff | 4-digit PIN in `localStorage` (trusted local terminal) |
+| POS storage | Browser `localStorage` (primary) + Supabase (background sync via outbox) |
+| Offline sync | `lib/posOutbox.ts` — localStorage outbox with exponential back-off retry |
 | State | `AppContext` (online ordering) + `POSContext` (POS) |
 | Printer | ESC/POS over TCP (`/api/print` proxy) |
 | Email | SMTP (`/api/email` proxy) |
@@ -88,16 +89,17 @@ ADMIN_PASSWORD=your-secure-admin-password
 
 ### Database Setup
 
-Run `supabase/rls_policies.sql` in the Supabase SQL Editor. That script:
+Run `supabase/setup_all.sql` (or `rls_policies.sql`) in the Supabase SQL Editor. That script:
 
-1. Creates the `drivers` table (if it doesn't exist)
-2. Enables Row Level Security on all tables
+1. Creates all required tables (`orders`, `customers`, `categories`, `menu_items`, `drivers`, `reservation_customers`)
+2. Enables Row Level Security on every table
 3. Applies per-table anon policies (read-only where appropriate)
 4. Revokes `password` column from anon reads on `customers`
 5. Seeds the `pos-walk-in` sentinel customer
-6. Adds `voided_by`, `void_reason`, `voided_at` columns to `orders`
+6. Adds void audit columns to `orders`
+7. Adds `order_count`, `total_spend`, `last_order_at` columns to `reservation_customers`
 
-See [Database Schema](#database-schema) for the full table definitions.
+See [Database Schema](#database-schema) for full table definitions.
 
 ### Installation
 
@@ -122,7 +124,7 @@ npm start
 
 ### Customer Portal (`/`)
 
-- Full menu grouped by category with sticky scrollspy sidebar
+- Full menu grouped by category with sticky ScrollSpy sidebar
 - Time-gated **Breakfast Menu** (appears only during configured morning hours)
 - Search by name / description; filter by dietary tags (Vegan, Halal, Gluten-Free, etc.)
 - Add items with variation, add-on, and special instruction selection
@@ -133,6 +135,8 @@ npm start
 - Payment methods filtered by distance restriction
 - Guest or registered checkout; saved delivery addresses
 - Schedule orders for a future time slot
+- Store credit balance applied at checkout
+- **Guest profile auto-capture**: after checkout, customer details (name, email, phone, order total) are saved to `reservation_customers` for CRM use — no account required
 
 ### Customer Account (`/account`)
 
@@ -170,7 +174,6 @@ A mobile-friendly table-service companion for dine-in staff. No admin cookie nee
 
 - **Void** (before settlement) — cancels all active orders for the table with a mandatory reason; sets `status = "cancelled"` and records `void_reason`, `voided_by`, `voided_at`
 - **Refund** (after settlement) — full or partial amount; cash or card method; distributes refund proportionally across multiple order rounds; sets `status = "refunded"` or `"partially_refunded"`; appends a `RefundRecord` to `orders.refunds`
-- Non-senior staff see an access-denied screen when they attempt either action
 
 #### Receipt
 
@@ -183,7 +186,7 @@ Full-screen dark Kanban board for kitchen monitors. **No authentication required
 
 #### Architecture
 
-The KDS page is **self-contained and independent of `AppContext`**. It queries the `orders` table directly with a `customer:customers(name)` JOIN to get customer names without depending on AppContext's customer state array. A dedicated Supabase Realtime channel (`kds-orders-live`) subscribes to all order changes; on INSERT or UPDATE events the KDS re-fetches the full row (with JOIN) to keep display data accurate.
+The KDS is **self-contained and independent of `AppContext`**. It queries the `orders` table directly with a `customer:customers(name)` JOIN. A dedicated Supabase Realtime channel (`kds-orders-live`) subscribes to all order changes; on each event the KDS re-fetches the full row (with JOIN) to keep display data accurate.
 
 #### Columns
 
@@ -193,15 +196,13 @@ The KDS page is **self-contained and independent of `AppContext`**. It queries t
 | Preparing | `preparing` | Mark Ready |
 | Ready | `ready` | Mark as Collected (POS/walk-in) |
 
-#### Display Name resolution
+#### Display Name Resolution
 
 | Order source | `displayName` shown |
 |---|---|
 | Dine-in (waiter) | `"Table T4"` — parsed from `[WAITER] Table T4 …` note |
 | POS walk-in | Customer name from note, or `"Walk-in"` |
 | Online order | Customer name from the `customers` JOIN |
-
-Kitchen notes strip all metadata prefixes — staff see only the relevant instruction (e.g. `"No onions"`).
 
 #### Features
 
@@ -223,7 +224,20 @@ Kitchen notes strip all metadata prefixes — staff see only the relevant instru
 
 ### POS System (`/pos`)
 
-A fully standalone in-restaurant terminal. Uses `POSContext` backed by `localStorage` — works entirely offline. After each sale, an order is mirrored to Supabase via `POST /api/pos/orders` so it appears on the KDS.
+A fully standalone in-restaurant terminal. Uses `POSContext` backed by `localStorage` — works entirely without an internet connection. After each sale, an order is pushed to Supabase via `POST /api/pos/orders` so it appears on the KDS.
+
+#### Offline Mode
+
+The POS is designed to keep operating when the internet is unavailable:
+
+- **Connectivity probe**: a silent `HEAD /api/ping` request runs every 30 s (and every 5 s when offline) to detect real connectivity — more reliable than `navigator.onLine` alone
+- **Amber offline banner**: appears below the header with a count of pending-sync sales and a retry button
+- **Card/split payments disabled**: when offline, only cash payments are accepted — card terminals require internet
+- **Outbox queue** (`lib/posOutbox.ts`): any KDS sync that fails is saved to localStorage and retried automatically when connectivity restores, with exponential back-off (up to 5 attempts, base 2 s)
+- **Blue sync indicator**: shown when reconnected and draining the outbox
+- **`beforeunload` guard**: warns staff before closing the browser tab if unsynced sales remain
+
+All sales are committed to `localStorage` before any network call — data is never lost due to network failure.
 
 #### Staff Authentication
 
@@ -237,11 +251,11 @@ A fully standalone in-restaurant terminal. Uses `POSContext` backed by `localSto
 
 #### Sale Screen
 
-- Product grid grouped by category, colour-coded tiles, images (base64 in `localStorage`)
+- Product grid grouped by category, colour-coded tiles
 - Popular badge, active offer badge with auto-generated label
 - Modifier / add-on selection modal
 - Cart with +/− controls, discount (% or £), tip, customer assignment, table assignment
-- Payment: **Cash** (with change calculator), **Card**, or **Split** (any mix)
+- Payment: **Cash** (with change calculator), **Card** (disabled offline), or **Split** (disabled offline)
 - Loyalty points earned display
 - Receipt modal: print or email to customer
 
@@ -256,11 +270,20 @@ A fully standalone in-restaurant terminal. Uses `POSContext` backed by `localSto
 | `multibuy` | Buy X items for £Y |
 | `qty_discount` | Buy ≥ minimum quantity, get X% off each |
 
+#### Reservations (POS)
+
+The POS includes a **Reservations** tab for front-of-house staff to view and manage table bookings:
+
+- View all reservations for any date
+- Check-in and check-out guests
+- Create walk-in reservations
+- See table occupancy across sections
+
 #### Void & Refund (POS)
 
 - Requires Manager or Admin role
 - Reason capture, refund method (Cash / Card / No Refund), editable refund amount
-- Voided sales are excluded from revenue KPIs; visible via "Show voided" toggle
+- Voided sales excluded from revenue KPIs; visible via "Show voided" toggle
 
 #### Reports
 
@@ -273,17 +296,13 @@ Period selector (Today / Yesterday / This Week / This Month / Last 30 Days / Cus
 
 #### KDS Integration
 
-On every completed sale, `POSContext.completeSale()` posts the sale to `POST /api/pos/orders`. The route maps POS cart items to `OrderLine[]`, builds a structured note (`[POS] | Customer: X | Staff: Y | Receipt: R1005`), and inserts the order with `fulfillment = "collection"` and `customer_id = "pos-walk-in"`. The KDS picks it up via Realtime within milliseconds.
-
-#### Dine-In Void & Refund (from POS Dashboard)
-
-The POS Dashboard → Dine-In tab allows Admin/Manager to void or refund dine-in orders that were placed via the waiter app — using the same `/api/waiter/void` and `/api/waiter/refund` endpoints.
+`POSContext.completeSale()` posts every sale to `POST /api/pos/orders`. If the network request fails (e.g. offline), the sale is queued in the outbox and retried automatically when connectivity restores. Supabase uses `ON CONFLICT DO NOTHING` on the orders table so re-sent entries are idempotent.
 
 ---
 
 ## Admin Dashboard (`/admin`)
 
-Password-protected (requires `ADMIN_PASSWORD` set in env). 22 tabbed panels grouped into sections.
+Password-protected (requires `ADMIN_PASSWORD` set in env). **24 tabbed panels** grouped into sections.
 
 | Section | Panel | Description |
 |---|---|---|
@@ -293,6 +312,7 @@ Password-protected (requires `ADMIN_PASSWORD` set in env). 22 tabbed panels grou
 | Menu | Menu Items | Category + item CRUD; dietary tags, variations, add-ons, images, stock |
 | Menu | Breakfast | Separate breakfast menu with own categories, items, and time window |
 | Customers | Customers | Customer list, order history, VIP/tag labels, manual status override |
+| Customers | Guest Profiles | CRM view of all guests — from reservations and online orders — with visit counts, spend, marketing opt-in, and CSV export |
 | Customers | Drivers | Register driver accounts; toggle active/inactive |
 | Finance | Coupons | Percentage and fixed-amount codes with usage limits and expiry |
 | Finance | Tax & VAT | VAT rate, inclusive/exclusive mode, breakdown display |
@@ -301,14 +321,19 @@ Password-protected (requires `ADMIN_PASSWORD` set in env). 22 tabbed panels grou
 | Settings | Schedule | Per-day open/close hours with manual override toggle |
 | Settings | Delivery Zones | Concentric km-ring zone editor, per-zone fee, colour coding |
 | Settings | Integrations | Stripe, PayPal, SMTP, thermal printer config |
-| Settings | Email Templates | 6 event-based HTML email templates with variable substitution |
+| Settings | Email Templates | Event-based HTML email templates with variable substitution |
 | Settings | Staff & Tables | Waiter staff management (PIN, role, avatar), dining table layout |
+| Settings | Reservations | Reservation system config — slot duration, advance days, blackout dates, review URL |
 | Content | Footer Pages | Rich HTML editor for 6 built-in pages (About, Terms, etc.) |
 | Content | Custom Pages | Unlimited custom pages with SEO fields and publish toggle |
 | Content | Navigation | Header + footer navigation link management |
 | Content | Brand Colors | Brand accent colour + page background with live preview |
 | Content | Footer Logos | Partner logos, payment icons, certification badges |
 | Content | Receipt Settings | Logo, contact details, VAT number, thank-you message |
+
+### Branding Single Source of Truth
+
+The restaurant name, logo, and contact details set in **Admin → Operations** propagate automatically everywhere — POS header, POS receipts, POS email from-name, kitchen display, and all lifecycle emails. No separate branding configuration is needed per portal.
 
 ---
 
@@ -376,6 +401,7 @@ All routes use the **service role key** (`supabaseAdmin`) server-side. The anon 
 | `POST` | `/api/admin/drivers` | Create driver (hashes password) |
 | `PUT` | `/api/admin/drivers/[id]` | Update driver |
 | `DELETE` | `/api/admin/drivers/[id]` | Delete driver |
+| `GET` | `/api/admin/reservation-customers` | List all guest CRM profiles |
 | `POST` | `/api/admin/seed` | Seed default categories + menu items |
 
 ### Customer-facing routes (no auth required)
@@ -383,6 +409,7 @@ All routes use the **service role key** (`supabaseAdmin`) server-side. The anon 
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/api/orders` | Place a new online order |
+| `POST` | `/api/guest-profile` | Upsert guest profile in `reservation_customers` after checkout |
 | `PATCH` | `/api/customers/[id]` | Self-service profile patch (favourites, saved addresses) |
 | `POST` | `/api/customers/[id]/spend-credit` | Deduct store credit at checkout |
 | `POST` | `/api/auth/register` | Register a new customer account |
@@ -393,7 +420,7 @@ All routes use the **service role key** (`supabaseAdmin`) server-side. The anon 
 |---|---|---|
 | `POST` | `/api/auth/driver` | Driver login (validates bcrypt hash) |
 
-### Waiter routes (no admin cookie — PIN auth is handled separately)
+### Waiter routes (no admin cookie — PIN auth handled separately)
 
 | Method | Path | Description |
 |---|---|---|
@@ -404,24 +431,28 @@ All routes use the **service role key** (`supabaseAdmin`) server-side. The anon 
 | `POST` | `/api/waiter/void` | Cancel active orders (senior only enforced client-side) |
 | `POST` | `/api/waiter/refund` | Process full/partial refund on settled orders |
 
-### POS routes (no admin cookie — POS is a trusted local terminal)
+### POS routes (no admin cookie — trusted local terminal)
 
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/api/pos/orders` | Bridge a POS sale into Supabase so it appears on the KDS |
 | `PUT` | `/api/pos/orders/[id]/collected` | Mark a POS/collection order `delivered` (only from `ready`) |
 | `GET` | `/api/pos/menu` | Fetch menu categories + items for the POS product grid |
+| `GET` | `/api/pos/reservations` | Fetch reservations for POS Reservations tab |
+| `POST` | `/api/pos/reservations` | Create a reservation from the POS |
+| `PATCH` | `/api/pos/reservations/[id]` | Update reservation status (check-in / check-out / cancel) |
 
 ### Kitchen Display route (no auth — trusted in-restaurant screen)
 
 | Method | Path | Description |
 |---|---|---|
-| `PUT` | `/api/kds/orders/[id]/status` | Advance an order through kitchen stages (`pending→confirmed→preparing→ready`) |
+| `PUT` | `/api/kds/orders/[id]/status` | Advance an order through kitchen stages |
 
 ### Utility routes
 
 | Method | Path | Description |
 |---|---|---|
+| `HEAD` | `/api/ping` | Connectivity probe — returns 204 (used by POS offline detection) |
 | `POST` | `/api/print` | ESC/POS TCP proxy — forward receipt bytes to a network printer |
 | `POST` | `/api/email` | SMTP proxy — send transactional email |
 
@@ -431,6 +462,8 @@ All routes use the **service role key** (`supabaseAdmin`) server-side. The anon 
 
 ### `app_settings`
 
+Single JSONB row containing all admin-configurable settings: restaurant info, schedule, payment methods, delivery zones, email templates, menu links, custom pages, colours, receipt settings, coupons, tax settings, breakfast menu, **waiter staff**, **dining tables**, and **reservation system config**.
+
 ```sql
 create table app_settings (
   id         integer primary key default 1,
@@ -438,8 +471,6 @@ create table app_settings (
   updated_at timestamptz default now()
 );
 ```
-
-Single JSONB row containing all admin-configurable settings: restaurant info, schedule, payment methods, delivery zones, email templates, menu links, custom pages, colours, receipt settings, coupons, tax settings, breakfast menu, **waiter staff**, and **dining tables**.
 
 ### `categories`
 
@@ -518,22 +549,11 @@ create table orders (
   refunds           jsonb not null default '[]',
   refunded_amount   numeric not null default 0,
   store_credit_used numeric not null default 0,
-  -- Void / cancel audit
   voided_by         text,
   void_reason       text,
   voided_at         timestamptz
 );
 ```
-
-**Fulfillment values:**
-- `"delivery"` — online delivery order
-- `"collection"` — online click-and-collect or POS sale
-- `"dine-in"` — waiter-placed table order
-
-**Note format by source:**
-- Waiter: `"[WAITER] Table T4 · 2 covers · Staff: Alex · No onions"`
-- POS: `"[POS] | Customer: John | Staff: Sarah | Receipt: R1005"`
-- Online: free-form customer note
 
 ### `drivers`
 
@@ -551,7 +571,34 @@ create table drivers (
 );
 ```
 
-Passwords are stored as bcrypt hashes and validated server-side via `/api/auth/driver`. The anon role has no SELECT access on this table.
+Passwords are stored as bcrypt hashes and validated server-side. The anon role has no SELECT access on this table.
+
+### `reservation_customers`
+
+Unified CRM table for all guests — populated from both table reservation bookings and online food orders.
+
+```sql
+create table reservation_customers (
+  id               uuid primary key default gen_random_uuid(),
+  email            text not null unique,
+  name             text not null default '',
+  phone            text not null default '',
+  visit_count      integer not null default 0,
+  first_visit_at   timestamptz,
+  last_visit_at    timestamptz,
+  order_count      integer not null default 0,
+  total_spend      numeric(10,2) not null default 0,
+  last_order_at    timestamptz,
+  tags             text[] not null default '{}',
+  notes            text not null default '',
+  marketing_opt_in boolean not null default false,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
+);
+```
+
+- `visit_count` / `first_visit_at` / `last_visit_at` — updated when a reservation is checked in / out
+- `order_count` / `total_spend` / `last_order_at` — updated automatically via `POST /api/guest-profile` when an online order is placed
 
 ### Enable Realtime
 
@@ -579,7 +626,7 @@ alter publication supabase_realtime add table orders;
 
 - PIN validation is **server-side only** via `POST /api/waiter/auth`
 - `/api/waiter/config` returns staff profiles without PINs
-- Void and Refund are gated client-side by `waiter.role === "senior"` — the API routes do not re-check role (the waiter app is a trusted in-restaurant screen)
+- Void and Refund are gated client-side by `waiter.role === "senior"` — the waiter app is a trusted in-restaurant screen
 
 ### Driver app
 
@@ -589,6 +636,8 @@ alter publication supabase_realtime add table orders;
 
 ### Supabase RLS
 
+RLS is **enabled on every table**.
+
 | Table | Anon SELECT | Anon INSERT | Anon UPDATE | Anon DELETE |
 |---|---|---|---|---|
 | `app_settings` | Yes | No | No | No |
@@ -597,6 +646,7 @@ alter publication supabase_realtime add table orders;
 | `customers` | Yes (no `password` col) | No | No | No |
 | `orders` | Yes | No | No | No |
 | `drivers` | No | No | No | No |
+| `reservation_customers` | No | No | No | No |
 
 All writes go through Next.js API routes that use the **service role key** (`SUPABASE_SERVICE_ROLE_KEY`), which bypasses RLS entirely. The anon key (exposed in the browser) is read-only.
 
@@ -632,6 +682,7 @@ app/src/
 │   │   └── error.tsx                 # POS error boundary
 │   ├── [footerPage]/page.tsx         # Dynamic footer/custom page renderer
 │   └── api/
+│       ├── ping/route.ts             # Connectivity probe — 204 response (POS offline detection)
 │       ├── admin/
 │       │   ├── auth/route.ts         # Admin login/logout/session check
 │       │   ├── settings/route.ts     # Persist app_settings
@@ -643,6 +694,7 @@ app/src/
 │       │   │   └── driver/route.ts   # Assign driver / update delivery status
 │       │   ├── customers/            # Customer CRUD
 │       │   ├── drivers/              # Driver CRUD (bcrypt password handling)
+│       │   ├── reservation-customers/route.ts  # Guest CRM profiles (GET)
 │       │   └── seed/route.ts         # Seed default menu data
 │       ├── waiter/
 │       │   ├── auth/route.ts         # PIN validation (returns staff sans PIN)
@@ -653,11 +705,15 @@ app/src/
 │       │   └── refund/route.ts       # Refund settled orders
 │       ├── pos/
 │       │   ├── orders/route.ts       # Bridge POS sale → Supabase (KDS)
-│       │   ├── orders/[id]/collected/route.ts  # Mark order collected
-│       │   └── menu/route.ts         # Fetch menu for POS grid
+│       │   ├── orders/[id]/collected/route.ts   # Mark order collected
+│       │   ├── menu/route.ts         # Fetch menu for POS grid
+│       │   └── reservations/
+│       │       ├── route.ts          # GET all / POST create reservation
+│       │       └── [id]/route.ts     # PATCH reservation status
 │       ├── kds/
-│       │   └── orders/[id]/status/route.ts     # Kitchen status advance (no auth)
+│       │   └── orders/[id]/status/route.ts      # Kitchen status advance (no auth)
 │       ├── orders/route.ts           # Place online order
+│       ├── guest-profile/route.ts    # Upsert guest CRM profile from online checkout
 │       ├── auth/
 │       │   ├── register/route.ts     # Register customer
 │       │   └── driver/route.ts       # Driver login (bcrypt check)
@@ -676,7 +732,7 @@ app/src/
 │   ├── MenuSection.tsx               # Category-grouped item list
 │   ├── CategoryNav.tsx               # Sidebar category nav (desktop)
 │   ├── SearchAndFilters.tsx          # Search + dietary filter pills
-│   ├── CheckoutModal.tsx             # Checkout flow — form, geolocation, payment
+│   ├── CheckoutModal.tsx             # Checkout flow — form, geolocation, payment, guest profile capture
 │   ├── ScheduleOrderModal.tsx        # Future time slot picker
 │   ├── ItemCustomizationModal.tsx    # Variations, add-ons, instructions
 │   ├── AuthModal.tsx                 # Login / Register modal
@@ -688,6 +744,7 @@ app/src/
 │       ├── MenuManagementPanel.tsx   # Menu CRUD
 │       ├── BreakfastMenuPanel.tsx    # Breakfast menu CRUD
 │       ├── CustomersPanel.tsx        # Customer management
+│       ├── ReservationCustomersPanel.tsx  # Guest CRM profiles
 │       ├── DriversPanel.tsx          # Driver management
 │       ├── CouponsPanel.tsx          # Coupon management
 │       ├── TaxSettingsPanel.tsx      # VAT configuration
@@ -698,6 +755,7 @@ app/src/
 │       ├── IntegrationsPanel.tsx     # Stripe, PayPal, SMTP, printer
 │       ├── EmailTemplatesPanel.tsx   # Email template editor
 │       ├── WaitersPanel.tsx          # Waiter staff + dining table management
+│       ├── ReservationSystemPanel.tsx # Reservation system config
 │       ├── FooterPagesPanel.tsx      # Built-in footer page editor
 │       ├── CustomPagesPanel.tsx      # Custom page CMS
 │       ├── MenuLinksPanel.tsx        # Navigation management
@@ -720,6 +778,8 @@ app/src/
 │   ├── supabase.ts                   # Supabase browser client (anon key)
 │   ├── supabaseAdmin.ts              # Supabase server client (service role key)
 │   ├── adminAuth.ts                  # Admin JWT cookie helpers
+│   ├── connectivity.ts               # useConnectivity() hook — probe-based online/offline detection
+│   ├── posOutbox.ts                  # POS offline outbox — localStorage queue with exponential back-off retry
 │   ├── escpos.ts                     # ESC/POS receipt formatter
 │   ├── emailTemplates.ts             # Email template engine ({{variable}} interpolation)
 │   ├── colorUtils.ts                 # Brand colour CSS variable generator

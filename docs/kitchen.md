@@ -51,7 +51,7 @@ This approach means the KDS is always accurate regardless of the order source (o
 | **Preparing** | `preparing` | Mark Ready |
 | **Ready** | `ready` | Mark as Collected (POS/walk-in only) |
 
-The Ready column is effectively display-only for dine-in and delivery orders — kitchen's responsibility ends at `ready`. For POS (collection) orders, "Mark as Collected" calls `PUT /api/pos/orders/[id]/collected` which advances the order to `delivered`.
+The Ready column is display-only for dine-in and delivery orders — kitchen's responsibility ends at `ready`. For POS (collection) orders, "Mark as Collected" calls `PUT /api/pos/orders/[id]/collected` which advances the order to `delivered`.
 
 ---
 
@@ -70,6 +70,8 @@ Each order card shows a `displayName` derived from the order's `note` field and 
 POS metadata (`[POS] | ...`) is never shown in the kitchen note box.
 
 For waiter orders, the note after `Staff: <name> · ` is extracted — e.g. `"No onions"` — and shown in the amber Special Note box. If there is no instruction after the metadata, the box is hidden.
+
+For online orders, the full `note` field is shown as-is (it is free-form customer text).
 
 ---
 
@@ -95,6 +97,8 @@ The KDS updates card state immediately on button click, then calls the API. If t
 | 15–29 min | Amber time badge |
 | ≥ 30 min | Red time badge + pulse animation on card border |
 
+Urgency is recalculated every 30 seconds automatically.
+
 ---
 
 ## Order Card Content
@@ -114,7 +118,7 @@ Each card shows:
 
 ## Header Bar
 
-- Restaurant name (from `AppContext` settings — the only thing KDS reads from global state)
+- Restaurant name (from `AppContext` settings — the single source of truth for branding; the only thing KDS reads from global state)
 - Completed-today count (orders that left the active columns since page load)
 - Live clock
 - Fullscreen toggle (browser Fullscreen API)

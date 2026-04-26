@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
 import { supabase } from "@/lib/supabase";
+import { useConnectivity } from "@/lib/connectivity";
+import { drainOutbox, pendingCount, retryFailed } from "@/lib/posOutbox";
 import {
   POSProduct, POSCategory, POSCartItem, POSModifier, POSModifierOption,
   POSCartModifier, POSCustomer, POSStaff, POSSale, POSSettings,
@@ -19,7 +21,7 @@ import {
   Phone, Mail, Calendar, ArrowUpRight, Trophy, Zap, BarChart3,
   UserPlus, ClockIcon, Timer, PanelLeftClose, Flame, CircleCheck, Download,
   Utensils, AlertTriangle, RotateCcw, ShieldOff, Loader2,
-  UtensilsCrossed, LogIn, CalendarDays,
+  UtensilsCrossed, LogIn, CalendarDays, WifiOff, Wifi,
 } from "lucide-react";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -195,11 +197,13 @@ function PaymentModal({
   onClose,
   onComplete,
   currencySymbol,
+  isOffline = false,
 }: {
   total: number;
   onClose: () => void;
   onComplete: (method: "cash" | "card" | "split", payments: {method:"cash"|"card";amount:number}[], cashTendered?: number) => void;
   currencySymbol: string;
+  isOffline?: boolean;
 }) {
   type Step = "method" | "cash" | "card" | "split" | "done";
   const [step, setStep] = useState<Step>("method");
@@ -243,6 +247,12 @@ function PaymentModal({
         {step === "method" && (
           <div className="p-5 space-y-3">
             <p className="text-slate-400 text-sm mb-4">Choose payment method</p>
+            {isOffline && (
+              <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2 mb-1">
+                <AlertTriangle size={14} className="text-amber-400 flex-shrink-0" />
+                <p className="text-amber-300 text-xs">Offline — card payments unavailable</p>
+              </div>
+            )}
             <button
               onClick={() => setStep("cash")}
               className="w-full flex items-center gap-4 p-4 bg-slate-700/60 hover:bg-slate-700 border border-slate-600 hover:border-green-500/50 rounded-xl transition-all group"
@@ -257,28 +267,38 @@ function PaymentModal({
               <ChevronRight size={16} className="text-slate-500 ml-auto" />
             </button>
             <button
-              onClick={() => setStep("card")}
-              className="w-full flex items-center gap-4 p-4 bg-slate-700/60 hover:bg-slate-700 border border-slate-600 hover:border-blue-500/50 rounded-xl transition-all group"
+              disabled={isOffline}
+              onClick={() => !isOffline && setStep("card")}
+              className={`w-full flex items-center gap-4 p-4 border rounded-xl transition-all group ${
+                isOffline
+                  ? "bg-slate-800/40 border-slate-700 opacity-50 cursor-not-allowed"
+                  : "bg-slate-700/60 hover:bg-slate-700 border-slate-600 hover:border-blue-500/50"
+              }`}
             >
               <div className="w-10 h-10 bg-blue-500/20 rounded-xl flex items-center justify-center group-hover:bg-blue-500/30 transition-colors">
                 <CreditCard size={20} className="text-blue-400" />
               </div>
               <div className="text-left">
                 <p className="text-white font-semibold text-sm">Card</p>
-                <p className="text-slate-400 text-xs">Tap, chip or swipe</p>
+                <p className="text-slate-400 text-xs">{isOffline ? "Requires internet" : "Tap, chip or swipe"}</p>
               </div>
               <ChevronRight size={16} className="text-slate-500 ml-auto" />
             </button>
             <button
-              onClick={() => setStep("split")}
-              className="w-full flex items-center gap-4 p-4 bg-slate-700/60 hover:bg-slate-700 border border-slate-600 hover:border-purple-500/50 rounded-xl transition-all group"
+              disabled={isOffline}
+              onClick={() => !isOffline && setStep("split")}
+              className={`w-full flex items-center gap-4 p-4 border rounded-xl transition-all group ${
+                isOffline
+                  ? "bg-slate-800/40 border-slate-700 opacity-50 cursor-not-allowed"
+                  : "bg-slate-700/60 hover:bg-slate-700 border-slate-600 hover:border-purple-500/50"
+              }`}
             >
               <div className="w-10 h-10 bg-purple-500/20 rounded-xl flex items-center justify-center group-hover:bg-purple-500/30 transition-colors">
                 <Shuffle size={20} className="text-purple-400" />
               </div>
               <div className="text-left">
                 <p className="text-white font-semibold text-sm">Split</p>
-                <p className="text-slate-400 text-xs">Cash + card</p>
+                <p className="text-slate-400 text-xs">{isOffline ? "Requires internet" : "Cash + card"}</p>
               </div>
               <ChevronRight size={16} className="text-slate-500 ml-auto" />
             </button>
@@ -874,7 +894,7 @@ function OrderPanel({
 
 // ─── Sale View ────────────────────────────────────────────────────────────────
 
-function SaleView() {
+function SaleView({ isOffline = false }: { isOffline?: boolean }) {
   const { products, categories, addToCart, settings } = usePOS();
   const [activeCategory, setActiveCategory] = useState<string>("all");
   const [search, setSearch] = useState("");
@@ -938,6 +958,7 @@ function SaleView() {
           currencySymbol={settings.currencySymbol}
           onClose={() => setShowPayment(false)}
           onComplete={handlePaymentComplete}
+          isOffline={isOffline}
         />
       )}
 
@@ -6297,6 +6318,11 @@ export default function POSPage() {
   const [time, setTime] = useState(""); // empty string on SSR, filled after mount
   const [mounted, setMounted] = useState(false);
 
+  // ── Connectivity & offline outbox ─────────────────────────────────────────
+  const { isOnline, recheck } = useConnectivity();
+  const [outboxCount, setOutboxCount] = useState(0);
+  const prevOnline = useRef(true);
+
   // Mount guard: prevents SSR/hydration mismatch from localStorage state
   useEffect(() => { setMounted(true); }, []);
 
@@ -6322,6 +6348,34 @@ export default function POSPage() {
     setTime(new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }));
     const id = setInterval(() => setTime(new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })), 30000);
     return () => clearInterval(id);
+  }, []);
+
+  // Drain outbox when we come back online
+  useEffect(() => {
+    if (isOnline && !prevOnline.current) {
+      retryFailed();
+      drainOutbox().then(() => setOutboxCount(pendingCount()));
+    }
+    prevOnline.current = isOnline;
+  }, [isOnline]);
+
+  // Keep outbox badge count fresh (poll every 5 s)
+  useEffect(() => {
+    setOutboxCount(pendingCount());
+    const id = setInterval(() => setOutboxCount(pendingCount()), 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Warn before tab close when there are unsynced sales
+  useEffect(() => {
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      if (pendingCount() > 0) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, []);
 
   // Show nothing until client has hydrated (avoids mismatch between SSR null and client session)
@@ -6406,9 +6460,37 @@ export default function POSPage() {
         </button>
       </header>
 
+      {/* Offline banner */}
+      {!isOnline && (
+        <div className="flex-shrink-0 bg-amber-500/10 border-b border-amber-500/30 px-4 py-2 flex items-center gap-3">
+          <WifiOff size={14} className="text-amber-400 flex-shrink-0" />
+          <p className="text-amber-300 text-xs font-medium flex-1">
+            No internet connection — cash payments only. Sales are saved locally.
+            {outboxCount > 0 && ` ${outboxCount} sale${outboxCount > 1 ? "s" : ""} pending sync.`}
+          </p>
+          <button
+            onClick={recheck}
+            className="text-amber-400 hover:text-amber-300 transition-colors flex-shrink-0"
+            title="Retry connection"
+          >
+            <RefreshCw size={13} />
+          </button>
+        </div>
+      )}
+
+      {/* Online + pending sync indicator */}
+      {isOnline && outboxCount > 0 && (
+        <div className="flex-shrink-0 bg-blue-500/10 border-b border-blue-500/20 px-4 py-1.5 flex items-center gap-2">
+          <Wifi size={12} className="text-blue-400 flex-shrink-0" />
+          <p className="text-blue-300 text-xs flex-1">
+            Syncing {outboxCount} offline sale{outboxCount > 1 ? "s" : ""} to server…
+          </p>
+        </div>
+      )}
+
       {/* Main content */}
       <div className="flex-1 overflow-hidden flex flex-col">
-        {view === "sale" && <SaleView />}
+        {view === "sale" && <SaleView isOffline={!isOnline} />}
         {view === "dashboard" && perms.canAccessDashboard && <DashboardView />}
         {view === "customers" && perms.canManageCustomers && <CustomersView />}
         {view === "staff" && perms.canManageStaff && <StaffView />}
