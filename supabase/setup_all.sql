@@ -102,6 +102,12 @@ create table if not exists reservation_customers (
   updated_at       timestamptz not null default now()
 );
 
+-- Online order tracking columns (added after initial release — safe to re-run)
+alter table reservation_customers
+  add column if not exists order_count   integer     not null default 0,
+  add column if not exists total_spend   numeric(10,2) not null default 0,
+  add column if not exists last_order_at timestamptz;
+
 alter table reservation_customers enable row level security;
 
 

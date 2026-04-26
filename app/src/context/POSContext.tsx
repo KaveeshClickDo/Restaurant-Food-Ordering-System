@@ -89,11 +89,11 @@ const SEED_PRODUCTS: POSProduct[] = [
 ];
 
 const SEED_SETTINGS: POSSettings = {
-  businessName: "Spice Garden Restaurant",
+  businessName: "",
   taxRate: 20,
   taxInclusive: true,
   defaultTipOptions: [10, 15, 20, 25],
-  receiptFooter: "Thank you for dining with us!\nWifi: SpiceGuest | Pass: welcome123",
+  receiptFooter: "Thank you for dining with us!",
   currencySymbol: "£",
   tableModeEnabled: false,
   tableCount: 10,
@@ -103,8 +103,8 @@ const SEED_SETTINGS: POSSettings = {
   maxDiscountPercent: 100,
   requirePinForDiscount: false,
   location: "Main Branch",
-  // Receipt branding
-  receiptRestaurantName: "Spice Garden Restaurant",
+  // Receipt branding — empty by default; POS page reads from AppContext.settings.restaurant
+  receiptRestaurantName: "",
   receiptPhone: "",
   receiptWebsite: "",
   receiptEmail: "",

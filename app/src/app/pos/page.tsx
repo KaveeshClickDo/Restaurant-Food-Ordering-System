@@ -393,9 +393,9 @@ function PaymentModal({
 
 // ─── Receipt HTML builder (used for both display and email) ────────────────────
 
-function buildReceiptHtml(sale: POSSale, settings: POSSettings): string {
+function buildReceiptHtml(sale: POSSale, settings: POSSettings, restaurantNameOverride?: string): string {
   const sym = settings.currencySymbol;
-  const restaurantName = (settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant").toUpperCase();
+  const restaurantName = (restaurantNameOverride || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant").toUpperCase();
   const taxRate      = sale.taxRate      ?? settings.taxRate;
   const taxInclusive = sale.taxInclusive ?? settings.taxInclusive;
   const vatLabel     = taxInclusive ? `VAT (${taxRate}% incl.)` : `VAT (${taxRate}%)`;
@@ -457,14 +457,16 @@ function buildReceiptHtml(sale: POSSale, settings: POSSettings): string {
 
 function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose: () => void }) {
   const { settings, customers } = usePOS();
+  const { settings: appSettings } = useApp();
   const customer = customers.find((c) => c.id === sale.customerId);
   const [emailTo, setEmailTo] = useState(customer?.email ?? "");
   const [emailStatus, setEmailStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [emailError, setEmailError] = useState("");
   const sym = settings.currencySymbol;
 
-  // Restaurant name: prefer receipt-specific name, fall back to business name
-  const restaurantName = (settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant").toUpperCase();
+  // Prefer the restaurant name from admin branding settings (single source of truth)
+  const effectiveName = appSettings.restaurant?.name || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant";
+  const restaurantName = effectiveName.toUpperCase();
 
   // VAT label and sign — read from the snapshot saved on the sale itself so it's
   // always accurate even if settings change after the transaction.
@@ -480,8 +482,8 @@ function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose: () => void })
     setEmailStatus("sending");
     setEmailError("");
     try {
-      const html = buildReceiptHtml(sale, settings);
-      const fromName = settings.smtpFromName?.trim() || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant";
+      const html = buildReceiptHtml(sale, settings, effectiveName);
+      const fromName = settings.smtpFromName?.trim() || effectiveName;
       const subject  = `Your receipt from ${fromName} — #${sale.receiptNo}`;
       // SMTP credentials are read from server-side env vars in /api/email
       const res = await fetch("/api/email", {
@@ -1299,8 +1301,8 @@ interface DineInOrder {
   date: string;
 }
 
-function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings): string {
-  const name = (settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant").toUpperCase();
+function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings, restaurantNameOverride?: string): string {
+  const name = (restaurantNameOverride || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant").toUpperCase();
   const itemsHtml = order.items.map((it) =>
     `<tr><td style="padding:2px 0;font-size:12px">${it.name} ×${it.qty}</td><td style="padding:2px 0;font-size:12px;text-align:right">£${(it.price * it.qty).toFixed(2)}</td></tr>`
   ).join("");
@@ -1332,6 +1334,7 @@ function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings): stri
 
 function DashboardView() {
   const { sales, products, settings, voidSale, currentStaff } = usePOS();
+  const { settings: appSettings } = useApp();
   const sym = settings.currencySymbol;
 
   // Top-level tab
@@ -1419,19 +1422,20 @@ function DashboardView() {
     const email = dineInEmail[order.id]?.trim();
     if (!email) return;
     setDineInEmailSt((p) => ({ ...p, [order.id]: "sending" }));
-    const html = buildDineInReceiptHtml(order, settings);
-    const restaurantName = settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant";
+    const effectiveName = appSettings.restaurant?.name || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant";
+    const html = buildDineInReceiptHtml(order, settings, effectiveName);
     const res = await fetch("/api/email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to: email, subject: `Your receipt from ${restaurantName} — Table ${order.tableLabel}`, html }),
+      body: JSON.stringify({ to: email, subject: `Your receipt from ${effectiveName} — Table ${order.tableLabel}`, html }),
     });
     const d = await res.json().catch(() => ({})) as { ok?: boolean };
     setDineInEmailSt((p) => ({ ...p, [order.id]: d.ok ? "sent" : "error" }));
   }
 
   function printDineInReceipt(order: DineInOrder) {
-    const html = buildDineInReceiptHtml(order, settings);
+    const effectiveName = appSettings.restaurant?.name || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant";
+    const html = buildDineInReceiptHtml(order, settings, effectiveName);
     const win = window.open("", "_blank", "width=420,height=650");
     if (!win) return;
     win.document.write(html);
@@ -3780,6 +3784,7 @@ function StaffView() {
 function SettingsView() {
   const { settings, setSettings, products, setProducts, categories, setCategories,
           sales, salesRetentionDays, exportSales, purgeOldSales } = usePOS();
+  const { settings: appSettings } = useApp();
   const [local, setLocal] = useState({ ...settings });
   const [tab, setTab] = useState<"general"|"menu"|"receipt"|"hardware">("general");
   const [editProduct, setEditProduct] = useState<POSProduct | null>(null);
@@ -3998,8 +4003,16 @@ function SettingsView() {
           <div className="space-y-4">
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4">
               <h3 className="text-white font-semibold text-sm">Business</h3>
+              {/* Business Name — POS override; admin Restaurant Branding is the source of truth */}
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Business Name (POS override)</label>
+                <input type="text" value={local.businessName ?? ""}
+                  onChange={(e) => setLocal((p) => ({ ...p, businessName: e.target.value }))}
+                  placeholder={appSettings.restaurant?.name || "Restaurant Name"}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+                <p className="text-[11px] text-slate-500 mt-1">Leave blank to use your restaurant branding name automatically.</p>
+              </div>
               {[
-                { key: "businessName", label: "Business Name", type: "text" },
                 { key: "location", label: "Location / Branch", type: "text" },
                 { key: "currencySymbol", label: "Currency Symbol", type: "text" },
                 { key: "receiptFooter", label: "Receipt Footer", type: "textarea" },
@@ -4317,12 +4330,23 @@ function SettingsView() {
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4">
               <h3 className="text-white font-semibold text-sm">Top Section</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Restaurant name — placeholder shows the live branding name */}
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">Restaurant Name</label>
+                  <input
+                    type="text"
+                    value={local.receiptRestaurantName ?? ""}
+                    onChange={(e) => setLocal((p) => ({ ...p, receiptRestaurantName: e.target.value }))}
+                    placeholder={appSettings.restaurant?.name || "Restaurant Name"}
+                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1">Printed in large text at the top. Leave blank to use your branding name.</p>
+                </div>
                 {[
-                  { key: "receiptRestaurantName", label: "Restaurant Name", type: "text",  placeholder: "e.g. Spice Garden", hint: "Printed in large text at the top" },
-                  { key: "receiptPhone",          label: "Phone Number",    type: "tel",   placeholder: "e.g. 020 7123 4567" },
-                  { key: "receiptWebsite",        label: "Website",         type: "text",  placeholder: "e.g. www.spicegarden.co.uk" },
-                  { key: "receiptEmail",          label: "Email",           type: "email", placeholder: "e.g. hello@spicegarden.co.uk" },
-                  { key: "receiptVatNumber",      label: "VAT Number",      type: "text",  placeholder: "e.g. GB 123 4567 89", hint: "Leave blank if not VAT registered" },
+                  { key: "receiptPhone",     label: "Phone Number", type: "tel",   placeholder: "e.g. 020 7123 4567" },
+                  { key: "receiptWebsite",   label: "Website",      type: "text",  placeholder: "e.g. www.restaurant.co.uk" },
+                  { key: "receiptEmail",     label: "Email",        type: "email", placeholder: "e.g. hello@restaurant.co.uk" },
+                  { key: "receiptVatNumber", label: "VAT Number",   type: "text",  placeholder: "e.g. GB 123 4567 89", hint: "Leave blank if not VAT registered" },
                 ].map((f) => (
                   <div key={f.key} className={f.key === "receiptVatNumber" ? "sm:col-span-2" : ""}>
                     <label className="text-xs text-slate-400 mb-1 block">{f.label}</label>
@@ -4344,7 +4368,7 @@ function SettingsView() {
               <h3 className="text-white font-semibold text-sm">Bottom Section</h3>
               {[
                 { key: "receiptThankYouMessage", label: "Thank You Message", placeholder: "Thank you for your order!", hint: "Appears at the bottom of every receipt" },
-                { key: "receiptCustomMessage",   label: "Custom Message",     placeholder: "e.g. Follow us @spicegarden · Use code THANKS10 for 10% off", hint: "Optional second line — great for promotions or social handles" },
+                { key: "receiptCustomMessage",   label: "Custom Message",     placeholder: "e.g. Follow us on Instagram · Use code THANKS10 for 10% off", hint: "Optional second line — great for promotions or social handles" },
               ].map((f) => (
                 <div key={f.key}>
                   <label className="text-xs text-slate-400 mb-1 block">{f.label}</label>
@@ -4380,7 +4404,7 @@ function SettingsView() {
                 type Line = { text: string; bold?: boolean; large?: boolean; dim?: boolean };
                 const lines: Line[] = [];
 
-                const name = (local.receiptRestaurantName || "Restaurant Name").toUpperCase();
+                const name = (local.receiptRestaurantName || appSettings.restaurant?.name || "Restaurant Name").toUpperCase();
                 lines.push({ text: center(name), bold: true, large: true });
                 if (local.receiptPhone)     lines.push({ text: center(local.receiptPhone) });
                 if (local.receiptWebsite)   lines.push({ text: center(local.receiptWebsite) });
@@ -4501,7 +4525,7 @@ function SettingsView() {
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">From Name (shown to customer)</label>
                 <input value={local.smtpFromName ?? ""} onChange={(e) => setLocal((l) => ({ ...l, smtpFromName: e.target.value }))}
-                  placeholder={local.businessName || "Spice Garden Restaurant"}
+                  placeholder={appSettings.restaurant?.name || local.businessName || "Restaurant Name"}
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
               </div>
               <button
@@ -5424,7 +5448,7 @@ function TableStatusView() {
         }
       }
 
-      setReservations((data ?? []) as ResRow[]);
+      setReservations((data ?? []) as unknown as ResRow[]);
     } catch (err) {
       console.error("TableStatusView fetch:", err);
     } finally {
@@ -5804,7 +5828,7 @@ function ReservationsView() {
         }
       }
 
-      setRows((data ?? []) as ResRowEx[]);
+      setRows((data ?? []) as unknown as ResRowEx[]);
     } catch (err) {
       console.error("ReservationsView fetch:", err);
     } finally {
@@ -6340,7 +6364,7 @@ export default function POSPage() {
           <div className="w-7 h-7 bg-orange-500 rounded-lg flex items-center justify-center">
             <ChefHat size={14} className="text-white" />
           </div>
-          <span className="text-white font-bold text-sm hidden sm:block">{settings.businessName}</span>
+          <span className="text-white font-bold text-sm hidden sm:block">{appSettings.restaurant?.name || settings.businessName || "POS"}</span>
         </div>
 
         <div className="h-6 w-px bg-slate-700 flex-shrink-0" />

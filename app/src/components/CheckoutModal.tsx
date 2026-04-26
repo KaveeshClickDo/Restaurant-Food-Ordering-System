@@ -304,6 +304,20 @@ export default function CheckoutModal({ onClose }: Props) {
     // Fire-and-forget: print receipt + send confirmation email
     printOrder(newOrder, settings);
     sendOrderEmail("order_confirmation", newOrder, currentUser, settings);
+
+    // Fire-and-forget: upsert guest profile so the admin can track this customer
+    if (form.email.trim()) {
+      fetch("/api/guest-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name:       form.name.trim(),
+          email:      form.email.trim(),
+          phone:      form.phone.trim(),
+          orderTotal: orderTotal,
+        }),
+      }).catch(() => {});
+    }
   }
 
   // ── Success screen ──────────────────────────────────────────────────────────

@@ -30,7 +30,7 @@ export const DEFAULT_FOOTER_PAGES: FooterPage[] = [
 <h3>Phone</h3>
 <p><a href="tel:02071234567">020 7123 4567</a></p>
 <h3>Email</h3>
-<p><a href="mailto:hello@spicegarden.co.uk">hello@spicegarden.co.uk</a></p>
+<p><a href="mailto:hello@restaurant.co.uk">hello@restaurant.co.uk</a></p>
 <h3>Opening Hours</h3>
 <p>Monday – Friday: 11:00 – 22:00<br>Saturday – Sunday: 10:00 – 23:00</p>
 <h3>Large Orders & Catering</h3>
@@ -53,7 +53,7 @@ export const DEFAULT_FOOTER_PAGES: FooterPage[] = [
 <h3>4. Allergens</h3>
 <p>Our food is prepared in a kitchen that handles nuts, dairy, gluten, and other allergens. Please contact us before ordering if you have any dietary requirements or food allergies. We cannot guarantee allergen-free preparation.</p>
 <h3>5. Contact</h3>
-<p>For queries about these terms, please contact us at <a href="mailto:hello@spicegarden.co.uk">hello@spicegarden.co.uk</a> or call 020 7123 4567.</p>`,
+<p>For queries about these terms, please contact us at <a href="mailto:hello@restaurant.co.uk">hello@restaurant.co.uk</a> or call 020 7123 4567.</p>`,
   },
   {
     slug: "privacy",
@@ -75,7 +75,7 @@ export const DEFAULT_FOOTER_PAGES: FooterPage[] = [
 <h3>Data Retention</h3>
 <p>Order and account data is retained for up to 12 months for accounting and legal compliance purposes. You may request deletion of your personal data at any time by contacting us.</p>
 <h3>Your Rights</h3>
-<p>Under UK GDPR you have the right to access, correct, restrict, or delete your personal data. To exercise any of these rights, please contact us at <a href="mailto:hello@spicegarden.co.uk">hello@spicegarden.co.uk</a>.</p>`,
+<p>Under UK GDPR you have the right to access, correct, restrict, or delete your personal data. To exercise any of these rights, please contact us at <a href="mailto:hello@restaurant.co.uk">hello@restaurant.co.uk</a>.</p>`,
   },
   {
     slug: "cookies",
@@ -96,7 +96,7 @@ export const DEFAULT_FOOTER_PAGES: FooterPage[] = [
 <h3>Managing Cookies</h3>
 <p>You can control and delete cookies through your browser settings. Please note that disabling essential cookies may prevent some parts of the website from functioning correctly.</p>
 <h3>Contact</h3>
-<p>If you have questions about our use of cookies, please contact us at <a href="mailto:hello@spicegarden.co.uk">hello@spicegarden.co.uk</a>.</p>`,
+<p>If you have questions about our use of cookies, please contact us at <a href="mailto:hello@restaurant.co.uk">hello@restaurant.co.uk</a>.</p>`,
   },
   {
     slug: "accessibility",
@@ -119,7 +119,7 @@ export const DEFAULT_FOOTER_PAGES: FooterPage[] = [
 <p>We are aware that some older parts of the site may not fully meet accessibility standards. We are actively working to address these issues.</p>
 <h3>Get Help</h3>
 <p>If you experience any difficulty accessing our website or need content in an alternative format, please contact us and we will do our best to assist you.</p>
-<p>Email: <a href="mailto:hello@spicegarden.co.uk">hello@spicegarden.co.uk</a><br>
+<p>Email: <a href="mailto:hello@restaurant.co.uk">hello@restaurant.co.uk</a><br>
 Phone: <a href="tel:02071234567">020 7123 4567</a></p>`,
   },
 ];

@@ -7,6 +7,7 @@ import {
   Users, Search, Mail, Phone, CalendarDays, Tag, FileDown,
   ChevronDown, ChevronUp, Loader2, RefreshCw, CheckCircle2,
   ToggleLeft, ToggleRight, X, Plus, Star, Clock, UtensilsCrossed,
+  ShoppingBag, TrendingUp,
 } from "lucide-react";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -35,13 +36,16 @@ const PRESET_TAGS = ["VIP", "Regular", "Birthday", "Anniversary", "Vegetarian", 
 // ─── CSV export ───────────────────────────────────────────────────────────────
 
 function exportCsv(customers: ReservationCustomer[]) {
-  const header = ["Name", "Email", "Phone", "Visits", "First Visit", "Last Visit", "Marketing Opt-in", "Tags", "Notes"];
+  const header = ["Name", "Email", "Phone", "Reservations", "Online Orders", "Total Spend (£)", "First Activity", "Last Order", "Last Reservation", "Marketing Opt-in", "Tags", "Notes"];
   const rows = customers.map((c) => [
     c.name,
     c.email,
     c.phone,
     c.visitCount,
+    c.orderCount ?? 0,
+    (c.totalSpend ?? 0).toFixed(2),
     fmtDate(c.firstVisitAt),
+    fmtDate(c.lastOrderAt),
     fmtDate(c.lastVisitAt),
     c.marketingOptIn ? "Yes" : "No",
     c.tags.join("; "),
@@ -188,9 +192,19 @@ function CustomerCard({ customer, onSave }: {
           <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500 flex-wrap">
             <span className="flex items-center gap-1"><Mail size={10} />{customer.email}</span>
             {customer.phone && <span className="flex items-center gap-1"><Phone size={10} />{customer.phone}</span>}
-            <span className="flex items-center gap-1"><Star size={10} className="text-orange-400" />{customer.visitCount} visit{customer.visitCount !== 1 ? "s" : ""}</span>
-            {customer.lastVisitAt && (
-              <span className="flex items-center gap-1"><CalendarDays size={10} />Last: {fmtDate(customer.lastVisitAt)}</span>
+            {customer.visitCount > 0 && (
+              <span className="flex items-center gap-1"><Star size={10} className="text-orange-400" />{customer.visitCount} reservation{customer.visitCount !== 1 ? "s" : ""}</span>
+            )}
+            {customer.orderCount > 0 && (
+              <span className="flex items-center gap-1 text-blue-600"><ShoppingBag size={10} />{customer.orderCount} order{customer.orderCount !== 1 ? "s" : ""}</span>
+            )}
+            {customer.totalSpend > 0 && (
+              <span className="flex items-center gap-1 text-emerald-600"><TrendingUp size={10} />£{customer.totalSpend.toFixed(2)} spent</span>
+            )}
+            {(customer.lastOrderAt || customer.lastVisitAt) && (
+              <span className="flex items-center gap-1">
+                <CalendarDays size={10} />Last: {fmtDate(customer.lastOrderAt ?? customer.lastVisitAt)}
+              </span>
             )}
           </div>
         </div>
@@ -292,9 +306,34 @@ function CustomerCard({ customer, onSave }: {
             </button>
           )}
 
+          {/* Online order summary */}
+          {(customer.orderCount > 0 || customer.totalSpend > 0) && (
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider flex items-center gap-1.5">
+                <ShoppingBag size={11} /> Online Orders
+              </p>
+              <div className="bg-white rounded-xl border border-gray-100 px-4 py-3 flex flex-wrap gap-4">
+                <div>
+                  <div className="text-lg font-bold text-blue-700">{customer.orderCount}</div>
+                  <div className="text-xs text-gray-400">order{customer.orderCount !== 1 ? "s" : ""} placed</div>
+                </div>
+                <div>
+                  <div className="text-lg font-bold text-emerald-700">£{customer.totalSpend.toFixed(2)}</div>
+                  <div className="text-xs text-gray-400">total spend</div>
+                </div>
+                {customer.lastOrderAt && (
+                  <div>
+                    <div className="text-sm font-semibold text-gray-700">{fmtDate(customer.lastOrderAt)}</div>
+                    <div className="text-xs text-gray-400">last order</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Reservation history */}
           <div className="space-y-1.5">
-            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Visit History</p>
+            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Reservation History</p>
             {loadingHist ? (
               <div className="flex justify-center py-4">
                 <Loader2 size={18} className="animate-spin text-orange-500" />
@@ -317,11 +356,12 @@ function CustomerCard({ customer, onSave }: {
 // ─── Main panel ───────────────────────────────────────────────────────────────
 
 export default function ReservationCustomersPanel() {
-  const [customers,  setCustomers]  = useState<ReservationCustomer[]>([]);
-  const [loading,    setLoading]    = useState(true);
-  const [search,     setSearch]     = useState("");
-  const [filterTag,  setFilterTag]  = useState("");
-  const [filterOptIn,setFilterOptIn]= useState(false);
+  const [customers,    setCustomers]    = useState<ReservationCustomer[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [search,       setSearch]       = useState("");
+  const [filterTag,    setFilterTag]    = useState("");
+  const [filterOptIn,  setFilterOptIn]  = useState(false);
+  const [filterOrders, setFilterOrders] = useState(false);
 
   const fetchCustomers = useCallback(async () => {
     setLoading(true);
@@ -375,8 +415,9 @@ export default function ReservationCustomersPanel() {
   const allTags = [...new Set(customers.flatMap((c) => c.tags))].sort();
 
   const filtered = customers.filter((c) => {
-    if (filterOptIn && !c.marketingOptIn) return false;
-    if (filterTag && !c.tags.includes(filterTag)) return false;
+    if (filterOptIn  && !c.marketingOptIn)        return false;
+    if (filterOrders && (c.orderCount ?? 0) === 0) return false;
+    if (filterTag    && !c.tags.includes(filterTag)) return false;
     if (search) {
       const q = search.toLowerCase();
       return (
@@ -424,14 +465,15 @@ export default function ReservationCustomersPanel() {
       </div>
 
       {/* Stats strip */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Total guests",     value: customers.length,  bg: "bg-gray-50",   border: "border-gray-200",  text: "text-gray-800"   },
-          { label: "Marketing opt-in", value: optInCount,         bg: "bg-green-50",  border: "border-green-200", text: "text-green-700"  },
-          { label: "Tagged",           value: customers.filter((c) => c.tags.length > 0).length, bg: "bg-orange-50", border: "border-orange-200", text: "text-orange-700" },
+          { label: "Total guests",      value: customers.length,                                                    bg: "bg-gray-50",    border: "border-gray-200",   text: "text-gray-800"   },
+          { label: "Online orders",     value: customers.reduce((s, c) => s + (c.orderCount ?? 0), 0),             bg: "bg-blue-50",    border: "border-blue-200",   text: "text-blue-700"   },
+          { label: "Total revenue",     value: `£${customers.reduce((s, c) => s + (c.totalSpend ?? 0), 0).toFixed(2)}`, bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-700" },
+          { label: "Marketing opt-in",  value: optInCount,                                                          bg: "bg-green-50",   border: "border-green-200",  text: "text-green-700"  },
         ].map((s) => (
           <div key={s.label} className={`${s.bg} border ${s.border} rounded-xl p-3.5`}>
-            <div className={`text-2xl font-bold ${s.text}`}>{s.value}</div>
+            <div className={`text-xl font-bold ${s.text}`}>{s.value}</div>
             <div className="text-xs text-gray-500 mt-0.5">{s.label}</div>
           </div>
         ))}
@@ -462,6 +504,18 @@ export default function ReservationCustomersPanel() {
         )}
 
         <button
+          onClick={() => setFilterOrders((v) => !v)}
+          className={`flex items-center gap-1.5 border rounded-xl px-3 py-2 text-sm font-medium transition ${
+            filterOrders
+              ? "bg-blue-50 border-blue-300 text-blue-700"
+              : "border-gray-200 text-gray-500 hover:border-gray-300"
+          }`}
+        >
+          <ShoppingBag size={13} />
+          Has online orders
+        </button>
+
+        <button
           onClick={() => setFilterOptIn((v) => !v)}
           className={`flex items-center gap-1.5 border rounded-xl px-3 py-2 text-sm font-medium transition ${
             filterOptIn
@@ -485,7 +539,7 @@ export default function ReservationCustomersPanel() {
           <p className="font-semibold text-gray-600">No guest profiles found</p>
           <p className="text-sm text-gray-400 max-w-xs">
             {customers.length === 0
-              ? "Profiles are created automatically when customers check in."
+              ? "Profiles are created automatically when customers place an online order or check in to a reservation."
               : "No profiles match the current filters."}
           </p>
         </div>

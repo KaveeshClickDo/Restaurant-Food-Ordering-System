@@ -86,7 +86,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 
 // ─── Receipt preview ──────────────────────────────────────────────────────────
 
-function ReceiptPreview({ r }: { r: ReceiptSettings }) {
+function ReceiptPreview({ r, restaurantName }: { r: ReceiptSettings; restaurantName?: string }) {
   const W = 42;
 
   function center(str: string) {
@@ -108,7 +108,7 @@ function ReceiptPreview({ r }: { r: ReceiptSettings }) {
   const lines: Line[] = [];
 
   // ── Top section ──
-  const name = (r.restaurantName || "Restaurant Name").toUpperCase();
+  const name = (r.restaurantName || restaurantName || "Restaurant Name").toUpperCase();
   lines.push({ text: center(name), bold: true, large: true });
   if (r.phone)     lines.push({ text: center(r.phone) });
   if (r.website)   lines.push({ text: center(r.website) });
@@ -205,6 +205,7 @@ function ReceiptPreview({ r }: { r: ReceiptSettings }) {
 export default function ReceiptSettingsPanel() {
   const { settings, updateSettings } = useApp();
   const [draft, setDraft] = useState<ReceiptSettings>({ ...settings.receiptSettings });
+  const liveRestaurantName = settings.restaurant?.name || "";
   const [saved, setSaved]             = useState(false);
   const [showPreview, setShowPreview] = useState(true);
 
@@ -307,8 +308,8 @@ export default function ReceiptSettingsPanel() {
                   label="Restaurant Name"
                   value={draft.restaurantName}
                   onChange={(v) => patch({ restaurantName: v })}
-                  placeholder="e.g. Spice Garden"
-                  hint="Printed in large text at the top of every receipt"
+                  placeholder={liveRestaurantName || "Restaurant Name"}
+                  hint="Leave blank to use your branding name automatically"
                 />
                 <Field
                   label="Phone Number"
@@ -321,13 +322,13 @@ export default function ReceiptSettingsPanel() {
                   label="Website"
                   value={draft.website}
                   onChange={(v) => patch({ website: v })}
-                  placeholder="e.g. www.spicegarden.co.uk"
+                  placeholder="e.g. www.restaurant.co.uk"
                 />
                 <Field
                   label="Email"
                   value={draft.email}
                   onChange={(v) => patch({ email: v })}
-                  placeholder="e.g. hello@spicegarden.co.uk"
+                  placeholder="e.g. hello@restaurant.co.uk"
                   type="email"
                 />
                 <Field
@@ -356,7 +357,7 @@ export default function ReceiptSettingsPanel() {
                   label="Custom Message"
                   value={draft.customMessage}
                   onChange={(v) => patch({ customMessage: v })}
-                  placeholder="e.g. Follow us on Instagram @spicegarden · 10% off your next order with code THANKS10"
+                  placeholder="e.g. Follow us on Instagram · 10% off your next order with code THANKS10"
                   hint="Optional second line — great for promotions or social media handles"
                 />
               </div>
@@ -383,7 +384,7 @@ export default function ReceiptSettingsPanel() {
           {showPreview && (
             <div className="border-t lg:border-t-0 lg:border-l border-gray-100 p-6 bg-gray-50/70">
               <SectionHeading>Receipt Preview</SectionHeading>
-              <ReceiptPreview r={draft} />
+              <ReceiptPreview r={draft} restaurantName={liveRestaurantName} />
             </div>
           )}
         </div>

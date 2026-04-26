@@ -33,7 +33,7 @@ export const TEMPLATE_VARS: VarDef[] = [
   { name: "payment_method",      label: "Payment method",      group: "Order",       preview: "Cash on Delivery" },
   { name: "estimated_time",      label: "Estimated time (min)", group: "Order",      preview: "30–45" },
   // Restaurant
-  { name: "restaurant_name",     label: "Restaurant name",     group: "Restaurant",  preview: "Spice Garden" },
+  { name: "restaurant_name",     label: "Restaurant name",     group: "Restaurant",  preview: "Your Restaurant" },
   { name: "restaurant_phone",    label: "Restaurant phone",    group: "Restaurant",  preview: "020 7123 4567" },
   { name: "restaurant_address",  label: "Restaurant address",  group: "Restaurant",  preview: "42 Curry Lane, London" },
   // Tax

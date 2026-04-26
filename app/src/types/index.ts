@@ -282,6 +282,12 @@ export interface ReservationCustomer {
   visitCount: number;
   firstVisitAt?: string;
   lastVisitAt?: string;
+  /** Number of online food orders placed */
+  orderCount: number;
+  /** Cumulative spend from online food orders (£) */
+  totalSpend: number;
+  /** ISO timestamp of the most recent online order */
+  lastOrderAt?: string;
   tags: string[];
   notes: string;
   marketingOptIn: boolean;
