@@ -97,6 +97,16 @@ export class ReceiptBuilder {
     return this;
   }
 
+  /**
+   * ESC p 0 t1 t2 — open cash drawer on port 0.
+   * t1/t2 are on/off pulse durations in units of 2 ms (25 = 50 ms, 250 = 500 ms).
+   * Works for drawers wired to the DK port on the printer (RJ11).
+   */
+  kickDrawer() {
+    this.buf.push(ESC, 0x70, 0x00, 0x19, 0xfa);
+    return this;
+  }
+
   build(): number[] {
     return [...this.buf];
   }
@@ -272,6 +282,25 @@ export async function sendToPrinter(
     await new Promise((r) => setTimeout(r, RETRY_DELAY));
   }
   return { ok: false, error: "Max retries exceeded" };
+}
+
+// ─── Bluetooth printer (Android native via Capacitor) ────────────────────────
+
+/**
+ * Send raw ESC/POS bytes to a Bluetooth thermal printer.
+ * Delegates to the native BluetoothPrinterPlugin via capacitorBridge.
+ * Only works inside the Capacitor Android shell — returns a clear error on web.
+ */
+export async function sendToPrinterBluetooth(
+  bytes: number[],
+  address: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!address.trim()) {
+    return { ok: false, error: "No Bluetooth printer selected. Choose a paired device in printer settings." };
+  }
+  // Dynamic import so the bridge doesn't affect the Next.js server bundle
+  const { sendBluetooth } = await import("./capacitorBridge");
+  return sendBluetooth(address.trim(), bytes);
 }
 
 // ─── Web USB printer (direct browser → USB) ──────────────────────────────────
@@ -529,11 +558,13 @@ export function printReceiptBrowser(
 
 /**
  * Print an order receipt using the configured connection mode.
+ * Optionally kicks the cash drawer after printing (for cash payments).
  * Fire-and-forget safe — logs errors to console, never throws.
  */
 export async function printOrder(
   order: Order,
   settings: AdminSettings,
+  opts: { kickDrawer?: boolean } = {},
 ): Promise<void> {
   const { printer } = settings;
   if (!printer.enabled || !printer.autoPrint) return;
@@ -541,20 +572,37 @@ export async function printOrder(
   const mode = printer.connection ?? "network";
 
   try {
+    let bytes = buildReceipt(order, settings);
+
+    // Append cash drawer kick command when requested
+    if (opts.kickDrawer) {
+      const b = new ReceiptBuilder();
+      b.kickDrawer();
+      bytes = [...bytes, ...b.build()];
+    }
+
     let result: { ok: boolean; error?: string };
 
-    if (mode === "usb") {
-      const bytes = buildReceipt(order, settings);
+    if (mode === "bluetooth") {
+      result = await sendToPrinterBluetooth(bytes, printer.bluetoothAddress ?? "");
+    } else if (mode === "usb") {
       result = await sendToPrinterUSB(bytes);
     } else if (mode === "browser") {
       result = printReceiptBrowser(order, settings);
     } else {
+      // network — try native TCP first (Android, works offline on LAN)
+      // then fall back to /api/print server proxy
       if (!printer.ip.trim()) {
         console.warn("[printer] Auto-print skipped — no IP configured");
         return;
       }
-      const bytes = buildReceipt(order, settings);
-      result = await sendToPrinter(bytes, printer.ip, printer.port);
+      const { sendTcpNative } = await import("./capacitorBridge");
+      const nativeResult = await sendTcpNative(printer.ip, printer.port, bytes);
+      if (nativeResult.ok || nativeResult.error !== "native_unavailable") {
+        result = nativeResult;
+      } else {
+        result = await sendToPrinter(bytes, printer.ip, printer.port);
+      }
     }
 
     if (!result.ok) {

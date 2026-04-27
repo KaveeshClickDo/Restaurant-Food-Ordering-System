@@ -12,17 +12,23 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 // ─── GET ──────────────────────────────────────────────────────────────────────
 
 export async function GET() {
-  const [{ data: cats, error: catErr }, { data: items, error: itemErr }] =
-    await Promise.all([
-      supabaseAdmin.from("categories").select("*").order("sort_order"),
-      supabaseAdmin.from("menu_items").select("*").order("name"),
-    ]);
+  try {
+    const [{ data: cats, error: catErr }, { data: items, error: itemErr }] =
+      await Promise.all([
+        supabaseAdmin.from("categories").select("*").order("sort_order"),
+        supabaseAdmin.from("menu_items").select("*").order("name"),
+      ]);
 
-  if (catErr || itemErr) {
-    return NextResponse.json({ ok: false, error: catErr?.message ?? itemErr?.message }, { status: 500 });
+    if (catErr || itemErr) {
+      return NextResponse.json({ ok: false, error: catErr?.message ?? itemErr?.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true, categories: cats ?? [], items: items ?? [] });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unexpected server error";
+    console.error("GET /api/pos/menu:", message);
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
-
-  return NextResponse.json({ ok: true, categories: cats ?? [], items: items ?? [] });
 }
 
 // ─── POST ─────────────────────────────────────────────────────────────────────

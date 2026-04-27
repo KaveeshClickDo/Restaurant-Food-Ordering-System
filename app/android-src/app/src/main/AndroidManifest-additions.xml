@@ -1,0 +1,69 @@
+<!--
+  AndroidManifest — additions required for the Restaurant POS plugins.
+
+  After running `npx cap add android`, merge these into:
+    android/app/src/main/AndroidManifest.xml
+
+  Add the <uses-permission> tags inside the <manifest> root element.
+  Add the <uses-feature> tags inside the <manifest> root element.
+  Add the networkSecurityConfig attribute to the <application> tag.
+-->
+
+<!-- ─── Bluetooth permissions ─────────────────────────────────────────────── -->
+
+<!-- Android ≤ 11 (API 30) -->
+<uses-permission android:name="android.permission.BLUETOOTH" />
+<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+<!-- Android 12+ (API 31+) — replaces the above for BT scanning/connecting -->
+<uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+    android:usesPermissionFlags="neverForLocation" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+<!-- ─── USB Host ──────────────────────────────────────────────────────────── -->
+
+<uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
+<!-- ─── Network ──────────────────────────────────────────────────────────── -->
+
+<!-- Required for TCP socket connections to printers and the sync workers -->
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+<!-- Required for WorkManager periodic sync jobs -->
+<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+<uses-permission android:name="android.permission.WAKE_LOCK" />
+
+<!-- ─── Keep screen on (POS terminal should never sleep) ─────────────────── -->
+
+<uses-permission android:name="android.permission.WAKE_LOCK" />
+
+<!-- ─── Application tag additions ────────────────────────────────────────── -->
+<!--
+  Add this attribute to the existing <application> tag:
+    android:networkSecurityConfig="@xml/network_security_config"
+
+  Full example:
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
+        ... >
+-->
+
+<!-- ─── Activity additions ───────────────────────────────────────────────── -->
+<!--
+  Add this to the MainActivity <activity> tag to keep screen on:
+    android:keepScreenOn="true"
+
+  Full example:
+    <activity
+        android:name=".MainActivity"
+        android:exported="true"
+        android:keepScreenOn="true"
+        android:screenOrientation="landscape"
+        android:theme="@style/AppTheme.NoActionBarLaunch"
+        android:launchMode="singleTask">
+-->

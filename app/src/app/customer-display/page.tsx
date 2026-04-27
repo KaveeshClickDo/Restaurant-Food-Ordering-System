@@ -349,7 +349,7 @@ export default function CustomerDisplayPage() {
 
         <div className="hidden sm:flex items-center gap-6">
           <p className="text-gray-400 text-sm text-center max-w-xs">
-            Watch for your order number — we'll call you when it's ready!
+            Watch for your order number &mdash; we&apos;ll call you when it&apos;s ready!
           </p>
         </div>
 

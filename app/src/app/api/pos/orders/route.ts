@@ -42,48 +42,54 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Invalid sale payload." }, { status: 400 });
   }
 
-  await ensureWalkInCustomer();
+  try {
+    await ensureWalkInCustomer();
 
-  // Map POS cart items → OrderLine, appending modifier labels to the name
-  const items = sale.items.map((item) => {
-    const modLabel = item.modifiers?.length
-      ? ` (${item.modifiers.map((m) => m.optionLabel).join(", ")})`
-      : "";
-    const lineTotal = cartLineTotal(item);
-    return {
-      name:  item.name + modLabel,
-      qty:   item.quantity,
-      price: parseFloat((lineTotal / item.quantity).toFixed(2)),
+    // Map POS cart items → OrderLine, appending modifier labels to the name
+    const items = sale.items.map((item) => {
+      const modLabel = item.modifiers?.length
+        ? ` (${item.modifiers.map((m) => m.optionLabel).join(", ")})`
+        : "";
+      const lineTotal = cartLineTotal(item);
+      return {
+        name:  item.name + modLabel,
+        qty:   item.quantity,
+        price: parseFloat((lineTotal / item.quantity).toFixed(2)),
+      };
+    });
+
+    // Build a note that gives kitchen staff all the context they need
+    const noteParts: string[] = ["[POS]"];
+    if (sale.customerName) noteParts.push(`Customer: ${sale.customerName}`);
+    noteParts.push(`Staff: ${sale.staffName || "Unknown"}`);
+    noteParts.push(`Receipt: ${sale.receiptNo}`);
+    if (sale.discountNote) noteParts.push(`Discount: ${sale.discountNote}`);
+    const note = noteParts.join(" | ");
+
+    const row = {
+      id:             sale.id,
+      customer_id:    POS_CUSTOMER_ID,
+      date:           sale.date,
+      status:         "pending",
+      fulfillment:    "collection",
+      total:          sale.total,
+      items,
+      note,
+      payment_method: sale.paymentMethod,
+      vat_amount:     sale.taxAmount,
+      vat_inclusive:  sale.taxInclusive,
     };
-  });
 
-  // Build a note that gives kitchen staff all the context they need
-  const noteParts: string[] = ["[POS]"];
-  if (sale.customerName) noteParts.push(`Customer: ${sale.customerName}`);
-  noteParts.push(`Staff: ${sale.staffName || "Unknown"}`);
-  noteParts.push(`Receipt: ${sale.receiptNo}`);
-  if (sale.discountNote) noteParts.push(`Discount: ${sale.discountNote}`);
-  const note = noteParts.join(" | ");
+    const { error } = await supabaseAdmin.from("orders").insert(row);
+    if (error) {
+      console.error("pos/orders POST:", error.message);
+      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    }
 
-  const row = {
-    id:             sale.id,
-    customer_id:    POS_CUSTOMER_ID,
-    date:           sale.date,
-    status:         "pending",
-    fulfillment:    "collection",
-    total:          sale.total,
-    items,
-    note,
-    payment_method: sale.paymentMethod,
-    vat_amount:     sale.taxAmount,
-    vat_inclusive:  sale.taxInclusive,
-  };
-
-  const { error } = await supabaseAdmin.from("orders").insert(row);
-  if (error) {
-    console.error("pos/orders POST:", error.message);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unexpected server error";
+    console.error("POST /api/pos/orders:", message);
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
-
-  return NextResponse.json({ ok: true });
 }

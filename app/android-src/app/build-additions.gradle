@@ -1,0 +1,40 @@
+// build-additions.gradle
+//
+// Merge these blocks into android/app/build.gradle after `npx cap add android`.
+//
+// These add the dependencies required by the custom plugins and sync workers.
+
+android {
+    compileSdkVersion 34
+
+    defaultConfig {
+        minSdkVersion 26        // Android 8.0 — required for WorkManager coroutines
+        targetSdkVersion 34
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+}
+
+dependencies {
+    // ── Capacitor core (managed by `npx cap sync`) ────────────────────────
+    implementation project(':capacitor-android')
+
+    // ── Kotlin coroutines (used by all three plugins + sync workers) ──────
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+
+    // ── WorkManager (OutboxSyncWorker + MenuSyncWorker) ───────────────────
+    implementation "androidx.work:work-runtime-ktx:2.9.0"
+
+    // ── OkHttp (used by sync workers to POST to /api/pos/orders) ──────────
+    implementation "com.squareup.okhttp3:okhttp:4.12.0"
+
+    // ── Core KTX helpers ──────────────────────────────────────────────────
+    implementation "androidx.core:core-ktx:1.12.0"
+}

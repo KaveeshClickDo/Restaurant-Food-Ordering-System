@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Network Security Config for the Restaurant POS Android app.
+
+  Place this file at: android/app/src/main/res/xml/network_security_config.xml
+  Reference it in AndroidManifest.xml:
+    <application android:networkSecurityConfig="@xml/network_security_config" ...>
+
+  Policy:
+  - HTTPS only for all internet traffic (production server, Supabase, Stripe)
+  - Cleartext HTTP allowed ONLY for local LAN printer IPs (192.168.x.x, 10.x.x.x)
+    This is required for the TcpPrinterPlugin to reach printers on port 9100.
+-->
+<network-security-config>
+
+    <!-- Default: HTTPS only for all public internet domains -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Local LAN: allow cleartext TCP to reach printers on private networks -->
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- RFC 1918 private ranges — typical restaurant LAN addresses -->
+        <domain includeSubdomains="true">192.168.0.0</domain>
+        <domain includeSubdomains="true">192.168.1.0</domain>
+        <domain includeSubdomains="true">10.0.0.0</domain>
+        <domain includeSubdomains="true">172.16.0.0</domain>
+        <!-- localhost for development -->
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+
+</network-security-config>

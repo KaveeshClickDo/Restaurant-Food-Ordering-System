@@ -9,7 +9,8 @@ import {
   ToggleRight, ToggleLeft, Clock, ShieldAlert, History, Ruler,
   Printer, Wifi, WifiOff, AlertTriangle, Loader2,
 } from "lucide-react";
-import { buildTestReceipt, sendToPrinter, sendToPrinterUSB, printReceiptBrowser } from "@/lib/escpos";
+import { buildTestReceipt, sendToPrinter, sendToPrinterBluetooth, sendToPrinterUSB, printReceiptBrowser } from "@/lib/escpos";
+import { getBluetoothPairedDevices, isCapacitorAndroid, type BluetoothDevice } from "@/lib/capacitorBridge";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -368,7 +369,7 @@ function ApiKeysTab() {
             SMTP passwords, Stripe secret keys, and PayPal credentials are configured as
             server-side environment variables — they are never stored in the database or sent to
             the browser. Set them in your <code className="font-mono bg-amber-100 px-1 rounded">.env.local</code> file
-            (or your deployment platform's environment variables panel) and restart the server.
+            (or your deployment platform&apos;s environment variables panel) and restart the server.
           </p>
         </div>
       </div>
@@ -438,6 +439,11 @@ const CONNECTION_OPTIONS = [
     sub: "ESC/POS over TCP — Epson, Star, Citizen (same LAN as server)",
   },
   {
+    value: "bluetooth" as const,
+    label: "Bluetooth",
+    sub: "Classic BT (SPP) — Android app only, works fully offline",
+  },
+  {
     value: "usb" as const,
     label: "USB (direct)",
     sub: "Web USB API — printer plugged into this device (Chrome/Edge only)",
@@ -449,25 +455,40 @@ const CONNECTION_OPTIONS = [
   },
 ] as const;
 
+type ConnectionMode = "network" | "bluetooth" | "usb" | "browser";
+
 function PrinterTab() {
   const { settings, updateSettings } = useApp();
   const p = settings.printer;
 
   const [draft, setDraft] = useState({
-    enabled:    p.enabled,
-    name:       p.name,
-    connection: (p.connection ?? "network") as "network" | "usb" | "browser",
-    ip:         p.ip,
-    port:       p.port,
-    autoPrint:  p.autoPrint,
-    paperWidth: p.paperWidth,
+    enabled:          p.enabled,
+    name:             p.name,
+    connection:       (p.connection ?? "network") as ConnectionMode,
+    ip:               p.ip,
+    port:             p.port,
+    bluetoothAddress: p.bluetoothAddress ?? "",
+    bluetoothName:    p.bluetoothName    ?? "",
+    autoPrint:        p.autoPrint,
+    paperWidth:       p.paperWidth,
   });
-  const [saved,     setSaved]     = useState(false);
-  const [testState, setTestState] = useState<TestState>("idle");
-  const [testError, setTestError] = useState("");
+  const [saved,      setSaved]      = useState(false);
+  const [testState,  setTestState]  = useState<TestState>("idle");
+  const [testError,  setTestError]  = useState("");
+  const [btDevices,  setBtDevices]  = useState<BluetoothDevice[]>([]);
+  const [btScanning, setBtScanning] = useState(false);
+  const onAndroid = isCapacitorAndroid();
+
+  async function scanBluetooth() {
+    setBtScanning(true);
+    const devices = await getBluetoothPairedDevices();
+    setBtDevices(devices);
+    setBtScanning(false);
+    if (devices.length === 0) setTestError("No paired Bluetooth devices found. Pair the printer in Android Settings first.");
+  }
 
   function handleSave() {
-    updateSettings({ printer: { ...draft } });
+    updateSettings({ printer: { ...p, ...draft } });
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   }
@@ -476,7 +497,7 @@ function PrinterTab() {
     setTestState("connecting");
     setTestError("");
 
-    const previewSettings = { ...settings, printer: { ...draft } };
+    const previewSettings = { ...settings, printer: { ...p, ...draft } };
 
     if (draft.connection === "network") {
       if (!draft.ip.trim()) {
@@ -486,62 +507,55 @@ function PrinterTab() {
       }
       const bytes  = buildTestReceipt(previewSettings);
       const result = await sendToPrinter(bytes, draft.ip.trim(), draft.port);
-      if (result.ok) {
-        setTestState("success");
-        setTimeout(() => setTestState("idle"), 5000);
-      } else {
+      if (result.ok) { setTestState("success"); setTimeout(() => setTestState("idle"), 5000); }
+      else           { setTestState("error"); setTestError(result.error ?? "Unknown error"); }
+      return;
+    }
+
+    if (draft.connection === "bluetooth") {
+      if (!draft.bluetoothAddress.trim()) {
         setTestState("error");
-        setTestError(result.error ?? "Unknown error");
+        setTestError("Select a paired Bluetooth device below before testing.");
+        return;
       }
+      const bytes  = buildTestReceipt(previewSettings);
+      const result = await sendToPrinterBluetooth(bytes, draft.bluetoothAddress);
+      if (result.ok) { setTestState("success"); setTimeout(() => setTestState("idle"), 5000); }
+      else           { setTestState("error"); setTestError(result.error ?? "Unknown error"); }
       return;
     }
 
     if (draft.connection === "usb") {
       const bytes  = buildTestReceipt(previewSettings);
       const result = await sendToPrinterUSB(bytes);
-      if (result.ok) {
-        setTestState("success");
-        setTimeout(() => setTestState("idle"), 5000);
-      } else {
-        setTestState("error");
-        setTestError(result.error ?? "Unknown error");
-      }
+      if (result.ok) { setTestState("success"); setTimeout(() => setTestState("idle"), 5000); }
+      else           { setTestState("error"); setTestError(result.error ?? "Unknown error"); }
       return;
     }
 
     // browser
     const dummyOrder = {
-      id: "TEST-001",
-      date: new Date().toISOString(),
+      id: "TEST-001", date: new Date().toISOString(),
       items: [{ name: "Test Item", qty: 1, price: 0 }],
-      total: 0,
-      fulfillment: "collection" as const,
-      status: "pending" as const,
-      customerId: "",
-      paymentMethod: "Test",
+      total: 0, fulfillment: "collection" as const,
+      status: "pending" as const, customerId: "", paymentMethod: "Test",
     };
     const result = printReceiptBrowser(dummyOrder, previewSettings);
-    if (result.ok) {
-      setTestState("success");
-      setTimeout(() => setTestState("idle"), 5000);
-    } else {
-      setTestState("error");
-      setTestError(result.error ?? "Unknown error");
-    }
+    if (result.ok) { setTestState("success"); setTimeout(() => setTestState("idle"), 5000); }
+    else           { setTestState("error"); setTestError(result.error ?? "Unknown error"); }
   }
 
   const isConfigured =
-    draft.connection === "network" ? Boolean(draft.ip.trim()) : true;
+    draft.connection === "network"    ? Boolean(draft.ip.trim()) :
+    draft.connection === "bluetooth"  ? Boolean(draft.bluetoothAddress.trim()) : true;
 
   const statusLabel = !draft.enabled
     ? "Disabled"
     : draft.connection === "network"
-    ? isConfigured
-      ? `${draft.ip}:${draft.port}`
-      : "No IP configured"
-    : draft.connection === "usb"
-    ? "USB (Web USB)"
-    : "Browser print";
+    ? isConfigured ? `${draft.ip}:${draft.port}` : "No IP configured"
+    : draft.connection === "bluetooth"
+    ? isConfigured ? draft.bluetoothName || draft.bluetoothAddress : "No device selected"
+    : draft.connection === "usb" ? "USB (Web USB)" : "Browser print";
 
   return (
     <div className="space-y-5">
@@ -582,7 +596,7 @@ function PrinterTab() {
             </div>
             <div>
               <h3 className="font-bold text-gray-900 text-sm">Printer settings</h3>
-              <p className="text-xs text-gray-400">ESC/POS thermal printer — network, USB, or browser</p>
+              <p className="text-xs text-gray-400">Network, Bluetooth, USB, or browser print</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -603,7 +617,6 @@ function PrinterTab() {
         </div>
 
         <div className="p-6 space-y-5">
-
           {/* Connection type */}
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Connection type</p>
@@ -618,25 +631,21 @@ function PrinterTab() {
                       : "border-gray-200 hover:border-gray-300"
                   }`}
                 >
-                  <p className={`text-sm font-bold ${draft.connection === value ? "text-orange-600" : "text-gray-700"}`}>
-                    {label}
-                  </p>
+                  <p className={`text-sm font-bold ${draft.connection === value ? "text-orange-600" : "text-gray-700"}`}>{label}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{sub}</p>
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Network fields — only shown for network mode */}
+          {/* Network fields */}
           {draft.connection === "network" && (
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Network</p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-semibold text-gray-600 mb-1.5">Printer IP address</label>
-                  <input
-                    type="text"
-                    value={draft.ip}
+                  <input type="text" value={draft.ip}
                     onChange={(e) => setDraft((d) => ({ ...d, ip: e.target.value }))}
                     placeholder="192.168.1.100"
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-mono text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
@@ -645,17 +654,64 @@ function PrinterTab() {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1.5">TCP port</label>
-                  <input
-                    type="number"
-                    value={draft.port}
-                    min={1}
-                    max={65535}
+                  <input type="number" value={draft.port} min={1} max={65535}
                     onChange={(e) => setDraft((d) => ({ ...d, port: Number(e.target.value) }))}
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-mono text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
                   />
                   <p className="text-[11px] text-gray-400 mt-1">Default: 9100</p>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Bluetooth device selector */}
+          {draft.connection === "bluetooth" && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Bluetooth device</p>
+              {draft.bluetoothAddress ? (
+                <div className="flex items-center gap-3 px-4 py-3 bg-green-50 border border-green-200 rounded-xl mb-3">
+                  <CheckCircle size={15} className="text-green-600 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-green-700 truncate">{draft.bluetoothName || "Unnamed device"}</p>
+                    <p className="text-xs text-green-600 font-mono">{draft.bluetoothAddress}</p>
+                  </div>
+                  <button onClick={() => setDraft((d) => ({ ...d, bluetoothAddress: "", bluetoothName: "" }))}
+                    className="text-xs text-gray-400 hover:text-red-500 transition">Clear</button>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400 mb-3">No device selected. Scan for paired devices below.</p>
+              )}
+
+              {onAndroid ? (
+                <>
+                  <button onClick={scanBluetooth} disabled={btScanning}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition disabled:opacity-50 mb-3">
+                    {btScanning ? <><Loader2 size={14} className="animate-spin" /> Scanning…</> : "Scan paired devices"}
+                  </button>
+                  {btDevices.length > 0 && (
+                    <div className="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
+                      {btDevices.map((dev) => (
+                        <button key={dev.address}
+                          onClick={() => setDraft((d) => ({ ...d, bluetoothAddress: dev.address, bluetoothName: dev.name }))}
+                          className={`w-full text-left px-4 py-3 flex items-center gap-3 transition hover:bg-gray-50 ${
+                            draft.bluetoothAddress === dev.address ? "bg-orange-50" : ""
+                          }`}>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-gray-800 truncate">{dev.name}</p>
+                            <p className="text-xs text-gray-400 font-mono">{dev.address}</p>
+                          </div>
+                          {draft.bluetoothAddress === dev.address && <CheckCircle size={14} className="text-orange-500 flex-shrink-0" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                  <p className="text-xs font-semibold text-amber-700">Android app required</p>
+                  <p className="text-xs text-amber-600 mt-0.5">Bluetooth printing is only available in the Android Capacitor app. On this device, use Network or Browser print mode.</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -666,7 +722,7 @@ function PrinterTab() {
               <ul className="text-xs text-blue-600 space-y-0.5 list-disc list-inside">
                 <li>Requires Google Chrome or Microsoft Edge (Firefox/Safari not supported)</li>
                 <li>Printer must be connected via USB to this device</li>
-                <li>Click "Print test page" below to select your USB printer for the first time</li>
+                <li>Click &quot;Print test page&quot; below to select your USB printer for the first time</li>
                 <li>The browser will remember the device for future prints</li>
               </ul>
             </div>
@@ -680,7 +736,7 @@ function PrinterTab() {
                 <li>Opens the browser&apos;s built-in print dialog</li>
                 <li>Works with any printer the OS can see — USB, Bluetooth, or network</li>
                 <li>Allow pop-ups for this site if the dialog does not appear</li>
-                <li>Set &quot;Margins: None&quot; and disable headers/footers in the print dialog for clean receipts</li>
+                <li>Set &quot;Margins: None&quot; and disable headers/footers for clean receipts</li>
               </ul>
             </div>
           )}
@@ -690,9 +746,7 @@ function PrinterTab() {
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Identity</p>
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">Printer name <span className="font-normal text-gray-400">(admin label)</span></label>
-              <input
-                type="text"
-                value={draft.name}
+              <input type="text" value={draft.name}
                 onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
                 placeholder="Kitchen Printer"
                 className="w-full sm:max-w-xs px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
@@ -708,15 +762,10 @@ function PrinterTab() {
                 { value: 48, label: "80 mm", sub: "48 chars / line — most common" },
                 { value: 32, label: "58 mm", sub: "32 chars / line — compact" },
               ] as const).map(({ value, label, sub }) => (
-                <button
-                  key={value}
-                  onClick={() => setDraft((d) => ({ ...d, paperWidth: value }))}
+                <button key={value} onClick={() => setDraft((d) => ({ ...d, paperWidth: value }))}
                   className={`flex-1 text-left px-4 py-3 rounded-xl border-2 transition ${
-                    draft.paperWidth === value
-                      ? "border-orange-500 bg-orange-50"
-                      : "border-gray-200 hover:border-gray-300"
-                  }`}
-                >
+                    draft.paperWidth === value ? "border-orange-500 bg-orange-50" : "border-gray-200 hover:border-gray-300"
+                  }`}>
                   <p className={`text-sm font-bold ${draft.paperWidth === value ? "text-orange-600" : "text-gray-700"}`}>{label}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{sub}</p>
                 </button>
@@ -730,14 +779,10 @@ function PrinterTab() {
               <p className="text-sm font-semibold text-gray-800">Auto-print on new order</p>
               <p className="text-xs text-gray-400 mt-0.5">Automatically send a receipt when a customer places an order</p>
             </div>
-            <button
-              onClick={() => setDraft((d) => ({ ...d, autoPrint: !d.autoPrint }))}
+            <button onClick={() => setDraft((d) => ({ ...d, autoPrint: !d.autoPrint }))}
               className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-4 ${
                 draft.autoPrint ? "bg-green-500" : "bg-gray-300"
-              }`}
-              aria-checked={draft.autoPrint}
-              role="switch"
-            >
+              }`} aria-checked={draft.autoPrint} role="switch">
               <span className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${
                 draft.autoPrint ? "translate-x-6" : "translate-x-1"
               }`} />
@@ -745,14 +790,10 @@ function PrinterTab() {
           </div>
 
           {/* Save */}
-          <button
-            onClick={handleSave}
+          <button onClick={handleSave}
             className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all ${
-              saved
-                ? "bg-green-100 text-green-700"
-                : "bg-orange-500 hover:bg-orange-600 text-white"
-            }`}
-          >
+              saved ? "bg-green-100 text-green-700" : "bg-orange-500 hover:bg-orange-600 text-white"
+            }`}>
             {saved ? <><CheckCircle size={15} /> Saved!</> : "Save settings"}
           </button>
         </div>
@@ -791,52 +832,48 @@ function PrinterTab() {
           )}
 
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleTest}
-              disabled={testState === "connecting"}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm bg-gray-900 hover:bg-gray-800 text-white transition disabled:opacity-60 disabled:cursor-not-allowed"
-            >
+            <button onClick={handleTest} disabled={testState === "connecting"}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm bg-gray-900 hover:bg-gray-800 text-white transition disabled:opacity-60 disabled:cursor-not-allowed">
               {testState === "connecting"
                 ? <><Loader2 size={15} className="animate-spin" /> Sending…</>
-                : <><Printer size={15} /> Print test page</>
-              }
+                : <><Printer size={15} /> Print test page</>}
             </button>
             {testState !== "idle" && testState !== "connecting" && (
-              <button
-                onClick={() => { setTestState("idle"); setTestError(""); }}
-                className="text-xs text-gray-400 hover:text-gray-600 transition"
-              >
-                Dismiss
-              </button>
+              <button onClick={() => { setTestState("idle"); setTestError(""); }}
+                className="text-xs text-gray-400 hover:text-gray-600 transition">Dismiss</button>
             )}
           </div>
 
-          {/* Contextual troubleshooting tips */}
           <div className="bg-gray-50 rounded-xl px-4 py-3 space-y-1">
             <p className="text-xs font-semibold text-gray-600">Troubleshooting tips</p>
             {draft.connection === "network" && (
               <ul className="text-xs text-gray-500 space-y-0.5 list-disc list-inside">
                 <li>Printer and server must be on the same network/VLAN</li>
                 <li>Default port for most thermal printers is <span className="font-mono">9100</span></li>
-                <li>Set a static IP on the printer via its web interface or DHCP reservation</li>
-                <li>Check that the printer is powered on and not in error or sleep state</li>
-                <li>Some printers require ESC/POS mode to be enabled in their settings</li>
+                <li>Set a static IP on the printer to prevent address changes</li>
+                <li>Check the printer is powered on and not in error or sleep state</li>
+              </ul>
+            )}
+            {draft.connection === "bluetooth" && (
+              <ul className="text-xs text-gray-500 space-y-0.5 list-disc list-inside">
+                <li>Pair the printer first in Android Settings → Bluetooth</li>
+                <li>Ensure the printer is in Bluetooth pairing/discoverable mode</li>
+                <li>Classic Bluetooth (SPP) is required — BLE-only printers won&apos;t work</li>
+                <li>Only available in the Android Capacitor app</li>
               </ul>
             )}
             {draft.connection === "usb" && (
               <ul className="text-xs text-gray-500 space-y-0.5 list-disc list-inside">
                 <li>Only works in Chrome or Edge — not Firefox or Safari</li>
                 <li>Connect the printer via USB before clicking the test button</li>
-                <li>If no devices appear in the picker, check that the printer driver is installed</li>
                 <li>If the interface claim fails, try unplugging and replugging the USB cable</li>
               </ul>
             )}
             {draft.connection === "browser" && (
               <ul className="text-xs text-gray-500 space-y-0.5 list-disc list-inside">
                 <li>Allow pop-ups for this site if the print dialog does not appear</li>
-                <li>In the print dialog, set Margins to None and disable headers/footers</li>
+                <li>Set Margins to None and disable headers/footers in the print dialog</li>
                 <li>Select your thermal printer from the destination list</li>
-                <li>Set paper size to match your roll width (80 mm or 58 mm)</li>
               </ul>
             )}
           </div>

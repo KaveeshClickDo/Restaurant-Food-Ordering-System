@@ -6,7 +6,9 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "android": "npx cap sync android && npx cap open android",
+    "android:build": "npm run build && npx cap sync android"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.2",
@@ -19,6 +21,9 @@
     "react-dom": "19.1.0"
   },
   "devDependencies": {
+    "@capacitor/android": "^7.6.2",
+    "@capacitor/cli": "^7.6.2",
+    "@capacitor/splash-screen": "^7.0.5",
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
@@ -30,5 +35,8 @@
     "pg": "^8.20.0",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "optionalDependencies": {
+    "@capacitor/core": "^7.6.2"
   }
 }

@@ -337,7 +337,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // waiter app immediately has a menu to show.
   useEffect(() => {
     fetch("/api/pos/menu")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(`/api/pos/menu ${r.status}`); return r.json(); })
       .then((d: { ok: boolean; categories: Record<string,unknown>[]; items: Record<string,unknown>[] }) => {
         if (!d.ok) return;
 
