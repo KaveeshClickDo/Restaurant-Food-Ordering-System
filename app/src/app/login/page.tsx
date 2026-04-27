@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useApp } from "@/context/AppContext";
@@ -8,7 +8,7 @@ import { User, Mail, Phone, Lock, Eye, EyeOff, ChevronLeft } from "lucide-react"
 
 type Tab = "login" | "register" | "forgot" | "reset";
 
-export default function LoginPage() {
+function LoginContent() {
   const { currentUser, login, register, logout } = useApp();
   const router       = useRouter();
   const searchParams = useSearchParams();
@@ -284,6 +284,14 @@ export default function LoginPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginContent />
+    </Suspense>
   );
 }
 
