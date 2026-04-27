@@ -81,7 +81,7 @@ interface AppContextValue {
   deleteMenuItem: (id: string) => void;
   reorderCategories: (cats: Category[]) => void;
   customers: Customer[];
-  addOrder: (customerId: string, order: Order) => void;
+  addOrder: (customerId: string, order: Order) => Promise<{ ok: boolean; error?: string }>;
   updateOrderStatus: (customerId: string, orderId: string, status: OrderStatus) => void;
   addCustomer: (customer: Customer) => void;
   updateCustomer: (customer: Customer) => void;
@@ -867,21 +867,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }).catch((e) => console.error("updateCustomer:", e));
   };
 
-  const addOrder = (customerId: string, order: Order) => {
+  const addOrder = async (customerId: string, order: Order): Promise<{ ok: boolean; error?: string }> => {
+    // Optimistic insert
     setCustomers((prev) =>
       prev.map((c) => (c.id === customerId ? { ...c, orders: [order, ...c.orders] } : c))
     );
     setCurrentUser((prev) =>
       prev && prev.id === customerId ? { ...prev, orders: [order, ...prev.orders] } : prev
     );
-    // Insert via server-side route — anon key has no INSERT on orders
-    fetch("/api/orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(orderToRow(order)),
-    }).then(async (r) => {
-      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("addOrder:", j.error); }
-    }).catch((e) => console.error("addOrder:", e));
+
+    const rollback = () => {
+      setCustomers((prev) =>
+        prev.map((c) => c.id !== customerId ? c : { ...c, orders: c.orders.filter((o) => o.id !== order.id) })
+      );
+      setCurrentUser((prev) =>
+        prev && prev.id === customerId ? { ...prev, orders: prev.orders.filter((o) => o.id !== order.id) } : prev
+      );
+    };
+
+    try {
+      const r = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(orderToRow(order)),
+      });
+      const j = await r.json() as { ok: boolean; error?: string };
+      if (!j.ok) { rollback(); return { ok: false, error: j.error }; }
+      return { ok: true };
+    } catch {
+      rollback();
+      return { ok: false, error: "Connection error. Please try again." };
+    }
   };
 
   const addRefund = (customerId: string, orderId: string, refund: Refund) => {

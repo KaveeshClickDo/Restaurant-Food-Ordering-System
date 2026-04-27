@@ -215,6 +215,11 @@ export default function CheckoutModal({ onClose }: Props) {
   const [distKm,   setDistKm]     = useState<number | null>(null);
   const [zone,     setZone]       = useState<DeliveryZone | null>(null);
 
+  // Validation
+  const [fieldErrors, setFieldErrors]  = useState<Record<string, string>>({});
+  const [submitError, setSubmitError]  = useState("");
+  const [submitting,  setSubmitting]   = useState(false);
+
   const isDelivery = fulfillment === "delivery";
   const restLat = settings.restaurant.lat ?? 51.515;
   const restLng = settings.restaurant.lng ?? -0.063;
@@ -268,7 +273,25 @@ export default function CheckoutModal({ onClose }: Props) {
     );
   }
 
-  function handlePay(method: PaymentMethod) {
+  function validate(): boolean {
+    const errors: Record<string, string> = {};
+    if (!form.name.trim())  errors.name  = "Full name is required.";
+    if (!form.email.trim()) {
+      errors.email = "Email address is required.";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      errors.email = "Enter a valid email address.";
+    }
+    if (!form.phone.trim()) errors.phone = "Phone number is required.";
+    if (isDelivery && !form.address.trim()) errors.address = "Delivery address is required.";
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  }
+
+  async function handlePay(method: PaymentMethod) {
+    if (!validate()) return;
+    setSubmitting(true);
+    setSubmitError("");
+
     const newOrder: Order = {
       id: `ord-${crypto.randomUUID().slice(0, 8)}`,
       customerId: currentUser?.id ?? "guest",
@@ -287,7 +310,15 @@ export default function CheckoutModal({ onClose }: Props) {
       ...(storeCreditApplied > 0 ? { storeCreditUsed: storeCreditApplied } : {}),
     };
 
-    if (currentUser) addOrder(currentUser.id, newOrder);
+    if (currentUser) {
+      const result = await addOrder(currentUser.id, newOrder);
+      if (!result.ok) {
+        setSubmitError(result.error ?? "Failed to place order. Please try again.");
+        setSubmitting(false);
+        return;
+      }
+    }
+
     if (appliedCoupon) {
       incrementCouponUsage(appliedCoupon.couponId);
       removeCoupon();
@@ -300,6 +331,7 @@ export default function CheckoutModal({ onClose }: Props) {
     setStep("success");
     clearCart();
     setScheduledTime(null);
+    setSubmitting(false);
 
     // Fire-and-forget: print receipt + send confirmation email
     printOrder(newOrder, settings);
@@ -539,21 +571,37 @@ export default function CheckoutModal({ onClose }: Props) {
               { key: "phone", label: "Phone number",  type: "tel",   placeholder: "+44 7700 900000" },
             ].map(({ key, label, type, placeholder }) => (
               <div key={key}>
-                <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  {label} <span className="text-red-400">*</span>
+                </label>
                 <input
                   type={type}
                   value={form[key as keyof typeof form]}
-                  onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+                  onChange={(e) => {
+                    setForm((f) => ({ ...f, [key]: e.target.value }));
+                    if (fieldErrors[key]) setFieldErrors((p) => ({ ...p, [key]: "" }));
+                  }}
                   placeholder={placeholder}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                  className={`w-full border rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 transition ${
+                    fieldErrors[key]
+                      ? "border-red-400 focus:ring-red-300 bg-red-50"
+                      : "border-gray-200 focus:ring-orange-400"
+                  }`}
                 />
+                {fieldErrors[key] && (
+                  <p className="flex items-center gap-1 text-xs text-red-500 mt-1">
+                    <AlertCircle size={11} className="flex-shrink-0" /> {fieldErrors[key]}
+                  </p>
+                )}
               </div>
             ))}
 
             {/* Delivery address — saved picker or manual input */}
             {isDelivery && (
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Delivery address</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Delivery address <span className="text-red-400">*</span>
+                </label>
 
                 {/* Saved address cards (shown when customer has saved addresses) */}
                 {savedAddresses.length > 0 && (
@@ -569,6 +617,7 @@ export default function CheckoutModal({ onClose }: Props) {
                             address: `${addr.address}, ${addr.postcode}`,
                             phone: f.phone || addr.phone || "",
                           }));
+                          if (fieldErrors.address) setFieldErrors((p) => ({ ...p, address: "" }));
                         }}
                         className={`w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-xl border transition ${
                           selectedAddressId === addr.id
@@ -621,13 +670,27 @@ export default function CheckoutModal({ onClose }: Props) {
 
                 {/* Manual address input — always shown when no saved addresses, or "Enter different" selected */}
                 {(savedAddresses.length === 0 || selectedAddressId === "manual") && (
-                  <input
-                    type="text"
-                    value={form.address}
-                    onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
-                    placeholder="42 Example Street, London"
-                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
-                  />
+                  <>
+                    <input
+                      type="text"
+                      value={form.address}
+                      onChange={(e) => {
+                        setForm((f) => ({ ...f, address: e.target.value }));
+                        if (fieldErrors.address) setFieldErrors((p) => ({ ...p, address: "" }));
+                      }}
+                      placeholder="42 Example Street, London"
+                      className={`w-full border rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 transition ${
+                        fieldErrors.address
+                          ? "border-red-400 focus:ring-red-300 bg-red-50"
+                          : "border-gray-200 focus:ring-orange-400"
+                      }`}
+                    />
+                    {fieldErrors.address && (
+                      <p className="flex items-center gap-1 text-xs text-red-500 mt-1">
+                        <AlertCircle size={11} className="flex-shrink-0" /> {fieldErrors.address}
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
             )}
@@ -643,6 +706,14 @@ export default function CheckoutModal({ onClose }: Props) {
                 zone={zone}
                 onDetect={detectLocation}
               />
+            </div>
+          )}
+
+          {/* Submit error */}
+          {submitError && (
+            <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+              <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-700 font-medium">{submitError}</p>
             </div>
           )}
 
@@ -678,12 +749,16 @@ export default function CheckoutModal({ onClose }: Props) {
               <button
                 key={method.id}
                 onClick={() => handlePay(method)}
-                className={`group w-full flex items-center gap-3 border-2 border-gray-200 rounded-xl px-4 py-3.5 transition ${hoverColor(method.id)}`}
+                disabled={submitting}
+                className={`group w-full flex items-center gap-3 border-2 border-gray-200 rounded-xl px-4 py-3.5 transition disabled:opacity-60 disabled:cursor-not-allowed ${hoverColor(method.id)}`}
               >
-                <MethodIcon id={method.id} />
+                {submitting
+                  ? <div className="w-10 h-10 flex items-center justify-center flex-shrink-0"><Loader2 size={20} className="animate-spin text-gray-400" /></div>
+                  : <MethodIcon id={method.id} />
+                }
                 <div className="text-left flex-1">
                   <p className="font-semibold text-sm text-gray-900">{method.name}</p>
-                  <p className="text-xs text-gray-400">{method.description}</p>
+                  <p className="text-xs text-gray-400">{submitting ? "Placing order…" : method.description}</p>
                 </div>
                 <span className="ml-auto text-gray-300 group-hover:text-gray-500 transition text-lg">›</span>
               </button>
