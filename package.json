@@ -1,0 +1,12 @@
+{
+  "name": "single-restaurant-food-ordering-system",
+  "private": true,
+  "scripts": {
+    "dev":     "npm run dev     --prefix app",
+    "build":   "npm run build   --prefix app",
+    "start":   "npm run start   --prefix app",
+    "lint":    "npm run lint    --prefix app",
+    "android": "npm run android --prefix app",
+    "install": "npm install     --prefix app"
+  }
+}
