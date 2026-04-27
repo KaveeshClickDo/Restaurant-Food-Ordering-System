@@ -19,6 +19,7 @@ import { buildColorCss } from "@/lib/colorUtils";
 import { DEFAULT_EMAIL_TEMPLATES } from "@/lib/emailTemplates";
 import { DEFAULT_FOOTER_PAGES } from "@/data/footerPages";
 import SeoHead from "@/components/SeoHead";
+import EmailVerificationBanner from "@/components/EmailVerificationBanner";
 import { restaurantInfo, defaultSchedule } from "@/data/restaurant";
 import { categories as defaultCategories, menuItems as defaultMenuItems } from "@/data/menu";
 import { mockCustomers } from "@/data/customers";
@@ -85,9 +86,9 @@ interface AppContextValue {
   addCustomer: (customer: Customer) => void;
   updateCustomer: (customer: Customer) => void;
   currentUser: Customer | null;
-  login: (email: string, password: string) => boolean;
-  register: (name: string, email: string, phone: string, password: string) => { success: boolean; error?: string };
-  logout: () => void;
+  login: (email: string, password: string) => Promise<boolean>;
+  register: (name: string, email: string, phone: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => Promise<void>;
   toggleFavourite: (menuItemId: string) => void;
   isFavourite: (menuItemId: string) => boolean;
   updatePaymentMethod: (method: PaymentMethod) => void;
@@ -165,6 +166,8 @@ const DEFAULT_SEO: SeoSettings = {
   metaTitle: `${restaurantInfo.name} — Order Online`,
   metaDescription: `Order online from ${restaurantInfo.name}.`,
   metaKeywords: `food delivery, online order, ${restaurantInfo.name}`,
+  ogImage: "",
+  siteUrl: "",
 };
 
 const DEFAULT_PRINTER: PrinterSettings = {
@@ -411,11 +414,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       const c = localStorage.getItem("sg_cart");
       if (c) (JSON.parse(c) as CartItem[]).forEach((item) => dispatch({ type: "ADD", item }));
-      const u = localStorage.getItem("sg_current_user");
-      if (u) setCurrentUser(JSON.parse(u));
       const d = localStorage.getItem("sg_driver_session");
       if (d) setCurrentDriver(JSON.parse(d));
     } catch { /* ignore */ }
+    // Load customer session from httpOnly cookie via server endpoint
+    fetch("/api/auth/me")
+      .then((r) => r.ok ? r.json() : null)
+      .then((json: { ok: boolean; customer?: Customer } | null) => {
+        if (json?.ok && json.customer) setCurrentUser({ ...json.customer, orders: json.customer.orders ?? [] });
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => { localStorage.setItem("sg_cart", JSON.stringify(cart)); }, [cart]);
@@ -970,36 +978,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ─── Auth ─────────────────────────────────────────────────────────────────
 
-  const login = (email: string, password: string): boolean => {
-    const found = customers.find(
-      (c) => c.email.toLowerCase() === email.toLowerCase() && c.password === password
-    );
-    if (found) { setCurrentUser(found); return true; }
-    return false;
-  };
-
-  const register = (name: string, email: string, phone: string, password: string): { success: boolean; error?: string } => {
-    if (customers.some((c) => c.email.toLowerCase() === email.toLowerCase())) {
-      return { success: false, error: "An account with this email already exists." };
+  const login = async (email: string, password: string): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const json = await res.json() as { ok: boolean; customer?: Customer; error?: string };
+      if (json.ok && json.customer) {
+        setCurrentUser({ ...json.customer, orders: json.customer.orders ?? [] });
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
     }
-    const newCustomer: Customer = {
-      id: crypto.randomUUID(), name, email, phone, password,
-      createdAt: new Date().toISOString(), tags: [], orders: [],
-    };
-    setCustomers((prev) => [...prev, newCustomer]);
-    setCurrentUser(newCustomer);
-    // Insert via server-side route — anon key has no INSERT on customers
-    fetch("/api/auth/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: newCustomer.id, name, email, phone, password, createdAt: newCustomer.createdAt }),
-    }).then(async (r) => {
-      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("register:", j.error); }
-    }).catch((e) => console.error("register:", e));
-    return { success: true };
   };
 
-  const logout = () => {
+  const register = async (name: string, email: string, phone: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    const id = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
+    try {
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, name, email, phone, password, createdAt }),
+      });
+      const json = await res.json() as { ok: boolean; error?: string; emailVerificationSent?: boolean };
+      if (!json.ok) return { success: false, error: json.error ?? "Registration failed." };
+      // Optimistically add to local state; Realtime will sync
+      const newCustomer: Customer = {
+        id, name, email, phone, createdAt, tags: [], orders: [], favourites: [], savedAddresses: [],
+        emailVerified: json.emailVerificationSent ? false : undefined,
+      };
+      setCustomers((prev) => [...prev, newCustomer]);
+      setCurrentUser(newCustomer);
+      return { success: true };
+    } catch {
+      return { success: false, error: "Connection error. Please try again." };
+    }
+  };
+
+  const logout = async (): Promise<void> => {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
     setCurrentUser(null);
     localStorage.removeItem("sg_current_user");
   };
@@ -1190,7 +1212,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const driverLogout = () => setCurrentDriver(null);
+  const driverLogout = () => {
+    fetch("/api/auth/driver/logout", { method: "POST" }).catch(() => {});
+    setCurrentDriver(null);
+    localStorage.removeItem("sg_driver_session");
+  };
 
   const assignDriverToOrder = (customerId: string, orderId: string, driverId: string | null) => {
     const driver = driverId ? drivers.find((d) => d.id === driverId) : null;
@@ -1307,6 +1333,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }}
     >
       <SeoHead settings={settings} />
+      <EmailVerificationBanner currentUser={currentUser} />
       {children}
     </AppContext.Provider>
   );

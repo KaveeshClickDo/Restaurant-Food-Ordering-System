@@ -4,14 +4,15 @@ import { useEffect, useRef } from "react";
 import { AdminSettings } from "@/types";
 
 /**
- * Injected inside AppProvider so it runs on every page.
- * Receives settings as a prop (not via useApp) to avoid a circular dependency
- * with the context it lives inside.
+ * Injected inside AppProvider — runs on every page.
  *
- * React 19 natively hoists <title> and <meta> elements rendered anywhere in the
- * component tree to <head>, keeping them reactive to state changes. This means
- * returning them as JSX is the correct approach — no document.title manipulation
- * needed, and no risk of Next.js reconciliation resetting the value.
+ * React 19 hoists <title> and <meta> rendered anywhere in the tree to <head>.
+ * We render them ONLY when the admin has configured a custom value, so the
+ * static metadata from layout.tsx acts as the SSR default and SeoHead overrides
+ * it dynamically once settings load from Supabase / localStorage.
+ *
+ * We deliberately do NOT render <title> or <meta name="description"> when the
+ * value is empty — doing so would create duplicate tags with the static fallback.
  */
 export default function SeoHead({ settings }: { settings: AdminSettings }) {
   const { seo, customHeadCode } = settings;
@@ -19,21 +20,17 @@ export default function SeoHead({ settings }: { settings: AdminSettings }) {
 
   // ── Custom <head> code injection ─────────────────────────────────────────────
   useEffect(() => {
-    // Skip if nothing changed
     if (customHeadCode === prevCode.current) return;
     prevCode.current = customHeadCode;
 
-    // Remove all elements we previously injected
     document.head.querySelectorAll("[data-sg-head]").forEach((el) => el.remove());
 
     if (!customHeadCode.trim()) return;
 
-    // Parse the raw HTML string using a <template> element
     const tpl = document.createElement("template");
     tpl.innerHTML = customHeadCode;
     const fragment = tpl.content;
 
-    // <script> tags must be cloned as real script elements to actually execute
     fragment.querySelectorAll("script").forEach((inert) => {
       const live = document.createElement("script");
       inert.getAttributeNames().forEach((attr) => {
@@ -42,10 +39,9 @@ export default function SeoHead({ settings }: { settings: AdminSettings }) {
       if (inert.textContent) live.textContent = inert.textContent;
       live.setAttribute("data-sg-head", "true");
       document.head.appendChild(live);
-      inert.remove(); // prevent double-injection via the loop below
+      inert.remove();
     });
 
-    // All remaining non-script nodes (meta, link, style, noscript, etc.)
     Array.from(fragment.childNodes).forEach((node) => {
       if (node instanceof Element) {
         const clone = node.cloneNode(true) as Element;
@@ -55,15 +51,33 @@ export default function SeoHead({ settings }: { settings: AdminSettings }) {
     });
   }, [customHeadCode]);
 
-  // ── Reactive title + meta tags ────────────────────────────────────────────────
-  // React 19 hoists <title> and <meta> rendered in any component to <head> and
-  // keeps them in sync. This replaces the previous document.title approach which
-  // could be overridden by Next.js's own reconciliation of the layout metadata.
+  const title       = seo.metaTitle?.trim()       || "";
+  const description = seo.metaDescription?.trim() || "";
+  const keywords    = seo.metaKeywords?.trim()    || "";
+  const ogImage     = seo.ogImage?.trim()         || "";
+  const siteUrl     = seo.siteUrl?.trim()         || "";
+
   return (
     <>
-      {seo.metaTitle       && <title>{seo.metaTitle}</title>}
-      {seo.metaDescription && <meta name="description" content={seo.metaDescription} />}
-      {seo.metaKeywords    && <meta name="keywords"    content={seo.metaKeywords} />}
+      {/* Only override when admin has set a custom value */}
+      {title       && <title>{title}</title>}
+      {description && <meta name="description"        content={description} />}
+      {keywords    && <meta name="keywords"           content={keywords} />}
+
+      {/* Open Graph */}
+      {title       && <meta property="og:title"       content={title} />}
+      {description && <meta property="og:description" content={description} />}
+      {siteUrl     && <meta property="og:url"         content={siteUrl} />}
+      {ogImage     && <meta property="og:image"       content={ogImage} />}
+      {ogImage     && <meta property="og:image:width"  content="1200" />}
+      {ogImage     && <meta property="og:image:height" content="630" />}
+                      <meta property="og:type"        content="website" />
+
+      {/* Twitter */}
+      {title       && <meta name="twitter:title"       content={title} />}
+      {description && <meta name="twitter:description" content={description} />}
+      {ogImage     && <meta name="twitter:image"       content={ogImage} />}
+                      <meta name="twitter:card" content={ogImage ? "summary_large_image" : "summary"} />
     </>
   );
 }

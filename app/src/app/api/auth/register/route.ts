@@ -1,23 +1,65 @@
 /**
  * POST /api/auth/register — public customer self-registration.
- * Validates input server-side and inserts via the service role key,
- * so the anon key never needs INSERT permission on the customers table.
+ * Hashes password with bcrypt, stores it, then sends an email verification link.
+ *
+ * Column fallback: if auth_migration.sql hasn't been run yet (PGRST204),
+ * stores the bcrypt hash in the legacy `password` column and skips verification.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin }             from "@/lib/supabaseAdmin";
+import { NextRequest, NextResponse }  from "next/server";
+import bcrypt                         from "bcryptjs";
+import { createHmac, randomBytes }    from "crypto";
+import { supabaseAdmin }              from "@/lib/supabaseAdmin";
+import { sendEmailDirect }            from "@/lib/emailServer";
+import { createSessionToken, setSessionCookie, COOKIE_CUSTOMER } from "@/lib/auth";
+
+const VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function hashToken(raw: string): string {
+  const secret = (process.env.AUTH_JWT_SECRET ?? process.env.ADMIN_JWT_SECRET ?? "").trim();
+  return createHmac("sha256", secret).update(raw).digest("hex");
+}
+
+async function sendVerificationEmail(to: string, name: string, rawToken: string) {
+  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  const link    = `${siteUrl}/verify-email?token=${rawToken}&email=${encodeURIComponent(to)}`;
+
+  if (!process.env.SMTP_HOST) {
+    console.log("[register] Verification URL (no SMTP configured):", link);
+    return;
+  }
+
+  const result = await sendEmailDirect(
+    to,
+    "Verify your email address",
+    `<div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
+      <h2 style="margin-bottom:8px">Hi ${name}, confirm your email</h2>
+      <p style="color:#555;margin-bottom:24px">
+        Thanks for signing up! Click the button below to verify your email address.
+        This link expires in <strong>24 hours</strong>.
+      </p>
+      <a href="${link}"
+         style="display:inline-block;background:#f97316;color:#fff;font-weight:700;
+                text-decoration:none;padding:12px 28px;border-radius:10px;font-size:15px">
+        Verify my email
+      </a>
+      <p style="color:#aaa;font-size:12px;margin-top:28px">
+        If you did not create an account you can safely ignore this email.
+      </p>
+    </div>`,
+  );
+
+  if (!result.ok) console.error("[register] verification email failed:", result.error);
+}
 
 export async function POST(req: NextRequest) {
   let body: { id?: string; name?: string; email?: string; phone?: string; password?: string; createdAt?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 });
-  }
+  try { body = await req.json(); }
+  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
 
   const { id, name, email, phone, password, createdAt } = body;
 
-  // ── Input validation ──────────────────────────────────────────────────────
+  // ── Validation ────────────────────────────────────────────────────────────
   if (!id || !name?.trim() || !email?.trim() || !password) {
     return NextResponse.json({ ok: false, error: "id, name, email, and password are required." }, { status: 400 });
   }
@@ -28,35 +70,68 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Password must be at least 6 characters." }, { status: 400 });
   }
 
-  // ── Duplicate email check ─────────────────────────────────────────────────
+  // ── Duplicate check ───────────────────────────────────────────────────────
   const { data: existing } = await supabaseAdmin
-    .from("customers")
-    .select("id")
-    .eq("email", email.trim().toLowerCase())
-    .maybeSingle();
-
+    .from("customers").select("id").eq("email", email.trim().toLowerCase()).maybeSingle();
   if (existing) {
     return NextResponse.json({ ok: false, error: "An account with this email already exists." }, { status: 409 });
   }
 
-  // ── Insert ────────────────────────────────────────────────────────────────
-  const { error } = await supabaseAdmin.from("customers").insert({
+  // ── Hash password + generate verification token ───────────────────────────
+  const passwordHash = await bcrypt.hash(password, 10);
+  const rawToken     = randomBytes(32).toString("hex");
+  const hashedToken  = hashToken(rawToken);
+  const tokenExpires = new Date(Date.now() + VERIFY_TTL_MS).toISOString();
+
+  const baseRow = {
     id,
-    name:       name.trim(),
-    email:      email.trim().toLowerCase(),
-    phone:      phone?.trim() ?? "",
-    password:   password,
-    created_at: createdAt ?? new Date().toISOString(),
-    tags:       [],
-    favourites: [],
+    name:            name.trim(),
+    email:           email.trim().toLowerCase(),
+    phone:           phone?.trim() ?? "",
+    created_at:      createdAt ?? new Date().toISOString(),
+    tags:            [],
+    favourites:      [],
     saved_addresses: [],
-    store_credit: 0,
+    store_credit:    0,
+  };
+
+  // ── Insert ────────────────────────────────────────────────────────────────
+  let migrationRun = true;
+
+  const { error: errFull } = await supabaseAdmin.from("customers").insert({
+    ...baseRow,
+    password:                   "",
+    password_hash:              passwordHash,
+    email_verified:             false,
+    email_verification_token:   hashedToken,
+    email_verification_expires: tokenExpires,
   });
 
-  if (error) {
-    console.error("auth/register:", error.message);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (errFull) {
+    if (errFull.code === "PGRST204") {
+      migrationRun = false;
+      const { error: errFallback } = await supabaseAdmin.from("customers").insert({
+        ...baseRow,
+        password: passwordHash,
+      });
+      if (errFallback) {
+        console.error("auth/register fallback:", errFallback.message);
+        return NextResponse.json({ ok: false, error: errFallback.message }, { status: 500 });
+      }
+    } else {
+      console.error("auth/register:", errFull.message);
+      return NextResponse.json({ ok: false, error: errFull.message }, { status: 500 });
+    }
   }
 
-  return NextResponse.json({ ok: true });
+  // ── Send verification email ───────────────────────────────────────────────
+  if (migrationRun) {
+    await sendVerificationEmail(email.trim().toLowerCase(), name.trim(), rawToken);
+  }
+
+  // ── Auto-login ────────────────────────────────────────────────────────────
+  const token = createSessionToken({ id, role: "customer" });
+  const res   = NextResponse.json({ ok: true, emailVerificationSent: migrationRun });
+  setSessionCookie(res, COOKIE_CUSTOMER, token);
+  return res;
 }

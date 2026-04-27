@@ -1,13 +1,17 @@
 /**
- * POST /api/auth/driver
- *
- * Validates driver credentials server-side. Never returns password_hash.
- * Uses the Supabase service role key so RLS does not apply.
+ * POST /api/auth/driver — validates driver credentials.
+ * Sets an httpOnly session cookie on success.
+ * Never returns password_hash.
  */
 
-import { NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
+import { NextResponse }  from "next/server";
+import bcrypt            from "bcryptjs";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import {
+  createSessionToken,
+  setSessionCookie,
+  COOKIE_DRIVER,
+} from "@/lib/auth";
 
 export async function POST(request: Request) {
   let body: { email?: string; password?: string };
@@ -33,8 +37,6 @@ export async function POST(request: Request) {
     .eq("email", email.trim().toLowerCase())
     .single();
 
-  // Return a generic error regardless of whether the account exists
-  // to avoid leaking information about which emails are registered.
   if (error || !data) {
     return NextResponse.json({ ok: false, error: "Invalid email or password." }, { status: 401 });
   }
@@ -48,20 +50,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Invalid email or password." }, { status: 401 });
   }
 
-  // Return the driver without password_hash
-  return NextResponse.json({
-    ok: true,
-    driver: {
-      id:          data.id,
-      name:        data.name,
-      email:       data.email,
-      phone:       data.phone ?? "",
-      active:      data.active,
-      vehicleInfo: data.vehicle_info || undefined,
-      notes:       data.notes       || undefined,
-      createdAt:   typeof data.created_at === "string"
-                     ? data.created_at
-                     : new Date(data.created_at).toISOString(),
-    },
-  });
+  const driver = {
+    id:          data.id,
+    name:        data.name,
+    email:       data.email,
+    phone:       data.phone ?? "",
+    active:      data.active,
+    vehicleInfo: data.vehicle_info || undefined,
+    notes:       data.notes       || undefined,
+    createdAt:   typeof data.created_at === "string"
+                   ? data.created_at
+                   : new Date(data.created_at).toISOString(),
+  };
+
+  const token = createSessionToken({ id: data.id, role: "driver" });
+  const res = NextResponse.json({ ok: true, driver });
+  setSessionCookie(res, COOKIE_DRIVER, token);
+  return res;
 }

@@ -148,6 +148,8 @@ function BrandingCard() {
         metaTitle:       replace(settings.seo.metaTitle),
         metaDescription: replace(settings.seo.metaDescription),
         metaKeywords:    replace(settings.seo.metaKeywords),
+        ogImage:         settings.seo.ogImage  ?? "",
+        siteUrl:         settings.seo.siteUrl  ?? "",
       };
       if (settings.footerCopyright.includes(oldName)) {
         patch.footerCopyright = replace(settings.footerCopyright);
@@ -387,6 +389,8 @@ function SeoCard() {
   const [title,    setTitle]    = useState(settings.seo.metaTitle);
   const [desc,     setDesc]     = useState(settings.seo.metaDescription);
   const [keywords, setKeywords] = useState(settings.seo.metaKeywords);
+  const [ogImage,  setOgImage]  = useState(settings.seo.ogImage  ?? "");
+  const [siteUrl,  setSiteUrl]  = useState(settings.seo.siteUrl  ?? "");
   const [saved,    setSaved]    = useState(false);
   const [errors,   setErrors]   = useState<{ title?: string; desc?: string }>({});
 
@@ -400,13 +404,19 @@ function SeoCard() {
 
   function handleSave() {
     if (!validate()) return;
-    updateSettings({ seo: { metaTitle: title.trim(), metaDescription: desc.trim(), metaKeywords: keywords.trim() } });
+    updateSettings({ seo: {
+      metaTitle:       title.trim(),
+      metaDescription: desc.trim(),
+      metaKeywords:    keywords.trim(),
+      ogImage:         ogImage.trim(),
+      siteUrl:         siteUrl.trim(),
+    }});
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   }
 
-  // Preview domain — static for demo
-  const previewUrl  = "yourrestaurant.com";
+  // Preview domain — derive from siteUrl if set
+  const previewUrl  = siteUrl.trim().replace(/^https?:\/\//, "") || "yourrestaurant.com";
   const previewTitle = title.trim() || "Page title";
   const previewDesc  = desc.trim()  || "Page description";
 
@@ -497,6 +507,38 @@ function SeoCard() {
             className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
           />
           <p className="mt-1 text-xs text-gray-400">Comma-separated. Most modern search engines ignore this field, but it can aid internal site search.</p>
+        </div>
+
+        {/* Site URL */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1.5">Site URL</label>
+          <input
+            type="url"
+            value={siteUrl}
+            onChange={(e) => { setSiteUrl(e.target.value); setSaved(false); }}
+            placeholder="https://demo.directdine.tech"
+            className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 font-mono focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+          />
+          <p className="mt-1 text-xs text-gray-400">Your full domain — used for the canonical og:url tag. Required for accurate social sharing.</p>
+        </div>
+
+        {/* OG Image */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1.5">Social share image (og:image)</label>
+          <input
+            type="url"
+            value={ogImage}
+            onChange={(e) => { setOgImage(e.target.value); setSaved(false); }}
+            placeholder="https://demo.directdine.tech/og-image.jpg"
+            className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 font-mono focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+          />
+          <p className="mt-1 text-xs text-gray-400">Shown when someone shares your site on WhatsApp, Facebook, Twitter etc. Recommended: 1200×630 px JPG/PNG.</p>
+          {ogImage && (
+            <div className="mt-2 rounded-xl overflow-hidden border border-gray-200 w-48 h-24 bg-gray-100">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={ogImage} alt="OG preview" className="w-full h-full object-cover" />
+            </div>
+          )}
         </div>
 
         {/* Save */}
@@ -661,9 +703,24 @@ function LocationCard() {
     city:         restaurant.city         ?? "",
     postcode:     restaurant.postcode      ?? "",
     country:      restaurant.country       ?? "United Kingdom",
+    phone:        restaurant.phone         ?? "",
   });
   const [saved, setSaved] = useState(false);
   const [errors, setErrors] = useState<Partial<typeof draft>>({});
+
+  // Sync when settings load from Supabase after mount
+  const dirtyRef = useRef(false);
+  useEffect(() => {
+    if (dirtyRef.current) return;
+    setDraft({
+      addressLine1: restaurant.addressLine1 ?? "",
+      addressLine2: restaurant.addressLine2 ?? "",
+      city:         restaurant.city         ?? "",
+      postcode:     restaurant.postcode      ?? "",
+      country:      restaurant.country       ?? "United Kingdom",
+      phone:        restaurant.phone         ?? "",
+    });
+  }, [restaurant.addressLine1, restaurant.addressLine2, restaurant.city, restaurant.postcode, restaurant.country, restaurant.phone]);
 
   function validate(): boolean {
     const e: Partial<typeof draft> = {};
@@ -686,10 +743,12 @@ function LocationCard() {
         city:         draft.city.trim(),
         postcode:     draft.postcode.trim().toUpperCase(),
         country:      draft.country.trim(),
+        phone:        draft.phone.trim(),
       },
     });
     setSaved(true);
     setErrors({});
+    dirtyRef.current = false;
     setTimeout(() => setSaved(false), 3000);
   }
 
@@ -697,6 +756,7 @@ function LocationCard() {
     return {
       value: draft[key],
       onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        dirtyRef.current = true;
         setDraft((p) => ({ ...p, [key]: e.target.value }));
         setSaved(false);
         if (errors[key]) setErrors((p) => ({ ...p, [key]: undefined }));
@@ -717,8 +777,8 @@ function LocationCard() {
           <MapPin size={18} className="text-blue-600" />
         </div>
         <div>
-          <h2 className="font-bold text-gray-900">Restaurant Location</h2>
-          <p className="text-xs text-gray-400">Used for delivery distance calculations and zone management</p>
+          <h2 className="font-bold text-gray-900">Location &amp; Contact</h2>
+          <p className="text-xs text-gray-400">Address and phone number — shown in emails, receipts, and the website</p>
         </div>
       </div>
 
@@ -812,6 +872,16 @@ function LocationCard() {
                 <AlertCircle size={11} /> {errors.country}
               </p>
             )}
+          </div>
+
+          {/* Phone */}
+          <div className="sm:col-span-2">
+            <LocationField
+              label="Phone number"
+              placeholder="020 7123 4567"
+              {...field("phone")}
+            />
+            <p className="mt-1 text-xs text-gray-400">Shown in email footers, the website header, and order receipts.</p>
           </div>
         </div>
 

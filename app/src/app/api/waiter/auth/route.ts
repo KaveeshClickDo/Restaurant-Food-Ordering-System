@@ -1,12 +1,18 @@
 /**
  * POST /api/waiter/auth
  * Validates a waiter's PIN against app_settings.
+ * Sets an httpOnly session cookie on success.
  * Falls back to seed defaults if no waiters are configured yet.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import type { WaiterStaff }          from "@/types";
+import {
+  createSessionToken,
+  setSessionCookie,
+  COOKIE_WAITER,
+} from "@/lib/auth";
 
 const SEED_WAITERS: WaiterStaff[] = [
   { id: "w-1", name: "Head Waiter", pin: "1111", role: "senior", active: true, avatarColor: "#7c3aed", createdAt: "" },
@@ -36,8 +42,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
   }
 
-  // Return waiter without PIN
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { pin: _p, ...safe } = waiter;
-  return NextResponse.json({ ok: true, waiter: safe });
+
+  const token = createSessionToken({ id: staffId, role: "waiter" });
+  const res = NextResponse.json({ ok: true, waiter: safe });
+  setSessionCookie(res, COOKIE_WAITER, token);
+  return res;
 }

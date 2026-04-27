@@ -127,6 +127,8 @@ export interface SeoSettings {
   metaTitle: string;        // page <title> — recommended ≤ 60 chars
   metaDescription: string;  // meta description — recommended ≤ 160 chars
   metaKeywords: string;     // comma-separated keywords
+  ogImage: string;          // absolute URL for og:image (social share preview)
+  siteUrl: string;          // canonical base URL, e.g. https://demo.directdine.tech
 }
 
 export interface FooterPage {
@@ -463,4 +465,5 @@ export interface Customer {
   favourites?: string[];      // array of MenuItem ids
   savedAddresses?: SavedAddress[];
   storeCredit?: number;   // £ store credit balance (from refunds)
+  emailVerified?: boolean;
 }

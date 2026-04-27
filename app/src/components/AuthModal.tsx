@@ -14,22 +14,25 @@ export default function AuthModal({ initialTab = "login", onClose }: Props) {
   const [tab, setTab] = useState<"login" | "register">(initialTab);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const [loginForm, setLoginForm] = useState({ email: "", password: "" });
   const [registerForm, setRegisterForm] = useState({ name: "", email: "", phone: "", password: "", confirm: "" });
 
-  function handleLogin(e: React.FormEvent) {
+  async function handleLogin(e: React.SyntheticEvent) {
     e.preventDefault();
-    setError("");
-    const ok = login(loginForm.email, loginForm.password);
-    if (ok) {
-      onClose();
-    } else {
-      setError("Incorrect email or password.");
+    setError(""); setLoading(true);
+    try {
+      const ok = await login(loginForm.email, loginForm.password);
+      if (ok) { onClose(); } else { setError("Incorrect email or password."); }
+    } catch {
+      setError("Connection error. Please try again.");
+    } finally {
+      setLoading(false);
     }
   }
 
-  function handleRegister(e: React.FormEvent) {
+  async function handleRegister(e: React.SyntheticEvent) {
     e.preventDefault();
     setError("");
     if (registerForm.password !== registerForm.confirm) {
@@ -40,11 +43,14 @@ export default function AuthModal({ initialTab = "login", onClose }: Props) {
       setError("Password must be at least 6 characters.");
       return;
     }
-    const result = register(registerForm.name, registerForm.email, registerForm.phone, registerForm.password);
-    if (result.success) {
-      onClose();
-    } else {
-      setError(result.error ?? "Registration failed.");
+    setLoading(true);
+    try {
+      const result = await register(registerForm.name, registerForm.email, registerForm.phone, registerForm.password);
+      if (result.success) { onClose(); } else { setError(result.error ?? "Registration failed."); }
+    } catch {
+      setError("Connection error. Please try again.");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -128,9 +134,10 @@ export default function AuthModal({ initialTab = "login", onClose }: Props) {
 
               <button
                 type="submit"
-                className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl transition text-sm"
+                disabled={loading}
+                className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-bold py-3 rounded-xl transition text-sm"
               >
-                Sign in
+                {loading ? "Signing in…" : "Sign in"}
               </button>
 
               <p className="text-center text-xs text-gray-400">
@@ -227,9 +234,10 @@ export default function AuthModal({ initialTab = "login", onClose }: Props) {
 
               <button
                 type="submit"
-                className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl transition text-sm"
+                disabled={loading}
+                className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-bold py-3 rounded-xl transition text-sm"
               >
-                Create account
+                {loading ? "Creating account…" : "Create account"}
               </button>
 
               <p className="text-center text-xs text-gray-400">

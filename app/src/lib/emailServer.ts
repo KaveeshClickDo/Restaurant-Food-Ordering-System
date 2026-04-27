@@ -15,6 +15,17 @@ import {
 } from "./emailTemplates";
 import type { ReservationEmailData } from "./emailTemplates";
 
+function resolveFromAddress(): string {
+  const explicit  = process.env.SMTP_FROM?.trim() ?? "";
+  if (explicit) return explicit;
+  const smtpUser  = process.env.SMTP_USER?.trim() ?? "";
+  const smtpHost  = process.env.SMTP_HOST?.trim() ?? "";
+  const isEmail   = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(smtpUser);
+  if (isEmail) return smtpUser;
+  if (smtpHost.includes("resend.com")) return "onboarding@resend.dev";
+  return smtpUser;
+}
+
 /** Send a raw HTML email via SMTP. Reads credentials from env vars only. */
 export async function sendEmailDirect(
   to: string,
@@ -28,6 +39,10 @@ export async function sendEmailDirect(
 
   if (!smtpHost) return { ok: false, error: "SMTP not configured" };
 
+  const fromAddr = resolveFromAddress();
+  const fromName = process.env.SMTP_FROM_NAME?.trim() ?? "";
+  const from     = fromName ? `"${fromName}" <${fromAddr}>` : fromAddr;
+
   try {
     const transporter = nodemailer.createTransport({
       host:   smtpHost,
@@ -39,12 +54,7 @@ export async function sendEmailDirect(
       socketTimeout:     10_000,
     });
 
-    await transporter.sendMail({
-      from:    smtpUser ? `"${smtpUser}" <${smtpUser}>` : smtpUser,
-      to,
-      subject,
-      html,
-    });
+    await transporter.sendMail({ from, to, subject, html });
 
     return { ok: true };
   } catch (err) {
