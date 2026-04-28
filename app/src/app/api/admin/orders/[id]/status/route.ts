@@ -6,6 +6,8 @@
 import { NextRequest, NextResponse }            from "next/server";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
+import { sendOrderStatusEmail }                 from "@/lib/emailServer";
+import type { OrderStatus }                     from "@/types";
 
 export async function PUT(
   req: NextRequest,
@@ -31,5 +33,11 @@ export async function PUT(
     console.error("admin/orders/[id]/status PUT:", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
+
+  // Fire-and-forget — email failure must never fail the status update response
+  sendOrderStatusEmail(id, body.status as OrderStatus).catch((err: unknown) =>
+    console.error("[orders] status email:", err instanceof Error ? err.message : err)
+  );
+
   return NextResponse.json({ ok: true });
 }

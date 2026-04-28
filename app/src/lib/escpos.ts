@@ -337,12 +337,15 @@ function getUSBApi(): USBApi | null {
 
 /**
  * Send bytes directly to a USB printer using the Web USB API.
- * On first call, prompts the user to select the printer.
- * Subsequent calls reuse the already-authorized device.
  * Only works in Chrome/Edge (Firefox/Safari don't support Web USB).
+ *
+ * @param promptIfNeeded  When true (manual print), opens the browser device picker
+ *                        if no printer has been authorized yet.
+ *                        When false (auto-print), silently skips if no device is paired.
  */
 export async function sendToPrinterUSB(
   bytes: number[],
+  { promptIfNeeded = true }: { promptIfNeeded?: boolean } = {},
 ): Promise<{ ok: boolean; error?: string }> {
   const usb = getUSBApi();
   if (!usb) {
@@ -355,12 +358,15 @@ export async function sendToPrinterUSB(
   let device: USBDevice | undefined;
 
   try {
-    // Try to reuse a previously authorized device first
+    // Reuse a previously authorized device
     const devices = await usb.getDevices();
-    device = devices[0]; // take first if multiple authorized
+    device = devices[0];
 
-    // No authorized device yet — prompt user to select
+    // Only open the picker when explicitly triggered (e.g. "Print" button)
     if (!device) {
+      if (!promptIfNeeded) {
+        return { ok: false, error: "USB printer selection cancelled." };
+      }
       device = await usb.requestDevice({
         filters: [
           { classCode: 7 }, // USB Printer class (most ESC/POS thermal printers)
@@ -586,7 +592,7 @@ export async function printOrder(
     if (mode === "bluetooth") {
       result = await sendToPrinterBluetooth(bytes, printer.bluetoothAddress ?? "");
     } else if (mode === "usb") {
-      result = await sendToPrinterUSB(bytes);
+      result = await sendToPrinterUSB(bytes, { promptIfNeeded: false });
     } else if (mode === "browser") {
       result = printReceiptBrowser(order, settings);
     } else {
@@ -605,7 +611,7 @@ export async function printOrder(
       }
     }
 
-    if (!result.ok) {
+    if (!result.ok && result.error !== "USB printer selection cancelled.") {
       console.error("[printer] Print failed:", result.error);
     }
   } catch (err) {

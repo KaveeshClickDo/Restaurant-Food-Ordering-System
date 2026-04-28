@@ -8,6 +8,7 @@ import {
   ChevronDown, ChevronUp, LogOut, ArrowLeft, Star, Package,
   Edit2, Check, X, RotateCcw, ShoppingCart, AlertCircle, RefreshCw,
   Heart, Plus, PackageX, MapPin, Home, Briefcase, Trash2, Star as StarIcon, Truck, Gift,
+  Lock, Eye, EyeOff, ShieldCheck,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { Order, OrderLine, OrderStatus, DeliveryStatus, MenuItem, SavedAddress } from "@/types";
@@ -738,6 +739,188 @@ function AddressesTab() {
   );
 }
 
+// ─── Change Password Card ─────────────────────────────────────────────────────
+
+function ChangePasswordCard() {
+  const [open,            setOpen]            = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword,     setNewPassword]     = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showCurrent,     setShowCurrent]     = useState(false);
+  const [showNew,         setShowNew]         = useState(false);
+  const [loading,         setLoading]         = useState(false);
+  const [error,           setError]           = useState("");
+  const [success,         setSuccess]         = useState(false);
+
+  function reset() {
+    setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
+    setShowCurrent(false); setShowNew(false);
+    setError(""); setSuccess(false);
+  }
+
+  function handleToggle() {
+    if (open) reset();
+    setOpen((v) => !v);
+  }
+
+  async function handleSubmit(e: { preventDefault(): void }) {
+    e.preventDefault();
+    setError("");
+    if (newPassword.length < 6) { setError("New password must be at least 6 characters."); return; }
+    if (newPassword !== confirmPassword) { setError("Passwords do not match."); return; }
+    setLoading(true);
+    try {
+      const res  = await fetch("/api/auth/change-password", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ currentPassword, newPassword }),
+      });
+      const json = await res.json() as { ok: boolean; error?: string };
+      if (json.ok) {
+        setSuccess(true);
+        reset();
+        setTimeout(() => { setOpen(false); setSuccess(false); }, 2500);
+      } else {
+        setError(json.error ?? "Failed to change password.");
+      }
+    } catch {
+      setError("Connection error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const pwdInputCls = "w-full border border-gray-200 rounded-xl px-4 py-2.5 pr-11 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition";
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <button
+        onClick={handleToggle}
+        className="w-full flex items-center justify-between px-6 py-5 hover:bg-gray-50 transition text-left"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-orange-100 rounded-xl flex items-center justify-center">
+            <ShieldCheck size={15} className="text-orange-600" />
+          </div>
+          <div>
+            <p className="font-semibold text-gray-900 text-sm">Change password</p>
+            <p className="text-xs text-gray-400 mt-0.5">Update your account password</p>
+          </div>
+        </div>
+        {open
+          ? <X size={16} className="text-gray-400 flex-shrink-0" />
+          : <Lock size={16} className="text-gray-400 flex-shrink-0" />
+        }
+      </button>
+
+      {open && (
+        <div className="border-t border-gray-100 px-6 pb-6 pt-4">
+          {success ? (
+            <div className="flex items-center gap-2.5 bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700 font-medium">
+              <Check size={15} className="flex-shrink-0" /> Password updated successfully
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Current password */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">Current password</label>
+                <div className="relative">
+                  <input
+                    type={showCurrent ? "text" : "password"}
+                    value={currentPassword}
+                    onChange={(e) => { setCurrentPassword(e.target.value); setError(""); }}
+                    placeholder="Your current password"
+                    required
+                    autoComplete="current-password"
+                    className={pwdInputCls}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCurrent((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
+                    tabIndex={-1}
+                  >
+                    {showCurrent ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+
+              {/* New password */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">New password</label>
+                <div className="relative">
+                  <input
+                    type={showNew ? "text" : "password"}
+                    value={newPassword}
+                    onChange={(e) => { setNewPassword(e.target.value); setError(""); }}
+                    placeholder="Min. 6 characters"
+                    required
+                    autoComplete="new-password"
+                    className={pwdInputCls}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNew((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
+                    tabIndex={-1}
+                  >
+                    {showNew ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Confirm password */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">Confirm new password</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => { setConfirmPassword(e.target.value); setError(""); }}
+                  placeholder="Repeat new password"
+                  required
+                  autoComplete="new-password"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                />
+              </div>
+
+              {error && (
+                <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                  <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-red-600">{error}</p>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="submit"
+                  disabled={loading || !currentPassword || !newPassword || !confirmPassword}
+                  className="flex-1 bg-orange-500 hover:bg-orange-600 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-2.5 rounded-xl text-sm transition"
+                >
+                  {loading ? "Updating…" : "Update password"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleToggle}
+                  className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl text-sm transition"
+                >
+                  Cancel
+                </button>
+              </div>
+
+              <p className="text-center text-xs text-gray-400">
+                Forgot your password?{" "}
+                <a href="/login?action=forgot" className="text-orange-500 font-semibold hover:underline">
+                  Reset via email
+                </a>
+              </p>
+            </form>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Profile Tab ──────────────────────────────────────────────────────────────
 
 function ProfileTab() {
@@ -847,6 +1030,8 @@ function ProfileTab() {
           </div>
         </div>
       </div>
+
+      <ChangePasswordCard />
     </div>
   );
 }

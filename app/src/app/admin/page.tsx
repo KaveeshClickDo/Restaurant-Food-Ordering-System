@@ -25,6 +25,7 @@ import RefundsPanel         from "@/components/admin/RefundsPanel";
 import POSReportsPanel      from "@/components/admin/POSReportsPanel";
 import OnlineReportsPanel  from "@/components/admin/OnlineReportsPanel";
 import WaitersPanel         from "@/components/admin/WaitersPanel";
+import UserManagementPanel  from "@/components/admin/UserManagementPanel";
 import ReservationsPanel         from "@/components/admin/ReservationsPanel";
 import TableStatusPanel          from "@/components/admin/TableStatusPanel";
 import ReservationCustomersPanel from "@/components/admin/ReservationCustomersPanel";
@@ -32,7 +33,7 @@ import {
   LayoutDashboard, ExternalLink, ShieldCheck, Store, Calendar, Plug, ChefHat, Users, Truck,
   MapPin, Bell, X, Mail, FileText, LayoutTemplate, Navigation, Palette, ImageIcon, Receipt,
   Tag, Percent, Car, Sunrise, RotateCcw, BarChart3, LineChart, UtensilsCrossed, CalendarDays, BookUser,
-  Menu as MenuIcon, ChevronDown, ChevronRight, ChevronLeft, PanelLeftClose, PanelLeftOpen,
+  Menu as MenuIcon, ChevronDown, ChevronRight, ChevronLeft, PanelLeftClose, PanelLeftOpen, UserCog,
 } from "lucide-react";
 
 // ─── Navigation structure ─────────────────────────────────────────────────────
@@ -60,6 +61,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "customers", label: "Customers",        icon: Users    },
       { id: "drivers",   label: "Drivers",          icon: Car      },
+      { id: "users",     label: "User Management",  icon: UserCog  },
     ],
   },
   {
@@ -134,6 +136,7 @@ function bannerSubtitle(
     case "coupons":       return `${(s.coupons ?? []).filter((c) => c.active).length} active coupon${(s.coupons ?? []).filter((c) => c.active).length !== 1 ? "s" : ""} · percentage and fixed-amount discount codes.`;
     case "tax":           return s.taxSettings?.enabled ? `VAT ${s.taxSettings.rate}% · ${s.taxSettings.inclusive ? "inclusive" : "exclusive"} mode.` : "VAT is currently disabled.";
     case "drivers":       return "Manage driver accounts and track deliveries.";
+    case "users":         return "Create, view, and manage all user accounts — customers, drivers, and staff.";
     case "refunds":       return "Process full or partial refunds, choose refund method, and view the full refund history.";
     case "online-reports": return "Revenue, orders, refunds, VAT, and payment breakdowns — filter by date range and export to CSV or PDF.";
     case "pos-reports":    return "View POS sales reports — revenue, profit, staff performance, and best-selling items.";
@@ -193,7 +196,7 @@ export default function AdminPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  async function handleLogin(e: React.FormEvent<HTMLFormElement>) {
+  async function handleLogin(e: { preventDefault(): void }) {
     e.preventDefault();
     setLoginError("");
     setLoginLoading(true);
@@ -681,6 +684,7 @@ export default function AdminPage() {
             {activeTab === "coupons"       && <CouponsPanel />}
             {activeTab === "tax"           && <TaxSettingsPanel />}
             {activeTab === "drivers"       && <DriversPanel />}
+            {activeTab === "users"         && <UserManagementPanel />}
             {activeTab === "refunds"       && <RefundsPanel />}
             {activeTab === "online-reports" && <OnlineReportsPanel />}
             {activeTab === "pos-reports"   && <POSReportsPanel />}

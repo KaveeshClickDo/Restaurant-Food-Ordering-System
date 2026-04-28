@@ -2,8 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { useApp } from "@/context/AppContext";
-import { Customer, DeliveryStatus, EmailTemplateEvent, Order, OrderStatus } from "@/types";
-import { sendOrderEmail } from "@/lib/emailTemplates";
+import { Customer, DeliveryStatus, Order, OrderStatus } from "@/types";
 import {
   Truck, Package, ChefHat, CheckCircle2, Circle, Ban,
   Clock, MapPin, Phone, ShoppingBag, TrendingUp,
@@ -487,15 +486,8 @@ function OrderModal({ order, onClose, onStatusChange }: {
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 
 export default function DeliveryPanel() {
-  const { customers, updateOrderStatus, settings } = useApp();
+  const { customers, updateOrderStatus } = useApp();
 
-  const STATUS_EMAIL: Partial<Record<OrderStatus, EmailTemplateEvent>> = {
-    confirmed: "order_confirmed",
-    preparing: "order_preparing",
-    ready:     "order_ready",
-    delivered: "order_delivered",
-    cancelled: "order_cancelled",
-  };
   const [modalOrder, setModalOrder] = useState<RichOrder | null>(null);
   const [fulfillmentFilter, setFulfillmentFilter] = useState<"all" | "delivery" | "collection">("all");
   const [search, setSearch] = useState("");
@@ -520,29 +512,24 @@ export default function DeliveryPanel() {
   const deliveryCount = activeOrders.filter((o) => o.fulfillment === "delivery").length;
   const todayDelivered = todayOrders.filter((o) => o.status === "delivered").length;
 
-  // Helpers to mutate
-  function triggerEmail(order: Order, cust: Customer, newStatus: OrderStatus) {
-    const event = STATUS_EMAIL[newStatus];
-    if (event) sendOrderEmail(event, { ...order, status: newStatus }, cust, settings);
-  }
-
+  // Helpers to mutate — emails are sent server-side by /api/admin/orders/[id]/status
   function advance(order: RichOrder) {
-    if (!canAdminAdvance(order)) return; // delivery orders at "ready" wait for driver
+    if (!canAdminAdvance(order)) return;
     const next = STATUS_NEXT[order.status];
     if (next) {
       const cust = customers.find((c: Customer) => c.id === order.customerId);
-      if (cust) { updateOrderStatus(cust.id, order.id, next); triggerEmail(order, cust, next); }
+      if (cust) updateOrderStatus(cust.id, order.id, next);
     }
   }
 
   function cancel(order: RichOrder) {
     const cust = customers.find((c: Customer) => c.id === order.customerId);
-    if (cust) { updateOrderStatus(cust.id, order.id, "cancelled"); triggerEmail(order, cust, "cancelled"); }
+    if (cust) updateOrderStatus(cust.id, order.id, "cancelled");
   }
 
   function changeStatus(order: RichOrder, status: OrderStatus) {
     const cust = customers.find((c: Customer) => c.id === order.customerId);
-    if (cust) { updateOrderStatus(cust.id, order.id, status); triggerEmail(order, cust, status); }
+    if (cust) updateOrderStatus(cust.id, order.id, status);
   }
 
   // Filtered active orders for kanban

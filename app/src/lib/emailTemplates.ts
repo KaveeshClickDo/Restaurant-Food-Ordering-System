@@ -160,7 +160,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
 <p>If you have any questions, please contact us at <strong>{{restaurant_phone}}</strong>.</p>
 <p>We apologise for any inconvenience and hope to serve you again soon.</p>
 <p style="color:#6b7280;font-size:14px">— The team at <strong>{{restaurant_name}}</strong></p>`,
-    enabled: false,
+    enabled: true,
     lastModified: new Date(0).toISOString(),
   },
   // ── Reservation templates ──────────────────────────────────────────────────

@@ -15,8 +15,9 @@ function LoginContent() {
 
   const [tab, setTab]  = useState<Tab>(() => {
     const action = searchParams.get("action");
-    if (action === "reset") return "reset";
+    if (action === "reset")    return "reset";
     if (action === "register") return "register";
+    if (action === "forgot")   return "forgot";
     return "login";
   });
   const [showPwd, setShowPwd]   = useState(false);
@@ -41,7 +42,7 @@ function LoginContent() {
   function switchTab(t: Tab) { setTab(t); setError(""); setSuccess(""); setShowPwd(false); }
 
   // ── Login ─────────────────────────────────────────────────────────────────
-  async function handleLogin(e: React.FormEvent) {
+  async function handleLogin(e: { preventDefault(): void }) {
     e.preventDefault();
     setError(""); setLoading(true);
     try {
@@ -55,7 +56,7 @@ function LoginContent() {
   }
 
   // ── Register ──────────────────────────────────────────────────────────────
-  async function handleRegister(e: React.FormEvent) {
+  async function handleRegister(e: { preventDefault(): void }) {
     e.preventDefault();
     setError("");
     if (registerForm.password !== registerForm.confirm) { setError("Passwords do not match."); return; }
@@ -74,7 +75,7 @@ function LoginContent() {
   }
 
   // ── Forgot password ────────────────────────────────────────────────────────
-  async function handleForgot(e: React.FormEvent) {
+  async function handleForgot(e: { preventDefault(): void }) {
     e.preventDefault();
     setError(""); setLoading(true);
     try {
@@ -92,7 +93,7 @@ function LoginContent() {
   }
 
   // ── Reset password ────────────────────────────────────────────────────────
-  async function handleReset(e: React.FormEvent) {
+  async function handleReset(e: { preventDefault(): void }) {
     e.preventDefault();
     setError("");
     if (resetForm.password !== resetForm.confirm) { setError("Passwords do not match."); return; }
