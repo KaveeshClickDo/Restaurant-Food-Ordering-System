@@ -4,7 +4,10 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useApp } from "@/context/AppContext";
-import { User, Mail, Phone, Lock, Eye, EyeOff, ChevronLeft } from "lucide-react";
+import {
+  User, Mail, Phone, Lock, Eye, EyeOff, ChevronLeft,
+  AlertCircle, CheckCircle, Loader2, KeyRound,
+} from "lucide-react";
 
 type Tab = "login" | "register" | "forgot" | "reset";
 
@@ -13,41 +16,57 @@ function LoginContent() {
   const router       = useRouter();
   const searchParams = useSearchParams();
 
-  const [tab, setTab]  = useState<Tab>(() => {
+  const [tab, setTab] = useState<Tab>(() => {
     const action = searchParams.get("action");
     if (action === "reset")    return "reset";
     if (action === "register") return "register";
     if (action === "forgot")   return "forgot";
     return "login";
   });
-  const [showPwd, setShowPwd]   = useState(false);
-  const [loading, setLoading]   = useState(false);
-  const [error,   setError]     = useState("");
-  const [success, setSuccess]   = useState("");
+
+  const [showPwd,  setShowPwd]  = useState(false);
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState("");
+  const [success,  setSuccess]  = useState("");
+
+  // Track whether the login error is specifically an auth failure so we can
+  // show a contextual "Forgot password?" prompt right next to the error.
+  const [isAuthError, setIsAuthError] = useState(false);
 
   const [loginForm,    setLoginForm]    = useState({ email: "", password: "" });
   const [registerForm, setRegisterForm] = useState({ name: "", email: "", phone: "", password: "", confirm: "" });
-  const [forgotEmail,  setForgotEmail]  = useState("");
+  const [forgotEmail,  setForgotEmail]  = useState(() => searchParams.get("email") ?? "");
   const [resetForm,    setResetForm]    = useState({
     email:    searchParams.get("email") ?? "",
     token:    searchParams.get("token") ?? "",
     password: "", confirm: "",
   });
 
-  // Redirect logged-in users to account page
+  // Redirect already-logged-in users to account
   useEffect(() => {
     if (currentUser) router.replace("/account");
   }, [currentUser, router]);
 
-  function switchTab(t: Tab) { setTab(t); setError(""); setSuccess(""); setShowPwd(false); }
+  function switchTab(t: Tab) {
+    setTab(t); setError(""); setSuccess(""); setShowPwd(false); setIsAuthError(false);
+  }
 
-  // ── Login ─────────────────────────────────────────────────────────────────
+  // Switch to forgot and pre-fill the email the user already typed
+  function goToForgot() {
+    setForgotEmail(loginForm.email);
+    switchTab("forgot");
+  }
+
+  // ── Login ───────────────────────────────────────────────────────────────────
   async function handleLogin(e: { preventDefault(): void }) {
     e.preventDefault();
-    setError(""); setLoading(true);
+    setError(""); setIsAuthError(false); setLoading(true);
     try {
       const ok = await login(loginForm.email, loginForm.password);
-      if (!ok) setError("Incorrect email or password.");
+      if (!ok) {
+        setError("Incorrect email or password.");
+        setIsAuthError(true);
+      }
     } catch {
       setError("Connection error. Please try again.");
     } finally {
@@ -55,7 +74,7 @@ function LoginContent() {
     }
   }
 
-  // ── Register ──────────────────────────────────────────────────────────────
+  // ── Register ────────────────────────────────────────────────────────────────
   async function handleRegister(e: { preventDefault(): void }) {
     e.preventDefault();
     setError("");
@@ -74,17 +93,18 @@ function LoginContent() {
     }
   }
 
-  // ── Forgot password ────────────────────────────────────────────────────────
+  // ── Forgot password ─────────────────────────────────────────────────────────
   async function handleForgot(e: { preventDefault(): void }) {
     e.preventDefault();
     setError(""); setLoading(true);
     try {
       await fetch("/api/auth/reset-password", {
-        method: "POST",
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: forgotEmail }),
+        body:    JSON.stringify({ email: forgotEmail.trim() }),
       });
-      setSuccess("If that email is registered, a reset link has been sent. Check your inbox.");
+      // Always show success — endpoint never reveals whether email exists
+      setSuccess("sent");
     } catch {
       setError("Connection error. Please try again.");
     } finally {
@@ -92,7 +112,7 @@ function LoginContent() {
     }
   }
 
-  // ── Reset password ────────────────────────────────────────────────────────
+  // ── Reset password ──────────────────────────────────────────────────────────
   async function handleReset(e: { preventDefault(): void }) {
     e.preventDefault();
     setError("");
@@ -100,15 +120,18 @@ function LoginContent() {
     if (resetForm.password.length < 6) { setError("Password must be at least 6 characters."); return; }
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/reset-password/confirm", {
-        method: "POST",
+      const res  = await fetch("/api/auth/reset-password/confirm", {
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: resetForm.email, token: resetForm.token, password: resetForm.password }),
+        body:    JSON.stringify({
+          email:    resetForm.email,
+          token:    resetForm.token,
+          password: resetForm.password,
+        }),
       });
       const json = await res.json() as { ok: boolean; error?: string };
       if (json.ok) {
-        setSuccess("Password updated. You can now sign in.");
-        setTimeout(() => switchTab("login"), 2000);
+        setSuccess("done");
       } else {
         setError(json.error ?? "Invalid or expired reset link.");
       }
@@ -119,8 +142,9 @@ function LoginContent() {
     }
   }
 
-  const inputCls = "w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition";
-  const btnCls   = "w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-bold py-3 rounded-xl transition text-sm";
+  const inputCls   = "w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition";
+  const pwdInputCls = "w-full pl-9 pr-10 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition";
+  const btnCls     = "w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl transition text-sm flex items-center justify-center gap-2";
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
@@ -132,7 +156,8 @@ function LoginContent() {
       </div>
 
       <div className="bg-white rounded-2xl w-full max-w-md shadow-lg overflow-hidden">
-        {/* Tabs */}
+
+        {/* ── Tab bar (login / register) ─────────────────────────────────── */}
         {(tab === "login" || tab === "register") && (
           <div className="flex border-b border-gray-100">
             {(["login", "register"] as const).map((t) => (
@@ -151,48 +176,93 @@ function LoginContent() {
           </div>
         )}
 
+        {/* ── Back header (forgot / reset) ───────────────────────────────── */}
         {(tab === "forgot" || tab === "reset") && (
-          <div className="flex items-center gap-2 px-6 pt-5">
-            <button onClick={() => switchTab("login")} className="text-gray-400 hover:text-gray-700 transition">
-              <ChevronLeft size={20} />
+          <div className="flex items-center gap-3 px-6 pt-5 pb-1">
+            <button
+              onClick={() => switchTab("login")}
+              className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition"
+            >
+              <ChevronLeft size={18} />
             </button>
-            <h2 className="text-base font-bold text-gray-800">
-              {tab === "forgot" ? "Forgot password" : "Set new password"}
-            </h2>
+            <div className="flex items-center gap-2">
+              <KeyRound size={16} className="text-orange-500" />
+              <h2 className="text-base font-bold text-gray-800">
+                {tab === "forgot" ? "Reset your password" : "Set new password"}
+              </h2>
+            </div>
           </div>
         )}
 
         <div className="p-6">
-          {/* ── Login ──────────────────────────────────────────────────────── */}
+
+          {/* ── Login form ─────────────────────────────────────────────────── */}
           {tab === "login" && (
             <form onSubmit={handleLogin} className="space-y-4">
               <Field label="Email address" icon={<Mail size={15} />}>
-                <input type="email" required value={loginForm.email}
-                  onChange={(e) => setLoginForm((f) => ({ ...f, email: e.target.value }))}
-                  placeholder="jane@example.com" className={inputCls} />
+                <input
+                  type="email" required value={loginForm.email}
+                  onChange={(e) => { setLoginForm((f) => ({ ...f, email: e.target.value })); setError(""); setIsAuthError(false); }}
+                  placeholder="jane@example.com"
+                  autoComplete="username"
+                  className={inputCls}
+                />
               </Field>
+
               <Field label="Password" icon={<Lock size={15} />}>
-                <input type={showPwd ? "text" : "password"} required value={loginForm.password}
-                  onChange={(e) => setLoginForm((f) => ({ ...f, password: e.target.value }))}
-                  placeholder="••••••••" className="w-full pl-9 pr-10 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition" />
+                <input
+                  type={showPwd ? "text" : "password"} required value={loginForm.password}
+                  onChange={(e) => { setLoginForm((f) => ({ ...f, password: e.target.value })); setError(""); setIsAuthError(false); }}
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                  className={pwdInputCls}
+                />
                 <EyeToggle show={showPwd} onToggle={() => setShowPwd((v) => !v)} />
               </Field>
-              {error   && <p className="text-red-500 text-xs">{error}</p>}
+
+              {/* Error — with contextual "Forgot password?" when it's an auth failure */}
+              {error && (
+                isAuthError ? (
+                  <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                    <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-red-700">{error}</p>
+                      <p className="text-xs text-red-500 mt-0.5">
+                        Can&apos;t remember it?{" "}
+                        <button
+                          type="button"
+                          onClick={goToForgot}
+                          className="font-bold underline underline-offset-2 hover:text-red-700 transition"
+                        >
+                          Reset your password
+                        </button>
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                    <AlertCircle size={14} className="text-red-500 flex-shrink-0" />
+                    <p className="text-xs text-red-600">{error}</p>
+                  </div>
+                )
+              )}
+
               <button type="submit" disabled={loading} className={btnCls}>
-                {loading ? "Signing in…" : "Sign in"}
+                {loading ? <><Loader2 size={15} className="animate-spin" /> Signing in…</> : "Sign in"}
               </button>
-              <div className="flex justify-between text-xs text-gray-400">
+
+              <div className="flex items-center justify-between text-xs">
                 <button type="button" onClick={() => switchTab("register")} className="text-orange-500 font-semibold hover:underline">
                   Create account
                 </button>
-                <button type="button" onClick={() => switchTab("forgot")} className="hover:underline">
+                <button type="button" onClick={goToForgot} className="text-gray-400 hover:text-orange-500 transition hover:underline">
                   Forgot password?
                 </button>
               </div>
             </form>
           )}
 
-          {/* ── Register ───────────────────────────────────────────────────── */}
+          {/* ── Register form ───────────────────────────────────────────────── */}
           {tab === "register" && (
             <form onSubmit={handleRegister} className="space-y-4">
               <Field label="Full name" icon={<User size={15} />}>
@@ -213,7 +283,7 @@ function LoginContent() {
               <Field label="Password" icon={<Lock size={15} />}>
                 <input type={showPwd ? "text" : "password"} required value={registerForm.password}
                   onChange={(e) => setRegisterForm((f) => ({ ...f, password: e.target.value }))}
-                  placeholder="Min. 6 characters" className="w-full pl-9 pr-10 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition" />
+                  placeholder="Min. 6 characters" className={pwdInputCls} />
                 <EyeToggle show={showPwd} onToggle={() => setShowPwd((v) => !v)} />
               </Field>
               <Field label="Confirm password" icon={<Lock size={15} />}>
@@ -221,9 +291,16 @@ function LoginContent() {
                   onChange={(e) => setRegisterForm((f) => ({ ...f, confirm: e.target.value }))}
                   placeholder="••••••••" className={inputCls} />
               </Field>
-              {error && <p className="text-red-500 text-xs">{error}</p>}
+
+              {error && (
+                <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                  <AlertCircle size={14} className="text-red-500 flex-shrink-0" />
+                  <p className="text-xs text-red-600">{error}</p>
+                </div>
+              )}
+
               <button type="submit" disabled={loading} className={btnCls}>
-                {loading ? "Creating account…" : "Create account"}
+                {loading ? <><Loader2 size={15} className="animate-spin" /> Creating account…</> : "Create account"}
               </button>
               <p className="text-center text-xs text-gray-400">
                 Already have an account?{" "}
@@ -234,48 +311,148 @@ function LoginContent() {
             </form>
           )}
 
-          {/* ── Forgot password ────────────────────────────────────────────── */}
+          {/* ── Forgot password form ────────────────────────────────────────── */}
           {tab === "forgot" && (
-            <form onSubmit={handleForgot} className="space-y-4 mt-4">
-              <p className="text-sm text-gray-500">Enter your email and we&apos;ll send a reset link if the account exists.</p>
-              <Field label="Email address" icon={<Mail size={15} />}>
-                <input type="email" required value={forgotEmail}
-                  onChange={(e) => setForgotEmail(e.target.value)}
-                  placeholder="jane@example.com" className={inputCls} />
-              </Field>
-              {error   && <p className="text-red-500 text-xs">{error}</p>}
-              {success && <p className="text-green-600 text-xs">{success}</p>}
-              <button type="submit" disabled={loading} className={btnCls}>
-                {loading ? "Sending…" : "Send reset link"}
-              </button>
-            </form>
+            success === "sent" ? (
+              <div className="space-y-5 mt-2">
+                <div className="flex flex-col items-center text-center gap-3 py-4">
+                  <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center">
+                    <CheckCircle size={28} className="text-green-500" />
+                  </div>
+                  <div>
+                    <p className="font-bold text-gray-900 text-base">Check your inbox</p>
+                    <p className="text-sm text-gray-500 mt-1 leading-relaxed">
+                      If <span className="font-semibold text-gray-700">{forgotEmail}</span> is registered,
+                      a reset link has been sent. It expires in 1 hour.
+                    </p>
+                  </div>
+                </div>
+                <p className="text-center text-xs text-gray-400">
+                  Didn&apos;t receive it?{" "}
+                  <button
+                    type="button"
+                    onClick={() => setSuccess("")}
+                    className="text-orange-500 font-semibold hover:underline"
+                  >
+                    Send again
+                  </button>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => switchTab("login")}
+                  className={btnCls}
+                >
+                  Back to sign in
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleForgot} className="space-y-4 mt-2">
+                <p className="text-sm text-gray-500 leading-relaxed">
+                  Enter your email address and we&apos;ll send you a link to reset your password.
+                  The link is valid for <span className="font-semibold text-gray-700">1 hour</span>.
+                </p>
+
+                <Field label="Email address" icon={<Mail size={15} />}>
+                  <input
+                    type="email" required value={forgotEmail}
+                    onChange={(e) => { setForgotEmail(e.target.value); setError(""); }}
+                    placeholder="jane@example.com"
+                    autoFocus
+                    autoComplete="username"
+                    className={inputCls}
+                  />
+                </Field>
+
+                {error && (
+                  <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                    <AlertCircle size={14} className="text-red-500 flex-shrink-0" />
+                    <p className="text-xs text-red-600">{error}</p>
+                  </div>
+                )}
+
+                <button type="submit" disabled={loading || !forgotEmail} className={btnCls}>
+                  {loading
+                    ? <><Loader2 size={15} className="animate-spin" /> Sending…</>
+                    : "Send reset link"}
+                </button>
+              </form>
+            )
           )}
 
-          {/* ── Reset password ──────────────────────────────────────────────── */}
+          {/* ── Reset password form ─────────────────────────────────────────── */}
           {tab === "reset" && (
-            <form onSubmit={handleReset} className="space-y-4 mt-4">
-              <Field label="New password" icon={<Lock size={15} />}>
-                <input type={showPwd ? "text" : "password"} required value={resetForm.password}
-                  onChange={(e) => setResetForm((f) => ({ ...f, password: e.target.value }))}
-                  placeholder="Min. 6 characters" className="w-full pl-9 pr-10 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition" />
-                <EyeToggle show={showPwd} onToggle={() => setShowPwd((v) => !v)} />
-              </Field>
-              <Field label="Confirm password" icon={<Lock size={15} />}>
-                <input type={showPwd ? "text" : "password"} required value={resetForm.confirm}
-                  onChange={(e) => setResetForm((f) => ({ ...f, confirm: e.target.value }))}
-                  placeholder="••••••••" className={inputCls} />
-              </Field>
-              {error   && <p className="text-red-500 text-xs">{error}</p>}
-              {success && <p className="text-green-600 text-xs">{success}</p>}
-              <button type="submit" disabled={loading} className={btnCls}>
-                {loading ? "Updating…" : "Set new password"}
-              </button>
-            </form>
+            success === "done" ? (
+              <div className="space-y-5 mt-2">
+                <div className="flex flex-col items-center text-center gap-3 py-4">
+                  <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center">
+                    <CheckCircle size={28} className="text-green-500" />
+                  </div>
+                  <div>
+                    <p className="font-bold text-gray-900 text-base">Password updated!</p>
+                    <p className="text-sm text-gray-500 mt-1">
+                      You can now sign in with your new password.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => switchTab("login")}
+                  className={btnCls}
+                >
+                  Sign in
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleReset} className="space-y-4 mt-2">
+                <p className="text-sm text-gray-500 leading-relaxed">
+                  Choose a new password for your account.
+                </p>
+
+                <Field label="New password" icon={<Lock size={15} />}>
+                  <input
+                    type={showPwd ? "text" : "password"} required value={resetForm.password}
+                    onChange={(e) => { setResetForm((f) => ({ ...f, password: e.target.value })); setError(""); }}
+                    placeholder="Min. 6 characters"
+                    autoFocus
+                    autoComplete="new-password"
+                    className={pwdInputCls}
+                  />
+                  <EyeToggle show={showPwd} onToggle={() => setShowPwd((v) => !v)} />
+                </Field>
+
+                <Field label="Confirm new password" icon={<Lock size={15} />}>
+                  <input
+                    type={showPwd ? "text" : "password"} required value={resetForm.confirm}
+                    onChange={(e) => { setResetForm((f) => ({ ...f, confirm: e.target.value })); setError(""); }}
+                    placeholder="••••••••"
+                    autoComplete="new-password"
+                    className={inputCls}
+                  />
+                </Field>
+
+                {error && (
+                  <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                    <AlertCircle size={14} className="text-red-500 flex-shrink-0" />
+                    <p className="text-xs text-red-600">{error}</p>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={loading || !resetForm.password || !resetForm.confirm}
+                  className={btnCls}
+                >
+                  {loading
+                    ? <><Loader2 size={15} className="animate-spin" /> Updating…</>
+                    : "Set new password"}
+                </button>
+              </form>
+            )
           )}
         </div>
       </div>
 
-      {/* Signed-in state (shouldn't normally render — redirect above handles it) */}
+      {/* Already signed in (redirect fires immediately — this is a fallback) */}
       {currentUser && (
         <div className="mt-6 text-center text-sm text-gray-500">
           Signed in as <strong>{currentUser.email}</strong>.{" "}
@@ -315,7 +492,8 @@ function EyeToggle({ show, onToggle }: { show: boolean; onToggle: () => void }) 
     <button
       type="button"
       onClick={onToggle}
-      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+      tabIndex={-1}
+      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
     >
       {show ? <EyeOff size={15} /> : <Eye size={15} />}
     </button>
