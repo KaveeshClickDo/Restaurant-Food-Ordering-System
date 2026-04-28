@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHmac, randomBytes }   from "crypto";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
+import { sendEmailDirect }           from "@/lib/emailServer";
 import { RESET_TOKEN_TTL_MS }        from "@/lib/auth";
 
 function hashToken(token: string): string {
@@ -46,29 +47,32 @@ export async function POST(req: NextRequest) {
     .update({ reset_token: hashedToken, reset_token_expires: expires })
     .eq("id", data.id);
 
-  // Send email if SMTP is configured
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+  const siteUrl  = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
   const resetUrl = `${siteUrl}/login?action=reset&token=${rawToken}&email=${encodeURIComponent(email)}`;
 
   if (process.env.SMTP_HOST) {
-    try {
-      await fetch(`${siteUrl}/api/email`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: email,
-          subject: "Reset your password",
-          html: `<p>Click the link below to reset your password. This link expires in 1 hour.</p>
-                 <p><a href="${resetUrl}">${resetUrl}</a></p>
-                 <p>If you did not request this, you can safely ignore this email.</p>`,
-        }),
-      });
-    } catch (err) {
-      console.error("reset-password: email send failed:", err instanceof Error ? err.message : err);
-    }
+    const result = await sendEmailDirect(
+      email,
+      "Reset your password",
+      `<div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">
+        <h2 style="margin-bottom:8px">Password reset request</h2>
+        <p style="color:#555;margin-bottom:24px">
+          Click the button below to set a new password.
+          This link expires in <strong>1 hour</strong>.
+        </p>
+        <a href="${resetUrl}"
+           style="display:inline-block;background:#f97316;color:#fff;font-weight:700;
+                  text-decoration:none;padding:12px 28px;border-radius:10px;font-size:15px">
+          Reset my password
+        </a>
+        <p style="color:#aaa;font-size:12px;margin-top:28px">
+          If you did not request a password reset you can safely ignore this email.
+        </p>
+      </div>`,
+    );
+    if (!result.ok) console.error("[reset-password] email failed:", result.error);
   } else {
-    // Development fallback — log the reset URL to server console
-    console.log("[reset-password] Reset URL:", resetUrl);
+    console.log("[reset-password] Reset URL (no SMTP):", resetUrl);
   }
 
   return NextResponse.json({ ok: true });

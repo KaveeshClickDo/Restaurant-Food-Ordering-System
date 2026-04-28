@@ -4,6 +4,9 @@ import { useState, useMemo } from "react";
 import { useApp } from "@/context/AppContext";
 import { Customer, Order, OrderStatus } from "@/types";
 import {
+  sendEmailViaApi, buildVarMap, applyVars, buildEmailDocument,
+} from "@/lib/emailTemplates";
+import {
   Users, Search, ChevronRight, X, Phone, Mail, MapPin,
   ShoppingBag, Clock, TrendingUp, Star, ArrowUpDown,
   CheckCircle2, ChefHat, Package, Truck, Ban,
@@ -547,6 +550,7 @@ function CustomerDrawer({
   onClose: () => void;
   onStatusChange: (cid: string, oid: string, status: OrderStatus) => void;
 }) {
+  const { settings } = useApp();
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
   const [emailToast, setEmailToast] = useState<{ orderId: string; state: "sending" | "sent" | "error" } | null>(null);
@@ -554,13 +558,31 @@ function CustomerDrawer({
   const spent = totalSpent(customer);
   const sortedOrders = [...customer.orders].sort((a, b) => b.date.localeCompare(a.date));
 
-  function handleResendEmail(order: Order) {
+  async function handleResendEmail(order: Order) {
     setEmailToast({ orderId: order.id, state: "sending" });
-    // Simulate async email send (no real SMTP in demo)
-    setTimeout(() => {
-      setEmailToast({ orderId: order.id, state: "sent" });
+
+    const template = settings.emailTemplates?.find(
+      (t) => t.event === "order_confirmation" && t.enabled,
+    );
+    if (!template) {
+      setEmailToast({ orderId: order.id, state: "error" });
       setTimeout(() => setEmailToast(null), 3000);
-    }, 1200);
+      return;
+    }
+
+    const vars    = buildVarMap(order, customer, settings);
+    const subject = applyVars(template.subject, vars);
+    const body    = applyVars(template.body, vars);
+    const addr    = [settings.restaurant.addressLine1, settings.restaurant.city, settings.restaurant.postcode].filter(Boolean).join(", ");
+    const html    = buildEmailDocument(body, settings.restaurant.name, addr, settings.restaurant.phone, settings.receiptSettings);
+
+    try {
+      const result = await sendEmailViaApi({ to: customer.email, subject, html });
+      setEmailToast({ orderId: order.id, state: result.ok ? "sent" : "error" });
+    } catch {
+      setEmailToast({ orderId: order.id, state: "error" });
+    }
+    setTimeout(() => setEmailToast(null), 3000);
   }
 
   return (

@@ -9,7 +9,6 @@ import {
 import { useApp } from "@/context/AppContext";
 import { DeliveryZone, Order, PaymentMethod, SavedAddress } from "@/types";
 import { printOrder } from "@/lib/escpos";
-import { sendOrderEmail } from "@/lib/emailTemplates";
 import { computeTax, taxSurcharge } from "@/lib/taxUtils";
 
 interface Props {
@@ -333,9 +332,8 @@ export default function CheckoutModal({ onClose }: Props) {
     setScheduledTime(null);
     setSubmitting(false);
 
-    // Fire-and-forget: print receipt + send confirmation email
+    // Fire-and-forget: print receipt (confirmation email is sent server-side by /api/orders)
     printOrder(newOrder, settings);
-    sendOrderEmail("order_confirmation", newOrder, currentUser, settings);
 
     // Fire-and-forget: upsert guest profile so the admin can track this customer
     if (form.email.trim()) {

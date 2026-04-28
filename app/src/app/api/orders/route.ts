@@ -4,8 +4,9 @@
  * so the anon key never needs INSERT permission on the orders table.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin }             from "@/lib/supabaseAdmin";
+import { NextRequest, NextResponse }    from "next/server";
+import { supabaseAdmin }               from "@/lib/supabaseAdmin";
+import { sendOrderConfirmationEmail }  from "@/lib/emailServer";
 
 // New orders must always start in "pending" — the client must not be able to
 // set an arbitrary status (e.g. "delivered") at creation time.
@@ -75,6 +76,26 @@ export async function POST(req: NextRequest) {
     console.error("orders POST:", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
+
+  // Fire-and-forget — email failure must never fail the order response
+  sendOrderConfirmationEmail({
+    id:             id,
+    customer_id:    customer_id,
+    fulfillment:    fulfillment,
+    total:          total,
+    items:          items as Array<{ name: string; qty: number; price: number }>,
+    payment_method: payment_method as string | undefined,
+    address:        address as string | undefined,
+    delivery_fee:   body.delivery_fee as number | undefined,
+    service_fee:    body.service_fee as number | undefined,
+    vat_amount:     body.vat_amount as number | undefined,
+    vat_inclusive:  body.vat_inclusive as boolean | undefined,
+    coupon_code:    body.coupon_code as string | undefined,
+    coupon_discount: body.coupon_discount as number | undefined,
+    date:           row.date,
+  }).catch((err: unknown) =>
+    console.error("[orders] confirmation email:", err instanceof Error ? err.message : err)
+  );
 
   return NextResponse.json({ ok: true });
 }
