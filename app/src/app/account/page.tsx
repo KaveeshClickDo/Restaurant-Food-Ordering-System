@@ -909,9 +909,9 @@ function ChangePasswordCard() {
 
               <p className="text-center text-xs text-gray-400">
                 Forgot your password?{" "}
-                <a href="/login?action=forgot" className="text-orange-500 font-semibold hover:underline">
+                <Link href="/login?action=forgot" className="text-orange-500 font-semibold hover:underline">
                   Reset via email
-                </a>
+                </Link>
               </p>
             </form>
           )}
