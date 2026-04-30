@@ -100,6 +100,42 @@ export async function POST(req: NextRequest) {
 
   if (!valid) return unauthorizedJson();
 
+  // Fetch the customer's orders so the account page can render them immediately
+  // without a second round-trip. An error here is non-fatal — orders: [] is
+  // fine because the account page will refresh them after mount anyway.
+  const { data: ordersData } = await supabaseAdmin
+    .from("orders")
+    .select("*")
+    .eq("customer_id", data.id)
+    .order("date", { ascending: false });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mapOrder = (o: any) => ({
+    id:              o.id,
+    customerId:      o.customer_id,
+    date:            typeof o.date === "string" ? o.date : new Date(o.date).toISOString(),
+    status:          o.status,
+    fulfillment:     o.fulfillment,
+    total:           Number(o.total),
+    items:           o.items ?? [],
+    address:         o.address         || undefined,
+    note:            o.note            || undefined,
+    paymentMethod:   o.payment_method  || undefined,
+    deliveryFee:     o.delivery_fee    ? Number(o.delivery_fee)    : undefined,
+    serviceFee:      o.service_fee     ? Number(o.service_fee)     : undefined,
+    scheduledTime:   o.scheduled_time  || undefined,
+    couponCode:      o.coupon_code     || undefined,
+    couponDiscount:  o.coupon_discount ? Number(o.coupon_discount) : undefined,
+    vatAmount:       o.vat_amount      ? Number(o.vat_amount)      : undefined,
+    vatInclusive:    o.vat_inclusive   ?? undefined,
+    driverId:        o.driver_id       || undefined,
+    driverName:      o.driver_name     || undefined,
+    deliveryStatus:  o.delivery_status || undefined,
+    refunds:         o.refunds         ?? [],
+    refundedAmount:  o.refunded_amount  ? Number(o.refunded_amount)  : undefined,
+    storeCreditUsed: o.store_credit_used ? Number(o.store_credit_used) : undefined,
+  });
+
   const token = createSessionToken({ id: data.id, role: "customer" });
   const res = NextResponse.json({
     ok: true,
@@ -115,7 +151,7 @@ export async function POST(req: NextRequest) {
       createdAt:      typeof data.created_at === "string"
                         ? data.created_at
                         : new Date(data.created_at).toISOString(),
-      orders:         [],
+      orders:         (ordersData ?? []).map(mapOrder),
     },
   });
   setSessionCookie(res, COOKIE_CUSTOMER, token);

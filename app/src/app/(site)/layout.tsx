@@ -13,7 +13,7 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
         {/* Mobile top bar — hidden on desktop */}
         <SiteMobileHeader />
 
-        <main className="flex-1 flex flex-col min-h-0">
+        <main className="flex-1 flex flex-col">
           {children}
         </main>
 

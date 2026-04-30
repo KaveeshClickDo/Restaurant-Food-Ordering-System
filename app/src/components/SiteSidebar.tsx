@@ -13,9 +13,8 @@ export default function SiteSidebar() {
   const reservationsEnabled = settings.reservationSystem?.enabled ?? false;
 
   const coreNavItems = [
-    { label: "Menu",      Icon: UtensilsCrossed, href: "/"        },
-    { label: "My Orders", Icon: Receipt,          href: "/account" },
-    { label: "Profile",   Icon: User,             href: "/account" },
+    { label: "Menu",         Icon: UtensilsCrossed, href: "/"        },
+    { label: "My Orders",    Icon: Receipt,          href: "/account" },
     ...(reservationsEnabled ? [{ label: "Book a table", Icon: CalendarDays, href: "/book" }] : []),
   ];
 

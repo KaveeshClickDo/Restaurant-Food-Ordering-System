@@ -414,14 +414,30 @@ export default function DriverDashboardPage() {
   } = useApp();
   const router = useRouter();
   const [showDelivered, setShowDelivered] = useState(false);
-  const [acceptedId,   setAcceptedId]    = useState<string | null>(null); // flash feedback
+  const [acceptedId,    setAcceptedId]    = useState<string | null>(null);
+  // How long (ms) to wait for AppContext to populate currentDriver before
+  // concluding the session is gone and redirecting to login.
+  // AppContext fetches from /api/auth/driver/me when localStorage is empty,
+  // so we give it enough time to resolve even on a slow connection.
+  const [authTimedOut, setAuthTimedOut] = useState(false);
 
-  // Redirect to login if not authenticated
   useEffect(() => {
-    if (currentDriver === null) router.replace("/driver/login");
-  }, [currentDriver, router]);
+    if (currentDriver) return; // already loaded — no timeout needed
+    const t = setTimeout(() => setAuthTimedOut(true), 4000);
+    return () => clearTimeout(t);
+  }, [currentDriver]);
 
-  if (!currentDriver) return null;
+  useEffect(() => {
+    if (authTimedOut && !currentDriver) router.replace("/driver/login");
+  }, [authTimedOut, currentDriver, router]);
+
+  if (!currentDriver) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
   const driver = currentDriver; // narrowed — safe inside closures below
 
   // ── Orders assigned to this driver ─────────────────────────────────────────

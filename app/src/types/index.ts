@@ -413,6 +413,10 @@ export interface OrderLine {
   name: string;
   qty: number;
   price: number;
+  menuItemId?: string;
+  selectedVariation?: { variationId: string; optionId: string; label: string };
+  selectedAddOns?: { id: string; name: string; price: number }[];
+  specialInstructions?: string;
 }
 
 export interface Order {

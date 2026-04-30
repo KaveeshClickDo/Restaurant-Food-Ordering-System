@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { MenuItem } from "@/types";
+import { MenuItem, Order } from "@/types";
 import { useApp } from "@/context/AppContext";
 import {
   Search, MapPin, Bell, ShoppingBag, UtensilsCrossed,
@@ -9,6 +9,7 @@ import {
   ChevronRight, X, Star, CalendarDays, PackageX,
   LogOut, LayoutDashboard, CheckCircle2, AlertCircle,
   Mail, Phone, CreditCard, Heart, Home,
+  MapPin as Pin, Navigation, CheckCheck, ChefHat, RotateCcw,
 } from "lucide-react";
 import Link from "next/link";
 import AuthModal from "@/components/AuthModal";
@@ -89,6 +90,113 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
         <span className="font-semibold text-[17px] text-zinc-900 tracking-tight tabular-nums">
           £{item.price.toFixed(2)}
         </span>
+      </div>
+    </div>
+  );
+}
+
+// ── Track Order Modal ───────────────────────────────────────────────────────
+function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void }) {
+  const STEPS: { key: string; label: string; icon: React.ReactNode }[] = [
+    { key: "pending",   label: "Order received",  icon: <Receipt className="w-4 h-4" strokeWidth={1.8} /> },
+    { key: "preparing", label: "In the kitchen",  icon: <ChefHat className="w-4 h-4" strokeWidth={1.8} /> },
+    { key: "ready",     label: "On the way",      icon: <Bike className="w-4 h-4" strokeWidth={1.8} /> },
+    { key: "delivered", label: "Delivered",       icon: <CheckCheck className="w-4 h-4" strokeWidth={2} /> },
+  ];
+
+  const statusIndex: Record<string, number> = {
+    pending: 0, confirmed: 0, preparing: 1, ready: 2, delivered: 3,
+  };
+  const currentStep = statusIndex[order.status] ?? 0;
+
+  const itemSummary = order.items.map((i) => `${i.qty}× ${i.name}`).join(", ");
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full sm:max-w-md bg-white sm:rounded-3xl rounded-t-3xl overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-100">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400">Tracking order</p>
+            <p className="text-[15px] font-bold text-zinc-900 mt-0.5">#{order.id.slice(-6).toUpperCase()}</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-500 hover:bg-zinc-200 transition-colors">
+            <X className="w-4 h-4" strokeWidth={2} />
+          </button>
+        </div>
+
+        {/* Route visualization */}
+        <div className="px-5 py-6 bg-stone-50">
+          <div className="relative flex items-center justify-between">
+            {/* Line */}
+            <div className="absolute left-6 right-6 top-5 h-0.5 bg-zinc-200 z-0" />
+            <div
+              className="absolute left-6 top-5 h-0.5 bg-orange-500 z-0 transition-all duration-700"
+              style={{ width: `${(currentStep / 3) * 100}%`, maxWidth: "calc(100% - 3rem)" }}
+            />
+            {/* Steps */}
+            {STEPS.map((step, i) => (
+              <div key={step.key} className="relative z-10 flex flex-col items-center gap-1.5" style={{ width: "25%" }}>
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-500 ${
+                  i <= currentStep
+                    ? "bg-orange-500 text-white shadow-lg shadow-orange-500/30"
+                    : "bg-white border-2 border-zinc-200 text-zinc-400"
+                }`}>
+                  {step.icon}
+                </div>
+                <p className={`text-[10px] font-medium text-center leading-tight transition-colors ${
+                  i <= currentStep ? "text-orange-600" : "text-zinc-400"
+                }`}>
+                  {step.label}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Driver info */}
+        {order.driverName && (
+          <div className="mx-5 mt-4 flex items-center gap-3 bg-zinc-50 rounded-2xl p-3.5">
+            <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold text-[16px] flex-shrink-0">
+              {order.driverName.charAt(0).toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] text-zinc-400 leading-none mb-0.5">Your driver</p>
+              <p className="text-[14px] font-semibold text-zinc-800">{order.driverName}</p>
+            </div>
+            <Navigation className="w-5 h-5 text-orange-500" strokeWidth={1.8} />
+          </div>
+        )}
+
+        {/* Order details */}
+        <div className="px-5 py-4 space-y-3">
+          <div className="bg-zinc-50 rounded-2xl p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400 mb-2">Order summary</p>
+            <p className="text-[13px] text-zinc-700 leading-relaxed">{itemSummary}</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5">
+            <div className="bg-zinc-50 rounded-2xl p-3.5">
+              <p className="text-[10px] text-zinc-400 mb-1">Total</p>
+              <p className="text-[15px] font-bold text-zinc-900 tabular-nums">£{order.total.toFixed(2)}</p>
+            </div>
+            <div className="bg-zinc-50 rounded-2xl p-3.5">
+              <p className="text-[10px] text-zinc-400 mb-1">Type</p>
+              <p className="text-[14px] font-semibold text-zinc-800 capitalize">{order.fulfillment}</p>
+            </div>
+          </div>
+
+          {order.address && (
+            <div className="flex items-start gap-2.5 bg-zinc-50 rounded-2xl p-3.5">
+              <Pin className="w-4 h-4 text-zinc-400 flex-shrink-0 mt-0.5" strokeWidth={1.8} />
+              <p className="text-[13px] text-zinc-700 leading-snug">{order.address}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="pb-6" />
       </div>
     </div>
   );
@@ -536,7 +644,7 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
 export default function HomePage() {
   const {
     categories, menuItems, settings, cartCount, cartTotal,
-    isOpen, currentUser, logout,
+    isOpen, currentUser, logout, addToCart,
   } = useApp();
 
   const [activeCat,        setActiveCat]        = useState("all");
@@ -547,6 +655,31 @@ export default function HomePage() {
   const [authModal,        setAuthModal]        = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
   const [userMenuOpen,     setUserMenuOpen]     = useState(false);
   const [showReservation,  setShowReservation]  = useState(false);
+  const [fetchedOrders,    setFetchedOrders]    = useState<Order[] | null>(null);
+  const [isFetchingOrders, setIsFetchingOrders] = useState(false);
+  const [trackingOrder,    setTrackingOrder]    = useState<Order | null>(null);
+
+  // Directly fetch orders from the server whenever the user enters the orders
+  // screen. Bypasses the AppContext update chain to avoid timing races where
+  // refreshCurrentUser() resolves after the render already ran.
+  useEffect(() => {
+    if (screen !== "orders" || !currentUser) return;
+    let cancelled = false;
+    setIsFetchingOrders(true);
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (cancelled) return;
+        setFetchedOrders(
+          json?.ok && Array.isArray(json?.customer?.orders)
+            ? (json.customer.orders as Order[])
+            : null
+        );
+      })
+      .catch(() => { if (!cancelled) setFetchedOrders(null); })
+      .finally(() => { if (!cancelled) setIsFetchingOrders(false); });
+    return () => { cancelled = true; };
+  }, [screen, currentUser?.id]);
 
   // Filtered items
   const items = menuItems.filter((item) => {
@@ -724,76 +857,144 @@ export default function HomePage() {
             </>
           )}
 
-          {screen === "orders" && (
-            <div className="px-4 sm:px-6 py-6">
-              <h2 className="font-semibold text-[22px] text-zinc-900 tracking-tight mb-1">My Orders</h2>
-              <p className="text-[13px] text-zinc-500 mb-5">Your recent orders from us.</p>
-              {!currentUser ? (
-                <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
-                  <div className="w-14 h-14 rounded-2xl bg-zinc-100 flex items-center justify-center">
-                    <Receipt className="w-7 h-7 text-zinc-400" strokeWidth={1.4} />
-                  </div>
-                  <p className="text-[13.5px] text-zinc-500">Sign in to see your order history</p>
-                  <button onClick={() => setAuthModal({ open: true, tab: "login" })}
-                    className="px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-[13.5px] font-semibold transition-colors">
-                    Sign in
-                  </button>
+          {screen === "orders" && (() => {
+            const displayOrders = fetchedOrders ?? currentUser?.orders ?? [];
+            const showSkeleton = currentUser != null && (fetchedOrders === null || (isFetchingOrders && displayOrders.length === 0));
+            const ACTIVE_STATUSES = new Set(["pending", "confirmed", "preparing", "ready"]);
+            const allOrders = [...displayOrders].reverse();
+            const activeOrder = allOrders.find((o) => ACTIVE_STATUSES.has(o.status));
+            const pastOrders = allOrders.filter((o) => !ACTIVE_STATUSES.has(o.status));
+
+            const activeLabel: Record<string, string> = {
+              pending: "Order received", confirmed: "Confirmed", preparing: "In the kitchen", ready: "Ready to collect / pick up",
+            };
+
+            return (
+              <div className="min-h-full pb-10" style={{ backgroundColor: "#f5f5f3" }}>
+                {/* Heading */}
+                <div className="px-5 pt-7 pb-2">
+                  <h1 className="text-[28px] font-extrabold text-zinc-900 tracking-tight leading-tight">My Orders</h1>
+                  <p className="text-[13.5px] text-zinc-500 mt-1">Recent activity from your kitchen.</p>
                 </div>
-              ) : currentUser.orders.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
-                  <div className="w-14 h-14 rounded-2xl bg-zinc-100 flex items-center justify-center">
-                    <PackageX className="w-7 h-7 text-zinc-400" strokeWidth={1.4} />
+
+                {!currentUser ? (
+                  <div className="mx-5 mt-6 bg-white rounded-3xl p-8 flex flex-col items-center gap-4 text-center shadow-sm">
+                    <div className="w-14 h-14 rounded-2xl bg-zinc-100 flex items-center justify-center">
+                      <Receipt className="w-7 h-7 text-zinc-400" strokeWidth={1.4} />
+                    </div>
+                    <p className="text-[13.5px] text-zinc-500">Sign in to see your order history</p>
+                    <button onClick={() => setAuthModal({ open: true, tab: "login" })}
+                      className="px-6 py-2.5 rounded-full bg-zinc-900 hover:bg-zinc-700 text-white text-[13.5px] font-semibold transition-colors">
+                      Sign in
+                    </button>
                   </div>
-                  <p className="text-[13.5px] text-zinc-500">No orders yet — your order history will appear here.</p>
-                </div>
-              ) : (
-                <div className="space-y-3 max-w-lg">
-                  {[...currentUser.orders].reverse().map((order) => {
-                    const statusColors: Record<string, string> = {
-                      pending:            "bg-yellow-100 text-yellow-700",
-                      confirmed:          "bg-blue-100 text-blue-700",
-                      preparing:          "bg-orange-100 text-orange-700",
-                      ready:              "bg-green-100 text-green-700",
-                      delivered:          "bg-zinc-100 text-zinc-500",
-                      cancelled:          "bg-red-100 text-red-600",
-                      refunded:           "bg-purple-100 text-purple-600",
-                      partially_refunded: "bg-purple-100 text-purple-600",
-                    };
-                    const statusLabel: Record<string, string> = {
-                      pending: "Pending", confirmed: "Confirmed", preparing: "Preparing",
-                      ready: "Ready", delivered: "Delivered", cancelled: "Cancelled",
-                      refunded: "Refunded", partially_refunded: "Part refunded",
-                    };
-                    const fulfillmentIcon = order.fulfillment === "delivery"
-                      ? <Bike className="w-3.5 h-3.5 flex-shrink-0" strokeWidth={1.8} />
-                      : order.fulfillment === "dine-in"
-                        ? <UtensilsCrossed className="w-3.5 h-3.5 flex-shrink-0" strokeWidth={1.8} />
-                        : <ShoppingBag className="w-3.5 h-3.5 flex-shrink-0" strokeWidth={1.8} />;
-                    const dateStr = new Date(order.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-                    const itemSummary = order.items.slice(0, 2).map(i => i.name).join(", ") + (order.items.length > 2 ? ` +${order.items.length - 2} more` : "");
-                    return (
-                      <div key={order.id} className="bg-white border border-zinc-200/80 rounded-2xl p-4 shadow-sm">
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full capitalize ${statusColors[order.status] ?? "bg-zinc-100 text-zinc-600"}`}>
-                              {statusLabel[order.status] ?? order.status}
-                            </span>
-                            <span className="flex items-center gap-1 text-[11.5px] text-zinc-400 capitalize">
-                              {fulfillmentIcon}
-                              {order.fulfillment}
-                            </span>
-                          </div>
-                          <span className="text-[13px] font-bold text-zinc-900 tabular-nums flex-shrink-0">£{order.total.toFixed(2)}</span>
-                        </div>
-                        <p className="text-[12.5px] text-zinc-600 leading-snug mb-1 line-clamp-1">{itemSummary}</p>
-                        <p className="text-[11.5px] text-zinc-400">{dateStr}</p>
+                ) : showSkeleton ? (
+                  <div className="px-5 mt-4 space-y-3 max-w-lg">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="bg-white rounded-3xl p-5 shadow-sm animate-pulse">
+                        <div className="h-4 w-24 bg-zinc-100 rounded-full mb-3" />
+                        <div className="h-3 w-48 bg-zinc-100 rounded-full mb-2" />
+                        <div className="h-3 w-20 bg-zinc-100 rounded-full" />
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
+                    ))}
+                  </div>
+                ) : displayOrders.length === 0 ? (
+                  <div className="mx-5 mt-6 bg-white rounded-3xl p-8 flex flex-col items-center gap-3 text-center shadow-sm">
+                    <div className="w-14 h-14 rounded-2xl bg-zinc-100 flex items-center justify-center">
+                      <PackageX className="w-7 h-7 text-zinc-400" strokeWidth={1.4} />
+                    </div>
+                    <p className="text-[13.5px] text-zinc-500">No orders yet — your order history will appear here.</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Active order card */}
+                    {activeOrder && (
+                      <div className="mx-5 mt-4">
+                        <div className="bg-zinc-900 rounded-3xl p-5 shadow-lg">
+                          {/* Badge */}
+                          <div className="flex items-center gap-1.5 mb-4">
+                            <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                            <span className="text-[11px] font-bold uppercase tracking-widest text-green-400">In Progress</span>
+                          </div>
+                          {/* Order number */}
+                          <p className="text-[13px] text-zinc-400 mb-0.5">Order #{activeOrder.id.slice(-6).toUpperCase()}</p>
+                          {/* Status line */}
+                          <p className="text-[18px] font-bold text-white leading-snug mb-3">
+                            {activeLabel[activeOrder.status] ?? activeOrder.status}
+                          </p>
+                          {/* Items */}
+                          <p className="text-[12.5px] text-zinc-400 leading-relaxed mb-5 line-clamp-2">
+                            {activeOrder.items.map((i) => `${i.qty}× ${i.name}`).join(", ")}
+                          </p>
+                          {/* Total + Track button */}
+                          <div className="flex items-center justify-between">
+                            <span className="text-[16px] font-bold text-white tabular-nums">£{activeOrder.total.toFixed(2)}</span>
+                            <button
+                              onClick={() => setTrackingOrder(activeOrder)}
+                              className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-white text-zinc-900 text-[13px] font-bold hover:bg-zinc-100 transition-colors active:scale-[0.98]"
+                            >
+                              <Navigation className="w-3.5 h-3.5" strokeWidth={2} />
+                              Track order
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Past orders */}
+                    {pastOrders.length > 0 && (
+                      <div className="px-5 mt-6">
+                        <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400 mb-3">Past orders</p>
+                        <div className="space-y-3 max-w-lg">
+                          {pastOrders.map((order) => {
+                            const dateStr = new Date(order.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+                            const itemSummary = order.items.slice(0, 2).map((i) => `${i.qty}× ${i.name}`).join(", ")
+                              + (order.items.length > 2 ? ` +${order.items.length - 2} more` : "");
+                            const isCancelled = order.status === "cancelled" || order.status === "refunded" || order.status === "partially_refunded";
+                            return (
+                              <div key={order.id} className="bg-white rounded-3xl p-5 shadow-sm">
+                                <div className="flex items-start justify-between gap-2 mb-2">
+                                  <p className="text-[12px] text-zinc-400">{dateStr}</p>
+                                  <span className={`text-[10.5px] font-bold uppercase tracking-wider ${isCancelled ? "text-red-400" : "text-zinc-400"}`}>
+                                    {isCancelled ? order.status.replace("_", " ") : "Delivered"}
+                                  </span>
+                                </div>
+                                <p className="text-[14px] font-semibold text-zinc-900 leading-snug mb-3 line-clamp-2">{itemSummary}</p>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[15px] font-bold text-zinc-900 tabular-nums">£{order.total.toFixed(2)}</span>
+                                  <button
+                                    onClick={() => {
+                                      order.items.forEach((line) => {
+                                        addToCart({
+                                          id: crypto.randomUUID(),
+                                          menuItemId: line.menuItemId ?? line.name,
+                                          name: line.name,
+                                          price: line.price,
+                                          quantity: line.qty,
+                                          selectedVariation: line.selectedVariation,
+                                          selectedAddOns: line.selectedAddOns,
+                                          specialInstructions: line.specialInstructions,
+                                        });
+                                      });
+                                      setScreen("menu");
+                                    }}
+                                    className="flex items-center gap-1 text-[13px] font-semibold text-orange-500 hover:text-orange-600 transition-colors"
+                                  >
+                                    <RotateCcw className="w-3.5 h-3.5" strokeWidth={2} />
+                                    Reorder
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })()}
 
           {screen === "profile" && (
             <div className="px-4 sm:px-6 py-6 overflow-y-auto">
@@ -992,6 +1193,11 @@ export default function HomePage() {
       {/* ── Reservation modal ─────────────────────────────────────────────── */}
       {showReservation && (
         <ReservationModal onClose={() => setShowReservation(false)} />
+      )}
+
+      {/* ── Track order modal ─────────────────────────────────────────────── */}
+      {trackingOrder && (
+        <TrackOrderModal order={trackingOrder} onClose={() => setTrackingOrder(null)} />
       )}
     </div>
   );

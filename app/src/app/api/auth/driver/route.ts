@@ -1,7 +1,6 @@
 /**
- * POST /api/auth/driver — validates driver credentials.
- * Sets an httpOnly session cookie on success.
- * Never returns password_hash.
+ * GET  /api/auth/driver — verifies the driver_session cookie (used by AppContext on init).
+ * POST /api/auth/driver — validates driver credentials and sets session cookie.
  */
 
 import { NextResponse }  from "next/server";
@@ -11,7 +10,14 @@ import {
   createSessionToken,
   setSessionCookie,
   COOKIE_DRIVER,
+  getDriverSession,
 } from "@/lib/auth";
+
+export async function GET() {
+  const session = await getDriverSession();
+  if (!session) return NextResponse.json({ ok: false }, { status: 401 });
+  return NextResponse.json({ ok: true });
+}
 
 export async function POST(request: Request) {
   let body: { email?: string; password?: string };

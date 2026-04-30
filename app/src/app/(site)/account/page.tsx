@@ -11,7 +11,7 @@ import {
   Lock, Eye, EyeOff, ShieldCheck,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { Order, OrderLine, OrderStatus, DeliveryStatus, MenuItem, SavedAddress } from "@/types";
+import { Order, OrderLine, OrderStatus, DeliveryStatus, MenuItem, SavedAddress, AddOn, CartItem } from "@/types";
 import AuthModal from "@/components/AuthModal";
 import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import { resolveStock } from "@/lib/stockUtils";
@@ -186,7 +186,7 @@ function itemSummary(items: OrderLine[], max = 3) {
 
 // ─── Reorder toast ────────────────────────────────────────────────────────────
 
-interface ReorderResult { added: number; skipped: string[] }
+interface ReorderResult { added: number; skipped: string[]; priceChanged: string[] }
 
 function ReorderToast({ result, onClose }: { result: ReorderResult; onClose: () => void }) {
   return (
@@ -195,19 +195,28 @@ function ReorderToast({ result, onClose }: { result: ReorderResult; onClose: () 
         <ShoppingCart size={18} className="text-zinc-500 flex-shrink-0 mt-0.5" />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold">
-            {result.added} item{result.added !== 1 ? "s" : ""} added to cart
+            {result.added > 0
+              ? `${result.added} item${result.added !== 1 ? "s" : ""} added to cart`
+              : "No items could be added"}
           </p>
+          {result.priceChanged.length > 0 && (
+            <p className="text-xs text-amber-400 mt-0.5 truncate">
+              Price updated: {result.priceChanged.join(", ")}
+            </p>
+          )}
           {result.skipped.length > 0 && (
             <p className="text-xs text-zinc-400 mt-0.5 truncate">
               Unavailable: {result.skipped.join(", ")}
             </p>
           )}
-          <Link
-            href="/"
-            className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-zinc-500 hover:text-zinc-300 transition"
-          >
-            <ShoppingCart size={11} /> Go to cart
-          </Link>
+          {result.added > 0 && (
+            <Link
+              href="/"
+              className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-orange-400 hover:text-orange-300 transition"
+            >
+              <ShoppingCart size={11} /> Go to cart
+            </Link>
+          )}
         </div>
         <button onClick={onClose} className="text-zinc-500 hover:text-white transition flex-shrink-0">
           <X size={15} />
@@ -1039,12 +1048,25 @@ function ProfileTab() {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AccountPage() {
-  const { currentUser, customers, addToCart, menuItems } = useApp();
+  const { currentUser, customers, addToCart, menuItems, refreshCurrentUser } = useApp();
   const router = useRouter();
   const [tab, setTab] = useState<"orders" | "favourites" | "addresses" | "profile">("orders");
   const [showAuth, setShowAuth] = useState(false);
   const [reorderToast, setReorderToast] = useState<ReorderResult | null>(null);
   const [updateBanner, setUpdateBanner] = useState<string | null>(null);
+  // True while the server fetch is in-flight so we show a skeleton instead of
+  // the "No orders yet" empty state before data has arrived.
+  const [isLoadingOrders, setIsLoadingOrders] = useState(true);
+
+  // Sync fresh orders from the server whenever the logged-in user changes.
+  // Using currentUser?.id as the dep (not []) so this also fires when currentUser
+  // goes from null → set (cold page load where auth session resolves after mount).
+  useEffect(() => {
+    if (!currentUser) { setIsLoadingOrders(false); return; }
+    setIsLoadingOrders(true);
+    refreshCurrentUser().finally(() => setIsLoadingOrders(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id]); // re-runs on login/logout, not on every render
 
   // ── Cross-tab status-change indicator ─────────────────────────────────────
   // Watches both `order.status` (kitchen lifecycle) and `order.deliveryStatus`
@@ -1055,14 +1077,12 @@ export default function AccountPage() {
 
   useEffect(() => {
     if (!currentUser) return;
-    const liveCustomer = customers.find((c) => c.id === currentUser.id);
-    if (!liveCustomer) return;
 
     const prevS = prevStatusMapRef.current;
     const prevD = prevDeliveryMapRef.current;
     let banner: string | null = null;
 
-    liveCustomer.orders.forEach((o) => {
+    currentUser.orders.forEach((o) => {
       // Kitchen status change
       if (prevS[o.id] !== undefined && prevS[o.id] !== o.status) {
         const label = STATUS_CONFIG[o.status]?.label ?? o.status;
@@ -1088,12 +1108,12 @@ export default function AccountPage() {
       const t = setTimeout(() => setUpdateBanner(null), 6000);
       return () => clearTimeout(t);
     }
-  }, [customers, currentUser]);
+  }, [currentUser]);
 
   // ── Not logged in ──────────────────────────────────────────────────────────
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-zinc-50 flex flex-col items-center justify-center p-6">
+      <div className="flex-1 flex flex-col items-center justify-center p-6">
         <div className="bg-white rounded-2xl shadow-sm border border-zinc-100 p-10 max-w-sm w-full text-center">
           <div className="w-16 h-16 bg-zinc-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <User size={28} className="text-zinc-700" />
@@ -1115,12 +1135,13 @@ export default function AccountPage() {
     );
   }
 
-  // ── Always read the live customer record from the customers array ───────────
-  // currentUser is set as a snapshot at login — reading from customers ensures
-  // orders placed after login (and status updates from the admin panel) are visible.
+  // Profile-level fields (storeCredit, tags, savedAddresses) come from the
+  // customers state which the Realtime subscription keeps fresh.
+  // Orders always come from currentUser which is updated by both optimistic
+  // writes and the Realtime handler — never stale from the anon-key init fetch.
   const liveUser = customers.find((c) => c.id === currentUser.id) ?? currentUser;
 
-  const orders = [...liveUser.orders].sort(
+  const orders = [...currentUser.orders].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
   const activeOrders  = orders.filter((o) => !["delivered", "cancelled"].includes(o.status));
@@ -1134,30 +1155,78 @@ export default function AccountPage() {
   function handleReorder(order: Order) {
     const added: string[] = [];
     const skipped: string[] = [];
+    const priceChanged: string[] = [];
 
     order.items.forEach((line) => {
-      const menuItem = menuItems.find(
-        (m) => m.name.toLowerCase() === line.name.toLowerCase()
-      );
-      if (menuItem) {
-        addToCart({
-          id: crypto.randomUUID(),
-          menuItemId: menuItem.id,
-          name: menuItem.name,
-          price: menuItem.price,
-          quantity: line.qty,
-        });
-        added.push(line.name);
-      } else {
+      // Match by menuItemId first (preferred), fall back to name
+      const menuItem = line.menuItemId
+        ? menuItems.find((m) => m.id === line.menuItemId)
+        : menuItems.find((m) => m.name.toLowerCase() === line.name.toLowerCase());
+
+      if (!menuItem) {
         skipped.push(line.name);
+        return;
       }
+
+      if (resolveStock(menuItem) === "out_of_stock") {
+        skipped.push(line.name);
+        return;
+      }
+
+      // Resolve variation — verify it still exists in the current menu item
+      let selectedVariation: CartItem["selectedVariation"];
+      let variationPrice = 0;
+      if (line.selectedVariation) {
+        const variation = menuItem.variations?.find(
+          (v) => v.id === line.selectedVariation!.variationId
+        );
+        const option = variation?.options.find(
+          (o) => o.id === line.selectedVariation!.optionId
+        );
+        if (variation && option) {
+          selectedVariation = { variationId: variation.id, optionId: option.id, label: option.label };
+          variationPrice = option.price;
+        }
+      }
+
+      // Resolve add-ons — keep only those still present in the menu item
+      let selectedAddOns: CartItem["selectedAddOns"];
+      let addOnsTotal = 0;
+      if (line.selectedAddOns?.length) {
+        const currentAddOns = menuItem.addOns ?? [];
+        const resolved = line.selectedAddOns
+          .map((saved) => currentAddOns.find((a) => a.id === saved.id))
+          .filter((a): a is AddOn => a != null);
+        if (resolved.length > 0) {
+          selectedAddOns = resolved;
+          addOnsTotal = resolved.reduce((s, a) => s + a.price, 0);
+        }
+      }
+
+      const currentPrice = menuItem.price + variationPrice + addOnsTotal;
+      if (Math.abs(currentPrice - line.price) > 0.005) {
+        priceChanged.push(line.name);
+      }
+
+      addToCart({
+        id: crypto.randomUUID(),
+        menuItemId: menuItem.id,
+        name: menuItem.name,
+        price: currentPrice,
+        quantity: line.qty,
+        selectedVariation,
+        selectedAddOns,
+        specialInstructions: line.specialInstructions,
+      });
+      added.push(line.name);
     });
 
-    setReorderToast({ added: added.length, skipped });
-    setTimeout(() => setReorderToast(null), 5000);
+    setReorderToast({ added: added.length, skipped, priceChanged });
+    setTimeout(() => setReorderToast(null), 6000);
 
-    // Navigate to menu so customer can review cart and checkout
-    router.push("/");
+    if (added.length > 0) {
+      router.push("/");
+    }
   }
 
   return (
@@ -1293,7 +1362,21 @@ export default function AccountPage() {
         {/* Tab content */}
         {tab === "orders" && (
           <div className="space-y-4">
-            {orders.length === 0 ? (
+            {isLoadingOrders && orders.length === 0 ? (
+              /* Skeleton shown while the first server fetch is in-flight */
+              <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 animate-pulse">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="h-4 w-24 bg-zinc-100 rounded-full" />
+                      <div className="h-5 w-20 bg-zinc-100 rounded-full" />
+                    </div>
+                    <div className="h-3 w-40 bg-zinc-100 rounded-full mb-2" />
+                    <div className="h-3 w-28 bg-zinc-100 rounded-full" />
+                  </div>
+                ))}
+              </div>
+            ) : orders.length === 0 ? (
               <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm py-16 text-center">
                 <ShoppingBag size={40} className="mx-auto text-zinc-200 mb-3" />
                 <p className="font-semibold text-zinc-400">No orders yet</p>

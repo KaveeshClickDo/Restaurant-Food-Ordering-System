@@ -41,16 +41,24 @@ async function verifyDriverToken(token: string): Promise<boolean> {
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
+  const token = req.cookies.get("driver_session")?.value;
+  const validSession = token ? await verifyDriverToken(token) : false;
+
   if (pathname.startsWith("/driver") && !pathname.startsWith("/driver/login")) {
-    const token = req.cookies.get("driver_session")?.value;
-    if (!token || !(await verifyDriverToken(token))) {
+    // Dashboard and sub-routes require a valid session.
+    if (!validSession) {
       return NextResponse.redirect(new URL("/driver/login", req.url));
     }
+  }
+
+  if (pathname === "/driver/login" && validSession) {
+    // Already authenticated — skip the login page entirely.
+    return NextResponse.redirect(new URL("/driver", req.url));
   }
 
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/driver/:path*"],
+  matcher: ["/driver", "/driver/:path*"],
 };

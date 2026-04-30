@@ -2,6 +2,7 @@
 
 import React, {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useReducer,
@@ -132,6 +133,8 @@ interface AppContextValue {
   addBreakfastItem: (item: MenuItem) => void;
   updateBreakfastItem: (item: MenuItem) => void;
   deleteBreakfastItem: (id: string) => void;
+  /** Re-fetches the logged-in customer from the server and syncs state. */
+  refreshCurrentUser: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -416,13 +419,59 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const c = localStorage.getItem("sg_cart");
       if (c) (JSON.parse(c) as CartItem[]).forEach((item) => dispatch({ type: "ADD", item }));
       const d = localStorage.getItem("sg_driver_session");
-      if (d) setCurrentDriver(JSON.parse(d));
+      if (d) {
+        setCurrentDriver(JSON.parse(d));
+        // Verify the cookie is still valid; clear stale localStorage if not.
+        fetch("/api/auth/driver", { method: "GET" })
+          .then((r) => {
+            if (!r.ok) {
+              setCurrentDriver(null);
+              localStorage.removeItem("sg_driver_session");
+            }
+          })
+          .catch(() => {});
+      } else {
+        // No localStorage — try fetching the driver profile from the session cookie.
+        // This restores currentDriver when localStorage has been cleared but the
+        // cookie is still valid (e.g. after clearing site data or on a new tab).
+        fetch("/api/auth/driver/me")
+          .then((r) => (r.ok ? r.json() : null))
+          .then((json: { ok: boolean; driver?: import("@/types").Driver } | null) => {
+            if (json?.ok && json.driver) {
+              setCurrentDriver(json.driver);
+              localStorage.setItem("sg_driver_session", JSON.stringify(json.driver));
+            }
+          })
+          .catch(() => {});
+      }
+      // Restore last-known customer instantly so the account page renders on first
+      // click without waiting for the network. The fetch below verifies the session
+      // and merges fresh data (stale-while-revalidate pattern).
+      const u = localStorage.getItem("sg_current_user");
+      if (u) setCurrentUser(JSON.parse(u) as Customer);
     } catch { /* ignore */ }
-    // Load customer session from httpOnly cookie via server endpoint
-    fetch("/api/auth/me")
+    // Verify session via httpOnly cookie and sync fresh data from the server.
+    fetch("/api/auth/me", { cache: "no-store" })
       .then((r) => r.ok ? r.json() : null)
       .then((json: { ok: boolean; customer?: Customer } | null) => {
-        if (json?.ok && json.customer) setCurrentUser({ ...json.customer, orders: json.customer.orders ?? [] });
+        if (!json?.ok || !json.customer) {
+          // Session invalid or expired — clear any stale cached user.
+          setCurrentUser(null);
+          return;
+        }
+        const serverOrders: Order[] = json.customer.orders ?? [];
+        const serverIds = new Set(serverOrders.map((o) => o.id));
+        setCurrentUser((prev) => {
+          const localOnly: Order[] = (prev && prev.id === json.customer!.id)
+            ? prev.orders.filter((o) => !serverIds.has(o.id))
+            : [];
+          return {
+            ...json.customer!,
+            orders: [...localOnly, ...serverOrders].sort(
+              (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+            ),
+          };
+        });
       })
       .catch(() => {});
   }, []);
@@ -629,9 +678,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         async ({ eventType, new: newRow, old: oldRow }: any) => {
           if (eventType === "DELETE") {
-            setCustomers((prev) => prev.map((c) => ({
-              ...c, orders: c.orders.filter((o) => o.id !== oldRow.id),
-            })));
+            const gone = (o: Order) => o.id !== oldRow.id;
+            setCustomers((prev) => prev.map((c) => ({ ...c, orders: c.orders.filter(gone) })));
+            setCurrentUser((prev) => prev ? { ...prev, orders: prev.orders.filter(gone) } : prev);
           } else {
             const order = mapOrder(newRow);
             const patchOrders = (orders: Order[]) => {
@@ -639,6 +688,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               return exists ? orders.map((o) => (o.id === order.id ? order : o))
                             : [order, ...orders];
             };
+
+            // Always update currentUser regardless of which code path we take below.
+            setCurrentUser((prev) =>
+              prev && prev.id === order.customerId
+                ? { ...prev, orders: patchOrders(prev.orders) }
+                : prev
+            );
 
             // If the order's customer is not yet in state (e.g. pos-walk-in sentinel
             // or a race condition where the customer INSERT event hasn't arrived yet),
@@ -656,18 +712,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                   }
                   return [...prev, { ...newCustomer, orders: patchOrders(newCustomer.orders) }];
                 });
-                return;
               }
+              return;
             }
 
             setCustomers((prev) => prev.map((c) =>
               c.id !== order.customerId ? c : { ...c, orders: patchOrders(c.orders) }
             ));
-            setCurrentUser((prev) =>
-              prev && prev.id === order.customerId
-                ? { ...prev, orders: patchOrders(prev.orders) }
-                : prev
-            );
           }
         })
       // Customers
@@ -897,10 +948,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const addOrder = async (customerId: string, order: Order): Promise<{ ok: boolean; error?: string }> => {
-    // Optimistic insert
-    setCustomers((prev) =>
-      prev.map((c) => (c.id === customerId ? { ...c, orders: [order, ...c.orders] } : c))
-    );
+    // Optimistic insert — also handles the race where the customer isn't in state
+    // yet (e.g. new registration before the Realtime INSERT event fires).
+    setCustomers((prev) => {
+      const exists = prev.some((c) => c.id === customerId);
+      if (exists) {
+        return prev.map((c) => (c.id === customerId ? { ...c, orders: [order, ...c.orders] } : c));
+      }
+      // Customer missing from state — add using currentUser snapshot so the
+      // account page can read the order immediately without waiting for Realtime.
+      const snap = currentUser && currentUser.id === customerId ? currentUser : null;
+      return snap ? [...prev, { ...snap, orders: [order, ...(snap.orders ?? [])] }] : prev;
+    });
     setCurrentUser((prev) =>
       prev && prev.id === customerId ? { ...prev, orders: [order, ...prev.orders] } : prev
     );
@@ -922,6 +981,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       const j = await r.json() as { ok: boolean; error?: string };
       if (!j.ok) { rollback(); return { ok: false, error: j.error }; }
+      // Order is confirmed in DB — sync server state so the orders list is immediately accurate.
+      // By this point currentUser.orders already has the optimistic entry, so the merge
+      // in refreshCurrentUser will preserve it even if the DB read races the write.
+      refreshCurrentUser().catch(() => {});
       return { ok: true };
     } catch {
       rollback();
@@ -1020,6 +1083,49 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateOrderStatus:", j.error); }
     }).catch((e) => console.error("updateOrderStatus:", e));
   };
+
+  // ─── Refresh current user from server ────────────────────────────────────
+  // Merges server orders with any optimistic orders not yet confirmed in the DB.
+  // This prevents a race where an in-flight optimistic order is overwritten by a
+  // server response that was fetched before the DB commit landed.
+
+  const refreshCurrentUser = useCallback(async () => {
+    try {
+      const r = await fetch("/api/auth/me", { cache: "no-store" });
+      if (!r.ok) return;
+      const json = await r.json() as { ok: boolean; customer?: Customer };
+      if (!json?.ok || !json.customer) return;
+      const serverOrders: Order[] = json.customer.orders ?? [];
+      const serverIds = new Set(serverOrders.map((o) => o.id));
+
+      // Functional update: merge server state with any local-only optimistic orders
+      setCurrentUser((prev) => {
+        const localOnly: Order[] = prev
+          ? prev.orders.filter((o) => !serverIds.has(o.id))
+          : [];
+        return {
+          ...json.customer!,
+          orders: [...localOnly, ...serverOrders].sort(
+            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+          ),
+        };
+      });
+
+      setCustomers((prev) => {
+        const idx = prev.findIndex((c) => c.id === json.customer!.id);
+        if (idx >= 0) {
+          return prev.map((c) => c.id !== json.customer!.id ? c : {
+            ...c,
+            orders:        serverOrders,
+            storeCredit:   json.customer!.storeCredit,
+            tags:          json.customer!.tags,
+            savedAddresses: json.customer!.savedAddresses,
+          });
+        }
+        return [...prev, { ...json.customer!, orders: serverOrders }];
+      });
+    } catch { /* network error — silently ignore */ }
+  }, []); // setCurrentUser / setCustomers are stable setState refs
 
   // ─── Auth ─────────────────────────────────────────────────────────────────
 
@@ -1375,6 +1481,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updateBreakfastSettings,
         addBreakfastCategory, updateBreakfastCategory, deleteBreakfastCategory, reorderBreakfastCategories,
         addBreakfastItem, updateBreakfastItem, deleteBreakfastItem,
+        refreshCurrentUser,
       }}
     >
       <SeoHead settings={settings} />

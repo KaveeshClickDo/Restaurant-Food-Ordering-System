@@ -1,6 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { useApp } from "@/context/AppContext";
 
 export default function DynamicPage() {
@@ -29,9 +30,9 @@ export default function DynamicPage() {
           <p className="text-sm text-zinc-400 mb-4">
             This page doesn&apos;t exist or hasn&apos;t been published yet.
           </p>
-          <a href="/" className="text-sm text-zinc-700 font-semibold hover:underline">
+          <Link href="/" className="text-sm text-zinc-700 font-semibold hover:underline">
             Return to menu
-          </a>
+          </Link>
         </div>
       )}
     </div>
