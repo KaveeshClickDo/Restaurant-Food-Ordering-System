@@ -168,6 +168,7 @@ const DEFAULT_SEO: SeoSettings = {
   metaKeywords: `food delivery, online order, ${restaurantInfo.name}`,
   ogImage: "",
   siteUrl: "",
+  faviconUrl: "",
 };
 
 const DEFAULT_PRINTER: PrinterSettings = {

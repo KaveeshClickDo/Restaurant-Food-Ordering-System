@@ -129,6 +129,7 @@ export interface SeoSettings {
   metaKeywords: string;     // comma-separated keywords
   ogImage: string;          // absolute URL for og:image (social share preview)
   siteUrl: string;          // canonical base URL, e.g. https://demo.directdine.tech
+  faviconUrl: string;       // custom favicon — data URL or absolute URL
 }
 
 export interface FooterPage {

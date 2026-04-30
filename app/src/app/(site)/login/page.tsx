@@ -124,7 +124,7 @@ function LoginContent() {
   const btnCls      = "w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition text-sm flex items-center justify-center gap-2";
 
   return (
-    <div className="min-h-screen bg-[var(--brand-bg)] flex flex-col items-center justify-center p-4">
+    <div className="flex-1 flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md mb-4">
         <Link href="/" className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-800 transition">
           <ChevronLeft size={16} /> Back to menu

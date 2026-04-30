@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   User, Mail, Phone, Calendar, ShoppingBag, TrendingUp, Clock,
-  ChevronDown, ChevronUp, LogOut, ArrowLeft, Star, Package,
+  ChevronDown, ChevronUp, Star, Package,
   Edit2, Check, X, RotateCcw, ShoppingCart, AlertCircle, RefreshCw,
   Heart, Plus, PackageX, MapPin, Home, Briefcase, Trash2, Star as StarIcon, Truck, Gift,
   Lock, Eye, EyeOff, ShieldCheck,
@@ -1039,7 +1039,7 @@ function ProfileTab() {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AccountPage() {
-  const { currentUser, customers, logout, addToCart, menuItems } = useApp();
+  const { currentUser, customers, addToCart, menuItems } = useApp();
   const router = useRouter();
   const [tab, setTab] = useState<"orders" | "favourites" | "addresses" | "profile">("orders");
   const [showAuth, setShowAuth] = useState(false);
@@ -1107,7 +1107,7 @@ export default function AccountPage() {
             Sign in or Register
           </button>
           <Link href="/" className="mt-4 flex items-center justify-center gap-1.5 text-sm text-zinc-400 hover:text-zinc-600 transition">
-            <ArrowLeft size={14} /> Back to menu
+            Back to menu
           </Link>
         </div>
         {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
@@ -1161,26 +1161,7 @@ export default function AccountPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--brand-bg)]">
-      {/* Top nav */}
-      <div className="bg-white border-b border-zinc-200/70 sticky top-0 z-30">
-        <div className="max-w-4xl mx-auto px-4 py-3.5 flex items-center gap-4">
-          <Link href="/" className="flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-900 font-medium transition">
-            <ArrowLeft size={15} /> Menu
-          </Link>
-          <span className="text-zinc-200">|</span>
-          <span className="font-semibold text-zinc-900 text-sm tracking-tight">My Account</span>
-          <div className="ml-auto">
-            <button
-              onClick={logout}
-              className="flex items-center gap-1.5 text-sm text-zinc-400 hover:text-red-500 transition"
-            >
-              <LogOut size={14} /> Sign out
-            </button>
-          </div>
-        </div>
-      </div>
-
+    <>
       <div className="max-w-4xl mx-auto px-4 py-4 sm:py-8 space-y-6">
         {/* Profile banner */}
         <div className="bg-gradient-to-br from-zinc-800 to-zinc-900 rounded-2xl p-4 sm:p-6 text-white shadow-lg">
@@ -1373,6 +1354,6 @@ export default function AccountPage() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

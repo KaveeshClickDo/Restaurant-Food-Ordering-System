@@ -120,7 +120,7 @@ function ResendButton() {
 
 export default function VerifyEmailPage() {
   return (
-    <div className="min-h-screen bg-[var(--brand-bg)] flex items-center justify-center p-4">
+    <div className="flex-1 flex items-center justify-center p-4">
       <Suspense
         fallback={
           <div className="bg-white rounded-2xl border border-zinc-200/70 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.06)] p-8 w-full max-w-sm text-center">

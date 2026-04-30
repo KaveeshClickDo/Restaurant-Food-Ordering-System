@@ -117,6 +117,10 @@ function Sidebar({
     { id: "profile",  label: "Profile",       Icon: User },
   ];
 
+  const headerLinks = (settings.menuLinks ?? [])
+    .filter((l) => l.location === "header" && l.active)
+    .sort((a, b) => a.order - b.order);
+
   return (
     <aside className="hidden lg:flex w-[260px] flex-shrink-0 h-full flex-col bg-white border-r border-zinc-200/70">
       {/* Logo */}
@@ -157,6 +161,14 @@ function Sidebar({
               </button>
             );
           })}
+          {headerLinks.map((link) => (
+            <Link key={link.id} href={link.href}
+              className="flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+            >
+              <span className="w-[17px] h-[17px] flex items-center justify-center text-[11px] font-bold text-zinc-400">●</span>
+              <span>{link.label}</span>
+            </Link>
+          ))}
         </nav>
       </div>
 

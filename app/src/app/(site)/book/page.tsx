@@ -131,7 +131,7 @@ export default function BookPage() {
 
   if (step === "confirmed") {
     return (
-      <div className="min-h-screen bg-[var(--brand-bg)] flex items-center justify-center px-4 py-12">
+      <div className="flex-1 flex items-center justify-center px-4 py-12">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-gray-200 p-8 text-center space-y-5">
           <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto">
             <CheckCircle2 size={40} className="text-green-500" />
@@ -155,7 +155,7 @@ export default function BookPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--brand-bg)] py-8 px-4">
+    <div className="py-8 px-4">
       <div className="max-w-lg mx-auto space-y-5">
 
         {/* Header */}
