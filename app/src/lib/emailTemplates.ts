@@ -14,7 +14,7 @@ import type { AdminSettings, Customer, EmailTemplate, EmailTemplateEvent, Order 
 export interface VarDef {
   name: string;
   label: string;
-  group: "Customer" | "Order" | "Restaurant" | "Reservation";
+  group: "Customer" | "Order" | "Restaurant" | "Reservation" | "Branding";
   preview: string; // value used in the template preview
 }
 
@@ -48,6 +48,9 @@ export const TEMPLATE_VARS: VarDef[] = [
   { name: "reservation_note",    label: "Special note",        group: "Reservation", preview: "Window seat preferred" },
   { name: "cancel_link",         label: "Cancel booking link", group: "Reservation", preview: "https://yourdomain.com/reservation/token" },
   { name: "review_url",          label: "Review link (Google/TripAdvisor)", group: "Reservation", preview: "https://g.page/r/yourplaceid/review" },
+  // Branding
+  { name: "brand_color",        label: "Brand primary color (hex)", group: "Branding", preview: "#f97316" },
+  { name: "brand_color_light",  label: "Brand light tint (hex)",   group: "Branding", preview: "#fff7ed" },
 ];
 
 // ─── Event metadata ───────────────────────────────────────────────────────────
@@ -75,13 +78,15 @@ export const EVENT_CONFIGS: EventConfig[] = [
 ];
 
 // ─── Default templates ────────────────────────────────────────────────────────
+// Heading colors use {{brand_color}} so they automatically follow admin brand settings.
+// Semantic status colors (red=cancelled, green=delivered) are intentionally kept fixed.
 
 export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
   {
     event: "order_confirmation",
     name: "Order Confirmation",
     subject: "Your order is confirmed — {{order_id}}",
-    body: `<h2 style="color:#ea580c;margin:0 0 16px 0">Thank you for your order! 🎉</h2>
+    body: `<h2 style="color:{{brand_color}};margin:0 0 16px 0">Thank you for your order! 🎉</h2>
 <p>Hi <strong>{{customer_name}}</strong>,</p>
 <p>We've received your order and it's being processed. Here's a summary:</p>
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
@@ -103,7 +108,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
     event: "order_confirmed",
     name: "Order Confirmed",
     subject: "Your order has been confirmed — {{restaurant_name}}",
-    body: `<h2 style="color:#2563eb;margin:0 0 16px 0">Order Confirmed ✅</h2>
+    body: `<h2 style="color:{{brand_color}};margin:0 0 16px 0">Order Confirmed ✅</h2>
 <p>Hi <strong>{{customer_name}}</strong>,</p>
 <p>Your order <strong>{{order_id}}</strong> has been confirmed and our team is getting started.</p>
 <p><strong>Estimated time:</strong> {{estimated_time}} minutes</p>
@@ -168,7 +173,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
     event: "reservation_confirmation",
     name: "Reservation Confirmed",
     subject: "Your table reservation is confirmed — {{booking_ref}}",
-    body: `<h2 style="color:#0d9488;margin:0 0 16px 0">Reservation Confirmed! 📅</h2>
+    body: `<h2 style="color:{{brand_color}};margin:0 0 16px 0">Reservation Confirmed! 📅</h2>
 <p>Hi <strong>{{customer_name}}</strong>,</p>
 <p>We're delighted to confirm your table reservation at <strong>{{restaurant_name}}</strong>.</p>
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
@@ -181,7 +186,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
 </p>
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
 <p style="color:#6b7280;font-size:14px">Please arrive on time. If your plans change, contact us at <strong>{{restaurant_phone}}</strong>.</p>
-<p style="color:#6b7280;font-size:13px">Need to cancel? <a href="{{cancel_link}}" style="color:#0d9488">Click here to cancel your booking</a>.</p>
+<p style="color:#6b7280;font-size:13px">Need to cancel? <a href="{{cancel_link}}" style="color:{{brand_color}}">Click here to cancel your booking</a>.</p>
 <p>We look forward to welcoming you!</p>`,
     enabled: true,
     lastModified: new Date(0).toISOString(),
@@ -190,7 +195,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
     event: "reservation_update",
     name: "Reservation Update",
     subject: "Your reservation update — {{booking_ref}}",
-    body: `<h2 style="color:#2563eb;margin:0 0 16px 0">Reservation Update 🔄</h2>
+    body: `<h2 style="color:{{brand_color}};margin:0 0 16px 0">Reservation Update 🔄</h2>
 <p>Hi <strong>{{customer_name}}</strong>,</p>
 <p>Your reservation at <strong>{{restaurant_name}}</strong> has been updated.</p>
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
@@ -230,12 +235,12 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
     event: "reservation_review_request",
     name: "Post-Visit Review Request",
     subject: "Thank you for dining with us — leave us a review!",
-    body: `<h2 style="color:#d97706;margin:0 0 16px 0">Thank You for Visiting! ⭐</h2>
+    body: `<h2 style="color:{{brand_color}};margin:0 0 16px 0">Thank You for Visiting! ⭐</h2>
 <p>Hi <strong>{{customer_name}}</strong>,</p>
 <p>We hope you had a wonderful time at <strong>{{restaurant_name}}</strong> on <strong>{{reservation_date}}</strong>. It was a pleasure to have you.</p>
 <p>If you enjoyed your visit, we'd love it if you could take a moment to share your experience — it means the world to our team.</p>
 <div style="text-align:center;margin:28px 0">
-  <a href="{{review_url}}" style="display:inline-block;background:#ea580c;color:#ffffff;font-weight:700;font-size:15px;padding:14px 32px;border-radius:8px;text-decoration:none">Leave a Review ⭐</a>
+  <a href="{{review_url}}" style="display:inline-block;background:{{brand_color}};color:#ffffff;font-weight:700;font-size:15px;padding:14px 32px;border-radius:8px;text-decoration:none">Leave a Review ⭐</a>
 </div>
 <p style="color:#6b7280;font-size:14px">Your feedback helps us improve and lets other guests know what to expect. Thank you for your support!</p>
 <p>We look forward to welcoming you back soon.</p>`,
@@ -246,12 +251,28 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
 
 // ─── Variable replacement ─────────────────────────────────────────────────────
 
+/** Derive a light tint from a hex brand color for use in email backgrounds. */
+function brandColorLight(hex: string): string {
+  // Parse R/G/B and blend 15% toward white (#fff7ed is the orange-50 equivalent)
+  try {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    const blend = (c: number) => Math.round(c + (255 - c) * 0.88).toString(16).padStart(2, "0");
+    return `#${blend(r)}${blend(g)}${blend(b)}`;
+  } catch {
+    return "#fff7ed";
+  }
+}
+
 /** Build the variable map from real order/customer/settings data. */
 export function buildVarMap(
   order: Order,
   customer: Customer | null,
   settings: AdminSettings,
 ): Record<string, string> {
+  const primaryColor = settings.colors?.primaryColor ?? "#f97316";
+
   const itemsHtml = order.items
     .map(
       (i) =>
@@ -295,7 +316,7 @@ export function buildVarMap(
   }
   if (order.vatAmount && order.vatAmount > 0) {
     const vatLabel  = order.vatInclusive ? `VAT incl. (${vatRate}%)` : `VAT (${vatRate}%)`;
-    const vatColor  = order.vatInclusive ? "#9ca3af" : "#ea580c";
+    const vatColor  = order.vatInclusive ? "#9ca3af" : primaryColor;
     const vatPrefix = order.vatInclusive ? "" : "+";
     totalsHtml += `
     <tr>
@@ -358,6 +379,8 @@ export function buildVarMap(
     restaurant_address: restAddr,
     estimated_time:     estTime,
     order_vat:          buildVatString(order.vatAmount, order.vatInclusive, settings),
+    brand_color:        primaryColor,
+    brand_color_light:  brandColorLight(primaryColor),
   };
 }
 
@@ -379,6 +402,8 @@ export function applyVars(template: string, vars: Record<string, string>): strin
 
 /** Build the preview var map using dummy data (no real order needed). */
 export function buildPreviewVarMap(settings: AdminSettings): Record<string, string> {
+  const primaryColor = settings.colors?.primaryColor ?? "#f97316";
+
   const restAddr = [
     settings.restaurant.addressLine1,
     settings.restaurant.city,
@@ -413,7 +438,7 @@ export function buildPreviewVarMap(settings: AdminSettings): Record<string, stri
     </tr>`;
   if (previewVatEnabled && previewVatAmt > 0) {
     const vatLabel  = previewInclusive ? `VAT incl. (${previewVatRate}%)` : `VAT (${previewVatRate}%)`;
-    const vatColor  = previewInclusive ? "#9ca3af" : "#ea580c";
+    const vatColor  = previewInclusive ? "#9ca3af" : primaryColor;
     const vatPrefix = previewInclusive ? "" : "+";
     previewTotals += `
     <tr>
@@ -462,6 +487,8 @@ export function buildPreviewVarMap(settings: AdminSettings): Record<string, stri
     order_vat: previewVatEnabled && previewVatAmt > 0
       ? buildVatString(previewVatAmt, previewInclusive, settings)
       : "",
+    brand_color:       primaryColor,
+    brand_color_light: brandColorLight(primaryColor),
   };
 }
 
@@ -474,7 +501,10 @@ export function buildEmailDocument(
   restaurantAddress: string,
   phone: string,
   receiptSettings?: import("@/types").ReceiptSettings,
+  colors?: { primaryColor?: string; backgroundColor?: string },
 ): string {
+  const headerBg = colors?.primaryColor?.trim() || "#f97316";
+
   // Logo block — only when showLogo is on and a URL is provided
   const logoBlock =
     receiptSettings?.showLogo && receiptSettings.logoUrl?.trim()
@@ -511,7 +541,7 @@ export function buildEmailDocument(
 <body style="margin:0;padding:20px 10px;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif">
   <div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08)">
     <!-- Header -->
-    <div style="background:#ea580c;padding:24px 32px">
+    <div style="background:${headerBg};padding:24px 32px">
       ${logoBlock}
       <h1 style="color:#ffffff;margin:0;font-size:22px;font-weight:bold;letter-spacing:-0.3px">${headerName}</h1>
     </div>
@@ -578,6 +608,8 @@ export function buildReservationVarMap(
   settings: AdminSettings,
   siteUrl = "",
 ): Record<string, string> {
+  const primaryColor = settings.colors?.primaryColor ?? "#f97316";
+
   const [y, mo, d] = res.date.split("-").map(Number);
   const dateObj = new Date(y, mo - 1, d);
   const formattedDate = dateObj.toLocaleDateString("en-GB", {
@@ -615,11 +647,15 @@ export function buildReservationVarMap(
     restaurant_address: restAddr,
     cancel_link:        cancelLink,
     review_url:         (settings.reservationSystem as { reviewUrl?: string })?.reviewUrl ?? "",
+    brand_color:        primaryColor,
+    brand_color_light:  brandColorLight(primaryColor),
   };
 }
 
 /** Build dummy variable map for the admin preview pane. */
 export function buildReservationPreviewVarMap(settings: AdminSettings): Record<string, string> {
+  const primaryColor = settings.colors?.primaryColor ?? "#f97316";
+
   const restAddr = [
     settings.restaurant.addressLine1,
     settings.restaurant.city,
@@ -641,6 +677,8 @@ export function buildReservationPreviewVarMap(settings: AdminSettings): Record<s
     restaurant_address: restAddr,
     cancel_link:        "https://yourdomain.com/reservation/example-token",
     review_url:         (settings.reservationSystem as { reviewUrl?: string })?.reviewUrl ?? "https://g.page/r/review",
+    brand_color:        primaryColor,
+    brand_color_light:  brandColorLight(primaryColor),
   };
 }
 
@@ -677,6 +715,7 @@ export function sendReservationEmail(
     restAddr,
     settings.restaurant.phone,
     settings.receiptSettings,
+    settings.colors,
   );
 
   sendEmailViaApi({ to, subject, html })
@@ -722,6 +761,7 @@ export function sendOrderEmail(
     restAddr,
     settings.restaurant.phone,
     settings.receiptSettings,
+    settings.colors,
   );
 
   sendEmailViaApi({ to, subject, html })

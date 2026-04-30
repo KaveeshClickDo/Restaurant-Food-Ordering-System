@@ -58,12 +58,19 @@ export function generateShades(hex: string): Record<string, string> | null {
   };
 }
 
-/** Build the CSS text that overrides Tailwind v4's orange scale + body bg. */
+/**
+ * Build the CSS text that:
+ *  1. Overrides Tailwind v4's orange scale so every bg-orange-* / text-orange-* class
+ *     reflects the chosen brand colour.
+ *  2. Exposes semantic --brand-* variables that can be referenced anywhere with
+ *     style={{ color: 'var(--brand-primary)' }} or in globals.css.
+ */
 export function buildColorCss(primaryColor: string, backgroundColor: string): string {
   const shades = generateShades(primaryColor);
   if (!shades) return "";
   return [
     ":root {",
+    // Override Tailwind v4 orange scale — every bg-orange-* / text-orange-* picks this up
     `  --color-orange-50:  ${shades["50"]};`,
     `  --color-orange-100: ${shades["100"]};`,
     `  --color-orange-200: ${shades["200"]};`,
@@ -74,7 +81,15 @@ export function buildColorCss(primaryColor: string, backgroundColor: string): st
     `  --color-orange-700: ${shades["700"]};`,
     `  --color-orange-800: ${shades["800"]};`,
     `  --color-orange-900: ${shades["900"]};`,
+    // Semantic brand variables — use these for inline styles and globals.css
+    `  --brand-primary:       ${shades["500"]};`,
+    `  --brand-primary-hover: ${shades["600"]};`,
+    `  --brand-primary-light: ${shades["50"]};`,
+    `  --brand-primary-text:  ${shades["700"]};`,
+    `  --brand-bg:            ${backgroundColor};`,
     "}",
-    `body { background-color: ${backgroundColor}; }`,
+    // body background — lower specificity than class selectors, so we use
+    // the CSS variable on the element directly (see layout.tsx / globals.css)
+    `body { background-color: var(--brand-bg, ${backgroundColor}); }`,
   ].join("\n");
 }

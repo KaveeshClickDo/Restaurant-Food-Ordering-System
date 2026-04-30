@@ -37,11 +37,7 @@ export interface ManagedUser {
 export async function GET(): Promise<NextResponse> {
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
 
-  const [customersResult, driversResult, settingsResult] = await Promise.all([
-    supabaseAdmin
-      .from("customers")
-      .select("id, name, email, phone, active, email_verified, created_at")
-      .order("created_at", { ascending: false }),
+  const [driversResult, settingsResult] = await Promise.all([
     supabaseAdmin
       .from("drivers")
       .select("id, name, email, phone, active, vehicle_info, notes, created_at")
@@ -53,12 +49,6 @@ export async function GET(): Promise<NextResponse> {
       .single(),
   ]);
 
-  if (customersResult.error) {
-    return NextResponse.json(
-      { ok: false, error: customersResult.error.message },
-      { status: 500 },
-    );
-  }
   if (driversResult.error) {
     return NextResponse.json(
       { ok: false, error: driversResult.error.message },
@@ -66,10 +56,33 @@ export async function GET(): Promise<NextResponse> {
     );
   }
 
+  // Customers: try with email_verified; fall back if migration hasn't run yet.
+  // Note: customers do NOT have an `active` column — only drivers do.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const customerRows = (customersResult.data ?? []) as any[];
+  let customerRows: any[] = [];
+  const { data: cusWithVerified, error: cusErr } = await supabaseAdmin
+    .from("customers")
+    .select("id, name, email, phone, created_at, email_verified")
+    .order("created_at", { ascending: false });
+
+  if (cusErr?.code === "PGRST204" && cusErr.message.includes("email_verified")) {
+    // Migration not yet run — select without email_verified
+    const { data: cusBasic, error: cusErrBasic } = await supabaseAdmin
+      .from("customers")
+      .select("id, name, email, phone, created_at")
+      .order("created_at", { ascending: false });
+    if (cusErrBasic) {
+      return NextResponse.json({ ok: false, error: cusErrBasic.message }, { status: 500 });
+    }
+    customerRows = cusBasic ?? [];
+  } else if (cusErr) {
+    return NextResponse.json({ ok: false, error: cusErr.message }, { status: 500 });
+  } else {
+    customerRows = cusWithVerified ?? [];
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const driverRows   = (driversResult.data   ?? []) as any[];
+  const driverRows = (driversResult.data ?? []) as any[];
 
   const settings = settingsResult.data?.data as AdminSettings | undefined;
   const waiters  = settings?.waiters ?? [];
@@ -171,10 +184,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    const { data, error } = await supabaseAdmin
+    const newCustomerId = crypto.randomUUID();
+    const now           = new Date().toISOString();
+
+    // Try inserting with auth columns; fall back if migration hasn't run yet
+    const { error: errFull } = await supabaseAdmin
       .from("customers")
       .insert({
-        id:              crypto.randomUUID(),
+        id:              newCustomerId,
         name:            name.trim(),
         email:           email.trim().toLowerCase(),
         phone:           phone?.trim() || null,
@@ -184,26 +201,49 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         tags:            [],
         favourites:      [],
         saved_addresses: [],
-      })
-      .select("id, name, email, phone, active, email_verified, created_at")
-      .single();
+        created_at:      now,
+      });
 
-    if (error) {
-      if (error.code === "23505") {
+    if (errFull) {
+      if (errFull.code === "23505") {
         return NextResponse.json({ ok: false, error: "A customer with this email already exists." }, { status: 409 });
       }
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      if (errFull.code === "PGRST204") {
+        // Migration not run — insert without auth columns
+        const { error: errFallback } = await supabaseAdmin
+          .from("customers")
+          .insert({
+            id:              newCustomerId,
+            name:            name.trim(),
+            email:           email.trim().toLowerCase(),
+            phone:           phone?.trim() || null,
+            password:        passwordHash,
+            store_credit:    0,
+            tags:            [],
+            favourites:      [],
+            saved_addresses: [],
+            created_at:      now,
+          });
+        if (errFallback) {
+          if (errFallback.code === "23505") {
+            return NextResponse.json({ ok: false, error: "A customer with this email already exists." }, { status: 409 });
+          }
+          return NextResponse.json({ ok: false, error: errFallback.message }, { status: 500 });
+        }
+      } else {
+        return NextResponse.json({ ok: false, error: errFull.message }, { status: 500 });
+      }
     }
 
     const user: ManagedUser = {
-      id:            data.id,
+      id:            newCustomerId,
       type:          "customer",
-      name:          data.name,
-      email:         data.email ?? undefined,
-      phone:         data.phone ?? undefined,
-      active:        (data as { active?: boolean }).active ?? true,
-      createdAt:     data.created_at,
-      emailVerified: (data as { email_verified?: boolean }).email_verified ?? false,
+      name:          name.trim(),
+      email:         email.trim().toLowerCase(),
+      phone:         phone?.trim() || undefined,
+      active:        true,
+      createdAt:     now,
+      emailVerified: !errFull ? false : undefined,
     };
 
     return NextResponse.json({ ok: true, user }, { status: 201 });

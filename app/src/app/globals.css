@@ -12,7 +12,8 @@
   body {
     font-family: var(--font-inter), system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
-    background-color: #f9fafb;
+    /* --brand-bg set by server-rendered <style id="color-theme-vars"> in layout.tsx */
+    background-color: var(--brand-bg, #FAFAF9);
   }
 
   /* Custom scrollbar */
@@ -54,10 +55,10 @@
   .rich-content li { margin: 0.25rem 0; line-height: 1.65; }
   .rich-content strong, .rich-content b { font-weight: 600; color: #1f2937; }
   .rich-content em, .rich-content i     { font-style: italic; }
-  .rich-content a  { color: #ea580c; text-decoration: underline; }
-  .rich-content a:hover { color: #c2410c; }
+  .rich-content a  { color: var(--color-orange-600, #ea580c); text-decoration: underline; }
+  .rich-content a:hover { color: var(--color-orange-700, #c2410c); }
   .rich-content hr { border: none; border-top: 1px solid #e5e7eb; margin: 1.5rem 0; }
-  .rich-content blockquote { border-left: 3px solid #ea580c; padding-left: 1rem; color: #6b7280; margin: 1rem 0; }
+  .rich-content blockquote { border-left: 3px solid var(--color-orange-500, #ea580c); padding-left: 1rem; color: #6b7280; margin: 1rem 0; }
   .rich-content > :first-child { margin-top: 0; }
   .rich-content > :last-child  { margin-bottom: 0; }
 }

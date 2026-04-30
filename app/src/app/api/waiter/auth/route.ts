@@ -30,23 +30,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "staffId and pin are required." }, { status: 400 });
   }
 
-  const { data: row } = await supabaseAdmin
-    .from("app_settings").select("data").limit(1).single();
+  try {
+    const { data: row } = await supabaseAdmin
+      .from("app_settings").select("data").limit(1).single();
 
-  const waiters: WaiterStaff[] = row?.data?.waiters?.length
-    ? row.data.waiters
-    : SEED_WAITERS;
+    const waiters: WaiterStaff[] = row?.data?.waiters?.length
+      ? row.data.waiters
+      : SEED_WAITERS;
 
-  const waiter = waiters.find((w) => w.id === staffId && w.active);
-  if (!waiter || waiter.pin !== pin) {
-    return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
+    const waiter = waiters.find((w) => w.id === staffId && w.active);
+    if (!waiter || waiter.pin !== pin) {
+      return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { pin: _p, ...safe } = waiter;
+
+    const token = createSessionToken({ id: staffId, role: "waiter" });
+    const res = NextResponse.json({ ok: true, waiter: safe });
+    setSessionCookie(res, COOKIE_WAITER, token);
+    return res;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unexpected error";
+    console.error("[waiter/auth]", message);
+    return NextResponse.json({ ok: false, error: "Authentication failed. Please try again." }, { status: 500 });
   }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { pin: _p, ...safe } = waiter;
-
-  const token = createSessionToken({ id: staffId, role: "waiter" });
-  const res = NextResponse.json({ ok: true, waiter: safe });
-  setSessionCookie(res, COOKIE_WAITER, token);
-  return res;
 }

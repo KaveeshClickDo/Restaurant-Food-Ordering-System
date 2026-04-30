@@ -703,7 +703,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             );
           }
         })
-      .subscribe();
+      // Drivers
+      .on("postgres_changes", { event: "*", schema: "public", table: "drivers" },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ({ eventType, new: newRow, old: oldRow }: any) => {
+          if (eventType === "DELETE") {
+            setDrivers((prev) => prev.filter((d) => d.id !== oldRow.id));
+          } else {
+            const driver: Driver = {
+              id: newRow.id, name: newRow.name, email: newRow.email,
+              phone: newRow.phone ?? "",
+              active: newRow.active ?? true,
+              vehicleInfo: newRow.vehicle_info || undefined,
+              notes: newRow.notes || undefined,
+              createdAt: typeof newRow.created_at === "string" ? newRow.created_at : new Date(newRow.created_at).toISOString(),
+            };
+            setDrivers((prev) => {
+              const idx = prev.findIndex((d) => d.id === driver.id);
+              return idx >= 0 ? prev.map((d) => (d.id === driver.id ? driver : d)) : [driver, ...prev];
+            });
+          }
+        })
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.warn("AppContext: Realtime subscription lost (%s) — changes from other sessions will not sync until page refresh.", status);
+        }
+      });
 
     return () => { supabase.removeChannel(channel); };
   }, []);
@@ -717,6 +742,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let el = document.getElementById("color-theme-vars");
     if (!el) { el = document.createElement("style"); el.id = "color-theme-vars"; document.head.appendChild(el); }
     el.textContent = css;
+    // Keep localStorage in sync so the layout's fallback script has current
+    // colors if the server-side DB fetch ever fails (e.g. DB unreachable).
+    try { localStorage.setItem("sg_color_theme", css); } catch { /* private browsing */ }
   }, [settings.colors]);
 
   // ─── Cart actions ──────────────────────────────────────────────────────────

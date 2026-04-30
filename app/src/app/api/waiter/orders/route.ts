@@ -36,32 +36,38 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "tableLabel and items are required." }, { status: 400 });
   }
 
-  await ensureWalkInCustomer();
+  try {
+    await ensureWalkInCustomer();
 
-  // Build kitchen note — visible in the KDS "Special Note" amber box
-  const noteParts = [`[WAITER] Table ${tableLabel}`];
-  if (covers) noteParts.push(`${covers} cover${covers !== 1 ? "s" : ""}`);
-  if (staffName) noteParts.push(`Staff: ${staffName}`);
-  if (kitchenNote) noteParts.push(kitchenNote);
-  const note = noteParts.join(" · ");
+    // Build kitchen note — visible in the KDS "Special Note" amber box
+    const noteParts = [`[WAITER] Table ${tableLabel}`];
+    if (covers) noteParts.push(`${covers} cover${covers !== 1 ? "s" : ""}`);
+    if (staffName) noteParts.push(`Staff: ${staffName}`);
+    if (kitchenNote) noteParts.push(kitchenNote);
+    const note = noteParts.join(" · ");
 
-  const row = {
-    id:             crypto.randomUUID(),
-    customer_id:    POS_CUSTOMER_ID,
-    date:           new Date().toISOString(),
-    status:         "pending",
-    fulfillment:    "dine-in",
-    total:          total ?? items.reduce((s, i) => s + i.price * i.qty, 0),
-    items,
-    note,
-    payment_method: "table-service",
-  };
+    const row = {
+      id:             crypto.randomUUID(),
+      customer_id:    POS_CUSTOMER_ID,
+      date:           new Date().toISOString(),
+      status:         "pending",
+      fulfillment:    "dine-in",
+      total:          total ?? items.reduce((s, i) => s + i.price * i.qty, 0),
+      items,
+      note,
+      payment_method: "table-service",
+    };
 
-  const { error } = await supabaseAdmin.from("orders").insert(row);
-  if (error) {
-    console.error("waiter/orders POST:", error.message);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    const { error } = await supabaseAdmin.from("orders").insert(row);
+    if (error) {
+      console.error("waiter/orders POST:", error.message);
+      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true, orderId: row.id });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unexpected error";
+    console.error("[waiter/orders]", message);
+    return NextResponse.json({ ok: false, error: "Failed to place order. Please try again." }, { status: 500 });
   }
-
-  return NextResponse.json({ ok: true, orderId: row.id });
 }

@@ -10,7 +10,7 @@ import { NextRequest, NextResponse }                   from "next/server";
 import { createHmac, randomBytes }                     from "crypto";
 import { supabaseAdmin }                               from "@/lib/supabaseAdmin";
 import { isAdminAuthenticated, unauthorizedResponse }  from "@/lib/adminAuth";
-import { sendEmailDirect }                             from "@/lib/emailServer";
+import { sendEmailDirect, fetchBrandPrimaryColor }     from "@/lib/emailServer";
 import { RESET_TOKEN_TTL_MS }                          from "@/lib/auth";
 
 function hashToken(rawToken: string): string {
@@ -18,7 +18,7 @@ function hashToken(rawToken: string): string {
   return createHmac("sha256", secret).update(rawToken).digest("hex");
 }
 
-function buildResetEmail(name: string, resetUrl: string): string {
+function buildResetEmail(name: string, resetUrl: string, brandColor: string): string {
   return `
     <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a;padding:24px">
       <h2 style="margin-bottom:8px;color:#111">Password reset request</h2>
@@ -29,7 +29,7 @@ function buildResetEmail(name: string, resetUrl: string): string {
         This link expires in <strong>1 hour</strong>.
       </p>
       <a href="${resetUrl}"
-         style="display:inline-block;background:#f97316;color:#fff;font-weight:700;
+         style="display:inline-block;background:${brandColor};color:#fff;font-weight:700;
                 text-decoration:none;padding:12px 28px;border-radius:10px;font-size:15px">
         Reset my password
       </a>
@@ -71,6 +71,7 @@ export async function POST(
 
   const normalizedEmail = email.trim().toLowerCase();
   const siteUrl         = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  const brandColor      = await fetchBrandPrimaryColor();
 
   // ── Waiter / Admin — not applicable ──────────────────────────────────────
   if (type === "waiter") {
@@ -108,7 +109,7 @@ export async function POST(
       .eq("id", data.id);
 
     const resetUrl = `${siteUrl}/login?action=reset&token=${rawToken}&email=${encodeURIComponent(normalizedEmail)}`;
-    const html     = buildResetEmail(data.name ?? "Customer", resetUrl);
+    const html     = buildResetEmail(data.name ?? "Customer", resetUrl, brandColor);
 
     const result = await sendEmailDirect(normalizedEmail, "Reset your password", html);
     if (!result.ok) {
@@ -141,7 +142,7 @@ export async function POST(
       .eq("id", data.id);
 
     const resetUrl = `${siteUrl}/driver/login?action=reset&token=${rawToken}&email=${encodeURIComponent(normalizedEmail)}`;
-    const html     = buildResetEmail(data.name ?? "Driver", resetUrl);
+    const html     = buildResetEmail(data.name ?? "Driver", resetUrl, brandColor);
 
     const result = await sendEmailDirect(normalizedEmail, "Reset your password", html);
     if (!result.ok) {

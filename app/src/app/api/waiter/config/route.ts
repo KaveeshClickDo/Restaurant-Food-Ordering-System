@@ -21,17 +21,23 @@ const DEFAULT_TABLES: DiningTable[] = [
 ];
 
 export async function GET() {
-  const { data: row } = await supabaseAdmin
-    .from("app_settings").select("data").limit(1).single();
+  try {
+    const { data: row } = await supabaseAdmin
+      .from("app_settings").select("data").limit(1).single();
 
-  const raw: WaiterStaff[] = row?.data?.waiters ?? [];
-  // Strip PINs before returning — the auth endpoint handles PIN validation
-  const waiters = (raw.length ? raw : DEFAULT_WAITERS as WaiterStaff[])
-    .filter((w) => w.active)
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    .map(({ pin: _, ...safe }) => safe);
+    const raw: WaiterStaff[] = row?.data?.waiters ?? [];
+    // Strip PINs before returning — the auth endpoint handles PIN validation
+    const waiters = (raw.length ? raw : DEFAULT_WAITERS as WaiterStaff[])
+      .filter((w) => w.active)
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      .map(({ pin: _, ...safe }) => safe);
 
-  const tables: DiningTable[] = (row?.data?.diningTables ?? DEFAULT_TABLES).filter((t: DiningTable) => t.active);
+    const tables: DiningTable[] = (row?.data?.diningTables ?? DEFAULT_TABLES).filter((t: DiningTable) => t.active);
 
-  return NextResponse.json({ ok: true, waiters, tables });
+    return NextResponse.json({ ok: true, waiters, tables });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unexpected error";
+    console.error("[waiter/config]", message);
+    return NextResponse.json({ ok: true, waiters: DEFAULT_WAITERS, tables: DEFAULT_TABLES });
+  }
 }

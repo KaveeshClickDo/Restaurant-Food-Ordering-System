@@ -64,11 +64,64 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "A delivery address is required for delivery orders." }, { status: 400 });
   }
 
+  // ── Server-side coupon validation ─────────────────────────────────────────
+  // Re-validate on the server so a client cannot claim a discount for an
+  // expired, inactive, or over-limit coupon.
+  const couponCode = typeof body.coupon_code === "string" ? body.coupon_code.trim().toUpperCase() : null;
+  let verifiedCouponDiscount = 0;
+
+  if (couponCode) {
+    const { data: settingsRow } = await supabaseAdmin
+      .from("app_settings").select("data").eq("id", 1).single();
+
+    const coupons: Array<{
+      id: string; code: string; type: string; value: number;
+      minOrderAmount: number; expiryDate: string; usageLimit: number;
+      usageCount: number; active: boolean;
+    }> = settingsRow?.data?.coupons ?? [];
+
+    const coupon = coupons.find((c) => c.code.toUpperCase() === couponCode);
+
+    if (!coupon || !coupon.active) {
+      return NextResponse.json({ ok: false, error: "Coupon code is invalid or no longer active." }, { status: 400 });
+    }
+    if (coupon.expiryDate && new Date(coupon.expiryDate) < new Date()) {
+      return NextResponse.json({ ok: false, error: "This coupon has expired." }, { status: 400 });
+    }
+    if (coupon.usageLimit > 0 && coupon.usageCount >= coupon.usageLimit) {
+      return NextResponse.json({ ok: false, error: "This coupon has reached its usage limit." }, { status: 400 });
+    }
+
+    // Calculate subtotal (total before delivery/service fees — use client-sent subtotal if available)
+    const subtotal = typeof body.subtotal === "number" ? body.subtotal : total;
+    if (coupon.minOrderAmount > 0 && subtotal < coupon.minOrderAmount) {
+      return NextResponse.json({
+        ok: false,
+        error: `This coupon requires a minimum order of £${coupon.minOrderAmount.toFixed(2)}.`,
+      }, { status: 400 });
+    }
+
+    verifiedCouponDiscount = coupon.type === "percentage"
+      ? Math.round(subtotal * (coupon.value / 100) * 100) / 100
+      : coupon.value;
+
+    // Increment usage count atomically via JSON patch on the settings row
+    const updatedCoupons = coupons.map((c) =>
+      c.id === coupon.id ? { ...c, usageCount: c.usageCount + 1 } : c
+    );
+    await supabaseAdmin
+      .from("app_settings")
+      .update({ data: { ...settingsRow!.data, coupons: updatedCoupons } })
+      .eq("id", 1);
+  }
+
   // ── Enforce safe initial status — client cannot choose an arbitrary status ─
   const row = {
     ...body,
-    status:     ALLOWED_INITIAL_STATUS,
-    date:       typeof body.date === "string" ? body.date : new Date().toISOString(),
+    // Overwrite any client-supplied discount with the server-verified amount
+    ...(couponCode ? { coupon_discount: verifiedCouponDiscount } : {}),
+    status: ALLOWED_INITIAL_STATUS,
+    date:   typeof body.date === "string" ? body.date : new Date().toISOString(),
   };
 
   const { error } = await supabaseAdmin.from("orders").insert(row);
@@ -79,20 +132,20 @@ export async function POST(req: NextRequest) {
 
   // Fire-and-forget — email failure must never fail the order response
   sendOrderConfirmationEmail({
-    id:             id,
-    customer_id:    customer_id,
-    fulfillment:    fulfillment,
-    total:          total,
-    items:          items as Array<{ name: string; qty: number; price: number }>,
-    payment_method: payment_method as string | undefined,
-    address:        address as string | undefined,
-    delivery_fee:   body.delivery_fee as number | undefined,
-    service_fee:    body.service_fee as number | undefined,
-    vat_amount:     body.vat_amount as number | undefined,
-    vat_inclusive:  body.vat_inclusive as boolean | undefined,
-    coupon_code:    body.coupon_code as string | undefined,
-    coupon_discount: body.coupon_discount as number | undefined,
-    date:           row.date,
+    id:              id,
+    customer_id:     customer_id,
+    fulfillment:     fulfillment,
+    total:           total,
+    items:           items as Array<{ name: string; qty: number; price: number }>,
+    payment_method:  payment_method as string | undefined,
+    address:         address as string | undefined,
+    delivery_fee:    body.delivery_fee as number | undefined,
+    service_fee:     body.service_fee as number | undefined,
+    vat_amount:      body.vat_amount as number | undefined,
+    vat_inclusive:   body.vat_inclusive as boolean | undefined,
+    coupon_code:     couponCode ?? undefined,
+    coupon_discount: couponCode ? verifiedCouponDiscount : undefined,
+    date:            row.date as string,
   }).catch((err: unknown) =>
     console.error("[orders] confirmation email:", err instanceof Error ? err.message : err)
   );
