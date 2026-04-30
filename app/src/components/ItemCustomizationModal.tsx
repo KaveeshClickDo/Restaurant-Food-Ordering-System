@@ -78,13 +78,13 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
 
           {/* ── Left: Image pane ──────────────────────────────────────────── */}
           {hasImage ? (
-            <div className="sm:w-[42%] flex-shrink-0 bg-zinc-100 h-48 sm:h-auto">
+            <div className="relative sm:w-[42%] flex-shrink-0 bg-zinc-100 h-48 sm:h-auto overflow-hidden">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={item.image}
                 alt={item.name}
                 onError={() => setImgError(true)}
-                className="w-full h-full object-cover"
+                className="absolute inset-0 w-full h-full object-cover"
               />
             </div>
           ) : null}

@@ -45,7 +45,7 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
           <img
             src={item.image}
             alt={item.name}
-            className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04] ${outOfStock ? "grayscale opacity-50" : ""}`}
+            className={`absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04] ${outOfStock ? "grayscale opacity-50" : ""}`}
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
@@ -164,6 +164,24 @@ function Sidebar({
       <div className="px-4 pt-3 pb-2 flex-1 overflow-y-auto">
         <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400 px-3 mb-2">Categories</p>
         <nav className="space-y-0.5">
+          {/* Everything — shows all menu items */}
+          {(() => {
+            const active = activeCat === "all" && screen === "menu";
+            return (
+              <button
+                onClick={() => { setCat("all"); setScreen("menu"); }}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] transition-colors ${
+                  active
+                    ? "bg-orange-50 text-orange-700 font-medium"
+                    : "text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50"
+                }`}
+              >
+                <span className="text-base leading-none">🍽️</span>
+                <span>Everything</span>
+                {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-orange-500" />}
+              </button>
+            );
+          })()}
           {categories.map((cat) => {
             const active = activeCat === cat.id && screen === "menu";
             return (
@@ -509,7 +527,7 @@ export default function HomePage() {
     isOpen, currentUser, logout,
   } = useApp();
 
-  const [activeCat,        setActiveCat]        = useState(categories[0]?.id ?? "all");
+  const [activeCat,        setActiveCat]        = useState("all");
   const [search,           setSearch]           = useState("");
   const [screen,           setScreen]           = useState("menu");
   const [openItem,         setOpenItem]         = useState<MenuItem | null>(null);
@@ -629,6 +647,18 @@ export default function HomePage() {
         {/* Mobile sticky category strip */}
         <div className="lg:hidden flex-shrink-0 bg-white border-b border-zinc-100 shadow-sm">
           <div className="flex gap-2 overflow-x-auto scrollbar-hide px-4 py-2.5">
+            {/* Everything pill */}
+            <button
+              onClick={() => { setActiveCat("all"); setScreen("menu"); }}
+              className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all active:scale-95 ${
+                activeCat === "all" && screen === "menu"
+                  ? "bg-orange-500 text-white"
+                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+              }`}
+            >
+              <span className="text-sm leading-none">🍽️</span>
+              <span>Everything</span>
+            </button>
             {categories.map((cat) => (
               <button key={cat.id}
                 onClick={() => { setActiveCat(cat.id); setScreen("menu"); }}
@@ -654,7 +684,7 @@ export default function HomePage() {
               {/* Category header */}
               <div className="px-6 mb-5 flex items-center justify-between">
                 <h2 className="font-semibold tracking-tight text-[20px] text-zinc-900">
-                  {activeCategory?.name ?? "Menu"}
+                  {activeCat === "all" ? "Everything" : (activeCategory?.name ?? "Menu")}
                   <span className="ml-2 text-[13px] font-normal text-zinc-400 tabular-nums">· {items.length}</span>
                 </h2>
               </div>
