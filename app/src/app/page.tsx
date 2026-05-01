@@ -219,6 +219,105 @@ function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void
   );
 }
 
+// ── Mobile bottom navigation bar ────────────────────────────────────────────
+function MobileBottomNav({
+  screen,
+  setScreen,
+  cartCount,
+  onCartOpen,
+  onAuth,
+  currentUser,
+}: {
+  screen: string;
+  setScreen: (s: string) => void;
+  cartCount: number;
+  onCartOpen: () => void;
+  onAuth: () => void;
+  currentUser: import("@/types").Customer | null;
+}) {
+  const tabs = [
+    { id: "menu",       label: "Menu",    Icon: UtensilsCrossed },
+    { id: "favourites", label: "Saved",   Icon: Heart },
+    { id: "cart",       label: "Cart",    Icon: ShoppingBag },
+    { id: "orders",     label: "Orders",  Icon: Receipt },
+    { id: "profile",    label: "Profile", Icon: User },
+  ] as const;
+
+  return (
+    <nav
+      className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-zinc-200/60"
+      style={{
+        boxShadow: "0 -1px 0 rgba(0,0,0,0.05), 0 -4px 20px rgba(0,0,0,0.07)",
+        paddingBottom: "env(safe-area-inset-bottom, 0px)",
+      }}
+    >
+      <div className="flex items-end h-[58px]">
+        {tabs.map(({ id, label, Icon }) => {
+          if (id === "cart") {
+            return (
+              <button
+                key="cart"
+                onClick={onCartOpen}
+                aria-label={`Cart${cartCount > 0 ? ` — ${cartCount} items` : ""}`}
+                className="flex-1 flex flex-col items-center justify-end pb-2 relative"
+              >
+                {/* Elevated circle */}
+                <div className="relative -mt-5 mb-1">
+                  <div className="w-12 h-12 rounded-full bg-orange-500 flex items-center justify-center shadow-lg shadow-orange-500/40 border-[3px] border-white">
+                    <ShoppingBag className="w-5 h-5 text-white" strokeWidth={1.8} />
+                  </div>
+                  {cartCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[17px] h-[17px] px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center tabular-nums leading-none border border-white">
+                      {cartCount > 99 ? "99+" : cartCount}
+                    </span>
+                  )}
+                </div>
+                <span className="text-[10px] font-semibold text-orange-500 leading-none">Cart</span>
+              </button>
+            );
+          }
+
+          const active = screen === id;
+          const needsAuth = (id === "orders" || id === "profile") && !currentUser;
+
+          return (
+            <button
+              key={id}
+              onClick={() => {
+                if (needsAuth) { onAuth(); return; }
+                setScreen(id);
+              }}
+              aria-label={label}
+              className="flex-1 flex flex-col items-center justify-end pb-2 pt-2 relative group"
+            >
+              {/* Active indicator — thin bar at top */}
+              <span
+                className={`absolute top-0 left-3 right-3 h-[2.5px] rounded-full transition-all duration-200 ${
+                  active ? "bg-orange-500 opacity-100" : "opacity-0"
+                }`}
+              />
+              <Icon
+                className={`w-[22px] h-[22px] transition-colors duration-150 ${
+                  active ? "text-orange-500" : "text-zinc-400 group-active:text-zinc-600"
+                }`}
+                strokeWidth={active ? 2 : 1.6}
+                fill={id === "favourites" && active ? "currentColor" : "none"}
+              />
+              <span
+                className={`text-[10px] leading-none mt-1 transition-colors duration-150 ${
+                  active ? "text-orange-500 font-semibold" : "text-zinc-400 font-medium"
+                }`}
+              >
+                {label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
 // ── Sidebar ─────────────────────────────────────────────────────────────────
 function Sidebar({
   activeCat,
@@ -226,15 +325,18 @@ function Sidebar({
   screen,
   setScreen,
   onAuth,
+  onReserve,
 }: {
   activeCat: string;
   setCat: (id: string) => void;
   screen: string;
   setScreen: (s: string) => void;
   onAuth: () => void;
+  onReserve: () => void;
 }) {
   const { settings, categories, currentUser, logout } = useApp();
   const { restaurant } = settings;
+  const reservationEnabled = !!settings.reservationSystem?.enabled;
 
   const navItems = [
     { id: "menu",       label: "Menu",        Icon: UtensilsCrossed },
@@ -295,6 +397,17 @@ function Sidebar({
               <span>{link.label}</span>
             </Link>
           ))}
+
+          {/* Reserve a Table — shown only when reservation system is enabled */}
+          {reservationEnabled && (
+            <button
+              onClick={onReserve}
+              className="w-full flex items-center gap-3 px-3 py-2 mt-1 rounded-xl text-[13.5px] font-semibold transition-all border border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-500 hover:text-white hover:border-orange-500 active:scale-[0.98] group"
+            >
+              <CalendarDays className="w-[17px] h-[17px]" strokeWidth={1.6} />
+              <span>Reserve a Table</span>
+            </button>
+          )}
         </nav>
       </div>
 
@@ -764,6 +877,7 @@ export default function HomePage() {
         screen={screen}
         setScreen={setScreen}
         onAuth={() => setAuthModal({ open: true, tab: "login" })}
+        onReserve={() => setShowReservation(true)}
       />
 
       {/* ── Main content area ─────────────────────────────────────────────── */}
@@ -837,63 +951,43 @@ export default function HomePage() {
             )}
           </div>
 
-          {/* Mobile: cart button */}
-          <button onClick={() => setShowMobileCart(true)}
-            className="lg:hidden relative w-10 h-10 rounded-xl bg-zinc-100 flex items-center justify-center text-zinc-700 flex-shrink-0">
-            <ShoppingBag className="w-[18px] h-[18px]" strokeWidth={1.6} />
-            {totalInCart > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-0.5 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center tabular-nums">
-                {totalInCart}
-              </span>
-            )}
-          </button>
         </header>
 
-        {/* Mobile sticky category strip */}
-        <div className="lg:hidden flex-shrink-0 bg-white border-b border-zinc-100 shadow-sm">
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide px-4 py-2.5">
-            {/* Everything pill */}
-            <button
-              onClick={() => { setActiveCat("all"); setScreen("menu"); }}
-              className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all active:scale-95 ${
-                activeCat === "all" && screen === "menu"
-                  ? "bg-orange-500 text-white"
-                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-              }`}
-            >
-              <span className="text-sm leading-none">🍽️</span>
-              <span>Everything</span>
-            </button>
-            {/* Favourites pill */}
-            <button
-              onClick={() => setScreen("favourites")}
-              className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all active:scale-95 ${
-                screen === "favourites"
-                  ? "bg-red-500 text-white"
-                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-              }`}
-            >
-              <Heart className="w-3.5 h-3.5" strokeWidth={2} fill={screen === "favourites" ? "currentColor" : "none"} />
-              <span>Favourites</span>
-            </button>
-            {categories.map((cat) => (
-              <button key={cat.id}
-                onClick={() => { setActiveCat(cat.id); setScreen("menu"); }}
+        {/* Mobile sticky category strip — only shown on the menu screen */}
+        {screen === "menu" && (
+          <div className="lg:hidden flex-shrink-0 bg-white border-b border-zinc-100 shadow-sm">
+            <div className="flex gap-2 overflow-x-auto scrollbar-hide px-4 py-2.5">
+              {/* Everything pill */}
+              <button
+                onClick={() => setActiveCat("all")}
                 className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all active:scale-95 ${
-                  activeCat === cat.id && screen === "menu"
+                  activeCat === "all"
                     ? "bg-orange-500 text-white"
                     : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                 }`}
               >
-                <span className="text-sm leading-none">{cat.emoji}</span>
-                <span>{cat.name}</span>
+                <span className="text-sm leading-none">🍽️</span>
+                <span>Everything</span>
               </button>
-            ))}
+              {categories.map((cat) => (
+                <button key={cat.id}
+                  onClick={() => setActiveCat(cat.id)}
+                  className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all active:scale-95 ${
+                    activeCat === cat.id
+                      ? "bg-orange-500 text-white"
+                      : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                  }`}
+                >
+                  <span className="text-sm leading-none">{cat.emoji}</span>
+                  <span>{cat.name}</span>
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto pb-24 lg:pb-8">
+        {/* Scrollable content — pb-28 leaves room for the mobile bottom nav (58px + safe area) */}
+        <div className="flex-1 overflow-y-auto pb-28 lg:pb-8">
           {screen === "menu" && (
             <>
               <Hero isOpen={isOpen} onReserve={() => setShowReservation(true)} />
@@ -1320,26 +1414,15 @@ export default function HomePage() {
         <CartPanel />
       </aside>
 
-      {/* ── Docked mobile cart bar ────────────────────────────────────────── */}
-      <div className={`lg:hidden fixed bottom-0 left-0 right-0 z-40 transition-all duration-300 ${
-        totalInCart > 0 ? "translate-y-0 opacity-100" : "translate-y-full opacity-0 pointer-events-none"
-      }`}>
-        <div className="bg-white border-t border-zinc-100 shadow-[0_-4px_24px_rgba(0,0,0,0.08)] px-4 pt-3 pb-5">
-          <button onClick={() => setShowMobileCart(true)}
-            className="w-full flex items-center justify-between bg-orange-500 hover:bg-orange-600 active:scale-[0.99] text-white px-5 py-3.5 rounded-2xl shadow-lg transition-all">
-            <div className="flex items-center gap-3">
-              <span className="flex items-center justify-center w-7 h-7 bg-white/20 rounded-xl text-sm font-bold tabular-nums">
-                {totalInCart}
-              </span>
-              <span className="font-semibold text-base">{totalInCart === 1 ? "1 item" : `${totalInCart} items`}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-base tabular-nums">£{cartTotal.toFixed(2)}</span>
-              <ShoppingBag className="w-[18px] h-[18px]" strokeWidth={1.6} />
-            </div>
-          </button>
-        </div>
-      </div>
+      {/* ── Mobile bottom nav ─────────────────────────────────────────────── */}
+      <MobileBottomNav
+        screen={screen}
+        setScreen={setScreen}
+        cartCount={totalInCart}
+        onCartOpen={() => setShowMobileCart(true)}
+        onAuth={() => setAuthModal({ open: true, tab: "login" })}
+        currentUser={currentUser}
+      />
 
       {/* ── Mobile cart drawer ────────────────────────────────────────────── */}
       {showMobileCart && (
