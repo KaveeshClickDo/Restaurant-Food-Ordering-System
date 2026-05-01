@@ -104,6 +104,7 @@ export default function AuthModal({ initialTab = "login", onClose }: Props) {
 
         <div className="p-6">
           {/* ── Google OAuth button (both tabs) ─────────────────────────────── */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- OAuth redirect requires a hard navigation; Link would do a client-side fetch and break the flow */}
           <a
             href="/api/auth/google"
             className="flex items-center justify-center gap-3 w-full border border-gray-200 rounded-xl py-2.5 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 active:bg-gray-100 transition-colors mb-4"
