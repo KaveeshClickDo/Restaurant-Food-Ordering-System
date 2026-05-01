@@ -216,6 +216,11 @@ const DEFAULT_SETTINGS: AdminSettings = {
     { id: "w-2", name: "Alex",        pin: "2222", role: "waiter",  active: true, avatarColor: "#0891b2", createdAt: new Date().toISOString() },
     { id: "w-3", name: "Sophie",      pin: "3333", role: "waiter",  active: true, avatarColor: "#16a34a", createdAt: new Date().toISOString() },
   ],
+  kitchenStaff: [
+    { id: "k-1", name: "Head Chef",       pin: "1234", role: "head_chef",       active: true, avatarColor: "#dc2626", createdAt: new Date().toISOString() },
+    { id: "k-2", name: "Sous Chef",       pin: "2345", role: "chef",            active: true, avatarColor: "#ea580c", createdAt: new Date().toISOString() },
+    { id: "k-3", name: "Kitchen Manager", pin: "3456", role: "kitchen_manager", active: true, avatarColor: "#7c3aed", createdAt: new Date().toISOString() },
+  ],
   diningTables: [
     ...Array.from({ length: 6 },  (_, i) => ({ id: `t-${i+1}`,  number: i+1,  label: `T${i+1}`,  seats: i < 2 ? 2 : 4, section: "Main Hall", active: true })),
     ...Array.from({ length: 4 },  (_, i) => ({ id: `t-${i+7}`,  number: i+7,  label: `T${i+7}`,  seats: 4,             section: "Terrace",   active: true })),

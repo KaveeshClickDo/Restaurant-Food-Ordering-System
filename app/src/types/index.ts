@@ -335,6 +335,18 @@ export interface WaiterStaff {
   createdAt: string;
 }
 
+export type KitchenRole = "chef" | "head_chef" | "kitchen_manager";
+
+export interface KitchenStaff {
+  id: string;
+  name: string;
+  pin: string;
+  role: KitchenRole;
+  active: boolean;
+  avatarColor: string;
+  createdAt: string;
+}
+
 export interface DiningTable {
   id: string;
   number: number;
@@ -371,6 +383,7 @@ export interface AdminSettings {
   receiptSettings: ReceiptSettings;
   breakfastMenu: BreakfastMenuSettings;
   waiters: WaiterStaff[];
+  kitchenStaff: KitchenStaff[];
   diningTables: DiningTable[];
   reservationSystem: ReservationSystem;
 }

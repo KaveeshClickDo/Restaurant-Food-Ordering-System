@@ -2,12 +2,14 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useApp } from "@/context/AppContext";
+import type { KitchenStaff } from "@/types";
 import {
   ChefHat, Clock, Truck, ShoppingBag, CheckCircle2,
   LayoutDashboard, Maximize2, Minimize2, UtensilsCrossed,
-  AlertTriangle, CalendarClock,
+  AlertTriangle, CalendarClock, LogOut,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -423,12 +425,33 @@ function KanbanColumn({
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
+function initials(name: string) {
+  return name.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
+}
+
 export default function KitchenPage() {
   const { settings } = useApp();          // only used for restaurant name in header
+  const router = useRouter();
   const [orders,          setOrders]          = useState<KDSOrder[]>([]);
   const [loading,         setLoading]         = useState(true);
   const [completedToday,  setCompletedToday]  = useState(0);
   const [isFullscreen,    setIsFullscreen]    = useState(false);
+  const [currentStaff,    setCurrentStaff]    = useState<Omit<KitchenStaff, "pin"> | null>(null);
+
+  // Fetch current kitchen session on mount (best-effort — doesn't block KDS)
+  useEffect(() => {
+    fetch("/api/kitchen/auth")
+      .then((r) => r.json())
+      .then((d: { ok: boolean; staff?: Omit<KitchenStaff, "pin"> }) => {
+        if (d.ok && d.staff) setCurrentStaff(d.staff);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function handleLogout() {
+    await fetch("/api/kitchen/logout", { method: "POST" }).catch(() => {});
+    router.replace("/kitchen/login");
+  }
 
   // ── Initial load — direct orders query, no customer-state dependency ─────────
   useEffect(() => {
@@ -530,10 +553,13 @@ export default function KitchenPage() {
     );
     if (nextStatus === "ready") setCompletedToday((n) => n + 1);
 
+    const body: { status: string; updatedBy?: string } = { status: nextStatus };
+    if (currentStaff) body.updatedBy = currentStaff.name;
+
     const res = await fetch(`/api/kds/orders/${order.id}/status`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: nextStatus }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       // Rollback on failure
@@ -597,15 +623,33 @@ export default function KitchenPage() {
           </span>
         </div>
 
-        {/* Right — clock + links */}
+        {/* Right — staff badge + clock + links */}
         <div className="flex items-center gap-3 flex-shrink-0">
           <LiveClock />
+          {currentStaff && (
+            <div className="hidden sm:flex items-center gap-2">
+              <div
+                className="w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-[11px] flex-shrink-0"
+                style={{ backgroundColor: currentStaff.avatarColor }}
+              >
+                {initials(currentStaff.name)}
+              </div>
+              <span className="text-gray-300 text-xs font-medium">{currentStaff.name}</span>
+            </div>
+          )}
           <Link
             href="/admin"
             className="hidden sm:flex items-center gap-1.5 text-gray-400 hover:text-white transition-colors text-xs font-medium"
           >
             <LayoutDashboard size={14} /> Admin
           </Link>
+          <button
+            onClick={handleLogout}
+            className="text-gray-400 hover:text-red-400 transition-colors"
+            title="Log out"
+          >
+            <LogOut size={16} />
+          </button>
           <button
             onClick={toggleFullscreen}
             className="text-gray-400 hover:text-white transition-colors"
