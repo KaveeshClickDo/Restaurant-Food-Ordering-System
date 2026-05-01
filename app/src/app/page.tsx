@@ -28,10 +28,11 @@ const DIET_SHORT: Record<string, string> = {
 
 // ── Individual food card (grid layout) ─────────────────────────────────────
 function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
-  const { isOpen, scheduledTime } = useApp();
+  const { isOpen, scheduledTime, currentUser, isFavourite, toggleFavourite } = useApp();
   const stockStatus = resolveStock(item);
   const outOfStock = stockStatus === "out_of_stock";
   const canAdd = (isOpen || !!scheduledTime) && !outOfStock;
+  const faved = isFavourite(item.id);
 
   return (
     <div
@@ -63,6 +64,22 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
             Unavailable
           </span>
         )}
+
+        {/* Heart / favourite button — shown for logged-in users */}
+        {currentUser && (
+          <button
+            onClick={(e) => { e.stopPropagation(); toggleFavourite(item.id); }}
+            aria-label={faved ? "Remove from favourites" : "Save to favourites"}
+            className={`absolute top-2.5 right-2.5 w-8 h-8 rounded-full flex items-center justify-center shadow-md transition-all duration-200 ${
+              faved
+                ? "bg-red-500 text-white scale-100"
+                : "bg-white/90 text-zinc-400 opacity-0 group-hover:opacity-100 hover:text-red-500"
+            }`}
+          >
+            <Heart className="w-3.5 h-3.5" strokeWidth={2} fill={faved ? "currentColor" : "none"} />
+          </button>
+        )}
+
         {canAdd && (
           <button
             onClick={(e) => { e.stopPropagation(); onOpen(); }}
@@ -220,9 +237,10 @@ function Sidebar({
   const { restaurant } = settings;
 
   const navItems = [
-    { id: "menu",     label: "Menu",          Icon: UtensilsCrossed },
-    { id: "orders",   label: "My Orders",     Icon: Receipt },
-    { id: "profile",  label: "Profile",       Icon: User },
+    { id: "menu",       label: "Menu",        Icon: UtensilsCrossed },
+    { id: "favourites", label: "Favourites",  Icon: Heart },
+    { id: "orders",     label: "My Orders",   Icon: Receipt },
+    { id: "profile",    label: "Profile",     Icon: User },
   ];
 
   const headerLinks = (settings.menuLinks ?? [])
@@ -449,9 +467,14 @@ function CartPanel({ onMobileClose }: { onMobileClose?: () => void }) {
               <div className="flex justify-between text-[13px] text-zinc-500">
                 <span>Subtotal</span><span className="tabular-nums">£{cartTotal.toFixed(2)}</span>
               </div>
-              {fulfillment === "delivery" && (
+              {fulfillment === "delivery" && delivery > 0 && (
                 <div className="flex justify-between text-[13px] text-zinc-500">
                   <span>Delivery fee</span><span className="tabular-nums">£{delivery.toFixed(2)}</span>
+                </div>
+              )}
+              {fulfillment === "collection" && (
+                <div className="flex justify-between text-[13px] text-zinc-500">
+                  <span>Collection</span><span className="text-emerald-600 font-medium">Free</span>
                 </div>
               )}
               {serviceFee > 0 && (
@@ -534,13 +557,19 @@ function CartPanel({ onMobileClose }: { onMobileClose?: () => void }) {
 
 // ── Hero banner ──────────────────────────────────────────────────────────────
 function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void }) {
-  const { settings } = useApp();
+  const { settings, fulfillment, setFulfillment } = useApp();
   const { restaurant } = settings;
   const [showSchedule, setShowSchedule] = useState(false);
 
   const nextOpen = !isOpen
     ? getNextOpenTime(settings.schedule, settings.manualClosed)
     : null;
+
+  const isDelivery   = fulfillment === "delivery";
+  const estTime      = isDelivery ? restaurant.deliveryTime : restaurant.collectionTime;
+  const feeLabel     = isDelivery
+    ? (restaurant.deliveryFee > 0 ? `£${restaurant.deliveryFee.toFixed(2)} fee` : "Free delivery")
+    : "Free · no fee";
 
   return (
     <>
@@ -582,6 +611,34 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
               {restaurant.name}
             </h1>
             <p className="text-[14px] text-zinc-500 mb-4 max-w-md">{restaurant.tagline}</p>
+
+            {/* ── Delivery / Collection toggle ─────────────────────────── */}
+            <div className="inline-flex items-center p-1 rounded-xl bg-white border border-zinc-200/80 shadow-sm mb-4">
+              <button
+                onClick={() => setFulfillment("delivery")}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold transition-all duration-200 ${
+                  isDelivery
+                    ? "bg-orange-500 text-white shadow-sm"
+                    : "text-zinc-500 hover:text-zinc-800"
+                }`}
+              >
+                <Bike className="w-3.5 h-3.5" strokeWidth={1.8} />
+                Delivery
+              </button>
+              <button
+                onClick={() => setFulfillment("collection")}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold transition-all duration-200 ${
+                  !isDelivery
+                    ? "bg-orange-500 text-white shadow-sm"
+                    : "text-zinc-500 hover:text-zinc-800"
+                }`}
+              >
+                <ShoppingBag className="w-3.5 h-3.5" strokeWidth={1.8} />
+                Collection
+              </button>
+            </div>
+
+            {/* Stats — contextual to selected mode */}
             <div className="flex flex-wrap items-center gap-4 text-[12.5px] text-zinc-600">
               <span className="inline-flex items-center gap-1.5">
                 <Star className="w-3.5 h-3.5" strokeWidth={2} fill="currentColor" />
@@ -591,14 +648,17 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
               <span className="w-1 h-1 rounded-full bg-zinc-300" />
               <span className="inline-flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5" strokeWidth={1.8} />
-                <span className="font-medium">{restaurant.deliveryTime} min</span>
+                <span className="font-medium">{estTime} min</span>
               </span>
               <span className="w-1 h-1 rounded-full bg-zinc-300" />
               <span className="inline-flex items-center gap-1.5">
-                <Bike className="w-3.5 h-3.5" strokeWidth={1.8} />
-                <span className="font-medium">£{restaurant.deliveryFee.toFixed(2)} delivery</span>
+                {isDelivery
+                  ? <Bike className="w-3.5 h-3.5" strokeWidth={1.8} />
+                  : <ShoppingBag className="w-3.5 h-3.5" strokeWidth={1.8} />}
+                <span className="font-medium">{feeLabel}</span>
               </span>
             </div>
+
             <div className="flex flex-wrap items-center gap-2 mt-4">
               {settings.reservationSystem?.enabled && (
                 <button
@@ -644,7 +704,7 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
 export default function HomePage() {
   const {
     categories, menuItems, settings, cartCount, cartTotal,
-    isOpen, currentUser, logout, addToCart,
+    isOpen, currentUser, logout, addToCart, toggleFavourite,
   } = useApp();
 
   const [activeCat,        setActiveCat]        = useState("all");
@@ -803,6 +863,18 @@ export default function HomePage() {
             >
               <span className="text-sm leading-none">🍽️</span>
               <span>Everything</span>
+            </button>
+            {/* Favourites pill */}
+            <button
+              onClick={() => setScreen("favourites")}
+              className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all active:scale-95 ${
+                screen === "favourites"
+                  ? "bg-red-500 text-white"
+                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+              }`}
+            >
+              <Heart className="w-3.5 h-3.5" strokeWidth={2} fill={screen === "favourites" ? "currentColor" : "none"} />
+              <span>Favourites</span>
             </button>
             {categories.map((cat) => (
               <button key={cat.id}
@@ -996,6 +1068,104 @@ export default function HomePage() {
             );
           })()}
 
+          {screen === "favourites" && (() => {
+            const favIds = new Set(currentUser?.favourites ?? []);
+            const favItems = menuItems.filter((m) => favIds.has(m.id));
+            return (
+              <div className="px-4 sm:px-6 py-6">
+                <div className="flex items-center justify-between mb-1">
+                  <h2 className="font-semibold text-[22px] text-zinc-900 tracking-tight">Favourites</h2>
+                  {favItems.length > 0 && (
+                    <span className="text-[12px] text-zinc-400 tabular-nums">{favItems.length} saved</span>
+                  )}
+                </div>
+                <p className="text-[13px] text-zinc-500 mb-5">Your saved dishes — quick to find, quick to order.</p>
+
+                {!currentUser ? (
+                  <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
+                    <div className="w-14 h-14 rounded-2xl bg-zinc-100 flex items-center justify-center">
+                      <Heart className="w-7 h-7 text-zinc-300" strokeWidth={1.4} />
+                    </div>
+                    <p className="text-[13.5px] text-zinc-500">Sign in to save your favourite dishes</p>
+                    <button onClick={() => setAuthModal({ open: true, tab: "login" })}
+                      className="px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-[13.5px] font-semibold transition-colors">
+                      Sign in
+                    </button>
+                  </div>
+                ) : favItems.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+                    <div className="w-14 h-14 rounded-2xl bg-zinc-100 flex items-center justify-center">
+                      <Heart className="w-7 h-7 text-zinc-300" strokeWidth={1.4} />
+                    </div>
+                    <p className="text-[14px] font-medium text-zinc-600">No favourites yet</p>
+                    <p className="text-[13px] text-zinc-400 max-w-xs">
+                      Tap the ♡ on any dish to save it here for quick reordering.
+                    </p>
+                    <button
+                      onClick={() => setScreen("menu")}
+                      className="mt-2 px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-[13.5px] font-semibold transition-colors"
+                    >
+                      Browse menu
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+                    {favItems.map((item) => {
+                      const stockStatus = resolveStock(item);
+                      const outOfStock = stockStatus === "out_of_stock";
+                      const canAdd = (isOpen || !!settings.restaurant) && !outOfStock;
+                      return (
+                        <div key={item.id} className="bg-white rounded-2xl border border-zinc-200/70 shadow-sm overflow-hidden group">
+                          {/* Image */}
+                          <div className="relative h-[160px] bg-orange-50 overflow-hidden">
+                            {item.image ? (
+                              /* eslint-disable-next-line @next/next/no-img-element */
+                              <img src={item.image} alt={item.name}
+                                className={`absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03] ${outOfStock ? "grayscale opacity-50" : ""}`}
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <UtensilsCrossed className="w-8 h-8 text-zinc-300" strokeWidth={1.2} />
+                              </div>
+                            )}
+                            {/* Remove from favourites */}
+                            <button
+                              onClick={() => toggleFavourite(item.id)}
+                              aria-label="Remove from favourites"
+                              className="absolute top-2.5 right-2.5 w-8 h-8 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md hover:bg-red-600 transition-colors"
+                            >
+                              <Heart className="w-3.5 h-3.5" strokeWidth={2} fill="currentColor" />
+                            </button>
+                          </div>
+                          {/* Body */}
+                          <div className="p-4">
+                            <div className="flex items-start justify-between gap-2 mb-1">
+                              <h3 className="font-medium text-[15px] leading-snug text-zinc-900">{item.name}</h3>
+                              <span className="font-semibold text-[15px] text-zinc-900 tabular-nums flex-shrink-0">£{item.price.toFixed(2)}</span>
+                            </div>
+                            <p className="text-[12.5px] text-zinc-500 leading-snug line-clamp-2 mb-3">{item.description}</p>
+                            <button
+                              disabled={!canAdd}
+                              onClick={() => setOpenItem(item)}
+                              className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[13px] font-semibold transition-all active:scale-[0.98] ${
+                                canAdd
+                                  ? "bg-orange-500 hover:bg-orange-600 text-white"
+                                  : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
+                              }`}
+                            >
+                              <Plus className="w-4 h-4" strokeWidth={2.5} />
+                              {outOfStock ? "Unavailable" : "Add to order"}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {screen === "profile" && (
             <div className="px-4 sm:px-6 py-6 overflow-y-auto">
               <h2 className="font-semibold text-[22px] text-zinc-900 tracking-tight mb-5">Profile</h2>
@@ -1077,13 +1247,17 @@ export default function HomePage() {
                         <p className="text-[13px] font-medium text-zinc-800">{currentUser.orders.length}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3 px-4 py-3">
-                      <Heart className="w-4 h-4 text-zinc-400 flex-shrink-0" strokeWidth={1.8} />
+                    <button
+                      onClick={() => setScreen("favourites")}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-50 transition-colors text-left"
+                    >
+                      <Heart className="w-4 h-4 text-red-400 flex-shrink-0" strokeWidth={1.8} fill={currentUser.favourites && currentUser.favourites.length > 0 ? "currentColor" : "none"} />
                       <div className="flex-1">
                         <p className="text-[11px] text-zinc-400 leading-none mb-0.5">Saved favourites</p>
                         <p className="text-[13px] font-medium text-zinc-800">{currentUser.favourites?.length ?? 0}</p>
                       </div>
-                    </div>
+                      <ChevronRight className="w-3.5 h-3.5 text-zinc-300" strokeWidth={2} />
+                    </button>
                     <div className="flex items-center gap-3 px-4 py-3">
                       <Star className="w-4 h-4 text-zinc-400 flex-shrink-0" strokeWidth={1.8} />
                       <div className="flex-1">
