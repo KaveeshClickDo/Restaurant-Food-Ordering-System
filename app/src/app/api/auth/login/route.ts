@@ -17,8 +17,15 @@ import {
   COOKIE_CUSTOMER,
   unauthorizedJson,
 } from "@/lib/auth";
+import { rateLimit } from "@/lib/rateLimit";
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const { limited } = rateLimit(`login:${ip}`, 10, 60_000);
+  if (limited) {
+    return NextResponse.json({ ok: false, error: "Too many login attempts. Please wait a minute." }, { status: 429 });
+  }
+
   let body: { email?: string; password?: string };
   try {
     body = await req.json();

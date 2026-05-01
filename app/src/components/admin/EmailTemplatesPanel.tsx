@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import DOMPurify from "isomorphic-dompurify";
 import { useApp } from "@/context/AppContext";
 import type { EmailTemplate, EmailTemplateEvent } from "@/types";
 import {
@@ -268,7 +269,7 @@ function EmailPreview({
       <div className="border border-gray-200 rounded-xl overflow-hidden bg-gray-100 p-4">
         <div
           className="max-w-[600px] mx-auto"
-          dangerouslySetInnerHTML={{ __html: html }}
+          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html, { FORCE_BODY: true }) }}
         />
       </div>
       <p className="text-[11px] text-gray-400 text-center">

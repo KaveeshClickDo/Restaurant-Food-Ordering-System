@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
         voided_at:   new Date().toISOString(),
       })
       .in("id", orderIds)
+      .eq("fulfillment", "dine-in")
       .not("status", "in", '("delivered","cancelled","refunded","partially_refunded")');
 
     if (error) {
@@ -47,6 +48,7 @@ export async function POST(req: NextRequest) {
           .from("orders")
           .update({ status: "cancelled" })
           .in("id", orderIds)
+          .eq("fulfillment", "dine-in")
           .not("status", "in", '("delivered","cancelled","refunded","partially_refunded")');
 
         if (fallbackError) {

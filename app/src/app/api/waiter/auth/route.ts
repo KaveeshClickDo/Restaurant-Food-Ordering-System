@@ -13,6 +13,7 @@ import {
   setSessionCookie,
   COOKIE_WAITER,
 } from "@/lib/auth";
+import { rateLimit } from "@/lib/rateLimit";
 
 const SEED_WAITERS: WaiterStaff[] = [
   { id: "w-1", name: "Head Waiter", pin: "1111", role: "senior", active: true, avatarColor: "#7c3aed", createdAt: "" },
@@ -21,6 +22,12 @@ const SEED_WAITERS: WaiterStaff[] = [
 ];
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const { limited } = rateLimit(`waiter-auth:${ip}`, 10, 60_000);
+  if (limited) {
+    return NextResponse.json({ ok: false, error: "Too many attempts. Please wait a minute." }, { status: 429 });
+  }
+
   let body: { staffId?: string; pin?: string };
   try { body = await req.json(); }
   catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }

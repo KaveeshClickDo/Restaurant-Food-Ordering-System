@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
+import { requireWaiterAuth }         from "@/lib/waiterAuth";
 
 const POS_CUSTOMER_ID = "pos-walk-in";
 
@@ -19,6 +20,9 @@ async function ensureWalkInCustomer() {
 }
 
 export async function POST(req: NextRequest) {
+  const authError = await requireWaiterAuth();
+  if (authError) return authError;
+
   let body: {
     tableLabel?: string;
     covers?: number;

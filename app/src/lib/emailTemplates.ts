@@ -251,6 +251,22 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
 
 // ─── Variable replacement ─────────────────────────────────────────────────────
 
+/**
+ * Escape a user-supplied string for safe inclusion in HTML email bodies.
+ * Applied to any value that comes from user input (customer name, address, etc.)
+ * so that HTML injection / phishing links cannot be crafted by malicious users.
+ * System-generated values (order IDs, monetary amounts, dates) and pre-built
+ * HTML fragments (order_items table, brand colours) do not need escaping.
+ */
+function escHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 /** Derive a light tint from a hex brand color for use in email backgrounds. */
 function brandColorLight(hex: string): string {
   // Parse R/G/B and blend 15% toward white (#fff7ed is the orange-50 equivalent)
@@ -361,25 +377,27 @@ export function buildVarMap(
       : String(settings.restaurant.collectionTime);
 
   return {
-    customer_name:      customer?.name        ?? "Valued Customer",
-    customer_email:     customer?.email       ?? "",
+    // User-supplied — must be HTML-escaped to prevent injection / phishing links.
+    customer_name:      escHtml(customer?.name    ?? "Valued Customer"),
+    customer_email:     escHtml(customer?.email   ?? ""),
+    delivery_address:   escHtml(order.address     ?? ""),
+    payment_method:     escHtml(order.paymentMethod ?? ""),
+    // System-generated or admin-supplied — safe as-is.
     order_id:           order.id.toUpperCase(),
     order_date:         new Date(order.date).toLocaleString("en-GB", {
       day: "2-digit", month: "short", year: "numeric",
       hour: "2-digit", minute: "2-digit",
     }),
-    order_items:        orderItemsTable,
+    order_items:        orderItemsTable,   // server-built HTML — do not escape
     order_total:        `£${order.total.toFixed(2)}`,
     order_status:       order.status,
     fulfillment_type:   order.fulfillment === "delivery" ? "Delivery" : "Collection",
-    delivery_address:   order.address ?? "",
-    payment_method:     order.paymentMethod ?? "",
     restaurant_name:    settings.restaurant.name,
     restaurant_phone:   settings.restaurant.phone,
     restaurant_address: restAddr,
     estimated_time:     estTime,
     order_vat:          buildVatString(order.vatAmount, order.vatInclusive, settings),
-    brand_color:        primaryColor,
+    brand_color:        primaryColor,       // hex — used in style attributes, not escaped
     brand_color_light:  brandColorLight(primaryColor),
   };
 }
@@ -633,15 +651,15 @@ export function buildReservationVarMap(
     : "";
 
   return {
-    customer_name:      res.customer_name,
-    customer_email:     res.customer_email,
+    customer_name:      escHtml(res.customer_name),
+    customer_email:     escHtml(res.customer_email),
     booking_ref:        res.id.slice(0, 8).toUpperCase(),
     reservation_date:   formattedDate,
     reservation_time:   formattedTime,
-    table_label:        res.table_label,
+    table_label:        escHtml(res.table_label),
     party_size:         String(res.party_size),
     reservation_status: res.status,
-    reservation_note:   res.note ?? "",
+    reservation_note:   escHtml(res.note ?? ""),
     restaurant_name:    settings.restaurant.name,
     restaurant_phone:   settings.restaurant.phone,
     restaurant_address: restAddr,

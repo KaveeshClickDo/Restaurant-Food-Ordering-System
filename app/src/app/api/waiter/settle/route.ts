@@ -32,7 +32,8 @@ export async function POST(req: NextRequest) {
         status:         "delivered",
         payment_method: paymentMethod ?? "table-service",
       })
-      .in("id", orderIds);
+      .in("id", orderIds)
+      .eq("fulfillment", "dine-in");
 
     if (error) {
       console.error("waiter/settle:", error.message);
