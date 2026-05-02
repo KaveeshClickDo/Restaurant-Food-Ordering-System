@@ -1,22 +1,47 @@
 "use client";
 
 import Link from "next/link";
+import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { UtensilsCrossed, Receipt, User, LogOut, CalendarDays } from "lucide-react";
+import {
+  UtensilsCrossed, Receipt, User, LogOut, CalendarDays,
+  Heart, MapPin,
+} from "lucide-react";
 import { useApp } from "@/context/AppContext";
+
+// Account sub-items with their corresponding ?tab= values.
+// "Account" (tab "orders") is the default/root account view.
+const ACCOUNT_ITEMS = [
+  { label: "Account",    Icon: Receipt,  href: "/account",               tab: "orders"     },
+  { label: "Favourites", Icon: Heart,    href: "/account?tab=favourites", tab: "favourites" },
+  { label: "Addresses",  Icon: MapPin,   href: "/account?tab=addresses",  tab: "addresses"  },
+  { label: "Profile",    Icon: User,     href: "/account?tab=profile",    tab: "profile"    },
+] as const;
 
 export default function SiteSidebar() {
   const { settings, categories, currentUser, logout } = useApp();
   const { restaurant } = settings;
-  const pathname = usePathname();
-
+  const pathname            = usePathname();
+  const isAccountPage       = pathname.startsWith("/account");
   const reservationsEnabled = settings.reservationSystem?.enabled ?? false;
 
-  const coreNavItems = [
-    { label: "Menu",         Icon: UtensilsCrossed, href: "/"        },
-    { label: "My Orders",    Icon: Receipt,          href: "/account" },
-    ...(reservationsEnabled ? [{ label: "Book a table", Icon: CalendarDays, href: "/book" }] : []),
-  ];
+  // Track the current account tab without useSearchParams (avoids Suspense).
+  // Initialised from the URL on mount; updated whenever the account page
+  // signals a tab change via the "account-tab-change" custom event.
+  const [currentTab, setCurrentTab] = useState<string>("orders");
+
+  useEffect(() => {
+    // Read initial tab from URL (runs after hydration).
+    const params = new URLSearchParams(window.location.search);
+    setCurrentTab(params.get("tab") ?? "orders");
+
+    // React to tab changes dispatched by the account page.
+    function onTabChange(e: Event) {
+      setCurrentTab((e as CustomEvent<{ tab: string }>).detail.tab);
+    }
+    window.addEventListener("account-tab-change", onTabChange);
+    return () => window.removeEventListener("account-tab-change", onTabChange);
+  }, [pathname]); // re-seed when navigating to/from /account
 
   const headerLinks = (settings.menuLinks ?? [])
     .filter((l) => l.location === "header" && l.active)
@@ -48,14 +73,24 @@ export default function SiteSidebar() {
       <div className="px-4 pb-2">
         <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400 px-3 mb-2">Navigate</p>
         <nav className="space-y-0.5">
-          {coreNavItems.map(({ label, Icon, href }) => {
-            const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+
+          {/* Menu */}
+          <Link href="/"
+            className={`flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors ${
+              pathname === "/" ? "bg-orange-500 text-white" : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+            }`}
+          >
+            <UtensilsCrossed className="w-[17px] h-[17px]" strokeWidth={1.6} />
+            <span>Menu</span>
+          </Link>
+
+          {/* Account sub-items */}
+          {ACCOUNT_ITEMS.map(({ label, Icon, href, tab }) => {
+            const active = isAccountPage && currentTab === tab;
             return (
               <Link key={label} href={href}
                 className={`flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors ${
-                  active
-                    ? "bg-orange-500 text-white"
-                    : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                  active ? "bg-orange-500 text-white" : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
                 }`}
               >
                 <Icon className="w-[17px] h-[17px]" strokeWidth={1.6} />
@@ -63,14 +98,26 @@ export default function SiteSidebar() {
               </Link>
             );
           })}
+
+          {/* Book a table */}
+          {reservationsEnabled && (
+            <Link href="/book"
+              className={`flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors ${
+                pathname.startsWith("/book") ? "bg-orange-500 text-white" : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              }`}
+            >
+              <CalendarDays className="w-[17px] h-[17px]" strokeWidth={1.6} />
+              <span>Book a table</span>
+            </Link>
+          )}
+
+          {/* Admin-managed header links */}
           {headerLinks.map((link) => {
             const active = pathname === link.href || (link.href !== "/" && pathname.startsWith(link.href));
             return (
               <Link key={link.id} href={link.href}
                 className={`flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors ${
-                  active
-                    ? "bg-orange-500 text-white"
-                    : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                  active ? "bg-orange-500 text-white" : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
                 }`}
               >
                 <span className="w-[17px] h-[17px] flex items-center justify-center text-[11px] font-bold opacity-60">●</span>
@@ -85,7 +132,6 @@ export default function SiteSidebar() {
       <div className="px-4 pt-3 pb-2 flex-1 overflow-y-auto">
         <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400 px-3 mb-2">Categories</p>
         <nav className="space-y-0.5">
-          {/* Everything */}
           <Link href="/"
             className="flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] transition-colors text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50">
             <span className="text-base leading-none">🍽️</span>

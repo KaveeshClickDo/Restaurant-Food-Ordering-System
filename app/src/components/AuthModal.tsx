@@ -8,9 +8,11 @@ import { useApp } from "@/context/AppContext";
 interface Props {
   initialTab?: "login" | "register";
   onClose: () => void;
+  onSuccess?: () => void;
+  subtitle?: string;
 }
 
-export default function AuthModal({ initialTab = "login", onClose }: Props) {
+export default function AuthModal({ initialTab = "login", onClose, onSuccess, subtitle }: Props) {
   const { login, register } = useApp();
   const router = useRouter();
 
@@ -30,6 +32,7 @@ export default function AuthModal({ initialTab = "login", onClose }: Props) {
       const ok = await login(loginForm.email, loginForm.password);
       if (ok) {
         onClose();
+        onSuccess?.();
       } else {
         setError("Incorrect email or password.");
         setIsAuthError(true);
@@ -49,7 +52,7 @@ export default function AuthModal({ initialTab = "login", onClose }: Props) {
     setLoading(true);
     try {
       const result = await register(registerForm.name, registerForm.email, registerForm.phone, registerForm.password);
-      if (result.success) { onClose(); } else { setError(result.error ?? "Registration failed."); }
+      if (result.success) { onClose(); onSuccess?.(); } else { setError(result.error ?? "Registration failed."); }
     } catch {
       setError("Connection error. Please try again.");
     } finally {
@@ -84,6 +87,13 @@ export default function AuthModal({ initialTab = "login", onClose }: Props) {
         >
           <X size={16} />
         </button>
+
+        {/* Checkout context banner */}
+        {subtitle && (
+          <div className="px-6 pt-5 pb-0">
+            <p className="text-[13px] text-gray-500 leading-relaxed pr-8">{subtitle}</p>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex border-b border-gray-100">

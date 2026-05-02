@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   User, Mail, Phone, Calendar, ShoppingBag, TrendingUp, Clock,
@@ -1047,9 +1047,32 @@ function ProfileTab() {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AccountPage() {
+  return (
+    <Suspense>
+      <AccountPageContent />
+    </Suspense>
+  );
+}
+
+const VALID_TABS = ["orders", "favourites", "addresses", "profile"] as const;
+type TabId = typeof VALID_TABS[number];
+
+function AccountPageContent() {
   const { currentUser, customers, addToCart, menuItems, refreshCurrentUser } = useApp();
   const router = useRouter();
-  const [tab, setTab] = useState<"orders" | "favourites" | "addresses" | "profile">("orders");
+  const searchParams = useSearchParams();
+
+  const urlTab = searchParams.get("tab");
+  const initialTab: TabId = (VALID_TABS as readonly string[]).includes(urlTab ?? "") ? urlTab as TabId : "orders";
+
+  const [tab, setTab] = useState<TabId>(initialTab);
+
+  function handleTabChange(t: TabId) {
+    setTab(t);
+    router.replace(t === "orders" ? "/account" : `/account?tab=${t}`, { scroll: false });
+    window.dispatchEvent(new CustomEvent("account-tab-change", { detail: { tab: t } }));
+  }
+
   const [showAuth, setShowAuth] = useState(false);
   const [reorderToast, setReorderToast] = useState<ReorderResult | null>(null);
   const [updateBanner, setUpdateBanner] = useState<string | null>(null);
@@ -1327,7 +1350,7 @@ export default function AccountPage() {
           {(["orders", "favourites", "addresses", "profile"] as const).map((t) => (
             <button
               key={t}
-              onClick={() => setTab(t)}
+              onClick={() => handleTabChange(t)}
               className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-[13px] sm:text-sm font-semibold transition-all whitespace-nowrap flex-shrink-0 ${
                 tab === t ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
               }`}

@@ -485,8 +485,9 @@ function Sidebar({
 
 // ── Right cart panel ─────────────────────────────────────────────────────────
 function CartPanel({ onMobileClose, onOrderPlaced }: { onMobileClose?: () => void; onOrderPlaced?: () => void }) {
-  const { cart, updateQty, clearCart, cartTotal, settings, fulfillment, isOpen, scheduledTime, setScheduledTime } = useApp();
+  const { cart, updateQty, clearCart, cartTotal, settings, fulfillment, isOpen, scheduledTime, setScheduledTime, currentUser } = useApp();
   const [showCheckout, setShowCheckout] = useState(false);
+  const [showAuth,     setShowAuth]     = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
 
   const { minOrder, deliveryFee, serviceFee } = settings.restaurant;
@@ -646,7 +647,7 @@ function CartPanel({ onMobileClose, onOrderPlaced }: { onMobileClose?: () => voi
             <div className="px-5 pb-5">
               <button
                 disabled={!canCheckout}
-                onClick={() => setShowCheckout(true)}
+                onClick={() => currentUser ? setShowCheckout(true) : setShowAuth(true)}
                 className={`w-full py-3.5 rounded-xl font-semibold text-[14px] flex items-center justify-between px-5 transition-all ${
                   canCheckout
                     ? "bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white"
@@ -665,6 +666,13 @@ function CartPanel({ onMobileClose, onOrderPlaced }: { onMobileClose?: () => voi
         )}
       </div>
 
+      {showAuth && (
+        <AuthModal
+          onClose={() => setShowAuth(false)}
+          onSuccess={() => setShowCheckout(true)}
+          subtitle="Sign in or create an account to place your order — your basket will be saved."
+        />
+      )}
       {showCheckout && (
         <CheckoutModal
           onClose={() => setShowCheckout(false)}
