@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import OperationsPanel      from "@/components/admin/OperationsPanel";
@@ -155,6 +155,14 @@ function bannerSubtitle(
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function AdminPage() {
+  return (
+    <Suspense>
+      <AdminPageContent />
+    </Suspense>
+  );
+}
+
+function AdminPageContent() {
   const { isOpen, settings, menuItems, categories, customers } = useApp();
   const router       = useRouter();
   const searchParams = useSearchParams();
