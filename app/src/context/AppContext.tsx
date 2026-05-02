@@ -388,11 +388,59 @@ function customerToRow(c: Customer) {
   };
 }
 
+// ─── Settings builder ─────────────────────────────────────────────────────────
+// Shared by: AppProvider initial state, init useEffect, and Realtime subscription.
+// Accepts the raw `data` column from app_settings (or null → returns DEFAULT_SETTINGS).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildSettingsFromData(raw: Record<string, unknown> | null): AdminSettings {
+  if (!raw) return DEFAULT_SETTINGS;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const d = raw as any;
+  return {
+    ...DEFAULT_SETTINGS,
+    ...d,
+    restaurant:        { ...DEFAULT_SETTINGS.restaurant,        ...(d.restaurant        ?? {}) },
+    schedule:          { ...DEFAULT_SETTINGS.schedule,          ...(d.schedule          ?? {}) },
+    colors:            { ...DEFAULT_SETTINGS.colors,            ...(d.colors            ?? {}) },
+    taxSettings:       { ...DEFAULT_SETTINGS.taxSettings,       ...(d.taxSettings       ?? {}) },
+    printer:           { ...DEFAULT_SETTINGS.printer,           ...(d.printer           ?? {}) },
+    seo:               { ...DEFAULT_SETTINGS.seo,               ...(d.seo               ?? {}) },
+    receiptSettings:   { ...DEFAULT_SETTINGS.receiptSettings,   ...(d.receiptSettings   ?? {}) },
+    reservationSystem: { ...DEFAULT_SETTINGS.reservationSystem, ...(d.reservationSystem ?? {}) },
+    breakfastMenu: {
+      ...DEFAULT_SETTINGS.breakfastMenu,
+      ...(d.breakfastMenu ?? {}),
+      categories: d.breakfastMenu?.categories ?? DEFAULT_SETTINGS.breakfastMenu.categories,
+      items:      d.breakfastMenu?.items      ?? DEFAULT_SETTINGS.breakfastMenu.items,
+    },
+    emailTemplates:  mergeEmailTemplates(d.emailTemplates),
+    footerPages:     d.footerPages    ?? DEFAULT_SETTINGS.footerPages,
+    paymentMethods:  d.paymentMethods ?? DEFAULT_SETTINGS.paymentMethods,
+    deliveryZones:   d.deliveryZones  ?? DEFAULT_SETTINGS.deliveryZones,
+    coupons:         d.coupons        ?? [],
+    waiters:         d.waiters        ?? DEFAULT_SETTINGS.waiters,
+    kitchenStaff:    d.kitchenStaff   ?? DEFAULT_SETTINGS.kitchenStaff,
+    diningTables:    d.diningTables   ?? DEFAULT_SETTINGS.diningTables,
+    // Sensitive fields explicitly excluded — must never reach client state:
+    // drivers, stripeSecretKey, paypalClientId, smtpHost/Port/User/Password
+  };
+}
+
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
-export function AppProvider({ children }: { children: React.ReactNode }) {
+export function AppProvider({
+  children,
+  initialData,
+}: {
+  children:     React.ReactNode;
+  initialData?: Record<string, unknown> | null;
+}) {
   const [cart, dispatch]         = useReducer(cartReducer, []);
-  const [settings, setSettings]  = useState<AdminSettings>(DEFAULT_SETTINGS);
+  // Initialise from server-passed data so the color useEffect writes the same
+  // CSS as the server already injected — eliminates the FOUC/theme-flicker.
+  const [settings, setSettings]  = useState<AdminSettings>(
+    () => buildSettingsFromData(initialData ?? null),
+  );
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems]   = useState<MenuItem[]>([]);
   const [customers, setCustomers]   = useState<Customer[]>([]);
@@ -515,39 +563,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           console.error("AppContext: failed to load settings:", settingsErr.message);
         }
         if (settingsData?.data) {
-          // Deep-merge with DEFAULT_SETTINGS so new fields added to the default
-          // are always present even if the stored snapshot pre-dates them.
-          // Note: sensitive fields (drivers, stripeSecretKey, smtpPassword, etc.)
-          // are intentionally omitted — they must never be sent to the browser.
-          const d = settingsData.data;
-          setSettings({
-            ...DEFAULT_SETTINGS,
-            ...d,
-            // Ensure critical nested objects always have their default structure
-            restaurant:      { ...DEFAULT_SETTINGS.restaurant,      ...(d.restaurant      ?? {}) },
-            schedule:        { ...DEFAULT_SETTINGS.schedule,        ...(d.schedule        ?? {}) },
-            colors:          { ...DEFAULT_SETTINGS.colors,          ...(d.colors          ?? {}) },
-            taxSettings:     { ...DEFAULT_SETTINGS.taxSettings,     ...(d.taxSettings     ?? {}) },
-            printer:         { ...DEFAULT_SETTINGS.printer,         ...(d.printer         ?? {}) },
-            seo:             { ...DEFAULT_SETTINGS.seo,             ...(d.seo             ?? {}) },
-            receiptSettings: { ...DEFAULT_SETTINGS.receiptSettings, ...(d.receiptSettings ?? {}) },
-            breakfastMenu: {
-              ...DEFAULT_SETTINGS.breakfastMenu,
-              ...(d.breakfastMenu ?? {}),
-              categories: d.breakfastMenu?.categories ?? DEFAULT_SETTINGS.breakfastMenu.categories,
-              items:      d.breakfastMenu?.items      ?? DEFAULT_SETTINGS.breakfastMenu.items,
-            },
-            emailTemplates: mergeEmailTemplates(d.emailTemplates),
-            footerPages:    d.footerPages    ?? DEFAULT_SETTINGS.footerPages,
-            paymentMethods: d.paymentMethods ?? DEFAULT_SETTINGS.paymentMethods,
-            deliveryZones:  d.deliveryZones  ?? DEFAULT_SETTINGS.deliveryZones,
-            coupons:        d.coupons        ?? [],
-            waiters:           d.waiters           ?? DEFAULT_SETTINGS.waiters,
-            diningTables:      d.diningTables      ?? DEFAULT_SETTINGS.diningTables,
-            reservationSystem: { ...DEFAULT_SETTINGS.reservationSystem, ...(d.reservationSystem ?? {}) },
-            // Sensitive fields explicitly excluded — never loaded into client state:
-            // drivers, stripeSecretKey, paypalClientId, smtpHost/Port/User/Password
-          });
+          setSettings(buildSettingsFromData(settingsData.data));
         } else if (!settingsData) {
           // First run — seed settings into the DB
           await supabase.from("app_settings").insert({ id: 1, data: DEFAULT_SETTINGS });
@@ -622,33 +638,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "app_settings" },
         ({ new: row }) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const d = (row as any).data ?? {};
-          setSettings({
-            ...DEFAULT_SETTINGS,
-            ...d,
-            restaurant:      { ...DEFAULT_SETTINGS.restaurant,      ...(d.restaurant      ?? {}) },
-            schedule:        { ...DEFAULT_SETTINGS.schedule,        ...(d.schedule        ?? {}) },
-            colors:          { ...DEFAULT_SETTINGS.colors,          ...(d.colors          ?? {}) },
-            taxSettings:     { ...DEFAULT_SETTINGS.taxSettings,     ...(d.taxSettings     ?? {}) },
-            printer:         { ...DEFAULT_SETTINGS.printer,         ...(d.printer         ?? {}) },
-            seo:             { ...DEFAULT_SETTINGS.seo,             ...(d.seo             ?? {}) },
-            receiptSettings: { ...DEFAULT_SETTINGS.receiptSettings, ...(d.receiptSettings ?? {}) },
-            breakfastMenu: {
-              ...DEFAULT_SETTINGS.breakfastMenu,
-              ...(d.breakfastMenu ?? {}),
-              categories: d.breakfastMenu?.categories ?? DEFAULT_SETTINGS.breakfastMenu.categories,
-              items:      d.breakfastMenu?.items      ?? DEFAULT_SETTINGS.breakfastMenu.items,
-            },
-            emailTemplates: mergeEmailTemplates(d.emailTemplates),
-            footerPages:    d.footerPages    ?? DEFAULT_SETTINGS.footerPages,
-            paymentMethods: d.paymentMethods ?? DEFAULT_SETTINGS.paymentMethods,
-            deliveryZones:  d.deliveryZones  ?? DEFAULT_SETTINGS.deliveryZones,
-            coupons:        d.coupons        ?? [],
-            waiters:           d.waiters           ?? DEFAULT_SETTINGS.waiters,
-            diningTables:      d.diningTables      ?? DEFAULT_SETTINGS.diningTables,
-            reservationSystem: { ...DEFAULT_SETTINGS.reservationSystem, ...(d.reservationSystem ?? {}) },
-            // drivers, stripeSecretKey, smtpPassword, etc. intentionally excluded
-          });
+          setSettings(buildSettingsFromData((row as any).data ?? null));
         })
       // Categories
       .on("postgres_changes", { event: "*", schema: "public", table: "categories" },

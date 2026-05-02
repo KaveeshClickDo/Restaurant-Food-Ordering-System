@@ -32,7 +32,7 @@ async function getDbSettings(): Promise<Record<string, unknown> | null> {
           Authorization: `Bearer ${serviceKey}`,
           Accept:        "application/json",
         },
-        cache: "no-store",
+        next: { revalidate: 60 },
       },
     );
     if (!res.ok) return null;
@@ -140,7 +140,7 @@ export default async function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: FOUC_FALLBACK_SCRIPT }} />
       </head>
       <body className="font-sans antialiased text-zinc-900" suppressHydrationWarning>
-        <AppProvider>{children}</AppProvider>
+        <AppProvider initialData={data}>{children}</AppProvider>
       </body>
     </html>
   );
