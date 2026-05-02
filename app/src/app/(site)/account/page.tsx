@@ -1090,6 +1090,26 @@ function AccountPageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.id]); // re-runs on login/logout, not on every render
 
+  // Poll every 15 s while viewing the orders tab — graceful fallback if Realtime drops.
+  useEffect(() => {
+    if (!currentUser?.id || tab !== "orders") return;
+    const id = setInterval(() => refreshCurrentUser().catch(() => {}), 15_000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id, tab]);
+
+  // Re-fetch when the browser tab becomes visible — catches updates missed while away.
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === "visible" && currentUser && tab === "orders") {
+        refreshCurrentUser().catch(() => {});
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id, tab]);
+
   // ── Cross-tab status-change indicator ─────────────────────────────────────
   // Watches both `order.status` (kitchen lifecycle) and `order.deliveryStatus`
   // (driver delivery leg). When either changes in another tab the storage event

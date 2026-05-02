@@ -974,11 +974,22 @@ export function AppProvider({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(orderToRow(order)),
       });
-      const j = await r.json() as { ok: boolean; error?: string };
+      const j = await r.json() as { ok: boolean; error?: string; orderId?: string; total?: number };
       if (!j.ok) { rollback(); return { ok: false, error: j.error }; }
-      // Order is confirmed in DB — sync server state so the orders list is immediately accurate.
-      // By this point currentUser.orders already has the optimistic entry, so the merge
-      // in refreshCurrentUser will preserve it even if the DB read races the write.
+      // Patch the optimistic entry with the server-authoritative total so the UI
+      // shows the correct amount immediately — no need to wait for refreshCurrentUser.
+      if (j.total !== undefined) {
+        const patch = (orders: Order[]) =>
+          orders.map((o) => o.id === order.id ? { ...o, total: j.total! } : o);
+        setCurrentUser((prev) =>
+          prev && prev.id === customerId ? { ...prev, orders: patch(prev.orders) } : prev
+        );
+        setCustomers((prev) =>
+          prev.map((c) => c.id !== customerId ? c : { ...c, orders: patch(c.orders) })
+        );
+      }
+      // Background sync — pulls the full server representation (items, fees, etc.)
+      // and merges with any local-only optimistic entries.
       refreshCurrentUser().catch(() => {});
       return { ok: true };
     } catch {

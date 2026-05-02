@@ -264,5 +264,5 @@ export async function POST(req: NextRequest) {
     console.error("[orders] confirmation email:", err instanceof Error ? err.message : err),
   );
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, orderId: String(id), total: serverTotal });
 }
