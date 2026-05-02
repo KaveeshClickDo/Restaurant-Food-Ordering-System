@@ -28,11 +28,11 @@ export async function PUT(
 
   const { id } = await params;
 
-  let body: { status?: string; updatedBy?: string };
+  let body: { status?: string };
   try { body = await req.json(); }
   catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
 
-  const { status, updatedBy } = body;
+  const { status } = body;
   if (!status || !KITCHEN_STATUSES.has(status)) {
     return NextResponse.json(
       { ok: false, error: `status must be one of: ${[...KITCHEN_STATUSES].join(", ")}.` },
@@ -40,12 +40,9 @@ export async function PUT(
     );
   }
 
-  const updatePayload: Record<string, string> = { status };
-  if (updatedBy) updatePayload.updated_by = updatedBy;
-
   const { error } = await supabaseAdmin
     .from("orders")
-    .update(updatePayload)
+    .update({ status })
     .eq("id", id);
 
   if (error) {

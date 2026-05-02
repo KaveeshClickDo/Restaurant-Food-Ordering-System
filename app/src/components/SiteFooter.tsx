@@ -23,9 +23,9 @@ export default function SiteFooter() {
 
   return (
     <footer className="border-t border-zinc-200/70 bg-white mt-auto">
-      <div className="px-6 py-10 max-w-5xl">
+      <div className="px-4 sm:px-6 py-8 sm:py-10 max-w-5xl mx-auto">
         {/* Branding */}
-        <div className="flex items-start gap-3 mb-6">
+        <Link href="/" className="flex items-start gap-3 mb-6 hover:opacity-80 transition-opacity w-fit">
           {restaurant.logoImage ? (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img src={restaurant.logoImage} alt={restaurant.name}
@@ -41,7 +41,7 @@ export default function SiteFooter() {
               <div className="text-[12.5px] text-zinc-500 mt-0.5">{restaurant.tagline}</div>
             )}
           </div>
-        </div>
+        </Link>
 
         {/* Footer nav links */}
         {navLinks.length > 0 && (

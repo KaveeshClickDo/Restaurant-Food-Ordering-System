@@ -122,7 +122,7 @@ function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void
   ];
 
   const statusIndex: Record<string, number> = {
-    pending: 0, confirmed: 0, preparing: 1, ready: 2, delivered: 3,
+    pending: 0, confirmed: 1, preparing: 1, ready: 2, delivered: 3,
   };
   const currentStep = statusIndex[order.status] ?? 0;
 
@@ -353,7 +353,10 @@ function Sidebar({
     <aside className="hidden lg:flex w-[260px] flex-shrink-0 h-full flex-col bg-white border-r border-zinc-200/70">
       {/* Logo */}
       <div className="p-5 pb-3">
-        <div className="flex items-center gap-2.5 px-1">
+        <button
+          onClick={() => { setCat("all"); setScreen("menu"); }}
+          className="flex items-center gap-2.5 px-1 hover:opacity-80 transition-opacity w-full text-left"
+        >
           {restaurant.logoImage ? (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img src={restaurant.logoImage} alt={restaurant.name}
@@ -367,7 +370,7 @@ function Sidebar({
             <div className="text-[14.5px] font-semibold text-zinc-900 tracking-tight truncate">{restaurant.name}</div>
             <div className="text-[11px] text-zinc-500 truncate">{restaurant.tagline || "Restaurant"}</div>
           </div>
-        </div>
+        </button>
       </div>
 
       {/* Nav */}
@@ -481,7 +484,7 @@ function Sidebar({
 }
 
 // ── Right cart panel ─────────────────────────────────────────────────────────
-function CartPanel({ onMobileClose }: { onMobileClose?: () => void }) {
+function CartPanel({ onMobileClose, onOrderPlaced }: { onMobileClose?: () => void; onOrderPlaced?: () => void }) {
   const { cart, updateQty, clearCart, cartTotal, settings, fulfillment, isOpen, scheduledTime, setScheduledTime } = useApp();
   const [showCheckout, setShowCheckout] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
@@ -662,7 +665,12 @@ function CartPanel({ onMobileClose }: { onMobileClose?: () => void }) {
         )}
       </div>
 
-      {showCheckout && <CheckoutModal onClose={() => setShowCheckout(false)} />}
+      {showCheckout && (
+        <CheckoutModal
+          onClose={() => setShowCheckout(false)}
+          onOrderPlaced={() => { onMobileClose?.(); onOrderPlaced?.(); }}
+        />
+      )}
       {showSchedule && <ScheduleOrderModal onClose={() => setShowSchedule(false)} />}
     </>
   );
@@ -828,31 +836,7 @@ export default function HomePage() {
   const [authModal,        setAuthModal]        = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
   const [userMenuOpen,     setUserMenuOpen]     = useState(false);
   const [showReservation,  setShowReservation]  = useState(false);
-  const [fetchedOrders,    setFetchedOrders]    = useState<Order[] | null>(null);
-  const [isFetchingOrders, setIsFetchingOrders] = useState(false);
   const [trackingOrder,    setTrackingOrder]    = useState<Order | null>(null);
-
-  // Directly fetch orders from the server whenever the user enters the orders
-  // screen. Bypasses the AppContext update chain to avoid timing races where
-  // refreshCurrentUser() resolves after the render already ran.
-  useEffect(() => {
-    if (screen !== "orders" || !currentUser) return;
-    let cancelled = false;
-    setIsFetchingOrders(true);
-    fetch("/api/auth/me", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((json) => {
-        if (cancelled) return;
-        setFetchedOrders(
-          json?.ok && Array.isArray(json?.customer?.orders)
-            ? (json.customer.orders as Order[])
-            : null
-        );
-      })
-      .catch(() => { if (!cancelled) setFetchedOrders(null); })
-      .finally(() => { if (!cancelled) setIsFetchingOrders(false); });
-    return () => { cancelled = true; };
-  }, [screen, currentUser?.id]);
 
   // Filtered items
   const items = menuItems.filter((item) => {
@@ -1024,8 +1008,7 @@ export default function HomePage() {
           )}
 
           {screen === "orders" && (() => {
-            const displayOrders = fetchedOrders ?? currentUser?.orders ?? [];
-            const showSkeleton = currentUser != null && (fetchedOrders === null || (isFetchingOrders && displayOrders.length === 0));
+            const displayOrders = currentUser?.orders ?? [];
             const ACTIVE_STATUSES = new Set(["pending", "confirmed", "preparing", "ready"]);
             const allOrders = [...displayOrders].reverse();
             const activeOrder = allOrders.find((o) => ACTIVE_STATUSES.has(o.status));
@@ -1054,16 +1037,7 @@ export default function HomePage() {
                       Sign in
                     </button>
                   </div>
-                ) : showSkeleton ? (
-                  <div className="px-5 mt-4 space-y-3 max-w-lg">
-                    {[1, 2, 3].map((i) => (
-                      <div key={i} className="bg-white rounded-3xl p-5 shadow-sm animate-pulse">
-                        <div className="h-4 w-24 bg-zinc-100 rounded-full mb-3" />
-                        <div className="h-3 w-48 bg-zinc-100 rounded-full mb-2" />
-                        <div className="h-3 w-20 bg-zinc-100 rounded-full" />
-                      </div>
-                    ))}
-                  </div>
+
                 ) : displayOrders.length === 0 ? (
                   <div className="mx-5 mt-6 bg-white rounded-3xl p-8 flex flex-col items-center gap-3 text-center shadow-sm">
                     <div className="w-14 h-14 rounded-2xl bg-zinc-100 flex items-center justify-center">
@@ -1411,7 +1385,7 @@ export default function HomePage() {
 
       {/* ── Right cart panel (desktop lg+) ───────────────────────────────── */}
       <aside className="hidden lg:flex w-[340px] flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
-        <CartPanel />
+        <CartPanel onOrderPlaced={() => setScreen("orders")} />
       </aside>
 
       {/* ── Mobile bottom nav ─────────────────────────────────────────────── */}
@@ -1429,7 +1403,10 @@ export default function HomePage() {
         <div className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowMobileCart(false)} />
           <div className="relative bg-white rounded-t-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-xl">
-            <CartPanel onMobileClose={() => setShowMobileCart(false)} />
+            <CartPanel
+              onMobileClose={() => setShowMobileCart(false)}
+              onOrderPlaced={() => { setShowMobileCart(false); setScreen("orders"); }}
+            />
           </div>
         </div>
       )}

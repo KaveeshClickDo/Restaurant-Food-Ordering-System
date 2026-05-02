@@ -13,6 +13,7 @@ import { computeTax, taxSurcharge } from "@/lib/taxUtils";
 
 interface Props {
   onClose: () => void;
+  onOrderPlaced?: () => void;
 }
 
 // ─── Geo helpers (no external API) ───────────────────────────────────────────
@@ -172,7 +173,7 @@ function LocationWidget({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function CheckoutModal({ onClose }: Props) {
+export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   const {
     cart, settings, clearCart, addOrder, currentUser, fulfillment, scheduledTime, setScheduledTime,
     appliedCoupon, applyCoupon, removeCoupon, incrementCouponUsage, spendStoreCredit,
@@ -390,10 +391,10 @@ export default function CheckoutModal({ onClose }: Props) {
             </p>
           ) : null}
           <button
-            onClick={onClose}
+            onClick={() => { onClose(); onOrderPlaced?.(); }}
             className="mt-6 w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl transition"
           >
-            Done
+            View my orders
           </button>
         </div>
       </div>

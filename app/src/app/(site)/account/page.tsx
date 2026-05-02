@@ -255,33 +255,32 @@ function QuickReorder({
 
       <div className="divide-y divide-gray-50">
         {eligible.map((order) => (
-          <div key={order.id} className="flex items-center gap-4 px-5 py-4 hover:bg-zinc-50 transition">
+          <div key={order.id} className="flex items-center gap-3 px-4 sm:px-5 py-3.5 hover:bg-zinc-50 transition">
             {/* Icon */}
-            <div className="w-10 h-10 bg-zinc-50 rounded-xl flex items-center justify-center flex-shrink-0 text-lg">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 bg-zinc-50 rounded-xl flex items-center justify-center flex-shrink-0 text-base sm:text-lg">
               🍛
             </div>
 
             {/* Info */}
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-gray-800 truncate">
-                {itemSummary(order.items)}
+                {itemSummary(order.items, 2)}
               </p>
-              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                 <span className="text-xs text-zinc-400">{formatDate(order.date)}</span>
                 <span className="text-zinc-300 text-xs">·</span>
-                <span className="text-xs text-zinc-400 capitalize">{order.fulfillment}</span>
-                <span className="text-zinc-300 text-xs">·</span>
-                <span className="text-xs font-semibold text-zinc-700">£{order.total.toFixed(2)}</span>
+                <span className="text-xs font-semibold text-zinc-700 tabular-nums">£{order.total.toFixed(2)}</span>
               </div>
             </div>
 
             {/* Re-order button */}
             <button
               onClick={() => onReorder(order)}
-              className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition flex-shrink-0"
+              className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-2.5 rounded-xl transition flex-shrink-0 min-h-[38px]"
             >
               <RotateCcw size={12} />
-              Re-order
+              <span className="hidden sm:inline">Re-order</span>
+              <span className="sm:hidden">Order</span>
             </button>
           </div>
         ))}
@@ -309,7 +308,7 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
       {/* Header row */}
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-start justify-between p-5 text-left hover:bg-zinc-50 transition"
+        className="w-full flex items-start justify-between p-4 sm:p-5 text-left hover:bg-zinc-50 transition"
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -327,35 +326,35 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
           {isActive && <OrderTracker order={order} />}
           <DeliveryTracker order={order} />
         </div>
-        <div className="flex items-center gap-3 flex-shrink-0 ml-4">
-          <span className="font-bold text-zinc-900">£{order.total.toFixed(2)}</span>
+        <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+          <span className="font-bold text-zinc-900 tabular-nums">£{order.total.toFixed(2)}</span>
           {expanded ? <ChevronUp size={16} className="text-zinc-400" /> : <ChevronDown size={16} className="text-zinc-400" />}
         </div>
       </button>
 
       {/* Expanded detail */}
       {expanded && (
-        <div className="border-t border-zinc-100 px-5 py-4 bg-zinc-50 space-y-2">
+        <div className="border-t border-zinc-100 px-4 sm:px-5 py-4 bg-zinc-50 space-y-2">
           <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Items</p>
           {order.items.map((item, i) => (
-            <div key={i} className="flex justify-between text-sm">
-              <span className="text-zinc-600">
+            <div key={i} className="flex justify-between gap-3 text-sm">
+              <span className="text-zinc-600 min-w-0 flex-1">
                 <span className="font-medium text-gray-800">{item.qty}×</span> {item.name}
               </span>
-              <span className="font-medium text-gray-800">£{(item.price * item.qty).toFixed(2)}</span>
+              <span className="font-medium text-gray-800 flex-shrink-0 tabular-nums">£{(item.price * item.qty).toFixed(2)}</span>
             </div>
           ))}
           <div className="border-t border-zinc-200 mt-3 pt-3 flex justify-between font-bold text-zinc-900 text-sm">
             <span>Total</span>
-            <span>£{order.total.toFixed(2)}</span>
+            <span className="tabular-nums">£{order.total.toFixed(2)}</span>
           </div>
           {order.address && (
-            <p className="text-xs text-zinc-400 mt-2">
+            <p className="text-xs text-zinc-400 mt-2 break-words">
               Delivered to: <span className="text-zinc-600">{order.address}</span>
             </p>
           )}
           {order.note && (
-            <p className="text-xs text-red-400 mt-1 italic">{order.note}</p>
+            <p className="text-xs text-red-400 mt-1 italic break-words">{order.note}</p>
           )}
 
           {/* Re-order button in expanded view */}
@@ -363,7 +362,7 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
             <div className="pt-3 border-t border-zinc-200">
               <button
                 onClick={() => onReorder(order)}
-                className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold py-2.5 rounded-xl transition"
+                className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold py-3 rounded-xl transition"
               >
                 <RotateCcw size={15} />
                 Re-order this meal
@@ -805,7 +804,7 @@ function ChangePasswordCard() {
     <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm overflow-hidden">
       <button
         onClick={handleToggle}
-        className="w-full flex items-center justify-between px-6 py-5 hover:bg-zinc-50 transition text-left"
+        className="w-full flex items-center justify-between px-4 sm:px-6 py-5 hover:bg-zinc-50 transition text-left"
       >
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-zinc-100 rounded-xl flex items-center justify-center">
@@ -823,7 +822,7 @@ function ChangePasswordCard() {
       </button>
 
       {open && (
-        <div className="border-t border-zinc-100 px-6 pb-6 pt-4">
+        <div className="border-t border-zinc-100 px-4 sm:px-6 pb-6 pt-4">
           {success ? (
             <div className="flex items-center gap-2.5 bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700 font-medium">
               <Check size={15} className="flex-shrink-0" /> Password updated successfully
@@ -955,7 +954,7 @@ function ProfileTab() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-6">
         <div className="flex items-center justify-between mb-5">
           <h3 className="font-semibold text-zinc-900">Personal details</h3>
           {!editing ? (
@@ -1006,10 +1005,10 @@ function ProfileTab() {
 
           <div>
             <label className="block text-xs font-medium text-zinc-500 mb-1.5">Email address</label>
-            <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-50 rounded-xl">
+            <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-50 rounded-xl min-w-0">
               <Mail size={15} className="text-zinc-400 flex-shrink-0" />
-              <span className="text-sm text-gray-800">{currentUser.email}</span>
-              <span className="ml-auto text-[10px] text-zinc-400 bg-zinc-100 rounded-full px-2 py-0.5">Cannot change</span>
+              <span className="text-sm text-gray-800 truncate flex-1 min-w-0">{currentUser.email}</span>
+              <span className="flex-shrink-0 text-[10px] text-zinc-400 bg-zinc-100 rounded-full px-2 py-0.5 whitespace-nowrap">Cannot change</span>
             </div>
           </div>
 
@@ -1231,18 +1230,18 @@ export default function AccountPage() {
 
   return (
     <>
-      <div className="max-w-4xl mx-auto px-4 py-4 sm:py-8 space-y-6">
+      <div className="max-w-4xl mx-auto px-3 sm:px-4 py-4 sm:py-8 pb-8 sm:pb-12 space-y-4 sm:space-y-6">
         {/* Profile banner */}
         <div className="bg-gradient-to-br from-zinc-800 to-zinc-900 rounded-2xl p-4 sm:p-6 text-white shadow-lg">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0">
-              <span className="text-2xl font-bold text-white">{liveUser.name.charAt(0).toUpperCase()}</span>
+          <div className="flex items-center gap-3 sm:gap-4">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0">
+              <span className="text-xl sm:text-2xl font-bold text-white">{liveUser.name.charAt(0).toUpperCase()}</span>
             </div>
             <div className="flex-1 min-w-0">
-              <h1 className="text-xl font-bold truncate">{liveUser.name}</h1>
-              <p className="text-zinc-300 text-sm truncate">{liveUser.email}</p>
+              <h1 className="text-lg sm:text-xl font-bold truncate">{liveUser.name}</h1>
+              <p className="text-zinc-300 text-xs sm:text-sm truncate">{liveUser.email}</p>
               {liveUser.tags.length > 0 && (
-                <div className="flex gap-1.5 mt-2 flex-wrap">
+                <div className="flex gap-1.5 mt-1.5 flex-wrap">
                   {liveUser.tags.map((tag) => (
                     <span key={tag} className="text-[10px] font-bold bg-white/20 text-white rounded-full px-2 py-0.5">
                       {tag}
@@ -1255,39 +1254,39 @@ export default function AccountPage() {
         </div>
 
         {/* Stats */}
-        <div className={`grid gap-4 ${(liveUser.storeCredit ?? 0) > 0 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2 sm:grid-cols-3"}`}>
-          <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5">
-            <div className="flex items-center gap-2 mb-1">
-              <ShoppingBag size={16} className="text-zinc-700" />
-              <span className="text-xs font-medium text-zinc-500">Total orders</span>
+        <div className={`grid gap-3 sm:gap-4 ${(liveUser.storeCredit ?? 0) > 0 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2 sm:grid-cols-3"}`}>
+          <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5">
+            <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
+              <ShoppingBag size={14} className="text-zinc-700 flex-shrink-0" />
+              <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total orders</span>
             </div>
-            <p className="text-2xl font-bold text-zinc-900">{orders.length}</p>
+            <p className="text-xl sm:text-2xl font-bold text-zinc-900 tabular-nums">{orders.length}</p>
           </div>
-          <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5">
-            <div className="flex items-center gap-2 mb-1">
-              <TrendingUp size={16} className="text-zinc-700" />
-              <span className="text-xs font-medium text-zinc-500">Total spent</span>
+          <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5">
+            <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
+              <TrendingUp size={14} className="text-zinc-700 flex-shrink-0" />
+              <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total spent</span>
             </div>
-            <p className="text-2xl font-bold text-zinc-900">£{totalSpent.toFixed(2)}</p>
+            <p className="text-xl sm:text-2xl font-bold text-zinc-900 tabular-nums">£{totalSpent.toFixed(2)}</p>
           </div>
           {favourite ? (
-            <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 col-span-2 sm:col-span-1">
-              <div className="flex items-center gap-2 mb-1">
-                <Star size={16} className="text-zinc-700" />
-                <span className="text-xs font-medium text-zinc-500">Most ordered</span>
+            <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5 col-span-2 sm:col-span-1">
+              <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
+                <Star size={14} className="text-zinc-700 flex-shrink-0" />
+                <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Most ordered</span>
               </div>
-              <p className="text-sm font-bold text-zinc-900 leading-snug">{favourite}</p>
+              <p className="text-sm font-bold text-zinc-900 leading-snug line-clamp-2">{favourite}</p>
             </div>
           ) : null}
 
           {/* Store credit stat card — only when balance > 0 */}
           {(liveUser.storeCredit ?? 0) > 0 && (
-            <div className="bg-teal-500 rounded-2xl p-5 col-span-2 sm:col-span-1">
-              <div className="flex items-center gap-2 mb-1">
-                <Gift size={16} className="text-teal-100" />
-                <span className="text-xs font-medium text-teal-100">Store credit</span>
+            <div className="bg-teal-500 rounded-2xl p-4 sm:p-5 col-span-2 sm:col-span-1">
+              <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
+                <Gift size={14} className="text-teal-100 flex-shrink-0" />
+                <span className="text-[11px] sm:text-xs font-medium text-teal-100 truncate">Store credit</span>
               </div>
-              <p className="text-2xl font-bold text-white">£{(liveUser.storeCredit ?? 0).toFixed(2)}</p>
+              <p className="text-xl sm:text-2xl font-bold text-white tabular-nums">£{(liveUser.storeCredit ?? 0).toFixed(2)}</p>
               <p className="text-[10px] text-teal-200 mt-1">Auto-applied at checkout</p>
             </div>
           )}
@@ -1295,16 +1294,16 @@ export default function AccountPage() {
 
         {/* Store credit action banner */}
         {(liveUser.storeCredit ?? 0) > 0 && (
-          <div className="flex items-center gap-4 bg-teal-50 border border-teal-200 rounded-2xl px-5 py-4">
-            <div className="w-10 h-10 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0">
-              <Gift size={18} className="text-white" />
+          <div className="flex items-start gap-3 sm:gap-4 bg-teal-50 border border-teal-200 rounded-2xl px-4 sm:px-5 py-4">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+              <Gift size={16} className="text-white" />
             </div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-teal-800">
-                You have <span className="text-teal-600">£{(liveUser.storeCredit ?? 0).toFixed(2)}</span> store credit
+                You have <span className="text-teal-600 tabular-nums">£{(liveUser.storeCredit ?? 0).toFixed(2)}</span> store credit
               </p>
-              <p className="text-xs text-teal-600 mt-0.5">
-                It will be automatically applied when you open checkout. You can toggle it on/off before paying.
+              <p className="text-xs text-teal-600 mt-0.5 leading-relaxed">
+                Automatically applied at checkout. Toggle on/off before paying.
               </p>
             </div>
           </div>
@@ -1312,24 +1311,24 @@ export default function AccountPage() {
 
         {/* Active orders alert */}
         {activeOrders.length > 0 && (
-          <div className="flex items-start gap-3 bg-zinc-50 border border-zinc-200 rounded-2xl px-5 py-4">
-            <Clock size={18} className="text-zinc-700 flex-shrink-0 mt-0.5" />
+          <div className="flex items-start gap-3 bg-zinc-50 border border-zinc-200 rounded-2xl px-4 sm:px-5 py-3.5 sm:py-4">
+            <Clock size={16} className="text-zinc-700 flex-shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-semibold text-zinc-700">
                 {activeOrders.length} active order{activeOrders.length > 1 ? "s" : ""} in progress
               </p>
-              <p className="text-xs text-zinc-700 mt-0.5">Track your live orders below in the Orders tab.</p>
+              <p className="text-xs text-zinc-500 mt-0.5">Track your live orders in the Orders tab.</p>
             </div>
           </div>
         )}
 
         {/* Tabs */}
-        <div className="flex gap-1 bg-zinc-100 p-1 rounded-xl flex-wrap">
+        <div className="flex gap-1 bg-zinc-100 p-1 rounded-xl overflow-x-auto" style={{ scrollbarWidth: "none" }}>
           {(["orders", "favourites", "addresses", "profile"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-[13px] sm:text-sm font-semibold transition-all whitespace-nowrap flex-shrink-0 ${
                 tab === t ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
               }`}
             >
@@ -1342,7 +1341,7 @@ export default function AccountPage() {
                t === "addresses"  ? "Addresses"  : "Profile"}
               {t === "orders" && orders.length > 0 && (
                 <span className="ml-0.5 bg-orange-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                  {orders.length}
+                  {orders.length > 99 ? "99+" : orders.length}
                 </span>
               )}
               {t === "favourites" && (liveUser.favourites?.length ?? 0) > 0 && (

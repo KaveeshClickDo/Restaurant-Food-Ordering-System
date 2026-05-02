@@ -553,13 +553,10 @@ export default function KitchenPage() {
     );
     if (nextStatus === "ready") setCompletedToday((n) => n + 1);
 
-    const body: { status: string; updatedBy?: string } = { status: nextStatus };
-    if (currentStaff) body.updatedBy = currentStaff.name;
-
     const res = await fetch(`/api/kds/orders/${order.id}/status`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ status: nextStatus }),
     });
     if (!res.ok) {
       // Rollback on failure
