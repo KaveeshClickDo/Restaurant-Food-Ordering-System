@@ -15,19 +15,7 @@ import {
 } from "@/lib/auth";
 import { rateLimit } from "@/lib/rateLimit";
 
-const SEED_WAITERS: WaiterStaff[] = [
-  { id: "w-1", name: "Head Waiter", pin: "1111", role: "senior", active: true, avatarColor: "#7c3aed", createdAt: "" },
-  { id: "w-2", name: "Alex",        pin: "2222", role: "waiter",  active: true, avatarColor: "#0891b2", createdAt: "" },
-  { id: "w-3", name: "Sophie",      pin: "3333", role: "waiter",  active: true, avatarColor: "#16a34a", createdAt: "" },
-];
-
 export async function POST(req: NextRequest) {
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
-  const { limited } = rateLimit(`waiter-auth:${ip}`, 10, 60_000);
-  if (limited) {
-    return NextResponse.json({ ok: false, error: "Too many attempts. Please wait a minute." }, { status: 429 });
-  }
-
   let body: { staffId?: string; pin?: string };
   try { body = await req.json(); }
   catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
@@ -37,13 +25,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "staffId and pin are required." }, { status: 400 });
   }
 
+  // Rate-limit per IP + staff ID to prevent targeted PIN brute-force.
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const { limited } = rateLimit(`waiter-auth:${ip}:${staffId}`, 10, 60_000);
+  if (limited) {
+    return NextResponse.json({ ok: false, error: "Too many attempts. Please wait a minute." }, { status: 429 });
+  }
+
   try {
     const { data: row } = await supabaseAdmin
       .from("app_settings").select("data").limit(1).single();
 
-    const waiters: WaiterStaff[] = row?.data?.waiters?.length
-      ? row.data.waiters
-      : SEED_WAITERS;
+    const waiters: WaiterStaff[] = row?.data?.waiters ?? [];
+    if (waiters.length === 0) {
+      return NextResponse.json(
+        { ok: false, error: "No staff accounts configured. Ask your admin to set up waiter accounts." },
+        { status: 401 },
+      );
+    }
 
     const waiter = waiters.find((w) => w.id === staffId && w.active);
     if (!waiter || waiter.pin !== pin) {

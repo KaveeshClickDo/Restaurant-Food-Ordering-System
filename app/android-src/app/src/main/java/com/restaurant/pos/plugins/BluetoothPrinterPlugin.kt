@@ -18,6 +18,7 @@ import com.getcapacitor.annotation.PermissionCallback
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.io.IOException
 import java.io.OutputStream
 import java.util.UUID
 
@@ -165,15 +166,57 @@ class BluetoothPrinterPlugin : Plugin() {
                 socket = device.createRfcommSocketToServiceRecord(SPP_UUID)
                 adapter.cancelDiscovery() // reduces latency during connect
 
-                socket.connect()          // blocks until connected or throws
-                stream = socket.outputStream
+                // Enforce an 8-second connect timeout. Closing the socket from a
+                // daemon thread interrupts the blocking connect() call cleanly.
+                val socketRef = socket
+                val timeoutThread = Thread {
+                    try { Thread.sleep(8_000) } catch (_: InterruptedException) { return@Thread }
+                    try { socketRef.close() } catch (_: Exception) {}
+                }
+                timeoutThread.isDaemon = true
+                timeoutThread.start()
 
+                try {
+                    socket.connect() // blocks until connected, error, or socket is closed by timeout thread
+                } catch (e: IOException) {
+                    timeoutThread.interrupt()
+                    if (!socket.isConnected) {
+                        // Try fallback socket (via reflection) for stubborn devices
+                        try { socket.close() } catch (_: Exception) {}
+                        @Suppress("MissingPermission")
+                        val fallback = device.javaClass
+                            .getMethod("createRfcommSocket", Int::class.java)
+                            .invoke(device, 1) as BluetoothSocket
+                        socket = fallback
+                        val fb = socket
+                        val fbTimeout = Thread {
+                            try { Thread.sleep(8_000) } catch (_: InterruptedException) { return@Thread }
+                            try { fb.close() } catch (_: Exception) {}
+                        }
+                        fbTimeout.isDaemon = true
+                        fbTimeout.start()
+                        try {
+                            fb.connect()
+                            fbTimeout.interrupt()
+                        } catch (e2: Exception) {
+                            fbTimeout.interrupt()
+                            throw IOException("Bluetooth connection timed out or refused. Is the printer on and in range?", e2)
+                        }
+                    } else {
+                        throw e
+                    }
+                }
+                timeoutThread.interrupt()
+
+                stream = socket.outputStream
                 stream.write(data)
                 stream.flush()
 
                 call.resolve()
             } catch (e: Exception) {
                 val msg = when {
+                    e.message?.contains("timed out", ignoreCase = true) == true ->
+                        "Bluetooth connection timed out. Is the printer powered on and in range?"
                     e.message?.contains("Connection refused") == true ->
                         "Printer refused connection. Is it powered on and in Bluetooth mode?"
                     e.message?.contains("Host is down") == true ->

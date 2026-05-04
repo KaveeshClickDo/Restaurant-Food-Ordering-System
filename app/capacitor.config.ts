@@ -42,11 +42,15 @@ const config: CapacitorConfig = {
   appName: "Restaurant POS",
 
   // Point WebView at the deployed production URL.
-  // Remove server.url to use bundled static assets instead (requires next export).
+  // Set CAPACITOR_SERVER_URL in your environment before running `npx cap sync`.
+  // Remove server.url entirely to use bundled static assets instead (requires next export).
   server: {
-    url: process.env.CAPACITOR_SERVER_URL ?? "https://your-app.vercel.app",
+    url: (() => {
+      const u = process.env.CAPACITOR_SERVER_URL;
+      if (!u) throw new Error("CAPACITOR_SERVER_URL env var must be set before running npx cap sync. Example: https://yourapp.vercel.app");
+      return u;
+    })(),
     cleartext: false,
-    // Allow the app to call the same origin API routes
     androidScheme: "https",
   },
 

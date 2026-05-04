@@ -458,6 +458,9 @@ export interface Order {
   refunds?: Refund[];
   refundedAmount?: number;  // cumulative £ refunded so far
   storeCreditUsed?: number; // £ of store credit applied at checkout
+  // POS-only fields (not set on online orders)
+  tipAmount?: number;      // tip collected at the POS terminal
+  changeGiven?: number;    // cash change given back to the customer
 }
 
 export interface SavedAddress {
