@@ -74,7 +74,14 @@ Online ordering data is persisted in **Supabase (PostgreSQL)** and synchronised 
 
 ### Environment Variables
 
-Create `app/.env.local`:
+Copy `app/example.env` to `app/.env.local` and fill in your values:
+
+```bash
+cd app
+cp example.env .env.local
+```
+
+The required variables:
 
 ```env
 # Supabase — safe to expose to the browser
@@ -87,7 +94,7 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 # Admin dashboard password
 ADMIN_PASSWORD=your-secure-admin-password
 
-# HMAC secret for customer + driver session cookies
+# HMAC secret for customer + driver session cookies (generate with: openssl rand -hex 64)
 AUTH_JWT_SECRET=your-long-random-secret
 
 # Canonical site URL (used for OAuth callbacks and password-reset links)
@@ -96,22 +103,50 @@ NEXT_PUBLIC_SITE_URL=https://yourdomain.com
 # Google OAuth — optional; enables "Sign in with Google"
 GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
+
+# Postgres connection string — only used by `npm run db:migrate`
+# Get it from Supabase Dashboard → Connect → "Direct" or "Session pooler"
+# Special chars in the password MUST be URL-encoded (e.g. `!` → `%21`, `^` → `%5E`)
+DATABASE_URL=postgresql://postgres.<project-ref>:<encoded-password>@<host>:5432/postgres
 ```
+
+Where to find each value in Supabase:
+
+| Variable | Supabase location |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Settings → API Keys → URL (or top of Connect modal) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Settings → API Keys → **Legacy** tab → `anon public` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Settings → API Keys → **Legacy** tab → `service_role secret` |
+| `DATABASE_URL` | Top-of-page **Connect** button → "Direct" or "Session pooler" tab |
 
 > **SMTP and Stripe/PayPal credentials** are entered through the Admin → Integrations panel and stored in `app_settings`. They are never sent to the browser.
 
 ### Database Setup
 
-1. Run `supabase/rls_policies.sql` (or `setup_all.sql`) in the Supabase SQL Editor for the full schema, RLS policies, and seed data.
-2. Run `supabase/auth_migration.sql` to add the `password_hash` and `email_verified` columns to the `customers` table.
-
-See [Database Schema](#database-schema) for full table definitions.
-
-### Installation
+A single command bootstraps an empty Supabase project — creating every table, applying RLS policies, and adding the auth columns:
 
 ```bash
 cd app
 npm install
+npm run db:migrate
+```
+
+This runs [`app/migrate.mjs`](app/migrate.mjs), which executes (in order):
+
+1. **Inline base schema** — creates `app_settings`, `categories`, `menu_items`, `customers`, `orders`, the `pos-walk-in` sentinel customer, and adds the core tables to the realtime publication
+2. [`supabase/setup_all.sql`](supabase/setup_all.sql) — reservation tables (`reservations`, `reservation_customers`, `reservation_waitlist`)
+3. [`supabase/rls_policies.sql`](supabase/rls_policies.sql) — `drivers` table + Row Level Security on every table
+4. [`supabase/auth_migration.sql`](supabase/auth_migration.sql) — adds `password_hash`, `email_verified`, and password-reset columns to `customers`
+
+Every step is idempotent — safe to re-run after schema changes. Requires `DATABASE_URL` in `.env.local`.
+
+> **Heads up — don't run the SQL files individually in the Supabase SQL Editor.** They depend on each other and on the inline base schema in `migrate.mjs`. Use `npm run db:migrate` instead.
+
+See [Database Schema](#database-schema) for full table definitions.
+
+### Run the App
+
+```bash
 npm run dev          # http://localhost:3000
 ```
 
