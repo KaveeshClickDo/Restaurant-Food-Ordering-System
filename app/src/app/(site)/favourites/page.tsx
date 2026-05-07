@@ -13,7 +13,7 @@ import CartPanel from "@/components/CartPanel";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import ReservationModal from "@/components/ReservationModal";
 import SiteFooter from "@/components/SiteFooter";
-import Sidebar from "@/components/StoreSidebar";
+import SiteSidebar from "@/components/SiteSidebar";
 
 export default function FavouritesPage() {
     const router = useRouter();
@@ -44,7 +44,7 @@ export default function FavouritesPage() {
         <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: 'var(--brand-bg, #FAFAF9)' }}>
 
             {/* ── Left sidebar (desktop) ────────────────────────────────────────── */}
-            <Sidebar
+            <SiteSidebar
                 activeCat={activeCat}
                 setCat={setActiveCat}
                 onAuth={() => setAuthModal({ open: true, tab: "login" })}
