@@ -186,7 +186,7 @@ export default function MyOrdersPage() {
     };
 
     return (
-        <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: 'var(--brand-bg, #FAFAF9)' }}>
+        <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: '#f5f5f3' }}>
 
             {/* ── Left sidebar (desktop) ────────────────────────────────────────── */}
             <SiteSidebar
