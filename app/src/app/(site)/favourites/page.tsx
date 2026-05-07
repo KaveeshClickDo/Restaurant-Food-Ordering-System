@@ -43,13 +43,7 @@ export default function FavouritesPage() {
     return (
         <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: 'var(--brand-bg, #FAFAF9)' }}>
 
-            {/* ── Left sidebar (desktop) ────────────────────────────────────────── */}
-            <SiteSidebar
-                activeCat={activeCat}
-                setCat={setActiveCat}
-                onAuth={() => setAuthModal({ open: true, tab: "login" })}
-                onReserve={() => setShowReservation(true)}
-            />
+            
             {/* ── Main content area ─────────────────────────────────────────────── */}
             <div className="flex-1 flex flex-col min-w-0 h-full">
                 {/* Top search header */}
@@ -215,17 +209,9 @@ export default function FavouritesPage() {
                             </div>
                         )}
                     </div>
-                    {/* Render SiteFooter */}
-                    <div className="mt-8">
-                        <SiteFooter />
-                    </div>
+                
                 </div>
             </div>
-
-            {/* ── Desktop Right Cart Panel ── */}
-            <aside className="hidden lg:flex w-[340px] flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
-                <CartPanel onOrderPlaced={() => router.push('/my-orders')} />
-            </aside>
 
             {/* ── Mobile Bottom Nav ── */}
             <MobileBottomNav
