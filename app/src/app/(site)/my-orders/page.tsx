@@ -24,6 +24,7 @@ import Link from "next/link";
 import SiteFooter from "@/components/SiteFooter";
 import CartPanel from "@/components/CartPanel";
 import MobileBottomNav from "@/components/MobileBottomNav";
+import ReservationModal from "@/components/ReservationModal";
 
 // ── Track order modal ───────────────────────────────────────────────
 function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void }) {
@@ -420,6 +421,11 @@ export default function MyOrdersPage() {
                     initialTab={authModal.tab}
                     onClose={() => setAuthModal({ open: false, tab: "login" })}
                 />
+            )}
+
+            {/* ── Reservation modal ─────────────────────────────────────────────── */}
+            {showReservation && (
+                <ReservationModal onClose={() => setShowReservation(false)} />
             )}
         </div>
     );
