@@ -18,11 +18,8 @@ import { Order, OrderLine, OrderStatus, DeliveryStatus, MenuItem, SavedAddress, 
 import AuthModal from "@/components/AuthModal";
 import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import { resolveStock } from "@/lib/stockUtils";
-import SiteSidebar from "@/components/SiteSidebar";
-import SiteFooter from "@/components/SiteFooter";
-import CartPanel from "@/components/CartPanel";
 import MobileBottomNav from "@/components/MobileBottomNav";
-import ReservationModal from "@/components/ReservationModal";
+import CartPanel from "@/components/CartPanel";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1066,9 +1063,7 @@ function AccountPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [search, setSearch] = useState("");
-  const [activeCat, setActiveCat] = useState("all");
   const [showMobileCart, setShowMobileCart] = useState(false);
-  const [showReservation, setShowReservation] = useState(false);
   const [authModal, setAuthModal] = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
@@ -1284,14 +1279,6 @@ function AccountPageContent() {
   return (
     <>
       <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: 'var(--brand-bg, #FAFAF9)' }}>
-
-        {/* ── Left sidebar (desktop) ────────────────────────────────────────── */}
-        <SiteSidebar
-          activeCat={activeCat}
-          setCat={setActiveCat}
-          onAuth={() => setAuthModal({ open: true, tab: "login" })}
-          onReserve={() => setShowReservation(true)}
-        />
 
         {/* ── Main content area ─────────────────────────────────────────────── */}
         <div className="flex-1 flex flex-col min-w-0 h-full">
@@ -1572,18 +1559,8 @@ function AccountPageContent() {
                 </div>
               </div>
             )}
-
-            {/* Render SiteFooter */}
-            <div className="mt-8">
-              <SiteFooter />
-            </div>
           </div>
         </div>
-
-        {/* ── Desktop Right Cart Panel ── */}
-        <aside className="hidden lg:flex w-[340px] flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
-          <CartPanel onOrderPlaced={() => router.push('/my-orders')} />
-        </aside>
 
         {/* ── Mobile Bottom Nav ── */}
         <MobileBottomNav
@@ -1604,10 +1581,13 @@ function AccountPageContent() {
           </div>
         )}
 
-        {/* ── Reservation modal ─────────────────────────────────────────────── */}
-        {showReservation && (
-          <ReservationModal onClose={() => setShowReservation(false)} />
+        {authModal.open && (
+          <AuthModal
+            initialTab={authModal.tab}
+            onClose={() => setAuthModal({ open: false, tab: "login" })}
+          />
         )}
+
       </div>
     </>
   );
