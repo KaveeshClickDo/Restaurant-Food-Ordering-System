@@ -19,12 +19,9 @@ import {
 } from "lucide-react";
 import AuthModal from "@/components/AuthModal";
 import type { Order } from "@/types";
-import SiteSidebar from "@/components/SiteSidebar";
 import Link from "next/link";
-import SiteFooter from "@/components/SiteFooter";
 import CartPanel from "@/components/CartPanel";
 import MobileBottomNav from "@/components/MobileBottomNav";
-import ReservationModal from "@/components/ReservationModal";
 
 // ── Track order modal ───────────────────────────────────────────────
 function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void }) {
@@ -136,10 +133,8 @@ export default function MyOrdersPage() {
     const { currentUser, addToCart, settings, refreshCurrentUser, logout } = useApp();
     const router = useRouter();
     const [search, setSearch] = useState("");
-    const [activeCat, setActiveCat] = useState("all");
     const [trackingOrder, setTrackingOrder] = useState<Order | null>(null);
     const [authModal, setAuthModal] = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
-    const [showReservation, setShowReservation] = useState(false);
     const [userMenuOpen, setUserMenuOpen] = useState(false);
     const [showMobileCart, setShowMobileCart] = useState(false);
 
@@ -188,14 +183,6 @@ export default function MyOrdersPage() {
 
     return (
         <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: '#f5f5f3' }}>
-
-            {/* ── Left sidebar (desktop) ────────────────────────────────────────── */}
-            <SiteSidebar
-                activeCat={activeCat}
-                setCat={setActiveCat}
-                onAuth={() => setAuthModal({ open: true, tab: "login" })}
-                onReserve={() => setShowReservation(true)}
-            />
 
             {/* ── Main content area ─────────────────────────────────────────────── */}
             <div className="flex-1 flex flex-col min-w-0 h-full">
@@ -380,17 +367,8 @@ export default function MyOrdersPage() {
                             </>
                         )}
                     </div>
-                    {/* Render SiteFooter */}
-                    <div className="mt-8">
-                        <SiteFooter />
-                    </div>
                 </div>
             </div>
-
-            {/* ── Desktop Right Cart Panel ── */}
-            <aside className="hidden lg:flex w-[340px] flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
-                <CartPanel onOrderPlaced={() => router.push('/my-orders')} />
-            </aside>
 
             {/* ── Mobile Bottom Nav ── */}
             <MobileBottomNav
@@ -423,10 +401,6 @@ export default function MyOrdersPage() {
                 />
             )}
 
-            {/* ── Reservation modal ─────────────────────────────────────────────── */}
-            {showReservation && (
-                <ReservationModal onClose={() => setShowReservation(false)} />
-            )}
         </div>
     );
 }
