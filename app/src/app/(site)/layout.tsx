@@ -6,18 +6,18 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
   return (
     <div className="h-full flex overflow-hidden" style={{ backgroundColor: "var(--brand-bg, #FAFAF9)" }}>
       {/* Desktop left sidebar — hidden on mobile */}
-      <SiteSidebar />
+      {/* <SiteSidebar /> */}
 
       {/* Main scroll area */}
-      <div className="flex-1 flex flex-col overflow-y-auto min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 h-full">
         {/* Mobile top bar — hidden on desktop */}
         <SiteMobileHeader />
 
-        <main className="flex-1 flex flex-col">
+        <main className="flex-1 flex flex-col overflow-y-auto h-full">
           {children}
         </main>
 
-        <SiteFooter />
+        {/* <SiteFooter /> */}
       </div>
     </div>
   );
