@@ -1026,7 +1026,7 @@ export default function HomePage() {
   const totalInCart    = cartCount;
 
   return (
-    <div className="h-screen flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: 'var(--brand-bg, #FAFAF9)' }}>
+    <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: 'var(--brand-bg, #FAFAF9)' }}>
 
       {/* ── Left sidebar (desktop) ────────────────────────────────────────── */}
       <Sidebar
@@ -1042,7 +1042,7 @@ export default function HomePage() {
       <div className="flex-1 flex flex-col min-w-0 h-full">
 
         {/* Top search header */}
-        <header className="flex items-center gap-3 px-4 md:px-6 py-3.5 border-b border-zinc-200/70 bg-white flex-shrink-0">
+        <header className="flex items-center justify-between gap-3 px-4 md:px-6 py-3.5 border-b border-zinc-200/70 bg-white flex-shrink-0">
           {/* Mobile: logo */}
           <div className="lg:hidden flex items-center gap-2 flex-shrink-0">
             {settings.restaurant.logoImage ? (
@@ -1437,7 +1437,7 @@ export default function HomePage() {
       </div>
 
       {/* ── Right cart panel (desktop lg+) ───────────────────────────────── */}
-      <aside className="hidden lg:flex w-[340px] flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
+      <aside className="hidden lg:flex w-auto flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
         <CartPanel onOrderPlaced={() => setScreen("orders")} />
       </aside>
 
