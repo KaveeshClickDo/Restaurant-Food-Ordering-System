@@ -4,7 +4,7 @@ import SiteMobileHeader from "@/components/SiteMobileHeader";
 
 export default function SiteLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="h-screen flex overflow-hidden" style={{ backgroundColor: "var(--brand-bg, #FAFAF9)" }}>
+    <div className="h-full flex overflow-hidden" style={{ backgroundColor: "var(--brand-bg, #FAFAF9)" }}>
       {/* Desktop left sidebar — hidden on mobile */}
       <SiteSidebar />
 
