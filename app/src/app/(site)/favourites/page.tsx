@@ -11,34 +11,18 @@ import type { MenuItem } from "@/types";
 import { useRouter } from "next/navigation";
 import CartPanel from "@/components/CartPanel";
 import MobileBottomNav from "@/components/MobileBottomNav";
-import ReservationModal from "@/components/ReservationModal";
-import SiteFooter from "@/components/SiteFooter";
-import SiteSidebar from "@/components/SiteSidebar";
 
 export default function FavouritesPage() {
     const router = useRouter();
     const [search, setSearch] = useState("");
-    const [activeCat, setActiveCat] = useState("all");
     const [showMobileCart, setShowMobileCart] = useState(false);
-    const [showReservation, setShowReservation] = useState(false);
-    const { currentUser, menuItems, settings, isOpen, toggleFavourite, logout, categories } = useApp();
+    const { currentUser, menuItems, settings, isOpen, toggleFavourite, logout } = useApp();
     const [authModal, setAuthModal] = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
     const [openItem, setOpenItem] = useState<MenuItem | null>(null);
     const [userMenuOpen, setUserMenuOpen] = useState(false);
 
     const favIds = new Set(currentUser?.favourites ?? []);
     const favItems = menuItems.filter((m) => favIds.has(m.id));
-
-    // Filtered items
-    const items = menuItems.filter((item) => {
-        if (activeCat !== "all" && item.categoryId !== activeCat) return false;
-        if (search) {
-            const q = search.toLowerCase();
-            if (!item.name.toLowerCase().includes(q) && !item.description.toLowerCase().includes(q)) return false;
-        }
-        return true;
-    });
-
 
     return (
         <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: 'var(--brand-bg, #FAFAF9)' }}>
@@ -243,10 +227,6 @@ export default function FavouritesPage() {
                 <ItemCustomizationModal item={openItem} onClose={() => setOpenItem(null)} />
             )}
 
-            {/* ── Reservation modal ─────────────────────────────────────────────── */}
-            {showReservation && (
-                <ReservationModal onClose={() => setShowReservation(false)} />
-            )}
         </div>
     );
 }
