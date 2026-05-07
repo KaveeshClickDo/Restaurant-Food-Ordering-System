@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { UtensilsCrossed, Heart, Receipt, User, CalendarDays, LogOut } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 
@@ -19,7 +19,18 @@ export default function SiteSidebar({
   const { settings, categories, currentUser, logout } = useApp();
   const { restaurant } = settings;
   const pathname = usePathname();
+  const router = useRouter();
   const reservationEnabled = !!settings.reservationSystem?.enabled;
+
+  const navigateToCategory = (id: string) => {
+    // Navigate using session storage instead of url parameters
+    if (pathname !== "/") {
+      sessionStorage.setItem("pendingCategory", id);
+      router.push("/");
+    } else {
+      setCat(id);
+    }
+  };
 
   const navItems = [
     { href: "/", label: "Menu", Icon: UtensilsCrossed },
@@ -38,7 +49,7 @@ export default function SiteSidebar({
       <div className="p-5 pb-3">
         <Link
           href="/"
-          onClick={() => setCat("all")}
+          onClick={() => navigateToCategory("all")}
           className="flex items-center gap-2.5 px-1 hover:opacity-80 transition-opacity w-full text-left"
         >
           {restaurant.logoImage ? (
@@ -102,7 +113,7 @@ export default function SiteSidebar({
         <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400 px-3 mb-2">Categories</p>
         <nav className="space-y-0.5">
           <button
-            onClick={() => setCat("all")}
+            onClick={() => navigateToCategory("all")}
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] transition-colors ${pathname === "/" && activeCat === "all"
                 ? "bg-orange-50 text-orange-700 font-medium"
                 : "text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50"
@@ -117,7 +128,7 @@ export default function SiteSidebar({
             const active = pathname === "/" && activeCat === cat.id;
             return (
               <button key={cat.id}
-                onClick={() => setCat(cat.id)}
+                onClick={() => navigateToCategory(cat.id)}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] transition-colors ${active
                     ? "bg-orange-50 text-orange-700 font-medium"
                     : "text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50"

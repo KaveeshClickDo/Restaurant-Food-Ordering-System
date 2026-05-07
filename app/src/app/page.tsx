@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { MenuItem } from "@/types";
 import { useApp } from "@/context/AppContext";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
-  Search, ShoppingBag, UtensilsCrossed, Receipt, User,
+  Search, ShoppingBag, UtensilsCrossed,
   Plus, Clock, Bike,
   Star, CalendarDays, LogOut, LayoutDashboard, Heart,
   AlertCircle,
@@ -264,6 +264,15 @@ export default function HomePage() {
   const router = useRouter();
   const [activeCat, setActiveCat] = useState("all");
   const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    const pendingCat = sessionStorage.getItem("pendingCategory");
+    if (pendingCat) {
+      setActiveCat(pendingCat);
+      sessionStorage.removeItem("pendingCategory");
+    }
+  }, []);
+
   const [openItem, setOpenItem] = useState<MenuItem | null>(null);
   const [showMobileCart, setShowMobileCart] = useState(false);
   const [authModal, setAuthModal] = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
