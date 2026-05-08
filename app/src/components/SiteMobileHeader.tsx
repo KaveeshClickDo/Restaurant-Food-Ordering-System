@@ -2,40 +2,28 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   UtensilsCrossed, Receipt, CalendarDays, User, LogOut,
   Heart, MapPin, Menu as MenuIcon, X,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 
-const ACCOUNT_ITEMS = [
-  { label: "Account",    Icon: Receipt,  href: "/account",               tab: "orders"     },
-  { label: "Favourites", Icon: Heart,    href: "/account?tab=favourites", tab: "favourites" },
-  { label: "Addresses",  Icon: MapPin,   href: "/account?tab=addresses",  tab: "addresses"  },
-  { label: "Profile",    Icon: User,     href: "/account?tab=profile",    tab: "profile"    },
-] as const;
+const navItems = [
+  { href: "/", label: "Menu", Icon: UtensilsCrossed },
+  { href: "/favourites", label: "Favourites", Icon: Heart },
+  { href: "/my-orders", label: "My Orders", Icon: Receipt },
+  { href: "/account", label: "Profile", Icon: User },
+];
 
 export default function SiteMobileHeader() {
   const { settings, categories, currentUser, logout } = useApp();
   const { restaurant } = settings;
-  const pathname            = usePathname();
-  const isAccountPage       = pathname.startsWith("/account");
+  const pathname = usePathname();
+  const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [currentTab, setCurrentTab] = useState<string>("orders");
 
   const reservationsEnabled = settings.reservationSystem?.enabled ?? false;
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    setCurrentTab(params.get("tab") ?? "orders");
-
-    function onTabChange(e: Event) {
-      setCurrentTab((e as CustomEvent<{ tab: string }>).detail.tab);
-    }
-    window.addEventListener("account-tab-change", onTabChange);
-    return () => window.removeEventListener("account-tab-change", onTabChange);
-  }, [pathname]);
 
   const headerLinks = (settings.menuLinks ?? [])
     .filter((l) => l.location === "header" && l.active)
@@ -43,11 +31,15 @@ export default function SiteMobileHeader() {
 
   function close() { setDrawerOpen(false); }
 
-  // Which account item is currently active (for top-bar icon)
-  const activeAccountItem =
-    isAccountPage
-      ? (ACCOUNT_ITEMS.find((i) => i.tab === currentTab) ?? ACCOUNT_ITEMS[0])
-      : null;
+  const navigateToCategory = (id: string) => {
+    close();
+    if (pathname !== "/") {
+      sessionStorage.setItem("pendingCategory", id);
+      router.push("/");
+    } else {
+      window.dispatchEvent(new CustomEvent("setCategory", { detail: id }));
+    }
+  };
 
   return (
     <>
@@ -73,36 +65,25 @@ export default function SiteMobileHeader() {
         {/* Nav links */}
         <nav className="flex items-center gap-0.5">
           <Link href="/"
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors ${
-              pathname === "/" ? "bg-orange-500 text-white" : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100"
-            }`}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors ${pathname === "/" ? "bg-orange-500 text-white" : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100"
+              }`}
           >
             <UtensilsCrossed size={13} strokeWidth={1.7} />
             <span className="hidden sm:inline">Menu</span>
           </Link>
 
-          {/* Account — shows the active section's icon */}
-          {activeAccountItem ? (
-            <Link href={activeAccountItem.href}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors bg-orange-500 text-white"
-            >
-              <activeAccountItem.Icon size={13} strokeWidth={1.7} />
-              <span className="hidden sm:inline">{activeAccountItem.label}</span>
-            </Link>
-          ) : (
-            <Link href="/account"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100"
-            >
-              <Receipt size={13} strokeWidth={1.7} />
-              <span className="hidden sm:inline">Account</span>
-            </Link>
-          )}
+          <Link href="/my-orders"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors ${pathname === "/my-orders" ? "bg-orange-500 text-white" : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100"
+              }`}
+          >
+            <Receipt size={13} strokeWidth={1.7} />
+            <span className="hidden sm:inline">Orders</span>
+          </Link>
 
           {reservationsEnabled && (
             <Link href="/book"
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors ${
-                pathname.startsWith("/book") ? "bg-orange-500 text-white" : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100"
-              }`}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors ${pathname.startsWith("/book") ? "bg-orange-500 text-white" : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100"
+                }`}
             >
               <CalendarDays size={13} strokeWidth={1.7} />
               <span className="hidden sm:inline">Book</span>
@@ -113,9 +94,8 @@ export default function SiteMobileHeader() {
             const active = pathname === link.href || (link.href !== "/" && pathname.startsWith(link.href));
             return (
               <Link key={link.id} href={link.href}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors ${
-                  active ? "bg-orange-500 text-white" : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100"
-                }`}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors ${active ? "bg-orange-500 text-white" : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100"
+                  }`}
               >
                 <span className="hidden sm:inline">{link.label}</span>
                 <span className="sm:hidden text-[10px]">•</span>
@@ -152,9 +132,8 @@ export default function SiteMobileHeader() {
       )}
 
       {/* ── Drawer panel ── */}
-      <aside className={`lg:hidden fixed top-0 left-0 h-full w-72 bg-white z-50 flex flex-col shadow-2xl transition-transform duration-200 ease-in-out ${
-        drawerOpen ? "translate-x-0" : "-translate-x-full"
-      }`}>
+      <aside className={`lg:hidden fixed top-0 left-0 h-full w-72 bg-white z-50 flex flex-col shadow-2xl transition-transform duration-200 ease-in-out ${drawerOpen ? "translate-x-0" : "-translate-x-full"
+        }`}>
 
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-100">
@@ -182,34 +161,25 @@ export default function SiteMobileHeader() {
         <div className="px-3 pt-3 pb-1">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400 px-2 mb-1.5">Navigate</p>
           <nav className="space-y-0.5">
-            <Link href="/" onClick={close}
-              className={`flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors ${
-                pathname === "/" ? "bg-orange-500 text-white" : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
-              }`}
-            >
-              <UtensilsCrossed className="w-[17px] h-[17px]" strokeWidth={1.6} />
-              <span>Menu</span>
-            </Link>
-
-            {ACCOUNT_ITEMS.map(({ label, Icon, href, tab }) => {
-              const active = isAccountPage && currentTab === tab;
+            {navItems.map(({ href, label, Icon }) => {
+              const active = pathname === href;
               return (
-                <Link key={label} href={href} onClick={close}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors ${
-                    active ? "bg-orange-500 text-white" : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
-                  }`}
+                <Link key={href} href={href} onClick={close}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors ${active
+                    ? "bg-orange-500 text-white"
+                    : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                    }`}
                 >
                   <Icon className="w-[17px] h-[17px]" strokeWidth={1.6} />
                   <span>{label}</span>
                 </Link>
               );
             })}
-
+            
             {reservationsEnabled && (
               <Link href="/book" onClick={close}
-                className={`flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors ${
-                  pathname.startsWith("/book") ? "bg-orange-500 text-white" : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
-                }`}
+                className={`flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors ${pathname.startsWith("/book") ? "bg-orange-500 text-white" : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                  }`}
               >
                 <CalendarDays className="w-[17px] h-[17px]" strokeWidth={1.6} />
                 <span>Book a table</span>
@@ -220,9 +190,8 @@ export default function SiteMobileHeader() {
               const active = pathname === link.href || (link.href !== "/" && pathname.startsWith(link.href));
               return (
                 <Link key={link.id} href={link.href} onClick={close}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors ${
-                    active ? "bg-orange-500 text-white" : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
-                  }`}
+                  className={`flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors ${active ? "bg-orange-500 text-white" : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                    }`}
                 >
                   <span className="w-[17px] h-[17px] flex items-center justify-center text-[11px] font-bold opacity-60">●</span>
                   <span>{link.label}</span>
@@ -236,17 +205,17 @@ export default function SiteMobileHeader() {
         <div className="px-3 pt-3 pb-2 flex-1 overflow-y-auto">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400 px-2 mb-1.5">Categories</p>
           <nav className="space-y-0.5">
-            <Link href="/" onClick={close}
-              className="flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] transition-colors text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50">
+            <button onClick={() => navigateToCategory("all")}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] transition-colors text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50">
               <span className="text-base leading-none">🍽️</span>
               <span>Everything</span>
-            </Link>
+            </button>
             {categories.map((cat) => (
-              <Link key={cat.id} href={`/?cat=${cat.id}`} onClick={close}
-                className="flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] transition-colors text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50">
+              <button key={cat.id} onClick={() => navigateToCategory(cat.id)}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] transition-colors text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50">
                 <span className="text-base leading-none">{cat.emoji}</span>
                 <span>{cat.name}</span>
-              </Link>
+              </button>
             ))}
           </nav>
         </div>
