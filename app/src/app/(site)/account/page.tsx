@@ -1068,13 +1068,13 @@ function AccountPageContent() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   const urlTab = searchParams.get("tab");
-  const initialTab: TabId = (VALID_TABS as readonly string[]).includes(urlTab ?? "") ? urlTab as TabId : "orders";
+  const initialTab: TabId = (VALID_TABS as readonly string[]).includes(urlTab ?? "") ? urlTab as TabId : "profile";
 
   const [tab, setTab] = useState<TabId>(initialTab);
 
   function handleTabChange(t: TabId) {
     setTab(t);
-    router.replace(t === "orders" ? "/account" : `/account?tab=${t}`, { scroll: false });
+    router.replace(t === "profile" ? "/account" : `/account?tab=${t}`, { scroll: false });
     window.dispatchEvent(new CustomEvent("account-tab-change", { detail: { tab: t } }));
   }
 
@@ -1449,7 +1449,7 @@ function AccountPageContent() {
 
               {/* Tabs */}
               <div className="flex gap-1 bg-zinc-100 p-1 rounded-xl overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-                {(["orders", "favourites", "addresses", "profile"] as const).map((t) => (
+                {(["profile", "orders", "favourites", "addresses"] as const).map((t) => (
                   <button
                     key={t}
                     onClick={() => handleTabChange(t)}
