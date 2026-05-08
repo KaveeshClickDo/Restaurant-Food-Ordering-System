@@ -70,7 +70,7 @@ export default function POSLoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 select-none">
+    <div className=" bg-slate-950 flex flex-col items-center justify-center p-6 select-none h-full ">
       {/* Brand */}
       <div className="flex items-center gap-3 mb-10">
         <div className="w-12 h-12 bg-orange-500 rounded-2xl flex items-center justify-center shadow-lg shadow-orange-500/30">

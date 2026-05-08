@@ -6632,7 +6632,7 @@ export default function POSPage() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-slate-950 overflow-hidden">
+    <div className="h-full flex flex-col bg-slate-950 overflow-hidden">
       {/* Top bar */}
       <header className="flex-shrink-0 h-14 bg-slate-900 border-b border-slate-700/50 flex items-center px-4 gap-4">
         {/* Logo */}
