@@ -9,28 +9,33 @@ import {
   Edit2, Check, X, RotateCcw, ShoppingCart, AlertCircle, RefreshCw,
   Heart, Plus, PackageX, MapPin, Home, Briefcase, Trash2, Star as StarIcon, Truck, Gift,
   Lock, Eye, EyeOff, ShieldCheck,
+  LayoutDashboard,
+  LogOut,
+  Search,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { Order, OrderLine, OrderStatus, DeliveryStatus, MenuItem, SavedAddress, AddOn, CartItem } from "@/types";
 import AuthModal from "@/components/AuthModal";
 import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import { resolveStock } from "@/lib/stockUtils";
+import MobileBottomNav from "@/components/MobileBottomNav";
+import CartPanel from "@/components/CartPanel";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<OrderStatus, { label: string; color: string; dot: string }> = {
-  pending:            { label: "Pending",            color: "bg-yellow-100 text-yellow-700", dot: "bg-yellow-500" },
-  confirmed:          { label: "Confirmed",          color: "bg-blue-100 text-blue-700",     dot: "bg-blue-500"   },
-  preparing:          { label: "Preparing",          color: "bg-amber-100 text-amber-700",   dot: "bg-amber-500"  },
-  ready:              { label: "Ready",              color: "bg-purple-100 text-purple-700", dot: "bg-purple-500" },
-  delivered:          { label: "Delivered",          color: "bg-green-100 text-green-700",   dot: "bg-green-500"  },
-  cancelled:          { label: "Cancelled",          color: "bg-red-100 text-red-700",       dot: "bg-red-400"    },
-  refunded:           { label: "Refunded",           color: "bg-teal-100 text-teal-700",     dot: "bg-teal-500"   },
-  partially_refunded: { label: "Partially Refunded", color: "bg-cyan-100 text-cyan-700",     dot: "bg-cyan-500"   },
+  pending: { label: "Pending", color: "bg-yellow-100 text-yellow-700", dot: "bg-yellow-500" },
+  confirmed: { label: "Confirmed", color: "bg-blue-100 text-blue-700", dot: "bg-blue-500" },
+  preparing: { label: "Preparing", color: "bg-amber-100 text-amber-700", dot: "bg-amber-500" },
+  ready: { label: "Ready", color: "bg-purple-100 text-purple-700", dot: "bg-purple-500" },
+  delivered: { label: "Delivered", color: "bg-green-100 text-green-700", dot: "bg-green-500" },
+  cancelled: { label: "Cancelled", color: "bg-red-100 text-red-700", dot: "bg-red-400" },
+  refunded: { label: "Refunded", color: "bg-teal-100 text-teal-700", dot: "bg-teal-500" },
+  partially_refunded: { label: "Partially Refunded", color: "bg-cyan-100 text-cyan-700", dot: "bg-cyan-500" },
 };
 
 // Kitchen-only steps (delivery hands off to driver after "ready")
-const DELIVERY_STEPS:   OrderStatus[] = ["pending", "confirmed", "preparing", "ready"];
+const DELIVERY_STEPS: OrderStatus[] = ["pending", "confirmed", "preparing", "ready"];
 // Collection goes all the way through to "delivered" in the kitchen flow
 const COLLECTION_STEPS: OrderStatus[] = ["pending", "confirmed", "preparing", "ready", "delivered"];
 
@@ -41,10 +46,10 @@ function getReadyLabel(fulfillment: string) {
 // While order.status stays "ready" during the driver leg, these configs override
 // the badge so the customer sees meaningful progress rather than "Ready for Pickup".
 const DELIVERY_STATUS_BADGE: Record<DeliveryStatus, { label: string; color: string; dot: string }> = {
-  assigned:   { label: "Driver Assigned",  color: "bg-amber-100 text-amber-700",   dot: "bg-amber-500"  },
-  picked_up:  { label: "Picked Up",        color: "bg-blue-100 text-blue-700",     dot: "bg-blue-500"   },
-  on_the_way: { label: "On the Way",       color: "bg-indigo-100 text-indigo-700", dot: "bg-indigo-500" },
-  delivered:  { label: "Delivered",        color: "bg-green-100 text-green-700",   dot: "bg-green-500"  },
+  assigned: { label: "Driver Assigned", color: "bg-amber-100 text-amber-700", dot: "bg-amber-500" },
+  picked_up: { label: "Picked Up", color: "bg-blue-100 text-blue-700", dot: "bg-blue-500" },
+  on_the_way: { label: "On the Way", color: "bg-indigo-100 text-indigo-700", dot: "bg-indigo-500" },
+  delivered: { label: "Delivered", color: "bg-green-100 text-green-700", dot: "bg-green-500" },
 };
 
 function StatusBadge({ order }: { order: Order }) {
@@ -111,10 +116,10 @@ function OrderTracker({ order }: { order: Order }) {
 const DS_STEPS: DeliveryStatus[] = ["assigned", "picked_up", "on_the_way", "delivered"];
 
 const DS_CONFIG: Record<DeliveryStatus, { label: string; emoji: string; color: string; pulse?: boolean }> = {
-  assigned:   { label: "Driver assigned",    emoji: "🏍️", color: "text-amber-600",  pulse: false },
-  picked_up:  { label: "Order picked up",    emoji: "📦", color: "text-blue-600",   pulse: false },
-  on_the_way: { label: "Driver on the way",  emoji: "🚴", color: "text-indigo-600", pulse: true  },
-  delivered:  { label: "Order delivered",    emoji: "✅", color: "text-green-600",  pulse: false },
+  assigned: { label: "Driver assigned", emoji: "🏍️", color: "text-amber-600", pulse: false },
+  picked_up: { label: "Order picked up", emoji: "📦", color: "text-blue-600", pulse: false },
+  on_the_way: { label: "Driver on the way", emoji: "🚴", color: "text-indigo-600", pulse: true },
+  delivered: { label: "Order delivered", emoji: "✅", color: "text-green-600", pulse: false },
 };
 
 function DeliveryTracker({ order }: { order: Order }) {
@@ -125,12 +130,11 @@ function DeliveryTracker({ order }: { order: Order }) {
   const cfg = DS_CONFIG[ds];
 
   return (
-    <div className={`mt-3 rounded-xl px-3 py-2.5 border ${
-      ds === "on_the_way" ? "bg-indigo-50 border-indigo-200" :
-      ds === "delivered"  ? "bg-green-50 border-green-200"   :
-      ds === "picked_up"  ? "bg-blue-50 border-blue-200"     :
-                            "bg-amber-50 border-amber-200"
-    }`}>
+    <div className={`mt-3 rounded-xl px-3 py-2.5 border ${ds === "on_the_way" ? "bg-indigo-50 border-indigo-200" :
+      ds === "delivered" ? "bg-green-50 border-green-200" :
+        ds === "picked_up" ? "bg-blue-50 border-blue-200" :
+          "bg-amber-50 border-amber-200"
+      }`}>
       <div className="flex items-center gap-2 mb-2">
         <span className="text-sm">{cfg.emoji}</span>
         <span className={`text-xs font-bold ${cfg.color}`}>{cfg.label}</span>
@@ -145,10 +149,9 @@ function DeliveryTracker({ order }: { order: Order }) {
           const active = step === ds;
           return (
             <div key={step} className="flex items-center flex-1 last:flex-none">
-              <div className={`w-2 h-2 rounded-full flex-shrink-0 transition-all ${
-                active ? "bg-indigo-500 ring-2 ring-indigo-200 scale-125" :
-                done   ? "bg-indigo-400" : "bg-gray-200"
-              }`} />
+              <div className={`w-2 h-2 rounded-full flex-shrink-0 transition-all ${active ? "bg-indigo-500 ring-2 ring-indigo-200 scale-125" :
+                done ? "bg-indigo-400" : "bg-gray-200"
+                }`} />
               {i < DS_STEPS.length - 1 && (
                 <div className={`h-0.5 flex-1 mx-0.5 transition-colors ${i < currentIdx ? "bg-indigo-400" : "bg-gray-200"}`} />
               )}
@@ -462,11 +465,10 @@ function FavouritesTab() {
                     <button
                       disabled={!canOrder}
                       onClick={() => canOrder && setModalItem(item)}
-                      className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition ${
-                        canOrder
-                          ? "bg-orange-500 hover:bg-orange-600 text-white"
-                          : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
-                      }`}
+                      className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition ${canOrder
+                        ? "bg-orange-500 hover:bg-orange-600 text-white"
+                        : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
+                        }`}
                     >
                       <Plus size={12} />
                       Add
@@ -489,8 +491,8 @@ function FavouritesTab() {
 // ─── Addresses Tab ────────────────────────────────────────────────────────────
 
 const LABEL_ICONS: Record<string, React.ReactNode> = {
-  Home:   <Home      size={14} className="text-zinc-700" />,
-  Work:   <Briefcase size={14} className="text-blue-500"   />,
+  Home: <Home size={14} className="text-zinc-700" />,
+  Work: <Briefcase size={14} className="text-blue-500" />,
 };
 
 function getLabelIcon(label: string) {
@@ -504,11 +506,11 @@ const EMPTY_FORM: Omit<SavedAddress, "id" | "createdAt" | "isDefault"> = {
 function AddressesTab() {
   const { currentUser, addSavedAddress, updateSavedAddress, deleteSavedAddress, setDefaultAddress } = useApp();
   const [editingId, setEditingId] = useState<string | null>(null); // null = adding new
-  const [showForm,  setShowForm]  = useState(false);
-  const [form,      setForm]      = useState<Omit<SavedAddress, "id" | "createdAt" | "isDefault">>(EMPTY_FORM);
-  const [errors,    setErrors]    = useState<Partial<Record<keyof typeof EMPTY_FORM, string>>>({});
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState<Omit<SavedAddress, "id" | "createdAt" | "isDefault">>(EMPTY_FORM);
+  const [errors, setErrors] = useState<Partial<Record<keyof typeof EMPTY_FORM, string>>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const [saved,     setSaved]     = useState(false);
+  const [saved, setSaved] = useState(false);
 
   if (!currentUser) return null;
   const user = currentUser; // narrowed — safe to use inside closures
@@ -517,9 +519,9 @@ function AddressesTab() {
 
   function validate() {
     const e: Partial<Record<keyof typeof EMPTY_FORM, string>> = {};
-    if (!form.label.trim())   e.label   = "Label is required.";
-    if (!form.address.trim()) e.address  = "Address is required.";
-    if (!form.postcode.trim())e.postcode = "Postcode is required.";
+    if (!form.label.trim()) e.label = "Label is required.";
+    if (!form.address.trim()) e.address = "Address is required.";
+    if (!form.postcode.trim()) e.postcode = "Postcode is required.";
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -601,11 +603,10 @@ function AddressesTab() {
                   key={l}
                   type="button"
                   onClick={() => setForm((f) => ({ ...f, label: l }))}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
-                    form.label === l
-                      ? "bg-orange-500 border-orange-500 text-white"
-                      : "border-zinc-200 text-zinc-600 hover:border-zinc-300"
-                  }`}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${form.label === l
+                    ? "bg-orange-500 border-orange-500 text-white"
+                    : "border-zinc-200 text-zinc-600 hover:border-zinc-300"
+                    }`}
                 >
                   {l === "Home" ? <Home size={12} /> : l === "Work" ? <Briefcase size={12} /> : <MapPin size={12} />}
                   {l}
@@ -624,10 +625,10 @@ function AddressesTab() {
             {errors.label && <p className="text-xs text-red-500 mt-1">{errors.label}</p>}
           </div>
 
-          {field("address",  "Full address",  { placeholder: "42 Example Street, London" })}
-          {field("postcode", "Postcode",       { placeholder: "EC1A 1BB" })}
-          {field("phone",    "Phone (optional)", { type: "tel", placeholder: "+44 7700 900000" })}
-          {field("note",     "Delivery note (optional)", { placeholder: "Leave at front door…" })}
+          {field("address", "Full address", { placeholder: "42 Example Street, London" })}
+          {field("postcode", "Postcode", { placeholder: "EC1A 1BB" })}
+          {field("phone", "Phone (optional)", { type: "tel", placeholder: "+44 7700 900000" })}
+          {field("note", "Delivery note (optional)", { placeholder: "Leave at front door…" })}
 
           <div className="flex gap-2 pt-1">
             <button
@@ -750,15 +751,15 @@ function AddressesTab() {
 // ─── Change Password Card ─────────────────────────────────────────────────────
 
 function ChangePasswordCard() {
-  const [open,            setOpen]            = useState(false);
+  const [open, setOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword,     setNewPassword]     = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showCurrent,     setShowCurrent]     = useState(false);
-  const [showNew,         setShowNew]         = useState(false);
-  const [loading,         setLoading]         = useState(false);
-  const [error,           setError]           = useState("");
-  const [success,         setSuccess]         = useState(false);
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
 
   function reset() {
     setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
@@ -778,10 +779,10 @@ function ChangePasswordCard() {
     if (newPassword !== confirmPassword) { setError("Passwords do not match."); return; }
     setLoading(true);
     try {
-      const res  = await fetch("/api/auth/change-password", {
-        method:  "POST",
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ currentPassword, newPassword }),
+        body: JSON.stringify({ currentPassword, newPassword }),
       });
       const json = await res.json() as { ok: boolean; error?: string };
       if (json.ok) {
@@ -1058,9 +1059,13 @@ const VALID_TABS = ["orders", "favourites", "addresses", "profile"] as const;
 type TabId = typeof VALID_TABS[number];
 
 function AccountPageContent() {
-  const { currentUser, customers, addToCart, menuItems, refreshCurrentUser } = useApp();
+  const { currentUser, customers, addToCart, menuItems, refreshCurrentUser, settings, logout } = useApp();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [search, setSearch] = useState("");
+  const [showMobileCart, setShowMobileCart] = useState(false);
+  const [authModal, setAuthModal] = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   const urlTab = searchParams.get("tab");
   const initialTab: TabId = (VALID_TABS as readonly string[]).includes(urlTab ?? "") ? urlTab as TabId : "orders";
@@ -1093,7 +1098,7 @@ function AccountPageContent() {
   // Poll every 15 s while viewing the orders tab — graceful fallback if Realtime drops.
   useEffect(() => {
     if (!currentUser?.id || tab !== "orders") return;
-    const id = setInterval(() => refreshCurrentUser().catch(() => {}), 15_000);
+    const id = setInterval(() => refreshCurrentUser().catch(() => { }), 15_000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.id, tab]);
@@ -1102,7 +1107,7 @@ function AccountPageContent() {
   useEffect(() => {
     function onVisible() {
       if (document.visibilityState === "visible" && currentUser && tab === "orders") {
-        refreshCurrentUser().catch(() => {});
+        refreshCurrentUser().catch(() => { });
       }
     }
     document.addEventListener("visibilitychange", onVisible);
@@ -1114,7 +1119,7 @@ function AccountPageContent() {
   // Watches both `order.status` (kitchen lifecycle) and `order.deliveryStatus`
   // (driver delivery leg). When either changes in another tab the storage event
   // updates `customers` in AppContext; we surface a contextual banner.
-  const prevStatusMapRef   = useRef<Record<string, OrderStatus>>({});
+  const prevStatusMapRef = useRef<Record<string, OrderStatus>>({});
   const prevDeliveryMapRef = useRef<Record<string, DeliveryStatus | undefined>>({});
 
   useEffect(() => {
@@ -1137,10 +1142,10 @@ function AccountPageContent() {
         const ds = o.deliveryStatus;
         banner =
           ds === "on_the_way" ? "🚴 Your driver is on the way!" :
-          ds === "picked_up"  ? "📦 Your order has been picked up" :
-          ds === "assigned"   ? "🏍️ A driver has been assigned to your order" :
-          ds === "delivered"  ? "✅ Your order has been delivered!" :
-          banner;
+            ds === "picked_up" ? "📦 Your order has been picked up" :
+              ds === "assigned" ? "🏍️ A driver has been assigned to your order" :
+                ds === "delivered" ? "✅ Your order has been delivered!" :
+                  banner;
       }
       prevD[o.id] = o.deliveryStatus;
     });
@@ -1186,8 +1191,8 @@ function AccountPageContent() {
   const orders = [...currentUser.orders].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
-  const activeOrders  = orders.filter((o) => !["delivered", "cancelled"].includes(o.status));
-  const totalSpent    = orders.filter((o) => o.status !== "cancelled").reduce((s, o) => s + o.total, 0);
+  const activeOrders = orders.filter((o) => !["delivered", "cancelled"].includes(o.status));
+  const totalSpent = orders.filter((o) => o.status !== "cancelled").reduce((s, o) => s + o.total, 0);
 
   const itemCounts: Record<string, number> = {};
   orders.forEach((o) => o.items.forEach((i) => { itemCounts[i.name] = (itemCounts[i.name] ?? 0) + i.qty; }));
@@ -1273,212 +1278,317 @@ function AccountPageContent() {
 
   return (
     <>
-      <div className="max-w-4xl mx-auto px-3 sm:px-4 py-4 sm:py-8 pb-8 sm:pb-12 space-y-4 sm:space-y-6">
-        {/* Profile banner */}
-        <div className="bg-gradient-to-br from-zinc-800 to-zinc-900 rounded-2xl p-4 sm:p-6 text-white shadow-lg">
-          <div className="flex items-center gap-3 sm:gap-4">
-            <div className="w-12 h-12 sm:w-14 sm:h-14 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0">
-              <span className="text-xl sm:text-2xl font-bold text-white">{liveUser.name.charAt(0).toUpperCase()}</span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <h1 className="text-lg sm:text-xl font-bold truncate">{liveUser.name}</h1>
-              <p className="text-zinc-300 text-xs sm:text-sm truncate">{liveUser.email}</p>
-              {liveUser.tags.length > 0 && (
-                <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                  {liveUser.tags.map((tag) => (
-                    <span key={tag} className="text-[10px] font-bold bg-white/20 text-white rounded-full px-2 py-0.5">
-                      {tag}
-                    </span>
-                  ))}
+      <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: 'var(--brand-bg, #FAFAF9)' }}>
+
+        {/* ── Main content area ─────────────────────────────────────────────── */}
+        <div className="flex-1 flex flex-col min-w-0 h-full">
+
+          {/* Top search header */}
+          <header className="hidden lg:flex items-center justify-between gap-3 px-4 md:px-6 py-3.5 border-b border-zinc-200/70 bg-white flex-shrink-0">
+            {/* Mobile: logo */}
+            <div className="lg:hidden flex items-center gap-2 flex-shrink-0">
+              {settings.restaurant.logoImage ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={settings.restaurant.logoImage} alt={settings.restaurant.name}
+                  className="w-8 h-8 rounded-xl object-cover" />
+              ) : (
+                <div className="w-8 h-8 rounded-xl bg-orange-500 text-white flex items-center justify-center text-[14px] font-bold">
+                  {settings.restaurant.name.charAt(0).toUpperCase()}
                 </div>
               )}
             </div>
-          </div>
-        </div>
 
-        {/* Stats */}
-        <div className={`grid gap-3 sm:gap-4 ${(liveUser.storeCredit ?? 0) > 0 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2 sm:grid-cols-3"}`}>
-          <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5">
-            <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
-              <ShoppingBag size={14} className="text-zinc-700 flex-shrink-0" />
-              <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total orders</span>
-            </div>
-            <p className="text-xl sm:text-2xl font-bold text-zinc-900 tabular-nums">{orders.length}</p>
-          </div>
-          <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5">
-            <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
-              <TrendingUp size={14} className="text-zinc-700 flex-shrink-0" />
-              <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total spent</span>
-            </div>
-            <p className="text-xl sm:text-2xl font-bold text-zinc-900 tabular-nums">£{totalSpent.toFixed(2)}</p>
-          </div>
-          {favourite ? (
-            <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5 col-span-2 sm:col-span-1">
-              <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
-                <Star size={14} className="text-zinc-700 flex-shrink-0" />
-                <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Most ordered</span>
-              </div>
-              <p className="text-sm font-bold text-zinc-900 leading-snug line-clamp-2">{favourite}</p>
-            </div>
-          ) : null}
-
-          {/* Store credit stat card — only when balance > 0 */}
-          {(liveUser.storeCredit ?? 0) > 0 && (
-            <div className="bg-teal-500 rounded-2xl p-4 sm:p-5 col-span-2 sm:col-span-1">
-              <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
-                <Gift size={14} className="text-teal-100 flex-shrink-0" />
-                <span className="text-[11px] sm:text-xs font-medium text-teal-100 truncate">Store credit</span>
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-white tabular-nums">£{(liveUser.storeCredit ?? 0).toFixed(2)}</p>
-              <p className="text-[10px] text-teal-200 mt-1">Auto-applied at checkout</p>
-            </div>
-          )}
-        </div>
-
-        {/* Store credit action banner */}
-        {(liveUser.storeCredit ?? 0) > 0 && (
-          <div className="flex items-start gap-3 sm:gap-4 bg-teal-50 border border-teal-200 rounded-2xl px-4 sm:px-5 py-4">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-              <Gift size={16} className="text-white" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-teal-800">
-                You have <span className="text-teal-600 tabular-nums">£{(liveUser.storeCredit ?? 0).toFixed(2)}</span> store credit
-              </p>
-              <p className="text-xs text-teal-600 mt-0.5 leading-relaxed">
-                Automatically applied at checkout. Toggle on/off before paying.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Active orders alert */}
-        {activeOrders.length > 0 && (
-          <div className="flex items-start gap-3 bg-zinc-50 border border-zinc-200 rounded-2xl px-4 sm:px-5 py-3.5 sm:py-4">
-            <Clock size={16} className="text-zinc-700 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-semibold text-zinc-700">
-                {activeOrders.length} active order{activeOrders.length > 1 ? "s" : ""} in progress
-              </p>
-              <p className="text-xs text-zinc-500 mt-0.5">Track your live orders in the Orders tab.</p>
-            </div>
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div className="flex gap-1 bg-zinc-100 p-1 rounded-xl overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-          {(["orders", "favourites", "addresses", "profile"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => handleTabChange(t)}
-              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-[13px] sm:text-sm font-semibold transition-all whitespace-nowrap flex-shrink-0 ${
-                tab === t ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
-              }`}
-            >
-              {t === "orders"     ? <Package  size={14} /> :
-               t === "favourites" ? <Heart    size={14} /> :
-               t === "addresses"  ? <MapPin   size={14} /> :
-                                    <User     size={14} />}
-              {t === "orders"     ? "Orders"     :
-               t === "favourites" ? "Favourites" :
-               t === "addresses"  ? "Addresses"  : "Profile"}
-              {t === "orders" && orders.length > 0 && (
-                <span className="ml-0.5 bg-orange-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                  {orders.length > 99 ? "99+" : orders.length}
-                </span>
+            {/* Search */}
+            <div className="flex-1 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-100 max-w-xl">
+              <Search className="w-4 h-4 text-zinc-400 flex-shrink-0" strokeWidth={1.8} />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search dishes…"
+                className="flex-1 bg-transparent outline-none text-[13.5px] text-zinc-900 placeholder:text-zinc-400"
+              />
+              {search && (
+                <button onClick={() => setSearch("")} className="text-[11px] font-medium text-zinc-400 hover:text-zinc-700 transition-colors">
+                  Clear
+                </button>
               )}
-              {t === "favourites" && (liveUser.favourites?.length ?? 0) > 0 && (
-                <span className="ml-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                  {liveUser.favourites!.length}
-                </span>
-              )}
-              {t === "addresses" && (liveUser.savedAddresses?.length ?? 0) > 0 && (
-                <span className="ml-0.5 bg-blue-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                  {liveUser.savedAddresses!.length}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
+            </div>
 
-        {/* Tab content */}
-        {tab === "orders" && (
-          <div className="space-y-4">
-            {isLoadingOrders && orders.length === 0 ? (
-              /* Skeleton shown while the first server fetch is in-flight */
-              <div className="space-y-3">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 animate-pulse">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="h-4 w-24 bg-zinc-100 rounded-full" />
-                      <div className="h-5 w-20 bg-zinc-100 rounded-full" />
+            {/* Auth / user (desktop) */}
+            <div className="hidden lg:flex items-center gap-2">
+              {currentUser ? (
+                <div className="relative">
+                  <button
+                    onClick={() => setUserMenuOpen((o) => !o)}
+                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 transition-colors"
+                  >
+                    <div className="w-6 h-6 rounded-full bg-orange-500 text-white flex items-center justify-center text-[11px] font-bold">
+                      {currentUser.name?.charAt(0).toUpperCase() ?? "U"}
                     </div>
-                    <div className="h-3 w-40 bg-zinc-100 rounded-full mb-2" />
-                    <div className="h-3 w-28 bg-zinc-100 rounded-full" />
+                    <span className="text-[13px] font-medium text-zinc-700">{currentUser.name?.split(" ")[0]}</span>
+                  </button>
+                  {userMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setUserMenuOpen(false)} />
+                      <div className="absolute right-0 top-full mt-2 w-44 bg-white rounded-xl border border-zinc-200/70 shadow-lg z-20 overflow-hidden py-1">
+                        <Link href="/account" onClick={() => setUserMenuOpen(false)}
+                          className="flex items-center gap-2.5 px-4 py-2.5 text-[13px] text-zinc-700 hover:bg-zinc-50 transition-colors">
+                          <LayoutDashboard className="w-4 h-4" strokeWidth={1.6} />Account
+                        </Link>
+                        <button onClick={() => { logout(); setUserMenuOpen(false); }}
+                          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[13px] text-red-600 hover:bg-red-50 transition-colors">
+                          <LogOut className="w-4 h-4" strokeWidth={1.6} />Sign out
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <button onClick={() => setAuthModal({ open: true, tab: "login" })}
+                  className="px-4 py-2 rounded-xl bg-orange-500 text-white text-[13px] font-medium hover:bg-orange-600 transition-colors">
+                  Sign in
+                </button>
+              )}
+            </div>
+
+          </header>
+          {/* Scrollable content */}
+          <div className="flex-1 overflow-y-auto pb-28 lg:pb-8">
+
+            <div className="max-w-4xl mx-auto px-3 sm:px-4 py-4 sm:py-8 pb-8 sm:pb-12 space-y-4 sm:space-y-6">
+              {/* Profile banner */}
+              <div className="bg-gradient-to-br from-zinc-800 to-zinc-900 rounded-2xl p-4 sm:p-6 text-white shadow-lg">
+                <div className="flex items-center gap-3 sm:gap-4">
+                  <div className="w-12 h-12 sm:w-14 sm:h-14 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0">
+                    <span className="text-xl sm:text-2xl font-bold text-white">{liveUser.name.charAt(0).toUpperCase()}</span>
                   </div>
+                  <div className="flex-1 min-w-0">
+                    <h1 className="text-lg sm:text-xl font-bold truncate">{liveUser.name}</h1>
+                    <p className="text-zinc-300 text-xs sm:text-sm truncate">{liveUser.email}</p>
+                    {liveUser.tags.length > 0 && (
+                      <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                        {liveUser.tags.map((tag) => (
+                          <span key={tag} className="text-[10px] font-bold bg-white/20 text-white rounded-full px-2 py-0.5">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Stats */}
+              <div className={`grid gap-3 sm:gap-4 ${(liveUser.storeCredit ?? 0) > 0 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2 sm:grid-cols-3"}`}>
+                <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5">
+                  <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
+                    <ShoppingBag size={14} className="text-zinc-700 flex-shrink-0" />
+                    <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total orders</span>
+                  </div>
+                  <p className="text-xl sm:text-2xl font-bold text-zinc-900 tabular-nums">{orders.length}</p>
+                </div>
+                <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5">
+                  <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
+                    <TrendingUp size={14} className="text-zinc-700 flex-shrink-0" />
+                    <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total spent</span>
+                  </div>
+                  <p className="text-xl sm:text-2xl font-bold text-zinc-900 tabular-nums">£{totalSpent.toFixed(2)}</p>
+                </div>
+                {favourite ? (
+                  <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5 col-span-2 sm:col-span-1">
+                    <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
+                      <Star size={14} className="text-zinc-700 flex-shrink-0" />
+                      <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Most ordered</span>
+                    </div>
+                    <p className="text-sm font-bold text-zinc-900 leading-snug line-clamp-2">{favourite}</p>
+                  </div>
+                ) : null}
+
+                {/* Store credit stat card — only when balance > 0 */}
+                {(liveUser.storeCredit ?? 0) > 0 && (
+                  <div className="bg-teal-500 rounded-2xl p-4 sm:p-5 col-span-2 sm:col-span-1">
+                    <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
+                      <Gift size={14} className="text-teal-100 flex-shrink-0" />
+                      <span className="text-[11px] sm:text-xs font-medium text-teal-100 truncate">Store credit</span>
+                    </div>
+                    <p className="text-xl sm:text-2xl font-bold text-white tabular-nums">£{(liveUser.storeCredit ?? 0).toFixed(2)}</p>
+                    <p className="text-[10px] text-teal-200 mt-1">Auto-applied at checkout</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Store credit action banner */}
+              {(liveUser.storeCredit ?? 0) > 0 && (
+                <div className="flex items-start gap-3 sm:gap-4 bg-teal-50 border border-teal-200 rounded-2xl px-4 sm:px-5 py-4">
+                  <div className="w-9 h-9 sm:w-10 sm:h-10 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <Gift size={16} className="text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-teal-800">
+                      You have <span className="text-teal-600 tabular-nums">£{(liveUser.storeCredit ?? 0).toFixed(2)}</span> store credit
+                    </p>
+                    <p className="text-xs text-teal-600 mt-0.5 leading-relaxed">
+                      Automatically applied at checkout. Toggle on/off before paying.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Active orders alert */}
+              {activeOrders.length > 0 && (
+                <div className="flex items-start gap-3 bg-zinc-50 border border-zinc-200 rounded-2xl px-4 sm:px-5 py-3.5 sm:py-4">
+                  <Clock size={16} className="text-zinc-700 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-zinc-700">
+                      {activeOrders.length} active order{activeOrders.length > 1 ? "s" : ""} in progress
+                    </p>
+                    <p className="text-xs text-zinc-500 mt-0.5">Track your live orders in the Orders tab.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Tabs */}
+              <div className="flex gap-1 bg-zinc-100 p-1 rounded-xl overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+                {(["orders", "favourites", "addresses", "profile"] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => handleTabChange(t)}
+                    className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-[13px] sm:text-sm font-semibold transition-all whitespace-nowrap flex-shrink-0 ${tab === t ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
+                      }`}
+                  >
+                    {t === "orders" ? <Package size={14} /> :
+                      t === "favourites" ? <Heart size={14} /> :
+                        t === "addresses" ? <MapPin size={14} /> :
+                          <User size={14} />}
+                    {t === "orders" ? "Orders" :
+                      t === "favourites" ? "Favourites" :
+                        t === "addresses" ? "Addresses" : "Profile"}
+                    {t === "orders" && orders.length > 0 && (
+                      <span className="ml-0.5 bg-orange-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                        {orders.length > 99 ? "99+" : orders.length}
+                      </span>
+                    )}
+                    {t === "favourites" && (liveUser.favourites?.length ?? 0) > 0 && (
+                      <span className="ml-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                        {liveUser.favourites!.length}
+                      </span>
+                    )}
+                    {t === "addresses" && (liveUser.savedAddresses?.length ?? 0) > 0 && (
+                      <span className="ml-0.5 bg-blue-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                        {liveUser.savedAddresses!.length}
+                      </span>
+                    )}
+                  </button>
                 ))}
               </div>
-            ) : orders.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm py-16 text-center">
-                <ShoppingBag size={40} className="mx-auto text-zinc-200 mb-3" />
-                <p className="font-semibold text-zinc-400">No orders yet</p>
-                <p className="text-sm text-zinc-300 mt-1">Your order history will appear here.</p>
-                <Link href="/" className="mt-4 inline-flex items-center gap-1.5 text-sm text-zinc-700 font-semibold hover:underline">
-                  Browse the menu
-                </Link>
-              </div>
-            ) : (
-              <>
-                {/* Quick re-order section */}
-                <QuickReorder orders={orders} onReorder={handleReorder} />
 
-                {/* Full order history */}
-                <div className="space-y-3">
-                  {orders.map((order) => (
-                    <OrderCard key={order.id} order={order} onReorder={handleReorder} />
-                  ))}
+              {/* Tab content */}
+              {tab === "orders" && (
+                <div className="space-y-4">
+                  {isLoadingOrders && orders.length === 0 ? (
+                    /* Skeleton shown while the first server fetch is in-flight */
+                    <div className="space-y-3">
+                      {[1, 2, 3].map((i) => (
+                        <div key={i} className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 animate-pulse">
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="h-4 w-24 bg-zinc-100 rounded-full" />
+                            <div className="h-5 w-20 bg-zinc-100 rounded-full" />
+                          </div>
+                          <div className="h-3 w-40 bg-zinc-100 rounded-full mb-2" />
+                          <div className="h-3 w-28 bg-zinc-100 rounded-full" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : orders.length === 0 ? (
+                    <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm py-16 text-center">
+                      <ShoppingBag size={40} className="mx-auto text-zinc-200 mb-3" />
+                      <p className="font-semibold text-zinc-400">No orders yet</p>
+                      <p className="text-sm text-zinc-300 mt-1">Your order history will appear here.</p>
+                      <Link href="/" className="mt-4 inline-flex items-center gap-1.5 text-sm text-zinc-700 font-semibold hover:underline">
+                        Browse the menu
+                      </Link>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Quick re-order section */}
+                      <QuickReorder orders={orders} onReorder={handleReorder} />
+
+                      {/* Full order history */}
+                      <div className="space-y-3">
+                        {orders.map((order) => (
+                          <OrderCard key={order.id} order={order} onReorder={handleReorder} />
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
-              </>
+              )}
+
+              {tab === "favourites" && <FavouritesTab />}
+              {tab === "addresses" && <AddressesTab />}
+              {tab === "profile" && <ProfileTab />}
+            </div>
+
+            {/* Re-order toast */}
+            {reorderToast && (
+              <ReorderToast result={reorderToast} onClose={() => setReorderToast(null)} />
             )}
+
+            {/* Order status update banner (cross-tab real-time sync) */}
+            {updateBanner && !reorderToast && (
+              <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-sm">
+                <div className={`text-white rounded-2xl shadow-2xl px-5 py-4 flex items-center gap-3 ${updateBanner.includes("on the way") ? "bg-indigo-600" :
+                  updateBanner.includes("delivered") ? "bg-green-600" :
+                    updateBanner.includes("picked up") ? "bg-blue-600" :
+                      updateBanner.includes("driver") ? "bg-amber-600" :
+                        "bg-gray-900"
+                  }`}>
+                  <span className="text-lg flex-shrink-0">
+                    {updateBanner.startsWith("🚴") ? "🚴" :
+                      updateBanner.startsWith("📦") ? "📦" :
+                        updateBanner.startsWith("🏍️") ? "🏍️" :
+                          updateBanner.startsWith("✅") ? "✅" : <RefreshCw size={16} />}
+                  </span>
+                  <p className="text-sm font-semibold flex-1">{updateBanner.replace(/^[^ ]+ /, "")}</p>
+                  <button
+                    onClick={() => setUpdateBanner(null)}
+                    className="text-white/60 hover:text-white transition flex-shrink-0"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Mobile Bottom Nav ── */}
+        <MobileBottomNav
+          onCartOpen={() => setShowMobileCart(true)}
+          onAuth={() => setAuthModal({ open: true, tab: "login" })}
+        />
+
+        {/* ── Mobile Cart Drawer ── */}
+        {showMobileCart && (
+          <div className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end">
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowMobileCart(false)} />
+            <div className="relative bg-white rounded-t-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-xl">
+              <CartPanel
+                onMobileClose={() => setShowMobileCart(false)}
+                onOrderPlaced={() => { setShowMobileCart(false); router.push('/my-orders'); }}
+              />
+            </div>
           </div>
         )}
 
-        {tab === "favourites" && <FavouritesTab />}
-        {tab === "addresses"  && <AddressesTab />}
-        {tab === "profile"    && <ProfileTab />}
+        {authModal.open && (
+          <AuthModal
+            initialTab={authModal.tab}
+            onClose={() => setAuthModal({ open: false, tab: "login" })}
+          />
+        )}
+
       </div>
-
-      {/* Re-order toast */}
-      {reorderToast && (
-        <ReorderToast result={reorderToast} onClose={() => setReorderToast(null)} />
-      )}
-
-      {/* Order status update banner (cross-tab real-time sync) */}
-      {updateBanner && !reorderToast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-sm">
-          <div className={`text-white rounded-2xl shadow-2xl px-5 py-4 flex items-center gap-3 ${
-            updateBanner.includes("on the way") ? "bg-indigo-600" :
-            updateBanner.includes("delivered")  ? "bg-green-600"  :
-            updateBanner.includes("picked up")  ? "bg-blue-600"   :
-            updateBanner.includes("driver")     ? "bg-amber-600"  :
-            "bg-gray-900"
-          }`}>
-            <span className="text-lg flex-shrink-0">
-              {updateBanner.startsWith("🚴") ? "🚴" :
-               updateBanner.startsWith("📦") ? "📦" :
-               updateBanner.startsWith("🏍️") ? "🏍️" :
-               updateBanner.startsWith("✅") ? "✅" : <RefreshCw size={16} />}
-            </span>
-            <p className="text-sm font-semibold flex-1">{updateBanner.replace(/^[^ ]+ /, "")}</p>
-            <button
-              onClick={() => setUpdateBanner(null)}
-              className="text-white/60 hover:text-white transition flex-shrink-0"
-            >
-              <X size={15} />
-            </button>
-          </div>
-        </div>
-      )}
     </>
   );
 }

@@ -1491,8 +1491,12 @@ export function AppProvider({
       }}
     >
       <SeoHead settings={settings} />
-      <EmailVerificationBanner currentUser={currentUser} />
-      {children}
+      <div className="flex flex-col h-[100dvh] w-full overflow-hidden">
+        <EmailVerificationBanner currentUser={currentUser} />
+        <div className="flex-1 w-full min-h-0 relative">
+          {children}
+        </div>
+      </div>
     </AppContext.Provider>
   );
 }
