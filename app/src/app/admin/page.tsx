@@ -570,7 +570,7 @@ function AdminPageContent() {
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="h-screen bg-gray-50 overflow-hidden flex flex-col">
 
       {/* ── New-order toast ──────────────────────────────────────────────── */}
       {showAlert && (
@@ -608,7 +608,7 @@ function AdminPageContent() {
 
       {/* ── Main content (offset by sidebar on desktop) ───────────────────── */}
       <div className={[
-        "transition-[padding-left] duration-300 ease-in-out",
+        "flex flex-col flex-1 h-full transition-[padding-left] duration-300 ease-in-out",
         sidebarCollapsed ? "lg:pl-[68px]" : "lg:pl-60",
       ].join(" ")}>
 
@@ -667,7 +667,7 @@ function AdminPageContent() {
         </header>
 
         {/* Page content */}
-        <main>
+        <main className="flex-1 overflow-y-auto">
           <div className="max-w-6xl mx-auto px-3 sm:px-6 py-5 sm:py-8 space-y-6">
 
             {/* Welcome banner */}
