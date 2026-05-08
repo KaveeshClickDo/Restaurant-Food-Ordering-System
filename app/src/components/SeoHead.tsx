@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 import { AdminSettings } from "@/types";
 
 /**
@@ -8,15 +9,14 @@ import { AdminSettings } from "@/types";
  *
  * React 19 hoists <title> and <meta> rendered anywhere in the tree to <head>.
  * We render them ONLY when the admin has configured a custom value, so the
- * static metadata from layout.tsx acts as the SSR default and SeoHead overrides
- * it dynamically once settings load from Supabase / localStorage.
- *
- * We deliberately do NOT render <title> or <meta name="description"> when the
- * value is empty — doing so would create duplicate tags with the static fallback.
+ * server-rendered metadata from generateMetadata() acts as the SSR default and
+ * SeoHead overrides it dynamically once settings load from Supabase.
  */
 export default function SeoHead({ settings }: { settings: AdminSettings }) {
   const { seo, customHeadCode } = settings;
-  const prevCode = useRef<string | null>(null);
+  const pathname  = usePathname();
+  const prevCode  = useRef<string | null>(null);
+  const prevFav   = useRef<string>("");
 
   // ── Custom <head> code injection ─────────────────────────────────────────────
   useEffect(() => {
@@ -51,23 +51,50 @@ export default function SeoHead({ settings }: { settings: AdminSettings }) {
     });
   }, [customHeadCode]);
 
+  // ── Live favicon update ───────────────────────────────────────────────────────
+  // Browsers cache favicons aggressively, so we manipulate the DOM directly
+  // rather than relying on React's hoisted <link> reconciliation.
+  useEffect(() => {
+    const faviconUrl = seo.faviconUrl?.trim() ?? "";
+    if (faviconUrl === prevFav.current) return;
+    prevFav.current = faviconUrl;
+
+    // Remove any existing dynamic favicon links added by this component
+    document.head.querySelectorAll("link[data-sg-favicon]").forEach((el) => el.remove());
+
+    if (!faviconUrl) return;
+
+    const link = document.createElement("link");
+    link.rel  = "icon";
+    link.href = faviconUrl;
+    link.setAttribute("data-sg-favicon", "true");
+    document.head.appendChild(link);
+  }, [seo.faviconUrl]);
+
   const title       = seo.metaTitle?.trim()       || "";
   const description = seo.metaDescription?.trim() || "";
   const keywords    = seo.metaKeywords?.trim()    || "";
   const ogImage     = seo.ogImage?.trim()         || "";
   const siteUrl     = seo.siteUrl?.trim()         || "";
+  const siteName    = settings.restaurant?.name   || "";
+
+  // Build per-page canonical: siteUrl + current path
+  const canonical   = siteUrl
+    ? `${siteUrl.replace(/\/$/, "")}${pathname === "/" ? "" : pathname}`
+    : "";
 
   return (
     <>
-      {/* Only override when admin has set a custom value */}
       {title       && <title>{title}</title>}
       {description && <meta name="description"        content={description} />}
       {keywords    && <meta name="keywords"           content={keywords} />}
+      {canonical   && <link rel="canonical"           href={canonical} />}
 
       {/* Open Graph */}
       {title       && <meta property="og:title"       content={title} />}
       {description && <meta property="og:description" content={description} />}
-      {siteUrl     && <meta property="og:url"         content={siteUrl} />}
+      {siteName    && <meta property="og:site_name"   content={siteName} />}
+      {canonical   && <meta property="og:url"         content={canonical} />}
       {ogImage     && <meta property="og:image"       content={ogImage} />}
       {ogImage     && <meta property="og:image:width"  content="1200" />}
       {ogImage     && <meta property="og:image:height" content="630" />}

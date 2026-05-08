@@ -27,7 +27,7 @@ Online ordering data is stored in **Supabase (PostgreSQL)** with real-time synch
 
 | Role | Route | Description |
 |---|---|---|
-| Customer | `/` + `/account` | Browse menu, place orders, track delivery in real time |
+| Customer | `/` + `/login` + `/verify-email` | Browse menu, place orders, favourites, track delivery in real time |
 | Admin | `/admin` | Manage all restaurant operations via 24-panel dashboard |
 | Kitchen | `/kitchen` | View and progress live orders on a full-screen Kanban board |
 | Driver | `/driver` + `/driver/login` | Accept and deliver orders; advance delivery status |
@@ -41,12 +41,17 @@ Online ordering data is stored in **Supabase (PostgreSQL)** with real-time synch
 ### 1.1 Menu Page
 
 - **Header**: Restaurant cover image, logo, name, tagline, food hygiene rating, delivery/collection toggle, estimated times, minimum order value
-- **Navigation**: Sticky desktop category sidebar with ScrollSpy; horizontal scrolling category strip on mobile
+- **Delivery / Collection toggle**: Visible pill switch in the hero section — Delivery or Collection. Updates estimated time display, delivery fee visibility, and checkout fulfillment. State managed globally via `AppContext.fulfillment`.
+- **Navigation**: Sticky desktop category sidebar with ScrollSpy; horizontal scrolling category strip on mobile (shown only when viewing the menu screen)
 - **Breakfast Menu**: Separate amber-themed collapsible section shown only during admin-configured time window (e.g. 07:00–11:30)
-- **Menu Items**: Grouped by category; each card shows name, description, price, dietary badges, popular flag, and add-to-cart button
+- **Menu Items**: Grouped by category; each card shows name, description, price, dietary badges, popular flag, and add-to-cart button. Heart icon visible to signed-in customers for adding to Favourites.
 - **Search & Filters**: Real-time search by name and description; dietary filter pills (Vegetarian, Vegan, Halal, Gluten-Free, etc.)
 - **Item Customisation Modal**: Select variations (size, spice level, etc.), add-ons (extras with prices), and special instructions before adding to cart
-- **Cart**: Sticky right sidebar on desktop; floating "View Basket" button → full-screen drawer on mobile. Shows subtotal, delivery fee, service fee, VAT breakdown, coupon discount, store credit applied, and grand total
+- **Cart**: Sticky right sidebar on desktop; full-screen drawer triggered from mobile bottom nav Cart tab. Shows subtotal, delivery fee (hidden for collection), service fee, VAT breakdown, coupon discount, store credit applied, and grand total
+- **Favourites screen**: Heart icon on food cards (signed-in customers only); dedicated Favourites screen accessible from sidebar and mobile nav; persisted to `customers.favourites` via Supabase; one-tap "Add to order" for each saved item
+- **My Orders screen**: Active order shown as a dark card with Live badge and status; past orders list with Reorder button; **Track Order modal** with step-by-step SVG progress bar and driver details
+- **Reserve a Table**: Button in the left sidebar Navigate section, shown when `settings.reservationSystem.enabled` is true; opens the reservation booking modal
+- **Mobile bottom navigation**: Fixed tab bar at viewport bottom — Menu, Saved (Favourites), Cart (elevated orange circle with badge), Orders, Profile; iOS safe-area insets; active tab highlighted with orange top bar
 
 ### 1.2 Cart & Checkout Rules
 
@@ -68,16 +73,35 @@ Online ordering data is stored in **Supabase (PostgreSQL)** with real-time synch
 8. Order placed → receipt printed (if auto-print enabled) → confirmation email sent
 9. **Guest profile auto-capture**: fire-and-forget `POST /api/guest-profile` saves name, email, phone, and order total to `reservation_customers` — no account required, no impact on order completion if it fails
 
-### 1.4 Customer Account (`/account`)
+### 1.4 Customer Authentication
 
-- Full order history, sorted newest-first; active orders highlighted with pulsing "Live" badge and orange border
+All customer authentication uses **bcrypt passwords** and **httpOnly session cookies**. No passwords or session tokens are stored in `localStorage`.
+
+| Method | Endpoint | Outcome |
+|---|---|---|
+| Email + password registration | `POST /api/auth/register` | bcrypt hash stored; verification email sent; `customer_session` cookie set |
+| Email + password login | `POST /api/auth/login` | bcrypt compare; `customer_session` cookie set (30-day expiry) |
+| Google OAuth (Sign in with Google) | `GET /api/auth/google` → callback | Authorization code flow; finds or creates account; sets `customer_session` cookie |
+| Email verification | `POST /api/auth/verify-email` | Sets `email_verified = true` on the customer row |
+| Resend verification email | `POST /api/auth/resend-verification` | Sends new verification link |
+| Forgot / reset password | `POST /api/auth/reset-password` | Signed reset token emailed; new password hashed on confirmation |
+| Session check | `GET /api/auth/me` | Returns current customer from cookie |
+| Logout | `POST /api/auth/logout` | Clears the `customer_session` cookie |
+
+The `AuthModal` component provides login/register within a modal overlay on `/`. The `/login` page provides the same flows as a full-page experience (also handles forgot-password flow). The `EmailVerificationBanner` component prompts unverified customers in the page header.
+
+### 1.5 Customer Account (screen within `/`)
+
+- Full order history, sorted newest-first; active orders highlighted with pulsing "Live" badge
 - **Kitchen tracker**: step dots for `pending → confirmed → preparing → ready`
 - **Driver tracker**: separate progress card for `assigned → picked_up → on_the_way → delivered` with live pulse when en route
+- **Track Order modal**: step-by-step SVG progress bar across all stages; driver name and phone when assigned
 - Status badge reflects `deliveryStatus` in real time
-- Re-order: one-click add of all available items from a past order
+- Re-order: one-click Reorder button copies all available items from a past order into the cart
 - Saved delivery addresses: add / edit / set default / delete
 - Profile editing: name and phone; email is read-only
 - Store credit balance displayed on profile
+- Saved favourites count — click to jump to Favourites screen
 
 ---
 
@@ -325,7 +349,9 @@ A mobile-first table-service companion for front-of-house staff. Authenticated b
 
 ## 5. Driver Portal (`/driver` + `/driver/login`)
 
-- Password-authenticated login (credentials set in Admin → Drivers; bcrypt hashes)
+- Email + bcrypt password login via `/driver/login`; issues an httpOnly `driver_session` cookie (30-day expiry)
+- All `/driver/*` routes are protected by `middleware.ts` — unauthenticated requests redirect to `/driver/login`
+- Logout: `POST /api/auth/driver/logout` → clears the `driver_session` cookie and redirects to `/driver/login`
 - **Available orders**: unassigned delivery orders at "ready" or "preparing"
 - Accept order → "Accept & Pick Up" confirmation dialog
 - **Delivery leg**: Assigned → Picked Up → On the Way → Delivered
@@ -606,7 +632,7 @@ All five main Supabase tables have Realtime enabled. `AppContext` subscribes to 
 | Admin settings | `app_settings` JSONB | Restaurant info, schedule, zones, templates, coupons, tax, receipt, breakfast, drivers, reservation config |
 | Categories | `categories` table | id, name, emoji, sort_order |
 | Menu items | `menu_items` table | id, category_id, name, price, dietary, variations, add_ons, stock |
-| Customers | `customers` table | id, name, email, phone, password, tags, favourites, saved_addresses, store_credit |
+| Customers | `customers` table | id, name, email, phone, password_hash (bcrypt), email_verified, tags, favourites, saved_addresses, store_credit |
 | Orders | `orders` table | id, customer_id, status, delivery_status, fulfillment, items, driver_id, fees, coupon, VAT, store_credit_used, refunds, void fields |
 | Drivers | `drivers` table | id, name, email, password_hash, active, vehicle_info |
 | Guest CRM | `reservation_customers` table | id, email, name, phone, visit_count, order_count, total_spend, tags, notes, marketing_opt_in |
@@ -626,4 +652,17 @@ All five main Supabase tables have Realtime enabled. `AppContext` subscribes to 
 
 ---
 
-*Last updated: April 2026*
+---
+
+## 12. Auth Environment Variables
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `AUTH_JWT_SECRET` | Yes | HMAC secret for signing customer and driver session cookies |
+| `NEXT_PUBLIC_SITE_URL` | Yes | Canonical site URL — used in OAuth callback URLs and password-reset email links |
+| `GOOGLE_CLIENT_ID` | Optional | Enables "Sign in with Google" OAuth button |
+| `GOOGLE_CLIENT_SECRET` | Optional | Required alongside `GOOGLE_CLIENT_ID` |
+
+---
+
+*Last updated: May 2026*

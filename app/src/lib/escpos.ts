@@ -102,8 +102,8 @@ export class ReceiptBuilder {
    * t1/t2 are on/off pulse durations in units of 2 ms (25 = 50 ms, 250 = 500 ms).
    * Works for drawers wired to the DK port on the printer (RJ11).
    */
-  kickDrawer() {
-    this.buf.push(ESC, 0x70, 0x00, 0x19, 0xfa);
+  kickDrawer(t1 = 0x19, t2 = 0xfa) {
+    this.buf.push(ESC, 0x70, 0x00, t1, t2);
     return this;
   }
 
@@ -120,7 +120,7 @@ function fmt(n: number) {
 
 /** Build a full order receipt as ESC/POS bytes. */
 export function buildReceipt(order: Order, settings: AdminSettings): number[] {
-  const W  = settings.printer.paperWidth;
+  const W  = [32, 48].includes(settings.printer.paperWidth) ? settings.printer.paperWidth : 48;
   const r  = settings.restaurant;
   const rs = settings.receiptSettings;
   const b  = new ReceiptBuilder();
@@ -197,6 +197,13 @@ export function buildReceipt(order: Order, settings: AdminSettings): number[] {
    .twoCol("TOTAL", fmt(order.total), W)
    .bold(false);
 
+  if (order.tipAmount && order.tipAmount > 0) {
+    b.twoCol("Tip", fmt(order.tipAmount), W);
+  }
+  if (order.changeGiven !== undefined && order.changeGiven > 0) {
+    b.twoCol("Change", fmt(order.changeGiven), W);
+  }
+
   if (showVat && vatInclusive) {
     b.align("center").line(`Prices include ${vatRate}% VAT`).align("left");
   }
@@ -221,7 +228,7 @@ export function buildReceipt(order: Order, settings: AdminSettings): number[] {
 
 /** Build a short test-connection receipt. */
 export function buildTestReceipt(settings: AdminSettings): number[] {
-  const W = settings.printer.paperWidth;
+  const W = [32, 48].includes(settings.printer.paperWidth) ? settings.printer.paperWidth : 48;
   const r = settings.restaurant;
   const b = new ReceiptBuilder();
 
@@ -267,17 +274,25 @@ export async function sendToPrinter(
   port: number,
 ): Promise<{ ok: boolean; error?: string }> {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
     try {
       const res  = await fetch("/api/print", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ ip, port, bytes }),
+        signal:  controller.signal,
       });
+      clearTimeout(timer);
       const data = await res.json() as { ok: boolean; error?: string };
       if (data.ok) return { ok: true };
       if (attempt === MAX_RETRIES) return { ok: false, error: data.error };
     } catch (err) {
-      if (attempt === MAX_RETRIES) return { ok: false, error: String(err) };
+      clearTimeout(timer);
+      const msg = err instanceof Error && err.name === "AbortError"
+        ? `Print request timed out after 15 s (attempt ${attempt})`
+        : String(err);
+      if (attempt === MAX_RETRIES) return { ok: false, error: msg };
     }
     await new Promise((r) => setTimeout(r, RETRY_DELAY));
   }
@@ -536,6 +551,8 @@ export function printReceiptBrowser(
 
   lines.push(dbl);
   lines.push(twoCol("TOTAL", fmt(order.total)));
+  if (order.tipAmount && order.tipAmount > 0) lines.push(twoCol("Tip", fmt(order.tipAmount)));
+  if (order.changeGiven !== undefined && order.changeGiven > 0) lines.push(twoCol("Change", fmt(order.changeGiven)));
   if (showVat && vatInclusive) lines.push(center(`Prices include ${vatRate}% VAT`));
   lines.push(dbl);
   lines.push("");

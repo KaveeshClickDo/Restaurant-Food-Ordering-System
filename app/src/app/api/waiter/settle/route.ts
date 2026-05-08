@@ -25,18 +25,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "tableLabel is required." }, { status: 400 });
   }
 
-  const { error } = await supabaseAdmin
-    .from("orders")
-    .update({
-      status:         "delivered",
-      payment_method: paymentMethod ?? "table-service",
-    })
-    .in("id", orderIds);
+  try {
+    const { error } = await supabaseAdmin
+      .from("orders")
+      .update({
+        status:         "delivered",
+        payment_method: paymentMethod ?? "table-service",
+      })
+      .in("id", orderIds)
+      .eq("fulfillment", "dine-in");
 
-  if (error) {
-    console.error("waiter/settle:", error.message);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    if (error) {
+      console.error("waiter/settle:", error.message);
+      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true, settled: orderIds.length, tableLabel });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unexpected error";
+    console.error("[waiter/settle]", message);
+    return NextResponse.json({ ok: false, error: "Failed to settle table. Please try again." }, { status: 500 });
   }
-
-  return NextResponse.json({ ok: true, settled: orderIds.length, tableLabel });
 }

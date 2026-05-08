@@ -48,6 +48,7 @@ export async function POST(req: NextRequest) {
     .from("orders")
     .select("id, total, refunds, refunded_amount")
     .in("id", orderIds)
+    .eq("fulfillment", "dine-in")
     .eq("status", "delivered");
 
   if (fetchErr) {

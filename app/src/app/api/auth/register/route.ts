@@ -8,9 +8,10 @@
 
 import { NextRequest, NextResponse }  from "next/server";
 import bcrypt                         from "bcryptjs";
+import { rateLimit }                  from "@/lib/rateLimit";
 import { createHmac, randomBytes }    from "crypto";
 import { supabaseAdmin }              from "@/lib/supabaseAdmin";
-import { sendEmailDirect }            from "@/lib/emailServer";
+import { sendEmailDirect, fetchBrandPrimaryColor } from "@/lib/emailServer";
 import { createSessionToken, setSessionCookie, COOKIE_CUSTOMER } from "@/lib/auth";
 
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -29,6 +30,8 @@ async function sendVerificationEmail(to: string, name: string, rawToken: string)
     return;
   }
 
+  const brandColor = await fetchBrandPrimaryColor();
+
   const result = await sendEmailDirect(
     to,
     "Verify your email address",
@@ -39,7 +42,7 @@ async function sendVerificationEmail(to: string, name: string, rawToken: string)
         This link expires in <strong>24 hours</strong>.
       </p>
       <a href="${link}"
-         style="display:inline-block;background:#f97316;color:#fff;font-weight:700;
+         style="display:inline-block;background:${brandColor};color:#fff;font-weight:700;
                 text-decoration:none;padding:12px 28px;border-radius:10px;font-size:15px">
         Verify my email
       </a>
@@ -53,6 +56,12 @@ async function sendVerificationEmail(to: string, name: string, rawToken: string)
 }
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const { limited } = rateLimit(`register:${ip}`, 5, 60_000);
+  if (limited) {
+    return NextResponse.json({ ok: false, error: "Too many registration attempts. Please wait a minute." }, { status: 429 });
+  }
+
   let body: { id?: string; name?: string; email?: string; phone?: string; password?: string; createdAt?: string };
   try { body = await req.json(); }
   catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }

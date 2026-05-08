@@ -120,9 +120,11 @@ Each card shows:
 
 - Restaurant name (from `AppContext` settings — the single source of truth for branding; the only thing KDS reads from global state)
 - Completed-today count (orders that left the active columns since page load)
-- Live clock
+- Live clock (updated every second)
 - Fullscreen toggle (browser Fullscreen API)
 - Link back to admin dashboard
+
+No authentication is required to access `/kitchen` — the KDS is designed to run permanently on a dedicated kitchen monitor without staff interaction.
 
 ---
 

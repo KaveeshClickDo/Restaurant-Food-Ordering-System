@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, Suspense } from "react";
 import { useRouter, useSearchParams }    from "next/navigation";
 import Link                              from "next/link";
 import { useApp }                        from "@/context/AppContext";
@@ -9,7 +9,7 @@ import { Truck, Eye, EyeOff, AlertCircle, CheckCircle, Loader2 } from "lucide-re
 // ── Inner component (uses useSearchParams — must be inside Suspense) ──────────
 
 function DriverLoginInner() {
-  const { driverLogin, currentDriver, settings } = useApp();
+  const { driverLogin, settings } = useApp();
   const router       = useRouter();
   const searchParams = useSearchParams();
 
@@ -44,10 +44,8 @@ function DriverLoginInner() {
   const [resetDone,     setResetDone]     = useState(false);
   const [resetError,    setResetError]    = useState("");
 
-  // Already logged in → straight to dashboard
-  useEffect(() => {
-    if (currentDriver) router.replace("/driver");
-  }, [currentDriver, router]);
+  // Redirect handled by middleware (valid driver_session cookie → /driver).
+  // No client-side redirect here to avoid a stale-localStorage redirect loop.
 
   // ── Login submit ─────────────────────────────────────────────────────────
   async function handleLogin(e: { preventDefault(): void }) {

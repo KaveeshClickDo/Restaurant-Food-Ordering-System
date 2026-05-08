@@ -14,12 +14,13 @@
 export type OutboxStatus = "pending" | "failed";
 
 export interface OutboxEntry {
-  id: string;           // matches POSSale.id
-  payload: unknown;     // the full POSSale JSON
-  addedAt: string;      // ISO — when it was enqueued
-  attempts: number;     // how many send attempts have been made
+  id: string;              // matches POSSale.id
+  payload: unknown;        // the full POSSale JSON
+  addedAt: string;         // ISO — when it was enqueued
+  attempts: number;        // how many send attempts have been made
   status: OutboxStatus;
   lastError?: string;
+  lastAttemptAt?: string;  // ISO — when the most recent attempt was made
 }
 
 const STORAGE_KEY  = "pos_outbox";
@@ -97,11 +98,10 @@ export async function drainOutbox(): Promise<number> {
     const entries = load().filter((e) => e.status === "pending");
 
     for (const entry of entries) {
-      // Exponential back-off guard: if the last attempt was too recent, skip
+      // Exponential back-off guard: skip entries whose back-off window hasn't
+      // elapsed since the last attempt. drain() is called on reconnect, so we
+      // check time elapsed rather than sleeping inside the loop.
       if (entry.attempts > 0) {
-        const delay = BASE_DELAY_MS * Math.pow(2, entry.attempts - 1);
-        // We don't actually sleep here — the drain is called on reconnect so
-        // we simply skip entries that have exceeded their attempt budget.
         if (entry.attempts >= MAX_ATTEMPTS) {
           const all = load();
           const idx = all.findIndex((e) => e.id === entry.id);
@@ -111,8 +111,11 @@ export async function drainOutbox(): Promise<number> {
           }
           continue;
         }
-        // Use a minimal in-loop delay proportional to retries
-        await new Promise((r) => setTimeout(r, Math.min(delay, 500)));
+        const delay = BASE_DELAY_MS * Math.pow(2, entry.attempts - 1); // 2s, 4s, 8s, 16s
+        const msSinceLast = entry.lastAttemptAt
+          ? Date.now() - new Date(entry.lastAttemptAt).getTime()
+          : Infinity;
+        if (msSinceLast < delay) continue; // back-off window not yet elapsed
       }
 
       try {
@@ -131,11 +134,13 @@ export async function drainOutbox(): Promise<number> {
           const all = load();
           const idx = all.findIndex((e) => e.id === entry.id);
           if (idx !== -1) {
+            const next = all[idx].attempts + 1;
             all[idx] = {
               ...all[idx],
-              attempts:  all[idx].attempts + 1,
-              lastError: json.error ?? `HTTP ${res.status}`,
-              status:    all[idx].attempts + 1 >= MAX_ATTEMPTS ? "failed" : "pending",
+              attempts:      next,
+              lastAttemptAt: new Date().toISOString(),
+              lastError:     json.error ?? `HTTP ${res.status}`,
+              status:        next >= MAX_ATTEMPTS ? "failed" : "pending",
             };
             save(all);
           }
@@ -144,11 +149,13 @@ export async function drainOutbox(): Promise<number> {
         const all = load();
         const idx = all.findIndex((e) => e.id === entry.id);
         if (idx !== -1) {
+          const next = all[idx].attempts + 1;
           all[idx] = {
             ...all[idx],
-            attempts:  all[idx].attempts + 1,
-            lastError: err instanceof Error ? err.message : "Network error",
-            status:    all[idx].attempts + 1 >= MAX_ATTEMPTS ? "failed" : "pending",
+            attempts:      next,
+            lastAttemptAt: new Date().toISOString(),
+            lastError:     err instanceof Error ? err.message : "Network error",
+            status:        next >= MAX_ATTEMPTS ? "failed" : "pending",
           };
           save(all);
         }

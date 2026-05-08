@@ -10,26 +10,13 @@ import { enqueue as outboxEnqueue } from "@/lib/posOutbox";
 
 // ─── Seed data ───────────────────────────────────────────────────────────────
 
+// Seed staff used only on a fresh install (localStorage empty).
+// PINs must be changed in Settings → Staff before deploying to a production terminal.
 const SEED_STAFF: POSStaff[] = [
   {
     id: "staff-1", name: "Admin", email: "admin@restaurant.com", role: "admin",
-    pin: "0000", active: true, permissions: ROLE_PERMISSIONS.admin,
+    pin: "", active: true, permissions: ROLE_PERMISSIONS.admin,
     hourlyRate: 0, avatarColor: "#7c3aed", createdAt: "2024-01-01T00:00:00.000Z",
-  },
-  {
-    id: "staff-2", name: "Sarah", email: "sarah@restaurant.com", role: "manager",
-    pin: "1234", active: true, permissions: ROLE_PERMISSIONS.manager,
-    hourlyRate: 12.50, avatarColor: "#0891b2", createdAt: "2024-01-01T00:00:00.000Z",
-  },
-  {
-    id: "staff-3", name: "James", email: "james@restaurant.com", role: "cashier",
-    pin: "5678", active: true, permissions: ROLE_PERMISSIONS.cashier,
-    hourlyRate: 10.00, avatarColor: "#16a34a", createdAt: "2024-01-01T00:00:00.000Z",
-  },
-  {
-    id: "staff-4", name: "Priya", email: "priya@restaurant.com", role: "cashier",
-    pin: "9999", active: true, permissions: ROLE_PERMISSIONS.cashier,
-    hourlyRate: 10.00, avatarColor: "#dc2626", createdAt: "2024-01-01T00:00:00.000Z",
   },
 ];
 
@@ -427,6 +414,13 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     const member = staff.find((s) => s.id === staffId && s.active);
     if (!member || member.pin !== pin) return false;
     setCurrentStaff(member);
+    // Obtain a server-side session cookie so the POS API routes can verify auth.
+    // Fire-and-forget — local POS functionality never depends on this succeeding.
+    fetch("/api/pos/auth", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ staffId, pin }),
+    }).catch(() => {});
     return true;
   }, [staff]);
 
@@ -436,7 +430,36 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     setDiscount({ pct: 0, note: "" });
     setTipAmount(0);
     setAssignedCustomer(null);
+    // Clear the server-side session cookie.
+    fetch("/api/pos/auth", { method: "DELETE" }).catch(() => {});
   }, []);
+
+  // ── Idle-timeout auto-logout ──────────────────────────────────────────────
+  // Log the staff member out after 30 minutes of inactivity so unattended
+  // POS terminals cannot be accessed without re-authenticating.
+  const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+  const lastActivity = useRef(Date.now());
+
+  useEffect(() => {
+    if (!currentStaff) return;
+    const reset = () => { lastActivity.current = Date.now(); };
+    window.addEventListener("click",      reset, { passive: true });
+    window.addEventListener("keydown",    reset, { passive: true });
+    window.addEventListener("touchstart", reset, { passive: true });
+    return () => {
+      window.removeEventListener("click",      reset);
+      window.removeEventListener("keydown",    reset);
+      window.removeEventListener("touchstart", reset);
+    };
+  }, [currentStaff]);
+
+  useEffect(() => {
+    if (!currentStaff) return;
+    const id = setInterval(() => {
+      if (Date.now() - lastActivity.current >= IDLE_TIMEOUT_MS) logout();
+    }, 60_000);
+    return () => clearInterval(id);
+  }, [currentStaff, logout]);
 
   // ── Cart ─────────────────────────────────────────────────────────────────
   const addToCart = useCallback((product: POSProduct, modifiers: POSCartModifier[]) => {

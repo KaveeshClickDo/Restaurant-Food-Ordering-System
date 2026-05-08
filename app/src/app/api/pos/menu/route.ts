@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getPosSession } from "@/lib/auth";
 
 // ─── GET ──────────────────────────────────────────────────────────────────────
 
@@ -34,6 +35,17 @@ export async function GET() {
 // ─── POST ─────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  // Auth guard: require a valid POS session. Same graceful fallback as pos/orders.
+  const session = await getPosSession();
+  if (!session) {
+    const { data: settingsRow } = await supabaseAdmin
+      .from("app_settings").select("data").eq("id", 1).single();
+    const posStaffConfigured = (settingsRow?.data?.pos_staff ?? []).length > 0;
+    if (posStaffConfigured) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    }
+  }
+
   let body: {
     categories?: Record<string, unknown>[];
     products?: Record<string, unknown>[];

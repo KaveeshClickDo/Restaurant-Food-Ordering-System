@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHmac, randomBytes }   from "crypto";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
-import { sendEmailDirect }           from "@/lib/emailServer";
+import { sendEmailDirect, fetchBrandPrimaryColor } from "@/lib/emailServer";
 import { RESET_TOKEN_TTL_MS }        from "@/lib/auth";
 
 function hashToken(rawToken: string): string {
@@ -48,6 +48,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const resetUrl = `${siteUrl}/driver/login?action=reset&token=${rawToken}&email=${encodeURIComponent(email)}`;
 
   if (process.env.SMTP_HOST) {
+    const brandColor = await fetchBrandPrimaryColor();
     const html = `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a;padding:24px">
         <h2 style="margin-bottom:8px;color:#111">Driver password reset</h2>
@@ -57,7 +58,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           This link expires in <strong>1 hour</strong>.
         </p>
         <a href="${resetUrl}"
-           style="display:inline-block;background:#f97316;color:#fff;font-weight:700;
+           style="display:inline-block;background:${brandColor};color:#fff;font-weight:700;
                   text-decoration:none;padding:12px 28px;border-radius:10px;font-size:15px">
           Reset my password
         </a>

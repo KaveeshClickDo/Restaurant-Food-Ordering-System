@@ -22,6 +22,18 @@ import {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// Strips the classic XSS vectors from email preview HTML.
+// User-supplied values are already HTML-escaped by escHtml() before reaching here;
+// this is defense-in-depth against a malicious admin template.
+function sanitizePreviewHtml(html: string): string {
+  return html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script\s*>/gi, "")
+    .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe\s*>/gi, "")
+    .replace(/<object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object\s*>/gi, "")
+    .replace(/<embed\s[^>]*>/gi, "")
+    .replace(/\bon\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, "");
+}
+
 function isReservationEvent(event: EmailTemplateEvent): boolean {
   return event.startsWith("reservation_");
 }
@@ -268,7 +280,7 @@ function EmailPreview({
       <div className="border border-gray-200 rounded-xl overflow-hidden bg-gray-100 p-4">
         <div
           className="max-w-[600px] mx-auto"
-          dangerouslySetInnerHTML={{ __html: html }}
+          dangerouslySetInnerHTML={{ __html: sanitizePreviewHtml(html) }}
         />
       </div>
       <p className="text-[11px] text-gray-400 text-center">

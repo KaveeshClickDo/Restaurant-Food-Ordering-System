@@ -1,17 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   User, Mail, Phone, Calendar, ShoppingBag, TrendingUp, Clock,
-  ChevronDown, ChevronUp, LogOut, ArrowLeft, Star, Package,
+  ChevronDown, ChevronUp, Star, Package,
   Edit2, Check, X, RotateCcw, ShoppingCart, AlertCircle, RefreshCw,
   Heart, Plus, PackageX, MapPin, Home, Briefcase, Trash2, Star as StarIcon, Truck, Gift,
   Lock, Eye, EyeOff, ShieldCheck,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { Order, OrderLine, OrderStatus, DeliveryStatus, MenuItem, SavedAddress } from "@/types";
+import { Order, OrderLine, OrderStatus, DeliveryStatus, MenuItem, SavedAddress, AddOn, CartItem } from "@/types";
 import AuthModal from "@/components/AuthModal";
 import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import { resolveStock } from "@/lib/stockUtils";
@@ -21,7 +21,7 @@ import { resolveStock } from "@/lib/stockUtils";
 const STATUS_CONFIG: Record<OrderStatus, { label: string; color: string; dot: string }> = {
   pending:            { label: "Pending",            color: "bg-yellow-100 text-yellow-700", dot: "bg-yellow-500" },
   confirmed:          { label: "Confirmed",          color: "bg-blue-100 text-blue-700",     dot: "bg-blue-500"   },
-  preparing:          { label: "Preparing",          color: "bg-orange-100 text-orange-700", dot: "bg-orange-500" },
+  preparing:          { label: "Preparing",          color: "bg-amber-100 text-amber-700",   dot: "bg-amber-500"  },
   ready:              { label: "Ready",              color: "bg-purple-100 text-purple-700", dot: "bg-purple-500" },
   delivered:          { label: "Delivered",          color: "bg-green-100 text-green-700",   dot: "bg-green-500"  },
   cancelled:          { label: "Cancelled",          color: "bg-red-100 text-red-700",       dot: "bg-red-400"    },
@@ -158,14 +158,14 @@ function DeliveryTracker({ order }: { order: Order }) {
       </div>
       <div className="flex justify-between mt-1">
         {DS_STEPS.map((step, i) => (
-          <span key={step} className={`text-[9px] font-medium ${i === currentIdx ? "text-indigo-500" : "text-gray-300"}`}>
+          <span key={step} className={`text-[9px] font-medium ${i === currentIdx ? "text-indigo-500" : "text-zinc-300"}`}>
             {DS_CONFIG[step].label.split(" ")[0]}
           </span>
         ))}
       </div>
       {order.driverName && (
-        <p className="text-[10px] text-gray-500 mt-2 flex items-center gap-1">
-          <Truck size={9} /> Driver: <span className="font-semibold text-gray-700">{order.driverName}</span>
+        <p className="text-[10px] text-zinc-500 mt-2 flex items-center gap-1">
+          <Truck size={9} /> Driver: <span className="font-semibold text-zinc-700">{order.driverName}</span>
         </p>
       )}
     </div>
@@ -186,30 +186,39 @@ function itemSummary(items: OrderLine[], max = 3) {
 
 // ─── Reorder toast ────────────────────────────────────────────────────────────
 
-interface ReorderResult { added: number; skipped: string[] }
+interface ReorderResult { added: number; skipped: string[]; priceChanged: string[] }
 
 function ReorderToast({ result, onClose }: { result: ReorderResult; onClose: () => void }) {
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-sm">
       <div className="bg-gray-900 text-white rounded-2xl shadow-2xl px-5 py-4 flex items-start gap-3">
-        <ShoppingCart size={18} className="text-orange-400 flex-shrink-0 mt-0.5" />
+        <ShoppingCart size={18} className="text-zinc-500 flex-shrink-0 mt-0.5" />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold">
-            {result.added} item{result.added !== 1 ? "s" : ""} added to cart
+            {result.added > 0
+              ? `${result.added} item${result.added !== 1 ? "s" : ""} added to cart`
+              : "No items could be added"}
           </p>
+          {result.priceChanged.length > 0 && (
+            <p className="text-xs text-amber-400 mt-0.5 truncate">
+              Price updated: {result.priceChanged.join(", ")}
+            </p>
+          )}
           {result.skipped.length > 0 && (
-            <p className="text-xs text-gray-400 mt-0.5 truncate">
+            <p className="text-xs text-zinc-400 mt-0.5 truncate">
               Unavailable: {result.skipped.join(", ")}
             </p>
           )}
-          <Link
-            href="/"
-            className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-orange-400 hover:text-orange-300 transition"
-          >
-            <ShoppingCart size={11} /> Go to cart
-          </Link>
+          {result.added > 0 && (
+            <Link
+              href="/"
+              className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-orange-400 hover:text-orange-300 transition"
+            >
+              <ShoppingCart size={11} /> Go to cart
+            </Link>
+          )}
         </div>
-        <button onClick={onClose} className="text-gray-500 hover:text-white transition flex-shrink-0">
+        <button onClick={onClose} className="text-zinc-500 hover:text-white transition flex-shrink-0">
           <X size={15} />
         </button>
       </div>
@@ -233,54 +242,53 @@ function QuickReorder({
   if (eligible.length === 0) return null;
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
-        <div className="w-8 h-8 bg-orange-100 rounded-xl flex items-center justify-center">
-          <RotateCcw size={15} className="text-orange-600" />
+    <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-zinc-100 flex items-center gap-3">
+        <div className="w-8 h-8 bg-zinc-100 rounded-xl flex items-center justify-center">
+          <RotateCcw size={15} className="text-zinc-700" />
         </div>
         <div>
-          <h3 className="font-bold text-gray-900 text-sm">Quick Re-order</h3>
-          <p className="text-xs text-gray-400">Repeat a previous order with one click</p>
+          <h3 className="font-bold text-zinc-900 text-sm">Quick Re-order</h3>
+          <p className="text-xs text-zinc-400">Repeat a previous order with one click</p>
         </div>
       </div>
 
       <div className="divide-y divide-gray-50">
         {eligible.map((order) => (
-          <div key={order.id} className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition">
+          <div key={order.id} className="flex items-center gap-3 px-4 sm:px-5 py-3.5 hover:bg-zinc-50 transition">
             {/* Icon */}
-            <div className="w-10 h-10 bg-orange-50 rounded-xl flex items-center justify-center flex-shrink-0 text-lg">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 bg-zinc-50 rounded-xl flex items-center justify-center flex-shrink-0 text-base sm:text-lg">
               🍛
             </div>
 
             {/* Info */}
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-gray-800 truncate">
-                {itemSummary(order.items)}
+                {itemSummary(order.items, 2)}
               </p>
-              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                <span className="text-xs text-gray-400">{formatDate(order.date)}</span>
-                <span className="text-gray-300 text-xs">·</span>
-                <span className="text-xs text-gray-400 capitalize">{order.fulfillment}</span>
-                <span className="text-gray-300 text-xs">·</span>
-                <span className="text-xs font-semibold text-gray-700">£{order.total.toFixed(2)}</span>
+              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                <span className="text-xs text-zinc-400">{formatDate(order.date)}</span>
+                <span className="text-zinc-300 text-xs">·</span>
+                <span className="text-xs font-semibold text-zinc-700 tabular-nums">£{order.total.toFixed(2)}</span>
               </div>
             </div>
 
             {/* Re-order button */}
             <button
               onClick={() => onReorder(order)}
-              className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition flex-shrink-0"
+              className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-2.5 rounded-xl transition flex-shrink-0 min-h-[38px]"
             >
               <RotateCcw size={12} />
-              Re-order
+              <span className="hidden sm:inline">Re-order</span>
+              <span className="sm:hidden">Order</span>
             </button>
           </div>
         ))}
       </div>
 
-      <div className="px-5 py-3 bg-gray-50 border-t border-gray-100">
-        <p className="text-xs text-gray-400 flex items-center gap-1.5">
-          <AlertCircle size={11} className="text-gray-300" />
+      <div className="px-5 py-3 bg-zinc-50 border-t border-zinc-100">
+        <p className="text-xs text-zinc-400 flex items-center gap-1.5">
+          <AlertCircle size={11} className="text-zinc-300" />
           Items are added at current menu prices. Unavailable items are skipped.
         </p>
       </div>
@@ -296,65 +304,65 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
   const canReorder = ["delivered", "refunded", "partially_refunded"].includes(order.status);
 
   return (
-    <div className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all ${isActive ? "border-orange-200" : "border-gray-100"}`}>
+    <div className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all ${isActive ? "border-zinc-200" : "border-zinc-100"}`}>
       {/* Header row */}
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-start justify-between p-5 text-left hover:bg-gray-50 transition"
+        className="w-full flex items-start justify-between p-4 sm:p-5 text-left hover:bg-zinc-50 transition"
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold text-gray-800 text-sm">#{order.id.slice(0, 8).toUpperCase()}</span>
             <StatusBadge order={order} />
             {isActive && (
-              <span className="text-[10px] font-semibold bg-orange-50 text-orange-600 border border-orange-200 rounded-full px-2 py-0.5">
+              <span className="text-[10px] font-semibold bg-zinc-50 text-zinc-700 border border-zinc-200 rounded-full px-2 py-0.5">
                 Live
               </span>
             )}
           </div>
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-zinc-400 mt-1">
             {formatDate(order.date)} at {formatTime(order.date)} · {order.fulfillment === "delivery" ? "Delivery" : "Collection"}
           </p>
           {isActive && <OrderTracker order={order} />}
           <DeliveryTracker order={order} />
         </div>
-        <div className="flex items-center gap-3 flex-shrink-0 ml-4">
-          <span className="font-bold text-gray-900">£{order.total.toFixed(2)}</span>
-          {expanded ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
+        <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+          <span className="font-bold text-zinc-900 tabular-nums">£{order.total.toFixed(2)}</span>
+          {expanded ? <ChevronUp size={16} className="text-zinc-400" /> : <ChevronDown size={16} className="text-zinc-400" />}
         </div>
       </button>
 
       {/* Expanded detail */}
       {expanded && (
-        <div className="border-t border-gray-100 px-5 py-4 bg-gray-50 space-y-2">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Items</p>
+        <div className="border-t border-zinc-100 px-4 sm:px-5 py-4 bg-zinc-50 space-y-2">
+          <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Items</p>
           {order.items.map((item, i) => (
-            <div key={i} className="flex justify-between text-sm">
-              <span className="text-gray-600">
+            <div key={i} className="flex justify-between gap-3 text-sm">
+              <span className="text-zinc-600 min-w-0 flex-1">
                 <span className="font-medium text-gray-800">{item.qty}×</span> {item.name}
               </span>
-              <span className="font-medium text-gray-800">£{(item.price * item.qty).toFixed(2)}</span>
+              <span className="font-medium text-gray-800 flex-shrink-0 tabular-nums">£{(item.price * item.qty).toFixed(2)}</span>
             </div>
           ))}
-          <div className="border-t border-gray-200 mt-3 pt-3 flex justify-between font-bold text-gray-900 text-sm">
+          <div className="border-t border-zinc-200 mt-3 pt-3 flex justify-between font-bold text-zinc-900 text-sm">
             <span>Total</span>
-            <span>£{order.total.toFixed(2)}</span>
+            <span className="tabular-nums">£{order.total.toFixed(2)}</span>
           </div>
           {order.address && (
-            <p className="text-xs text-gray-400 mt-2">
-              Delivered to: <span className="text-gray-600">{order.address}</span>
+            <p className="text-xs text-zinc-400 mt-2 break-words">
+              Delivered to: <span className="text-zinc-600">{order.address}</span>
             </p>
           )}
           {order.note && (
-            <p className="text-xs text-red-400 mt-1 italic">{order.note}</p>
+            <p className="text-xs text-red-400 mt-1 italic break-words">{order.note}</p>
           )}
 
           {/* Re-order button in expanded view */}
           {canReorder && (
-            <div className="pt-3 border-t border-gray-200">
+            <div className="pt-3 border-t border-zinc-200">
               <button
                 onClick={() => onReorder(order)}
-                className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold py-2.5 rounded-xl transition"
+                className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold py-3 rounded-xl transition"
               >
                 <RotateCcw size={15} />
                 Re-order this meal
@@ -382,11 +390,11 @@ function FavouritesTab() {
 
   if (favouriteItems.length === 0) {
     return (
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm py-16 text-center">
-        <Heart size={40} className="mx-auto text-gray-200 mb-3" />
-        <p className="font-semibold text-gray-400">No favourites yet</p>
-        <p className="text-sm text-gray-300 mt-1">Tap the heart icon on any menu item to save it here.</p>
-        <Link href="/" className="mt-4 inline-flex items-center gap-1.5 text-sm text-orange-500 font-semibold hover:underline">
+      <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm py-16 text-center">
+        <Heart size={40} className="mx-auto text-zinc-200 mb-3" />
+        <p className="font-semibold text-zinc-400">No favourites yet</p>
+        <p className="text-sm text-zinc-300 mt-1">Tap the heart icon on any menu item to save it here.</p>
+        <Link href="/" className="mt-4 inline-flex items-center gap-1.5 text-sm text-zinc-700 font-semibold hover:underline">
           Browse the menu
         </Link>
       </div>
@@ -400,7 +408,7 @@ function FavouritesTab() {
           const outOfStock = resolveStock(item) === "out_of_stock";
 
           return (
-            <div key={item.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
+            <div key={item.id} className="bg-white rounded-2xl border border-zinc-100 shadow-sm overflow-hidden flex flex-col">
               {/* Image */}
               {item.image && (
                 <div className={`relative w-full h-36 overflow-hidden ${outOfStock ? "grayscale opacity-60" : ""}`}>
@@ -420,11 +428,11 @@ function FavouritesTab() {
               <div className="p-4 flex-1 flex flex-col gap-2">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-900 text-sm leading-snug">{item.name}</p>
+                    <p className="font-semibold text-zinc-900 text-sm leading-snug">{item.name}</p>
                     {item.dietary.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-1">
                         {item.dietary.map((d) => (
-                          <span key={d} className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+                          <span key={d} className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500">
                             {d}
                           </span>
                         ))}
@@ -442,10 +450,10 @@ function FavouritesTab() {
                   )}
                 </div>
 
-                <p className="text-xs text-gray-400 line-clamp-2 leading-relaxed">{item.description}</p>
+                <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">{item.description}</p>
 
                 <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-50">
-                  <span className="font-bold text-gray-900 text-sm">£{item.price.toFixed(2)}</span>
+                  <span className="font-bold text-zinc-900 text-sm">£{item.price.toFixed(2)}</span>
                   {outOfStock ? (
                     <span className="flex items-center gap-1 text-xs font-semibold text-red-500 bg-red-50 px-3 py-1.5 rounded-xl border border-red-100">
                       <PackageX size={12} /> Unavailable
@@ -457,7 +465,7 @@ function FavouritesTab() {
                       className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition ${
                         canOrder
                           ? "bg-orange-500 hover:bg-orange-600 text-white"
-                          : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                          : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
                       }`}
                     >
                       <Plus size={12} />
@@ -481,12 +489,12 @@ function FavouritesTab() {
 // ─── Addresses Tab ────────────────────────────────────────────────────────────
 
 const LABEL_ICONS: Record<string, React.ReactNode> = {
-  Home:   <Home      size={14} className="text-orange-500" />,
+  Home:   <Home      size={14} className="text-zinc-700" />,
   Work:   <Briefcase size={14} className="text-blue-500"   />,
 };
 
 function getLabelIcon(label: string) {
-  return LABEL_ICONS[label] ?? <MapPin size={14} className="text-gray-400" />;
+  return LABEL_ICONS[label] ?? <MapPin size={14} className="text-zinc-400" />;
 }
 
 const EMPTY_FORM: Omit<SavedAddress, "id" | "createdAt" | "isDefault"> = {
@@ -556,13 +564,13 @@ function AddressesTab() {
   function field(key: keyof typeof EMPTY_FORM, label: string, opts?: { type?: string; placeholder?: string }) {
     return (
       <div>
-        <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>
+        <label className="block text-xs font-medium text-zinc-500 mb-1">{label}</label>
         <input
           type={opts?.type ?? "text"}
           value={form[key]}
           onChange={(e) => { setForm((f) => ({ ...f, [key]: e.target.value })); setErrors((er) => ({ ...er, [key]: undefined })); }}
           placeholder={opts?.placeholder}
-          className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition ${errors[key] ? "border-red-400" : "border-gray-200"}`}
+          className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition ${errors[key] ? "border-red-400" : "border-zinc-200"}`}
         />
         {errors[key] && <p className="text-xs text-red-500 mt-1">{errors[key]}</p>}
       </div>
@@ -579,14 +587,14 @@ function AddressesTab() {
 
       {/* Add / Edit form */}
       {showForm && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
-          <h3 className="font-semibold text-gray-900 text-sm">
+        <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 space-y-4">
+          <h3 className="font-semibold text-zinc-900 text-sm">
             {editingId ? "Edit address" : "Add new address"}
           </h3>
 
           {/* Label quick-select */}
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1.5">Label</label>
+            <label className="block text-xs font-medium text-zinc-500 mb-1.5">Label</label>
             <div className="flex gap-2 mb-2">
               {["Home", "Work", "Other"].map((l) => (
                 <button
@@ -596,7 +604,7 @@ function AddressesTab() {
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
                     form.label === l
                       ? "bg-orange-500 border-orange-500 text-white"
-                      : "border-gray-200 text-gray-600 hover:border-orange-300"
+                      : "border-zinc-200 text-zinc-600 hover:border-zinc-300"
                   }`}
                 >
                   {l === "Home" ? <Home size={12} /> : l === "Work" ? <Briefcase size={12} /> : <MapPin size={12} />}
@@ -610,7 +618,7 @@ function AddressesTab() {
                 value={form.label === "Other" ? "" : form.label}
                 onChange={(e) => { setForm((f) => ({ ...f, label: e.target.value || "Other" })); setErrors((er) => ({ ...er, label: undefined })); }}
                 placeholder="Custom label…"
-                className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition ${errors.label ? "border-red-400" : "border-gray-200"}`}
+                className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition ${errors.label ? "border-red-400" : "border-zinc-200"}`}
               />
             ) : null}
             {errors.label && <p className="text-xs text-red-500 mt-1">{errors.label}</p>}
@@ -630,7 +638,7 @@ function AddressesTab() {
             </button>
             <button
               onClick={() => setShowForm(false)}
-              className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl text-sm transition"
+              className="px-4 py-2.5 bg-zinc-100 hover:bg-gray-200 text-zinc-700 font-semibold rounded-xl text-sm transition"
             >
               Cancel
             </button>
@@ -640,10 +648,10 @@ function AddressesTab() {
 
       {/* Address list */}
       {addresses.length === 0 && !showForm ? (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm py-14 text-center">
-          <MapPin size={36} className="mx-auto text-gray-200 mb-3" />
-          <p className="font-semibold text-gray-400">No saved addresses</p>
-          <p className="text-sm text-gray-300 mt-1">Save your delivery addresses for faster checkout.</p>
+        <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm py-14 text-center">
+          <MapPin size={36} className="mx-auto text-zinc-200 mb-3" />
+          <p className="font-semibold text-zinc-400">No saved addresses</p>
+          <p className="text-sm text-zinc-300 mt-1">Save your delivery addresses for faster checkout.</p>
           <button
             onClick={openAdd}
             className="mt-4 inline-flex items-center gap-1.5 text-sm bg-orange-500 hover:bg-orange-600 text-white font-semibold px-4 py-2 rounded-xl transition"
@@ -654,43 +662,43 @@ function AddressesTab() {
       ) : (
         <>
           {addresses.map((addr) => (
-            <div key={addr.id} className={`bg-white rounded-2xl border shadow-sm overflow-hidden ${addr.isDefault ? "border-orange-200" : "border-gray-100"}`}>
+            <div key={addr.id} className={`bg-white rounded-2xl border shadow-sm overflow-hidden ${addr.isDefault ? "border-zinc-200" : "border-zinc-100"}`}>
               <div className="p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2 min-w-0">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${addr.isDefault ? "bg-orange-100" : "bg-gray-100"}`}>
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${addr.isDefault ? "bg-zinc-100" : "bg-zinc-100"}`}>
                       {getLabelIcon(addr.label)}
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-gray-900 text-sm">{addr.label}</span>
+                        <span className="font-semibold text-zinc-900 text-sm">{addr.label}</span>
                         {addr.isDefault && (
-                          <span className="text-[10px] font-bold bg-orange-100 text-orange-600 rounded-full px-2 py-0.5 flex items-center gap-1">
-                            <StarIcon size={9} className="fill-orange-500" /> Default
+                          <span className="text-[10px] font-bold bg-zinc-100 text-zinc-700 rounded-full px-2 py-0.5 flex items-center gap-1">
+                            <StarIcon size={9} className="fill-zinc-600" /> Default
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-gray-600 mt-0.5 truncate">{addr.address}</p>
-                      <p className="text-xs text-gray-400">{addr.postcode}</p>
+                      <p className="text-xs text-zinc-600 mt-0.5 truncate">{addr.address}</p>
+                      <p className="text-xs text-zinc-400">{addr.postcode}</p>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-1 flex-shrink-0">
                     <button
                       onClick={() => openEdit(addr)}
-                      className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition"
+                      className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-100 text-zinc-400 hover:text-zinc-700 transition"
                     >
                       <Edit2 size={13} />
                     </button>
                     {deleteConfirm === addr.id ? (
                       <div className="flex items-center gap-1">
                         <button onClick={() => handleDelete(addr.id)} className="text-xs font-bold text-red-500 hover:text-red-700 px-2 py-1 rounded-lg hover:bg-red-50 transition">Delete</button>
-                        <button onClick={() => setDeleteConfirm(null)} className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded-lg transition">Cancel</button>
+                        <button onClick={() => setDeleteConfirm(null)} className="text-xs text-zinc-400 hover:text-zinc-600 px-2 py-1 rounded-lg transition">Cancel</button>
                       </div>
                     ) : (
                       <button
                         onClick={() => setDeleteConfirm(addr.id)}
-                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition"
+                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50 text-zinc-400 hover:text-red-500 transition"
                       >
                         <Trash2 size={13} />
                       </button>
@@ -701,13 +709,13 @@ function AddressesTab() {
                 {(addr.phone || addr.note) && (
                   <div className="mt-3 pt-3 border-t border-gray-50 space-y-1">
                     {addr.phone && (
-                      <p className="text-xs text-gray-500 flex items-center gap-1.5">
-                        <Phone size={11} className="text-gray-300" /> {addr.phone}
+                      <p className="text-xs text-zinc-500 flex items-center gap-1.5">
+                        <Phone size={11} className="text-zinc-300" /> {addr.phone}
                       </p>
                     )}
                     {addr.note && (
-                      <p className="text-xs text-gray-500 flex items-center gap-1.5 italic">
-                        <AlertCircle size={11} className="text-gray-300" /> {addr.note}
+                      <p className="text-xs text-zinc-500 flex items-center gap-1.5 italic">
+                        <AlertCircle size={11} className="text-zinc-300" /> {addr.note}
                       </p>
                     )}
                   </div>
@@ -716,7 +724,7 @@ function AddressesTab() {
                 {!addr.isDefault && (
                   <button
                     onClick={() => setDefaultAddress(user.id, addr.id)}
-                    className="mt-3 text-xs text-orange-500 hover:text-orange-600 font-semibold transition"
+                    className="mt-3 text-xs text-zinc-700 hover:text-zinc-700 font-semibold transition"
                   >
                     Set as default
                   </button>
@@ -728,7 +736,7 @@ function AddressesTab() {
           {!showForm && (
             <button
               onClick={openAdd}
-              className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-gray-200 hover:border-orange-400 text-gray-400 hover:text-orange-500 font-semibold text-sm py-4 rounded-2xl transition"
+              className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-zinc-200 hover:border-zinc-400 text-zinc-400 hover:text-zinc-700 font-semibold text-sm py-4 rounded-2xl transition"
             >
               <Plus size={16} /> Add new address
             </button>
@@ -790,31 +798,31 @@ function ChangePasswordCard() {
     }
   }
 
-  const pwdInputCls = "w-full border border-gray-200 rounded-xl px-4 py-2.5 pr-11 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition";
+  const pwdInputCls = "w-full border border-zinc-200 rounded-xl px-4 py-2.5 pr-11 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition";
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm overflow-hidden">
       <button
         onClick={handleToggle}
-        className="w-full flex items-center justify-between px-6 py-5 hover:bg-gray-50 transition text-left"
+        className="w-full flex items-center justify-between px-4 sm:px-6 py-5 hover:bg-zinc-50 transition text-left"
       >
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-orange-100 rounded-xl flex items-center justify-center">
-            <ShieldCheck size={15} className="text-orange-600" />
+          <div className="w-8 h-8 bg-zinc-100 rounded-xl flex items-center justify-center">
+            <ShieldCheck size={15} className="text-zinc-700" />
           </div>
           <div>
-            <p className="font-semibold text-gray-900 text-sm">Change password</p>
-            <p className="text-xs text-gray-400 mt-0.5">Update your account password</p>
+            <p className="font-semibold text-zinc-900 text-sm">Change password</p>
+            <p className="text-xs text-zinc-400 mt-0.5">Update your account password</p>
           </div>
         </div>
         {open
-          ? <X size={16} className="text-gray-400 flex-shrink-0" />
-          : <Lock size={16} className="text-gray-400 flex-shrink-0" />
+          ? <X size={16} className="text-zinc-400 flex-shrink-0" />
+          : <Lock size={16} className="text-zinc-400 flex-shrink-0" />
         }
       </button>
 
       {open && (
-        <div className="border-t border-gray-100 px-6 pb-6 pt-4">
+        <div className="border-t border-zinc-100 px-4 sm:px-6 pb-6 pt-4">
           {success ? (
             <div className="flex items-center gap-2.5 bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700 font-medium">
               <Check size={15} className="flex-shrink-0" /> Password updated successfully
@@ -823,7 +831,7 @@ function ChangePasswordCard() {
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Current password */}
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1.5">Current password</label>
+                <label className="block text-xs font-medium text-zinc-500 mb-1.5">Current password</label>
                 <div className="relative">
                   <input
                     type={showCurrent ? "text" : "password"}
@@ -837,7 +845,7 @@ function ChangePasswordCard() {
                   <button
                     type="button"
                     onClick={() => setShowCurrent((v) => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition"
                     tabIndex={-1}
                   >
                     {showCurrent ? <EyeOff size={15} /> : <Eye size={15} />}
@@ -847,7 +855,7 @@ function ChangePasswordCard() {
 
               {/* New password */}
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1.5">New password</label>
+                <label className="block text-xs font-medium text-zinc-500 mb-1.5">New password</label>
                 <div className="relative">
                   <input
                     type={showNew ? "text" : "password"}
@@ -861,7 +869,7 @@ function ChangePasswordCard() {
                   <button
                     type="button"
                     onClick={() => setShowNew((v) => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition"
                     tabIndex={-1}
                   >
                     {showNew ? <EyeOff size={15} /> : <Eye size={15} />}
@@ -871,7 +879,7 @@ function ChangePasswordCard() {
 
               {/* Confirm password */}
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1.5">Confirm new password</label>
+                <label className="block text-xs font-medium text-zinc-500 mb-1.5">Confirm new password</label>
                 <input
                   type="password"
                   value={confirmPassword}
@@ -879,7 +887,7 @@ function ChangePasswordCard() {
                   placeholder="Repeat new password"
                   required
                   autoComplete="new-password"
-                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                  className="w-full border border-zinc-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition"
                 />
               </div>
 
@@ -894,22 +902,22 @@ function ChangePasswordCard() {
                 <button
                   type="submit"
                   disabled={loading || !currentPassword || !newPassword || !confirmPassword}
-                  className="flex-1 bg-orange-500 hover:bg-orange-600 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-2.5 rounded-xl text-sm transition"
+                  className="flex-1 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2.5 rounded-xl text-sm transition"
                 >
                   {loading ? "Updating…" : "Update password"}
                 </button>
                 <button
                   type="button"
                   onClick={handleToggle}
-                  className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl text-sm transition"
+                  className="px-4 py-2.5 bg-zinc-100 hover:bg-gray-200 text-zinc-700 font-semibold rounded-xl text-sm transition"
                 >
                   Cancel
                 </button>
               </div>
 
-              <p className="text-center text-xs text-gray-400">
+              <p className="text-center text-xs text-zinc-400">
                 Forgot your password?{" "}
-                <Link href="/login?action=forgot" className="text-orange-500 font-semibold hover:underline">
+                <Link href="/login?action=forgot" className="text-zinc-700 font-semibold hover:underline">
                   Reset via email
                 </Link>
               </p>
@@ -946,19 +954,19 @@ function ProfileTab() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-6">
         <div className="flex items-center justify-between mb-5">
-          <h3 className="font-semibold text-gray-900">Personal details</h3>
+          <h3 className="font-semibold text-zinc-900">Personal details</h3>
           {!editing ? (
             <button
               onClick={() => setEditing(true)}
-              className="flex items-center gap-1.5 text-sm text-orange-500 hover:text-orange-600 font-medium transition"
+              className="flex items-center gap-1.5 text-sm text-zinc-700 hover:text-zinc-700 font-medium transition"
             >
               <Edit2 size={14} /> Edit
             </button>
           ) : (
             <div className="flex items-center gap-2">
-              <button onClick={handleCancel} className="flex items-center gap-1 text-sm text-gray-400 hover:text-gray-600 transition">
+              <button onClick={handleCancel} className="flex items-center gap-1 text-sm text-zinc-400 hover:text-zinc-600 transition">
                 <X size={14} /> Cancel
               </button>
               <button
@@ -979,52 +987,52 @@ function ProfileTab() {
 
         <div className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1.5">Full name</label>
+            <label className="block text-xs font-medium text-zinc-500 mb-1.5">Full name</label>
             {editing ? (
               <input
                 type="text"
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                className="w-full border border-zinc-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition"
               />
             ) : (
-              <div className="flex items-center gap-3 px-4 py-2.5 bg-gray-50 rounded-xl">
-                <User size={15} className="text-gray-400 flex-shrink-0" />
+              <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-50 rounded-xl">
+                <User size={15} className="text-zinc-400 flex-shrink-0" />
                 <span className="text-sm text-gray-800">{currentUser.name}</span>
               </div>
             )}
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1.5">Email address</label>
-            <div className="flex items-center gap-3 px-4 py-2.5 bg-gray-50 rounded-xl">
-              <Mail size={15} className="text-gray-400 flex-shrink-0" />
-              <span className="text-sm text-gray-800">{currentUser.email}</span>
-              <span className="ml-auto text-[10px] text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">Cannot change</span>
+            <label className="block text-xs font-medium text-zinc-500 mb-1.5">Email address</label>
+            <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-50 rounded-xl min-w-0">
+              <Mail size={15} className="text-zinc-400 flex-shrink-0" />
+              <span className="text-sm text-gray-800 truncate flex-1 min-w-0">{currentUser.email}</span>
+              <span className="flex-shrink-0 text-[10px] text-zinc-400 bg-zinc-100 rounded-full px-2 py-0.5 whitespace-nowrap">Cannot change</span>
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1.5">Phone number</label>
+            <label className="block text-xs font-medium text-zinc-500 mb-1.5">Phone number</label>
             {editing ? (
               <input
                 type="tel"
                 value={form.phone}
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                className="w-full border border-zinc-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition"
               />
             ) : (
-              <div className="flex items-center gap-3 px-4 py-2.5 bg-gray-50 rounded-xl">
-                <Phone size={15} className="text-gray-400 flex-shrink-0" />
+              <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-50 rounded-xl">
+                <Phone size={15} className="text-zinc-400 flex-shrink-0" />
                 <span className="text-sm text-gray-800">{currentUser.phone || "—"}</span>
               </div>
             )}
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1.5">Member since</label>
-            <div className="flex items-center gap-3 px-4 py-2.5 bg-gray-50 rounded-xl">
-              <Calendar size={15} className="text-gray-400 flex-shrink-0" />
+            <label className="block text-xs font-medium text-zinc-500 mb-1.5">Member since</label>
+            <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-50 rounded-xl">
+              <Calendar size={15} className="text-zinc-400 flex-shrink-0" />
               <span className="text-sm text-gray-800">{formatDate(currentUser.createdAt)}</span>
             </div>
           </div>
@@ -1039,12 +1047,68 @@ function ProfileTab() {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AccountPage() {
-  const { currentUser, customers, logout, addToCart, menuItems } = useApp();
+  return (
+    <Suspense>
+      <AccountPageContent />
+    </Suspense>
+  );
+}
+
+const VALID_TABS = ["orders", "favourites", "addresses", "profile"] as const;
+type TabId = typeof VALID_TABS[number];
+
+function AccountPageContent() {
+  const { currentUser, customers, addToCart, menuItems, refreshCurrentUser } = useApp();
   const router = useRouter();
-  const [tab, setTab] = useState<"orders" | "favourites" | "addresses" | "profile">("orders");
+  const searchParams = useSearchParams();
+
+  const urlTab = searchParams.get("tab");
+  const initialTab: TabId = (VALID_TABS as readonly string[]).includes(urlTab ?? "") ? urlTab as TabId : "orders";
+
+  const [tab, setTab] = useState<TabId>(initialTab);
+
+  function handleTabChange(t: TabId) {
+    setTab(t);
+    router.replace(t === "orders" ? "/account" : `/account?tab=${t}`, { scroll: false });
+    window.dispatchEvent(new CustomEvent("account-tab-change", { detail: { tab: t } }));
+  }
+
   const [showAuth, setShowAuth] = useState(false);
   const [reorderToast, setReorderToast] = useState<ReorderResult | null>(null);
   const [updateBanner, setUpdateBanner] = useState<string | null>(null);
+  // True while the server fetch is in-flight so we show a skeleton instead of
+  // the "No orders yet" empty state before data has arrived.
+  const [isLoadingOrders, setIsLoadingOrders] = useState(true);
+
+  // Sync fresh orders from the server whenever the logged-in user changes.
+  // Using currentUser?.id as the dep (not []) so this also fires when currentUser
+  // goes from null → set (cold page load where auth session resolves after mount).
+  useEffect(() => {
+    if (!currentUser) { setIsLoadingOrders(false); return; }
+    setIsLoadingOrders(true);
+    refreshCurrentUser().finally(() => setIsLoadingOrders(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id]); // re-runs on login/logout, not on every render
+
+  // Poll every 15 s while viewing the orders tab — graceful fallback if Realtime drops.
+  useEffect(() => {
+    if (!currentUser?.id || tab !== "orders") return;
+    const id = setInterval(() => refreshCurrentUser().catch(() => {}), 15_000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id, tab]);
+
+  // Re-fetch when the browser tab becomes visible — catches updates missed while away.
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === "visible" && currentUser && tab === "orders") {
+        refreshCurrentUser().catch(() => {});
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id, tab]);
 
   // ── Cross-tab status-change indicator ─────────────────────────────────────
   // Watches both `order.status` (kitchen lifecycle) and `order.deliveryStatus`
@@ -1055,14 +1119,12 @@ export default function AccountPage() {
 
   useEffect(() => {
     if (!currentUser) return;
-    const liveCustomer = customers.find((c) => c.id === currentUser.id);
-    if (!liveCustomer) return;
 
     const prevS = prevStatusMapRef.current;
     const prevD = prevDeliveryMapRef.current;
     let banner: string | null = null;
 
-    liveCustomer.orders.forEach((o) => {
+    currentUser.orders.forEach((o) => {
       // Kitchen status change
       if (prevS[o.id] !== undefined && prevS[o.id] !== o.status) {
         const label = STATUS_CONFIG[o.status]?.label ?? o.status;
@@ -1088,26 +1150,26 @@ export default function AccountPage() {
       const t = setTimeout(() => setUpdateBanner(null), 6000);
       return () => clearTimeout(t);
     }
-  }, [customers, currentUser]);
+  }, [currentUser]);
 
   // ── Not logged in ──────────────────────────────────────────────────────────
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-10 max-w-sm w-full text-center">
-          <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <User size={28} className="text-orange-500" />
+      <div className="flex-1 flex flex-col items-center justify-center p-6">
+        <div className="bg-white rounded-2xl shadow-sm border border-zinc-100 p-10 max-w-sm w-full text-center">
+          <div className="w-16 h-16 bg-zinc-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <User size={28} className="text-zinc-700" />
           </div>
-          <h1 className="text-xl font-bold text-gray-900 mb-2">Sign in to your account</h1>
-          <p className="text-sm text-gray-400 mb-6">View your orders, track deliveries, and manage your profile.</p>
+          <h1 className="text-xl font-bold text-zinc-900 mb-2">Sign in to your account</h1>
+          <p className="text-sm text-zinc-400 mb-6">View your orders, track deliveries, and manage your profile.</p>
           <button
             onClick={() => setShowAuth(true)}
             className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl transition text-sm"
           >
             Sign in or Register
           </button>
-          <Link href="/" className="mt-4 flex items-center justify-center gap-1.5 text-sm text-gray-400 hover:text-gray-600 transition">
-            <ArrowLeft size={14} /> Back to menu
+          <Link href="/" className="mt-4 flex items-center justify-center gap-1.5 text-sm text-zinc-400 hover:text-zinc-600 transition">
+            Back to menu
           </Link>
         </div>
         {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
@@ -1115,12 +1177,13 @@ export default function AccountPage() {
     );
   }
 
-  // ── Always read the live customer record from the customers array ───────────
-  // currentUser is set as a snapshot at login — reading from customers ensures
-  // orders placed after login (and status updates from the admin panel) are visible.
+  // Profile-level fields (storeCredit, tags, savedAddresses) come from the
+  // customers state which the Realtime subscription keeps fresh.
+  // Orders always come from currentUser which is updated by both optimistic
+  // writes and the Realtime handler — never stale from the anon-key init fetch.
   const liveUser = customers.find((c) => c.id === currentUser.id) ?? currentUser;
 
-  const orders = [...liveUser.orders].sort(
+  const orders = [...currentUser.orders].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
   const activeOrders  = orders.filter((o) => !["delivered", "cancelled"].includes(o.status));
@@ -1134,65 +1197,94 @@ export default function AccountPage() {
   function handleReorder(order: Order) {
     const added: string[] = [];
     const skipped: string[] = [];
+    const priceChanged: string[] = [];
 
     order.items.forEach((line) => {
-      const menuItem = menuItems.find(
-        (m) => m.name.toLowerCase() === line.name.toLowerCase()
-      );
-      if (menuItem) {
-        addToCart({
-          id: crypto.randomUUID(),
-          menuItemId: menuItem.id,
-          name: menuItem.name,
-          price: menuItem.price,
-          quantity: line.qty,
-        });
-        added.push(line.name);
-      } else {
+      // Match by menuItemId first (preferred), fall back to name
+      const menuItem = line.menuItemId
+        ? menuItems.find((m) => m.id === line.menuItemId)
+        : menuItems.find((m) => m.name.toLowerCase() === line.name.toLowerCase());
+
+      if (!menuItem) {
         skipped.push(line.name);
+        return;
       }
+
+      if (resolveStock(menuItem) === "out_of_stock") {
+        skipped.push(line.name);
+        return;
+      }
+
+      // Resolve variation — verify it still exists in the current menu item
+      let selectedVariation: CartItem["selectedVariation"];
+      let variationPrice = 0;
+      if (line.selectedVariation) {
+        const variation = menuItem.variations?.find(
+          (v) => v.id === line.selectedVariation!.variationId
+        );
+        const option = variation?.options.find(
+          (o) => o.id === line.selectedVariation!.optionId
+        );
+        if (variation && option) {
+          selectedVariation = { variationId: variation.id, optionId: option.id, label: option.label };
+          variationPrice = option.price;
+        }
+      }
+
+      // Resolve add-ons — keep only those still present in the menu item
+      let selectedAddOns: CartItem["selectedAddOns"];
+      let addOnsTotal = 0;
+      if (line.selectedAddOns?.length) {
+        const currentAddOns = menuItem.addOns ?? [];
+        const resolved = line.selectedAddOns
+          .map((saved) => currentAddOns.find((a) => a.id === saved.id))
+          .filter((a): a is AddOn => a != null);
+        if (resolved.length > 0) {
+          selectedAddOns = resolved;
+          addOnsTotal = resolved.reduce((s, a) => s + a.price, 0);
+        }
+      }
+
+      const currentPrice = menuItem.price + variationPrice + addOnsTotal;
+      if (Math.abs(currentPrice - line.price) > 0.005) {
+        priceChanged.push(line.name);
+      }
+
+      addToCart({
+        id: crypto.randomUUID(),
+        menuItemId: menuItem.id,
+        name: menuItem.name,
+        price: currentPrice,
+        quantity: line.qty,
+        selectedVariation,
+        selectedAddOns,
+        specialInstructions: line.specialInstructions,
+      });
+      added.push(line.name);
     });
 
-    setReorderToast({ added: added.length, skipped });
-    setTimeout(() => setReorderToast(null), 5000);
+    setReorderToast({ added: added.length, skipped, priceChanged });
+    setTimeout(() => setReorderToast(null), 6000);
 
-    // Navigate to menu so customer can review cart and checkout
-    router.push("/");
+    if (added.length > 0) {
+      router.push("/");
+    }
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Top nav */}
-      <div className="bg-white border-b border-gray-100 sticky top-0 z-30">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-4">
-          <Link href="/" className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition">
-            <ArrowLeft size={15} /> Menu
-          </Link>
-          <span className="text-gray-200">|</span>
-          <span className="font-semibold text-gray-900 text-sm">My Account</span>
-          <div className="ml-auto">
-            <button
-              onClick={logout}
-              className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-red-500 transition"
-            >
-              <LogOut size={14} /> Sign out
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="max-w-4xl mx-auto px-4 py-4 sm:py-8 space-y-6">
+    <>
+      <div className="max-w-4xl mx-auto px-3 sm:px-4 py-4 sm:py-8 pb-8 sm:pb-12 space-y-4 sm:space-y-6">
         {/* Profile banner */}
-        <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl p-4 sm:p-6 text-white shadow-lg">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0">
-              <span className="text-2xl font-bold text-white">{liveUser.name.charAt(0).toUpperCase()}</span>
+        <div className="bg-gradient-to-br from-zinc-800 to-zinc-900 rounded-2xl p-4 sm:p-6 text-white shadow-lg">
+          <div className="flex items-center gap-3 sm:gap-4">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0">
+              <span className="text-xl sm:text-2xl font-bold text-white">{liveUser.name.charAt(0).toUpperCase()}</span>
             </div>
             <div className="flex-1 min-w-0">
-              <h1 className="text-xl font-bold truncate">{liveUser.name}</h1>
-              <p className="text-orange-100 text-sm truncate">{liveUser.email}</p>
+              <h1 className="text-lg sm:text-xl font-bold truncate">{liveUser.name}</h1>
+              <p className="text-zinc-300 text-xs sm:text-sm truncate">{liveUser.email}</p>
               {liveUser.tags.length > 0 && (
-                <div className="flex gap-1.5 mt-2 flex-wrap">
+                <div className="flex gap-1.5 mt-1.5 flex-wrap">
                   {liveUser.tags.map((tag) => (
                     <span key={tag} className="text-[10px] font-bold bg-white/20 text-white rounded-full px-2 py-0.5">
                       {tag}
@@ -1205,39 +1297,39 @@ export default function AccountPage() {
         </div>
 
         {/* Stats */}
-        <div className={`grid gap-4 ${(liveUser.storeCredit ?? 0) > 0 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2 sm:grid-cols-3"}`}>
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-            <div className="flex items-center gap-2 mb-1">
-              <ShoppingBag size={16} className="text-orange-500" />
-              <span className="text-xs font-medium text-gray-500">Total orders</span>
+        <div className={`grid gap-3 sm:gap-4 ${(liveUser.storeCredit ?? 0) > 0 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2 sm:grid-cols-3"}`}>
+          <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5">
+            <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
+              <ShoppingBag size={14} className="text-zinc-700 flex-shrink-0" />
+              <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total orders</span>
             </div>
-            <p className="text-2xl font-bold text-gray-900">{orders.length}</p>
+            <p className="text-xl sm:text-2xl font-bold text-zinc-900 tabular-nums">{orders.length}</p>
           </div>
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-            <div className="flex items-center gap-2 mb-1">
-              <TrendingUp size={16} className="text-orange-500" />
-              <span className="text-xs font-medium text-gray-500">Total spent</span>
+          <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5">
+            <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
+              <TrendingUp size={14} className="text-zinc-700 flex-shrink-0" />
+              <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total spent</span>
             </div>
-            <p className="text-2xl font-bold text-gray-900">£{totalSpent.toFixed(2)}</p>
+            <p className="text-xl sm:text-2xl font-bold text-zinc-900 tabular-nums">£{totalSpent.toFixed(2)}</p>
           </div>
           {favourite ? (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 col-span-2 sm:col-span-1">
-              <div className="flex items-center gap-2 mb-1">
-                <Star size={16} className="text-orange-500" />
-                <span className="text-xs font-medium text-gray-500">Most ordered</span>
+            <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5 col-span-2 sm:col-span-1">
+              <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
+                <Star size={14} className="text-zinc-700 flex-shrink-0" />
+                <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Most ordered</span>
               </div>
-              <p className="text-sm font-bold text-gray-900 leading-snug">{favourite}</p>
+              <p className="text-sm font-bold text-zinc-900 leading-snug line-clamp-2">{favourite}</p>
             </div>
           ) : null}
 
           {/* Store credit stat card — only when balance > 0 */}
           {(liveUser.storeCredit ?? 0) > 0 && (
-            <div className="bg-teal-500 rounded-2xl p-5 col-span-2 sm:col-span-1">
-              <div className="flex items-center gap-2 mb-1">
-                <Gift size={16} className="text-teal-100" />
-                <span className="text-xs font-medium text-teal-100">Store credit</span>
+            <div className="bg-teal-500 rounded-2xl p-4 sm:p-5 col-span-2 sm:col-span-1">
+              <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
+                <Gift size={14} className="text-teal-100 flex-shrink-0" />
+                <span className="text-[11px] sm:text-xs font-medium text-teal-100 truncate">Store credit</span>
               </div>
-              <p className="text-2xl font-bold text-white">£{(liveUser.storeCredit ?? 0).toFixed(2)}</p>
+              <p className="text-xl sm:text-2xl font-bold text-white tabular-nums">£{(liveUser.storeCredit ?? 0).toFixed(2)}</p>
               <p className="text-[10px] text-teal-200 mt-1">Auto-applied at checkout</p>
             </div>
           )}
@@ -1245,16 +1337,16 @@ export default function AccountPage() {
 
         {/* Store credit action banner */}
         {(liveUser.storeCredit ?? 0) > 0 && (
-          <div className="flex items-center gap-4 bg-teal-50 border border-teal-200 rounded-2xl px-5 py-4">
-            <div className="w-10 h-10 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0">
-              <Gift size={18} className="text-white" />
+          <div className="flex items-start gap-3 sm:gap-4 bg-teal-50 border border-teal-200 rounded-2xl px-4 sm:px-5 py-4">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+              <Gift size={16} className="text-white" />
             </div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-teal-800">
-                You have <span className="text-teal-600">£{(liveUser.storeCredit ?? 0).toFixed(2)}</span> store credit
+                You have <span className="text-teal-600 tabular-nums">£{(liveUser.storeCredit ?? 0).toFixed(2)}</span> store credit
               </p>
-              <p className="text-xs text-teal-600 mt-0.5">
-                It will be automatically applied when you open checkout. You can toggle it on/off before paying.
+              <p className="text-xs text-teal-600 mt-0.5 leading-relaxed">
+                Automatically applied at checkout. Toggle on/off before paying.
               </p>
             </div>
           </div>
@@ -1262,25 +1354,25 @@ export default function AccountPage() {
 
         {/* Active orders alert */}
         {activeOrders.length > 0 && (
-          <div className="flex items-start gap-3 bg-orange-50 border border-orange-200 rounded-2xl px-5 py-4">
-            <Clock size={18} className="text-orange-500 flex-shrink-0 mt-0.5" />
+          <div className="flex items-start gap-3 bg-zinc-50 border border-zinc-200 rounded-2xl px-4 sm:px-5 py-3.5 sm:py-4">
+            <Clock size={16} className="text-zinc-700 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="text-sm font-semibold text-orange-800">
+              <p className="text-sm font-semibold text-zinc-700">
                 {activeOrders.length} active order{activeOrders.length > 1 ? "s" : ""} in progress
               </p>
-              <p className="text-xs text-orange-600 mt-0.5">Track your live orders below in the Orders tab.</p>
+              <p className="text-xs text-zinc-500 mt-0.5">Track your live orders in the Orders tab.</p>
             </div>
           </div>
         )}
 
         {/* Tabs */}
-        <div className="flex gap-1 bg-gray-100 p-1 rounded-xl flex-wrap">
+        <div className="flex gap-1 bg-zinc-100 p-1 rounded-xl overflow-x-auto" style={{ scrollbarWidth: "none" }}>
           {(["orders", "favourites", "addresses", "profile"] as const).map((t) => (
             <button
               key={t}
-              onClick={() => setTab(t)}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-                tab === t ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+              onClick={() => handleTabChange(t)}
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-[13px] sm:text-sm font-semibold transition-all whitespace-nowrap flex-shrink-0 ${
+                tab === t ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
               }`}
             >
               {t === "orders"     ? <Package  size={14} /> :
@@ -1292,7 +1384,7 @@ export default function AccountPage() {
                t === "addresses"  ? "Addresses"  : "Profile"}
               {t === "orders" && orders.length > 0 && (
                 <span className="ml-0.5 bg-orange-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                  {orders.length}
+                  {orders.length > 99 ? "99+" : orders.length}
                 </span>
               )}
               {t === "favourites" && (liveUser.favourites?.length ?? 0) > 0 && (
@@ -1312,12 +1404,26 @@ export default function AccountPage() {
         {/* Tab content */}
         {tab === "orders" && (
           <div className="space-y-4">
-            {orders.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm py-16 text-center">
-                <ShoppingBag size={40} className="mx-auto text-gray-200 mb-3" />
-                <p className="font-semibold text-gray-400">No orders yet</p>
-                <p className="text-sm text-gray-300 mt-1">Your order history will appear here.</p>
-                <Link href="/" className="mt-4 inline-flex items-center gap-1.5 text-sm text-orange-500 font-semibold hover:underline">
+            {isLoadingOrders && orders.length === 0 ? (
+              /* Skeleton shown while the first server fetch is in-flight */
+              <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 animate-pulse">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="h-4 w-24 bg-zinc-100 rounded-full" />
+                      <div className="h-5 w-20 bg-zinc-100 rounded-full" />
+                    </div>
+                    <div className="h-3 w-40 bg-zinc-100 rounded-full mb-2" />
+                    <div className="h-3 w-28 bg-zinc-100 rounded-full" />
+                  </div>
+                ))}
+              </div>
+            ) : orders.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm py-16 text-center">
+                <ShoppingBag size={40} className="mx-auto text-zinc-200 mb-3" />
+                <p className="font-semibold text-zinc-400">No orders yet</p>
+                <p className="text-sm text-zinc-300 mt-1">Your order history will appear here.</p>
+                <Link href="/" className="mt-4 inline-flex items-center gap-1.5 text-sm text-zinc-700 font-semibold hover:underline">
                   Browse the menu
                 </Link>
               </div>
@@ -1373,6 +1479,6 @@ export default function AccountPage() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

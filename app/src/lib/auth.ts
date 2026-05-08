@@ -12,13 +12,15 @@ import { NextResponse } from "next/server";
 export const COOKIE_CUSTOMER = "customer_session";
 export const COOKIE_DRIVER   = "driver_session";
 export const COOKIE_WAITER   = "waiter_session";
+export const COOKIE_KITCHEN  = "kitchen_session";
+export const COOKIE_POS      = "pos_staff_session";
 
 export const SESSION_DURATION_MS  = 30 * 24 * 60 * 60 * 1000; // 30 days
 export const COOKIE_MAX_AGE       = 30 * 24 * 60 * 60;         // 30 days (seconds)
 export const RESET_TOKEN_TTL_MS   = 60 * 60 * 1000;            // 1 hour
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-export type SessionRole = "customer" | "driver" | "waiter";
+export type SessionRole = "customer" | "driver" | "waiter" | "kitchen" | "pos";
 
 export interface SessionPayload {
   id:   string;
@@ -93,6 +95,8 @@ async function readSession(cookieName: string): Promise<SessionPayload | null> {
 export const getCustomerSession = () => readSession(COOKIE_CUSTOMER);
 export const getDriverSession   = () => readSession(COOKIE_DRIVER);
 export const getWaiterSession   = () => readSession(COOKIE_WAITER);
+export const getKitchenSession  = () => readSession(COOKIE_KITCHEN);
+export const getPosSession      = () => readSession(COOKIE_POS);
 
 // ── Shared responses ──────────────────────────────────────────────────────────
 export const unauthorizedJson = () =>
