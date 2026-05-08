@@ -139,7 +139,7 @@ export default async function RootLayout({
          */}
         <script dangerouslySetInnerHTML={{ __html: FOUC_FALLBACK_SCRIPT }} />
       </head>
-      <body className="font-sans antialiased text-zinc-900" suppressHydrationWarning>
+      <body className="antialiased text-zinc-900" suppressHydrationWarning>
         <AppProvider initialData={data}>{children}</AppProvider>
       </body>
     </html>
