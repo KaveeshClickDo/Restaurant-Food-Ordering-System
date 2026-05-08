@@ -22,7 +22,7 @@ export default function EmailVerificationBanner({ currentUser }: { currentUser: 
 
   return (
     <div className="w-full bg-amber-50 border-b border-amber-200 px-4 py-2.5 flex items-center justify-between gap-3 text-sm z-40">
-      <p className="text-amber-800 font-medium">
+      <p className="text-amber-800 font-medium line-clamp-2">
         Please verify your email address. Check your inbox for the confirmation link.
       </p>
       <div className="flex items-center gap-3 flex-shrink-0">
