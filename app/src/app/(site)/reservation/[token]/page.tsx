@@ -85,7 +85,7 @@ export default function ReservationTokenPage() {
 
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center py-10">
         <Loader2 size={32} className="animate-spin text-zinc-600" />
       </div>
     );
@@ -93,7 +93,7 @@ export default function ReservationTokenPage() {
 
   if (notFound) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 px-4 text-center">
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 px-4 text-center h-full py-8">
         <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
           <AlertTriangle size={28} className="text-red-500" />
         </div>

@@ -258,7 +258,7 @@ export default function MyOrdersPage() {
                 </header>
 
                 {/* Scrollable content */}
-                <div className="flex-1 overflow-y-auto pb-28 lg:pb-8">
+                <div className="flex-1 overflow-y-auto pb-15">
 
                     <div className="min-h-full pb-10" style={{ backgroundColor: "#f5f5f3" }}>
                         <div className="px-5 pt-7 pb-2">

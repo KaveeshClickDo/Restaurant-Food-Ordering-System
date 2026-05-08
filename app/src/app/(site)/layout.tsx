@@ -39,7 +39,7 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
             {children}
           </div>
 
-          <div className="mt-8">
+          <div className="mt-0">
             <SiteFooter />
           </div>
         </main>
