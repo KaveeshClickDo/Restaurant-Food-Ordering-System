@@ -504,7 +504,7 @@ export default function DriverDashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="bg-gray-100 h-full">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between gap-3">
@@ -551,7 +551,7 @@ export default function DriverDashboardPage() {
         </div>
       )}
 
-      <div className="max-w-lg mx-auto px-4 py-5 space-y-6">
+      <div className="max-w-lg mx-auto px-4 py-5 pb-12 space-y-6 overflow-y-auto h-full">
         {/* Vehicle info */}
         {currentDriver.vehicleInfo && (
           <div className="flex items-center gap-2 text-sm text-gray-500 bg-white border border-gray-100 rounded-xl px-4 py-2.5">
