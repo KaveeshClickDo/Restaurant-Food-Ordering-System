@@ -13,12 +13,7 @@ import {
   setSessionCookie,
   COOKIE_WAITER,
 } from "@/lib/auth";
-
-const SEED_WAITERS: WaiterStaff[] = [
-  { id: "w-1", name: "Head Waiter", pin: "1111", role: "senior", active: true, avatarColor: "#7c3aed", createdAt: "" },
-  { id: "w-2", name: "Alex",        pin: "2222", role: "waiter",  active: true, avatarColor: "#0891b2", createdAt: "" },
-  { id: "w-3", name: "Sophie",      pin: "3333", role: "waiter",  active: true, avatarColor: "#16a34a", createdAt: "" },
-];
+import { rateLimit } from "@/lib/rateLimit";
 
 export async function POST(req: NextRequest) {
   let body: { staffId?: string; pin?: string };
@@ -30,23 +25,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "staffId and pin are required." }, { status: 400 });
   }
 
-  const { data: row } = await supabaseAdmin
-    .from("app_settings").select("data").limit(1).single();
-
-  const waiters: WaiterStaff[] = row?.data?.waiters?.length
-    ? row.data.waiters
-    : SEED_WAITERS;
-
-  const waiter = waiters.find((w) => w.id === staffId && w.active);
-  if (!waiter || waiter.pin !== pin) {
-    return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
+  // Rate-limit per IP + staff ID to prevent targeted PIN brute-force.
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const { limited } = rateLimit(`waiter-auth:${ip}:${staffId}`, 10, 60_000);
+  if (limited) {
+    return NextResponse.json({ ok: false, error: "Too many attempts. Please wait a minute." }, { status: 429 });
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { pin: _p, ...safe } = waiter;
+  try {
+    const { data: row } = await supabaseAdmin
+      .from("app_settings").select("data").limit(1).single();
 
-  const token = createSessionToken({ id: staffId, role: "waiter" });
-  const res = NextResponse.json({ ok: true, waiter: safe });
-  setSessionCookie(res, COOKIE_WAITER, token);
-  return res;
+    const waiters: WaiterStaff[] = row?.data?.waiters ?? [];
+    if (waiters.length === 0) {
+      return NextResponse.json(
+        { ok: false, error: "No staff accounts configured. Ask your admin to set up waiter accounts." },
+        { status: 401 },
+      );
+    }
+
+    const waiter = waiters.find((w) => w.id === staffId && w.active);
+    if (!waiter || waiter.pin !== pin) {
+      return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { pin: _p, ...safe } = waiter;
+
+    const token = createSessionToken({ id: staffId, role: "waiter" });
+    const res = NextResponse.json({ ok: true, waiter: safe });
+    setSessionCookie(res, COOKIE_WAITER, token);
+    return res;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unexpected error";
+    console.error("[waiter/auth]", message);
+    return NextResponse.json({ ok: false, error: "Authentication failed. Please try again." }, { status: 500 });
+  }
 }

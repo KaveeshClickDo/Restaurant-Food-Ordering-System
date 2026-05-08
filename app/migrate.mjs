@@ -1,132 +1,156 @@
+// One-shot database setup for the Single-Restaurant Food Ordering System.
+//
+// Run with:  npm run db:migrate
+// (loads DATABASE_URL from .env.local via Node's --env-file flag)
+//
+// Steps performed (all idempotent — safe to re-run):
+//   1. Create core tables (app_settings, categories, menu_items, customers, orders)
+//   2. Run supabase/setup_all.sql        — reservation tables
+//   3. Run supabase/rls_policies.sql     — drivers table + RLS policies
+//   4. Run supabase/auth_migration.sql   — bcrypt + email-verification columns
+
+import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import pg from "pg";
+
 const { Client } = pg;
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(__dirname, "..");
+
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  console.error("DATABASE_URL is not set. Add it to app/.env.local — see example.env.");
+  process.exit(1);
+}
+
+// Inline base schema — the core tables every other migration assumes exist.
+// Kept here (rather than as a .sql file) so a single `npm run db:migrate`
+// bootstraps an empty Supabase project.
+const baseSchema = `
+create table if not exists app_settings (
+  id         integer primary key default 1,
+  data       jsonb not null default '{}',
+  updated_at timestamptz default now()
+);
+
+create table if not exists categories (
+  id         text primary key,
+  name       text not null,
+  emoji      text not null default '',
+  sort_order integer not null default 0
+);
+
+create table if not exists menu_items (
+  id           text primary key,
+  category_id  text not null references categories(id) on delete cascade,
+  name         text not null,
+  description  text not null default '',
+  price        numeric not null,
+  image        text,
+  dietary      text[] not null default '{}',
+  popular      boolean not null default false,
+  variations   jsonb,
+  add_ons      jsonb,
+  stock_qty    integer,
+  stock_status text,
+  sort_order   integer not null default 0
+);
+
+create table if not exists customers (
+  id              text primary key,
+  name            text not null,
+  email           text not null unique,
+  phone           text not null default '',
+  password        text,
+  created_at      timestamptz not null default now(),
+  tags            text[] not null default '{}',
+  favourites      text[] not null default '{}',
+  saved_addresses jsonb not null default '[]',
+  store_credit    numeric not null default 0
+);
+
+create table if not exists orders (
+  id                text primary key,
+  customer_id       text not null references customers(id) on delete cascade,
+  date              timestamptz not null default now(),
+  status            text not null default 'pending',
+  fulfillment       text not null default 'delivery',
+  total             numeric not null,
+  items             jsonb not null default '[]',
+  address           text,
+  note              text,
+  payment_method    text,
+  delivery_fee      numeric,
+  service_fee       numeric,
+  scheduled_time    text,
+  coupon_code       text,
+  coupon_discount   numeric,
+  vat_amount        numeric,
+  vat_inclusive     boolean,
+  driver_id         text,
+  driver_name       text,
+  delivery_status   text,
+  refunds           jsonb not null default '[]',
+  refunded_amount   numeric not null default 0,
+  store_credit_used numeric not null default 0
+);
+
+insert into customers (id, name, email, phone)
+values ('pos-walk-in', 'POS Walk-In', 'pos-walk-in@local', '')
+on conflict (id) do nothing;
+
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    begin alter publication supabase_realtime add table app_settings; exception when duplicate_object then null; end;
+    begin alter publication supabase_realtime add table categories;   exception when duplicate_object then null; end;
+    begin alter publication supabase_realtime add table menu_items;   exception when duplicate_object then null; end;
+    begin alter publication supabase_realtime add table customers;    exception when duplicate_object then null; end;
+    begin alter publication supabase_realtime add table orders;       exception when duplicate_object then null; end;
+  end if;
+end $$;
+`;
+
+const sqlFiles = [
+  "supabase/setup_all.sql",
+  "supabase/rls_policies.sql",
+  "supabase/auth_migration.sql",
+];
 
 const client = new Client({
-  connectionString:
-    "postgresql://postgres:JI9bz3tavD5zz8a4@db.auzsboqisdhbwemeembh.supabase.co:5432/postgres",
+  connectionString,
   ssl: { rejectUnauthorized: false },
 });
 
-const schema = `
--- ─── App settings (single JSONB row for all restaurant config) ─────────────────
-CREATE TABLE IF NOT EXISTS app_settings (
-  id         INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-  data       JSONB   NOT NULL DEFAULT '{}'::jsonb,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+const t0 = Date.now();
+await client.connect();
+console.log("✓ connected to Postgres");
 
--- ─── Categories ────────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS categories (
-  id         TEXT PRIMARY KEY,
-  name       TEXT NOT NULL,
-  emoji      TEXT NOT NULL DEFAULT '🍽️',
-  sort_order INTEGER DEFAULT 0
-);
+console.log("\n▶ Step 1/4: base schema (inline)");
+await client.query(baseSchema);
+console.log("✓ base schema OK");
 
--- ─── Menu items ────────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS menu_items (
-  id           TEXT PRIMARY KEY,
-  category_id  TEXT REFERENCES categories(id) ON DELETE CASCADE,
-  name         TEXT        NOT NULL,
-  description  TEXT        DEFAULT '',
-  price        NUMERIC(10,2) NOT NULL,
-  image        TEXT        DEFAULT '',
-  dietary      TEXT[]      DEFAULT '{}',
-  popular      BOOLEAN     DEFAULT false,
-  variations   JSONB       DEFAULT '[]'::jsonb,
-  add_ons      JSONB       DEFAULT '[]'::jsonb,
-  stock_qty    INTEGER,
-  stock_status TEXT        DEFAULT 'in_stock'
-);
-
--- ─── Customers ─────────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS customers (
-  id              TEXT PRIMARY KEY,
-  name            TEXT   NOT NULL,
-  email           TEXT   UNIQUE NOT NULL,
-  phone           TEXT   DEFAULT '',
-  password        TEXT   DEFAULT '',
-  created_at      TIMESTAMPTZ DEFAULT NOW(),
-  tags            TEXT[] DEFAULT '{}',
-  favourites      TEXT[] DEFAULT '{}',
-  saved_addresses JSONB  DEFAULT '[]'::jsonb
-);
-
--- ─── Orders ────────────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS orders (
-  id               TEXT PRIMARY KEY,
-  customer_id      TEXT REFERENCES customers(id) ON DELETE CASCADE,
-  date             TIMESTAMPTZ   DEFAULT NOW(),
-  status           TEXT          NOT NULL DEFAULT 'pending',
-  fulfillment      TEXT          NOT NULL DEFAULT 'delivery',
-  total            NUMERIC(10,2) NOT NULL DEFAULT 0,
-  items            JSONB         NOT NULL DEFAULT '[]'::jsonb,
-  address          TEXT          DEFAULT '',
-  note             TEXT          DEFAULT '',
-  payment_method   TEXT          DEFAULT '',
-  delivery_fee     NUMERIC(10,2) DEFAULT 0,
-  service_fee      NUMERIC(10,2) DEFAULT 0,
-  scheduled_time   TEXT          DEFAULT '',
-  coupon_code      TEXT          DEFAULT '',
-  coupon_discount  NUMERIC(10,2) DEFAULT 0,
-  vat_amount       NUMERIC(10,2) DEFAULT 0,
-  vat_inclusive    BOOLEAN       DEFAULT true,
-  driver_id        TEXT          DEFAULT '',
-  driver_name      TEXT          DEFAULT '',
-  delivery_status  TEXT          DEFAULT ''
-);
-
--- ─── Enable Realtime ───────────────────────────────────────────────────────────
-ALTER PUBLICATION supabase_realtime ADD TABLE app_settings;
-ALTER PUBLICATION supabase_realtime ADD TABLE categories;
-ALTER PUBLICATION supabase_realtime ADD TABLE menu_items;
-ALTER PUBLICATION supabase_realtime ADD TABLE customers;
-ALTER PUBLICATION supabase_realtime ADD TABLE orders;
-
--- ─── Disable RLS (dev/demo — enable + add policies in production) ──────────────
-ALTER TABLE app_settings DISABLE ROW LEVEL SECURITY;
-ALTER TABLE categories    DISABLE ROW LEVEL SECURITY;
-ALTER TABLE menu_items    DISABLE ROW LEVEL SECURITY;
-ALTER TABLE customers     DISABLE ROW LEVEL SECURITY;
-ALTER TABLE orders        DISABLE ROW LEVEL SECURITY;
-
--- ─── Grant anon key full access ────────────────────────────────────────────────
-GRANT SELECT, INSERT, UPDATE, DELETE ON app_settings TO anon;
-GRANT SELECT, INSERT, UPDATE, DELETE ON categories    TO anon;
-GRANT SELECT, INSERT, UPDATE, DELETE ON menu_items    TO anon;
-GRANT SELECT, INSERT, UPDATE, DELETE ON customers     TO anon;
-GRANT SELECT, INSERT, UPDATE, DELETE ON orders        TO anon;
-`;
-
-async function run() {
-  await client.connect();
-  console.log("Connected to Supabase PostgreSQL");
-
-  // Run each statement separately to handle the "already exists" cases gracefully
-  const statements = schema
-    .split(";")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-
-  for (const stmt of statements) {
-    try {
-      await client.query(stmt);
-      const preview = stmt.replace(/\s+/g, " ").slice(0, 70);
-      console.log(`✓ ${preview}…`);
-    } catch (err) {
-      const msg = err.message;
-      // Ignore "already in publication" errors
-      if (msg.includes("already exists") || msg.includes("already member")) {
-        console.log(`  (skip — already exists)`);
-      } else {
-        console.error(`✗ ${stmt.slice(0, 60)}…`);
-        console.error(`  ${msg}`);
-      }
+for (let i = 0; i < sqlFiles.length; i++) {
+  const rel = sqlFiles[i];
+  const path = resolve(repoRoot, rel);
+  const sql = readFileSync(path, "utf8");
+  console.log(`\n▶ Step ${i + 2}/4: ${rel}`);
+  try {
+    await client.query(sql);
+    console.log(`✓ ${rel} OK`);
+  } catch (err) {
+    console.error(`✗ ${rel} FAILED — ${err.message}`);
+    if (err.position) {
+      const pos = parseInt(err.position, 10);
+      const start = Math.max(0, pos - 80);
+      const end = Math.min(sql.length, pos + 80);
+      console.error(`Context near pos ${pos}:\n${sql.slice(start, end)}`);
     }
+    await client.end();
+    process.exit(1);
   }
-
-  await client.end();
-  console.log("\nMigration complete.");
 }
 
-run().catch((e) => { console.error(e); process.exit(1); });
+await client.end();
+console.log(`\n✅ Migration complete in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHmac, randomBytes }   from "crypto";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
-import { sendEmailDirect }           from "@/lib/emailServer";
+import { sendEmailDirect, fetchBrandPrimaryColor } from "@/lib/emailServer";
 import { RESET_TOKEN_TTL_MS }        from "@/lib/auth";
 
 function hashToken(token: string): string {
@@ -51,6 +51,7 @@ export async function POST(req: NextRequest) {
   const resetUrl = `${siteUrl}/login?action=reset&token=${rawToken}&email=${encodeURIComponent(email)}`;
 
   if (process.env.SMTP_HOST) {
+    const brandColor = await fetchBrandPrimaryColor();
     const result = await sendEmailDirect(
       email,
       "Reset your password",
@@ -61,7 +62,7 @@ export async function POST(req: NextRequest) {
           This link expires in <strong>1 hour</strong>.
         </p>
         <a href="${resetUrl}"
-           style="display:inline-block;background:#f97316;color:#fff;font-weight:700;
+           style="display:inline-block;background:${brandColor};color:#fff;font-weight:700;
                   text-decoration:none;padding:12px 28px;border-radius:10px;font-size:15px">
           Reset my password
         </a>

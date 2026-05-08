@@ -2,6 +2,7 @@
 
 import React, {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useReducer,
@@ -132,6 +133,8 @@ interface AppContextValue {
   addBreakfastItem: (item: MenuItem) => void;
   updateBreakfastItem: (item: MenuItem) => void;
   deleteBreakfastItem: (id: string) => void;
+  /** Re-fetches the logged-in customer from the server and syncs state. */
+  refreshCurrentUser: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -168,6 +171,7 @@ const DEFAULT_SEO: SeoSettings = {
   metaKeywords: `food delivery, online order, ${restaurantInfo.name}`,
   ogImage: "",
   siteUrl: "",
+  faviconUrl: "",
 };
 
 const DEFAULT_PRINTER: PrinterSettings = {
@@ -211,6 +215,11 @@ const DEFAULT_SETTINGS: AdminSettings = {
     { id: "w-1", name: "Head Waiter", pin: "1111", role: "senior", active: true, avatarColor: "#7c3aed", createdAt: new Date().toISOString() },
     { id: "w-2", name: "Alex",        pin: "2222", role: "waiter",  active: true, avatarColor: "#0891b2", createdAt: new Date().toISOString() },
     { id: "w-3", name: "Sophie",      pin: "3333", role: "waiter",  active: true, avatarColor: "#16a34a", createdAt: new Date().toISOString() },
+  ],
+  kitchenStaff: [
+    { id: "k-1", name: "Head Chef",       pin: "1234", role: "head_chef",       active: true, avatarColor: "#dc2626", createdAt: new Date().toISOString() },
+    { id: "k-2", name: "Sous Chef",       pin: "2345", role: "chef",            active: true, avatarColor: "#ea580c", createdAt: new Date().toISOString() },
+    { id: "k-3", name: "Kitchen Manager", pin: "3456", role: "kitchen_manager", active: true, avatarColor: "#7c3aed", createdAt: new Date().toISOString() },
   ],
   diningTables: [
     ...Array.from({ length: 6 },  (_, i) => ({ id: `t-${i+1}`,  number: i+1,  label: `T${i+1}`,  seats: i < 2 ? 2 : 4, section: "Main Hall", active: true })),
@@ -379,11 +388,59 @@ function customerToRow(c: Customer) {
   };
 }
 
+// ─── Settings builder ─────────────────────────────────────────────────────────
+// Shared by: AppProvider initial state, init useEffect, and Realtime subscription.
+// Accepts the raw `data` column from app_settings (or null → returns DEFAULT_SETTINGS).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildSettingsFromData(raw: Record<string, unknown> | null): AdminSettings {
+  if (!raw) return DEFAULT_SETTINGS;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const d = raw as any;
+  return {
+    ...DEFAULT_SETTINGS,
+    ...d,
+    restaurant:        { ...DEFAULT_SETTINGS.restaurant,        ...(d.restaurant        ?? {}) },
+    schedule:          { ...DEFAULT_SETTINGS.schedule,          ...(d.schedule          ?? {}) },
+    colors:            { ...DEFAULT_SETTINGS.colors,            ...(d.colors            ?? {}) },
+    taxSettings:       { ...DEFAULT_SETTINGS.taxSettings,       ...(d.taxSettings       ?? {}) },
+    printer:           { ...DEFAULT_SETTINGS.printer,           ...(d.printer           ?? {}) },
+    seo:               { ...DEFAULT_SETTINGS.seo,               ...(d.seo               ?? {}) },
+    receiptSettings:   { ...DEFAULT_SETTINGS.receiptSettings,   ...(d.receiptSettings   ?? {}) },
+    reservationSystem: { ...DEFAULT_SETTINGS.reservationSystem, ...(d.reservationSystem ?? {}) },
+    breakfastMenu: {
+      ...DEFAULT_SETTINGS.breakfastMenu,
+      ...(d.breakfastMenu ?? {}),
+      categories: d.breakfastMenu?.categories ?? DEFAULT_SETTINGS.breakfastMenu.categories,
+      items:      d.breakfastMenu?.items      ?? DEFAULT_SETTINGS.breakfastMenu.items,
+    },
+    emailTemplates:  mergeEmailTemplates(d.emailTemplates),
+    footerPages:     d.footerPages    ?? DEFAULT_SETTINGS.footerPages,
+    paymentMethods:  d.paymentMethods ?? DEFAULT_SETTINGS.paymentMethods,
+    deliveryZones:   d.deliveryZones  ?? DEFAULT_SETTINGS.deliveryZones,
+    coupons:         d.coupons        ?? [],
+    waiters:         d.waiters        ?? DEFAULT_SETTINGS.waiters,
+    kitchenStaff:    d.kitchenStaff   ?? DEFAULT_SETTINGS.kitchenStaff,
+    diningTables:    d.diningTables   ?? DEFAULT_SETTINGS.diningTables,
+    // Sensitive fields explicitly excluded — must never reach client state:
+    // drivers, stripeSecretKey, paypalClientId, smtpHost/Port/User/Password
+  };
+}
+
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
-export function AppProvider({ children }: { children: React.ReactNode }) {
+export function AppProvider({
+  children,
+  initialData,
+}: {
+  children:     React.ReactNode;
+  initialData?: Record<string, unknown> | null;
+}) {
   const [cart, dispatch]         = useReducer(cartReducer, []);
-  const [settings, setSettings]  = useState<AdminSettings>(DEFAULT_SETTINGS);
+  // Initialise from server-passed data so the color useEffect writes the same
+  // CSS as the server already injected — eliminates the FOUC/theme-flicker.
+  const [settings, setSettings]  = useState<AdminSettings>(
+    () => buildSettingsFromData(initialData ?? null),
+  );
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems]   = useState<MenuItem[]>([]);
   const [customers, setCustomers]   = useState<Customer[]>([]);
@@ -415,13 +472,59 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const c = localStorage.getItem("sg_cart");
       if (c) (JSON.parse(c) as CartItem[]).forEach((item) => dispatch({ type: "ADD", item }));
       const d = localStorage.getItem("sg_driver_session");
-      if (d) setCurrentDriver(JSON.parse(d));
+      if (d) {
+        setCurrentDriver(JSON.parse(d));
+        // Verify the cookie is still valid; clear stale localStorage if not.
+        fetch("/api/auth/driver", { method: "GET" })
+          .then((r) => {
+            if (!r.ok) {
+              setCurrentDriver(null);
+              localStorage.removeItem("sg_driver_session");
+            }
+          })
+          .catch(() => {});
+      } else {
+        // No localStorage — try fetching the driver profile from the session cookie.
+        // This restores currentDriver when localStorage has been cleared but the
+        // cookie is still valid (e.g. after clearing site data or on a new tab).
+        fetch("/api/auth/driver/me")
+          .then((r) => (r.ok ? r.json() : null))
+          .then((json: { ok: boolean; driver?: import("@/types").Driver } | null) => {
+            if (json?.ok && json.driver) {
+              setCurrentDriver(json.driver);
+              localStorage.setItem("sg_driver_session", JSON.stringify(json.driver));
+            }
+          })
+          .catch(() => {});
+      }
+      // Restore last-known customer instantly so the account page renders on first
+      // click without waiting for the network. The fetch below verifies the session
+      // and merges fresh data (stale-while-revalidate pattern).
+      const u = localStorage.getItem("sg_current_user");
+      if (u) setCurrentUser(JSON.parse(u) as Customer);
     } catch { /* ignore */ }
-    // Load customer session from httpOnly cookie via server endpoint
-    fetch("/api/auth/me")
+    // Verify session via httpOnly cookie and sync fresh data from the server.
+    fetch("/api/auth/me", { cache: "no-store" })
       .then((r) => r.ok ? r.json() : null)
       .then((json: { ok: boolean; customer?: Customer } | null) => {
-        if (json?.ok && json.customer) setCurrentUser({ ...json.customer, orders: json.customer.orders ?? [] });
+        if (!json?.ok || !json.customer) {
+          // Session invalid or expired — clear any stale cached user.
+          setCurrentUser(null);
+          return;
+        }
+        const serverOrders: Order[] = json.customer.orders ?? [];
+        const serverIds = new Set(serverOrders.map((o) => o.id));
+        setCurrentUser((prev) => {
+          const localOnly: Order[] = (prev && prev.id === json.customer!.id)
+            ? prev.orders.filter((o) => !serverIds.has(o.id))
+            : [];
+          return {
+            ...json.customer!,
+            orders: [...localOnly, ...serverOrders].sort(
+              (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+            ),
+          };
+        });
       })
       .catch(() => {});
   }, []);
@@ -460,39 +563,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           console.error("AppContext: failed to load settings:", settingsErr.message);
         }
         if (settingsData?.data) {
-          // Deep-merge with DEFAULT_SETTINGS so new fields added to the default
-          // are always present even if the stored snapshot pre-dates them.
-          // Note: sensitive fields (drivers, stripeSecretKey, smtpPassword, etc.)
-          // are intentionally omitted — they must never be sent to the browser.
-          const d = settingsData.data;
-          setSettings({
-            ...DEFAULT_SETTINGS,
-            ...d,
-            // Ensure critical nested objects always have their default structure
-            restaurant:      { ...DEFAULT_SETTINGS.restaurant,      ...(d.restaurant      ?? {}) },
-            schedule:        { ...DEFAULT_SETTINGS.schedule,        ...(d.schedule        ?? {}) },
-            colors:          { ...DEFAULT_SETTINGS.colors,          ...(d.colors          ?? {}) },
-            taxSettings:     { ...DEFAULT_SETTINGS.taxSettings,     ...(d.taxSettings     ?? {}) },
-            printer:         { ...DEFAULT_SETTINGS.printer,         ...(d.printer         ?? {}) },
-            seo:             { ...DEFAULT_SETTINGS.seo,             ...(d.seo             ?? {}) },
-            receiptSettings: { ...DEFAULT_SETTINGS.receiptSettings, ...(d.receiptSettings ?? {}) },
-            breakfastMenu: {
-              ...DEFAULT_SETTINGS.breakfastMenu,
-              ...(d.breakfastMenu ?? {}),
-              categories: d.breakfastMenu?.categories ?? DEFAULT_SETTINGS.breakfastMenu.categories,
-              items:      d.breakfastMenu?.items      ?? DEFAULT_SETTINGS.breakfastMenu.items,
-            },
-            emailTemplates: mergeEmailTemplates(d.emailTemplates),
-            footerPages:    d.footerPages    ?? DEFAULT_SETTINGS.footerPages,
-            paymentMethods: d.paymentMethods ?? DEFAULT_SETTINGS.paymentMethods,
-            deliveryZones:  d.deliveryZones  ?? DEFAULT_SETTINGS.deliveryZones,
-            coupons:        d.coupons        ?? [],
-            waiters:           d.waiters           ?? DEFAULT_SETTINGS.waiters,
-            diningTables:      d.diningTables      ?? DEFAULT_SETTINGS.diningTables,
-            reservationSystem: { ...DEFAULT_SETTINGS.reservationSystem, ...(d.reservationSystem ?? {}) },
-            // Sensitive fields explicitly excluded — never loaded into client state:
-            // drivers, stripeSecretKey, paypalClientId, smtpHost/Port/User/Password
-          });
+          setSettings(buildSettingsFromData(settingsData.data));
         } else if (!settingsData) {
           // First run — seed settings into the DB
           await supabase.from("app_settings").insert({ id: 1, data: DEFAULT_SETTINGS });
@@ -567,33 +638,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "app_settings" },
         ({ new: row }) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const d = (row as any).data ?? {};
-          setSettings({
-            ...DEFAULT_SETTINGS,
-            ...d,
-            restaurant:      { ...DEFAULT_SETTINGS.restaurant,      ...(d.restaurant      ?? {}) },
-            schedule:        { ...DEFAULT_SETTINGS.schedule,        ...(d.schedule        ?? {}) },
-            colors:          { ...DEFAULT_SETTINGS.colors,          ...(d.colors          ?? {}) },
-            taxSettings:     { ...DEFAULT_SETTINGS.taxSettings,     ...(d.taxSettings     ?? {}) },
-            printer:         { ...DEFAULT_SETTINGS.printer,         ...(d.printer         ?? {}) },
-            seo:             { ...DEFAULT_SETTINGS.seo,             ...(d.seo             ?? {}) },
-            receiptSettings: { ...DEFAULT_SETTINGS.receiptSettings, ...(d.receiptSettings ?? {}) },
-            breakfastMenu: {
-              ...DEFAULT_SETTINGS.breakfastMenu,
-              ...(d.breakfastMenu ?? {}),
-              categories: d.breakfastMenu?.categories ?? DEFAULT_SETTINGS.breakfastMenu.categories,
-              items:      d.breakfastMenu?.items      ?? DEFAULT_SETTINGS.breakfastMenu.items,
-            },
-            emailTemplates: mergeEmailTemplates(d.emailTemplates),
-            footerPages:    d.footerPages    ?? DEFAULT_SETTINGS.footerPages,
-            paymentMethods: d.paymentMethods ?? DEFAULT_SETTINGS.paymentMethods,
-            deliveryZones:  d.deliveryZones  ?? DEFAULT_SETTINGS.deliveryZones,
-            coupons:        d.coupons        ?? [],
-            waiters:           d.waiters           ?? DEFAULT_SETTINGS.waiters,
-            diningTables:      d.diningTables      ?? DEFAULT_SETTINGS.diningTables,
-            reservationSystem: { ...DEFAULT_SETTINGS.reservationSystem, ...(d.reservationSystem ?? {}) },
-            // drivers, stripeSecretKey, smtpPassword, etc. intentionally excluded
-          });
+          setSettings(buildSettingsFromData((row as any).data ?? null));
         })
       // Categories
       .on("postgres_changes", { event: "*", schema: "public", table: "categories" },
@@ -628,9 +673,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         async ({ eventType, new: newRow, old: oldRow }: any) => {
           if (eventType === "DELETE") {
-            setCustomers((prev) => prev.map((c) => ({
-              ...c, orders: c.orders.filter((o) => o.id !== oldRow.id),
-            })));
+            const gone = (o: Order) => o.id !== oldRow.id;
+            setCustomers((prev) => prev.map((c) => ({ ...c, orders: c.orders.filter(gone) })));
+            setCurrentUser((prev) => prev ? { ...prev, orders: prev.orders.filter(gone) } : prev);
           } else {
             const order = mapOrder(newRow);
             const patchOrders = (orders: Order[]) => {
@@ -638,6 +683,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               return exists ? orders.map((o) => (o.id === order.id ? order : o))
                             : [order, ...orders];
             };
+
+            // Always update currentUser regardless of which code path we take below.
+            setCurrentUser((prev) =>
+              prev && prev.id === order.customerId
+                ? { ...prev, orders: patchOrders(prev.orders) }
+                : prev
+            );
 
             // If the order's customer is not yet in state (e.g. pos-walk-in sentinel
             // or a race condition where the customer INSERT event hasn't arrived yet),
@@ -655,18 +707,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                   }
                   return [...prev, { ...newCustomer, orders: patchOrders(newCustomer.orders) }];
                 });
-                return;
               }
+              return;
             }
 
             setCustomers((prev) => prev.map((c) =>
               c.id !== order.customerId ? c : { ...c, orders: patchOrders(c.orders) }
             ));
-            setCurrentUser((prev) =>
-              prev && prev.id === order.customerId
-                ? { ...prev, orders: patchOrders(prev.orders) }
-                : prev
-            );
           }
         })
       // Customers
@@ -703,7 +750,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             );
           }
         })
-      .subscribe();
+      // Drivers
+      .on("postgres_changes", { event: "*", schema: "public", table: "drivers" },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ({ eventType, new: newRow, old: oldRow }: any) => {
+          if (eventType === "DELETE") {
+            setDrivers((prev) => prev.filter((d) => d.id !== oldRow.id));
+          } else {
+            const driver: Driver = {
+              id: newRow.id, name: newRow.name, email: newRow.email,
+              phone: newRow.phone ?? "",
+              active: newRow.active ?? true,
+              vehicleInfo: newRow.vehicle_info || undefined,
+              notes: newRow.notes || undefined,
+              createdAt: typeof newRow.created_at === "string" ? newRow.created_at : new Date(newRow.created_at).toISOString(),
+            };
+            setDrivers((prev) => {
+              const idx = prev.findIndex((d) => d.id === driver.id);
+              return idx >= 0 ? prev.map((d) => (d.id === driver.id ? driver : d)) : [driver, ...prev];
+            });
+          }
+        })
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.warn("AppContext: Realtime subscription lost (%s) — changes from other sessions will not sync until page refresh.", status);
+        }
+      });
 
     return () => { supabase.removeChannel(channel); };
   }, []);
@@ -717,6 +789,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let el = document.getElementById("color-theme-vars");
     if (!el) { el = document.createElement("style"); el.id = "color-theme-vars"; document.head.appendChild(el); }
     el.textContent = css;
+    // Keep localStorage in sync so the layout's fallback script has current
+    // colors if the server-side DB fetch ever fails (e.g. DB unreachable).
+    try { localStorage.setItem("sg_color_theme", css); } catch { /* private browsing */ }
   }, [settings.colors]);
 
   // ─── Cart actions ──────────────────────────────────────────────────────────
@@ -868,10 +943,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const addOrder = async (customerId: string, order: Order): Promise<{ ok: boolean; error?: string }> => {
-    // Optimistic insert
-    setCustomers((prev) =>
-      prev.map((c) => (c.id === customerId ? { ...c, orders: [order, ...c.orders] } : c))
-    );
+    // Optimistic insert — also handles the race where the customer isn't in state
+    // yet (e.g. new registration before the Realtime INSERT event fires).
+    setCustomers((prev) => {
+      const exists = prev.some((c) => c.id === customerId);
+      if (exists) {
+        return prev.map((c) => (c.id === customerId ? { ...c, orders: [order, ...c.orders] } : c));
+      }
+      // Customer missing from state — add using currentUser snapshot so the
+      // account page can read the order immediately without waiting for Realtime.
+      const snap = currentUser && currentUser.id === customerId ? currentUser : null;
+      return snap ? [...prev, { ...snap, orders: [order, ...(snap.orders ?? [])] }] : prev;
+    });
     setCurrentUser((prev) =>
       prev && prev.id === customerId ? { ...prev, orders: [order, ...prev.orders] } : prev
     );
@@ -891,8 +974,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(orderToRow(order)),
       });
-      const j = await r.json() as { ok: boolean; error?: string };
+      const j = await r.json() as { ok: boolean; error?: string; orderId?: string; total?: number };
       if (!j.ok) { rollback(); return { ok: false, error: j.error }; }
+      // Patch the optimistic entry with the server-authoritative total so the UI
+      // shows the correct amount immediately — no need to wait for refreshCurrentUser.
+      if (j.total !== undefined) {
+        const patch = (orders: Order[]) =>
+          orders.map((o) => o.id === order.id ? { ...o, total: j.total! } : o);
+        setCurrentUser((prev) =>
+          prev && prev.id === customerId ? { ...prev, orders: patch(prev.orders) } : prev
+        );
+        setCustomers((prev) =>
+          prev.map((c) => c.id !== customerId ? c : { ...c, orders: patch(c.orders) })
+        );
+      }
+      // Background sync — pulls the full server representation (items, fees, etc.)
+      // and merges with any local-only optimistic entries.
+      refreshCurrentUser().catch(() => {});
       return { ok: true };
     } catch {
       rollback();
@@ -991,6 +1089,49 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateOrderStatus:", j.error); }
     }).catch((e) => console.error("updateOrderStatus:", e));
   };
+
+  // ─── Refresh current user from server ────────────────────────────────────
+  // Merges server orders with any optimistic orders not yet confirmed in the DB.
+  // This prevents a race where an in-flight optimistic order is overwritten by a
+  // server response that was fetched before the DB commit landed.
+
+  const refreshCurrentUser = useCallback(async () => {
+    try {
+      const r = await fetch("/api/auth/me", { cache: "no-store" });
+      if (!r.ok) return;
+      const json = await r.json() as { ok: boolean; customer?: Customer };
+      if (!json?.ok || !json.customer) return;
+      const serverOrders: Order[] = json.customer.orders ?? [];
+      const serverIds = new Set(serverOrders.map((o) => o.id));
+
+      // Functional update: merge server state with any local-only optimistic orders
+      setCurrentUser((prev) => {
+        const localOnly: Order[] = prev
+          ? prev.orders.filter((o) => !serverIds.has(o.id))
+          : [];
+        return {
+          ...json.customer!,
+          orders: [...localOnly, ...serverOrders].sort(
+            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+          ),
+        };
+      });
+
+      setCustomers((prev) => {
+        const idx = prev.findIndex((c) => c.id === json.customer!.id);
+        if (idx >= 0) {
+          return prev.map((c) => c.id !== json.customer!.id ? c : {
+            ...c,
+            orders:        serverOrders,
+            storeCredit:   json.customer!.storeCredit,
+            tags:          json.customer!.tags,
+            savedAddresses: json.customer!.savedAddresses,
+          });
+        }
+        return [...prev, { ...json.customer!, orders: serverOrders }];
+      });
+    } catch { /* network error — silently ignore */ }
+  }, []); // setCurrentUser / setCustomers are stable setState refs
 
   // ─── Auth ─────────────────────────────────────────────────────────────────
 
@@ -1346,6 +1487,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updateBreakfastSettings,
         addBreakfastCategory, updateBreakfastCategory, deleteBreakfastCategory, reorderBreakfastCategories,
         addBreakfastItem, updateBreakfastItem, deleteBreakfastItem,
+        refreshCurrentUser,
       }}
     >
       <SeoHead settings={settings} />

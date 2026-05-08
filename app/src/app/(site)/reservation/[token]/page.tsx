@@ -37,7 +37,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   checked_in:  { label: "Currently dining",     color: "text-blue-700 bg-blue-50 border-blue-200"   },
   checked_out: { label: "Visit complete",       color: "text-teal-700 bg-teal-50 border-teal-200"   },
   cancelled:   { label: "Cancelled",            color: "text-red-700 bg-red-50 border-red-200"      },
-  no_show:     { label: "No show",              color: "text-gray-600 bg-gray-50 border-gray-200"   },
+  no_show:     { label: "No show",              color: "text-gray-600 bg-zinc-50 border-zinc-200"     },
 };
 
 export default function ReservationTokenPage() {
@@ -85,15 +85,15 @@ export default function ReservationTokenPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Loader2 size={32} className="animate-spin text-orange-500" />
+      <div className="flex-1 flex items-center justify-center">
+        <Loader2 size={32} className="animate-spin text-zinc-600" />
       </div>
     );
   }
 
   if (notFound) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center gap-4 px-4 text-center">
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 px-4 text-center">
         <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
           <AlertTriangle size={28} className="text-red-500" />
         </div>
@@ -108,7 +108,7 @@ export default function ReservationTokenPage() {
   const statusInfo = booking ? (STATUS_LABELS[booking.status] ?? STATUS_LABELS.pending) : STATUS_LABELS.pending;
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4">
+    <div className="py-12 px-4">
       <div className="max-w-md mx-auto space-y-6">
 
         {/* Header */}
@@ -130,29 +130,29 @@ export default function ReservationTokenPage() {
 
         {/* Booking details card */}
         {booking && (
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-4">
+          <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-6 space-y-4">
             <h2 className="font-bold text-gray-900 text-lg">{booking.customer_name}</h2>
 
             <div className="space-y-3">
               <div className="flex items-center gap-3 text-gray-700">
-                <CalendarDays size={18} className="text-orange-500 flex-shrink-0" />
+                <CalendarDays size={18} className="text-zinc-600 flex-shrink-0" />
                 <span>{fmtDate(booking.date)}</span>
               </div>
               <div className="flex items-center gap-3 text-gray-700">
-                <Clock size={18} className="text-orange-500 flex-shrink-0" />
+                <Clock size={18} className="text-zinc-600 flex-shrink-0" />
                 <span>{fmt12(booking.time)}</span>
               </div>
               <div className="flex items-center gap-3 text-gray-700">
-                <Users size={18} className="text-orange-500 flex-shrink-0" />
+                <Users size={18} className="text-zinc-600 flex-shrink-0" />
                 <span>{booking.party_size} {booking.party_size === 1 ? "guest" : "guests"}</span>
               </div>
               <div className="flex items-center gap-3 text-gray-700">
-                <UtensilsCrossed size={18} className="text-orange-500 flex-shrink-0" />
+                <UtensilsCrossed size={18} className="text-zinc-600 flex-shrink-0" />
                 <span>{booking.table_label}{booking.section ? ` · ${booking.section}` : ""}</span>
               </div>
               {booking.note && (
                 <div className="flex items-start gap-3 text-gray-600">
-                  <MapPin size={18} className="text-orange-500 flex-shrink-0 mt-0.5" />
+                  <MapPin size={18} className="text-zinc-600 flex-shrink-0 mt-0.5" />
                   <span className="italic">&ldquo;{booking.note}&rdquo;</span>
                 </div>
               )}
@@ -183,7 +183,7 @@ export default function ReservationTokenPage() {
 
         {/* Cancel action */}
         {isCancellable && !cancelled && (
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-3">
+          <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-5 space-y-3">
             {!confirmed ? (
               <>
                 <p className="text-sm text-gray-600">
@@ -203,7 +203,7 @@ export default function ReservationTokenPage() {
                 <div className="flex gap-3">
                   <button
                     onClick={() => setConfirmed(false)}
-                    className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 transition"
+                    className="flex-1 py-3 rounded-xl border border-zinc-200 text-gray-600 font-semibold text-sm hover:bg-zinc-50 transition"
                   >
                     Keep booking
                   </button>

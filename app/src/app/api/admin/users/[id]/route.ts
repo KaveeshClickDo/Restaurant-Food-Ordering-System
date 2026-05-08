@@ -53,7 +53,7 @@ export async function PATCH(
     if (name  !== undefined) updates.name  = name.trim();
     if (email !== undefined) updates.email = email.trim().toLowerCase();
     if (phone !== undefined) updates.phone = phone.trim() || null;
-    if (active !== undefined) updates.active = active;
+    // customers table does not have an `active` column — skip it
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ ok: false, error: "No fields to update." }, { status: 400 });

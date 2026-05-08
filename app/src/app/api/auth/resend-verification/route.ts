@@ -7,7 +7,7 @@
 import { NextResponse }               from "next/server";
 import { createHmac, randomBytes }    from "crypto";
 import { supabaseAdmin }              from "@/lib/supabaseAdmin";
-import { sendEmailDirect }            from "@/lib/emailServer";
+import { sendEmailDirect, fetchBrandPrimaryColor } from "@/lib/emailServer";
 import { getCustomerSession, unauthorizedJson } from "@/lib/auth";
 
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -48,6 +48,7 @@ export async function POST() {
   if (!process.env.SMTP_HOST) {
     console.log("[resend-verification] Verify URL:", link);
   } else {
+    const brandColor = await fetchBrandPrimaryColor();
     const result = await sendEmailDirect(
       data.email,
       "Verify your email address",
@@ -58,7 +59,7 @@ export async function POST() {
           This link expires in <strong>24 hours</strong>.
         </p>
         <a href="${link}"
-           style="display:inline-block;background:#f97316;color:#fff;font-weight:700;
+           style="display:inline-block;background:${brandColor};color:#fff;font-weight:700;
                   text-decoration:none;padding:12px 28px;border-radius:10px;font-size:15px">
           Verify my email
         </a>

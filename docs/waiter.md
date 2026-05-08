@@ -173,5 +173,6 @@ Changes take effect immediately — the waiter app fetches config from `/api/wai
 | `POST` | `/api/waiter/settle` | None | Mark orders as delivered + record payment |
 | `POST` | `/api/waiter/void` | None | Cancel active orders with reason |
 | `POST` | `/api/waiter/refund` | None | Proportional refund on settled orders |
+| `POST` | `/api/waiter/logout` | None | Clear waiter session state |
 
 All waiter routes use the **service role key** server-side. "None" means no admin session cookie is required — the waiter app is a trusted in-restaurant screen.

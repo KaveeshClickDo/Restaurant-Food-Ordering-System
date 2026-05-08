@@ -13,7 +13,7 @@ Online ordering data is persisted in **Supabase (PostgreSQL)** and synchronised 
 - [Getting Started](#getting-started)
 - [Application Portals](#application-portals)
   - [Customer Portal](#customer-portal-)
-  - [Customer Account](#customer-account-account)
+  - [Customer Account](#customer-account)
   - [Waiter App](#waiter-app-waiter)
   - [Kitchen Display System](#kitchen-display-system-kitchen)
   - [Driver Dashboard](#driver-dashboard-driver)
@@ -31,13 +31,15 @@ Online ordering data is persisted in **Supabase (PostgreSQL)** and synchronised 
 
 | Portal | Route | Authenticated by | Role |
 |---|---|---|---|
-| Customer menu | `/` | None (guest) | Customers browsing and ordering |
-| Customer account | `/account` | Email + password | Customers tracking orders and profile |
-| Waiter app | `/waiter` | 4-digit staff PIN | Waiters placing dine-in orders |
+| Customer menu | `/` | None required (guest) or `customer_session` cookie | Customers browsing and ordering |
+| Customer login | `/login` | — | Email + bcrypt, or Google OAuth |
+| Customer account | `/account` | `customer_session` cookie (middleware-protected) | Logged-in customers |
+| Waiter app | `/waiter` | 4-digit staff PIN (server-side) | Waiters placing dine-in orders |
 | Kitchen display | `/kitchen` | None (trusted screen) | Kitchen staff progressing orders |
-| Driver dashboard | `/driver` | Email + bcrypt password | Delivery drivers |
-| POS terminal | `/pos` | 4-digit staff PIN | In-restaurant point-of-sale |
-| Admin dashboard | `/admin` | `ADMIN_PASSWORD` cookie | Restaurant owner / manager |
+| Driver dashboard | `/driver` | `driver_session` cookie (middleware-protected) | Delivery drivers |
+| Driver login | `/driver/login` | — | Email + bcrypt password |
+| POS terminal | `/pos` | 4-digit staff PIN (client-side) | In-restaurant point-of-sale |
+| Admin dashboard | `/admin` | `ADMIN_PASSWORD` env var + httpOnly cookie | Restaurant owner / manager |
 
 ---
 
@@ -50,8 +52,9 @@ Online ordering data is persisted in **Supabase (PostgreSQL)** and synchronised 
 | UI | React 19, Tailwind CSS v4, Lucide React |
 | Database | Supabase (PostgreSQL) |
 | Real-time | Supabase Realtime (`postgres_changes`) |
+| Auth — customers | bcrypt + HMAC-signed httpOnly `customer_session` cookie; Google OAuth 2.0 |
+| Auth — drivers | bcrypt + HMAC-signed httpOnly `driver_session` cookie; middleware route protection |
 | Auth — admin | `ADMIN_PASSWORD` env var + httpOnly JWT cookie |
-| Auth — drivers | bcrypt hash in `drivers` table; validated server-side |
 | Auth — waiters | 4-digit PIN in `app_settings`; validated server-side |
 | Auth — POS staff | 4-digit PIN in `localStorage` (trusted local terminal) |
 | POS storage | Browser `localStorage` (primary) + Supabase (background sync via outbox) |
@@ -71,7 +74,14 @@ Online ordering data is persisted in **Supabase (PostgreSQL)** and synchronised 
 
 ### Environment Variables
 
-Create `app/.env.local`:
+Copy `app/example.env` to `app/.env.local` and fill in your values:
+
+```bash
+cd app
+cp example.env .env.local
+```
+
+The required variables:
 
 ```env
 # Supabase — safe to expose to the browser
@@ -83,29 +93,60 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
 # Admin dashboard password
 ADMIN_PASSWORD=your-secure-admin-password
+
+# HMAC secret for customer + driver session cookies (generate with: openssl rand -hex 64)
+AUTH_JWT_SECRET=your-long-random-secret
+
+# Canonical site URL (used for OAuth callbacks and password-reset links)
+NEXT_PUBLIC_SITE_URL=https://yourdomain.com
+
+# Google OAuth — optional; enables "Sign in with Google"
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+
+# Postgres connection string — only used by `npm run db:migrate`
+# Get it from Supabase Dashboard → Connect → "Direct" or "Session pooler"
+# Special chars in the password MUST be URL-encoded (e.g. `!` → `%21`, `^` → `%5E`)
+DATABASE_URL=postgresql://postgres.<project-ref>:<encoded-password>@<host>:5432/postgres
 ```
+
+Where to find each value in Supabase:
+
+| Variable | Supabase location |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Settings → API Keys → URL (or top of Connect modal) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Settings → API Keys → **Legacy** tab → `anon public` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Settings → API Keys → **Legacy** tab → `service_role secret` |
+| `DATABASE_URL` | Top-of-page **Connect** button → "Direct" or "Session pooler" tab |
 
 > **SMTP and Stripe/PayPal credentials** are entered through the Admin → Integrations panel and stored in `app_settings`. They are never sent to the browser.
 
 ### Database Setup
 
-Run `supabase/setup_all.sql` (or `rls_policies.sql`) in the Supabase SQL Editor. That script:
-
-1. Creates all required tables (`orders`, `customers`, `categories`, `menu_items`, `drivers`, `reservation_customers`)
-2. Enables Row Level Security on every table
-3. Applies per-table anon policies (read-only where appropriate)
-4. Revokes `password` column from anon reads on `customers`
-5. Seeds the `pos-walk-in` sentinel customer
-6. Adds void audit columns to `orders`
-7. Adds `order_count`, `total_spend`, `last_order_at` columns to `reservation_customers`
-
-See [Database Schema](#database-schema) for full table definitions.
-
-### Installation
+A single command bootstraps an empty Supabase project — creating every table, applying RLS policies, and adding the auth columns:
 
 ```bash
 cd app
 npm install
+npm run db:migrate
+```
+
+This runs [`app/migrate.mjs`](app/migrate.mjs), which executes (in order):
+
+1. **Inline base schema** — creates `app_settings`, `categories`, `menu_items`, `customers`, `orders`, the `pos-walk-in` sentinel customer, and adds the core tables to the realtime publication
+2. [`supabase/setup_all.sql`](supabase/setup_all.sql) — reservation tables (`reservations`, `reservation_customers`, `reservation_waitlist`)
+3. [`supabase/rls_policies.sql`](supabase/rls_policies.sql) — `drivers` table + Row Level Security on every table
+4. [`supabase/auth_migration.sql`](supabase/auth_migration.sql) — adds `password_hash`, `email_verified`, and password-reset columns to `customers`
+
+Every step is idempotent — safe to re-run after schema changes. Requires `DATABASE_URL` in `.env.local`.
+
+> **Heads up — don't run the SQL files individually in the Supabase SQL Editor.** They depend on each other and on the inline base schema in `migrate.mjs`. Use `npm run db:migrate` instead.
+
+See [Database Schema](#database-schema) for full table definitions.
+
+### Run the App
+
+```bash
 npm run dev          # http://localhost:3000
 ```
 
@@ -128,7 +169,7 @@ npm start
 - Time-gated **Breakfast Menu** (appears only during configured morning hours)
 - Search by name / description; filter by dietary tags (Vegan, Halal, Gluten-Free, etc.)
 - Add items with variation, add-on, and special instruction selection
-- **Delivery** or **collection** fulfillment at checkout
+- **Delivery / Collection toggle** — visible pill switch in the hero section; updates estimated times, fee display, and checkout flow in real time
 - Geolocation → Haversine formula → automatic delivery zone detection and fee
 - Coupon codes with instant discount validation
 - VAT breakdown when tax is enabled
@@ -136,19 +177,41 @@ npm start
 - Guest or registered checkout; saved delivery addresses
 - Schedule orders for a future time slot
 - Store credit balance applied at checkout
-- **Guest profile auto-capture**: after checkout, customer details (name, email, phone, order total) are saved to `reservation_customers` for CRM use — no account required
+- **Guest profile auto-capture**: after checkout, customer details are saved to `reservation_customers` for CRM use — no account required
 
-### Customer Account (`/account`)
+**Customer-specific features (requires sign-in):**
+- **Favourites** — heart icon on food cards; dedicated Favourites screen accessible via sidebar and mobile nav; persisted to `customers.favourites` in Supabase; one-tap "Add to order"
+- **My Orders** — dark active order card with real-time status; past orders with Reorder button; **Track Order modal** showing step-by-step progress and driver information
+- **Reserve a Table** — button in the sidebar Navigate section (gated by reservation system enabled setting)
+
+**Mobile experience:**
+- **Bottom navigation bar** — fixed tab bar with Menu, Saved, Cart, Orders, and Profile tabs; elevated cart button with badge; iOS safe-area insets
+
+### Customer Authentication
+
+Customers sign in via the `AuthModal` (modal overlay on `/`) or the dedicated `/login` page.
+
+| Method | Flow |
+|---|---|
+| Email + password | `POST /api/auth/login` → bcrypt compare → sets `customer_session` httpOnly cookie |
+| Google OAuth | `GET /api/auth/google` → consent screen → `GET /api/auth/google/callback` → session cookie |
+| Registration | `POST /api/auth/register` → bcrypt hash stored; verification email sent |
+| Password reset | "Forgot password?" → `POST /api/auth/reset-password` → signed link emailed |
+| Email verification | `POST /api/auth/resend-verification` → `/api/auth/verify-email?token=...` |
+| Logout | `POST /api/auth/logout` → clears cookie |
+
+### Customer Account (screen within `/`)
 
 - Full order history sorted newest-first
 - Active orders highlighted with a pulsing **Live** badge
 - **Kitchen tracker**: step dots for `pending → confirmed → preparing → ready`
-- **Driver tracker**: separate progress card for `assigned → picked_up → on_the_way → delivered`
-- Status badge reflects `deliveryStatus` in real time
-- Quick re-order (copies available items from a past order into the cart)
+- **Driver tracker**: separate progress for `assigned → picked_up → on_the_way → delivered`
+- Track Order modal with progress bar and driver details
+- Quick re-order (copies available items from a past order)
 - Saved address management (add, edit, set default, delete)
-- Profile editing (name, phone; email is read-only)
+- Profile editing (name, phone; email read-only)
 - Store credit balance display
+- Saved favourites count — click to jump to Favourites screen
 
 ### Waiter App (`/waiter`)
 
@@ -196,31 +259,24 @@ The KDS is **self-contained and independent of `AppContext`**. It queries the `o
 | Preparing | `preparing` | Mark Ready |
 | Ready | `ready` | Mark as Collected (POS/walk-in) |
 
-#### Display Name Resolution
-
-| Order source | `displayName` shown |
-|---|---|
-| Dine-in (waiter) | `"Table T4"` — parsed from `[WAITER] Table T4 …` note |
-| POS walk-in | Customer name from note, or `"Walk-in"` |
-| Online order | Customer name from the `customers` JOIN |
-
 #### Features
 
 - Urgency colour coding: amber at 15 min, red at 30 min with pulse animation
 - Fulfillment badge (Dine-In / Delivery / Collection / Scheduled)
 - Completed-today counter, live clock, fullscreen mode
 - Status advances via `PUT /api/kds/orders/[id]/status` (no admin auth required)
-- Mark-as-collected via `PUT /api/pos/orders/[id]/collected`
 - Optimistic UI with automatic rollback on API failure
 
 ### Driver Dashboard (`/driver`)
 
-- Email + password login (credentials created in Admin → Drivers; passwords stored as bcrypt hashes)
+- Email + bcrypt password login via `/driver/login`; issues an httpOnly `driver_session` cookie
+- Middleware protects all `/driver` routes — unauthenticated requests redirect to `/driver/login`
 - **Available orders** — unassigned delivery orders at `preparing` or `ready`, sorted by urgency
 - Accept an order to claim it; progress: `Assigned → Picked Up → On the Way → Delivered`
 - Confirm-before-deliver guard prevents accidental completion
 - Call customer and Google Maps navigation links
 - Completed deliveries log with total earnings
+- Logout: `POST /api/auth/driver/logout`
 
 ### POS System (`/pos`)
 
@@ -228,16 +284,11 @@ A fully standalone in-restaurant terminal. Uses `POSContext` backed by `localSto
 
 #### Offline Mode
 
-The POS is designed to keep operating when the internet is unavailable:
-
-- **Connectivity probe**: a silent `HEAD /api/ping` request runs every 30 s (and every 5 s when offline) to detect real connectivity — more reliable than `navigator.onLine` alone
+- **Connectivity probe**: a silent `HEAD /api/ping` request runs every 30 s (and every 5 s when offline) to detect real connectivity
 - **Amber offline banner**: appears below the header with a count of pending-sync sales and a retry button
-- **Card/split payments disabled**: when offline, only cash payments are accepted — card terminals require internet
+- **Card/split payments disabled**: when offline, only cash payments are accepted
 - **Outbox queue** (`lib/posOutbox.ts`): any KDS sync that fails is saved to localStorage and retried automatically when connectivity restores, with exponential back-off (up to 5 attempts, base 2 s)
-- **Blue sync indicator**: shown when reconnected and draining the outbox
 - **`beforeunload` guard**: warns staff before closing the browser tab if unsynced sales remain
-
-All sales are committed to `localStorage` before any network call — data is never lost due to network failure.
 
 #### Staff Authentication
 
@@ -249,54 +300,9 @@ All sales are committed to `localStorage` before any network call — data is ne
 | Manager | Yes | Yes | Yes | Yes | No | No |
 | Cashier | No | No | No | No | No | No |
 
-#### Sale Screen
+#### Sale Screen, Offers, Void & Refund, Reservations, Reports
 
-- Product grid grouped by category, colour-coded tiles
-- Popular badge, active offer badge with auto-generated label
-- Modifier / add-on selection modal
-- Cart with +/− controls, discount (% or £), tip, customer assignment, table assignment
-- Payment: **Cash** (with change calculator), **Card** (disabled offline), or **Split** (disabled offline)
-- Loyalty points earned display
-- Receipt modal: print or email to customer
-
-#### Offers (6 types)
-
-| Type | Description |
-|---|---|
-| `percent` | % off per unit |
-| `fixed` | Fixed £ off per unit |
-| `price` | Override to a set price per unit |
-| `bogo` | Buy X get Y free |
-| `multibuy` | Buy X items for £Y |
-| `qty_discount` | Buy ≥ minimum quantity, get X% off each |
-
-#### Reservations (POS)
-
-The POS includes a **Reservations** tab for front-of-house staff to view and manage table bookings:
-
-- View all reservations for any date
-- Check-in and check-out guests
-- Create walk-in reservations
-- See table occupancy across sections
-
-#### Void & Refund (POS)
-
-- Requires Manager or Admin role
-- Reason capture, refund method (Cash / Card / No Refund), editable refund amount
-- Voided sales excluded from revenue KPIs; visible via "Show voided" toggle
-
-#### Reports
-
-Period selector (Today / Yesterday / This Week / This Month / Last 30 Days / Custom):
-
-- **Overview**: daily bar chart, payment method breakdown, hourly heatmap, financial summary
-- **Items**: best-sellers ranked by revenue
-- **Staff**: per-staff sales count, revenue, avg order value
-- **Transactions**: searchable, sortable, inline void, export CSV
-
-#### KDS Integration
-
-`POSContext.completeSale()` posts every sale to `POST /api/pos/orders`. If the network request fails (e.g. offline), the sale is queued in the outbox and retried automatically when connectivity restores. Supabase uses `ON CONFLICT DO NOTHING` on the orders table so re-sent entries are idempotent.
+See [`app/README.md`](app/README.md#pos-system-pos) for the full POS feature list.
 
 ---
 
@@ -312,7 +318,7 @@ Password-protected (requires `ADMIN_PASSWORD` set in env). **24 tabbed panels** 
 | Menu | Menu Items | Category + item CRUD; dietary tags, variations, add-ons, images, stock |
 | Menu | Breakfast | Separate breakfast menu with own categories, items, and time window |
 | Customers | Customers | Customer list, order history, VIP/tag labels, manual status override |
-| Customers | Guest Profiles | CRM view of all guests — from reservations and online orders — with visit counts, spend, marketing opt-in, and CSV export |
+| Customers | Guest Profiles | CRM view of all guests — reservations and online orders — with visit counts, spend, marketing opt-in, and CSV export |
 | Customers | Drivers | Register driver accounts; toggle active/inactive |
 | Finance | Coupons | Percentage and fixed-amount codes with usage limits and expiry |
 | Finance | Tax & VAT | VAT rate, inclusive/exclusive mode, breakdown display |
@@ -376,6 +382,27 @@ Setting `delivered` automatically sets `order.status = "delivered"`.
 
 All routes use the **service role key** (`supabaseAdmin`) server-side. The anon key is never used for writes.
 
+### Customer auth routes (no session required)
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/auth/register` | Register a new customer account (bcrypt hash, verification email) |
+| `POST` | `/api/auth/login` | Login — bcrypt compare → sets `customer_session` cookie |
+| `POST` | `/api/auth/logout` | Logout — clears `customer_session` cookie |
+| `GET` | `/api/auth/me` | Return current customer from session cookie |
+| `POST` | `/api/auth/verify-email` | Validate email verification token |
+| `POST` | `/api/auth/resend-verification` | Resend verification email |
+| `POST` | `/api/auth/reset-password` | Request or confirm password reset |
+| `GET` | `/api/auth/google` | Initiate Google OAuth (CSRF state + redirect to Google) |
+| `GET` | `/api/auth/google/callback` | Complete Google OAuth (code exchange + session cookie) |
+
+### Driver auth routes
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/auth/driver` | Driver login — bcrypt compare → sets `driver_session` cookie |
+| `POST` | `/api/auth/driver/logout` | Driver logout — clears `driver_session` cookie |
+
 ### Admin routes (require `admin_session` cookie)
 
 | Method | Path | Description |
@@ -404,7 +431,7 @@ All routes use the **service role key** (`supabaseAdmin`) server-side. The anon 
 | `GET` | `/api/admin/reservation-customers` | List all guest CRM profiles |
 | `POST` | `/api/admin/seed` | Seed default categories + menu items |
 
-### Customer-facing routes (no auth required)
+### Customer-facing routes
 
 | Method | Path | Description |
 |---|---|---|
@@ -412,13 +439,6 @@ All routes use the **service role key** (`supabaseAdmin`) server-side. The anon 
 | `POST` | `/api/guest-profile` | Upsert guest profile in `reservation_customers` after checkout |
 | `PATCH` | `/api/customers/[id]` | Self-service profile patch (favourites, saved addresses) |
 | `POST` | `/api/customers/[id]/spend-credit` | Deduct store credit at checkout |
-| `POST` | `/api/auth/register` | Register a new customer account |
-
-### Driver routes
-
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/api/auth/driver` | Driver login (validates bcrypt hash) |
 
 ### Waiter routes (no admin cookie — PIN auth handled separately)
 
@@ -430,6 +450,7 @@ All routes use the **service role key** (`supabaseAdmin`) server-side. The anon 
 | `POST` | `/api/waiter/settle` | Mark table orders as `delivered`; record payment method |
 | `POST` | `/api/waiter/void` | Cancel active orders (senior only enforced client-side) |
 | `POST` | `/api/waiter/refund` | Process full/partial refund on settled orders |
+| `POST` | `/api/waiter/logout` | Clear waiter session |
 
 ### POS routes (no admin cookie — trusted local terminal)
 
@@ -511,7 +532,8 @@ create table customers (
   name             text not null,
   email            text not null unique,
   phone            text not null default '',
-  password         text not null default '',
+  password_hash    text not null default '',   -- bcrypt hash
+  email_verified   boolean not null default false,
   created_at       timestamptz not null default now(),
   tags             text[] not null default '{}',
   favourites       text[] not null default '{}',
@@ -521,6 +543,8 @@ create table customers (
 ```
 
 The `pos-walk-in` sentinel row (`id = 'pos-walk-in'`) is pre-seeded so POS and waiter orders always have a valid `customer_id` FK.
+
+The `password` (legacy) and `password_hash` columns are revoked from the anon PostgREST role — neither is ever returned to the browser.
 
 ### `orders`
 
@@ -571,8 +595,6 @@ create table drivers (
 );
 ```
 
-Passwords are stored as bcrypt hashes and validated server-side. The anon role has no SELECT access on this table.
-
 ### `reservation_customers`
 
 Unified CRM table for all guests — populated from both table reservation bookings and online food orders.
@@ -597,9 +619,6 @@ create table reservation_customers (
 );
 ```
 
-- `visit_count` / `first_visit_at` / `last_visit_at` — updated when a reservation is checked in / out
-- `order_count` / `total_spend` / `last_order_at` — updated automatically via `POST /api/guest-profile` when an online order is placed
-
 ### Enable Realtime
 
 ```sql
@@ -614,25 +633,29 @@ alter publication supabase_realtime add table orders;
 
 ## Security Model
 
+### Customer authentication
+
+Customers register with email + password; passwords are stored as **bcrypt hashes** (`password_hash` column). Login is handled server-side by `POST /api/auth/login` — the browser never touches the hash. Sessions are HMAC-signed tokens in httpOnly cookies (30-day expiry). Google OAuth is supported via the authorization code flow (`/api/auth/google` + callback).
+
+Full details: [`docs/security.md`](docs/security.md)
+
 ### Admin dashboard
 
 - `ADMIN_PASSWORD` environment variable — never in the database
-- Login via `POST /api/admin/auth` uses timing-safe comparison (`crypto.timingSafeEqual`)
-- On success, an httpOnly, SameSite=Lax, Secure (production) cookie is set
+- Login uses timing-safe comparison (`crypto.timingSafeEqual`)
+- Session in an httpOnly, SameSite=Lax, Secure (production) cookie; 24-hour expiry
 - All admin API routes call `isAdminAuthenticated()` before processing
-- Session expiry: 24 hours
+
+### Driver app
+
+- bcrypt password hash in the `drivers` table
+- Session cookie issued on login; middleware protects all `/driver` routes
+- `drivers` table has an explicit `deny_anon_all` RLS policy
 
 ### Waiter app
 
 - PIN validation is **server-side only** via `POST /api/waiter/auth`
 - `/api/waiter/config` returns staff profiles without PINs
-- Void and Refund are gated client-side by `waiter.role === "senior"` — the waiter app is a trusted in-restaurant screen
-
-### Driver app
-
-- Passwords stored as **bcrypt hashes** in the `drivers` table (separate from `app_settings`)
-- Validated server-side via `POST /api/auth/driver`
-- The `drivers` table has an explicit `deny_anon_all` RLS policy
 
 ### Supabase RLS
 
@@ -643,20 +666,12 @@ RLS is **enabled on every table**.
 | `app_settings` | Yes | No | No | No |
 | `categories` | Yes | No | No | No |
 | `menu_items` | Yes | No | No | No |
-| `customers` | Yes (no `password` col) | No | No | No |
+| `customers` | Yes (no auth columns) | No | No | No |
 | `orders` | Yes | No | No | No |
-| `drivers` | No | No | No | No |
-| `reservation_customers` | No | No | No | No |
+| `drivers` | **No** | No | No | No |
+| `reservation_customers` | **No** | No | No | No |
 
-All writes go through Next.js API routes that use the **service role key** (`SUPABASE_SERVICE_ROLE_KEY`), which bypasses RLS entirely. The anon key (exposed in the browser) is read-only.
-
-### Column-level security
-
-```sql
-revoke select (password) on customers from anon;
-```
-
-The `password` column on `customers` is revoked from the anon role so PostgREST never returns it to browser clients.
+All writes go through Next.js API routes using `SUPABASE_SERVICE_ROLE_KEY`, which bypasses RLS entirely and is never sent to the browser.
 
 ---
 
@@ -664,134 +679,129 @@ The `password` column on `customers` is revoked from the anon role so PostgREST 
 
 ```
 app/src/
+├── middleware.ts                         # Edge route protection — customer + driver sessions
+├── instrumentation.ts                    # Next.js instrumentation hook
 ├── app/
-│   ├── layout.tsx                    # Root layout — Inter font, AppProvider, SeoHead
-│   ├── page.tsx                      # Customer portal (/)
-│   ├── account/page.tsx              # Customer account (/account)
-│   ├── admin/page.tsx                # Admin dashboard (/admin)
-│   ├── waiter/page.tsx               # Waiter app (/waiter)
-│   ├── kitchen/page.tsx              # Kitchen display (/kitchen)
+│   ├── layout.tsx                        # Root layout — Inter font, AppProvider, SeoHead
+│   ├── page.tsx                          # Customer portal (/) — menu, favourites, my orders, mobile nav
+│   ├── login/page.tsx                    # Stand-alone login/forgot-password page (/login)
+│   ├── verify-email/page.tsx             # Email verification landing (/verify-email)
+│   ├── admin/page.tsx                    # Admin dashboard (/admin)
+│   ├── waiter/page.tsx                   # Waiter app (/waiter)
+│   ├── kitchen/page.tsx                  # Kitchen display (/kitchen)
 │   ├── driver/
-│   │   ├── page.tsx                  # Driver dashboard (/driver)
-│   │   └── login/page.tsx            # Driver login (/driver/login)
-│   ├── customer-display/page.tsx     # Customer-facing order status display
+│   │   ├── page.tsx                      # Driver dashboard (/driver)
+│   │   └── login/page.tsx                # Driver login (/driver/login)
+│   ├── customer-display/page.tsx         # Customer-facing order status display
 │   ├── pos/
-│   │   ├── page.tsx                  # POS terminal (/pos)
-│   │   ├── layout.tsx                # POS layout (POSContext provider)
-│   │   ├── login/page.tsx            # POS PIN login
-│   │   └── error.tsx                 # POS error boundary
-│   ├── [footerPage]/page.tsx         # Dynamic footer/custom page renderer
+│   │   ├── page.tsx                      # POS terminal (/pos)
+│   │   ├── layout.tsx                    # POS layout (POSContext provider)
+│   │   ├── login/page.tsx                # POS PIN login
+│   │   └── error.tsx                     # POS error boundary
+│   ├── [footerPage]/page.tsx             # Dynamic footer/custom page renderer
 │   └── api/
-│       ├── ping/route.ts             # Connectivity probe — 204 response (POS offline detection)
+│       ├── ping/route.ts                 # Connectivity probe — 204 response
 │       ├── admin/
-│       │   ├── auth/route.ts         # Admin login/logout/session check
-│       │   ├── settings/route.ts     # Persist app_settings
-│       │   ├── categories/           # Category CRUD
-│       │   ├── menu/                 # Menu item CRUD
+│       │   ├── auth/route.ts             # Admin login/logout/session check
+│       │   ├── settings/route.ts         # Persist app_settings
+│       │   ├── categories/               # Category CRUD
+│       │   ├── menu/                     # Menu item CRUD
 │       │   ├── orders/[id]/
-│       │   │   ├── status/route.ts   # Advance order status (admin-only)
-│       │   │   ├── refund/route.ts   # Process online order refund
-│       │   │   └── driver/route.ts   # Assign driver / update delivery status
-│       │   ├── customers/            # Customer CRUD
-│       │   ├── drivers/              # Driver CRUD (bcrypt password handling)
-│       │   ├── reservation-customers/route.ts  # Guest CRM profiles (GET)
-│       │   └── seed/route.ts         # Seed default menu data
-│       ├── waiter/
-│       │   ├── auth/route.ts         # PIN validation (returns staff sans PIN)
-│       │   ├── config/route.ts       # Staff list (no PINs) + tables
-│       │   ├── orders/route.ts       # Insert dine-in order
-│       │   ├── settle/route.ts       # Mark table as paid (delivered)
-│       │   ├── void/route.ts         # Cancel active orders (void)
-│       │   └── refund/route.ts       # Refund settled orders
-│       ├── pos/
-│       │   ├── orders/route.ts       # Bridge POS sale → Supabase (KDS)
-│       │   ├── orders/[id]/collected/route.ts   # Mark order collected
-│       │   ├── menu/route.ts         # Fetch menu for POS grid
-│       │   └── reservations/
-│       │       ├── route.ts          # GET all / POST create reservation
-│       │       └── [id]/route.ts     # PATCH reservation status
-│       ├── kds/
-│       │   └── orders/[id]/status/route.ts      # Kitchen status advance (no auth)
-│       ├── orders/route.ts           # Place online order
-│       ├── guest-profile/route.ts    # Upsert guest CRM profile from online checkout
+│       │   │   ├── status/route.ts       # Advance order status
+│       │   │   ├── refund/route.ts       # Process online order refund
+│       │   │   └── driver/route.ts       # Assign driver / update delivery status
+│       │   ├── customers/                # Customer CRUD
+│       │   ├── drivers/                  # Driver CRUD (bcrypt password handling)
+│       │   ├── reservation-customers/route.ts
+│       │   └── seed/route.ts             # Seed default menu data
 │       ├── auth/
-│       │   ├── register/route.ts     # Register customer
-│       │   └── driver/route.ts       # Driver login (bcrypt check)
+│       │   ├── login/route.ts            # Customer login (bcrypt + cookie)
+│       │   ├── logout/route.ts           # Customer logout
+│       │   ├── me/route.ts               # Session refresh
+│       │   ├── register/route.ts         # Customer registration
+│       │   ├── verify-email/route.ts     # Email verification token
+│       │   ├── resend-verification/route.ts
+│       │   ├── reset-password/route.ts   # Password reset (request + confirm)
+│       │   ├── google/route.ts           # OAuth initiation
+│       │   ├── google/callback/route.ts  # OAuth code exchange
+│       │   └── driver/
+│       │       ├── route.ts              # Driver login
+│       │       └── logout/route.ts       # Driver logout
+│       ├── waiter/
+│       │   ├── auth/route.ts             # PIN validation
+│       │   ├── config/route.ts           # Staff list + tables
+│       │   ├── orders/route.ts           # Insert dine-in order
+│       │   ├── settle/route.ts           # Mark table paid
+│       │   ├── void/route.ts             # Cancel active orders
+│       │   ├── refund/route.ts           # Refund settled orders
+│       │   └── logout/route.ts           # Waiter session clear
+│       ├── pos/
+│       │   ├── orders/route.ts           # Bridge POS sale → Supabase
+│       │   ├── orders/[id]/collected/route.ts
+│       │   ├── menu/route.ts             # Fetch menu for POS grid
+│       │   └── reservations/
+│       │       ├── route.ts              # GET all / POST create
+│       │       └── [id]/route.ts         # PATCH status
+│       ├── kds/orders/[id]/status/route.ts
+│       ├── orders/route.ts               # Place online order
+│       ├── guest-profile/route.ts        # Upsert guest CRM profile
 │       ├── customers/[id]/
-│       │   ├── route.ts              # Self-service profile patch
-│       │   └── spend-credit/route.ts # Deduct store credit
-│       ├── print/route.ts            # ESC/POS TCP proxy
-│       └── email/route.ts            # SMTP send proxy
+│       │   ├── route.ts                  # Self-service profile patch
+│       │   └── spend-credit/route.ts     # Deduct store credit
+│       ├── print/route.ts                # ESC/POS TCP proxy
+│       └── email/route.ts                # SMTP send proxy
 │
 ├── components/
-│   ├── Header.tsx                    # Restaurant info + navigation
-│   ├── Footer.tsx                    # Footer with managed nav links
-│   ├── Cart.tsx                      # Order basket (desktop sidebar + mobile drawer)
-│   ├── BreakfastSection.tsx          # Time-gated breakfast menu card
-│   ├── MenuItemCard.tsx              # Individual menu item row
-│   ├── MenuSection.tsx               # Category-grouped item list
-│   ├── CategoryNav.tsx               # Sidebar category nav (desktop)
-│   ├── SearchAndFilters.tsx          # Search + dietary filter pills
-│   ├── CheckoutModal.tsx             # Checkout flow — form, geolocation, payment, guest profile capture
-│   ├── ScheduleOrderModal.tsx        # Future time slot picker
-│   ├── ItemCustomizationModal.tsx    # Variations, add-ons, instructions
-│   ├── AuthModal.tsx                 # Login / Register modal
-│   ├── SeoHead.tsx                   # Reactive <title> + <meta> from admin settings
+│   ├── AuthModal.tsx                     # Login / Register modal (with Google OAuth)
+│   ├── EmailVerificationBanner.tsx       # Unverified-email prompt bar
+│   ├── Header.tsx / Footer.tsx / Cart.tsx
+│   ├── BreakfastSection.tsx / MenuItemCard.tsx / MenuSection.tsx
+│   ├── CategoryNav.tsx / SearchAndFilters.tsx
+│   ├── CheckoutModal.tsx / ItemCustomizationModal.tsx
+│   ├── ScheduleOrderModal.tsx / SeoHead.tsx
 │   └── admin/
-│       ├── DeliveryPanel.tsx         # Live order Kanban
-│       ├── OnlineReportsPanel.tsx    # Online order revenue reports
-│       ├── RefundsPanel.tsx          # Online order refunds
-│       ├── MenuManagementPanel.tsx   # Menu CRUD
-│       ├── BreakfastMenuPanel.tsx    # Breakfast menu CRUD
-│       ├── CustomersPanel.tsx        # Customer management
-│       ├── ReservationCustomersPanel.tsx  # Guest CRM profiles
-│       ├── DriversPanel.tsx          # Driver management
-│       ├── CouponsPanel.tsx          # Coupon management
-│       ├── TaxSettingsPanel.tsx      # VAT configuration
-│       ├── POSReportsPanel.tsx       # POS finance reports (reads localStorage)
-│       ├── OperationsPanel.tsx       # Branding, fees, SEO
-│       ├── SchedulePanel.tsx         # Opening hours
-│       ├── DeliveryZonesPanel.tsx    # Zone editor
-│       ├── IntegrationsPanel.tsx     # Stripe, PayPal, SMTP, printer
-│       ├── EmailTemplatesPanel.tsx   # Email template editor
-│       ├── WaitersPanel.tsx          # Waiter staff + dining table management
-│       ├── ReservationSystemPanel.tsx # Reservation system config
-│       ├── FooterPagesPanel.tsx      # Built-in footer page editor
-│       ├── CustomPagesPanel.tsx      # Custom page CMS
-│       ├── MenuLinksPanel.tsx        # Navigation management
-│       ├── ColorSettingsPanel.tsx    # Brand colour editor
-│       ├── FooterLogosPanel.tsx      # Partner / payment logos
-│       ├── ReceiptSettingsPanel.tsx  # Receipt branding
-│       └── RichEditor.tsx            # Shared HTML rich-text editor
+│       ├── DeliveryPanel.tsx / OnlineReportsPanel.tsx / RefundsPanel.tsx
+│       ├── MenuManagementPanel.tsx / BreakfastMenuPanel.tsx
+│       ├── CustomersPanel.tsx / ReservationCustomersPanel.tsx / DriversPanel.tsx
+│       ├── CouponsPanel.tsx / TaxSettingsPanel.tsx / POSReportsPanel.tsx
+│       ├── OperationsPanel.tsx / SchedulePanel.tsx / DeliveryZonesPanel.tsx
+│       ├── IntegrationsPanel.tsx / EmailTemplatesPanel.tsx
+│       ├── WaitersPanel.tsx / ReservationSystemPanel.tsx
+│       ├── FooterPagesPanel.tsx / CustomPagesPanel.tsx / MenuLinksPanel.tsx
+│       ├── ColorSettingsPanel.tsx / FooterLogosPanel.tsx / ReceiptSettingsPanel.tsx
+│       └── RichEditor.tsx
 │
 ├── context/
-│   ├── AppContext.tsx                # Global state — Supabase sync, all online-ordering mutations
-│   └── POSContext.tsx                # POS state — sales, cart, staff, products, settings
+│   ├── AppContext.tsx                    # Global state — Supabase sync, auth, all online-ordering mutations
+│   └── POSContext.tsx                   # POS state — sales, cart, staff, products, settings
 │
 ├── data/
-│   ├── menu.ts                       # Default category + item seed data
-│   ├── restaurant.ts                 # Default restaurant info + schedule
-│   ├── customers.ts                  # Mock customer seed data
-│   └── footerPages.ts                # 6 default footer pages
+│   ├── menu.ts                          # Default category + item seed data
+│   ├── restaurant.ts                    # Default restaurant info + schedule
+│   ├── customers.ts                     # Mock customer seed data
+│   └── footerPages.ts                   # 6 default footer pages
 │
 ├── lib/
-│   ├── supabase.ts                   # Supabase browser client (anon key)
-│   ├── supabaseAdmin.ts              # Supabase server client (service role key)
-│   ├── adminAuth.ts                  # Admin JWT cookie helpers
-│   ├── connectivity.ts               # useConnectivity() hook — probe-based online/offline detection
-│   ├── posOutbox.ts                  # POS offline outbox — localStorage queue with exponential back-off retry
-│   ├── escpos.ts                     # ESC/POS receipt formatter
-│   ├── emailTemplates.ts             # Email template engine ({{variable}} interpolation)
-│   ├── colorUtils.ts                 # Brand colour CSS variable generator
-│   ├── scheduleUtils.ts              # Store open/close time helpers
-│   ├── stockUtils.ts                 # Stock status resolution
-│   └── taxUtils.ts                   # VAT calculation utilities
+│   ├── auth.ts                          # HMAC session token helpers (shared by customer + driver)
+│   ├── apiHandler.ts                    # Shared API route wrapper
+│   ├── supabase.ts                      # Supabase browser client (anon key)
+│   ├── supabaseAdmin.ts                 # Supabase server client (service role key)
+│   ├── adminAuth.ts                     # Admin JWT cookie helpers
+│   ├── emailServer.ts                   # Server-side SMTP email dispatcher
+│   ├── connectivity.ts                  # useConnectivity() hook — probe-based online/offline detection
+│   ├── posOutbox.ts                     # POS offline outbox — localStorage queue with retry
+│   ├── escpos.ts                        # ESC/POS receipt formatter
+│   ├── emailTemplates.ts                # Email template engine ({{variable}} interpolation)
+│   ├── colorUtils.ts                    # Brand colour CSS variable generator
+│   ├── scheduleUtils.ts                 # Store open/close time helpers
+│   ├── stockUtils.ts                    # Stock status resolution
+│   └── taxUtils.ts                      # VAT calculation utilities
 │
 └── types/
-    ├── index.ts                      # Online ordering TypeScript interfaces
-    └── pos.ts                        # POS TypeScript interfaces and helpers
+    ├── index.ts                         # Online ordering TypeScript interfaces
+    └── pos.ts                           # POS TypeScript interfaces and helpers
 ```
 
 ---
 
-*Last updated: April 2026*
+*Last updated: May 2026*

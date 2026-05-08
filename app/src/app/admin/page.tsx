@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import OperationsPanel      from "@/components/admin/OperationsPanel";
 import SchedulePanel        from "@/components/admin/SchedulePanel";
@@ -25,6 +26,7 @@ import RefundsPanel         from "@/components/admin/RefundsPanel";
 import POSReportsPanel      from "@/components/admin/POSReportsPanel";
 import OnlineReportsPanel  from "@/components/admin/OnlineReportsPanel";
 import WaitersPanel         from "@/components/admin/WaitersPanel";
+import KitchenStaffPanel    from "@/components/admin/KitchenStaffPanel";
 import UserManagementPanel  from "@/components/admin/UserManagementPanel";
 import ReservationsPanel         from "@/components/admin/ReservationsPanel";
 import TableStatusPanel          from "@/components/admin/TableStatusPanel";
@@ -68,6 +70,7 @@ const NAV_GROUPS: NavGroup[] = [
     id: "table-service", label: "Table Service",
     items: [
       { id: "waiters",              label: "Staff & Tables",  icon: UtensilsCrossed },
+      { id: "kitchen-staff",        label: "Kitchen Staff",   icon: ChefHat         },
       { id: "reservations",         label: "Reservations",    icon: CalendarDays    },
       { id: "table-status",         label: "Table Status",    icon: UtensilsCrossed },
       { id: "reservation-customers",label: "Guest Profiles",  icon: BookUser        },
@@ -141,6 +144,7 @@ function bannerSubtitle(
     case "online-reports": return "Revenue, orders, refunds, VAT, and payment breakdowns — filter by date range and export to CSV or PDF.";
     case "pos-reports":    return "View POS sales reports — revenue, profit, staff performance, and best-selling items.";
     case "waiters":        return `${settings.waiters?.length ?? 0} staff · ${settings.diningTables?.length ?? 0} tables — manage waiter accounts, PINs, and dining layout.`;
+    case "kitchen-staff":  return `${settings.kitchenStaff?.length ?? 0} kitchen staff — manage KDS login accounts, PINs, and roles.`;
     case "reservations":          return settings.reservationSystem?.enabled ? "Reservations are live — customers can book tables from the website." : "Reservations are currently disabled — enable them below.";
     case "table-status":          return "Live table occupancy for today — check in arriving guests and free tables on checkout.";
     case "reservation-customers": return "Guest profiles built from reservation check-ins — add notes, tags, and manage marketing opt-ins.";
@@ -151,7 +155,17 @@ function bannerSubtitle(
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function AdminPage() {
+  return (
+    <Suspense>
+      <AdminPageContent />
+    </Suspense>
+  );
+}
+
+function AdminPageContent() {
   const { isOpen, settings, menuItems, categories, customers } = useApp();
+  const router       = useRouter();
+  const searchParams = useSearchParams();
 
   // ── Admin authentication ──────────────────────────────────────────────────
   // null = checking, true = authenticated, false = needs login
@@ -207,6 +221,11 @@ export default function AdminPage() {
         body: JSON.stringify({ password: loginPassword }),
       });
       if (r.ok) {
+        const redirectTo = searchParams.get("redirect");
+        if (redirectTo && redirectTo.startsWith("/")) {
+          router.replace(redirectTo);
+          return;
+        }
         setAdminAuthed(true);
         setLoginPassword("");
       } else {
@@ -689,6 +708,7 @@ export default function AdminPage() {
             {activeTab === "online-reports" && <OnlineReportsPanel />}
             {activeTab === "pos-reports"   && <POSReportsPanel />}
             {activeTab === "waiters"        && <WaitersPanel />}
+            {activeTab === "kitchen-staff"  && <KitchenStaffPanel />}
             {activeTab === "reservations"          && <ReservationsPanel />}
             {activeTab === "table-status"          && <TableStatusPanel />}
             {activeTab === "reservation-customers" && <ReservationCustomersPanel />}

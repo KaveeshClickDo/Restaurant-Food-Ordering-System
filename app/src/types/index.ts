@@ -129,6 +129,7 @@ export interface SeoSettings {
   metaKeywords: string;     // comma-separated keywords
   ogImage: string;          // absolute URL for og:image (social share preview)
   siteUrl: string;          // canonical base URL, e.g. https://demo.directdine.tech
+  faviconUrl: string;       // custom favicon — data URL or absolute URL
 }
 
 export interface FooterPage {
@@ -334,6 +335,18 @@ export interface WaiterStaff {
   createdAt: string;
 }
 
+export type KitchenRole = "chef" | "head_chef" | "kitchen_manager";
+
+export interface KitchenStaff {
+  id: string;
+  name: string;
+  pin: string;
+  role: KitchenRole;
+  active: boolean;
+  avatarColor: string;
+  createdAt: string;
+}
+
 export interface DiningTable {
   id: string;
   number: number;
@@ -370,6 +383,7 @@ export interface AdminSettings {
   receiptSettings: ReceiptSettings;
   breakfastMenu: BreakfastMenuSettings;
   waiters: WaiterStaff[];
+  kitchenStaff: KitchenStaff[];
   diningTables: DiningTable[];
   reservationSystem: ReservationSystem;
 }
@@ -412,6 +426,10 @@ export interface OrderLine {
   name: string;
   qty: number;
   price: number;
+  menuItemId?: string;
+  selectedVariation?: { variationId: string; optionId: string; label: string };
+  selectedAddOns?: { id: string; name: string; price: number }[];
+  specialInstructions?: string;
 }
 
 export interface Order {
@@ -440,6 +458,9 @@ export interface Order {
   refunds?: Refund[];
   refundedAmount?: number;  // cumulative £ refunded so far
   storeCreditUsed?: number; // £ of store credit applied at checkout
+  // POS-only fields (not set on online orders)
+  tipAmount?: number;      // tip collected at the POS terminal
+  changeGiven?: number;    // cash change given back to the customer
 }
 
 export interface SavedAddress {

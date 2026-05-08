@@ -1,13 +1,15 @@
 /**
  * PUT /api/kds/orders/[id]/status
  * Advances an order through kitchen workflow stages.
- * No admin cookie required — the KDS is a trusted in-restaurant display.
+ * Requires a valid kitchen_session OR admin_session cookie.
  * Only kitchen-valid transitions are permitted; admin-only statuses
  * (delivered, cancelled, refunded) are blocked here.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { supabaseAdmin }             from "@/lib/supabaseAdmin";
+import { getKitchenSession }         from "@/lib/auth";
+import { isAdminAuthenticated }      from "@/lib/adminAuth";
 
 const KITCHEN_STATUSES = new Set(["pending", "confirmed", "preparing", "ready"]);
 
@@ -15,6 +17,15 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const [kitchenSession, adminAuthed] = await Promise.all([
+    getKitchenSession(),
+    isAdminAuthenticated(),
+  ]);
+
+  if (!kitchenSession && !adminAuthed) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+
   const { id } = await params;
 
   let body: { status?: string };

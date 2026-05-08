@@ -105,7 +105,7 @@ export default function BookPage() {
 
   useEffect(() => { if (step === "table") fetchTables(); }, [step, fetchTables]);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: { preventDefault(): void }) {
     e.preventDefault();
     if (!selectedTable) return;
     setSubmitting(true); setSubmitError("");
@@ -131,7 +131,7 @@ export default function BookPage() {
 
   if (step === "confirmed") {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-12">
+      <div className="flex-1 flex items-center justify-center px-4 py-12">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-gray-200 p-8 text-center space-y-5">
           <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto">
             <CheckCircle2 size={40} className="text-green-500" />
@@ -155,7 +155,7 @@ export default function BookPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
+    <div className="py-8 px-4">
       <div className="max-w-lg mx-auto space-y-5">
 
         {/* Header */}
@@ -173,15 +173,15 @@ export default function BookPage() {
         <div className="flex items-center gap-2">
           {STEPS.map((label, i) => (
             <div key={label} className="flex items-center gap-2 flex-1">
-              <div className={`flex items-center gap-1.5 text-xs font-semibold ${i <= stepIdx ? "text-orange-600" : "text-gray-400"}`}>
+              <div className={`flex items-center gap-1.5 text-xs font-semibold ${i <= stepIdx ? "text-zinc-700" : "text-gray-400"}`}>
                 <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                  i < stepIdx ? "bg-orange-500 text-white" : i === stepIdx ? "bg-orange-100 text-orange-600 ring-2 ring-orange-300" : "bg-gray-100 text-gray-400"
+                  i < stepIdx ? "bg-orange-500 text-white" : i === stepIdx ? "bg-zinc-100 text-zinc-700 ring-2 ring-zinc-300" : "bg-gray-100 text-gray-400"
                 }`}>
                   {i < stepIdx ? <CheckCircle2 size={12} /> : i + 1}
                 </div>
                 <span className="hidden sm:block">{label}</span>
               </div>
-              {i < 2 && <div className={`h-0.5 flex-1 rounded ${i < stepIdx ? "bg-orange-400" : "bg-gray-200"}`} />}
+              {i < 2 && <div className={`h-0.5 flex-1 rounded ${i < stepIdx ? "bg-zinc-400" : "bg-gray-200"}`} />}
             </div>
           ))}
         </div>
@@ -194,29 +194,29 @@ export default function BookPage() {
             <div className="p-5 space-y-5">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  <CalendarDays size={13} className="inline mr-1.5 text-orange-500" />Date
+                  <CalendarDays size={13} className="inline mr-1.5 text-zinc-700" />Date
                 </label>
                 <input type="date" value={date} min={todayStr()} max={maxDateStr(maxDays)}
                   onChange={(e) => setDate(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400 transition" />
+                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 transition" />
               </div>
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  <Users size={13} className="inline mr-1.5 text-orange-500" />Party size
+                  <Users size={13} className="inline mr-1.5 text-zinc-700" />Party size
                 </label>
                 <div className="flex items-center gap-3">
                   <button type="button" onClick={() => setPartySize((p) => Math.max(1, p - 1))}
-                    className="w-10 h-10 rounded-full border border-gray-200 text-gray-600 hover:border-orange-400 hover:text-orange-500 font-bold text-lg transition flex items-center justify-center">−</button>
+                    className="w-10 h-10 rounded-full border border-gray-200 text-gray-600 hover:border-zinc-400 hover:text-zinc-700 font-bold text-lg transition flex items-center justify-center">−</button>
                   <span className="text-2xl font-bold text-gray-900 w-8 text-center">{partySize}</span>
                   <button type="button" onClick={() => setPartySize((p) => Math.min(maxPS, p + 1))}
-                    className="w-10 h-10 rounded-full border border-gray-200 text-gray-600 hover:border-orange-400 hover:text-orange-500 font-bold text-lg transition flex items-center justify-center">+</button>
+                    className="w-10 h-10 rounded-full border border-gray-200 text-gray-600 hover:border-zinc-400 hover:text-zinc-700 font-bold text-lg transition flex items-center justify-center">+</button>
                   <span className="text-sm text-gray-400">{partySize === 1 ? "1 guest" : `${partySize} guests`}</span>
                 </div>
                 {partySize >= maxPS && <p className="text-xs text-amber-600 mt-1">Maximum party size is {maxPS}. Call us for larger groups.</p>}
               </div>
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  <Clock size={13} className="inline mr-1.5 text-orange-500" />Time
+                  <Clock size={13} className="inline mr-1.5 text-zinc-700" />Time
                 </label>
                 <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
                   {slots.map((slot) => {
@@ -232,7 +232,7 @@ export default function BookPage() {
                             ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed line-through"
                             : selected
                               ? "bg-orange-500 text-white border-orange-500 shadow-sm"
-                              : "bg-white text-gray-600 border-gray-200 hover:border-orange-300 hover:text-orange-600"
+                              : "bg-white text-gray-600 border-gray-200 hover:border-zinc-300 hover:text-zinc-700"
                         }`}>{fmt12(slot)}</button>
                     );
                   })}
@@ -248,12 +248,12 @@ export default function BookPage() {
           {/* Step 2: Table selection */}
           {step === "table" && (
             <div className="p-5">
-              <div className="bg-orange-50 border border-orange-100 rounded-xl px-4 py-3 mb-5 text-sm text-orange-800 font-medium">
+              <div className="bg-zinc-50 border border-zinc-100 rounded-xl px-4 py-3 mb-5 text-sm text-zinc-700 font-medium">
                 {fmtDate(date)} · {fmt12(time)} · {partySize} {partySize === 1 ? "guest" : "guests"}
               </div>
               {loadingTables ? (
                 <div className="flex flex-col items-center py-12 gap-3 text-gray-400">
-                  <Loader2 size={28} className="animate-spin text-orange-500" />
+                  <Loader2 size={28} className="animate-spin text-zinc-700" />
                   <span className="text-sm">Checking availability…</span>
                 </div>
               ) : blackout ? (
@@ -263,7 +263,7 @@ export default function BookPage() {
                   </div>
                   <p className="font-semibold text-gray-700">Restaurant closed</p>
                   <p className="text-sm text-gray-400">We&apos;re not taking bookings on this date. Please choose another day.</p>
-                  <button onClick={() => setStep("datetime")} className="mt-2 text-orange-600 font-semibold text-sm hover:text-orange-700 transition">← Change date</button>
+                  <button onClick={() => setStep("datetime")} className="mt-2 text-zinc-700 font-semibold text-sm hover:text-zinc-800 transition">← Change date</button>
                 </div>
               ) : availError ? (
                 <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
@@ -281,7 +281,7 @@ export default function BookPage() {
                   </div>
                   <p className="font-semibold text-gray-700">No tables available</p>
                   <p className="text-sm text-gray-400 max-w-xs">All tables are fully booked for this slot. Try a different time or date.</p>
-                  <button onClick={() => setStep("datetime")} className="mt-2 text-orange-600 font-semibold text-sm hover:text-orange-700 transition">← Change date / time</button>
+                  <button onClick={() => setStep("datetime")} className="mt-2 text-zinc-700 font-semibold text-sm hover:text-zinc-800 transition">← Change date / time</button>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -296,11 +296,11 @@ export default function BookPage() {
                           return (
                             <button key={t.id} type="button" onClick={() => setSelectedTable(t)}
                               className={`flex flex-col items-center gap-1.5 py-4 px-3 rounded-xl border-2 transition-all ${
-                                sel ? "border-orange-500 bg-orange-50 shadow-sm" : "border-gray-200 bg-white hover:border-orange-300"
+                                sel ? "border-orange-500 bg-orange-50 shadow-sm" : "border-gray-200 bg-white hover:border-zinc-300"
                               }`}>
                               <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${sel ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600"}`}>{t.label}</div>
                               <span className={`text-xs font-medium ${sel ? "text-orange-700" : "text-gray-500"}`}>Up to {t.seats} guests</span>
-                              {sel && <CheckCircle2 size={14} className="text-orange-500" />}
+                              {sel && <CheckCircle2 size={14} className="text-orange-600" />}
                             </button>
                           );
                         })}
@@ -315,7 +315,7 @@ export default function BookPage() {
           {/* Step 3: Customer details */}
           {step === "details" && (
             <form id="book-form" onSubmit={handleSubmit} className="p-5 space-y-4">
-              <div className="bg-orange-50 border border-orange-100 rounded-xl px-4 py-3 text-sm text-orange-800 font-medium">
+              <div className="bg-zinc-50 border border-zinc-100 rounded-xl px-4 py-3 text-sm text-zinc-700 font-medium">
                 {selectedTable?.label} · {fmtDate(date)} · {fmt12(time)} · {partySize} guests
               </div>
               {[
@@ -329,7 +329,7 @@ export default function BookPage() {
                   </label>
                   <input type={type} required={req} value={value} placeholder={ph}
                     onChange={(e) => setter(e.target.value)}
-                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400 transition" />
+                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 transition" />
                 </div>
               ))}
               <div>
@@ -338,7 +338,7 @@ export default function BookPage() {
                 </label>
                 <textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)}
                   placeholder="Allergies, dietary requirements, special occasion…"
-                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm resize-none focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400 transition" />
+                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm resize-none focus:outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 transition" />
               </div>
               {submitError && (
                 <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700">

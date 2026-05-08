@@ -1151,12 +1151,12 @@ function SaleView({ isOffline = false }: { isOffline?: boolean }) {
                   >
                     {/* Image or emoji tile */}
                     {product.imageUrl ? (
-                      <div className="w-full aspect-[4/3] relative flex-shrink-0">
+                      <div className="w-full aspect-[4/3] relative flex-shrink-0 overflow-hidden">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={product.imageUrl}
                           alt={product.name}
-                          className="w-full h-full object-cover"
+                          className="absolute inset-0 w-full h-full object-cover"
                         />
                         {outOfStock && (
                           <div className="absolute inset-0 bg-slate-900/60 flex items-center justify-center">
@@ -5034,7 +5034,7 @@ function SettingsView() {
                 {editDraft.imageUrl ? (
                   <div className="relative rounded-xl overflow-hidden bg-slate-900 border border-slate-600 mb-2" style={{ height: 140 }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={editDraft.imageUrl} alt="preview" className="w-full h-full object-cover" />
+                    <img src={editDraft.imageUrl} alt="preview" className="absolute inset-0 w-full h-full object-cover" />
                     <button
                       onClick={() => setEditDraft((d) => ({ ...d, imageUrl: "" }))}
                       className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 hover:bg-red-500/80 flex items-center justify-center text-white transition-colors"
@@ -5384,7 +5384,7 @@ function SettingsView() {
                 {newProduct.imageUrl ? (
                   <div className="relative rounded-xl overflow-hidden bg-slate-900 border border-slate-600 mb-2" style={{ height: 140 }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={newProduct.imageUrl} alt="preview" className="w-full h-full object-cover" />
+                    <img src={newProduct.imageUrl} alt="preview" className="absolute inset-0 w-full h-full object-cover" />
                     <button
                       onClick={() => setNewProduct((p) => ({ ...p, imageUrl: "" }))}
                       className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 hover:bg-red-500/80 flex items-center justify-center text-white transition-colors"

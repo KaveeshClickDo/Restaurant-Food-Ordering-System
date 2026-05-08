@@ -18,6 +18,21 @@ import {
 import type { ReservationEmailData } from "./emailTemplates";
 import { supabaseAdmin } from "./supabaseAdmin";
 
+/**
+ * Fetch just the brand primary color from the admin settings row.
+ * Used by auth email routes so their button colors match the brand.
+ * Falls back to the default orange if the row doesn't exist yet.
+ */
+export async function fetchBrandPrimaryColor(): Promise<string> {
+  try {
+    const { data } = await supabaseAdmin
+      .from("app_settings").select("data").eq("id", 1).single();
+    return (data?.data?.colors?.primaryColor as string | undefined)?.trim() || "#f97316";
+  } catch {
+    return "#f97316";
+  }
+}
+
 function resolveFromAddress(): string {
   const explicit  = process.env.SMTP_FROM?.trim() ?? "";
   if (explicit) return explicit;
@@ -119,6 +134,7 @@ export async function sendReservationEmailServer(
     restAddr,
     settings.restaurant.phone,
     settings.receiptSettings,
+    settings.colors,
   );
 
   const result = await sendEmailDirect(to, subject, html);
@@ -207,7 +223,7 @@ export async function sendOrderConfirmationEmail(row: {
   const vars    = buildVarMap(order, customer, settings);
   const subject = applyVars(template.subject, vars);
   const body    = applyVars(template.body,    vars);
-  const html    = buildEmailDocument(body, settings.restaurant.name, restAddr, settings.restaurant.phone, settings.receiptSettings);
+  const html    = buildEmailDocument(body, settings.restaurant.name, restAddr, settings.restaurant.phone, settings.receiptSettings, settings.colors);
 
   const result = await sendEmailDirect(cust.email, subject, html);
   if (!result.ok && !result.error?.toLowerCase().includes("smtp not configured")) {
@@ -296,7 +312,7 @@ export async function sendOrderStatusEmail(
   const vars    = buildVarMap(order, customer, settings);
   const subject = applyVars(template.subject, vars);
   const body    = applyVars(template.body,    vars);
-  const html    = buildEmailDocument(body, settings.restaurant.name, restAddr, settings.restaurant.phone, settings.receiptSettings);
+  const html    = buildEmailDocument(body, settings.restaurant.name, restAddr, settings.restaurant.phone, settings.receiptSettings, settings.colors);
 
   const result = await sendEmailDirect(cust.email, subject, html);
   if (!result.ok && !result.error?.toLowerCase().includes("smtp not configured")) {

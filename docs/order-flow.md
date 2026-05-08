@@ -18,12 +18,14 @@ End-to-end lifecycle of every order type in the system.
 ## Online Order Flow
 
 ```
-Customer adds items → cart → checkout modal
+Customer (guest or signed-in) adds items → cart → selects Delivery or Collection
+  → CheckoutModal opens
   → POST /api/orders (server validates payload, inserts with status="pending")
   → Supabase Realtime fires INSERT event
   → AppContext patches customer.orders in state
   → Admin panel DeliveryPanel shows new order with toast notification
   → Kitchen display shows order in "New Orders" column
+  → Customer "My Orders" screen shows active order card with Live badge
 
   [fire-and-forget, non-blocking]
   → POST /api/guest-profile { name, email, phone, orderTotal }

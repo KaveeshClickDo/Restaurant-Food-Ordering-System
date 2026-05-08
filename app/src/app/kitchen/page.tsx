@@ -2,12 +2,14 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useApp } from "@/context/AppContext";
+import type { KitchenStaff } from "@/types";
 import {
   ChefHat, Clock, Truck, ShoppingBag, CheckCircle2,
   LayoutDashboard, Maximize2, Minimize2, UtensilsCrossed,
-  AlertTriangle, CalendarClock,
+  AlertTriangle, CalendarClock, LogOut,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -423,12 +425,33 @@ function KanbanColumn({
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
+function initials(name: string) {
+  return name.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
+}
+
 export default function KitchenPage() {
   const { settings } = useApp();          // only used for restaurant name in header
+  const router = useRouter();
   const [orders,          setOrders]          = useState<KDSOrder[]>([]);
   const [loading,         setLoading]         = useState(true);
   const [completedToday,  setCompletedToday]  = useState(0);
   const [isFullscreen,    setIsFullscreen]    = useState(false);
+  const [currentStaff,    setCurrentStaff]    = useState<Omit<KitchenStaff, "pin"> | null>(null);
+
+  // Fetch current kitchen session on mount (best-effort — doesn't block KDS)
+  useEffect(() => {
+    fetch("/api/kitchen/auth")
+      .then((r) => r.json())
+      .then((d: { ok: boolean; staff?: Omit<KitchenStaff, "pin"> }) => {
+        if (d.ok && d.staff) setCurrentStaff(d.staff);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function handleLogout() {
+    await fetch("/api/kitchen/logout", { method: "POST" }).catch(() => {});
+    router.replace("/kitchen/login");
+  }
 
   // ── Initial load — direct orders query, no customer-state dependency ─────────
   useEffect(() => {
@@ -446,35 +469,41 @@ export default function KitchenPage() {
 
   // ── Realtime subscription — direct on orders table ────────────────────────
   useEffect(() => {
-    const channel = supabase
-      .channel("kds-orders-live")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "orders" },
-        async (payload) => {
-          if (payload.eventType === "DELETE") {
-            setOrders((prev) => prev.filter((o) => o.id !== (payload.old as { id: string }).id));
-            return;
-          }
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let active = true;
 
-          const newRow = payload.new as Record<string, unknown>;
-          const status = newRow.status as string;
+    // Remove any stale channel with this name before subscribing.
+    // Guards against the React Strict Mode double-mount race where the cleanup
+    // of the first mount hasn't completed before the second mount fires.
+    supabase.getChannels().forEach((ch) => {
+      if ((ch as { topic?: string }).topic === "realtime:kds-orders-live") {
+        supabase.removeChannel(ch);
+      }
+    });
 
-          // If status is not a kitchen-active status, remove from KDS
-          if (!ACTIVE_STATUSES.includes(status as KDSStatus)) {
-            setOrders((prev) => prev.filter((o) => o.id !== newRow.id));
-            return;
-          }
+    function handlePayload(payload: Parameters<Parameters<ReturnType<typeof supabase.channel>["on"]>[2]>[0]) {
+      if (payload.eventType === "DELETE") {
+        setOrders((prev) => prev.filter((o) => o.id !== (payload.old as { id: string }).id));
+        return;
+      }
 
-          // Fetch the full row with the customer JOIN (Realtime payload doesn't carry join data)
-          const { data } = await supabase
-            .from("orders")
-            .select("id, items, total, note, status, fulfillment, date, address, scheduled_time, customer:customers(name)")
-            .eq("id", newRow.id)
-            .single();
+      const newRow = payload.new as Record<string, unknown>;
+      const status = newRow.status as string;
 
-          if (!data) return;
+      // If status is not a kitchen-active status, remove from KDS
+      if (!ACTIVE_STATUSES.includes(status as KDSStatus)) {
+        setOrders((prev) => prev.filter((o) => o.id !== newRow.id));
+        return;
+      }
 
+      // Fetch the full row with the customer JOIN (Realtime payload doesn't carry join data)
+      supabase
+        .from("orders")
+        .select("id, items, total, note, status, fulfillment, date, address, scheduled_time, customer:customers(name)")
+        .eq("id", newRow.id as string)
+        .single()
+        .then(({ data }) => {
+          if (!data || !active) return;
           const mapped = mapRow(data as Record<string, unknown>);
           setOrders((prev) => {
             const idx = prev.findIndex((o) => o.id === mapped.id);
@@ -483,22 +512,37 @@ export default function KitchenPage() {
               next[idx] = mapped;
               return next;
             }
-            // New order — insert sorted by date (oldest first)
             return [...prev, mapped].sort(
               (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
             );
           });
-        }
-      )
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") {
-          console.log("KDS: Realtime connected");
-        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          console.error("KDS: Realtime subscription error:", status);
-        }
-      });
+        });
+    }
 
-    return () => { supabase.removeChannel(channel); };
+    let channel: ReturnType<typeof supabase.channel>;
+
+    function subscribe() {
+      channel = supabase
+        .channel("kds-orders-live")
+        .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, handlePayload)
+        .subscribe((status) => {
+          if (status === "SUBSCRIBED") {
+            console.log("KDS: Realtime connected");
+          } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+            console.error("KDS: Realtime error (%s) — retrying in 5 s", status);
+            supabase.removeChannel(channel);
+            if (active) retryTimer = setTimeout(subscribe, 5_000);
+          }
+        });
+    }
+
+    subscribe();
+
+    return () => {
+      active = false;
+      if (retryTimer) clearTimeout(retryTimer);
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   // ── Advance order to next kitchen status ──────────────────────────────────
@@ -576,15 +620,33 @@ export default function KitchenPage() {
           </span>
         </div>
 
-        {/* Right — clock + links */}
+        {/* Right — staff badge + clock + links */}
         <div className="flex items-center gap-3 flex-shrink-0">
           <LiveClock />
+          {currentStaff && (
+            <div className="hidden sm:flex items-center gap-2">
+              <div
+                className="w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-[11px] flex-shrink-0"
+                style={{ backgroundColor: currentStaff.avatarColor }}
+              >
+                {initials(currentStaff.name)}
+              </div>
+              <span className="text-gray-300 text-xs font-medium">{currentStaff.name}</span>
+            </div>
+          )}
           <Link
             href="/admin"
             className="hidden sm:flex items-center gap-1.5 text-gray-400 hover:text-white transition-colors text-xs font-medium"
           >
             <LayoutDashboard size={14} /> Admin
           </Link>
+          <button
+            onClick={handleLogout}
+            className="text-gray-400 hover:text-red-400 transition-colors"
+            title="Log out"
+          >
+            <LogOut size={16} />
+          </button>
           <button
             onClick={toggleFullscreen}
             className="text-gray-400 hover:text-white transition-colors"

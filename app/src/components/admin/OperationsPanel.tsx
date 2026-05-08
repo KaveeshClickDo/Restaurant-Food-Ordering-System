@@ -148,8 +148,9 @@ function BrandingCard() {
         metaTitle:       replace(settings.seo.metaTitle),
         metaDescription: replace(settings.seo.metaDescription),
         metaKeywords:    replace(settings.seo.metaKeywords),
-        ogImage:         settings.seo.ogImage  ?? "",
-        siteUrl:         settings.seo.siteUrl  ?? "",
+        ogImage:         settings.seo.ogImage      ?? "",
+        siteUrl:         settings.seo.siteUrl      ?? "",
+        faviconUrl:      settings.seo.faviconUrl   ?? "",
       };
       if (settings.footerCopyright.includes(oldName)) {
         patch.footerCopyright = replace(settings.footerCopyright);
@@ -386,13 +387,26 @@ function charColor(len: number, soft: number, hard: number) {
 function SeoCard() {
   const { settings, updateSettings } = useApp();
 
-  const [title,    setTitle]    = useState(settings.seo.metaTitle);
-  const [desc,     setDesc]     = useState(settings.seo.metaDescription);
-  const [keywords, setKeywords] = useState(settings.seo.metaKeywords);
-  const [ogImage,  setOgImage]  = useState(settings.seo.ogImage  ?? "");
-  const [siteUrl,  setSiteUrl]  = useState(settings.seo.siteUrl  ?? "");
-  const [saved,    setSaved]    = useState(false);
-  const [errors,   setErrors]   = useState<{ title?: string; desc?: string }>({});
+  const [title,      setTitle]      = useState(settings.seo.metaTitle);
+  const [desc,       setDesc]       = useState(settings.seo.metaDescription);
+  const [keywords,   setKeywords]   = useState(settings.seo.metaKeywords);
+  const [ogImage,    setOgImage]    = useState(settings.seo.ogImage      ?? "");
+  const [siteUrl,    setSiteUrl]    = useState(settings.seo.siteUrl      ?? "");
+  const [faviconUrl, setFaviconUrl] = useState(settings.seo.faviconUrl   ?? "");
+  const [saved,      setSaved]      = useState(false);
+  const [errors,     setErrors]     = useState<{ title?: string; desc?: string }>({});
+  const [favErr,     setFavErr]     = useState("");
+  const faviconRef = useRef<HTMLInputElement>(null);
+
+  function readFavicon(file: File) {
+    setFavErr("");
+    if (file.size > 512 * 1024) { setFavErr("Max 512 KB for favicons."); return; }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      if (e.target?.result) { setFaviconUrl(e.target.result as string); setSaved(false); }
+    };
+    reader.readAsDataURL(file);
+  }
 
   function validate() {
     const e: typeof errors = {};
@@ -410,6 +424,7 @@ function SeoCard() {
       metaKeywords:    keywords.trim(),
       ogImage:         ogImage.trim(),
       siteUrl:         siteUrl.trim(),
+      faviconUrl:      faviconUrl.trim(),
     }});
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
@@ -539,6 +554,63 @@ function SeoCard() {
               <img src={ogImage} alt="OG preview" className="w-full h-full object-cover" />
             </div>
           )}
+        </div>
+
+        {/* Favicon */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1.5">Favicon</label>
+          <div className="flex items-start gap-4">
+            {/* Preview box */}
+            <div className="flex-shrink-0 w-14 h-14 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden">
+              {faviconUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={faviconUrl} alt="Favicon preview" className="w-8 h-8 object-contain" />
+              ) : (
+                <span className="text-2xl select-none">🌐</span>
+              )}
+            </div>
+            {/* Actions */}
+            <div className="flex-1 space-y-2">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => faviconRef.current?.click()}
+                  className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 text-gray-700 text-xs font-semibold rounded-lg hover:border-orange-300 hover:text-orange-600 transition"
+                >
+                  <Upload size={12} />
+                  {faviconUrl ? "Replace favicon" : "Upload favicon"}
+                </button>
+                {faviconUrl && (
+                  <button
+                    type="button"
+                    onClick={() => { setFaviconUrl(""); setSaved(false); setFavErr(""); }}
+                    className="flex items-center gap-1.5 px-3 py-2 border border-red-200 text-red-500 text-xs font-semibold rounded-lg hover:bg-red-50 transition"
+                  >
+                    <X size={12} /> Remove
+                  </button>
+                )}
+              </div>
+              {favErr && (
+                <p className="text-xs text-red-500 flex items-center gap-1">
+                  <AlertCircle size={11} /> {favErr}
+                </p>
+              )}
+              <p className="text-xs text-gray-400">
+                PNG, ICO, or SVG · max 512 KB · displayed in browser tabs and bookmarks.
+              </p>
+            </div>
+          </div>
+          <input
+            ref={faviconRef}
+            type="file"
+            accept="image/*,.ico"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) readFavicon(file);
+              e.target.value = "";
+            }}
+          />
         </div>
 
         {/* Save */}
