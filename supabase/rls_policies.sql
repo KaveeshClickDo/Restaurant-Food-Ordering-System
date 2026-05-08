@@ -116,7 +116,7 @@ alter table drivers enable row level security;
 -- Pre-seed the sentinel customer used by POS → KDS order routing so that
 -- walk-in POS orders always have a valid customer_id FK and appear in the KDS.
 insert into customers (id, name, email, phone, tags, favourites, saved_addresses, store_credit)
-values ('pos-walk-in', 'POS Walk-in', 'pos-walkin@internal', '', '{}', '[]', '[]', 0)
+values ('pos-walk-in', 'POS Walk-in', 'pos-walkin@internal', '', '{}', '{}', '[]', 0)
 on conflict (id) do nothing;
 
 -- ── Void & Refund metadata columns on orders ─────────────────────────────────
@@ -167,4 +167,10 @@ create policy "anon_select_reservations"
 -- No anon INSERT / UPDATE / DELETE — absence of policy = deny.
 
 -- Enable Realtime so the admin panel updates live when customers book.
-alter publication supabase_realtime add table reservations;
+do $$
+begin
+  begin
+    alter publication supabase_realtime add table reservations;
+  exception when duplicate_object then null;
+  end;
+end $$;
