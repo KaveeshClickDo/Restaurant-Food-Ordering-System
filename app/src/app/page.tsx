@@ -129,8 +129,8 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
 
   return (
     <>
-      <div className="mx-6 mt-6 mb-6 rounded-2xl overflow-hidden bg-white border border-zinc-200/70 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.04)]">
-        <div className="relative px-8 py-7 flex items-center gap-7 bg-orange-50 overflow-hidden">
+      <div className="mx-5 md:mx-6 mt-6 mb-6 rounded-2xl overflow-hidden bg-white border border-zinc-200/70 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.04)]">
+        <div className="relative px-6 md:px-8 py-7 flex items-center gap-7 bg-orange-50 overflow-hidden">
           {/* Cover image or dot pattern background */}
           {restaurant.coverImage ? (
             <>
@@ -312,9 +312,9 @@ export default function HomePage() {
             {settings.restaurant.logoImage ? (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img src={settings.restaurant.logoImage} alt={settings.restaurant.name}
-                className="w-8 h-8 rounded-xl object-cover" />
+                className="w-9 h-9 rounded-xl object-cover" />
             ) : (
-              <div className="w-8 h-8 rounded-xl bg-orange-500 text-white flex items-center justify-center text-[14px] font-bold">
+              <div className="w-9 h-9 rounded-xl bg-orange-500 text-white flex items-center justify-center text-[14px] font-bold">
                 {settings.restaurant.name.charAt(0).toUpperCase()}
               </div>
             )}
@@ -405,7 +405,7 @@ export default function HomePage() {
         </div>
 
         {/* Scrollable content */}
-        <div className="flex-1 flex flex-col overflow-y-auto pb-28 lg:pb-8 h-full">
+        <div className="flex-1 flex flex-col overflow-y-auto pb-15 lg:pb-0 h-full">
           <div className="flex-1">
 
             <Hero isOpen={isOpen} onReserve={() => setShowReservation(true)} />
@@ -444,7 +444,7 @@ export default function HomePage() {
       </div>
 
       {/* ── Right cart panel (desktop lg+) ───────────────────────────────── */}
-      <aside className="hidden lg:flex w-[320px] flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
+      <aside className="hidden lg:flex w-[300px] xl:w-[320px] flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
         <CartPanel onOrderPlaced={() => router.push('/my-orders')} />
       </aside>
 

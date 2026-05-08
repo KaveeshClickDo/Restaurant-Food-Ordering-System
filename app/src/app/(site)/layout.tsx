@@ -34,7 +34,7 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
         {/* Mobile top bar — hidden on desktop */}
         <SiteMobileHeader />
 
-        <main className="flex-1 flex flex-col overflow-y-auto h-full">
+        <main className="flex-1 flex flex-col overflow-y-auto h-full pb-15 lg:pb-0">
           <div className="flex-1">
             {children}
           </div>
@@ -47,7 +47,7 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
       </div>
 
       {/* ── Desktop Right Cart Panel ── */}
-      <aside className="hidden lg:flex w-[320px] flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
+      <aside className="hidden lg:flex w-[300px] xl:w-[320px] flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
         <CartPanel onOrderPlaced={() => router.push('/my-orders')} />
       </aside>
 

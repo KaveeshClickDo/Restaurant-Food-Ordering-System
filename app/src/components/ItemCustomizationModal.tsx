@@ -253,7 +253,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                 {/* Add to order */}
                 <button
                   onClick={handleAddToCart}
-                  className="flex-1 bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white font-bold py-3 rounded-xl transition-all flex items-center justify-between px-5 text-[15px]"
+                  className="flex-1 flex-wrap bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white font-bold py-3 rounded-xl transition-all flex items-center justify-between px-5 text-sm sm:text-[15px]"
                 >
                   <span>Add to order</span>
                   <span className="tabular-nums">£{total.toFixed(2)}</span>
