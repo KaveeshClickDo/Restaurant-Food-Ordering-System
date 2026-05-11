@@ -1,0 +1,102 @@
+import { POSSale, POSSettings } from "@/types/pos";
+
+export interface DineInOrder {
+  id: string;
+  tableLabel: string;
+  staffName: string;
+  covers: number;
+  items: { name: string; qty: number; price: number }[];
+  total: number;
+  status: string;
+  paymentMethod: string;
+  date: string;
+}
+
+export function buildReceiptHtml(sale: POSSale, settings: POSSettings, restaurantNameOverride?: string): string {
+  const sym = settings.currencySymbol;
+  const restaurantName = (restaurantNameOverride || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant").toUpperCase();
+  const taxRate      = sale.taxRate      ?? settings.taxRate;
+  const taxInclusive = sale.taxInclusive ?? settings.taxInclusive;
+  const vatLabel     = taxInclusive ? `VAT (${taxRate}% incl.)` : `VAT (${taxRate}%)`;
+  const vatSign      = taxInclusive ? "" : "+";
+
+  const row = (l: string, r: string, bold = false, color = "#374151") =>
+    `<tr><td style="padding:1px 0;color:${color};${bold?"font-weight:700;":""}font-size:12px">${l}</td><td style="padding:1px 0;color:${color};${bold?"font-weight:700;":""}font-size:12px;text-align:right">${r}</td></tr>`;
+
+  const itemsHtml = sale.items.map((item) => {
+    const mods = item.modifiers.map((m) => `<div style="font-size:11px;color:#6b7280;padding-left:8px">+ ${m.optionLabel}</div>`).join("");
+    const note = item.note ? `<div style="font-size:11px;color:#f97316;padding-left:8px;font-style:italic">"${item.note}"</div>` : "";
+    return `<tr><td style="padding:2px 0;font-size:12px">${item.name} ×${item.quantity}${mods}${note}</td><td style="padding:2px 0;font-size:12px;text-align:right">${sym}${(item.price * item.quantity).toFixed(2)}</td></tr>`;
+  }).join("");
+
+  let paymentHtml = "";
+  if (sale.paymentMethod === "split") {
+    paymentHtml = sale.payments.map((p) =>
+      `<tr><td style="font-size:11px;color:#6b7280;text-transform:capitalize">${p.method}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${p.amount.toFixed(2)}</td></tr>`
+    ).join("");
+  } else if (sale.paymentMethod === "cash") {
+    paymentHtml = `<tr><td style="font-size:11px;color:#6b7280">Cash</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${(sale.cashTendered ?? sale.total).toFixed(2)}</td></tr>`;
+    if ((sale.changeGiven ?? 0) > 0) {
+      paymentHtml += `<tr><td style="font-size:11px;color:#6b7280">Change</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${sale.changeGiven!.toFixed(2)}</td></tr>`;
+    }
+  } else {
+    paymentHtml = `<tr><td style="font-size:11px;color:#6b7280;text-transform:capitalize">${sale.paymentMethod}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${sale.total.toFixed(2)}</td></tr>`;
+  }
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#f9fafb;font-family:monospace">
+<div style="max-width:360px;margin:24px auto;background:#fff;border-radius:12px;padding:24px">
+  <div style="text-align:center;margin-bottom:16px">
+    <div style="font-weight:700;font-size:16px;letter-spacing:1px">${restaurantName}</div>
+    ${settings.receiptPhone ? `<div style="font-size:11px;color:#6b7280">${settings.receiptPhone}</div>` : ""}
+    ${settings.receiptWebsite ? `<div style="font-size:11px;color:#6b7280">${settings.receiptWebsite}</div>` : ""}
+    <div style="font-size:11px;color:#6b7280">${new Date(sale.date).toLocaleString("en-GB")}</div>
+    <div style="font-size:11px;color:#6b7280">Receipt #${sale.receiptNo}</div>
+    ${sale.staffName ? `<div style="font-size:11px;color:#6b7280">Served by: ${sale.staffName}</div>` : ""}
+    ${sale.customerName ? `<div style="font-size:11px;color:#6b7280">Customer: ${sale.customerName}</div>` : ""}
+    ${settings.receiptVatNumber ? `<div style="font-size:10px;color:#9ca3af">VAT No: ${settings.receiptVatNumber}</div>` : ""}
+  </div>
+  <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
+  <table style="width:100%;border-collapse:collapse">${itemsHtml}</table>
+  <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
+  <table style="width:100%;border-collapse:collapse">
+    ${row("Subtotal", `${sym}${sale.subtotal.toFixed(2)}`)}
+    ${sale.discountAmount > 0 ? row(`Discount${sale.discountNote ? ` (${sale.discountNote})` : ""}`, `-${sym}${sale.discountAmount.toFixed(2)}`, false, "#16a34a") : ""}
+    ${sale.taxAmount > 0 ? row(vatLabel, `${vatSign}${sym}${sale.taxAmount.toFixed(2)}`, false, "#6b7280") : ""}
+    ${sale.tipAmount > 0 ? row("Tip", `${sym}${sale.tipAmount.toFixed(2)}`) : ""}
+    ${row("TOTAL", `${sym}${sale.total.toFixed(2)}`, true)}
+    ${paymentHtml}
+  </table>
+  <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
+  ${settings.receiptThankYouMessage ? `<div style="text-align:center;font-weight:600;color:#374151;font-size:12px;margin-bottom:4px">${settings.receiptThankYouMessage}</div>` : ""}
+  ${settings.receiptCustomMessage ? `<div style="text-align:center;color:#6b7280;font-size:11px">${settings.receiptCustomMessage}</div>` : ""}
+</div></body></html>`;
+}
+
+export function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings, restaurantNameOverride?: string): string {
+  const name = (restaurantNameOverride || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant").toUpperCase();
+  const itemsHtml = order.items.map((it) =>
+    `<tr><td style="padding:2px 0;font-size:12px">${it.name} ×${it.qty}</td><td style="padding:2px 0;font-size:12px;text-align:right">£${(it.price * it.qty).toFixed(2)}</td></tr>`
+  ).join("");
+  const payLabel = order.paymentMethod === "cash" ? "Cash" : order.paymentMethod === "card" ? "Card" : "Table Service";
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#f9fafb;font-family:monospace">
+<div style="max-width:320px;margin:24px auto;background:#fff;border-radius:12px;padding:24px">
+  <div style="text-align:center;margin-bottom:16px">
+    <div style="font-weight:700;font-size:16px;letter-spacing:1px">${name}</div>
+    ${settings.receiptPhone ? `<div style="font-size:11px;color:#6b7280">${settings.receiptPhone}</div>` : ""}
+    <div style="font-size:11px;color:#6b7280">${new Date(order.date).toLocaleString("en-GB")}</div>
+    <div style="font-size:11px;color:#6b7280">Table: ${order.tableLabel}</div>
+    <div style="font-size:11px;color:#6b7280">Served by: ${order.staffName}</div>
+    ${order.covers > 0 ? `<div style="font-size:11px;color:#6b7280">${order.covers} cover${order.covers !== 1 ? "s" : ""}</div>` : ""}
+    ${settings.receiptVatNumber ? `<div style="font-size:10px;color:#9ca3af">VAT No: ${settings.receiptVatNumber}</div>` : ""}
+  </div>
+  <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
+  <table style="width:100%;border-collapse:collapse">${itemsHtml}</table>
+  <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
+  <table style="width:100%;border-collapse:collapse">
+    <tr><td style="font-size:13px;font-weight:700">TOTAL</td><td style="font-size:13px;font-weight:700;text-align:right">£${order.total.toFixed(2)}</td></tr>
+    <tr><td style="font-size:11px;color:#6b7280">Payment</td><td style="font-size:11px;color:#6b7280;text-align:right">${payLabel}</td></tr>
+  </table>
+  <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
+  ${settings.receiptThankYouMessage ? `<div style="text-align:center;font-weight:600;font-size:12px">${settings.receiptThankYouMessage}</div>` : ""}
+</div></body></html>`;
+}

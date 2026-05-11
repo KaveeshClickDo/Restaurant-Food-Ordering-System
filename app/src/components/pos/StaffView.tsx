@@ -1,0 +1,323 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { usePOS } from "@/context/POSContext";
+import { POSStaff, ROLE_PERMISSIONS } from "@/types/pos";
+import {
+  UserPlus, Clock, Timer, ToggleRight, ToggleLeft, Pencil, Trash2, X, ClockIcon,
+} from "lucide-react";
+import { fmtTime, getInitials } from "./_utils";
+
+export default function StaffView() {
+  const { staff, setStaff, clockEntries, clockIn, clockOut, isClocked, currentStaff } = usePOS();
+  const [showAdd, setShowAdd] = useState(false);
+  const [newStaff, setNewStaff] = useState({ name: "", email: "", role: "cashier" as "admin"|"manager"|"cashier", pin: "", hourlyRate: "" });
+  const COLORS = ["#7c3aed","#0891b2","#16a34a","#dc2626","#ea580c","#0284c7","#9333ea","#be185d"];
+  const [, tick] = useState(0);
+  useEffect(() => { const id = setInterval(() => tick((n)=>n+1), 10000); return () => clearInterval(id); }, []);
+
+  // Edit state
+  const [editingStaff, setEditingStaff] = useState<POSStaff | null>(null);
+  const [editDraft, setEditDraft] = useState({ name: "", email: "", role: "cashier" as "admin"|"manager"|"cashier", pin: "", hourlyRate: "" });
+
+  // Delete state
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
+  function addStaff() {
+    if (!newStaff.name.trim() || newStaff.pin.length !== 4) return;
+    const s: POSStaff = {
+      id: `staff-${Date.now()}`, name: newStaff.name.trim(), email: newStaff.email,
+      role: newStaff.role, pin: newStaff.pin, active: true,
+      permissions: ROLE_PERMISSIONS[newStaff.role],
+      hourlyRate: parseFloat(newStaff.hourlyRate) || undefined,
+      avatarColor: COLORS[Math.floor(Math.random() * COLORS.length)],
+      createdAt: new Date().toISOString(),
+    };
+    setStaff((prev) => [...prev, s]);
+    setNewStaff({ name: "", email: "", role: "cashier", pin: "", hourlyRate: "" });
+    setShowAdd(false);
+  }
+
+  function openEdit(member: POSStaff) {
+    setEditingStaff(member);
+    setEditDraft({ name: member.name, email: member.email ?? "", role: member.role, pin: member.pin, hourlyRate: member.hourlyRate?.toString() ?? "" });
+  }
+
+  function saveEdit() {
+    if (!editingStaff || !editDraft.name.trim() || editDraft.pin.length !== 4) return;
+    setStaff((prev) => prev.map((s) => s.id === editingStaff.id
+      ? { ...s, name: editDraft.name.trim(), email: editDraft.email, role: editDraft.role,
+          pin: editDraft.pin, hourlyRate: parseFloat(editDraft.hourlyRate) || undefined,
+          permissions: ROLE_PERMISSIONS[editDraft.role] }
+      : s
+    ));
+    setEditingStaff(null);
+  }
+
+  function deleteStaff(staffId: string) {
+    setStaff((prev) => prev.filter((s) => s.id !== staffId));
+    setDeleteConfirm(null);
+  }
+
+  function toggleActive(staffId: string) {
+    setStaff((prev) => prev.map((s) => s.id === staffId ? { ...s, active: !s.active } : s));
+  }
+
+  // Today's clock entries
+  const today = new Date().toDateString();
+  const todayEntries = clockEntries.filter((e) => new Date(e.clockIn).toDateString() === today);
+
+  return (
+    <div className="flex-1 overflow-y-auto p-6">
+      <div className="max-w-4xl mx-auto space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-white font-bold text-xl">Staff Management</h2>
+          <button onClick={() => setShowAdd(true)} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-400 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors">
+            <UserPlus size={16} /> Add Staff
+          </button>
+        </div>
+
+        {/* Clock in/out panel */}
+        <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
+          <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2"><Clock size={16} className="text-orange-400" /> Today&apos;s Attendance</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {staff.filter((s) => s.active).map((member) => {
+              const clocked = isClocked(member.id);
+              const lastEntry = [...clockEntries].reverse().find((e) => e.staffId === member.id && new Date(e.clockIn).toDateString() === today);
+              const minutesWorked = lastEntry
+                ? clocked
+                  ? Math.floor((Date.now() - new Date(lastEntry.clockIn).getTime()) / 60000)
+                  : (lastEntry.totalMinutes ?? 0)
+                : null;
+
+              return (
+                <div key={member.id} className="bg-slate-700/50 border border-slate-600 rounded-xl p-4 flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm text-white flex-shrink-0" style={{ backgroundColor: member.avatarColor }}>
+                    {getInitials(member.name)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-sm font-semibold">{member.name}</p>
+                    <p className="text-slate-400 text-xs capitalize">{member.role}</p>
+                    {minutesWorked !== null && (
+                      <p className="text-slate-400 text-xs mt-0.5 flex items-center gap-1">
+                        <Timer size={10} /> {Math.floor(minutesWorked/60)}h {minutesWorked%60}m {clocked ? "(ongoing)" : ""}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => clocked ? clockOut(member.id) : clockIn(member.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 ${
+                      clocked
+                        ? "bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30"
+                        : "bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30"
+                    }`}
+                  >
+                    {clocked ? "Clock Out" : "Clock In"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Staff list */}
+        <div className="bg-slate-800 border border-slate-700 rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-700">
+            <h3 className="text-white font-semibold text-sm">All Staff Members</h3>
+          </div>
+          <div className="divide-y divide-slate-700/50">
+            {staff.map((member) => (
+              <div key={member.id} className="px-5 py-4 flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm text-white flex-shrink-0 opacity-100" style={{ backgroundColor: member.avatarColor, opacity: member.active ? 1 : 0.5 }}>
+                  {getInitials(member.name)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className={`text-sm font-semibold ${member.active ? "text-white" : "text-slate-500"}`}>{member.name}</p>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold capitalize ${
+                      member.role === "admin" ? "bg-purple-500/20 text-purple-400" :
+                      member.role === "manager" ? "bg-blue-500/20 text-blue-400" :
+                      "bg-slate-600 text-slate-400"
+                    }`}>{member.role}</span>
+                  </div>
+                  <p className="text-slate-400 text-xs mt-0.5">{member.email} · PIN: {member.pin.split("").map(()=>"•").join("")}</p>
+                  {member.hourlyRate && <p className="text-slate-500 text-xs">£{member.hourlyRate}/hr</p>}
+                </div>
+                <div className="flex items-center gap-2">
+                  {isClocked(member.id) && (
+                    <span className="flex items-center gap-1 text-[10px] bg-green-500/20 text-green-400 px-2 py-1 rounded-full font-semibold">
+                      <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" /> Clocked in
+                    </span>
+                  )}
+                  <button
+                    onClick={() => toggleActive(member.id)}
+                    disabled={member.id === currentStaff?.id}
+                    title={member.id === currentStaff?.id ? "Cannot deactivate yourself" : ""}
+                    className={`transition-colors ${member.id === currentStaff?.id ? "opacity-30 cursor-not-allowed" : "hover:text-orange-400"}`}
+                  >
+                    {member.active
+                      ? <ToggleRight size={24} className="text-green-400" />
+                      : <ToggleLeft size={24} className="text-slate-500" />}
+                  </button>
+                  <button
+                    onClick={() => openEdit(member)}
+                    title="Edit staff member"
+                    className="text-slate-400 hover:text-orange-400 transition-colors"
+                  >
+                    <Pencil size={16} />
+                  </button>
+                  <button
+                    onClick={() => setDeleteConfirm(member.id)}
+                    disabled={member.id === currentStaff?.id}
+                    title={member.id === currentStaff?.id ? "Cannot delete yourself" : "Delete staff member"}
+                    className={`transition-colors ${member.id === currentStaff?.id ? "opacity-30 cursor-not-allowed" : "text-slate-400 hover:text-red-400"}`}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Clock history */}
+        {todayEntries.length > 0 && (
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
+            <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2"><ClockIcon size={16} className="text-slate-400" /> Today&apos;s Clock Entries</h3>
+            <div className="space-y-2">
+              {todayEntries.map((entry) => (
+                <div key={entry.id} className="flex items-center gap-3 py-2 border-b border-slate-700/50 last:border-0">
+                  <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-slate-300 flex-shrink-0">
+                    {getInitials(entry.staffName)}
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-white text-sm font-medium">{entry.staffName}</p>
+                    <p className="text-slate-400 text-xs">In: {fmtTime(entry.clockIn)} {entry.clockOut ? `· Out: ${fmtTime(entry.clockOut)}` : "· Still clocked in"}</p>
+                  </div>
+                  {entry.totalMinutes !== undefined && (
+                    <p className="text-slate-300 text-sm font-semibold">{Math.floor(entry.totalMinutes/60)}h {entry.totalMinutes%60}m</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Add staff modal */}
+      {showAdd && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm p-5 shadow-2xl">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-white font-bold">Add Staff Member</h3>
+              <button onClick={() => setShowAdd(false)} className="text-slate-400 hover:text-white"><X size={18} /></button>
+            </div>
+            <div className="space-y-3 mb-5">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Full Name *</label>
+                <input value={newStaff.name} onChange={(e) => setNewStaff((p) => ({ ...p, name: e.target.value }))} placeholder="Staff name"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Email</label>
+                <input value={newStaff.email} onChange={(e) => setNewStaff((p) => ({ ...p, email: e.target.value }))} placeholder="email@example.com"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Role</label>
+                <select value={newStaff.role} onChange={(e) => setNewStaff((p) => ({ ...p, role: e.target.value as "admin"|"manager"|"cashier" }))}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500">
+                  <option value="cashier">Cashier</option>
+                  <option value="manager">Manager</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">4-digit PIN *</label>
+                <input type="password" maxLength={4} value={newStaff.pin} onChange={(e) => setNewStaff((p) => ({ ...p, pin: e.target.value.replace(/\D/g,"") }))} placeholder="••••"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Hourly Rate (£)</label>
+                <input type="number" step="0.5" value={newStaff.hourlyRate} onChange={(e) => setNewStaff((p) => ({ ...p, hourlyRate: e.target.value }))} placeholder="10.00"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setShowAdd(false)} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">Cancel</button>
+              <button onClick={addStaff} disabled={!newStaff.name.trim() || newStaff.pin.length !== 4}
+                className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Add</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit staff modal */}
+      {editingStaff && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm p-5 shadow-2xl">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-white font-bold">Edit Staff Member</h3>
+              <button onClick={() => setEditingStaff(null)} className="text-slate-400 hover:text-white"><X size={18} /></button>
+            </div>
+            <div className="space-y-3 mb-5">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Full Name *</label>
+                <input value={editDraft.name} onChange={(e) => setEditDraft((p) => ({ ...p, name: e.target.value }))} placeholder="Staff name"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Email</label>
+                <input value={editDraft.email} onChange={(e) => setEditDraft((p) => ({ ...p, email: e.target.value }))} placeholder="email@example.com"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Role</label>
+                <select value={editDraft.role} onChange={(e) => setEditDraft((p) => ({ ...p, role: e.target.value as "admin"|"manager"|"cashier" }))}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500">
+                  <option value="cashier">Cashier</option>
+                  <option value="manager">Manager</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">4-digit PIN *</label>
+                <input type="password" maxLength={4} value={editDraft.pin} onChange={(e) => setEditDraft((p) => ({ ...p, pin: e.target.value.replace(/\D/g,"") }))} placeholder="••••"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Hourly Rate (£)</label>
+                <input type="number" step="0.5" value={editDraft.hourlyRate} onChange={(e) => setEditDraft((p) => ({ ...p, hourlyRate: e.target.value }))} placeholder="10.00"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setEditingStaff(null)} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">Cancel</button>
+              <button onClick={saveEdit} disabled={!editDraft.name.trim() || editDraft.pin.length !== 4}
+                className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-xs p-5 shadow-2xl text-center">
+            <div className="w-12 h-12 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center justify-center mx-auto mb-4">
+              <Trash2 size={22} className="text-red-400" />
+            </div>
+            <h3 className="text-white font-bold mb-1">Delete Staff Member?</h3>
+            <p className="text-slate-400 text-sm mb-5">
+              {staff.find((s) => s.id === deleteConfirm)?.name} will be permanently removed. This cannot be undone.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setDeleteConfirm(null)} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">Cancel</button>
+              <button onClick={() => deleteStaff(deleteConfirm)} className="py-3 rounded-xl bg-red-500 hover:bg-red-400 text-white font-semibold text-sm transition-colors">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
