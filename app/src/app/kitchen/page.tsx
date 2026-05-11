@@ -394,7 +394,7 @@ function KanbanColumn({
   onAdvance: (order: KDSOrder) => void;
 }) {
   return (
-    <div className={`flex flex-col rounded-2xl ${col.colBg} border border-gray-700/40 overflow-hidden`}>
+    <div className={`flex flex-col rounded-2xl ${col.colBg} border border-gray-700/40 md:overflow-hidden`}>
       <div className="flex items-center gap-2.5 px-4 py-3 border-b border-gray-700/60 flex-shrink-0">
         <span className={`w-2.5 h-2.5 rounded-full ${col.dotClass} flex-shrink-0`} />
         <h2 className="text-gray-200 font-bold text-sm uppercase tracking-widest flex-1">{col.label}</h2>
@@ -402,7 +402,7 @@ function KanbanColumn({
           {orders.length}
         </span>
       </div>
-      <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
+      <div className="flex-1 md:overflow-y-auto p-3 space-y-3 min-h-[150px] md:min-h-0">
         {orders.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-gray-600 select-none">
             <UtensilsCrossed size={40} className="mb-3 opacity-20" />
@@ -585,9 +585,9 @@ export default function KitchenPage() {
   const totalActive = orders.length;
 
   return (
-    <div className="h-screen bg-gray-900 flex flex-col overflow-hidden">
+    <div className="h-[100dvh] w-full bg-gray-900 flex flex-col overflow-hidden">
       {/* ── Header ──────────────────────────────────────────────────────────── */}
-      <header className="bg-gray-800 border-b border-gray-700 px-4 sm:px-5 py-3 flex items-center justify-between gap-4 flex-shrink-0">
+      <header className="bg-gray-800 border-b border-gray-700 px-4 sm:px-5 py-3 flex flex-wrap items-center justify-between gap-4 flex-shrink-0">
         {/* Left — branding */}
         <div className="flex items-center gap-3 flex-shrink-0">
           <div className="w-9 h-9 bg-orange-500 rounded-xl flex items-center justify-center">
@@ -600,13 +600,13 @@ export default function KitchenPage() {
         </div>
 
         {/* Centre — status pill counters */}
-        <div className="flex items-center gap-2 sm:gap-4 flex-1 justify-center">
+        <div className="flex items-center gap-2 sm:gap-4 md:flex-1 justify-center">
           {COLUMNS.map((col) => {
             const count = orders.filter((o) => col.statuses.includes(o.status)).length;
             return (
               <div key={col.label} className="flex items-center gap-1.5">
-                <span className={`w-2 h-2 rounded-full ${col.dotClass}`} />
-                <span className="text-gray-400 text-xs font-semibold hidden sm:inline">{col.shortLabel}</span>
+                <span className={`w-2 h-2 rounded-full hidden sm:inline ${col.dotClass}`} />
+                <span className="text-gray-400 text-xs font-semibold">{col.shortLabel}</span>
                 <span className={`${col.badgeClass} text-xs font-bold px-2 py-0.5 rounded-full min-w-[1.5rem] text-center`}>
                   {count}
                 </span>
@@ -624,19 +624,19 @@ export default function KitchenPage() {
         <div className="flex items-center gap-3 flex-shrink-0">
           <LiveClock />
           {currentStaff && (
-            <div className="hidden sm:flex items-center gap-2">
+            <div className="flex items-center gap-2">
               <div
                 className="w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-[11px] flex-shrink-0"
                 style={{ backgroundColor: currentStaff.avatarColor }}
               >
                 {initials(currentStaff.name)}
               </div>
-              <span className="text-gray-300 text-xs font-medium">{currentStaff.name}</span>
+              <span className="text-gray-300 text-xs font-medium hidden sm:inline">{currentStaff.name}</span>
             </div>
           )}
           <Link
             href="/admin"
-            className="hidden sm:flex items-center gap-1.5 text-gray-400 hover:text-white transition-colors text-xs font-medium"
+            className="flex items-center gap-1.5 text-gray-400 hover:text-white transition-colors text-xs font-medium"
           >
             <LayoutDashboard size={14} /> Admin
           </Link>
@@ -674,7 +674,7 @@ export default function KitchenPage() {
           </div>
         </div>
       ) : (
-        <div className="flex-1 grid grid-cols-3 gap-4 p-4 min-h-0 overflow-hidden">
+        <div className="flex-1 flex flex-col md:grid md:grid-cols-3 gap-4 p-4 overflow-y-auto md:overflow-hidden min-h-[200px] md:min-h-0">
           {COLUMNS.map((col) => (
             <KanbanColumn
               key={col.label}
