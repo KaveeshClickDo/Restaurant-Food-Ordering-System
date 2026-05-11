@@ -215,13 +215,13 @@ function AvailableOrderCard({
             <div className="flex gap-2 pt-1">
               <button
                 onClick={() => { onAccept(); setConfirming(false); }}
-                className="flex-1 bg-green-500 hover:bg-green-400 text-white font-bold py-3 rounded-xl transition"
+                className="flex-1 bg-green-500 hover:bg-green-400 text-white font-bold py-3 rounded-xl transition text-sm md:text-base"
               >
                 Yes, Accept
               </button>
               <button
                 onClick={() => setConfirming(false)}
-                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-xl transition"
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-xl transition text-sm md:text-base"
               >
                 Cancel
               </button>
@@ -372,13 +372,13 @@ function OrderCard({
               <div className="flex gap-2">
                 <button
                   onClick={() => { onAdvance("delivered"); setConfirmDeliver(false); }}
-                  className="flex-1 bg-green-500 hover:bg-green-400 text-white font-bold py-3 rounded-xl transition"
+                  className="flex-1 bg-green-500 hover:bg-green-400 text-white font-bold py-3 rounded-xl transition text-sm md:text-base"
                 >
                   Yes, Delivered
                 </button>
                 <button
                   onClick={() => setConfirmDeliver(false)}
-                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-xl transition"
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-xl transition text-sm md:text-base"
                 >
                   Cancel
                 </button>
@@ -504,10 +504,10 @@ export default function DriverDashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="bg-gray-100 h-full">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
-        <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between gap-3">
+        <div className="max-w-lg mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-orange-500 rounded-xl flex items-center justify-center flex-shrink-0">
               <Truck size={18} className="text-white" />
@@ -530,9 +530,10 @@ export default function DriverDashboardPage() {
             )}
             <button
               onClick={handleLogout}
+              title="Sign Out"
               className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-red-500 bg-gray-100 hover:bg-red-50 border border-gray-200 hover:border-red-200 px-3 py-1.5 rounded-lg font-semibold transition"
             >
-              <LogOut size={13} /> Sign out
+              <LogOut size={13} /> <span className="hidden sm:flex">Sign out</span>
             </button>
           </div>
         </div>
@@ -551,7 +552,7 @@ export default function DriverDashboardPage() {
         </div>
       )}
 
-      <div className="max-w-lg mx-auto px-4 py-5 space-y-6">
+      <div className="max-w-lg mx-auto px-4 py-5 pb-20 space-y-6 overflow-y-auto h-full">
         {/* Vehicle info */}
         {currentDriver.vehicleInfo && (
           <div className="flex items-center gap-2 text-sm text-gray-500 bg-white border border-gray-100 rounded-xl px-4 py-2.5">
@@ -681,7 +682,7 @@ export default function DriverDashboardPage() {
                         #{d.order.id.slice(-8).toUpperCase()} — {d.customerName}
                       </p>
                       {d.order.address && (
-                        <p className="text-xs text-gray-400 truncate flex items-center gap-1">
+                        <p className="text-xs text-gray-400 flex items-center gap-1">
                           <MapPin size={10} /> {d.order.address}
                         </p>
                       )}

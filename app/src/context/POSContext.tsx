@@ -15,7 +15,7 @@ import { enqueue as outboxEnqueue } from "@/lib/posOutbox";
 const SEED_STAFF: POSStaff[] = [
   {
     id: "staff-1", name: "Admin", email: "admin@restaurant.com", role: "admin",
-    pin: "", active: true, permissions: ROLE_PERMISSIONS.admin,
+    pin: "1234", active: true, permissions: ROLE_PERMISSIONS.admin,
     hourlyRate: 0, avatarColor: "#7c3aed", createdAt: "2024-01-01T00:00:00.000Z",
   },
 ];

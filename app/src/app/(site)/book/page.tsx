@@ -374,14 +374,14 @@ export default function BookPage() {
             )}
             {step === "details" && (
               <button type="submit" form="book-form" disabled={submitting || !name.trim() || !email.trim() || !phone.trim()}
-                className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition-all">
+                className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-3 sm:px-5 py-2.5 rounded-xl transition-all">
                 {submitting ? <><Loader2 size={15} className="animate-spin" />Confirming…</> : <><CheckCircle2 size={15} />Confirm booking</>}
               </button>
             )}
           </div>
         </div>
 
-        <p className="text-center text-xs text-gray-400">Powered by {restaurantName}</p>
+        <p className="text-center text-xs text-gray-400 mb-5 lg:mb-10">Powered by {restaurantName}</p>
       </div>
     </div>
   );

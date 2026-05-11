@@ -119,7 +119,7 @@ export default function KitchenLoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 gap-8">
+    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 gap-8 h-full">
       {/* Branding */}
       <div className="text-center">
         <div className="w-16 h-16 bg-orange-500 rounded-2xl flex items-center justify-center mx-auto mb-4">

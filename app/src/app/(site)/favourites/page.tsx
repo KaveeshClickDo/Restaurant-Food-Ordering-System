@@ -27,7 +27,7 @@ export default function FavouritesPage() {
     return (
         <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: 'var(--brand-bg, #FAFAF9)' }}>
 
-            
+
             {/* ── Main content area ─────────────────────────────────────────────── */}
             <div className="flex-1 flex flex-col min-w-0 h-full">
                 {/* Top search header */}
@@ -102,7 +102,7 @@ export default function FavouritesPage() {
 
 
                 {/* Scrollable content */}
-                <div className="flex-1 overflow-y-auto pb-28 lg:pb-8">
+                <div className="flex-1 overflow-y-auto pb-15">
                     <div className="flex flex-col px-4 sm:px-6 py-6">
                         <div className="flex items-center justify-between mb-1">
                             <h2 className="font-semibold text-[22px] text-zinc-900 tracking-tight">Favourites</h2>
@@ -193,7 +193,7 @@ export default function FavouritesPage() {
                             </div>
                         )}
                     </div>
-                
+
                 </div>
             </div>
 
@@ -228,5 +228,6 @@ export default function FavouritesPage() {
             )}
 
         </div>
+       
     );
 }

@@ -1183,7 +1183,7 @@ export default function WaiterPage() {
   if (view === "tables") {
     return (
       <>
-      <div className="min-h-screen bg-slate-950 flex flex-col">
+      <div className="min-h-screen bg-slate-950 flex flex-col h-full">
         {/* Header */}
         <header className="bg-slate-900 border-b border-slate-800 px-5 py-4 flex items-center justify-between gap-3 flex-shrink-0">
           <div className="flex items-center gap-3">
@@ -1231,7 +1231,7 @@ export default function WaiterPage() {
         )}
 
         {/* Table grid */}
-        <div className="flex-1 p-5 overflow-y-auto">
+        <div className="flex-1 p-5 pb-15 overflow-y-auto h-full">
           {tables.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-24 text-slate-600">
               <UtensilsCrossed size={40} className="mb-3 opacity-30" />
@@ -1553,7 +1553,7 @@ export default function WaiterPage() {
 
   // ── MENU / ORDERING ───────────────────────────────────────────────────────────
   return (
-    <div className="h-screen bg-slate-950 flex flex-col overflow-hidden">
+    <div className="h-full bg-slate-950 flex flex-col overflow-hidden">
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <header className="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center gap-3 flex-shrink-0">
         <button

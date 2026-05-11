@@ -956,7 +956,7 @@ function ProfileTab() {
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-6">
-        <div className="flex items-center justify-between mb-5">
+        <div className="flex flex-wrap gap-3 items-center justify-between mb-5">
           <h3 className="font-semibold text-zinc-900">Personal details</h3>
           {!editing ? (
             <button
@@ -1068,13 +1068,13 @@ function AccountPageContent() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   const urlTab = searchParams.get("tab");
-  const initialTab: TabId = (VALID_TABS as readonly string[]).includes(urlTab ?? "") ? urlTab as TabId : "orders";
+  const initialTab: TabId = (VALID_TABS as readonly string[]).includes(urlTab ?? "") ? urlTab as TabId : "profile";
 
   const [tab, setTab] = useState<TabId>(initialTab);
 
   function handleTabChange(t: TabId) {
     setTab(t);
-    router.replace(t === "orders" ? "/account" : `/account?tab=${t}`, { scroll: false });
+    router.replace(t === "profile" ? "/account" : `/account?tab=${t}`, { scroll: false });
     window.dispatchEvent(new CustomEvent("account-tab-change", { detail: { tab: t } }));
   }
 
@@ -1353,7 +1353,7 @@ function AccountPageContent() {
 
           </header>
           {/* Scrollable content */}
-          <div className="flex-1 overflow-y-auto pb-28 lg:pb-8">
+          <div className="flex-1 overflow-y-auto pb-15">
 
             <div className="max-w-4xl mx-auto px-3 sm:px-4 py-4 sm:py-8 pb-8 sm:pb-12 space-y-4 sm:space-y-6">
               {/* Profile banner */}
@@ -1449,7 +1449,7 @@ function AccountPageContent() {
 
               {/* Tabs */}
               <div className="flex gap-1 bg-zinc-100 p-1 rounded-xl overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-                {(["orders", "favourites", "addresses", "profile"] as const).map((t) => (
+                {(["profile", "orders", "favourites", "addresses"] as const).map((t) => (
                   <button
                     key={t}
                     onClick={() => handleTabChange(t)}
