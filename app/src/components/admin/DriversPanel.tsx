@@ -171,40 +171,43 @@ function DriverRow({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   return (
-    <div className={`bg-white border rounded-2xl px-4 py-3.5 flex items-center gap-4 ${
+    <div className={`group bg-white border rounded-2xl px-4 py-3.5 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 ${
       driver.active ? "border-gray-100" : "border-gray-100 opacity-60"
     }`}>
-      {/* Avatar */}
-      <div className={`w-10 h-10 rounded-xl ${avatarColor(driver.id)} flex items-center justify-center text-white font-bold text-sm flex-shrink-0`}>
-        {initials(driver.name)}
-      </div>
-
-      {/* Info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="font-semibold text-gray-900 text-sm">{driver.name}</p>
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-            driver.active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
-          }`}>
-            {driver.active ? "Active" : "Inactive"}
-          </span>
-          {activeOrderCount > 0 && (
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">
-              {activeOrderCount} on delivery
-            </span>
-          )}
+      {/* Container for Avatar and Info */}
+      <div className="flex items-center gap-4 flex-1 min-w-0">
+        {/* Avatar */}
+        <div className={`w-10 h-10 rounded-xl ${avatarColor(driver.id)} flex items-center justify-center text-white font-bold text-sm flex-shrink-0`}>
+          {initials(driver.name)}
         </div>
-        <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-          <span className="text-xs text-gray-500 flex items-center gap-1"><Phone size={10} />{driver.phone}</span>
-          <span className="text-xs text-gray-500 flex items-center gap-1"><Mail size={10} />{driver.email}</span>
-          {driver.vehicleInfo && (
-            <span className="text-xs text-gray-500 flex items-center gap-1"><Car size={10} />{driver.vehicleInfo}</span>
-          )}
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-semibold text-gray-900 text-sm">{driver.name}</p>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+              driver.active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
+            }`}>
+              {driver.active ? "Active" : "Inactive"}
+            </span>
+            {activeOrderCount > 0 && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">
+                {activeOrderCount} on delivery
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+            <span className="text-xs text-gray-500 flex items-center gap-1"><Phone size={10} />{driver.phone}</span>
+            <span className="text-xs text-gray-500 flex items-center gap-1"><Mail size={10} />{driver.email}</span>
+            {driver.vehicleInfo && (
+              <span className="text-xs text-gray-500 flex items-center gap-1"><Car size={10} />{driver.vehicleInfo}</span>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-1.5 flex-shrink-0">
+      <div className="flex items-center justify-center sm:justify-end py-0 border-t border-gray-50 sm:border-0 pt-0 mt-0 transition">
         <button
           onClick={onToggle}
           title={driver.active ? "Deactivate" : "Activate"}

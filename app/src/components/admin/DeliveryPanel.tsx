@@ -593,7 +593,7 @@ export default function DeliveryPanel() {
             <button
               key={f}
               onClick={() => setFulfillmentFilter(f)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition capitalize ${
+              className={`flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition capitalize ${
                 fulfillmentFilter === f
                   ? "bg-orange-500 text-white shadow-sm"
                   : "text-gray-500 hover:text-gray-700"

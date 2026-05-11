@@ -435,48 +435,51 @@ function UserRow({
   const bg       = avatarBg(user.type, user.avatarColor);
 
   return (
-    <div className="flex items-center gap-3 px-5 py-4 hover:bg-gray-50/50 transition group">
-      {/* Avatar */}
-      <div
-        className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-white text-sm font-bold shadow-sm"
-        style={{ backgroundColor: bg }}
-      >
-        {initials}
-      </div>
-
-      {/* Info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-semibold text-gray-900 truncate">{user.name}</span>
-          <span className={`inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full border ${roleColor(user.type, user.waiterRole)}`}>
-            {roleLabel(user.type, user.waiterRole)}
-          </span>
+    <div className="flex flex-col sm:flex-row sm:items-center gap-3 px-5 py-4 hover:bg-gray-50/50 transition group">
+      <div className="flex items-center gap-3 flex-1 min-w-0">
+        {/* Avatar */}
+        <div
+          className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-white text-sm font-bold shadow-sm"
+          style={{ backgroundColor: bg }}
+        >
+          {initials}
         </div>
-        <p className="text-xs text-gray-500 mt-0.5 truncate">
-          {user.type === "waiter"
-            ? `PIN: ${user.pin ?? "••••"}`
-            : user.email ?? "No email"}
-          {user.phone ? ` · ${user.phone}` : ""}
-        </p>
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-semibold text-gray-900 truncate">{user.name}</span>
+            <span className={`inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full border ${roleColor(user.type, user.waiterRole)}`}>
+              {roleLabel(user.type, user.waiterRole)}
+            </span>
+          </div>
+          <p className="text-xs text-gray-500 mt-0.5 truncate">
+            {user.type === "waiter"
+              ? `PIN: ${user.pin ?? "••••"}`
+              : user.email ?? "No email"}
+            {user.phone ? ` · ${user.phone}` : ""}
+          </p>
+        </div>
       </div>
 
-      {/* Status badge — clickable for non-admin */}
-      <button
-        onClick={() => void onToggleActive(user)}
-        disabled={user.type === "admin"}
-        title={user.type === "admin" ? "Admin is always active" : user.active ? "Click to deactivate" : "Click to activate"}
-        className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-full border transition flex-shrink-0
-          ${user.type === "admin" ? "cursor-default" : "cursor-pointer hover:opacity-80"}
-          ${user.active
-            ? "bg-green-50 text-green-700 border-green-200"
-            : "bg-gray-50 text-gray-500 border-gray-200"}`}
-      >
-        <span className={`w-1.5 h-1.5 rounded-full ${user.active ? "bg-green-500" : "bg-gray-400"}`} />
-        {user.active ? "Active" : "Inactive"}
-      </button>
+      <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 mt-2 sm:mt-0">
+        {/* Status badge — clickable for non-admin */}
+        <button
+          onClick={() => void onToggleActive(user)}
+          disabled={user.type === "admin"}
+          title={user.type === "admin" ? "Admin is always active" : user.active ? "Click to deactivate" : "Click to activate"}
+          className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-full border transition flex-shrink-0
+            ${user.type === "admin" ? "cursor-default" : "cursor-pointer hover:opacity-80"}
+            ${user.active
+              ? "bg-green-50 text-green-700 border-green-200"
+              : "bg-gray-50 text-gray-500 border-gray-200"}`}
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${user.active ? "bg-green-500" : "bg-gray-400"}`} />
+          {user.active ? "Active" : "Inactive"}
+        </button>
 
-      {/* Actions */}
-      <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition">
+        {/* Actions */}
+        <div className="flex items-center gap-1 flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition">
         {/* Edit */}
         {user.type !== "admin" && (
           <button
@@ -526,6 +529,7 @@ function UserRow({
         )}
       </div>
     </div>
+  </div>
   );
 }
 

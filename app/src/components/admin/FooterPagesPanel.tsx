@@ -44,7 +44,7 @@ export default function FooterPagesPanel() {
   return (
     <div className="space-y-6">
       {/* Copyright */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 sm:p-6">
         <h3 className="text-sm font-semibold text-gray-700 mb-3">Footer Copyright Text</h3>
         <div className="flex gap-3">
           <input
@@ -52,11 +52,11 @@ export default function FooterPagesPanel() {
             value={copyright}
             onChange={(e) => setCopyright(e.target.value)}
             placeholder={`© ${new Date().getFullYear()} ${settings.restaurant.name}. All rights reserved.`}
-            className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-300"
+            className="flex-1 px-3 py-2 text-xs sm:text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-300"
           />
           <button
             onClick={saveCopyright}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition ${
               copyrightSaved
                 ? "bg-green-100 text-green-700"
                 : "bg-orange-500 hover:bg-orange-600 text-white"

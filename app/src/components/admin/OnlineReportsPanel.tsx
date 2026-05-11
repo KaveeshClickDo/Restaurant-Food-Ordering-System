@@ -138,11 +138,11 @@ function StatCard({
 }) {
   const TrendIcon = trend === "up" ? ArrowUpRight : trend === "down" ? ArrowDownRight : Minus;
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm flex flex-col gap-3">
+    <div className="bg-white rounded-2xl border border-gray-100 p-3 sm:p-5 shadow-sm flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium text-gray-500">{label}</span>
-        <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${accent}`}>
-          <Icon size={16} className="text-white" />
+        <div className={`w-7 h-7 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0 ${accent}`}>
+          <Icon size={16} className="text-white flex-shrink-0" />
         </div>
       </div>
       <div>
@@ -227,12 +227,18 @@ function HBar({ label, value, total, color, fmt }: {
   const width = total === 0 ? 0 : Math.round((value / total) * 100);
   const display = fmt ? fmt(value) : String(value);
   return (
-    <div className="flex items-center gap-3">
-      <span className="text-sm text-gray-600 w-32 flex-shrink-0 truncate">{label}</span>
-      <div className="flex-1 bg-gray-100 rounded-full h-2.5 overflow-hidden">
+    <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3">
+      <div className="flex justify-between items-center sm:w-32 sm:flex-shrink-0">
+        <span className="text-sm text-gray-600 truncate">{label}</span>
+        <div className="sm:hidden text-right flex-shrink-0 pl-2">
+          <span className="text-sm font-semibold text-gray-800">{display}</span>
+          <span className="text-xs text-gray-400 ml-1.5">{width}%</span>
+        </div>
+      </div>
+      <div className="w-full sm:flex-1 bg-gray-100 rounded-full h-2.5 overflow-hidden">
         <div className={`${color} h-full rounded-full transition-all duration-500`} style={{ width: `${width}%` }} />
       </div>
-      <div className="text-right flex-shrink-0 w-28">
+      <div className="hidden sm:block text-right flex-shrink-0 w-28">
         <span className="text-sm font-semibold text-gray-800">{display}</span>
         <span className="text-xs text-gray-400 ml-1.5">{width}%</span>
       </div>
@@ -548,10 +554,10 @@ export default function OnlineReportsPanel() {
       </div>
 
       {/* ── Breakdowns ────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
         {/* Order status */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 space-y-4">
           <h3 className="font-bold text-gray-900">Orders by status</h3>
           {metrics.statuses.length === 0 ? (
             <p className="text-sm text-gray-400">No data</p>
@@ -572,7 +578,7 @@ export default function OnlineReportsPanel() {
         </div>
 
         {/* Payment methods */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 space-y-4">
           <h3 className="font-bold text-gray-900">Payment methods</h3>
           {metrics.payMethods.length === 0 ? (
             <p className="text-sm text-gray-400">No data</p>
@@ -600,7 +606,7 @@ export default function OnlineReportsPanel() {
         </div>
 
         {/* VAT breakdown */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 space-y-4">
           <h3 className="font-bold text-gray-900">VAT / Tax breakdown</h3>
           <div className="space-y-3">
             {[
@@ -659,7 +665,7 @@ export default function OnlineReportsPanel() {
         const refunded = filtered.filter((o) => (o.refunded_amount ?? 0) > 0);
         return (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-wrap gap-1 items-center justify-between mb-4">
               <h3 className="font-bold text-gray-900">Refunds detail</h3>
               <span className="text-sm font-semibold text-red-600">{fmtCur(metrics.refunds)} total refunded</span>
             </div>

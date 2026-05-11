@@ -125,7 +125,7 @@ function LivePreview({ draft, name }: { draft: ColorSettings; name: string }) {
   return (
     <div className="rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
       {/* Simulated header */}
-      <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between"
+      <div className="px-4 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0"
            style={{ backgroundColor: "#ffffff" }}>
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg flex items-center justify-center"
@@ -157,9 +157,9 @@ function LivePreview({ draft, name }: { draft: ColorSettings; name: string }) {
         </div>
 
         {/* Sample item card */}
-        <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex items-start gap-3">
+        <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex items-start gap-3 relative">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <p className="text-sm font-semibold text-gray-900">Chicken Tikka Masala</p>
               <span className="flex items-center gap-0.5 text-[11px] font-medium px-1.5 py-0.5 rounded-full border"
                     style={{ color: p600, backgroundColor: p50, borderColor: p200 }}>
@@ -184,7 +184,7 @@ function LivePreview({ draft, name }: { draft: ColorSettings; name: string }) {
         </div>
 
         {/* Sample buttons row */}
-        <div className="flex items-center gap-2 mt-3">
+        <div className="flex flex-wrap items-center gap-2 mt-3">
           <button className="flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-xl"
                   style={{ backgroundColor: p500, color: btnText }}>
             <ShoppingBag size={12} />

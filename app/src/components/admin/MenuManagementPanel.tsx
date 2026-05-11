@@ -242,17 +242,40 @@ export default function MenuManagementPanel() {
 
           {/* Category header when filtered */}
           {selectedCatId !== "all" && (
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                <span>{categories.find((c) => c.id === selectedCatId)?.emoji}</span>
-                <span>{categories.find((c) => c.id === selectedCatId)?.name}</span>
-              </h3>
+            <div className="flex flex-wrap gap-2 items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                  <span>{categories.find((c) => c.id === selectedCatId)?.emoji}</span>
+                  <span>{categories.find((c) => c.id === selectedCatId)?.name}</span>
+                </h3>
+                <div className="flex md:hidden items-center gap-1">
+                  <button
+                    onClick={() => {
+                      const cat = categories.find((c) => c.id === selectedCatId);
+                      if (cat) setEditingCat({ ...cat });
+                    }}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-500 bg-gray-100 hover:bg-blue-50 transition"
+                  >
+                    <Pencil size={12} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      const cat = categories.find((c) => c.id === selectedCatId);
+                      if (cat) setDeletingCat(cat);
+                    }}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 bg-gray-100 hover:bg-red-50 transition"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              </div>
               <button
                 onClick={() => setEditingItem(blankItem(selectedCatId))}
                 className="flex items-center gap-1.5 text-xs text-orange-500 hover:text-orange-700 font-medium transition"
               >
                 <Plus size={13} />
-                Add to category
+                <span className="hidden sm:inline">Add to category</span>
+                <span className="sm:hidden">Add Item</span>
               </button>
             </div>
           )}
@@ -278,104 +301,108 @@ export default function MenuManagementPanel() {
               return (
                 <div
                   key={item.id}
-                  className="group flex items-center gap-4 px-4 py-3 rounded-xl border border-gray-100 hover:border-orange-200 hover:bg-orange-50/30 transition-all"
+                  className="group flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 px-3 sm:px-4 py-3 rounded-xl border border-gray-100 hover:border-orange-200 hover:bg-orange-50/30 transition-all"
                 >
-                  <div className="w-14 h-14 rounded-xl overflow-hidden border border-gray-100 flex-shrink-0">
-                    {item.image ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full bg-gray-50 flex items-center justify-center text-gray-300">
-                        <ImagePlus size={18} />
+                  <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+                    <div className="w-12 h-12 rounded-xl overflow-hidden border border-gray-100 flex-shrink-0">
+                      {item.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full bg-gray-50 flex items-center justify-center text-gray-300">
+                          <ImagePlus size={18} />
+                        </div>
+                      )}
+                    </div>
+                    <GripVertical size={14} className="text-gray-300 flex-shrink-0" />
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-gray-900 text-sm">{item.name}</span>
+                        {item.popular && (
+                          <span className="flex items-center gap-0.5 text-[10px] font-semibold text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded-full border border-orange-200">
+                            <Flame size={9} /> Popular
+                          </span>
+                        )}
                       </div>
-                    )}
-                  </div>
-                  <GripVertical size={14} className="text-gray-300 flex-shrink-0" />
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-gray-900 text-sm">{item.name}</span>
-                      {item.popular && (
-                        <span className="flex items-center gap-0.5 text-[10px] font-semibold text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded-full border border-orange-200">
-                          <Flame size={9} /> Popular
-                        </span>
-                      )}
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {selectedCatId === "all" && (
+                          <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full font-medium">
+                            {catName}
+                          </span>
+                        )}
+                        {item.dietary.map((d) => (
+                          <span key={d} className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${DIETARY_COLORS[d] ?? "bg-gray-100 text-gray-500"}`}>
+                            {d}
+                          </span>
+                        ))}
+                        {(item.variations?.length ?? 0) > 0 && (
+                          <span className="text-[10px] px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full border border-blue-200 font-medium">
+                            {item.variations!.length} variation{item.variations!.length > 1 ? "s" : ""}
+                          </span>
+                        )}
+                        {(item.addOns?.length ?? 0) > 0 && (
+                          <span className="text-[10px] px-2 py-0.5 bg-violet-50 text-violet-600 rounded-full border border-violet-200 font-medium">
+                            {item.addOns!.length} add-on{item.addOns!.length > 1 ? "s" : ""}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{item.description}</p>
                     </div>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {selectedCatId === "all" && (
-                        <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full font-medium">
-                          {catName}
-                        </span>
-                      )}
-                      {item.dietary.map((d) => (
-                        <span key={d} className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${DIETARY_COLORS[d] ?? "bg-gray-100 text-gray-500"}`}>
-                          {d}
-                        </span>
-                      ))}
-                      {(item.variations?.length ?? 0) > 0 && (
-                        <span className="text-[10px] px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full border border-blue-200 font-medium">
-                          {item.variations!.length} variation{item.variations!.length > 1 ? "s" : ""}
-                        </span>
-                      )}
-                      {(item.addOns?.length ?? 0) > 0 && (
-                        <span className="text-[10px] px-2 py-0.5 bg-violet-50 text-violet-600 rounded-full border border-violet-200 font-medium">
-                          {item.addOns!.length} add-on{item.addOns!.length > 1 ? "s" : ""}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{item.description}</p>
                   </div>
 
-                  {/* Stock badge — click to cycle status quickly */}
-                  {(() => {
-                    const status = resolveStock(item);
-                    const isTracked = typeof item.stockQty === "number";
-                    const cycleStatus = (e: React.MouseEvent) => {
-                      e.stopPropagation();
-                      if (isTracked) return; // tracked items: edit via modal
-                      const next: StockStatus =
-                        status === "in_stock"    ? "out_of_stock"
-                        : status === "out_of_stock" ? "low_stock"
-                        : "in_stock";
-                      updateMenuItem({ ...item, stockStatus: next });
-                    };
-                    return (
+                  <div className="flex items-center justify-between sm:justify-end gap-3 pl-[76px] sm:pl-0">
+                    {/* Stock badge — click to cycle status quickly */}
+                    {(() => {
+                      const status = resolveStock(item);
+                      const isTracked = typeof item.stockQty === "number";
+                      const cycleStatus = (e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        if (isTracked) return; // tracked items: edit via modal
+                        const next: StockStatus =
+                          status === "in_stock"    ? "out_of_stock"
+                          : status === "out_of_stock" ? "low_stock"
+                          : "in_stock";
+                        updateMenuItem({ ...item, stockStatus: next });
+                      };
+                      return (
+                        <button
+                          onClick={cycleStatus}
+                          title={isTracked ? `${item.stockQty} units tracked` : "Click to cycle status"}
+                          className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold border transition-all ${
+                            status === "out_of_stock"
+                              ? "bg-red-50 border-red-200 text-red-600 hover:bg-red-100"
+                              : status === "low_stock"
+                              ? "bg-amber-50 border-amber-200 text-amber-600 hover:bg-amber-100"
+                              : "bg-green-50 border-green-200 text-green-600 hover:bg-green-100"
+                          } ${isTracked ? "cursor-default" : "cursor-pointer"}`}
+                        >
+                          {status === "out_of_stock" ? <PackageX size={9} /> : status === "low_stock" ? <PackageMinus size={9} /> : <Package size={9} />}
+                          {isTracked ? `${item.stockQty} left` : stockLabel(status)}
+                        </button>
+                      );
+                    })()}
+
+                    <span className="font-bold text-gray-900 text-sm flex-shrink-0">
+                      £{item.price.toFixed(2)}
+                    </span>
+
+                    <div className="flex items-center gap-1 flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 transition">
                       <button
-                        onClick={cycleStatus}
-                        title={isTracked ? `${item.stockQty} units tracked` : "Click to cycle status"}
-                        className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold border transition-all ${
-                          status === "out_of_stock"
-                            ? "bg-red-50 border-red-200 text-red-600 hover:bg-red-100"
-                            : status === "low_stock"
-                            ? "bg-amber-50 border-amber-200 text-amber-600 hover:bg-amber-100"
-                            : "bg-green-50 border-green-200 text-green-600 hover:bg-green-100"
-                        } ${isTracked ? "cursor-default" : "cursor-pointer"}`}
+                        onClick={() => setEditingItem({ ...item, variations: item.variations ?? [], addOns: item.addOns ?? [] })}
+                        className="w-6 h-6 md:w-8 md:h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition"
+                        title="Edit item"
                       >
-                        {status === "out_of_stock" ? <PackageX size={9} /> : status === "low_stock" ? <PackageMinus size={9} /> : <Package size={9} />}
-                        {isTracked ? `${item.stockQty} left` : stockLabel(status)}
+                        <Pencil size={14} />
                       </button>
-                    );
-                  })()}
-
-                  <span className="font-bold text-gray-900 text-sm flex-shrink-0">
-                    £{item.price.toFixed(2)}
-                  </span>
-
-                  <div className="flex items-center gap-1 flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 transition">
-                    <button
-                      onClick={() => setEditingItem({ ...item, variations: item.variations ?? [], addOns: item.addOns ?? [] })}
-                      className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition"
-                      title="Edit item"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    <button
-                      onClick={() => setDeletingItem(item)}
-                      className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition"
-                      title="Delete item"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                      <button
+                        onClick={() => setDeletingItem(item)}
+                        className="w-6 h-6 md:w-8 md:h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition"
+                        title="Delete item"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               );

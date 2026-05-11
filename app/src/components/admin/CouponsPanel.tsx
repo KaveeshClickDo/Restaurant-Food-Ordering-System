@@ -305,9 +305,10 @@ function CouponRow({
       status === "active" ? "border-gray-100 bg-white" : "border-dashed border-gray-200 bg-gray-50/60"
     }`}>
       {/* Main row */}
-      <div className="flex items-center gap-3 px-4 py-3.5">
-        {/* Icon */}
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3.5">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          {/* Icon */}
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
           coupon.type === "percentage" ? "bg-orange-100" : "bg-blue-100"
         }`}>
           {coupon.type === "percentage"
@@ -340,9 +341,10 @@ function CouponRow({
             )}
           </div>
         </div>
+        </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center justify-center sm:justify-end gap-2 flex-shrink-0 mt-2 sm:mt-0 pt-2 sm:pt-0 border-t sm:border-0 border-gray-100">
           {/* Active toggle */}
           <button
             onClick={() => onToggle(!coupon.active)}

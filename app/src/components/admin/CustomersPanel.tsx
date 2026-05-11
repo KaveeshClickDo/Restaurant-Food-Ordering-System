@@ -185,7 +185,7 @@ export default function CustomersPanel() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/60">
-                <th className="text-left px-5 py-3"><SortBtn k="name">Customer</SortBtn></th>
+                <th className="text-left px-5 py-3 min-w-[150px]"><SortBtn k="name">Customer</SortBtn></th>
                 <th className="text-left px-4 py-3 hidden md:table-cell"><span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Contact</span></th>
                 <th className="text-left px-4 py-3"><SortBtn k="orders">Orders</SortBtn></th>
                 <th className="text-left px-4 py-3"><SortBtn k="spent">Spent</SortBtn></th>
@@ -207,7 +207,7 @@ export default function CustomersPanel() {
                 const spent = totalSpent(c);
                 return (
                   <tr key={c.id} className="hover:bg-orange-50/20 transition-colors group">
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-3.5">
                       <div className="flex items-center gap-3">
                         <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-red-400 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
                           {c.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
