@@ -337,7 +337,7 @@ export default function DashboardView() {
                 : `${rFiltered.length} transactions · ${fmt(rRevenue, sym)} revenue${voidedCount > 0 ? ` · ${voidedCount} voided` : ""}`}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {dashTab === "reports" && (
               <button
                 onClick={() => posExportCSV(showVoided ? inRange : rFiltered, sym)}
@@ -951,9 +951,9 @@ export default function DashboardView() {
                     {/* Waiter Staff */}
                     <div className="bg-slate-800 border border-slate-700 rounded-2xl overflow-hidden">
                       {/* Header */}
-                      <div className="px-5 py-4 border-b border-slate-700 flex items-center justify-between gap-3">
+                      <div className="px-5 py-4 border-b border-slate-700 flex flex-wrap items-center justify-between gap-3">
                         <h3 className="text-white font-semibold text-sm flex items-center gap-2">
-                          <Utensils size={16} className="text-violet-400" /> Waiter Performance — Dine-In
+                          <Utensils size={16} className="text-violet-400" /> Waiter Performance | Dine-In
                         </h3>
                         {!reportsDineInLoading && diSettled.length > 0 && (
                           <span className="text-xs text-slate-500">{diSettled.length} settled orders</span>
@@ -972,7 +972,7 @@ export default function DashboardView() {
                       ) : (
                         <>
                           {/* Period KPI strip */}
-                          <div className="grid grid-cols-4 divide-x divide-slate-700 border-b border-slate-700">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-slate-700 border-b border-slate-700">
                             {[
                               { label: "Revenue",      value: fmt(diRevenue, sym),                              color: "text-violet-300" },
                               { label: "Tables",       value: String(diSettled.length),                         color: "text-white"      },
@@ -1298,15 +1298,15 @@ export default function DashboardView() {
                               ))}
                             </div>
                           </div>
-                          <div className="flex gap-2 mt-4">
+                          <div className="flex flex-col sm:flex-row gap-2 mt-4">
                             <button
                               onClick={() => printDineInReceipt(order)}
-                              className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded-xl transition-colors"
+                              className="flex items-center justify-center sm:justify-start gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded-xl transition-colors"
                             >
                               <Printer size={14} />
                               Print
                             </button>
-                            <div className="flex-1 flex gap-2">
+                            <div className="flex-1 flex flex-col sm:flex-row gap-2">
                               <input
                                 type="email"
                                 placeholder="Email receipt…"
@@ -1317,7 +1317,7 @@ export default function DashboardView() {
                               <button
                                 onClick={() => sendDineInEmail(order)}
                                 disabled={dineInEmailSt[order.id] === "sending" || !dineInEmail[order.id]}
-                                className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-medium rounded-xl transition-colors whitespace-nowrap"
+                                className="flex items-center justify-center sm:justify-start gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-medium rounded-xl transition-colors whitespace-nowrap"
                               >
                                 <Mail size={14} />
                                 {dineInEmailSt[order.id] === "sending" ? "Sending…" :
@@ -1328,7 +1328,7 @@ export default function DashboardView() {
                             {currentStaff?.permissions.canVoidSale && (
                               <button
                                 onClick={() => setDiAction({ mode: "void", order })}
-                                className="flex items-center gap-1.5 px-3 py-2 bg-red-900/30 hover:bg-red-900/60 border border-red-800/50 text-red-400 text-sm font-medium rounded-xl transition-colors whitespace-nowrap"
+                                className="flex items-center justify-center sm:justify-start gap-1.5 px-3 py-2 bg-red-900/30 hover:bg-red-900/60 border border-red-800/50 text-red-400 text-sm font-medium rounded-xl transition-colors whitespace-nowrap"
                               >
                                 <AlertTriangle size={13} /> Void
                               </button>
@@ -1382,15 +1382,15 @@ export default function DashboardView() {
                               ))}
                             </div>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex flex-col sm:flex-row gap-2">
                             <button
                               onClick={() => printDineInReceipt(order)}
-                              className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded-xl transition-colors"
+                              className="flex items-center justify-center sm:justify-start gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded-xl transition-colors"
                             >
                               <Printer size={14} />
                               Reprint
                             </button>
-                            <div className="flex-1 flex gap-2">
+                            <div className="flex-1 flex flex-col sm:flex-row gap-2">
                               <input
                                 type="email"
                                 placeholder="Email receipt…"
@@ -1401,7 +1401,7 @@ export default function DashboardView() {
                               <button
                                 onClick={() => sendDineInEmail(order)}
                                 disabled={dineInEmailSt[order.id] === "sending" || !dineInEmail[order.id]}
-                                className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-medium rounded-xl transition-colors whitespace-nowrap"
+                                className="flex items-center justify-center sm:justify-start gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-medium rounded-xl transition-colors whitespace-nowrap"
                               >
                                 <Mail size={14} />
                                 {dineInEmailSt[order.id] === "sending" ? "Sending…" :
@@ -1412,7 +1412,7 @@ export default function DashboardView() {
                             {currentStaff?.permissions.canIssueRefund && (
                               <button
                                 onClick={() => setDiAction({ mode: "refund", order })}
-                                className="flex items-center gap-1.5 px-3 py-2 bg-amber-900/30 hover:bg-amber-900/60 border border-amber-800/50 text-amber-400 text-sm font-medium rounded-xl transition-colors whitespace-nowrap"
+                                className="flex items-center justify-center sm:justify-start gap-1.5 px-3 py-2 bg-amber-900/30 hover:bg-amber-900/60 border border-amber-800/50 text-amber-400 text-sm font-medium rounded-xl transition-colors whitespace-nowrap"
                               >
                                 <RotateCcw size={13} /> Refund
                               </button>

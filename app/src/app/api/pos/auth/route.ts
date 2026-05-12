@@ -65,9 +65,10 @@ export async function POST(req: NextRequest) {
       POS_SESSION_HOURS * 60 * 60 * 1000,
     );
 
+    const { pin: _pin, ...safe } = member;
     const res = NextResponse.json({
       ok: true,
-      staff: { id: member.id, name: member.name, role: member.role },
+      staff: safe
     });
     setSessionCookie(res, COOKIE_POS, token);
     return res;

@@ -11,14 +11,14 @@ import { fmtTime, getInitials } from "./_utils";
 export default function StaffView() {
   const { staff, setStaff, clockEntries, clockIn, clockOut, isClocked, currentStaff } = usePOS();
   const [showAdd, setShowAdd] = useState(false);
-  const [newStaff, setNewStaff] = useState({ name: "", email: "", role: "cashier" as "admin"|"manager"|"cashier", pin: "", hourlyRate: "" });
-  const COLORS = ["#7c3aed","#0891b2","#16a34a","#dc2626","#ea580c","#0284c7","#9333ea","#be185d"];
+  const [newStaff, setNewStaff] = useState({ name: "", email: "", role: "cashier" as "admin" | "manager" | "cashier", pin: "", hourlyRate: "" });
+  const COLORS = ["#7c3aed", "#0891b2", "#16a34a", "#dc2626", "#ea580c", "#0284c7", "#9333ea", "#be185d"];
   const [, tick] = useState(0);
-  useEffect(() => { const id = setInterval(() => tick((n)=>n+1), 10000); return () => clearInterval(id); }, []);
+  useEffect(() => { const id = setInterval(() => tick((n) => n + 1), 10000); return () => clearInterval(id); }, []);
 
   // Edit state
   const [editingStaff, setEditingStaff] = useState<POSStaff | null>(null);
-  const [editDraft, setEditDraft] = useState({ name: "", email: "", role: "cashier" as "admin"|"manager"|"cashier", pin: "", hourlyRate: "" });
+  const [editDraft, setEditDraft] = useState({ name: "", email: "", role: "cashier" as "admin" | "manager" | "cashier", pin: "", hourlyRate: "" });
 
   // Delete state
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -46,9 +46,11 @@ export default function StaffView() {
   function saveEdit() {
     if (!editingStaff || !editDraft.name.trim() || editDraft.pin.length !== 4) return;
     setStaff((prev) => prev.map((s) => s.id === editingStaff.id
-      ? { ...s, name: editDraft.name.trim(), email: editDraft.email, role: editDraft.role,
-          pin: editDraft.pin, hourlyRate: parseFloat(editDraft.hourlyRate) || undefined,
-          permissions: ROLE_PERMISSIONS[editDraft.role] }
+      ? {
+        ...s, name: editDraft.name.trim(), email: editDraft.email, role: editDraft.role,
+        pin: editDraft.pin, hourlyRate: parseFloat(editDraft.hourlyRate) || undefined,
+        permissions: ROLE_PERMISSIONS[editDraft.role]
+      }
       : s
     ));
     setEditingStaff(null);
@@ -70,7 +72,7 @@ export default function StaffView() {
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="max-w-4xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap gap-3 items-center justify-between">
           <h2 className="text-white font-bold text-xl">Staff Management</h2>
           <button onClick={() => setShowAdd(true)} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-400 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors">
             <UserPlus size={16} /> Add Staff
@@ -100,17 +102,16 @@ export default function StaffView() {
                     <p className="text-slate-400 text-xs capitalize">{member.role}</p>
                     {minutesWorked !== null && (
                       <p className="text-slate-400 text-xs mt-0.5 flex items-center gap-1">
-                        <Timer size={10} /> {Math.floor(minutesWorked/60)}h {minutesWorked%60}m {clocked ? "(ongoing)" : ""}
+                        <Timer size={10} /> {Math.floor(minutesWorked / 60)}h {minutesWorked % 60}m {clocked ? "(ongoing)" : ""}
                       </p>
                     )}
                   </div>
                   <button
                     onClick={() => clocked ? clockOut(member.id) : clockIn(member.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 ${
-                      clocked
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 ${clocked
                         ? "bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30"
                         : "bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30"
-                    }`}
+                      }`}
                   >
                     {clocked ? "Clock Out" : "Clock In"}
                   </button>
@@ -127,22 +128,24 @@ export default function StaffView() {
           </div>
           <div className="divide-y divide-slate-700/50">
             {staff.map((member) => (
-              <div key={member.id} className="px-5 py-4 flex items-center gap-4">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm text-white flex-shrink-0 opacity-100" style={{ backgroundColor: member.avatarColor, opacity: member.active ? 1 : 0.5 }}>
-                  {getInitials(member.name)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className={`text-sm font-semibold ${member.active ? "text-white" : "text-slate-500"}`}>{member.name}</p>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold capitalize ${
-                      member.role === "admin" ? "bg-purple-500/20 text-purple-400" :
-                      member.role === "manager" ? "bg-blue-500/20 text-blue-400" :
-                      "bg-slate-600 text-slate-400"
-                    }`}>{member.role}</span>
+              <div key={member.id} className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+                <div className="flex flex-row gap-4">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm text-white flex-shrink-0 opacity-100" style={{ backgroundColor: member.avatarColor, opacity: member.active ? 1 : 0.5 }}>
+                    {getInitials(member.name)}
                   </div>
-                  <p className="text-slate-400 text-xs mt-0.5">{member.email} · PIN: {member.pin.split("").map(()=>"•").join("")}</p>
-                  {member.hourlyRate && <p className="text-slate-500 text-xs">£{member.hourlyRate}/hr</p>}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className={`text-sm font-semibold ${member.active ? "text-white" : "text-slate-500"}`}>{member.name}</p>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold capitalize ${member.role === "admin" ? "bg-purple-500/20 text-purple-400" :
+                          member.role === "manager" ? "bg-blue-500/20 text-blue-400" :
+                            "bg-slate-600 text-slate-400"
+                        }`}>{member.role}</span>
+                    </div>
+                    <p className="text-slate-400 text-xs mt-0.5">{member.email} · PIN: {member.pin.split("").map(() => "•").join("")}</p>
+                    {member.hourlyRate && <p className="text-slate-500 text-xs">£{member.hourlyRate}/hr</p>}
+                  </div>
                 </div>
+
                 <div className="flex items-center gap-2">
                   {isClocked(member.id) && (
                     <span className="flex items-center gap-1 text-[10px] bg-green-500/20 text-green-400 px-2 py-1 rounded-full font-semibold">
@@ -170,7 +173,7 @@ export default function StaffView() {
                     onClick={() => setDeleteConfirm(member.id)}
                     disabled={member.id === currentStaff?.id}
                     title={member.id === currentStaff?.id ? "Cannot delete yourself" : "Delete staff member"}
-                    className={`transition-colors ${member.id === currentStaff?.id ? "opacity-30 cursor-not-allowed" : "text-slate-400 hover:text-red-400"}`}
+                    className={`transition-colors ${member.id === currentStaff?.id ? "opacity-50 cursor-not-allowed" : "text-slate-400 hover:text-red-400"}`}
                   >
                     <Trash2 size={16} />
                   </button>
@@ -195,7 +198,7 @@ export default function StaffView() {
                     <p className="text-slate-400 text-xs">In: {fmtTime(entry.clockIn)} {entry.clockOut ? `· Out: ${fmtTime(entry.clockOut)}` : "· Still clocked in"}</p>
                   </div>
                   {entry.totalMinutes !== undefined && (
-                    <p className="text-slate-300 text-sm font-semibold">{Math.floor(entry.totalMinutes/60)}h {entry.totalMinutes%60}m</p>
+                    <p className="text-slate-300 text-sm font-semibold">{Math.floor(entry.totalMinutes / 60)}h {entry.totalMinutes % 60}m</p>
                   )}
                 </div>
               ))}
@@ -225,7 +228,7 @@ export default function StaffView() {
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">Role</label>
-                <select value={newStaff.role} onChange={(e) => setNewStaff((p) => ({ ...p, role: e.target.value as "admin"|"manager"|"cashier" }))}
+                <select value={newStaff.role} onChange={(e) => setNewStaff((p) => ({ ...p, role: e.target.value as "admin" | "manager" | "cashier" }))}
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500">
                   <option value="cashier">Cashier</option>
                   <option value="manager">Manager</option>
@@ -234,7 +237,7 @@ export default function StaffView() {
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">4-digit PIN *</label>
-                <input type="password" maxLength={4} value={newStaff.pin} onChange={(e) => setNewStaff((p) => ({ ...p, pin: e.target.value.replace(/\D/g,"") }))} placeholder="••••"
+                <input type="password" maxLength={4} value={newStaff.pin} onChange={(e) => setNewStaff((p) => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="••••"
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
               </div>
               <div>
@@ -273,7 +276,7 @@ export default function StaffView() {
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">Role</label>
-                <select value={editDraft.role} onChange={(e) => setEditDraft((p) => ({ ...p, role: e.target.value as "admin"|"manager"|"cashier" }))}
+                <select value={editDraft.role} onChange={(e) => setEditDraft((p) => ({ ...p, role: e.target.value as "admin" | "manager" | "cashier" }))}
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500">
                   <option value="cashier">Cashier</option>
                   <option value="manager">Manager</option>
@@ -282,7 +285,7 @@ export default function StaffView() {
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">4-digit PIN *</label>
-                <input type="password" maxLength={4} value={editDraft.pin} onChange={(e) => setEditDraft((p) => ({ ...p, pin: e.target.value.replace(/\D/g,"") }))} placeholder="••••"
+                <input type="password" maxLength={4} value={editDraft.pin} onChange={(e) => setEditDraft((p) => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="••••"
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
               </div>
               <div>

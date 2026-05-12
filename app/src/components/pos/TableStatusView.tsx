@@ -145,7 +145,7 @@ export default function TableStatusView() {
       </div>
 
       {/* Stats strip */}
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {([
           { key: "free",     label: "Free",     dot: "bg-slate-500" },
           { key: "reserved", label: "Reserved", dot: "bg-amber-400" },
@@ -168,7 +168,7 @@ export default function TableStatusView() {
           <Loader2 size={28} className="animate-spin text-orange-500" />
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-3">
           {visibleTables.map((t) => {
             const { state, res } = resolveState(t.id);
             const s = TABLE_STATE_STYLES[state];
@@ -178,7 +178,7 @@ export default function TableStatusView() {
               <div key={t.id} className={`rounded-2xl border-2 p-3.5 flex flex-col gap-3 transition ${s.card} ${s.ring}`}>
 
                 {/* Table header */}
-                <div className="flex items-start justify-between gap-2">
+                <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <div className="flex items-center gap-1.5">
                       <UtensilsCrossed size={13} className="text-orange-400" />
