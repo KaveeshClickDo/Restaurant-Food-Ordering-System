@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { usePOS } from "@/context/POSContext";
 import { POSProduct, POSSale, getOfferPrice, isOfferActive } from "@/types/pos";
-import { ChevronRight, Search, X, Users, Star, Package } from "lucide-react";
+import { ChevronRight, Search, X, Users, Star, Package, ShoppingCart } from "lucide-react";
 import { fmt, getInitials } from "./_utils";
 import ModifierModal from "./ModifierModal";
 import PaymentModal from "./PaymentModal";
@@ -11,12 +11,13 @@ import ReceiptModal from "./ReceiptModal";
 import OrderPanel from "./OrderPanel";
 
 export default function SaleView({ isOffline = false }: { isOffline?: boolean }) {
-  const { products, categories, addToCart, settings } = usePOS();
+  const { products, categories, addToCart, settings, cart } = usePOS();
   const [activeCategory, setActiveCategory] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [modifierProduct, setModifierProduct] = useState<POSProduct | null>(null);
   const [showPayment, setShowPayment] = useState(false);
   const [showCustomer, setShowCustomer] = useState(false);
+  const [showMobileCart, setShowMobileCart] = useState(false);
   const [completedSale, setCompletedSale] = useState<POSSale | null>(null);
   const [showDiscount, setShowDiscount] = useState(false);
   const [showTip, setShowTip] = useState(false);
@@ -42,11 +43,10 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
     }
   }
 
-  function handleCharge() { setShowPayment(true); }
-
   function handlePaymentComplete(method: "cash"|"card"|"split", payments: {method:"cash"|"card";amount:number}[], cashTendered?: number) {
     const sale = completeSale(method, payments, cashTendered);
     setShowPayment(false);
+    setShowMobileCart(false);
     setCompletedSale(sale);
   }
 
@@ -56,7 +56,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
   );
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full relative">
       {/* Modifier modal */}
       {modifierProduct && (
         <ModifierModal
@@ -192,7 +192,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
       )}
 
       {/* Left: Catalogue */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 pb-20 md:pb-0">
         {/* Category + Search bar */}
         <div className="bg-slate-900/80 border-b border-slate-700/50 px-4 py-3 flex items-center gap-3 flex-shrink-0">
           <div className="flex-1 relative">
@@ -335,14 +335,49 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
         </div>
       </div>
 
+      {/* Mobile Cart Toggle / Bottom Bar */}
+      {!showMobileCart && (
+        <div className="md:hidden absolute bottom-0 left-0 right-0 p-4 bg-slate-900 border-t border-slate-700/50 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-40">
+          <button
+            onClick={() => setShowMobileCart(true)}
+            className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-xl py-3 px-4 flex items-center justify-between font-bold shadow-lg transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <ShoppingCart size={18} />
+              <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs">
+                {cart.reduce((s, l) => s + l.quantity, 0)} items
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[13px]">View Order</span>
+              <span className="opacity-60 text-sm font-normal">|</span>
+              <span>{fmt(grandTotal, settings.currencySymbol)}</span>
+            </div>
+          </button>
+        </div>
+      )}
+
       {/* Right: Order panel */}
-      <div className="w-80 xl:w-96 flex-shrink-0">
-        <OrderPanel
-          onCharge={handleCharge}
-          onSelectCustomer={() => setShowCustomer(true)}
-          onOpenDiscount={() => setShowDiscount(true)}
-          onOpenTip={() => setShowTip(true)}
-        />
+      <div className={`
+        ${showMobileCart ? 'fixed inset-0 z-50 flex flex-col bg-slate-950' : 'hidden md:flex md:flex-col'}
+        md:w-80 xl:w-96 flex-shrink-0 md:static md:block
+      `}>
+        {showMobileCart && (
+          <div className="md:hidden bg-slate-900 border-b border-slate-800 p-4 flex items-center flex-shrink-0 pt-safe-top">
+            <button onClick={() => setShowMobileCart(false)} className="flex items-center gap-2 text-slate-300 hover:text-white font-semibold transition-colors">
+               <X size={18} />
+               <span>Back to Menu</span>
+            </button>
+          </div>
+        )}
+        <div className="flex-1 overflow-hidden md:h-full">
+          <OrderPanel
+            onCharge={() => { setShowPayment(true); setShowMobileCart(false); }}
+            onSelectCustomer={() => { setShowCustomer(true); setShowMobileCart(false); }}
+            onOpenDiscount={() => { setShowDiscount(true); setShowMobileCart(false); }}
+            onOpenTip={() => { setShowTip(true); setShowMobileCart(false); }}
+          />
+        </div>
       </div>
     </div>
   );

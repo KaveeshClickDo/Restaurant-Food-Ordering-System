@@ -83,7 +83,7 @@ export default function SettingsView() {
               {/* Tax Mode */}
               <div>
                 <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold mb-3">Tax Mode</p>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {/* Inclusive VAT */}
                   <button
                     onClick={() => setLocal((p) => ({ ...p, taxInclusive: true }))}
@@ -150,7 +150,7 @@ export default function SettingsView() {
                   <p className="text-white text-sm font-medium">Require PIN for Discounts</p>
                   <p className="text-slate-400 text-xs">Managers must confirm discounts</p>
                 </div>
-                <button onClick={() => setLocal((p) => ({ ...p, requirePinForDiscount: !p.requirePinForDiscount }))} className="transition-colors">
+                <button onClick={() => setLocal((p) => ({ ...p, requirePinForDiscount: !p.requirePinForDiscount }))} className="transition-colors flex-shrink-0">
                   {local.requirePinForDiscount ? <ToggleRight size={28} className="text-green-400" /> : <ToggleLeft size={28} className="text-slate-500" />}
                 </button>
               </div>
@@ -446,17 +446,17 @@ export default function SettingsView() {
                     Only the last {salesRetentionDays} days of sales are written to localStorage to prevent quota exhaustion.
                     Export a full archive before older records are lost on page refresh.
                   </p>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <button
                       onClick={exportSales}
-                      className="flex-1 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                      className="sm:flex-1 px-3 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
                     >
                       <Receipt size={14} /> Export JSON
                     </button>
                     <button
                       onClick={() => { if (confirm(`Remove ${archived} sale${archived !== 1 ? "s" : ""} older than ${salesRetentionDays} days from memory?`)) purgeOldSales(); }}
                       disabled={archived === 0}
-                      className="flex-1 py-2.5 rounded-xl border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-30 disabled:cursor-not-allowed text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                      className="sm:flex-1 px-3 py-2.5 rounded-xl border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-30 disabled:cursor-not-allowed text-sm font-semibold transition-colors flex items-center justify-center gap-2"
                     >
                       <Trash2 size={14} /> Purge old
                     </button>

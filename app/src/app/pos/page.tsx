@@ -123,7 +123,7 @@ export default function POSPage() {
   return (
     <div className="h-full flex flex-col bg-slate-950 overflow-hidden">
       {/* Top bar */}
-      <header className="flex-shrink-0 h-14 bg-slate-900 border-b border-slate-700/50 flex items-center px-4 gap-4">
+      <header className="flex-shrink-0 h-14 bg-slate-900 border-b border-slate-700/50 flex items-center px-4 gap-2 sm:gap-4">
         {/* Logo */}
         <div className="flex items-center gap-2 flex-shrink-0">
           <div className="w-7 h-7 bg-orange-500 rounded-lg flex items-center justify-center">
@@ -135,14 +135,14 @@ export default function POSPage() {
         <div className="h-6 w-px bg-slate-700 flex-shrink-0" />
 
         {/* Breadcrumb */}
-        <p className="text-slate-300 text-sm font-medium hidden sm:block">{viewLabels[view]}</p>
+        <p className="text-slate-300 text-sm font-medium">{viewLabels[view]}</p>
 
         <div className="flex-1" />
 
         {/* Clock */}
-        <p className="text-slate-400 text-sm font-mono hidden md:block">{time}</p>
+        <p className="text-slate-400 text-sm font-mono hidden sm:block">{time}</p>
 
-        <div className="h-6 w-px bg-slate-700 flex-shrink-0 hidden md:block" />
+        <div className="h-6 w-px bg-slate-700 flex-shrink-0 hidden sm:block" />
 
         {/* Staff */}
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -164,7 +164,7 @@ export default function POSPage() {
 
         <button
           onClick={logout}
-          className="flex items-center gap-1.5 text-slate-400 hover:text-red-400 text-xs font-medium transition-colors ml-2 px-3 py-2 rounded-lg hover:bg-red-500/10"
+          className="flex items-center gap-1.5 text-slate-400 hover:text-red-400 text-xs font-medium transition-colors px-2 sm:px-3 py-2 rounded-lg hover:bg-red-500/10"
         >
           <LogOut size={14} />
           <span className="hidden sm:block">Logout</span>
@@ -225,7 +225,7 @@ export default function POSPage() {
               }`}
             >
               <item.icon size={20} />
-              <span className="text-[10px] font-semibold">{item.label}</span>
+              <span className="hidden sm:block text-[10px] font-semibold">{item.label}</span>
             </button>
           );
         })}
