@@ -105,7 +105,7 @@ If event 2 arrives before event 1 is processed, `customersRef.current` will not 
 
 ### POS walk-in sentinel
 
-POS and waiter orders use `customer_id = "pos-walk-in"`. This sentinel row is seeded by `rls_policies.sql` and by each waiter/POS API route (`ensureWalkInCustomer()`). On the first order event from these sources, AppContext fetches and adds the sentinel customer automatically — subsequent events find it in `customersRef.current` and skip the fetch.
+POS and waiter orders use `customer_id = "pos-walk-in"`. This sentinel row is seeded by [supabase/schema.sql](../supabase/schema.sql) (section 8) and by each waiter/POS API route (`ensureWalkInCustomer()`). On the first order event from these sources, AppContext fetches and adds the sentinel customer automatically — subsequent events find it in `customersRef.current` and skip the fetch.
 
 ---
 

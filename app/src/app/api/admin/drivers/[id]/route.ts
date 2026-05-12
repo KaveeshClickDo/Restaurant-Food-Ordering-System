@@ -6,6 +6,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import type { Driver } from "@/types";
 
 const PUBLIC_COLUMNS = "id, name, email, phone, active, vehicle_info, notes, created_at";
@@ -30,6 +31,8 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (!await isAdminAuthenticated()) return unauthorizedResponse();
+
   const { id } = await params;
   let body: {
     name?: string; email?: string; phone?: string; password?: string;
@@ -89,6 +92,8 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (!await isAdminAuthenticated()) return unauthorizedResponse();
+
   const { id } = await params;
 
   const { error } = await supabaseAdmin

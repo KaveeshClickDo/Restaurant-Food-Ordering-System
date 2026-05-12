@@ -1,60 +1,64 @@
 /**
  * Server-side admin authentication helpers.
- * Uses a plaintext ADMIN_PASSWORD from env and HMAC-signed session tokens
- * stored in an httpOnly cookie. Never import this from client code.
+ *
+ * Admin sessions now use the same `<exp>|<id>|<role>|<sig>` token format as
+ * every other role (customer, driver, waiter, kitchen, pos), unified in
+ * lib/auth.ts. The cookie name (`admin_session`) and 7-day duration are
+ * preserved, but the *contents* are the new format — so any admin_session
+ * cookies issued before this change will fail verification and force a
+ * one-time re-login.
+ *
+ * The plaintext ADMIN_PASSWORD env var continues to be the credential. A
+ * future change will replace it with a per-user `users` table (06-F16),
+ * which needs DB schema work and is tracked separately.
+ *
+ * Never import this from client code.
  */
 
-import { createHmac, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import {
+  createSessionToken,
+  verifySessionToken,
+  COOKIE_ADMIN,
+  ADMIN_SESSION_DURATION_MS,
+  ADMIN_COOKIE_MAX_AGE,
+  getAdminSession,
+} from "@/lib/auth";
 
-const COOKIE_NAME     = "admin_session";
-const TOKEN_DURATION  = 7 * 24 * 60 * 60 * 1000; // 7 days in ms
-export const COOKIE_MAX_AGE = 7 * 24 * 60 * 60;   // 7 days in seconds
+export { COOKIE_ADMIN, getAdminSession };
+export const COOKIE_MAX_AGE = ADMIN_COOKIE_MAX_AGE; // back-compat re-export
 
 // ── Token helpers ────────────────────────────────────────────────────────────
 
-function getSecret(): string {
-  const secret = process.env.ADMIN_JWT_SECRET?.trim();
-  if (!secret) {
-    throw new Error(
-      "ADMIN_JWT_SECRET env var is not set. Generate a random string (e.g. openssl rand -hex 32) and add it to .env.local.",
-    );
-  }
-  return secret;
-}
-
-/** Creates a signed session token: `<expiry_ms>.<hmac_hex>` */
+/**
+ * Creates a signed admin session token. Uses the unified format
+ * `<exp>|<id>|<role>|<hmac>` from lib/auth.ts.
+ *
+ * The `id` field is set to the literal "admin" today because the system has a
+ * single shared admin credential (ADMIN_PASSWORD). When per-user admins are
+ * introduced, this will become the row id from the users table.
+ */
 export function createAdminToken(): string {
-  const exp     = String(Date.now() + TOKEN_DURATION);
-  const sig     = createHmac("sha256", getSecret()).update(exp).digest("hex");
-  return `${exp}.${sig}`;
+  return createSessionToken({ id: "admin", role: "admin" }, ADMIN_SESSION_DURATION_MS);
 }
 
-/** Returns true if the token is well-formed, correctly signed, and not expired. */
+/** Returns true if the token is well-formed, correctly signed, has role
+ *  "admin", and is not expired. */
 export function verifyAdminToken(token: string): boolean {
-  try {
-    const dot = token.lastIndexOf(".");
-    if (dot < 1) return false;
-    const exp = token.slice(0, dot);
-    const sig = token.slice(dot + 1);
-    const expected = createHmac("sha256", getSecret()).update(exp).digest("hex");
-    // Lengths must match before timingSafeEqual
-    if (sig.length !== expected.length) return false;
-    if (!timingSafeEqual(Buffer.from(sig, "hex"), Buffer.from(expected, "hex"))) return false;
-    return Date.now() < Number(exp);
-  } catch {
-    return false;
-  }
+  const payload = verifySessionToken(token);
+  return payload !== null && payload.role === "admin";
 }
 
 // ── Request-level helpers ────────────────────────────────────────────────────
 
-/** Reads the admin_session cookie and returns true if it contains a valid token. */
+/** Reads the admin_session cookie and returns true if it contains a valid
+ *  admin token. Same signature as before — all 30+ existing callers are
+ *  unaffected by the format migration. */
 export async function isAdminAuthenticated(): Promise<boolean> {
   try {
     const jar   = await cookies();
-    const token = jar.get(COOKIE_NAME)?.value;
+    const token = jar.get(COOKIE_ADMIN)?.value;
     if (!token) return false;
     return verifyAdminToken(token);
   } catch {

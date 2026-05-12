@@ -12,6 +12,13 @@
 
 import { NextResponse } from "next/server";
 import net from "net";
+import { isAdminAuthenticated } from "@/lib/adminAuth";
+import {
+  getPosSession,
+  getKitchenSession,
+  getWaiterSession,
+  unauthorizedJson,
+} from "@/lib/auth";
 
 interface PrintRequest {
   ip:    string;
@@ -19,7 +26,33 @@ interface PrintRequest {
   bytes: number[];
 }
 
+// Block loopback, link-local (cloud metadata at 169.254.169.254), and 0.0.0.0.
+// Printers live on private LANs (192.168/172.16/10.0), so those ranges stay
+// allowed — only the directly dangerous targets are blocked.
+const BLOCKED_IP_PREFIXES = [
+  /^127\./,        // loopback
+  /^169\.254\./,   // AWS/GCP/Azure metadata endpoint
+  /^0\.0\.0\.0$/,
+  /^::1$/,         // IPv6 loopback
+];
+
+function isBlockedIp(ip: string): boolean {
+  return BLOCKED_IP_PREFIXES.some((re) => re.test(ip));
+}
+
+async function isStaffAuthenticated(): Promise<boolean> {
+  if (await isAdminAuthenticated()) return true;
+  const [pos, kitchen, waiter] = await Promise.all([
+    getPosSession(),
+    getKitchenSession(),
+    getWaiterSession(),
+  ]);
+  return Boolean(pos || kitchen || waiter);
+}
+
 export async function POST(request: Request) {
+  if (!await isStaffAuthenticated()) return unauthorizedJson();
+
   let body: PrintRequest;
 
   try {
@@ -47,11 +80,26 @@ export async function POST(request: Request) {
     );
   }
 
+  if (isBlockedIp(ip.trim())) {
+    return NextResponse.json(
+      { ok: false, error: "Target IP is not allowed (loopback / metadata addresses are blocked)." },
+      { status: 400 },
+    );
+  }
+
   const portNum = Number(port);
   if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
     return NextResponse.json(
       { ok: false, error: "Port must be an integer between 1 and 65535" },
       { status: 400 },
+    );
+  }
+
+  // Cap payload size to prevent abuse — 64 KB is plenty for any receipt
+  if (bytes.length > 65_536) {
+    return NextResponse.json(
+      { ok: false, error: "Print payload too large (max 64 KB)." },
+      { status: 413 },
     );
   }
 

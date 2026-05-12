@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse }   from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { supabaseAdmin }               from "@/lib/supabaseAdmin";
+import { createSessionToken, setSessionCookie, COOKIE_CUSTOMER } from "@/lib/auth";
 
 function hashToken(raw: string): string {
   const secret = (process.env.AUTH_JWT_SECRET ?? process.env.ADMIN_JWT_SECRET ?? "").trim();
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
     .maybeSingle();
 
   if (error?.code === "PGRST204") {
-    return NextResponse.json({ ok: false, error: "Email verification is not set up yet. Run the auth migration first." }, { status: 503 });
+    return NextResponse.json({ ok: false, error: "Email verification is not set up yet. Apply supabase/schema.sql first." }, { status: 503 });
   }
 
   const invalid = () =>
@@ -37,7 +38,8 @@ export async function POST(req: NextRequest) {
 
   if (!data) return invalid();
 
-  // Already verified — treat as success
+  // Already verified — treat as success (no fresh session — the user must
+  // log in normally if they aren't already signed in).
   if (data.email_verified) return NextResponse.json({ ok: true, alreadyVerified: true });
 
   if (!data.email_verification_token || !data.email_verification_expires) return invalid();
@@ -56,5 +58,11 @@ export async function POST(req: NextRequest) {
     .update({ email_verified: true, email_verification_token: null, email_verification_expires: null })
     .eq("id", data.id);
 
-  return NextResponse.json({ ok: true });
+  // First-time verification: issue the session cookie that register() withheld.
+  // This lets the verify-email page land the customer on /account already
+  // logged in, completing the registration flow.
+  const sessionToken = createSessionToken({ id: data.id, role: "customer" });
+  const res = NextResponse.json({ ok: true, customerId: data.id });
+  setSessionCookie(res, COOKIE_CUSTOMER, sessionToken);
+  return res;
 }

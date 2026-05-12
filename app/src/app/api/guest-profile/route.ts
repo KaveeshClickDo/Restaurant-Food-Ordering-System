@@ -7,8 +7,21 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
+import { rateLimit }                 from "@/lib/rateLimit";
 
 export async function POST(req: NextRequest) {
+  // Per-IP rate limit — 10 upserts per minute. The endpoint accepts an
+  // arbitrary email and writes to reservation_customers; without a cap a bot
+  // could pollute the CRM table.
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const { limited } = rateLimit(`guest-profile:${ip}`, 10, 60_000);
+  if (limited) {
+    return NextResponse.json(
+      { ok: false, error: "Too many requests. Please wait a minute." },
+      { status: 429 },
+    );
+  }
+
   let body: { name?: string; email?: string; phone?: string; orderTotal?: number };
   try { body = await req.json(); }
   catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }

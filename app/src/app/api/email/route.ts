@@ -21,8 +21,28 @@
 
 import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
+import { isAdminAuthenticated } from "@/lib/adminAuth";
+import {
+  getWaiterSession,
+  getPosSession,
+  getKitchenSession,
+  unauthorizedJson,
+} from "@/lib/auth";
 
 export const runtime = "nodejs";
+
+// Only authenticated staff may use the generic email relay. Customer-facing
+// transactional emails (order confirmation, password reset, verification)
+// are sent in-process by lib/emailServer.ts and never hit this route.
+async function isStaffAuthenticated(): Promise<boolean> {
+  if (await isAdminAuthenticated()) return true;
+  const [waiter, pos, kitchen] = await Promise.all([
+    getWaiterSession(),
+    getPosSession(),
+    getKitchenSession(),
+  ]);
+  return Boolean(waiter || pos || kitchen);
+}
 
 interface EmailRequest {
   to:      string;
@@ -36,6 +56,8 @@ function isEmail(s: string) {
 }
 
 export async function POST(request: Request) {
+  if (!await isStaffAuthenticated()) return unauthorizedJson();
+
   let body: EmailRequest & { smtp?: unknown };
   try {
     body = await request.json();

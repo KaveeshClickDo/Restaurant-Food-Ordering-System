@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import type { DiningTable, ReservationSystem } from "@/types";
 import { sendReservationEmailServer }          from "@/lib/emailServer";
+import { rateLimit }                  from "@/lib/rateLimit";
 
 function toMins(time: string): number {
   const [h, m] = time.split(":").map(Number);
@@ -15,6 +16,18 @@ function toMins(time: string): number {
 }
 
 export async function POST(req: NextRequest) {
+  // Per-IP rate limit — 5 bookings per minute. Public booking endpoint, no
+  // auth gate, so this is the only thing stopping a bot from flooding the
+  // slot table with fake reservations.
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const { limited } = rateLimit(`reservation:${ip}`, 5, 60_000);
+  if (limited) {
+    return NextResponse.json(
+      { ok: false, error: "Too many booking requests. Please wait a minute and try again." },
+      { status: 429 },
+    );
+  }
+
   let body: {
     tableId?: string;
     date?: string;
@@ -73,7 +86,7 @@ export async function POST(req: NextRequest) {
   // If the table doesn't exist yet, surface a clear setup error rather than a generic 500
   if (conflictErr && (conflictErr.message?.includes("schema cache") || conflictErr.message?.includes("not found"))) {
     return NextResponse.json(
-      { ok: false, error: "The reservations table has not been created in your database yet. Please run the reservations migration SQL in your Supabase SQL Editor." },
+      { ok: false, error: "The reservations table has not been created in your database yet. Apply supabase/schema.sql in your Supabase SQL Editor." },
       { status: 503 },
     );
   }

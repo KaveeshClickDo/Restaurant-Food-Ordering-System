@@ -3,12 +3,18 @@
 import { useState } from "react";
 import type { Customer } from "@/types";
 
+/**
+ * After the verification-enforcement change, login + register reject
+ * unverified accounts, so this banner only ever appears for legacy
+ * accounts created before the email_verified column existed. They are
+ * grandfathered into login but should still verify — hence the banner.
+ * No dismiss button: dismissing it would not unlock anything anyway.
+ */
 export default function EmailVerificationBanner({ currentUser }: { currentUser: Customer | null }) {
-  const [dismissed, setDismissed] = useState(false);
-  const [sending,   setSending]   = useState(false);
-  const [sent,      setSent]      = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sent,    setSent]    = useState(false);
 
-  if (!currentUser || currentUser.emailVerified !== false || dismissed) return null;
+  if (!currentUser || currentUser.emailVerified !== false) return null;
 
   async function handleResend() {
     setSending(true);
@@ -37,13 +43,6 @@ export default function EmailVerificationBanner({ currentUser }: { currentUser: 
             {sending ? "Sending…" : "Resend email"}
           </button>
         )}
-        <button
-          onClick={() => setDismissed(true)}
-          className="text-amber-500 hover:text-amber-700 font-bold text-base leading-none transition"
-          aria-label="Dismiss"
-        >
-          ×
-        </button>
       </div>
     </div>
   );

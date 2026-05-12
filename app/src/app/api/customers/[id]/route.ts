@@ -3,11 +3,13 @@
  * Only a strict allowlist of fields can be written: favourites, saved_addresses,
  * name, and phone. Sensitive fields (store_credit, tags, password, email) are
  * explicitly blocked so a caller can never escalate their own privileges.
- * No admin auth required — this is the customer-facing update path.
+ * Requires a customer session matching the [id] in the URL — a customer may
+ * only update their own profile.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
+import { getCustomerSession, unauthorizedJson } from "@/lib/auth";
 
 const ALLOWED_FIELDS = new Set(["favourites", "saved_addresses", "name", "phone"]);
 
@@ -16,6 +18,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+
+  const session = await getCustomerSession();
+  if (!session || session.id !== id) return unauthorizedJson();
 
   let body: Record<string, unknown>;
   try { body = await req.json(); }

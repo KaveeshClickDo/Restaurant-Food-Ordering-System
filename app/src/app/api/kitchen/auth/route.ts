@@ -14,16 +14,10 @@ import {
 } from "@/lib/auth";
 import { rateLimit } from "@/lib/rateLimit";
 
-const SEED_KITCHEN: KitchenStaff[] = [
-  { id: "k-1", name: "Head Chef",        pin: "1234", role: "head_chef",       active: true, avatarColor: "#dc2626", createdAt: "" },
-  { id: "k-2", name: "Sous Chef",        pin: "2345", role: "chef",            active: true, avatarColor: "#ea580c", createdAt: "" },
-  { id: "k-3", name: "Kitchen Manager",  pin: "3456", role: "kitchen_manager", active: true, avatarColor: "#7c3aed", createdAt: "" },
-];
-
 async function getKitchenStaff(): Promise<KitchenStaff[]> {
   const { data: row } = await supabaseAdmin
     .from("app_settings").select("data").limit(1).single();
-  return row?.data?.kitchenStaff?.length ? row.data.kitchenStaff : SEED_KITCHEN;
+  return row?.data?.kitchenStaff ?? [];
 }
 
 // ── POST: authenticate with staffId + PIN ─────────────────────────────────────
@@ -45,6 +39,12 @@ export async function POST(req: NextRequest) {
 
   try {
     const staff = await getKitchenStaff();
+    if (staff.length === 0) {
+      return NextResponse.json(
+        { ok: false, error: "Kitchen staff not configured. Ask your admin to add staff accounts." },
+        { status: 503 },
+      );
+    }
     const member = staff.find((s) => s.id === staffId && s.active);
     if (!member || member.pin !== pin) {
       return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });

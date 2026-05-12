@@ -16,6 +16,7 @@ import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import {
   createSessionToken,
   setSessionCookie,
+  getPosSession,
   COOKIE_POS,
 } from "@/lib/auth";
 import { rateLimit } from "@/lib/rateLimit";
@@ -82,4 +83,37 @@ export async function DELETE() {
   const res = NextResponse.json({ ok: true });
   res.cookies.set(COOKIE_POS, "", { httpOnly: true, maxAge: 0, path: "/" });
   return res;
+}
+
+/**
+ * GET /api/pos/auth — return the current POS staff member if the session
+ * cookie is valid. Used by POSContext on mount to hydrate `currentStaff`
+ * from the server (httpOnly cookie is the source of truth).
+ * The PIN is never returned.
+ */
+export async function GET() {
+  const session = await getPosSession();
+  if (!session) return NextResponse.json({ ok: false }, { status: 401 });
+
+  try {
+    const { data: row } = await supabaseAdmin
+      .from("app_settings").select("data").eq("id", 1).single();
+
+    const posStaff: Array<{
+      id: string; name: string; role: string; pin: string; active: boolean;
+      email?: string; permissions?: unknown; hourlyRate?: number;
+      avatarColor?: string; createdAt?: string;
+    }> = row?.data?.pos_staff ?? [];
+
+    const member = posStaff.find((s) => s.id === session.id && s.active);
+    if (!member) return NextResponse.json({ ok: false }, { status: 401 });
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { pin: _p, ...safe } = member;
+    return NextResponse.json({ ok: true, staff: safe });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unexpected error";
+    console.error("[pos/auth GET]", message);
+    return NextResponse.json({ ok: false, error: "Failed to fetch staff." }, { status: 500 });
+  }
 }

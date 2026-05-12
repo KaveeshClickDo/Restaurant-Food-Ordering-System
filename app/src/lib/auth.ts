@@ -14,13 +14,16 @@ export const COOKIE_DRIVER   = "driver_session";
 export const COOKIE_WAITER   = "waiter_session";
 export const COOKIE_KITCHEN  = "kitchen_session";
 export const COOKIE_POS      = "pos_staff_session";
+export const COOKIE_ADMIN    = "admin_session";
 
-export const SESSION_DURATION_MS  = 30 * 24 * 60 * 60 * 1000; // 30 days
-export const COOKIE_MAX_AGE       = 30 * 24 * 60 * 60;         // 30 days (seconds)
-export const RESET_TOKEN_TTL_MS   = 60 * 60 * 1000;            // 1 hour
+export const SESSION_DURATION_MS    = 30 * 24 * 60 * 60 * 1000; // 30 days
+export const COOKIE_MAX_AGE         = 30 * 24 * 60 * 60;         // 30 days (seconds)
+export const ADMIN_SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;  // 7 days (admin sessions shorter)
+export const ADMIN_COOKIE_MAX_AGE   = 7 * 24 * 60 * 60;
+export const RESET_TOKEN_TTL_MS     = 60 * 60 * 1000;            // 1 hour
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-export type SessionRole = "customer" | "driver" | "waiter" | "kitchen" | "pos";
+export type SessionRole = "customer" | "driver" | "waiter" | "kitchen" | "pos" | "admin";
 
 export interface SessionPayload {
   id:   string;
@@ -97,6 +100,7 @@ export const getDriverSession   = () => readSession(COOKIE_DRIVER);
 export const getWaiterSession   = () => readSession(COOKIE_WAITER);
 export const getKitchenSession  = () => readSession(COOKIE_KITCHEN);
 export const getPosSession      = () => readSession(COOKIE_POS);
+export const getAdminSession    = () => readSession(COOKIE_ADMIN);
 
 // ── Shared responses ──────────────────────────────────────────────────────────
 export const unauthorizedJson = () =>

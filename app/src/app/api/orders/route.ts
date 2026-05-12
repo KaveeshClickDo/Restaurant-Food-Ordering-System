@@ -20,6 +20,7 @@
 import { NextRequest, NextResponse }    from "next/server";
 import { supabaseAdmin }               from "@/lib/supabaseAdmin";
 import { sendOrderConfirmationEmail }  from "@/lib/emailServer";
+import { getCustomerSession, unauthorizedJson } from "@/lib/auth";
 
 interface DBMenuItem {
   id:         string;
@@ -44,6 +45,19 @@ export async function POST(req: NextRequest) {
   }
   if (!customer_id || typeof customer_id !== "string") {
     return NextResponse.json({ ok: false, error: "'customer_id' is required." }, { status: 400 });
+  }
+
+  // ── Session ownership check ──────────────────────────────────────────────
+  // The "pos-walk-in" sentinel is for POS-placed orders and must never appear
+  // on the customer-facing endpoint (POS uses /api/pos/orders). The string
+  // "guest" is the documented unauthenticated checkout value — any other
+  // customer_id must match the logged-in session.
+  if (customer_id === "pos-walk-in") return unauthorizedJson();
+  const session = await getCustomerSession();
+  if (session) {
+    if (session.id !== customer_id) return unauthorizedJson();
+  } else if (customer_id !== "guest") {
+    return unauthorizedJson();
   }
   if (fulfillment !== "delivery" && fulfillment !== "collection" && fulfillment !== "dine-in") {
     return NextResponse.json({ ok: false, error: "'fulfillment' must be 'delivery', 'collection', or 'dine-in'." }, { status: 400 });

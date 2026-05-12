@@ -2,14 +2,19 @@
  * POST /api/pos/reservations
  * Creates a walk-in or phone reservation from the POS terminal.
  * Skips the availability check — staff can see the room.
- * No admin cookie required; POS is an internal staff terminal.
+ * Requires a POS or admin session.
  */
 
 import { NextRequest, NextResponse }  from "next/server";
 import { supabaseAdmin }              from "@/lib/supabaseAdmin";
 import { sendReservationEmailServer } from "@/lib/emailServer";
+import { isAdminAuthenticated }       from "@/lib/adminAuth";
+import { getPosSession, unauthorizedJson } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
+  const [pos, admin] = await Promise.all([getPosSession(), isAdminAuthenticated()]);
+  if (!pos && !admin) return unauthorizedJson();
+
   let body: {
     tableId?: string; tableLabel?: string; tableSeats?: number; section?: string;
     date?: string; time?: string; partySize?: number;

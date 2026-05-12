@@ -10,6 +10,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import type { Driver } from "@/types";
 
 // Columns returned to the client — password_hash is never included.
@@ -32,6 +33,8 @@ function mapRow(row: any): Driver {
 }
 
 export async function GET() {
+  if (!await isAdminAuthenticated()) return unauthorizedResponse();
+
   const { data, error } = await supabaseAdmin
     .from("drivers")
     .select(PUBLIC_COLUMNS)
@@ -45,6 +48,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (!await isAdminAuthenticated()) return unauthorizedResponse();
+
   let body: { name?: string; email?: string; phone?: string; password?: string; active?: boolean; vehicleInfo?: string; notes?: string };
 
   try {

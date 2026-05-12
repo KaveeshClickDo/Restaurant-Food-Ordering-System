@@ -6,8 +6,12 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { requireWaiterAuth } from "@/lib/waiterAuth";
 
 export async function POST(req: NextRequest) {
+  const unauth = await requireWaiterAuth();
+  if (unauth) return unauth;
+
   let body: {
     orderIds?: string[];
     tableLabel?: string;

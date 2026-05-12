@@ -2,8 +2,8 @@
  * POST /api/auth/register — public customer self-registration.
  * Hashes password with bcrypt, stores it, then sends an email verification link.
  *
- * Column fallback: if auth_migration.sql hasn't been run yet (PGRST204),
- * stores the bcrypt hash in the legacy `password` column and skips verification.
+ * Column fallback: if schema.sql hasn't been applied yet (PGRST204), stores
+ * the bcrypt hash in the legacy `password` column and skips verification.
  */
 
 import { NextRequest, NextResponse }  from "next/server";
@@ -13,6 +13,11 @@ import { createHmac, randomBytes }    from "crypto";
 import { supabaseAdmin }              from "@/lib/supabaseAdmin";
 import { sendEmailDirect, fetchBrandPrimaryColor } from "@/lib/emailServer";
 import { createSessionToken, setSessionCookie, COOKIE_CUSTOMER } from "@/lib/auth";
+
+// Issue a session cookie immediately on register only when the auth migration
+// hasn't been applied yet — in that case email_verified doesn't exist and the
+// login route will accept the account regardless. Once the migration is in
+// place, the cookie is withheld until /api/auth/verify-email is hit.
 
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -138,9 +143,21 @@ export async function POST(req: NextRequest) {
     await sendVerificationEmail(email.trim().toLowerCase(), name.trim(), rawToken);
   }
 
-  // ── Auto-login ────────────────────────────────────────────────────────────
-  const token = createSessionToken({ id, role: "customer" });
-  const res   = NextResponse.json({ ok: true, emailVerificationSent: migrationRun });
-  setSessionCookie(res, COOKIE_CUSTOMER, token);
-  return res;
+  // ── Issue session cookie ONLY when verification cannot be enforced ─────────
+  // When the migration is in place, the customer must click the verification
+  // link before logging in — no auto-login. When the migration is absent the
+  // verification column doesn't exist, login can't gate on it, so issuing the
+  // cookie here is the only path that keeps fresh registrations working.
+  if (!migrationRun) {
+    const token = createSessionToken({ id, role: "customer" });
+    const res   = NextResponse.json({ ok: true, requiresVerification: false });
+    setSessionCookie(res, COOKIE_CUSTOMER, token);
+    return res;
+  }
+
+  return NextResponse.json({
+    ok: true,
+    requiresVerification: true,
+    email: email.trim().toLowerCase(),
+  });
 }

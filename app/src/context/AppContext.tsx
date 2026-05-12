@@ -87,8 +87,8 @@ interface AppContextValue {
   addCustomer: (customer: Customer) => void;
   updateCustomer: (customer: Customer) => void;
   currentUser: Customer | null;
-  login: (email: string, password: string) => Promise<boolean>;
-  register: (name: string, email: string, phone: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  login: (email: string, password: string) => Promise<{ ok: boolean; needsVerification?: boolean; email?: string; error?: string }>;
+  register: (name: string, email: string, phone: string, password: string) => Promise<{ success: boolean; error?: string; needsVerification?: boolean; email?: string }>;
   logout: () => Promise<void>;
   toggleFavourite: (menuItemId: string) => void;
   isFavourite: (menuItemId: string) => boolean;
@@ -211,16 +211,12 @@ const DEFAULT_SETTINGS: AdminSettings = {
     categories: [],
     items: [],
   },
-  waiters: [
-    { id: "w-1", name: "Head Waiter", pin: "1111", role: "senior", active: true, avatarColor: "#7c3aed", createdAt: new Date().toISOString() },
-    { id: "w-2", name: "Alex",        pin: "2222", role: "waiter",  active: true, avatarColor: "#0891b2", createdAt: new Date().toISOString() },
-    { id: "w-3", name: "Sophie",      pin: "3333", role: "waiter",  active: true, avatarColor: "#16a34a", createdAt: new Date().toISOString() },
-  ],
-  kitchenStaff: [
-    { id: "k-1", name: "Head Chef",       pin: "1234", role: "head_chef",       active: true, avatarColor: "#dc2626", createdAt: new Date().toISOString() },
-    { id: "k-2", name: "Sous Chef",       pin: "2345", role: "chef",            active: true, avatarColor: "#ea580c", createdAt: new Date().toISOString() },
-    { id: "k-3", name: "Kitchen Manager", pin: "3456", role: "kitchen_manager", active: true, avatarColor: "#7c3aed", createdAt: new Date().toISOString() },
-  ],
+  // Waiter and kitchen PINs were previously hardcoded here (1111/2222/3333 and
+  // 1234/2345/3456). Those defaults shipped in the client bundle and were
+  // world-readable — they're now empty and admins must explicitly configure
+  // staff via Admin → Staff & Tables / Kitchen Staff.
+  waiters: [],
+  kitchenStaff: [],
   diningTables: [
     ...Array.from({ length: 6 },  (_, i) => ({ id: `t-${i+1}`,  number: i+1,  label: `T${i+1}`,  seats: i < 2 ? 2 : 4, section: "Main Hall", active: true })),
     ...Array.from({ length: 4 },  (_, i) => ({ id: `t-${i+7}`,  number: i+7,  label: `T${i+7}`,  seats: 4,             section: "Terrace",   active: true })),
@@ -1135,25 +1131,40 @@ export function AppProvider({
 
   // ─── Auth ─────────────────────────────────────────────────────────────────
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (
+    email: string, password: string,
+  ): Promise<{ ok: boolean; needsVerification?: boolean; email?: string; error?: string }> => {
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      const json = await res.json() as { ok: boolean; customer?: Customer; error?: string };
+      const json = await res.json() as {
+        ok: boolean;
+        customer?: Customer;
+        error?: string;
+        needsVerification?: boolean;
+        email?: string;
+      };
       if (json.ok && json.customer) {
         setCurrentUser({ ...json.customer, orders: json.customer.orders ?? [] });
-        return true;
+        return { ok: true };
       }
-      return false;
+      return {
+        ok: false,
+        needsVerification: json.needsVerification,
+        email: json.email,
+        error: json.error,
+      };
     } catch {
-      return false;
+      return { ok: false, error: "Connection error. Please try again." };
     }
   };
 
-  const register = async (name: string, email: string, phone: string, password: string): Promise<{ success: boolean; error?: string }> => {
+  const register = async (
+    name: string, email: string, phone: string, password: string,
+  ): Promise<{ success: boolean; error?: string; needsVerification?: boolean; email?: string }> => {
     const id = crypto.randomUUID();
     const createdAt = new Date().toISOString();
     try {
@@ -1162,12 +1173,26 @@ export function AppProvider({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, name, email, phone, password, createdAt }),
       });
-      const json = await res.json() as { ok: boolean; error?: string; emailVerificationSent?: boolean };
+      const json = await res.json() as {
+        ok: boolean;
+        error?: string;
+        requiresVerification?: boolean;
+        email?: string;
+      };
       if (!json.ok) return { success: false, error: json.error ?? "Registration failed." };
-      // Optimistically add to local state; Realtime will sync
+
+      // When the migration is in place the server holds back the session
+      // cookie until /api/auth/verify-email is hit — do NOT auto-login the
+      // user here, just surface needsVerification so the UI can show
+      // "check your inbox".
+      if (json.requiresVerification) {
+        return { success: true, needsVerification: true, email: json.email ?? email };
+      }
+
+      // Pre-migration fallback path — cookie was set server-side, mirror the
+      // user into local state so the account page can render immediately.
       const newCustomer: Customer = {
         id, name, email, phone, createdAt, tags: [], orders: [], favourites: [], savedAddresses: [],
-        emailVerified: json.emailVerificationSent ? false : undefined,
       };
       setCustomers((prev) => [...prev, newCustomer]);
       setCurrentUser(newCustomer);

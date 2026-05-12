@@ -1,8 +1,8 @@
 /**
  * PUT /api/pos/reservations/[id]
  * POS-accessible check-in / check-out endpoint.
- * Limited to status = "checked_in" | "checked_out" only.
- * No admin cookie required — POS is an internal staff terminal.
+ * Limited to status changes only.
+ * Requires a POS or admin session.
  *
  * Also upserts the reservation_customers profile on check-in,
  * and increments visit_count + sets last_visit_at on check-out.
@@ -11,6 +11,8 @@
 import { NextRequest, NextResponse }       from "next/server";
 import { supabaseAdmin }                   from "@/lib/supabaseAdmin";
 import { sendReservationEmailServer }      from "@/lib/emailServer";
+import { isAdminAuthenticated }            from "@/lib/adminAuth";
+import { getPosSession, unauthorizedJson } from "@/lib/auth";
 
 const ALLOWED = new Set(["checked_in", "checked_out", "confirmed", "cancelled", "no_show"]);
 
@@ -18,6 +20,9 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const [pos, admin] = await Promise.all([getPosSession(), isAdminAuthenticated()]);
+  if (!pos && !admin) return unauthorizedJson();
+
   const { id } = await params;
 
   let body: { status?: string };

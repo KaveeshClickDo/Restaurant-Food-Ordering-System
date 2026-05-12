@@ -1,18 +1,38 @@
 /**
  * PUT /api/pos/orders/[id]/collected
  * Marks a POS (collection) order as "delivered" once the customer has picked it up.
- * Uses the service role key — no admin cookie needed because this endpoint is
- * called from a trusted in-restaurant screen (customer display / KDS).
+ * Called from the kitchen UI and the in-restaurant customer-display screen.
+ * Requires an authenticated staff session (kitchen / POS / waiter / admin) —
+ * the customer-display device must be signed into one of those before use.
  * Only allowed when the order's current status is "ready".
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
+import { isAdminAuthenticated }      from "@/lib/adminAuth";
+import {
+  getPosSession,
+  getKitchenSession,
+  getWaiterSession,
+  unauthorizedJson,
+} from "@/lib/auth";
+
+async function isStaffAuthenticated(): Promise<boolean> {
+  if (await isAdminAuthenticated()) return true;
+  const [pos, kitchen, waiter] = await Promise.all([
+    getPosSession(),
+    getKitchenSession(),
+    getWaiterSession(),
+  ]);
+  return Boolean(pos || kitchen || waiter);
+}
 
 export async function PUT(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (!await isStaffAuthenticated()) return unauthorizedJson();
+
   const { id } = await params;
 
   // Safety guard — only advance from "ready"; never touch in-flight or already-done orders

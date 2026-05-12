@@ -4,21 +4,16 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 const uuid = () => crypto.randomUUID();
 import {
   POSStaff, POSProduct, POSCategory, POSModifier, POSCartItem, POSSale, POSCustomer,
-  POSSettings, POSClockEntry, POSCartModifier, ROLE_PERMISSIONS, getOfferPrice, cartLineTotal,
+  POSSettings, POSClockEntry, POSCartModifier, getOfferPrice, cartLineTotal,
 } from "@/types/pos";
 import { enqueue as outboxEnqueue } from "@/lib/posOutbox";
 
 // ─── Seed data ───────────────────────────────────────────────────────────────
 
-// Seed staff used only on a fresh install (localStorage empty).
-// PINs must be changed in Settings → Staff before deploying to a production terminal.
-const SEED_STAFF: POSStaff[] = [
-  {
-    id: "staff-1", name: "Admin", email: "admin@restaurant.com", role: "admin",
-    pin: "1234", active: true, permissions: ROLE_PERMISSIONS.admin,
-    hourlyRate: 0, avatarColor: "#7c3aed", createdAt: "2024-01-01T00:00:00.000Z",
-  },
-];
+// No hardcoded staff or PINs. Staff records must be configured via
+// Admin → POS Staff before the POS can be used. The login screen renders an
+// empty-state message when this list is empty.
+const SEED_STAFF: POSStaff[] = [];
 
 const SEED_CATEGORIES: POSCategory[] = [
   { id: "starters",  name: "Starters",       emoji: "🥗", color: "#f97316", order: 0 },
@@ -124,7 +119,7 @@ const SEED_CUSTOMERS: POSCustomer[] = [
 interface POSContextValue {
   // Auth
   currentStaff: POSStaff | null;
-  login: (staffId: string, pin: string) => boolean;
+  login: (staffId: string, pin: string) => Promise<boolean>;
   logout: () => void;
   // Data
   staff: POSStaff[];
@@ -269,9 +264,11 @@ function syncMenuToSupabase(products: POSProduct[], categories: POSCategory[]) {
 // ─── Provider ────────────────────────────────────────────────────────────────
 
 export function POSProvider({ children }: { children: React.ReactNode }) {
-  const [currentStaff, setCurrentStaff] = useState<POSStaff | null>(() =>
-    load<POSStaff | null>("pos_session", null)
-  );
+  // currentStaff starts null on every mount; the httpOnly pos_staff_session
+  // cookie is the source of truth. A useEffect below calls GET /api/pos/auth
+  // to hydrate this from the server. localStorage is no longer trusted for
+  // identity — only for non-auth UI state caches.
+  const [currentStaff, setCurrentStaff] = useState<POSStaff | null>(null);
   const [staff, setStaff] = useState<POSStaff[]>(() =>
     load<POSStaff[]>("pos_staff", SEED_STAFF)
   );
@@ -302,8 +299,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   const [assignedCustomer, setAssignedCustomer] = useState<POSCustomer | null>(null);
   const receiptCounter = useRef(load<number>("pos_receipt_counter", 1000));
 
-  // Persist
-  useEffect(() => { save("pos_session", currentStaff); }, [currentStaff]);
+  // Persist (pos_session removed — currentStaff is hydrated from the server)
   useEffect(() => { save("pos_staff", staff); }, [staff]);
   useEffect(() => { save("pos_products", products); }, [products]);
   useEffect(() => { save("pos_categories", categories); }, [categories]);
@@ -410,19 +406,41 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   }, [products, categories]);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
-  const login = useCallback((staffId: string, pin: string): boolean => {
-    const member = staff.find((s) => s.id === staffId && s.active);
-    if (!member || member.pin !== pin) return false;
-    setCurrentStaff(member);
-    // Obtain a server-side session cookie so the POS API routes can verify auth.
-    // Fire-and-forget — local POS functionality never depends on this succeeding.
-    fetch("/api/pos/auth", {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ staffId, pin }),
-    }).catch(() => {});
-    return true;
-  }, [staff]);
+  // Server-authoritative login: the PIN is validated by /api/pos/auth, which
+  // sets the httpOnly pos_staff_session cookie and returns the staff record.
+  // The browser never compares PINs — and never sees other staff's PINs.
+  const login = useCallback(async (staffId: string, pin: string): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/pos/auth", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ staffId, pin }),
+      });
+      if (!res.ok) return false;
+      const json = await res.json() as { ok: boolean; staff?: POSStaff };
+      if (!json.ok || !json.staff) return false;
+      setCurrentStaff(json.staff);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  // ── Session hydration on mount ────────────────────────────────────────────
+  // Read the server session (httpOnly cookie) and populate currentStaff. Any
+  // stale pos_session key from an older client build is cleared so it can't
+  // be reused as an identity claim.
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try { localStorage.removeItem("pos_session"); } catch { /* ignore */ }
+    }
+    fetch("/api/pos/auth")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json: { ok: boolean; staff?: POSStaff } | null) => {
+        if (json?.ok && json.staff) setCurrentStaff(json.staff);
+      })
+      .catch(() => { /* network — fall through to login screen */ });
+  }, []);
 
   const logout = useCallback(() => {
     setCurrentStaff(null);

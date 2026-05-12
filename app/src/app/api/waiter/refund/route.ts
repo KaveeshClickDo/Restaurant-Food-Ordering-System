@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { requireWaiterAuth } from "@/lib/waiterAuth";
 
 interface RefundRecord {
   id: string;
@@ -21,6 +22,9 @@ interface RefundRecord {
 }
 
 export async function POST(req: NextRequest) {
+  const unauth = await requireWaiterAuth();
+  if (unauth) return unauth;
+
   let body: {
     orderIds?: string[];
     refundAmount?: number;   // total amount to refund (across all orders combined)

@@ -2,11 +2,14 @@
  * POST /api/admin/seed — seed initial categories and menu items if the tables are empty.
  * This route uses the service role key so it works even with RLS enabled.
  * It is safe to call repeatedly — it's a no-op if data already exists.
- * No admin auth required (seeding is only additive and idempotent).
+ * Requires an authenticated admin session: idempotency is not a substitute for
+ * authorization, and a fresh install must not seed itself before an admin
+ * configures the environment.
  */
 
 import { NextResponse }                from "next/server";
 import { supabaseAdmin }               from "@/lib/supabaseAdmin";
+import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { categories as defaultCategories, menuItems as defaultMenuItems } from "@/data/menu";
 import { mockCustomers }               from "@/data/customers";
 
@@ -59,6 +62,8 @@ function orderToRow(o: any) {
 }
 
 export async function POST() {
+  if (!await isAdminAuthenticated()) return unauthorizedResponse();
+
   const results: string[] = [];
 
   // ── Categories ──────────────────────────────────────────────────────────────
@@ -87,24 +92,31 @@ export async function POST() {
     results.push("menu_items: already populated, skipped");
   }
 
-  // ── Mock customers + orders ─────────────────────────────────────────────────
-  const { data: existingCusts } = await supabaseAdmin
-    .from("customers").select("id").limit(1);
+  // ── Mock customers + orders (development only) ─────────────────────────────
+  // Never seed mock customers into a production DB — they ship with the literal
+  // password "password" in data/customers.ts. In production the customers table
+  // is populated only by real registrations.
+  if (process.env.NODE_ENV !== "production") {
+    const { data: existingCusts } = await supabaseAdmin
+      .from("customers").select("id").limit(1);
 
-  if (!existingCusts || existingCusts.length === 0) {
-    for (const c of mockCustomers) {
-      const { error: custErr } = await supabaseAdmin
-        .from("customers").insert(customerToRow(c));
-      if (custErr) { results.push(`customer ${c.id}: ${custErr.message}`); continue; }
-      if (c.orders.length > 0) {
-        const { error: ordErr } = await supabaseAdmin
-          .from("orders").insert(c.orders.map(orderToRow));
-        if (ordErr) results.push(`orders for ${c.id}: ${ordErr.message}`);
+    if (!existingCusts || existingCusts.length === 0) {
+      for (const c of mockCustomers) {
+        const { error: custErr } = await supabaseAdmin
+          .from("customers").insert(customerToRow(c));
+        if (custErr) { results.push(`customer ${c.id}: ${custErr.message}`); continue; }
+        if (c.orders.length > 0) {
+          const { error: ordErr } = await supabaseAdmin
+            .from("orders").insert(c.orders.map(orderToRow));
+          if (ordErr) results.push(`orders for ${c.id}: ${ordErr.message}`);
+        }
       }
+      results.push("customers: seeded (dev only)");
+    } else {
+      results.push("customers: already populated, skipped");
     }
-    results.push("customers: seeded");
   } else {
-    results.push("customers: already populated, skipped");
+    results.push("customers: skipped (production — real registrations only)");
   }
 
   // ── POS walk-in sentinel customer ──────────────────────────────────────────

@@ -40,7 +40,8 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 # Admin dashboard
 ADMIN_PASSWORD=your-admin-password
 
-# Customer + driver session signing (HMAC)
+# HMAC secret signing ALL session cookies (admin, customer, driver, waiter,
+# kitchen, POS) — generate with `openssl rand -hex 64`
 AUTH_JWT_SECRET=your-long-random-secret
 
 # Canonical site URL (used by OAuth callback and email links)
@@ -55,7 +56,13 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 
 ### Database setup
 
-Run `supabase/auth_migration.sql` in the Supabase SQL Editor to add the `password_hash` and `email_verified` columns required by the current auth system, then run the main `supabase/rls_policies.sql` (or `setup_all.sql`) for the full schema.
+```bash
+npm run db:migrate
+```
+
+Applies the canonical schema at [`supabase/schema.sql`](../supabase/schema.sql) — every table, column, RLS policy, column-level revoke, sentinel row, and realtime publication in one file. Idempotent; safe to re-run.
+
+Requires `DATABASE_URL` in `.env.local` (see `example.env`). Prefer the Supabase UI? Paste the contents of `supabase/schema.sql` into the SQL Editor and click Run.
 
 ### Install and run
 

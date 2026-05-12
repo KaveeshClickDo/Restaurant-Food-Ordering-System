@@ -1,6 +1,6 @@
 /**
  * POST /api/auth/login — customer login.
- * Works with or without the auth_migration.sql having been run:
+ * Works with or without the canonical schema.sql having been applied:
  *   - If password_hash column exists: verifies bcrypt hash there.
  *   - If not (or if password_hash is empty): tries bcrypt against the password
  *     column (set by the register fallback path), then plaintext comparison
@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
   let data: {
     id: string; name: string; email: string; phone: string | null;
     password: string | null; password_hash?: string | null;
+    email_verified?: boolean | null;
     tags: string[] | null; favourites: string[] | null;
     saved_addresses: unknown[] | null; store_credit: number | null;
     created_at: string;
@@ -52,7 +53,7 @@ export async function POST(req: NextRequest) {
 
   const { data: withHash, error: errWithHash } = await supabaseAdmin
     .from("customers")
-    .select("id, name, email, phone, password, password_hash, tags, favourites, saved_addresses, store_credit, created_at")
+    .select("id, name, email, phone, password, password_hash, email_verified, tags, favourites, saved_addresses, store_credit, created_at")
     .eq("email", email.trim().toLowerCase())
     .maybeSingle();
 
@@ -106,6 +107,19 @@ export async function POST(req: NextRequest) {
   }
 
   if (!valid) return unauthorizedJson();
+
+  // ── Email verification gate ───────────────────────────────────────────────
+  // Only block when email_verified is explicitly false. Accounts created
+  // before the auth migration have a null/undefined value and are grandfathered
+  // in — only post-migration registrations must verify before logging in.
+  if (data.email_verified === false) {
+    return NextResponse.json({
+      ok: false,
+      error: "Please verify your email before signing in. Check your inbox for the confirmation link.",
+      needsVerification: true,
+      email: data.email,
+    }, { status: 403 });
+  }
 
   // Fetch the customer's orders so the account page can render them immediately
   // without a second round-trip. An error here is non-fatal — orders: [] is

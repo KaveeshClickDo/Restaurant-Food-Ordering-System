@@ -2,17 +2,22 @@
  * POST /api/customers/[id]/spend-credit — deduct store credit at checkout.
  * Fetches the current balance server-side so the client cannot set an
  * arbitrary balance. The resulting balance is floored at 0.
- * No admin auth required — this is called during customer checkout.
+ * Requires a customer session matching the [id] in the URL — a customer may
+ * only spend their own store credit.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
+import { getCustomerSession, unauthorizedJson } from "@/lib/auth";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+
+  const session = await getCustomerSession();
+  if (!session || session.id !== id) return unauthorizedJson();
 
   let body: { amount?: number };
   try { body = await req.json(); }

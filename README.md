@@ -34,11 +34,11 @@ Online ordering data is persisted in **Supabase (PostgreSQL)** and synchronised 
 | Customer menu | `/` | None required (guest) or `customer_session` cookie | Customers browsing and ordering |
 | Customer login | `/login` | — | Email + bcrypt, or Google OAuth |
 | Customer account | `/account` | `customer_session` cookie (middleware-protected) | Logged-in customers |
-| Waiter app | `/waiter` | 4-digit staff PIN (server-side) | Waiters placing dine-in orders |
-| Kitchen display | `/kitchen` | None (trusted screen) | Kitchen staff progressing orders |
+| Waiter app | `/waiter` | 4-digit staff PIN → `waiter_session` cookie (server-side) | Waiters placing dine-in orders |
+| Kitchen display | `/kitchen` | 4-digit staff PIN → `kitchen_session` cookie (middleware-protected) | Kitchen staff progressing orders |
 | Driver dashboard | `/driver` | `driver_session` cookie (middleware-protected) | Delivery drivers |
 | Driver login | `/driver/login` | — | Email + bcrypt password |
-| POS terminal | `/pos` | 4-digit staff PIN (client-side) | In-restaurant point-of-sale |
+| POS terminal | `/pos` | 4-digit staff PIN → `pos_staff_session` cookie (middleware-protected, server-side validation) | In-restaurant point-of-sale |
 | Admin dashboard | `/admin` | `ADMIN_PASSWORD` env var + httpOnly cookie | Restaurant owner / manager |
 
 ---
@@ -52,11 +52,12 @@ Online ordering data is persisted in **Supabase (PostgreSQL)** and synchronised 
 | UI | React 19, Tailwind CSS v4, Lucide React |
 | Database | Supabase (PostgreSQL) |
 | Real-time | Supabase Realtime (`postgres_changes`) |
-| Auth — customers | bcrypt + HMAC-signed httpOnly `customer_session` cookie; Google OAuth 2.0 |
+| Auth — customers | bcrypt + HMAC-signed httpOnly `customer_session` cookie; Google OAuth 2.0; email verification enforced on login |
 | Auth — drivers | bcrypt + HMAC-signed httpOnly `driver_session` cookie; middleware route protection |
-| Auth — admin | `ADMIN_PASSWORD` env var + httpOnly JWT cookie |
-| Auth — waiters | 4-digit PIN in `app_settings`; validated server-side |
-| Auth — POS staff | 4-digit PIN in `localStorage` (trusted local terminal) |
+| Auth — admin | `ADMIN_PASSWORD` env var + httpOnly `admin_session` cookie (unified `<exp>\|<id>\|<role>\|<sig>` token format with timing-safe sha256 compare) |
+| Auth — waiters | 4-digit PIN in `app_settings.data.waiters`; validated server-side; `waiter_session` cookie |
+| Auth — kitchen | 4-digit PIN in `app_settings.data.kitchenStaff`; validated server-side; `kitchen_session` cookie |
+| Auth — POS staff | 4-digit PIN in `app_settings.data.pos_staff`; validated server-side; `pos_staff_session` httpOnly cookie |
 | POS storage | Browser `localStorage` (primary) + Supabase (background sync via outbox) |
 | Offline sync | `lib/posOutbox.ts` — localStorage outbox with exponential back-off retry |
 | State | `AppContext` (online ordering) + `POSContext` (POS) |
@@ -94,7 +95,8 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 # Admin dashboard password
 ADMIN_PASSWORD=your-secure-admin-password
 
-# HMAC secret for customer + driver session cookies (generate with: openssl rand -hex 64)
+# HMAC secret for ALL session cookies — admin, customer, driver, waiter,
+# kitchen, POS (generate with: openssl rand -hex 64)
 AUTH_JWT_SECRET=your-long-random-secret
 
 # Canonical site URL (used for OAuth callbacks and password-reset links)
@@ -123,7 +125,7 @@ Where to find each value in Supabase:
 
 ### Database Setup
 
-A single command bootstraps an empty Supabase project — creating every table, applying RLS policies, and adding the auth columns:
+A single command bootstraps an empty Supabase project — creating every table, applying RLS policies, adding the auth columns, and enabling realtime publications:
 
 ```bash
 cd app
@@ -131,16 +133,13 @@ npm install
 npm run db:migrate
 ```
 
-This runs [`app/migrate.mjs`](app/migrate.mjs), which executes (in order):
+This runs [`app/migrate.mjs`](app/migrate.mjs), which applies the canonical schema at [`supabase/schema.sql`](supabase/schema.sql). One file, one truth — every table, column, RLS policy, column-level revoke, sentinel row, and realtime publication is in there.
 
-1. **Inline base schema** — creates `app_settings`, `categories`, `menu_items`, `customers`, `orders`, the `pos-walk-in` sentinel customer, and adds the core tables to the realtime publication
-2. [`supabase/setup_all.sql`](supabase/setup_all.sql) — reservation tables (`reservations`, `reservation_customers`, `reservation_waitlist`)
-3. [`supabase/rls_policies.sql`](supabase/rls_policies.sql) — `drivers` table + Row Level Security on every table
-4. [`supabase/auth_migration.sql`](supabase/auth_migration.sql) — adds `password_hash`, `email_verified`, and password-reset columns to `customers`
+Every statement is idempotent (`IF NOT EXISTS` / `DROP IF EXISTS` / `DO $$ ... EXISTS` guards). Safe to re-run any number of times; fresh DBs and existing ones both converge to the same end state.
 
-Every step is idempotent — safe to re-run after schema changes. Requires `DATABASE_URL` in `.env.local`.
+Requires `DATABASE_URL` in `.env.local` (see `app/example.env`).
 
-> **Heads up — don't run the SQL files individually in the Supabase SQL Editor.** They depend on each other and on the inline base schema in `migrate.mjs`. Use `npm run db:migrate` instead.
+> **Prefer the Supabase UI?** Open Dashboard → SQL Editor → New query → paste the contents of `supabase/schema.sql` → Run. Same result, no Node needed.
 
 See [Database Schema](#database-schema) for full table definitions.
 
