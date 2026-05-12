@@ -132,25 +132,26 @@ function ZoneCard({
   return (
     <div className={`rounded-2xl border-2 transition-colors ${zone.enabled ? "border-gray-100 bg-white" : "border-dashed border-gray-200 bg-gray-50/60"}`}>
       {/* Header row */}
-      <div className="flex items-center gap-3 px-4 py-3.5">
-        <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: zone.color }} />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className={`font-semibold text-sm ${zone.enabled ? "text-gray-900" : "text-gray-400"}`}>
-              {zone.name}
-            </span>
-            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${
-              zone.enabled ? "bg-green-50 text-green-700 border-green-200" : "bg-gray-100 text-gray-400 border-gray-200"
-            }`}>
-              {zone.enabled ? "Active" : "Disabled"}
-            </span>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3.5">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: zone.color }} />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className={`font-semibold text-sm ${zone.enabled ? "text-gray-900" : "text-gray-400"}`}>
+                {zone.name}
+              </span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${zone.enabled ? "bg-green-50 text-green-700 border-green-200" : "bg-gray-100 text-gray-400 border-gray-200"
+                }`}>
+                {zone.enabled ? "Active" : "Disabled"}
+              </span>
+            </div>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {zone.minRadiusKm}–{zone.maxRadiusKm} km &nbsp;·&nbsp; £{zone.fee.toFixed(2)} delivery
+            </p>
           </div>
-          <p className="text-xs text-gray-400 mt-0.5">
-            {zone.minRadiusKm}–{zone.maxRadiusKm} km &nbsp;·&nbsp; £{zone.fee.toFixed(2)} delivery
-          </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center justify-center sm:justify-end gap-2 flex-shrink-0 mt-2 sm:mt-0 pt-2 sm:pt-0 border-t sm:border-0 border-gray-100">
           <button
             onClick={() => onUpdate({ ...zone, enabled: !zone.enabled })}
             className={`transition-colors ${zone.enabled ? "text-green-500 hover:text-green-600" : "text-gray-300 hover:text-gray-400"}`}
@@ -331,7 +332,7 @@ function PaymentDistanceRules() {
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+      <div className="px-5 py-4 border-b border-gray-100 flex flex-wrap items-center gap-2">
         <Ruler size={15} className="text-orange-500" />
         <h3 className="font-semibold text-gray-900 text-sm">Payment method distance rules</h3>
         <span className="ml-2 text-xs text-gray-400">Restrict which methods appear at checkout based on delivery distance</span>
@@ -365,14 +366,14 @@ function PaymentDistanceRules() {
 
               {/* Range inputs — only shown when restricted */}
               {range.restricted && (
-                <div className="flex items-center gap-3 pl-9">
-                  <div className="flex items-center gap-2 flex-1">
+                <div className="flex flex-wrap items-center gap-3 pl-4 sm:pl-9">
+                  <div className="flex items-center gap-2 ">
                     <span className="text-xs text-gray-500 whitespace-nowrap">Min km</span>
                     <input
                       type="number" min="0" step="0.5" max={range.maxKm}
                       value={range.minKm}
                       onChange={(e) => updatePaymentMethod({ ...method, deliveryRange: { ...range, minKm: Number(e.target.value) } })}
-                      className="w-20 px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                      className="w-10 sm:w-20 px-3 py-1.5 border border-gray-200 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
                     />
                   </div>
                   <span className="text-gray-300">—</span>
@@ -382,7 +383,7 @@ function PaymentDistanceRules() {
                       type="number" min={range.minKm} step="0.5" max={maxZoneKm}
                       value={range.maxKm}
                       onChange={(e) => updatePaymentMethod({ ...method, deliveryRange: { ...range, maxKm: Number(e.target.value) } })}
-                      className="w-20 px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                      className="w-10 sm:w-20 px-3 py-1.5 border border-gray-200 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
                     />
                   </div>
                   <span className="text-xs text-gray-400 whitespace-nowrap">
@@ -462,13 +463,16 @@ export default function DeliveryZonesPanel() {
 
       {/* Zone list */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
-          <MapPin size={15} className="text-orange-500" />
-          <h3 className="font-semibold text-gray-900 text-sm">Delivery zones</h3>
+        <div className="px-5 py-4 border-b border-gray-100 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-row gap-3">
+            <MapPin size={15} className="text-orange-500" />
+            <h3 className="font-semibold text-gray-900 text-sm">Delivery zones</h3>
+          </div>
           <span className="text-xs text-gray-400">{zones.length} zone{zones.length !== 1 ? "s" : ""} defined</span>
+
           <button
             onClick={() => setShowAdd((v) => !v)}
-            className="ml-auto flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition"
+            className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition"
           >
             <Plus size={13} /> Add zone
           </button>

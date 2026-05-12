@@ -81,7 +81,7 @@ export default function BreakfastMenuPanel() {
             <p className="text-xs text-gray-400">Configure when the breakfast menu is shown to customers</p>
           </div>
         </div>
-        <div className="p-6 flex flex-wrap gap-6 items-center">
+        <div className="p-6 flex flex-wrap gap-6 items-center justify-between">
           {/* Enable toggle */}
           <button
             onClick={() => updateBreakfastSettings({ enabled: !enabled })}
@@ -99,8 +99,8 @@ export default function BreakfastMenuPanel() {
           </button>
 
           {/* Time window */}
-          <div className="flex items-center gap-3 ml-auto">
-            <Clock size={15} className="text-amber-500 flex-shrink-0" />
+          <div className="flex flex-wrap items-center gap-3 ">
+            <Clock size={15} className="hidden sm:inline text-amber-500 flex-shrink-0" />
             <div className="flex items-center gap-2">
               <div>
                 <label className="block text-[10px] font-semibold text-gray-400 mb-1 uppercase tracking-wider">From</label>
@@ -108,7 +108,7 @@ export default function BreakfastMenuPanel() {
                   type="time"
                   value={startTime}
                   onChange={(e) => updateBreakfastSettings({ startTime: e.target.value })}
-                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
                 />
               </div>
               <span className="text-gray-400 mt-4">–</span>
@@ -118,11 +118,11 @@ export default function BreakfastMenuPanel() {
                   type="time"
                   value={endTime}
                   onChange={(e) => updateBreakfastSettings({ endTime: e.target.value })}
-                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
                 />
               </div>
             </div>
-            <div className={`ml-2 px-3 py-1.5 rounded-full text-xs font-semibold ${enabled ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-500"}`}>
+            <div className={`mt-3 px-3 py-1.5 rounded-full text-xs font-semibold ${enabled ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-500"}`}>
               {enabled ? `☀️ Live ${startTime}–${endTime}` : "Off"}
             </div>
           </div>
@@ -231,13 +231,37 @@ export default function BreakfastMenuPanel() {
 
             {selectedCatId !== "all" && (
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                  <span>{categories.find((c) => c.id === selectedCatId)?.emoji}</span>
-                  <span>{categories.find((c) => c.id === selectedCatId)?.name}</span>
-                </h3>
+                <div className="flex items-center gap-3">
+                  <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                    <span>{categories.find((c) => c.id === selectedCatId)?.emoji}</span>
+                    <span>{categories.find((c) => c.id === selectedCatId)?.name}</span>
+                  </h3>
+                  <div className="flex md:hidden items-center gap-1">
+                    <button
+                      onClick={() => {
+                        const cat = categories.find((c) => c.id === selectedCatId);
+                        if (cat) setEditingCat({ ...cat });
+                      }}
+                      className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-500 bg-gray-100 hover:bg-blue-50 transition"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        const cat = categories.find((c) => c.id === selectedCatId);
+                        if (cat) setDeletingCat(cat);
+                      }}
+                      className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 bg-gray-100 hover:bg-red-50 transition"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </div>
                 <button onClick={() => setEditingItem(blankItem(selectedCatId))}
                   className="flex items-center gap-1.5 text-xs text-amber-500 hover:text-amber-700 font-medium transition">
-                  <Plus size={13} /> Add to category
+                  <Plus size={13} />
+                  <span className="hidden sm:inline">Add to category</span>
+                  <span className="sm:hidden">Add Item</span>
                 </button>
               </div>
             )}
@@ -265,78 +289,82 @@ export default function BreakfastMenuPanel() {
                 const isTracked = typeof item.stockQty === "number";
                 return (
                   <div key={item.id}
-                    className="group flex items-center gap-4 px-4 py-3 rounded-xl border border-gray-100 hover:border-amber-200 hover:bg-amber-50/30 transition-all"
+                    className="group flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 px-3 sm:px-4 py-3 rounded-xl border border-gray-100 hover:border-amber-200 hover:bg-amber-50/30 transition-all"
                   >
-                    <div className="w-14 h-14 rounded-xl overflow-hidden border border-gray-100 flex-shrink-0">
-                      {item.image ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full bg-amber-50 flex items-center justify-center text-amber-200">
-                          <ImagePlus size={18} />
+                    <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+                      <div className="w-14 h-14 rounded-xl overflow-hidden border border-gray-100 flex-shrink-0">
+                        {item.image ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full bg-amber-50 flex items-center justify-center text-amber-200">
+                            <ImagePlus size={18} />
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-gray-900 text-sm">{item.name}</span>
+                          {item.popular && (
+                            <span className="flex items-center gap-0.5 text-[10px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full border border-amber-200">
+                              <Flame size={9} /> Popular
+                            </span>
+                          )}
                         </div>
-                      )}
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {selectedCatId === "all" && (
+                            <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full font-medium">{catName}</span>
+                          )}
+                          {item.dietary.map((d) => (
+                            <span key={d} className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${DIETARY_COLORS[d] ?? "bg-gray-100 text-gray-500"}`}>{d}</span>
+                          ))}
+                          {(item.variations?.length ?? 0) > 0 && (
+                            <span className="text-[10px] px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full border border-blue-200 font-medium">
+                              {item.variations!.length} variation{item.variations!.length > 1 ? "s" : ""}
+                            </span>
+                          )}
+                          {(item.addOns?.length ?? 0) > 0 && (
+                            <span className="text-[10px] px-2 py-0.5 bg-violet-50 text-violet-600 rounded-full border border-violet-200 font-medium">
+                              {item.addOns!.length} add-on{item.addOns!.length > 1 ? "s" : ""}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{item.description}</p>
+                      </div>
                     </div>
 
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-gray-900 text-sm">{item.name}</span>
-                        {item.popular && (
-                          <span className="flex items-center gap-0.5 text-[10px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full border border-amber-200">
-                            <Flame size={9} /> Popular
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {selectedCatId === "all" && (
-                          <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full font-medium">{catName}</span>
-                        )}
-                        {item.dietary.map((d) => (
-                          <span key={d} className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${DIETARY_COLORS[d] ?? "bg-gray-100 text-gray-500"}`}>{d}</span>
-                        ))}
-                        {(item.variations?.length ?? 0) > 0 && (
-                          <span className="text-[10px] px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full border border-blue-200 font-medium">
-                            {item.variations!.length} variation{item.variations!.length > 1 ? "s" : ""}
-                          </span>
-                        )}
-                        {(item.addOns?.length ?? 0) > 0 && (
-                          <span className="text-[10px] px-2 py-0.5 bg-violet-50 text-violet-600 rounded-full border border-violet-200 font-medium">
-                            {item.addOns!.length} add-on{item.addOns!.length > 1 ? "s" : ""}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{item.description}</p>
-                    </div>
-
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (isTracked) return;
-                        const next: StockStatus = status === "in_stock" ? "out_of_stock" : status === "out_of_stock" ? "low_stock" : "in_stock";
-                        updateBreakfastItem({ ...item, stockStatus: next });
-                      }}
-                      title={isTracked ? `${item.stockQty} units tracked` : "Click to cycle status"}
-                      className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold border transition-all ${
-                        status === "out_of_stock" ? "bg-red-50 border-red-200 text-red-600 hover:bg-red-100"
-                        : status === "low_stock" ? "bg-amber-50 border-amber-200 text-amber-600 hover:bg-amber-100"
-                        : "bg-green-50 border-green-200 text-green-600 hover:bg-green-100"
-                      } ${isTracked ? "cursor-default" : "cursor-pointer"}`}
-                    >
-                      {status === "out_of_stock" ? <PackageX size={9} /> : status === "low_stock" ? <PackageMinus size={9} /> : <Package size={9} />}
-                      {isTracked ? `${item.stockQty} left` : stockLabel(status)}
-                    </button>
-
-                    <span className="font-bold text-gray-900 text-sm flex-shrink-0">£{item.price.toFixed(2)}</span>
-
-                    <div className="flex items-center gap-1 flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 transition">
-                      <button onClick={() => setEditingItem({ ...item, variations: item.variations ?? [], addOns: item.addOns ?? [] })}
-                        className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition">
-                        <Pencil size={14} />
+                    <div className="flex items-center justify-between sm:justify-end gap-3 pl-[76px] sm:pl-0">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isTracked) return;
+                          const next: StockStatus = status === "in_stock" ? "out_of_stock" : status === "out_of_stock" ? "low_stock" : "in_stock";
+                          updateBreakfastItem({ ...item, stockStatus: next });
+                        }}
+                        title={isTracked ? `${item.stockQty} units tracked` : "Click to cycle status"}
+                        className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold border transition-all ${
+                          status === "out_of_stock" ? "bg-red-50 border-red-200 text-red-600 hover:bg-red-100"
+                          : status === "low_stock" ? "bg-amber-50 border-amber-200 text-amber-600 hover:bg-amber-100"
+                          : "bg-green-50 border-green-200 text-green-600 hover:bg-green-100"
+                        } ${isTracked ? "cursor-default" : "cursor-pointer"}`}
+                      >
+                        {status === "out_of_stock" ? <PackageX size={9} /> : status === "low_stock" ? <PackageMinus size={9} /> : <Package size={9} />}
+                        {isTracked ? `${item.stockQty} left` : stockLabel(status)}
                       </button>
-                      <button onClick={() => setDeletingItem(item)}
-                        className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition">
-                        <Trash2 size={14} />
-                      </button>
+
+                      <span className="font-bold text-gray-900 text-sm flex-shrink-0">£{item.price.toFixed(2)}</span>
+
+                      <div className="flex items-center gap-1 flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 transition">
+                        <button onClick={() => setEditingItem({ ...item, variations: item.variations ?? [], addOns: item.addOns ?? [] })}
+                          className="w-6 h-6 md:w-8 md:h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition">
+                          <Pencil size={14} />
+                        </button>
+                        <button onClick={() => setDeletingItem(item)}
+                          className="w-6 h-6 md:w-8 md:h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );

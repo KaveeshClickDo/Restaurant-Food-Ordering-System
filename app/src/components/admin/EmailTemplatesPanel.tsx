@@ -516,7 +516,7 @@ export default function EmailTemplatesPanel() {
         </div>
 
         {/* ── Editor / Preview ── */}
-        <div className="flex-1 min-w-0 space-y-4">
+        <div className="flex-1 md:min-w-0 space-y-4">
           {/* Panel header */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
@@ -527,7 +527,7 @@ export default function EmailTemplatesPanel() {
                   <p className="text-xs text-gray-400">{cfg?.description}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-3 flex-shrink-0">
+              <div className="flex flex-wrap items-center gap-3 ">
                 {/* Enable toggle */}
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-medium text-gray-500">

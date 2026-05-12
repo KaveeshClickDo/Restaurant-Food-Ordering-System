@@ -435,7 +435,9 @@ export default function ReservationCustomersPanel() {
     <div className="space-y-5">
 
       {/* Header */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-4 flex items-center gap-4">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+                <div className="flex flex-row gap-3">
+
         <div className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center flex-shrink-0">
           <Users size={20} className="text-purple-600" />
         </div>
@@ -444,6 +446,7 @@ export default function ReservationCustomersPanel() {
           <p className="text-xs text-gray-400 mt-0.5">
             {customers.length} guests · {optInCount} opted in for marketing
           </p>
+        </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <button

@@ -101,66 +101,70 @@ function MethodRow({
   return (
     <div className={`rounded-2xl border-2 transition-colors ${method.enabled ? "border-gray-100 bg-white" : "border-dashed border-gray-200 bg-gray-50/60"}`}>
       {/* Main row */}
-      <div className="flex items-center gap-3 px-4 py-3.5">
-        {/* Drag handle + reorder */}
-        <div className="flex flex-col gap-0.5 flex-shrink-0">
-          <button onClick={onMoveUp} disabled={isFirst} className="text-gray-300 hover:text-gray-500 disabled:opacity-20 disabled:cursor-not-allowed transition">
-            <ChevronUp size={13} />
-          </button>
-          <GripVertical size={14} className="text-gray-300 mx-auto" />
-          <button onClick={onMoveDown} disabled={isLast} className="text-gray-300 hover:text-gray-500 disabled:opacity-20 disabled:cursor-not-allowed transition">
-            <ChevronDown size={13} />
-          </button>
-        </div>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3.5">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          {/* Drag handle + reorder */}
+          <div className="flex flex-col gap-0.5 flex-shrink-0">
+            <button onClick={onMoveUp} disabled={isFirst} className="text-gray-300 hover:text-gray-500 disabled:opacity-20 disabled:cursor-not-allowed transition">
+              <ChevronUp size={13} />
+            </button>
+            <GripVertical size={14} className="text-gray-300 mx-auto" />
+            <button onClick={onMoveDown} disabled={isLast} className="text-gray-300 hover:text-gray-500 disabled:opacity-20 disabled:cursor-not-allowed transition">
+              <ChevronDown size={13} />
+            </button>
+          </div>
 
-        {/* Icon */}
-        <div className={`flex-shrink-0 transition-opacity ${method.enabled ? "opacity-100" : "opacity-40"}`}>
-          {getIcon(method.id)}
-        </div>
+          {/* Icon */}
+          <div className={`flex-shrink-0 transition-opacity ${method.enabled ? "opacity-100" : "opacity-40"}`}>
+            {getIcon(method.id)}
+          </div>
 
-        {/* Name + description */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className={`font-semibold text-sm ${method.enabled ? "text-gray-900" : "text-gray-400"}`}>
-              {method.name}
-            </span>
-            {method.builtIn && (
-              <span className="text-[10px] bg-gray-100 text-gray-400 rounded-full px-2 py-0.5 font-medium">Built-in</span>
+          {/* Name + description */}
+          <div className="flex-1 min-w-0 flex flex-col justify-center">
+            <div className="flex items-center gap-2">
+              <span className={`font-semibold text-sm ${method.enabled ? "text-gray-900" : "text-gray-400"}`}>
+                {method.name}
+              </span>
+              {method.builtIn && (
+                <span className="text-[10px] bg-gray-100 text-gray-400 rounded-full px-2 py-0.5 font-medium">Built-in</span>
+              )}
+            </div>
+            <p className="text-xs text-gray-400 truncate mt-0.5">{method.description}</p>
+            {method.adminNote && (
+              <p className="text-[11px] text-orange-500 mt-0.5">📋 {method.adminNote}</p>
+            )}
+            {method.deliveryRange.restricted && (
+              <p className="text-[11px] text-blue-500 mt-0.5 flex items-center gap-1">
+                <Ruler size={10} /> {method.deliveryRange.minKm}–{method.deliveryRange.maxKm} km only
+              </p>
             )}
           </div>
-          <p className="text-xs text-gray-400 truncate mt-0.5">{method.description}</p>
-          {method.adminNote && (
-            <p className="text-[11px] text-orange-500 mt-0.5">📋 {method.adminNote}</p>
-          )}
-          {method.deliveryRange.restricted && (
-            <p className="text-[11px] text-blue-500 mt-0.5 flex items-center gap-1">
-              <Ruler size={10} /> {method.deliveryRange.minKm}–{method.deliveryRange.maxKm} km only
-            </p>
-          )}
         </div>
 
-        {/* Status badge */}
-        <div className="flex-shrink-0 hidden sm:flex items-center gap-1.5">
-          {method.enabled ? (
-            <span className="flex items-center gap-1.5 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-full px-2.5 py-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> Active
-            </span>
-          ) : (
-            <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 bg-gray-100 border border-gray-200 rounded-full px-2.5 py-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-gray-300" /> Disconnected
-            </span>
-          )}
-        </div>
+        <div className="flex items-center justify-between sm:justify-end gap-3 flex-shrink-0 mt-2 sm:mt-0 pt-3 sm:pt-0 border-t sm:border-0 border-gray-100">
+          {/* Status badge */}
+          <div className="flex items-center gap-1.5">
+            {method.enabled ? (
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-full px-2.5 py-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> Active
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 bg-gray-100 border border-gray-200 rounded-full px-2.5 py-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-gray-300" /> Disconnected
+              </span>
+            )}
+          </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <Toggle enabled={method.enabled} onToggle={onToggle} />
-          <button
-            onClick={() => setEditing((v) => !v)}
-            className="w-8 h-8 flex items-center justify-center rounded-xl bg-gray-100 hover:bg-orange-100 hover:text-orange-600 text-gray-500 transition"
-          >
-            <Pencil size={13} />
-          </button>
+          {/* Actions */}
+          <div className="flex items-center gap-2">
+            <Toggle enabled={method.enabled} onToggle={onToggle} />
+            <button
+              onClick={() => setEditing((v) => !v)}
+              className="w-8 h-8 flex items-center justify-center rounded-xl bg-gray-100 hover:bg-orange-100 hover:text-orange-600 text-gray-500 transition"
+            >
+              <Pencil size={13} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -212,14 +216,14 @@ function MethodRow({
               </button>
             </div>
             {draft.rangeRestricted && (
-              <div className="flex items-center gap-3 mt-2">
+              <div className="flex flex-wrap items-center gap-3 mt-2">
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-500 whitespace-nowrap">Min km</span>
                   <input
                     type="number" min="0" step="0.5" max={draft.rangeMax}
                     value={draft.rangeMin}
                     onChange={(e) => setDraft((d) => ({ ...d, rangeMin: Number(e.target.value) }))}
-                    className="w-20 px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white transition"
+                    className="w-10 sm:w-20 px-3 py-1.5 border border-gray-200 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white transition"
                   />
                 </div>
                 <span className="text-gray-300">—</span>
@@ -229,7 +233,7 @@ function MethodRow({
                     type="number" min={draft.rangeMin} step="0.5"
                     value={draft.rangeMax}
                     onChange={(e) => setDraft((d) => ({ ...d, rangeMax: Number(e.target.value) }))}
-                    className="w-20 px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white transition"
+                    className="w-10 sm:w-20 px-3 py-1.5 border border-gray-200 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white transition"
                   />
                 </div>
                 <span className="text-xs text-gray-400">km from restaurant</span>
@@ -912,7 +916,7 @@ export default function IntegrationsPanel() {
             <button
               key={id}
               onClick={() => setTab(id)}
-              className={`flex items-center gap-2 px-1 py-3.5 mr-6 text-sm font-medium border-b-2 transition-all ${
+              className={`flex items-center gap-2 px-1 py-3.5 mr-6 text-sm font-medium border-b-2 flex-shrink-0 transition-all ${
                 tab === id
                   ? "border-orange-500 text-orange-600"
                   : "border-transparent text-gray-400 hover:text-gray-700"

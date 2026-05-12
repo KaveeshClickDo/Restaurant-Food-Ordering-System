@@ -22,7 +22,7 @@ function Toggle({
       onClick={onToggle}
       role="switch"
       aria-checked={enabled}
-      className={`relative inline-flex items-center ${track} rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-1 ${
+      className={`relative flex-shrink-0 inline-flex items-center ${track} rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-1 ${
         enabled ? "bg-green-500" : "bg-gray-300"
       }`}
     >
@@ -156,7 +156,7 @@ export default function TaxSettingsPanel() {
     <div className="space-y-5">
       {/* Panel header */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+        <div className="px-5 sm:px-6 py-4 border-b border-gray-100 flex items-center gap-3">
           <div className="w-9 h-9 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
             <Receipt size={18} className="text-blue-600" />
           </div>
@@ -170,7 +170,7 @@ export default function TaxSettingsPanel() {
 
         <div className="grid lg:grid-cols-2 gap-0">
           {/* ── Form ────────────────────────────────────────────────────────── */}
-          <div className="p-6 space-y-7">
+          <div className="p-5 sm:p-6 space-y-7">
 
             {/* Master toggle */}
             <div>
@@ -226,7 +226,7 @@ export default function TaxSettingsPanel() {
             {/* Tax mode */}
             <div className={draft.enabled ? "" : "opacity-40 pointer-events-none"}>
               <SectionLabel>Tax Mode</SectionLabel>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-3">
                 {/* Inclusive */}
                 <button
                   onClick={() => patch({ inclusive: true })}

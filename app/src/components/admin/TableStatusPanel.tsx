@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
-import { useApp }   from "@/context/AppContext";
+import { useApp } from "@/context/AppContext";
 import type { Reservation, ReservationStatus } from "@/types";
 import {
   UtensilsCrossed, Users, Clock, LogIn, LogOut,
@@ -44,10 +44,10 @@ const STATE_STYLES: Record<TableState, {
   label: string;
   dot: string;
 }> = {
-  free:     { card: "bg-white border-gray-200",        badge: "bg-gray-100 text-gray-500",          label: "Free",     dot: "bg-gray-300"  },
-  reserved: { card: "bg-amber-50 border-amber-300",    badge: "bg-amber-100 text-amber-700",        label: "Reserved", dot: "bg-amber-400" },
-  occupied: { card: "bg-blue-50 border-blue-400",      badge: "bg-blue-100 text-blue-700",          label: "Occupied", dot: "bg-blue-500"  },
-  done:     { card: "bg-teal-50 border-teal-300",      badge: "bg-teal-100 text-teal-700",          label: "Done",     dot: "bg-teal-500"  },
+  free: { card: "bg-white border-gray-200", badge: "bg-gray-100 text-gray-500", label: "Free", dot: "bg-gray-300" },
+  reserved: { card: "bg-amber-50 border-amber-300", badge: "bg-amber-100 text-amber-700", label: "Reserved", dot: "bg-amber-400" },
+  occupied: { card: "bg-blue-50 border-blue-400", badge: "bg-blue-100 text-blue-700", label: "Occupied", dot: "bg-blue-500" },
+  done: { card: "bg-teal-50 border-teal-300", badge: "bg-teal-100 text-teal-700", label: "Done", dot: "bg-teal-500" },
 };
 
 // ─── Table card ───────────────────────────────────────────────────────────────
@@ -58,7 +58,7 @@ function TableCard({
   onCheckOut,
 }: {
   table: TableInfo;
-  onCheckIn:  (resId: string) => Promise<void>;
+  onCheckIn: (resId: string) => Promise<void>;
   onCheckOut: (resId: string) => Promise<void>;
 }) {
   const [actioning, setActioning] = useState(false);
@@ -72,9 +72,9 @@ function TableCard({
   }
 
   return (
-    <div className={`rounded-2xl border-2 p-4 flex flex-col gap-3 transition ${s.card}`}>
+    <div className={`rounded-2xl border-2 p-3 sm:p-4 flex flex-col gap-3 transition ${s.card}`}>
       {/* Table header */}
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2.5 sm:gap-2">
         <div>
           <div className="flex items-center gap-2">
             <UtensilsCrossed size={14} className="text-orange-500" />
@@ -85,7 +85,7 @@ function TableCard({
             {table.section && <span>{table.section}</span>}
           </div>
         </div>
-        <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${s.badge}`}>
+        <span className={`inline-flex text-center items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full ${s.badge}`}>
           <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
           {s.label}
         </span>
@@ -161,8 +161,8 @@ export default function TableStatusPanel() {
   const tables = (settings.diningTables ?? []).filter((t) => t.active);
 
   const [reservations, setReservations] = useState<Reservation[]>([]);
-  const [loading,      setLoading]      = useState(true);
-  const [filterSection,setFilterSection]= useState("");
+  const [loading, setLoading] = useState(true);
+  const [filterSection, setFilterSection] = useState("");
 
   const sections = [...new Set(tables.map((t) => t.section).filter(Boolean))];
 
@@ -170,7 +170,7 @@ export default function TableStatusPanel() {
     setLoading(true);
     try {
       const params = new URLSearchParams({ from: todayStr(), to: todayStr() });
-      const res  = await fetch(`/api/admin/reservations?${params}`);
+      const res = await fetch(`/api/admin/reservations?${params}`);
       const json = await res.json() as { ok: boolean; reservations?: Reservation[] };
       if (json.ok) setReservations(json.reservations ?? []);
     } catch (err) {
@@ -230,34 +230,37 @@ export default function TableStatusPanel() {
   const tableInfoList: TableInfo[] = tables
     .filter((t) => !filterSection || t.section === filterSection)
     .map((t) => ({
-      id:      t.id,
-      label:   t.label,
-      seats:   t.seats,
+      id: t.id,
+      label: t.label,
+      seats: t.seats,
       section: t.section,
       ...resolveTableInfo(t.id),
     }));
 
   const counts = {
-    free:     tableInfoList.filter((t) => t.state === "free").length,
+    free: tableInfoList.filter((t) => t.state === "free").length,
     reserved: tableInfoList.filter((t) => t.state === "reserved").length,
     occupied: tableInfoList.filter((t) => t.state === "occupied").length,
-    done:     tableInfoList.filter((t) => t.state === "done").length,
+    done: tableInfoList.filter((t) => t.state === "done").length,
   };
 
   return (
     <div className="space-y-5">
 
       {/* Header */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-4 flex items-center gap-4">
-        <div className="w-10 h-10 bg-orange-50 rounded-xl flex items-center justify-center flex-shrink-0">
-          <UtensilsCrossed size={20} className="text-orange-500" />
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-row gap-3">
+          <div className="w-10 h-10 bg-orange-50 rounded-xl flex items-center justify-center flex-shrink-0">
+            <UtensilsCrossed size={20} className="text-orange-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="font-bold text-gray-900">Table Status</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Live occupancy for today · {counts.occupied} occupied · {counts.reserved} reserved · {counts.free} free
+            </p>
+          </div>
         </div>
-        <div className="flex-1 min-w-0">
-          <h2 className="font-bold text-gray-900">Table Status</h2>
-          <p className="text-xs text-gray-400 mt-0.5">
-            Live occupancy for today · {counts.occupied} occupied · {counts.reserved} reserved · {counts.free} free
-          </p>
-        </div>
+
         <button
           onClick={fetchToday}
           disabled={loading}
@@ -269,12 +272,12 @@ export default function TableStatusPanel() {
       </div>
 
       {/* Stats strip */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Free",     value: counts.free,     bg: "bg-gray-50",   border: "border-gray-200",  text: "text-gray-800"  },
-          { label: "Reserved", value: counts.reserved, bg: "bg-amber-50",  border: "border-amber-200", text: "text-amber-700" },
-          { label: "Occupied", value: counts.occupied, bg: "bg-blue-50",   border: "border-blue-200",  text: "text-blue-700"  },
-          { label: "Done",     value: counts.done,     bg: "bg-teal-50",   border: "border-teal-200",  text: "text-teal-700"  },
+          { label: "Free", value: counts.free, bg: "bg-gray-50", border: "border-gray-200", text: "text-gray-800" },
+          { label: "Reserved", value: counts.reserved, bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-700" },
+          { label: "Occupied", value: counts.occupied, bg: "bg-blue-50", border: "border-blue-200", text: "text-blue-700" },
+          { label: "Done", value: counts.done, bg: "bg-teal-50", border: "border-teal-200", text: "text-teal-700" },
         ].map((s) => (
           <div key={s.label} className={`${s.bg} border ${s.border} rounded-xl p-3.5`}>
             <div className={`text-2xl font-bold ${s.text}`}>{s.value}</div>
@@ -315,7 +318,7 @@ export default function TableStatusPanel() {
           <p className="text-sm text-gray-400">Add tables in Staff &amp; Tables → Dining Tables.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
           {tableInfoList.map((t) => (
             <TableCard
               key={t.id}
