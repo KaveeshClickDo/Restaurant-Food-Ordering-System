@@ -23,7 +23,7 @@
 --   4. Driver password-reset columns
 --   5. Order audit columns (void, refund)
 --   6. RLS — enable + policies
---   7. Column-level grants (strip sensitive columns from anon)
+--   7. Grants (base table grants + column-level revokes for anon)
 --   8. Sentinel rows (pos-walk-in)
 --   9. Realtime publications
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -286,9 +286,25 @@ create policy "deny_anon_select_waitlist"
   on reservation_waitlist for select to anon using (false);
 
 
--- ── 7. Column-level grants ───────────────────────────────────────────────────
--- RLS controls rows; column access is granted/revoked separately. The service
--- role bypasses both and retains full access — these revokes only affect anon.
+-- ── 7. Grants ────────────────────────────────────────────────────────────────
+-- Supabase applies the base grants below automatically at project creation,
+-- but a full DB reset (e.g. dropping the public schema) wipes them and leaves
+-- every role with "permission denied for table X". Re-applying here keeps the
+-- schema self-contained and survives a reset.
+
+grant usage on schema public to anon, authenticated, service_role;
+
+grant all    on all tables    in schema public to service_role;
+grant all    on all sequences in schema public to service_role;
+grant select on all tables    in schema public to anon, authenticated;
+grant insert on reservation_waitlist           to anon, authenticated;
+
+alter default privileges in schema public grant all    on tables    to service_role;
+alter default privileges in schema public grant all    on sequences to service_role;
+alter default privileges in schema public grant select on tables    to anon, authenticated;
+
+-- Column-level revokes — strip sensitive columns from anon. service_role
+-- retains full access (it also bypasses RLS via its JWT claim).
 revoke select (password)                   on customers from anon;
 revoke select (password_hash)              on customers from anon;
 revoke select (reset_token)                on customers from anon;
