@@ -513,7 +513,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                     onChange={(e) => { setCouponInput(e.target.value.toUpperCase().replace(/\s/g, "")); setCouponError(""); }}
                     onKeyDown={(e) => e.key === "Enter" && applyCode()}
                     placeholder="Enter coupon code"
-                    className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-mono tracking-widest uppercase placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                    className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-mono tracking-widest uppercase placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
                   />
                   <button
                     onClick={applyCode}

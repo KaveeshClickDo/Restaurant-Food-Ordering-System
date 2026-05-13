@@ -151,8 +151,8 @@ function OrderCard({
   useEffect(() => () => { if (confirmTimer.current) clearTimeout(confirmTimer.current); },[]);
 
   // Highly responsive typography scaling based on grid density
-  const numCls = cols === 1 ? "text-5xl sm:text-6xl lg:text-7xl 2xl:text-8xl" 
-               : cols === 2 ? "text-[35px] sm:text-5xl lg:text-[41px] 2xl:text-[88px]" 
+  const numCls = cols === 1 ? "text-5xl sm:text-6xl lg:text-7xl 2xl:text-7xl" 
+               : cols === 2 ? "text-[35px] sm:text-5xl lg:text-[41px] 2xl:text-[70px]" 
                : cols === 3 ? "text-[32px] sm:text-4xl lg:text-4xl 2xl:text-[45px]"
                : "text-2xl md:text-[32px] lg:text-4xl 2xl:text-4xl";
                
