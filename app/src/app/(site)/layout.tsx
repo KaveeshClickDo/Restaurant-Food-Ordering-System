@@ -7,15 +7,19 @@ import SiteFooter from "@/components/SiteFooter";
 import SiteMobileHeader from "@/components/SiteMobileHeader";
 import SiteSidebar from "@/components/SiteSidebar";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 
-export default function SiteLayout({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
+// The body lives in an inner component so the outer default export can wrap
+// it in <Suspense>. Next.js 15 requires every useSearchParams() consumer to
+// sit under a Suspense boundary — without it, every page under this layout
+// (e.g. /book) bails the static prerender pass with
+// "useSearchParams() should be wrapped in a suspense boundary".
+function SiteLayoutContent({ children }: { children: React.ReactNode }) {
+  const router       = useRouter();
   const searchParams = useSearchParams();
-  const activeCat = searchParams.get("cat") || "all";
+  const activeCat    = searchParams.get("cat") || "all";
 
-  // Hold state for the modals triggered by the Sidebar
-  const [authModal, setAuthModal] = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
+  const [authModal,       setAuthModal]       = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
   const [showReservation, setShowReservation] = useState(false);
 
   return (
@@ -23,7 +27,7 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
 
       <SiteSidebar
         activeCat={activeCat}
-        setCat={(id) => { }} // Not needed because SiteSidebar's <Link> updates the URL natively
+        setCat={() => { /* no-op: SiteSidebar's <Link> updates the URL natively */ }}
         onAuth={() => setAuthModal({ open: true, tab: "login" })}
         onReserve={() => setShowReservation(true)}
       />
@@ -63,5 +67,13 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
         <ReservationModal onClose={() => setShowReservation(false)} />
       )}
     </div>
+  );
+}
+
+export default function SiteLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense fallback={null}>
+      <SiteLayoutContent>{children}</SiteLayoutContent>
+    </Suspense>
   );
 }
