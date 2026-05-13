@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { KitchenStaff, KitchenRole } from "@/types";
 import {
-  UserPlus, Pencil, Trash2, ChefHat,
+  UserPlus, Pencil, Trash2, Tablet,
   CheckCircle2, XCircle, Eye, EyeOff, Save, X,
   AlertCircle, ExternalLink,
 } from "lucide-react";
+import { ROLE_PERMISSIONS, type POSStaff, type POSRole } from "@/types/pos";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -15,26 +15,32 @@ function initials(name: string) {
 }
 
 const AVATAR_COLORS = [
-  "#dc2626", "#ea580c", "#d97706", "#16a34a",
-  "#0891b2", "#2563eb", "#7c3aed", "#9333ea",
+  "#7c3aed", "#0891b2", "#16a34a", "#dc2626",
+  "#ea580c", "#0284c7", "#9333ea", "#be185d",
 ];
 
-const ROLE_LABELS: Record<KitchenRole, string> = {
-  chef:            "Chef",
-  head_chef:       "Head Chef",
-  kitchen_manager: "Kitchen Manager",
+const ROLE_LABELS: Record<POSRole, string> = {
+  admin:   "Admin",
+  manager: "Manager",
+  cashier: "Cashier",
 };
 
-const ROLE_BADGE: Record<KitchenRole, string> = {
-  chef:            "bg-orange-500/20 text-orange-300",
-  head_chef:       "bg-red-500/20 text-red-300",
-  kitchen_manager: "bg-purple-500/20 text-purple-300",
+const ROLE_BADGE: Record<POSRole, string> = {
+  admin:   "bg-purple-500/20 text-purple-300",
+  manager: "bg-blue-500/20 text-blue-300",
+  cashier: "bg-slate-600/40 text-slate-300",
 };
 
 // ─── Staff Form ───────────────────────────────────────────────────────────────
 
-const EMPTY: Omit<KitchenStaff, "id" | "createdAt"> = {
-  name: "", pin: "", role: "chef", active: true, avatarColor: AVATAR_COLORS[0],
+type FormDraft = {
+  name: string; email: string; role: POSRole; pin: string;
+  active: boolean; avatarColor: string; hourlyRate: string;
+};
+
+const EMPTY: FormDraft = {
+  name: "", email: "", role: "cashier", pin: "",
+  active: true, avatarColor: AVATAR_COLORS[0], hourlyRate: "",
 };
 
 function StaffForm({
@@ -42,28 +48,26 @@ function StaffForm({
   onSave,
   onCancel,
 }: {
-  initial?: Partial<typeof EMPTY> & { id?: string };
-  onSave: (data: typeof EMPTY) => void;
+  initial?: Partial<FormDraft> & { id?: string };
+  onSave: (data: FormDraft) => void | Promise<void>;
   onCancel: () => void;
 }) {
-  const [form,    setForm]    = useState({ ...EMPTY, ...initial });
+  const [form,    setForm]    = useState<FormDraft>({ ...EMPTY, ...initial, pin: "" });
   const [errors,  setErrors]  = useState<Record<string, string>>({});
   const [showPin, setShowPin] = useState(false);
 
-  function set<K extends keyof typeof EMPTY>(k: K, v: (typeof EMPTY)[K]) {
+  function set<K extends keyof FormDraft>(k: K, v: FormDraft[K]) {
     setForm((f) => ({ ...f, [k]: v }));
     setErrors((e) => { const n = { ...e }; delete n[k as string]; return n; });
   }
 
-  // In edit mode the PIN field stays blank by default — the server never
-  // returns real PINs, so blank means "keep existing".
   const isEdit = Boolean(initial?.id);
 
   function validate(): boolean {
     const e: Record<string, string> = {};
     if (!form.name.trim()) e.name = "Name is required.";
     if (!isEdit && !form.pin.trim()) e.pin = "PIN is required.";
-    else if (form.pin.trim() && !/^\d{4,6}$/.test(form.pin)) e.pin = "PIN must be 4–6 digits.";
+    else if (form.pin.trim() && !/^\d{4}$/.test(form.pin)) e.pin = "PIN must be exactly 4 digits.";
     if (Object.keys(e).length) { setErrors(e); return false; }
     return true;
   }
@@ -71,32 +75,40 @@ function StaffForm({
   function handleSubmit(ev: React.FormEvent) {
     ev.preventDefault();
     if (!validate()) return;
-    onSave(form);
+    void onSave(form);
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {/* Name */}
       <div>
         <label className="block text-xs font-medium text-gray-400 mb-1">Name</label>
         <input
           value={form.name}
           onChange={(e) => set("name", e.target.value)}
-          placeholder="e.g. Marco"
+          placeholder="e.g. Sam"
           className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-orange-500"
         />
         {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
       </div>
 
-      {/* PIN */}
+      <div>
+        <label className="block text-xs font-medium text-gray-400 mb-1">Email (optional)</label>
+        <input
+          value={form.email}
+          onChange={(e) => set("email", e.target.value)}
+          placeholder="sam@restaurant.local"
+          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-orange-500"
+        />
+      </div>
+
       <div>
         <label className="block text-xs font-medium text-gray-400 mb-1">
-          PIN (4–6 digits){isEdit ? " — leave blank to keep current" : ""}
+          4-digit PIN{isEdit ? " — leave blank to keep current" : ""}
         </label>
         <div className="relative">
           <input
             value={form.pin}
-            onChange={(e) => set("pin", e.target.value.replace(/\D/g, "").slice(0, 6))}
+            onChange={(e) => set("pin", e.target.value.replace(/\D/g, "").slice(0, 4))}
             type={showPin ? "text" : "password"}
             placeholder={isEdit ? "Leave blank to keep current" : "••••"}
             inputMode="numeric"
@@ -113,23 +125,35 @@ function StaffForm({
         {errors.pin && <p className="text-red-400 text-xs mt-1">{errors.pin}</p>}
       </div>
 
-      {/* Role */}
       <div>
         <label className="block text-xs font-medium text-gray-400 mb-1">Role</label>
         <select
           value={form.role}
-          onChange={(e) => set("role", e.target.value as KitchenRole)}
+          onChange={(e) => set("role", e.target.value as POSRole)}
           className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
         >
-          <option value="chef">Chef</option>
-          <option value="head_chef">Head Chef</option>
-          <option value="kitchen_manager">Kitchen Manager</option>
+          <option value="cashier">Cashier</option>
+          <option value="manager">Manager</option>
+          <option value="admin">Admin</option>
         </select>
+        <p className="text-gray-500 text-xs mt-1">
+          Permissions are applied automatically from the role.
+        </p>
       </div>
 
-      {/* Avatar colour */}
       <div>
-        <label className="block text-xs font-medium text-gray-400 mb-1.5">Avatar Colour</label>
+        <label className="block text-xs font-medium text-gray-400 mb-1">Hourly rate (£, optional)</label>
+        <input
+          type="number" step="0.5"
+          value={form.hourlyRate}
+          onChange={(e) => set("hourlyRate", e.target.value)}
+          placeholder="10.00"
+          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-orange-500"
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-gray-400 mb-1.5">Avatar colour</label>
         <div className="flex gap-2 flex-wrap">
           {AVATAR_COLORS.map((c) => (
             <button
@@ -147,7 +171,6 @@ function StaffForm({
         </div>
       </div>
 
-      {/* Active toggle */}
       <label className="flex items-center gap-2 cursor-pointer">
         <div
           onClick={() => set("active", !form.active)}
@@ -159,17 +182,10 @@ function StaffForm({
       </label>
 
       <div className="flex gap-2 pt-2">
-        <button
-          type="submit"
-          className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
-        >
+        <button type="submit" className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition">
           <Save size={14} /> Save
         </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
-        >
+        <button type="button" onClick={onCancel} className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition">
           <X size={14} /> Cancel
         </button>
       </div>
@@ -179,58 +195,73 @@ function StaffForm({
 
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 
-export default function KitchenStaffPanel() {
-  // DB-backed via /api/admin/kitchen-staff. Each mutation calls the REST
-  // endpoint and re-fetches the list. The PIN field in the form sends the
-  // value to the server for bcrypt-hashing; it's never returned from GET.
-  const [staff, setStaff] = useState<KitchenStaff[]>([]);
+export default function POSStaffPanel() {
+  // Backed by /api/pos/staff (table: pos_staff). The same endpoints are used
+  // by the in-POS Staff tab, so changes here surface there instantly.
+  const [staff, setStaff] = useState<POSStaff[]>([]);
 
-  const refreshStaff = useCallback(async () => {
+  const refresh = useCallback(async () => {
     try {
-      const res = await fetch("/api/admin/kitchen-staff");
+      const res = await fetch("/api/pos/staff");
       if (!res.ok) return;
-      const json = await res.json() as { ok: boolean; kitchenStaff?: KitchenStaff[] };
-      if (json.ok) setStaff(json.kitchenStaff ?? []);
-    } catch { /* ignore — UI keeps last good list */ }
+      const json = await res.json() as { ok: boolean; staff?: POSStaff[] };
+      if (json.ok) setStaff(json.staff ?? []);
+    } catch { /* keep last good list */ }
   }, []);
 
-  useEffect(() => { refreshStaff(); }, [refreshStaff]);
+  useEffect(() => { refresh(); }, [refresh]);
 
   const [adding,   setAdding]   = useState(false);
-  const [editing,  setEditing]  = useState<KitchenStaff | null>(null);
+  const [editing,  setEditing]  = useState<POSStaff | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
-  async function handleAdd(data: Omit<KitchenStaff, "id" | "createdAt">) {
-    const res = await fetch("/api/admin/kitchen-staff", {
+  async function handleAdd(data: FormDraft) {
+    const res = await fetch("/api/pos/staff", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(data),
+      body:    JSON.stringify({
+        name:        data.name,
+        email:       data.email,
+        role:        data.role,
+        pin:         data.pin,
+        active:      data.active,
+        avatarColor: data.avatarColor,
+        hourlyRate:  parseFloat(data.hourlyRate) || undefined,
+        permissions: ROLE_PERMISSIONS[data.role],
+      }),
     });
     if (res.ok) {
-      await refreshStaff();
+      await refresh();
       setAdding(false);
     }
   }
 
-  async function handleEdit(data: Omit<KitchenStaff, "id" | "createdAt">) {
+  async function handleEdit(data: FormDraft) {
     if (!editing) return;
-    // Strip pin if blank so the server keeps the existing hash.
-    const payload = { ...data, pin: data.pin?.trim() ? data.pin : undefined };
-    const res = await fetch(`/api/admin/kitchen-staff/${editing.id}`, {
+    const res = await fetch(`/api/pos/staff/${editing.id}`, {
       method:  "PATCH",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(payload),
+      body:    JSON.stringify({
+        name:        data.name,
+        email:       data.email,
+        role:        data.role,
+        pin:         data.pin.trim() || undefined, // omit → server keeps existing
+        active:      data.active,
+        avatarColor: data.avatarColor,
+        hourlyRate:  parseFloat(data.hourlyRate) || undefined,
+        permissions: ROLE_PERMISSIONS[data.role],
+      }),
     });
     if (res.ok) {
-      await refreshStaff();
+      await refresh();
       setEditing(null);
     }
   }
 
   async function handleDelete(id: string) {
-    const res = await fetch(`/api/admin/kitchen-staff/${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/pos/staff/${id}`, { method: "DELETE" });
     if (res.ok) {
-      await refreshStaff();
+      await refresh();
       setDeleting(null);
     }
   }
@@ -238,12 +269,12 @@ export default function KitchenStaffPanel() {
   async function toggleActive(id: string) {
     const member = staff.find((s) => s.id === id);
     if (!member) return;
-    const res = await fetch(`/api/admin/kitchen-staff/${id}`, {
+    const res = await fetch(`/api/pos/staff/${id}`, {
       method:  "PATCH",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({ active: !member.active }),
     });
-    if (res.ok) await refreshStaff();
+    if (res.ok) await refresh();
   }
 
   return (
@@ -251,19 +282,19 @@ export default function KitchenStaffPanel() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-white font-semibold">Kitchen Staff</h2>
+          <h2 className="text-white font-semibold">POS Staff</h2>
           <p className="text-gray-500 text-xs mt-0.5">
             {staff.length} staff · {staff.filter((s) => s.active).length} active
           </p>
         </div>
         <div className="flex items-center gap-2">
           <a
-            href="/kitchen"
+            href="/pos"
             target="_blank"
             rel="noopener noreferrer"
             className="hidden sm:flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm font-medium px-3 py-2 rounded-xl transition"
           >
-            <ExternalLink size={13} /> Open KDS
+            <ExternalLink size={13} /> Open POS
           </a>
           {!adding && !editing && (
             <button
@@ -280,12 +311,9 @@ export default function KitchenStaffPanel() {
       {adding && (
         <div className="bg-gray-900 rounded-2xl border border-gray-800 p-5">
           <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-            <UserPlus size={16} /> New Kitchen Staff Member
+            <UserPlus size={16} /> New POS Staff Member
           </h3>
-          <StaffForm
-            onSave={handleAdd}
-            onCancel={() => setAdding(false)}
-          />
+          <StaffForm onSave={handleAdd} onCancel={() => setAdding(false)} />
         </div>
       )}
 
@@ -293,8 +321,8 @@ export default function KitchenStaffPanel() {
       <div className="space-y-3">
         {staff.length === 0 && !adding && (
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-8 text-center">
-            <ChefHat size={32} className="text-gray-700 mx-auto mb-2" />
-            <p className="text-gray-500 text-sm">No kitchen staff yet. Add your first member above.</p>
+            <Tablet size={32} className="text-gray-700 mx-auto mb-2" />
+            <p className="text-gray-500 text-sm">No POS staff yet. Add your first member above.</p>
           </div>
         )}
 
@@ -306,7 +334,15 @@ export default function KitchenStaffPanel() {
                   <Pencil size={15} /> Edit {member.name}
                 </h3>
                 <StaffForm
-                  initial={member}
+                  initial={{
+                    id:          member.id,
+                    name:        member.name,
+                    email:       member.email ?? "",
+                    role:        member.role,
+                    active:      member.active,
+                    avatarColor: member.avatarColor,
+                    hourlyRate:  member.hourlyRate?.toString() ?? "",
+                  }}
                   onSave={handleEdit}
                   onCancel={() => setEditing(null)}
                 />
@@ -323,16 +359,12 @@ export default function KitchenStaffPanel() {
                 >
                   Delete
                 </button>
-                <button
-                  onClick={() => setDeleting(null)}
-                  className="text-gray-400 hover:text-white transition"
-                >
+                <button onClick={() => setDeleting(null)} className="text-gray-400 hover:text-white transition">
                   <X size={16} />
                 </button>
               </div>
             ) : (
               <div className="p-4 flex items-center gap-3">
-                {/* Avatar */}
                 <div
                   className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
                   style={{ backgroundColor: member.avatarColor }}
@@ -340,7 +372,6 @@ export default function KitchenStaffPanel() {
                   {initials(member.name)}
                 </div>
 
-                {/* Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-white font-medium text-sm">{member.name}</span>
@@ -348,19 +379,19 @@ export default function KitchenStaffPanel() {
                       {ROLE_LABELS[member.role]}
                     </span>
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                      member.active
-                        ? "bg-green-500/20 text-green-300"
-                        : "bg-gray-700 text-gray-400"
+                      member.active ? "bg-green-500/20 text-green-300" : "bg-gray-700 text-gray-400"
                     }`}>
                       {member.active ? "Active" : "Inactive"}
                     </span>
                   </div>
                   <p className="text-gray-500 text-xs mt-0.5">
-                    PIN: •••• · ID: {member.id}
+                    {member.email || "—"} · PIN: •••• · ID: {member.id}
                   </p>
+                  {member.hourlyRate && (
+                    <p className="text-gray-500 text-xs">£{member.hourlyRate}/hr</p>
+                  )}
                 </div>
 
-                {/* Actions */}
                 <div className="flex items-center gap-1.5 flex-shrink-0">
                   <button
                     onClick={() => toggleActive(member.id)}
@@ -369,8 +400,7 @@ export default function KitchenStaffPanel() {
                   >
                     {member.active
                       ? <CheckCircle2 size={16} className="text-green-400" />
-                      : <XCircle      size={16} className="text-gray-600"  />
-                    }
+                      : <XCircle      size={16} className="text-gray-600"  />}
                   </button>
                   <button
                     onClick={() => { setEditing(member); setAdding(false); }}
@@ -391,12 +421,12 @@ export default function KitchenStaffPanel() {
         ))}
       </div>
 
-      {/* Info box */}
       <div className="bg-blue-950/60 border border-blue-700/60 rounded-xl p-4 text-blue-100 text-xs leading-relaxed">
         <strong className="block mb-1 text-white">How it works</strong>
-        Kitchen staff log in at <code>/kitchen/login</code> using their PIN. Sessions are signed HMAC cookies
-        valid for 30 days. PINs are stored in admin settings and validated server-side — never exposed
-        in the browser&apos;s network tab. Each status update records the staff member&apos;s name in the order.
+        POS staff log in at <code>/pos/login</code> using their PIN. Roles
+        determine which tabs they see inside the POS terminal — Admins get
+        everything; Cashiers see only Sale + Tables. PINs are bcrypt-hashed and
+        validated server-side; the browser never holds a real PIN.
       </div>
     </div>
   );

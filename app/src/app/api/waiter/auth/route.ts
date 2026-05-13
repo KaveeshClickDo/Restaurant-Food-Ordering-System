@@ -1,13 +1,12 @@
 /**
  * POST /api/waiter/auth
- * Validates a waiter's PIN against app_settings.
+ * Validates a waiter's PIN against the waiters table (bcrypt-hashed).
  * Sets an httpOnly session cookie on success.
- * Falls back to seed defaults if no waiters are configured yet.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin }             from "@/lib/supabaseAdmin";
-import type { WaiterStaff }          from "@/types";
+import bcrypt from "bcryptjs";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   createSessionToken,
   setSessionCookie,
@@ -25,7 +24,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "staffId and pin are required." }, { status: 400 });
   }
 
-  // Rate-limit per IP + staff ID to prevent targeted PIN brute-force.
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
   const { limited } = rateLimit(`waiter-auth:${ip}:${staffId}`, 10, 60_000);
   if (limited) {
@@ -33,24 +31,24 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { data: row } = await supabaseAdmin
-      .from("app_settings").select("data").limit(1).single();
+    const { data: waiter } = await supabaseAdmin
+      .from("waiters")
+      .select("id, name, email, pin_hash, active, hourly_rate, avatar_color, created_at")
+      .eq("id", staffId)
+      .eq("active", true)
+      .maybeSingle();
 
-    const waiters: WaiterStaff[] = row?.data?.waiters ?? [];
-    if (waiters.length === 0) {
-      return NextResponse.json(
-        { ok: false, error: "No staff accounts configured. Ask your admin to set up waiter accounts." },
-        { status: 401 },
-      );
+    if (!waiter) {
+      return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
     }
 
-    const waiter = waiters.find((w) => w.id === staffId && w.active);
-    if (!waiter || waiter.pin !== pin) {
+    const valid = await bcrypt.compare(pin, waiter.pin_hash);
+    if (!valid) {
       return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { pin: _p, ...safe } = waiter;
+    const { pin_hash: _h, ...safe } = waiter;
 
     const token = createSessionToken({ id: staffId, role: "waiter" });
     const res = NextResponse.json({ ok: true, waiter: safe });

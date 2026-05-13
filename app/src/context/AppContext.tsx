@@ -11,19 +11,15 @@ import React, {
 } from "react";
 import { supabase } from "@/lib/supabase";
 import {
-  AdminSettings, AuditEntry, BreakfastMenuSettings, CartItem, Category, ColorSettings, Coupon,
+  AdminSettings, AuditEntry, BreakfastMenuSettings, CartItem, Category, Coupon,
   DeliveryStatus, DeliveryZone, Driver, MenuItem, Customer, Order, OrderStatus, PaymentMethod,
-  PrinterSettings, Refund, SavedAddress, SeoSettings, ReceiptSettings, StockStatus,
-  TaxSettings,
+  Refund, SavedAddress, StockStatus,
 } from "@/types";
 import { buildColorCss } from "@/lib/colorUtils";
 import { DEFAULT_EMAIL_TEMPLATES } from "@/lib/emailTemplates";
-import { DEFAULT_FOOTER_PAGES } from "@/data/footerPages";
+import { DEFAULT_SETTINGS, DEFAULT_COLORS } from "@/data/defaultSettings";
 import SeoHead from "@/components/SeoHead";
 import EmailVerificationBanner from "@/components/EmailVerificationBanner";
-import { restaurantInfo, defaultSchedule } from "@/data/restaurant";
-import { categories as defaultCategories, menuItems as defaultMenuItems } from "@/data/menu";
-import { mockCustomers } from "@/data/customers";
 
 // ─── Email template merge ─────────────────────────────────────────────────────
 // Keeps existing edited templates and fills in any new default events that are
@@ -140,100 +136,9 @@ interface AppContextValue {
 const AppContext = createContext<AppContextValue | null>(null);
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
-
-const NO_RESTRICTION = { restricted: false, minKm: 0, maxKm: 50 };
-
-const DEFAULT_PAYMENT_METHODS: PaymentMethod[] = [
-  { id: "stripe", name: "Card (Stripe)",  description: "Visa, Mastercard, Amex via Stripe", adminNote: "",              enabled: true, builtIn: true, order: 0, deliveryRange: NO_RESTRICTION },
-  { id: "paypal", name: "PayPal",         description: "Fast, secure PayPal checkout",       adminNote: "",              enabled: true, builtIn: true, order: 1, deliveryRange: NO_RESTRICTION },
-  { id: "cash",   name: "Cash",           description: "Pay in store or on delivery",         adminNote: "Pay on delivery", enabled: true, builtIn: true, order: 2, deliveryRange: { restricted: true, minKm: 0, maxKm: 3 } },
-];
-
-const DEFAULT_DELIVERY_ZONES: DeliveryZone[] = [
-  { id: "zone-1", name: "Central",  minRadiusKm: 0, maxRadiusKm: 3,  fee: 1.99, enabled: true, color: "#f97316" },
-  { id: "zone-2", name: "Local",    minRadiusKm: 3, maxRadiusKm: 8,  fee: 2.99, enabled: true, color: "#3b82f6" },
-  { id: "zone-3", name: "Extended", minRadiusKm: 8, maxRadiusKm: 15, fee: 4.99, enabled: true, color: "#a855f7" },
-];
-
-const DEFAULT_COLORS: ColorSettings = { primaryColor: "#f97316", backgroundColor: "#f9fafb" };
-
-const DEFAULT_TAX: TaxSettings = { enabled: false, rate: 20, inclusive: true, showBreakdown: true };
-
-const DEFAULT_RECEIPT: ReceiptSettings = {
-  showLogo: false, logoUrl: "", restaurantName: restaurantInfo.name,
-  phone: restaurantInfo.phone, website: "", email: "", vatNumber: "",
-  thankYouMessage: "Thank you for your order!", customMessage: "",
-};
-
-const DEFAULT_SEO: SeoSettings = {
-  metaTitle: `${restaurantInfo.name} — Order Online`,
-  metaDescription: `Order online from ${restaurantInfo.name}.`,
-  metaKeywords: `food delivery, online order, ${restaurantInfo.name}`,
-  ogImage: "",
-  siteUrl: "",
-  faviconUrl: "",
-};
-
-const DEFAULT_PRINTER: PrinterSettings = {
-  enabled: false, name: "Kitchen Printer", connection: "network",
-  ip: "", port: 9100, bluetoothAddress: "", bluetoothName: "",
-  autoPrint: true, paperWidth: 48,
-};
-
-const DEFAULT_SETTINGS: AdminSettings = {
-  restaurant: restaurantInfo,
-  schedule: defaultSchedule,
-  manualClosed: false,
-  stripePublicKey: "",
-  // stripeSecretKey, paypalClientId → server-side env vars only
-  // smtpHost/Port/User/Password → server-side env vars only
-  // drivers → managed via /api/admin/drivers (separate Supabase table)
-  paymentMethods: DEFAULT_PAYMENT_METHODS,
-  paymentAuditLog: [],
-  deliveryZones: DEFAULT_DELIVERY_ZONES,
-  seo: DEFAULT_SEO,
-  customHeadCode: "",
-  printer: DEFAULT_PRINTER,
-  emailTemplates: DEFAULT_EMAIL_TEMPLATES,
-  footerPages: DEFAULT_FOOTER_PAGES,
-  footerCopyright: `© ${new Date().getFullYear()} ${restaurantInfo.name}. All rights reserved.`,
-  customPages: [],
-  menuLinks: [],
-  colors: DEFAULT_COLORS,
-  footerLogos: [],
-  receiptSettings: DEFAULT_RECEIPT,
-  coupons: [],
-  taxSettings: DEFAULT_TAX,
-  breakfastMenu: {
-    enabled: false,
-    startTime: "07:00",
-    endTime: "11:30",
-    categories: [],
-    items: [],
-  },
-  // Waiter and kitchen PINs were previously hardcoded here (1111/2222/3333 and
-  // 1234/2345/3456). Those defaults shipped in the client bundle and were
-  // world-readable — they're now empty and admins must explicitly configure
-  // staff via Admin → Staff & Tables / Kitchen Staff.
-  waiters: [],
-  kitchenStaff: [],
-  diningTables: [
-    ...Array.from({ length: 6 },  (_, i) => ({ id: `t-${i+1}`,  number: i+1,  label: `T${i+1}`,  seats: i < 2 ? 2 : 4, section: "Main Hall", active: true })),
-    ...Array.from({ length: 4 },  (_, i) => ({ id: `t-${i+7}`,  number: i+7,  label: `T${i+7}`,  seats: 4,             section: "Terrace",   active: true })),
-    ...Array.from({ length: 2 },  (_, i) => ({ id: `t-${i+11}`, number: i+11, label: `B${i+1}`,  seats: 2,             section: "Bar",       active: true })),
-  ],
-  reservationSystem: {
-    enabled: false,
-    slotDurationMinutes: 90,
-    maxAdvanceDays: 30,
-    openTime: "12:00",
-    closeTime: "22:00",
-    slotIntervalMinutes: 30,
-    maxPartySize: 10,
-    blackoutDates: [],
-    reviewUrl: "",
-  },
-};
+// DEFAULT_SETTINGS and its sub-constants live in @/data/defaultSettings so the
+// same defaults can be loaded by the post-migrate seed-settings script. Don't
+// re-add inline defaults here — edit the data file.
 
 // ─── Store open check ─────────────────────────────────────────────────────────
 
@@ -386,7 +291,17 @@ function customerToRow(c: Customer) {
 
 // ─── Settings builder ─────────────────────────────────────────────────────────
 // Shared by: AppProvider initial state, init useEffect, and Realtime subscription.
-// Accepts the raw `data` column from app_settings (or null → returns DEFAULT_SETTINGS).
+//
+// Reads the raw `data` column from app_settings and returns it as-is — no
+// per-field merging with DEFAULT_SETTINGS. Fresh DBs are populated by
+// `npm run db:migrate` (which chains seed-settings), so every field is
+// guaranteed to be present. If you add a new field to AdminSettings, also:
+//   1. Add the default to src/data/defaultSettings.ts
+//   2. Write a one-line `update app_settings set data = data || $1::jsonb ...`
+//      migration for existing installs.
+//
+// The only fallback kept is "raw is null" → return DEFAULT_SETTINGS, which
+// covers the brief SSR window before the first DB query resolves.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function buildSettingsFromData(raw: Record<string, unknown> | null): AdminSettings {
   if (!raw) return DEFAULT_SETTINGS;
@@ -395,29 +310,19 @@ function buildSettingsFromData(raw: Record<string, unknown> | null): AdminSettin
   return {
     ...DEFAULT_SETTINGS,
     ...d,
-    restaurant:        { ...DEFAULT_SETTINGS.restaurant,        ...(d.restaurant        ?? {}) },
-    schedule:          { ...DEFAULT_SETTINGS.schedule,          ...(d.schedule          ?? {}) },
-    colors:            { ...DEFAULT_SETTINGS.colors,            ...(d.colors            ?? {}) },
-    taxSettings:       { ...DEFAULT_SETTINGS.taxSettings,       ...(d.taxSettings       ?? {}) },
-    printer:           { ...DEFAULT_SETTINGS.printer,           ...(d.printer           ?? {}) },
-    seo:               { ...DEFAULT_SETTINGS.seo,               ...(d.seo               ?? {}) },
-    receiptSettings:   { ...DEFAULT_SETTINGS.receiptSettings,   ...(d.receiptSettings   ?? {}) },
-    reservationSystem: { ...DEFAULT_SETTINGS.reservationSystem, ...(d.reservationSystem ?? {}) },
-    breakfastMenu: {
-      ...DEFAULT_SETTINGS.breakfastMenu,
-      ...(d.breakfastMenu ?? {}),
-      categories: d.breakfastMenu?.categories ?? DEFAULT_SETTINGS.breakfastMenu.categories,
-      items:      d.breakfastMenu?.items      ?? DEFAULT_SETTINGS.breakfastMenu.items,
-    },
-    emailTemplates:  mergeEmailTemplates(d.emailTemplates),
-    footerPages:     d.footerPages    ?? DEFAULT_SETTINGS.footerPages,
-    paymentMethods:  d.paymentMethods ?? DEFAULT_SETTINGS.paymentMethods,
-    deliveryZones:   d.deliveryZones  ?? DEFAULT_SETTINGS.deliveryZones,
-    coupons:         d.coupons        ?? [],
-    waiters:         d.waiters        ?? DEFAULT_SETTINGS.waiters,
-    kitchenStaff:    d.kitchenStaff   ?? DEFAULT_SETTINGS.kitchenStaff,
-    diningTables:    d.diningTables   ?? DEFAULT_SETTINGS.diningTables,
-    // Sensitive fields explicitly excluded — must never reach client state:
+    // emailTemplates is the one legit forward-compat shim: it auto-fills any
+    // event templates added in code that aren't yet in the stored array, so
+    // existing installs surface new email events without a manual migration.
+    emailTemplates: mergeEmailTemplates(d.emailTemplates),
+    // Moved-out keys: read from DB tables, not JSONB. Empty arrays here so
+    // the legacy panels that haven't been switched (CouponsPanel) keep
+    // rendering something sensible — those panels are scheduled for the
+    // /api/admin/coupons switch in a follow-up.
+    coupons:      d.coupons      ?? [],
+    waiters:      [],   // managed via /api/admin/waiters; ignore JSONB copy
+    kitchenStaff: [],   // managed via /api/admin/kitchen-staff
+    diningTables: [],   // managed via /api/admin/dining-tables
+    // Sensitive fields are explicitly excluded — never reach client state:
     // drivers, stripeSecretKey, paypalClientId, smtpHost/Port/User/Password
   };
 }
@@ -576,46 +481,42 @@ export function AppProvider({
           console.error("AppContext: failed to load drivers:", err);
         }
 
-        // Categories
+        // dining_tables — moved out of app_settings.data.diningTables.
+        // GET is anon-accessible, so this works on customer pages too
+        // (reservations booking UI reads it). Other panels (TableStatusPanel,
+        // ReservationsPanel) read `settings.diningTables` via context — we
+        // hydrate that field here once on mount so those panels Just Work.
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const { data: tableRows } = await (supabase as any)
+            .from("dining_tables")
+            .select("id, label, number, seats, section, active, sort_order")
+            .order("sort_order", { ascending: true });
+          if (Array.isArray(tableRows)) {
+            setSettings((prev) => ({ ...prev, diningTables: tableRows }));
+          }
+        } catch (err) {
+          console.error("AppContext: failed to load dining_tables:", err);
+        }
+
+        // Categories — no runtime seed and no fallback to bundled defaults.
+        // An empty DB shows an empty UI; populate via `npm run db:seed-demo` or
+        // through the admin panel.
         const { data: catsData, error: catsErr } = await supabase
           .from("categories").select("*").order("sort_order", { ascending: true });
-        if (catsErr) {
-          console.error("AppContext: failed to load categories:", catsErr.message);
-        } else if (catsData && catsData.length > 0) {
-          setCategories(catsData.map(mapCategory));
-        } else {
-          // Seed via server-side API (uses service role key, works with RLS enabled)
-          try {
-            await fetch("/api/admin/seed", { method: "POST" });
-          } catch (e) {
-            console.error("AppContext: seed failed:", e);
-          }
-          setCategories(defaultCategories);
-        }
+        if (catsErr) console.error("AppContext: failed to load categories:", catsErr.message);
+        else setCategories((catsData ?? []).map(mapCategory));
 
         // Menu items
         const { data: menuData, error: menuErr } = await supabase.from("menu_items").select("*");
-        if (menuErr) {
-          console.error("AppContext: failed to load menu items:", menuErr.message);
-        } else if (menuData && menuData.length > 0) {
-          setMenuItems(menuData.map(mapMenuItem));
-        } else {
-          // Seed was already triggered above if categories were empty;
-          // optimistically use defaults until realtime event arrives.
-          setMenuItems(defaultMenuItems);
-        }
+        if (menuErr) console.error("AppContext: failed to load menu items:", menuErr.message);
+        else setMenuItems((menuData ?? []).map(mapMenuItem));
 
         // Customers (with nested orders)
         const { data: custsData, error: custsErr } = await supabase
-          .from("customers").select("*, orders(*)");
-        if (custsErr) {
-          console.error("AppContext: failed to load customers:", custsErr.message);
-        } else if (custsData && custsData.length > 0) {
-          setCustomers(custsData.map(mapCustomer));
-        } else {
-          // Seed was triggered above; use mock data as optimistic default.
-          setCustomers(mockCustomers);
-        }
+          .from("customers").select("id, name, email, phone, created_at, tags, favourites, saved_addresses, store_credit, email_verified, orders(*)");
+        if (custsErr) console.error("AppContext: failed to load customers:", custsErr.message);
+        else setCustomers((custsData ?? []).map(mapCustomer));
       } catch (err) {
         // Network down, CORS issue, or unexpected data shape — log it clearly
         console.error("AppContext init failed:", err instanceof Error ? err.message : err);
@@ -693,7 +594,7 @@ export function AppProvider({
             const knownCustomer = customersRef.current.some((c) => c.id === order.customerId);
             if (!knownCustomer) {
               const { data: cusData } = await supabase
-                .from("customers").select("*, orders(*)").eq("id", order.customerId).single();
+                .from("customers").select("id, name, email, phone, created_at, tags, favourites, saved_addresses, store_credit, email_verified, orders(*)").eq("id", order.customerId).single();
               if (cusData) {
                 const newCustomer = mapCustomer(cusData);
                 setCustomers((prev) => {
@@ -720,7 +621,7 @@ export function AppProvider({
             setCustomers((prev) => prev.filter((c) => c.id !== oldRow.id));
           } else if (eventType === "INSERT") {
             const { data } = await supabase
-              .from("customers").select("*, orders(*)").eq("id", newRow.id).single();
+              .from("customers").select("id, name, email, phone, created_at, tags, favourites, saved_addresses, store_credit, email_verified, orders(*)").eq("id", newRow.id).single();
             if (data) setCustomers((prev) => [...prev, mapCustomer(data)]);
           } else {
             // UPDATE — patch fields, keep in-memory orders

@@ -1,12 +1,15 @@
 /**
- * Server-side email utility — Node.js only (uses nodemailer directly).
- * Import this only from API routes, never from client components.
+ * Server-side email helpers.
  *
- * Sending from API routes avoids the circular fetch that would occur if they
- * called /api/email via sendEmailViaApi().
+ * Every send funnels through the dispatcher in `lib/emailSender.ts`, which
+ * picks Resend (when RESEND_API_KEY is set) or SMTP. Higher-level helpers
+ * here (sendOrderConfirmationEmail, sendReservationEmailServer, etc.) just
+ * build the HTML and hand it off — none of them know which provider is
+ * actually sending.
+ *
+ * Server-only: never import from a client component.
  */
 
-import nodemailer from "nodemailer";
 import type { AdminSettings, Customer, EmailTemplateEvent, Order, OrderStatus } from "@/types";
 import {
   applyVars,
@@ -16,6 +19,7 @@ import {
   DEFAULT_EMAIL_TEMPLATES,
 } from "./emailTemplates";
 import type { ReservationEmailData } from "./emailTemplates";
+import { sendEmail } from "./emailSender";
 import { supabaseAdmin } from "./supabaseAdmin";
 
 /**
@@ -33,71 +37,16 @@ export async function fetchBrandPrimaryColor(): Promise<string> {
   }
 }
 
-function resolveFromAddress(): string {
-  const explicit  = process.env.SMTP_FROM?.trim() ?? "";
-  if (explicit) return explicit;
-  const smtpUser  = process.env.SMTP_USER?.trim() ?? "";
-  const smtpHost  = process.env.SMTP_HOST?.trim() ?? "";
-  const isEmail   = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(smtpUser);
-  if (isEmail) return smtpUser;
-  if (smtpHost.includes("resend.com")) return "onboarding@resend.dev";
-  return smtpUser;
-}
-
-const TRANSIENT_ERROR_PATTERNS = [
-  "econnreset", "etimedout", "econnrefused", "ehostunreach",
-  "socket hang up", "connect etimedout", "connection timeout",
-];
-
-function isTransientSmtpError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const msg = err.message.toLowerCase();
-  return TRANSIENT_ERROR_PATTERNS.some((p) => msg.includes(p));
-}
-
-/** Send a raw HTML email via SMTP. Reads credentials from env vars only. Retries once on transient errors. */
+/** Send a raw HTML email. Thin wrapper around the dispatcher in
+ *  `emailSender.ts` so existing callers ({@link sendOrderConfirmationEmail},
+ *  {@link sendReservationEmailServer}, password-reset routes, etc.) don't
+ *  need to know whether Resend or SMTP is delivering. */
 export async function sendEmailDirect(
   to: string,
   subject: string,
   html: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const smtpHost = process.env.SMTP_HOST?.trim() ?? "";
-  const smtpPort = Number(process.env.SMTP_PORT) || 587;
-  const smtpUser = process.env.SMTP_USER?.trim() ?? "";
-  const smtpPass = process.env.SMTP_PASS?.trim() ?? "";
-
-  if (!smtpHost) return { ok: false, error: "SMTP not configured" };
-
-  const fromAddr = resolveFromAddress();
-  const fromName = process.env.SMTP_FROM_NAME?.trim() ?? "";
-  const from     = fromName ? `"${fromName}" <${fromAddr}>` : fromAddr;
-
-  const transporter = nodemailer.createTransport({
-    host:   smtpHost,
-    port:   smtpPort,
-    secure: smtpPort === 465,
-    auth:   smtpUser ? { user: smtpUser, pass: smtpPass } : undefined,
-    connectionTimeout: 8_000,
-    greetingTimeout:   5_000,
-    socketTimeout:     10_000,
-  });
-
-  let lastErr: unknown;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 600));
-    try {
-      await transporter.sendMail({ from, to, subject, html });
-      console.log(`[email] sent "${subject}" → ${to}`);
-      return { ok: true };
-    } catch (err) {
-      lastErr = err;
-      if (!isTransientSmtpError(err)) break;
-    }
-  }
-
-  const message = lastErr instanceof Error ? lastErr.message : "Unknown SMTP error";
-  console.error(`[email] failed "${subject}" → ${to}:`, message);
-  return { ok: false, error: message };
+  return sendEmail({ to, subject, html });
 }
 
 /**

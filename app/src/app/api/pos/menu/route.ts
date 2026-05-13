@@ -38,10 +38,9 @@ export async function POST(req: NextRequest) {
   // Auth guard: require a valid POS session. Same graceful fallback as pos/orders.
   const session = await getPosSession();
   if (!session) {
-    const { data: settingsRow } = await supabaseAdmin
-      .from("app_settings").select("data").eq("id", 1).single();
-    const posStaffConfigured = (settingsRow?.data?.pos_staff ?? []).length > 0;
-    if (posStaffConfigured) {
+    const { count } = await supabaseAdmin
+      .from("pos_staff").select("id", { count: "exact", head: true }).eq("active", true);
+    if ((count ?? 0) > 0) {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
   }

@@ -5,13 +5,17 @@ import {
   Users, Plus, Search, Pencil, Key, Mail, Trash2,
   X, CheckCircle, AlertCircle, Loader2,
   Truck, UtensilsCrossed, UserCircle2, ChevronDown,
+  ChefHat, Tablet,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+type UserType = "admin" | "customer" | "driver" | "waiter" | "kitchen" | "pos";
+type POSRole  = "admin" | "manager" | "cashier";
+
 interface ManagedUser {
   id: string;
-  type: "admin" | "customer" | "driver" | "waiter";
+  type: UserType;
   name: string;
   email?: string;
   phone?: string;
@@ -19,13 +23,15 @@ interface ManagedUser {
   createdAt?: string;
   emailVerified?: boolean;
   pin?: string;
-  waiterRole?: "senior" | "waiter";
+  waiterRole?:  "senior" | "waiter";
+  kitchenRole?: "chef" | "head_chef" | "kitchen_manager";
+  posRole?:     POSRole;
   avatarColor?: string;
   vehicleInfo?: string;
   notes?: string;
 }
 
-type FilterRole = "all" | "admin" | "customer" | "driver" | "waiter";
+type FilterRole = "all" | UserType;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -37,43 +43,57 @@ function getInitials(name: string): string {
     .join("");
 }
 
-function roleColor(type: ManagedUser["type"], waiterRole?: "senior" | "waiter"): string {
-  switch (type) {
+function roleColor(user: ManagedUser): string {
+  switch (user.type) {
     case "admin":    return "bg-purple-100 text-purple-700 border-purple-200";
     case "customer": return "bg-blue-100 text-blue-700 border-blue-200";
     case "driver":   return "bg-orange-100 text-orange-700 border-orange-200";
     case "waiter":
-      return waiterRole === "senior"
+      return user.waiterRole === "senior"
         ? "bg-indigo-100 text-indigo-700 border-indigo-200"
         : "bg-teal-100 text-teal-700 border-teal-200";
+    case "kitchen":  return "bg-red-100 text-red-700 border-red-200";
+    case "pos":      return "bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200";
   }
 }
 
-function roleLabel(type: ManagedUser["type"], waiterRole?: "senior" | "waiter"): string {
-  switch (type) {
+function roleLabel(user: ManagedUser): string {
+  switch (user.type) {
     case "admin":    return "Admin";
     case "customer": return "Customer";
     case "driver":   return "Driver";
-    case "waiter":   return waiterRole === "senior" ? "Senior Staff" : "Waiter";
+    case "waiter":   return user.waiterRole === "senior" ? "Senior Waiter" : "Waiter";
+    case "kitchen": {
+      const r = user.kitchenRole ?? "chef";
+      return r === "head_chef" ? "Head Chef" : r === "kitchen_manager" ? "Kitchen Mgr" : "Chef";
+    }
+    case "pos": {
+      const r = user.posRole ?? "cashier";
+      return r === "admin" ? "POS Admin" : r === "manager" ? "POS Manager" : "POS Cashier";
+    }
   }
 }
 
-function avatarBg(type: ManagedUser["type"], color?: string): string {
-  if (type === "waiter" && color) return color;
-  switch (type) {
+function avatarBg(user: ManagedUser): string {
+  if (user.avatarColor) return user.avatarColor;
+  switch (user.type) {
     case "admin":    return "#a855f7";
     case "customer": return "#3b82f6";
     case "driver":   return "#f97316";
     case "waiter":   return "#14b8a6";
+    case "kitchen":  return "#dc2626";
+    case "pos":      return "#7c3aed";
   }
 }
 
 const ROLE_FILTER_TABS: { id: FilterRole; label: string }[] = [
-  { id: "all",      label: "All"           },
-  { id: "admin",    label: "Admin"         },
-  { id: "customer", label: "Customers"     },
-  { id: "driver",   label: "Drivers"       },
-  { id: "waiter",   label: "Staff/Waiters" },
+  { id: "all",      label: "All"        },
+  { id: "admin",    label: "Admin"      },
+  { id: "customer", label: "Customers"  },
+  { id: "driver",   label: "Drivers"    },
+  { id: "waiter",   label: "Waiters"    },
+  { id: "kitchen",  label: "Kitchen"    },
+  { id: "pos",      label: "POS Staff"  },
 ];
 
 const AVATAR_COLOR_OPTIONS = [
@@ -231,6 +251,8 @@ export default function UserManagementPanel() {
     customer: users.filter((u) => u.type === "customer").length,
     driver:   users.filter((u) => u.type === "driver").length,
     waiter:   users.filter((u) => u.type === "waiter").length,
+    kitchen:  users.filter((u) => u.type === "kitchen").length,
+    pos:      users.filter((u) => u.type === "pos").length,
   };
 
   // ─── Render ───────────────────────────────────────────────────────────────
@@ -432,7 +454,7 @@ function UserRow({
   resetSending: boolean;
 }) {
   const initials = getInitials(user.name);
-  const bg       = avatarBg(user.type, user.avatarColor);
+  const bg       = avatarBg(user);
 
   return (
     <div className="flex flex-col sm:flex-row sm:items-center gap-3 px-5 py-4 hover:bg-gray-50/50 transition group">
@@ -449,8 +471,8 @@ function UserRow({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-semibold text-gray-900 truncate">{user.name}</span>
-            <span className={`inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full border ${roleColor(user.type, user.waiterRole)}`}>
-              {roleLabel(user.type, user.waiterRole)}
+            <span className={`inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full border ${roleColor(user)}`}>
+              {roleLabel(user)}
             </span>
           </div>
           <p className="text-xs text-gray-500 mt-0.5 truncate">
@@ -544,36 +566,46 @@ function CreateUserModal({
   onCreated: () => void;
   addToast: (msg: string, ok: boolean) => void;
 }) {
-  const [type,        setType]        = useState<"customer" | "driver" | "waiter">("customer");
+  type CreateType = "customer" | "driver" | "waiter" | "kitchen" | "pos";
+  const [type,        setType]        = useState<CreateType>("customer");
   const [name,        setName]        = useState("");
   const [email,       setEmail]       = useState("");
   const [phone,       setPhone]       = useState("");
   const [password,    setPassword]    = useState("");
   const [pin,         setPin]         = useState("");
   const [waiterRole,  setWaiterRole]  = useState<"waiter" | "senior">("waiter");
+  const [kitchenRole, setKitchenRole] = useState<"chef" | "head_chef" | "kitchen_manager">("chef");
+  const [posRole,     setPosRole]     = useState<"admin" | "manager" | "cashier">("cashier");
   const [avatarColor, setAvatarColor] = useState(AVATAR_COLOR_OPTIONS[0]);
+  const [hourlyRate,  setHourlyRate]  = useState("");
   const [vehicleInfo, setVehicleInfo] = useState("");
   const [notes,       setNotes]       = useState("");
   const [active,      setActive]      = useState(true);
   const [loading,     setLoading]     = useState(false);
   const [errors,      setErrors]      = useState<Record<string, string>>({});
 
+  // The five types fall into two groups:
+  //   • Account types (customer / driver) use email + password.
+  //   • Staff PIN types (waiter / kitchen / pos) use a numeric PIN.
+  // POS PINs are strictly 4 digits; waiter and kitchen accept 4–6.
+  const isStaffPin = type === "waiter" || type === "kitchen" || type === "pos";
+  const pinRegex   = type === "pos" ? /^\d{4}$/ : /^\d{4,6}$/;
+  const pinHint    = type === "pos" ? "4 digits" : "4–6 digits";
+
   function validate(): boolean {
     const e: Record<string, string> = {};
-    if (!name.trim())         e.name = "Name is required.";
-    if (type !== "waiter") {
-      if (!email.trim())      e.email = "Email is required.";
-    }
-    if (type === "driver") {
-      if (!phone.trim())      e.phone = "Phone is required.";
-    }
-    if (type !== "waiter") {
-      if (!password)          e.password = "Password is required.";
-      else if (password.length < 6) e.password = "Min 6 characters.";
+    if (!name.trim()) e.name = "Name is required.";
+
+    if (!isStaffPin) {
+      if (!email.trim())              e.email    = "Email is required.";
+      if (!password)                  e.password = "Password is required.";
+      else if (password.length < 6)   e.password = "Min 6 characters.";
+      if (type === "driver" && !phone.trim()) e.phone = "Phone is required.";
     } else {
-      if (!pin)               e.pin = "PIN is required.";
-      else if (!/^\d{4}$/.test(pin)) e.pin = "PIN must be exactly 4 digits.";
+      if (!pin)                       e.pin = "PIN is required.";
+      else if (!pinRegex.test(pin))   e.pin = `PIN must be ${pinHint}.`;
     }
+
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -584,11 +616,21 @@ function CreateUserModal({
     setLoading(true);
     try {
       const body: Record<string, unknown> = { type, name, active };
-      if (type !== "waiter") { body.email = email; body.password = password; }
-      if (phone)        body.phone       = phone;
-      if (type === "waiter")  { body.pin = pin; body.waiterRole = waiterRole; body.avatarColor = avatarColor; }
-      if (vehicleInfo)  body.vehicleInfo = vehicleInfo;
-      if (notes)        body.notes       = notes;
+      if (!isStaffPin) {
+        body.email    = email;
+        body.password = password;
+        if (phone)       body.phone       = phone;
+        if (vehicleInfo) body.vehicleInfo = vehicleInfo;
+        if (notes)       body.notes       = notes;
+      } else {
+        body.pin         = pin;
+        body.avatarColor = avatarColor;
+        if (email)            body.email       = email;
+        if (hourlyRate)       body.hourlyRate  = parseFloat(hourlyRate);
+        if (type === "waiter")  body.waiterRole  = waiterRole;
+        if (type === "kitchen") body.kitchenRole = kitchenRole;
+        if (type === "pos")     body.posRole     = posRole;
+      }
 
       const res  = await fetch("/api/admin/users", {
         method:  "POST",
@@ -617,23 +659,30 @@ function CreateUserModal({
         {/* Type selector */}
         <div>
           <label className="block text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Role</label>
-          <div className="grid grid-cols-3 gap-2">
-            {(["customer", "driver", "waiter"] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setType(t)}
-                className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold border transition capitalize
-                  ${type === t
-                    ? "bg-orange-500 text-white border-orange-500"
-                    : "bg-gray-50 text-gray-600 border-gray-200 hover:border-gray-300"}`}
-              >
-                {t === "customer" && <UserCircle2 size={13} />}
-                {t === "driver"   && <Truck size={13} />}
-                {t === "waiter"   && <UtensilsCrossed size={13} />}
-                {t === "waiter" ? "Staff" : t.charAt(0).toUpperCase() + t.slice(1)}
-              </button>
-            ))}
+          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+            {(["customer", "driver", "waiter", "kitchen", "pos"] as const).map((t) => {
+              const Icon = t === "customer" ? UserCircle2 :
+                           t === "driver"   ? Truck :
+                           t === "waiter"   ? UtensilsCrossed :
+                           t === "kitchen"  ? ChefHat :
+                                              Tablet;
+              const label = t === "kitchen" ? "Kitchen"
+                          : t === "pos"     ? "POS Staff"
+                          : t.charAt(0).toUpperCase() + t.slice(1);
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setType(t)}
+                  className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold border transition
+                    ${type === t
+                      ? "bg-orange-500 text-white border-orange-500"
+                      : "bg-gray-50 text-gray-600 border-gray-200 hover:border-gray-300"}`}
+                >
+                  <Icon size={13} /> {label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -641,38 +690,101 @@ function CreateUserModal({
           <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" className={inputCls(!!errors.name)} />
         </FormField>
 
-        {type !== "waiter" && (
-          <FormField label="Email" error={errors.email} required>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@example.com" className={inputCls(!!errors.email)} />
+        {/* Email — required for account types, optional for staff PIN types */}
+        <FormField
+          label={`Email${isStaffPin ? " (optional)" : ""}`}
+          error={errors.email}
+          required={!isStaffPin}
+        >
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="email@example.com"
+            className={inputCls(!!errors.email)}
+          />
+        </FormField>
+
+        {/* Phone — required for drivers, optional for customers, hidden for staff */}
+        {!isStaffPin && (
+          <FormField label="Phone" error={errors.phone} required={type === "driver"}>
+            <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+44 7700 900000" className={inputCls(!!errors.phone)} />
           </FormField>
         )}
 
-        <FormField label="Phone" error={errors.phone} required={type === "driver"}>
-          <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+44 7700 900000" className={inputCls(!!errors.phone)} />
-        </FormField>
-
-        {type !== "waiter" && (
+        {/* Account types — password */}
+        {!isStaffPin && (
           <FormField label="Password" error={errors.password} required>
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Min 6 characters" className={inputCls(!!errors.password)} />
           </FormField>
         )}
 
-        {type === "waiter" && (
+        {/* Staff PIN types — PIN + role + hourly rate + avatar */}
+        {isStaffPin && (
           <>
-            <FormField label="PIN (4 digits)" error={errors.pin} required>
-              <input type="text" inputMode="numeric" maxLength={4} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="1234" className={inputCls(!!errors.pin)} />
+            <FormField label={`PIN (${pinHint})`} error={errors.pin} required>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={type === "pos" ? 4 : 6}
+                value={pin}
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, type === "pos" ? 4 : 6))}
+                placeholder={type === "pos" ? "1234" : "1234 / 123456"}
+                className={inputCls(!!errors.pin)}
+              />
             </FormField>
 
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Staff Role</label>
-              <div className="relative">
-                <select value={waiterRole} onChange={(e) => setWaiterRole(e.target.value as "waiter" | "senior")} className="w-full appearance-none bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-500 pr-8">
-                  <option value="waiter">Waiter</option>
-                  <option value="senior">Senior Staff</option>
-                </select>
-                <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            {type === "waiter" && (
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Waiter Role</label>
+                <div className="relative">
+                  <select value={waiterRole} onChange={(e) => setWaiterRole(e.target.value as "waiter" | "senior")} className="w-full appearance-none bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-500 pr-8">
+                    <option value="waiter">Waiter</option>
+                    <option value="senior">Senior Waiter</option>
+                  </select>
+                  <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                </div>
               </div>
-            </div>
+            )}
+
+            {type === "kitchen" && (
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Kitchen Role</label>
+                <div className="relative">
+                  <select value={kitchenRole} onChange={(e) => setKitchenRole(e.target.value as "chef" | "head_chef" | "kitchen_manager")} className="w-full appearance-none bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-500 pr-8">
+                    <option value="chef">Chef</option>
+                    <option value="head_chef">Head Chef</option>
+                    <option value="kitchen_manager">Kitchen Manager</option>
+                  </select>
+                  <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                </div>
+              </div>
+            )}
+
+            {type === "pos" && (
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">POS Role</label>
+                <div className="relative">
+                  <select value={posRole} onChange={(e) => setPosRole(e.target.value as "admin" | "manager" | "cashier")} className="w-full appearance-none bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-500 pr-8">
+                    <option value="cashier">Cashier</option>
+                    <option value="manager">Manager</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                  <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                </div>
+                <p className="text-[11px] text-gray-500 mt-1">Permissions are auto-applied from the role.</p>
+              </div>
+            )}
+
+            <FormField label="Hourly rate (£, optional)">
+              <input
+                type="number" step="0.5"
+                value={hourlyRate}
+                onChange={(e) => setHourlyRate(e.target.value)}
+                placeholder="10.00"
+                className={inputCls(false)}
+              />
+            </FormField>
 
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Avatar Color</label>

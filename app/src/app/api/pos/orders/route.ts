@@ -42,14 +42,14 @@ export async function POST(req: NextRequest) {
   // on bad JSON before hitting Supabase for the auth check.
   const session = await getPosSession();
   if (!session) {
-    // Check whether POS staff have been configured yet.
-    const { data: settingsRow } = await supabaseAdmin
-      .from("app_settings").select("data").eq("id", 1).single();
-    const posStaffConfigured = (settingsRow?.data?.pos_staff ?? []).length > 0;
-    if (posStaffConfigured) {
+    // Once any active POS staff exist, require a valid session. Before that
+    // (a freshly migrated DB with no staff) we allow through so the boot
+    // flow isn't blocked by chicken-and-egg.
+    const { count } = await supabaseAdmin
+      .from("pos_staff").select("id", { count: "exact", head: true }).eq("active", true);
+    if ((count ?? 0) > 0) {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
-    // POS staff not yet configured — allow through for backward compatibility.
   }
 
   let sale: POSSale;

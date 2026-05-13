@@ -2,14 +2,15 @@
 
 import { useState, useEffect } from "react";
 import { usePOS } from "@/context/POSContext";
-import { POSStaff, ROLE_PERMISSIONS } from "@/types/pos";
+import { POSStaff } from "@/types/pos";
 import {
   UserPlus, Clock, Timer, ToggleRight, ToggleLeft, Pencil, Trash2, X, ClockIcon,
 } from "lucide-react";
 import { fmtTime, getInitials } from "./_utils";
 
 export default function StaffView() {
-  const { staff, setStaff, clockEntries, clockIn, clockOut, isClocked, currentStaff } = usePOS();
+  const { staff, addPosStaff, updatePosStaff, deletePosStaff,
+          clockEntries, clockIn, clockOut, isClocked, currentStaff } = usePOS();
   const [showAdd, setShowAdd] = useState(false);
   const [newStaff, setNewStaff] = useState({ name: "", email: "", role: "cashier" as "admin" | "manager" | "cashier", pin: "", hourlyRate: "" });
   const COLORS = ["#7c3aed", "#0891b2", "#16a34a", "#dc2626", "#ea580c", "#0284c7", "#9333ea", "#be185d"];
@@ -23,46 +24,52 @@ export default function StaffView() {
   // Delete state
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  function addStaff() {
+  async function addStaff() {
     if (!newStaff.name.trim() || newStaff.pin.length !== 4) return;
-    const s: POSStaff = {
-      id: `staff-${Date.now()}`, name: newStaff.name.trim(), email: newStaff.email,
-      role: newStaff.role, pin: newStaff.pin, active: true,
-      permissions: ROLE_PERMISSIONS[newStaff.role],
-      hourlyRate: parseFloat(newStaff.hourlyRate) || undefined,
+    const result = await addPosStaff({
+      name:        newStaff.name.trim(),
+      email:       newStaff.email,
+      role:        newStaff.role,
+      pin:         newStaff.pin,
+      hourlyRate:  parseFloat(newStaff.hourlyRate) || undefined,
       avatarColor: COLORS[Math.floor(Math.random() * COLORS.length)],
-      createdAt: new Date().toISOString(),
-    };
-    setStaff((prev) => [...prev, s]);
+    });
+    if (!result.ok) return;
     setNewStaff({ name: "", email: "", role: "cashier", pin: "", hourlyRate: "" });
     setShowAdd(false);
   }
 
   function openEdit(member: POSStaff) {
+    // PIN field starts blank: the server never returns real PINs to the
+    // browser, and saveEdit sends "" to mean "keep existing".
     setEditingStaff(member);
-    setEditDraft({ name: member.name, email: member.email ?? "", role: member.role, pin: member.pin, hourlyRate: member.hourlyRate?.toString() ?? "" });
+    setEditDraft({ name: member.name, email: member.email ?? "", role: member.role, pin: "", hourlyRate: member.hourlyRate?.toString() ?? "" });
   }
 
-  function saveEdit() {
-    if (!editingStaff || !editDraft.name.trim() || editDraft.pin.length !== 4) return;
-    setStaff((prev) => prev.map((s) => s.id === editingStaff.id
-      ? {
-        ...s, name: editDraft.name.trim(), email: editDraft.email, role: editDraft.role,
-        pin: editDraft.pin, hourlyRate: parseFloat(editDraft.hourlyRate) || undefined,
-        permissions: ROLE_PERMISSIONS[editDraft.role]
-      }
-      : s
-    ));
+  async function saveEdit() {
+    if (!editingStaff || !editDraft.name.trim()) return;
+    if (editDraft.pin && editDraft.pin.length !== 4) return;
+    const result = await updatePosStaff(editingStaff.id, {
+      name:       editDraft.name.trim(),
+      email:      editDraft.email,
+      role:       editDraft.role,
+      pin:        editDraft.pin || undefined, // "" → omit, server keeps existing
+      hourlyRate: parseFloat(editDraft.hourlyRate) || undefined,
+    });
+    if (!result.ok) return;
     setEditingStaff(null);
   }
 
-  function deleteStaff(staffId: string) {
-    setStaff((prev) => prev.filter((s) => s.id !== staffId));
+  async function deleteStaff(staffId: string) {
+    const result = await deletePosStaff(staffId);
+    if (!result.ok) return;
     setDeleteConfirm(null);
   }
 
   function toggleActive(staffId: string) {
-    setStaff((prev) => prev.map((s) => s.id === staffId ? { ...s, active: !s.active } : s));
+    const member = staff.find((s) => s.id === staffId);
+    if (!member) return;
+    void updatePosStaff(staffId, { active: !member.active });
   }
 
   // Today's clock entries
@@ -136,12 +143,13 @@ export default function StaffView() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <p className={`text-sm font-semibold ${member.active ? "text-white" : "text-slate-500"}`}>{member.name}</p>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold capitalize ${member.role === "admin" ? "bg-purple-500/20 text-purple-400" :
-                          member.role === "manager" ? "bg-blue-500/20 text-blue-400" :
-                            "bg-slate-600 text-slate-400"
-                        }`}>{member.role}</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold capitalize ${
+                        member.role === "admin" ? "bg-purple-500/20 text-purple-400" :
+                        member.role === "manager" ? "bg-blue-500/20 text-blue-400" :
+                        "bg-slate-600 text-slate-400"
+                      }`}>{member.role}</span>
                     </div>
-                    <p className="text-slate-400 text-xs mt-0.5">{member.email} · PIN: {member.pin.split("").map(() => "•").join("")}</p>
+                    <p className="text-slate-400 text-xs mt-0.5">{member.email} · PIN: ••••</p>
                     {member.hourlyRate && <p className="text-slate-500 text-xs">£{member.hourlyRate}/hr</p>}
                   </div>
                 </div>
@@ -284,8 +292,8 @@ export default function StaffView() {
                 </select>
               </div>
               <div>
-                <label className="text-xs text-slate-400 mb-1 block">4-digit PIN *</label>
-                <input type="password" maxLength={4} value={editDraft.pin} onChange={(e) => setEditDraft((p) => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="••••"
+                <label className="text-xs text-slate-400 mb-1 block">4-digit PIN</label>
+                <input type="password" maxLength={4} value={editDraft.pin} onChange={(e) => setEditDraft((p) => ({ ...p, pin: e.target.value.replace(/\D/g,"") }))} placeholder="Leave blank to keep current"
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
               </div>
               <div>
@@ -296,7 +304,7 @@ export default function StaffView() {
             </div>
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => setEditingStaff(null)} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">Cancel</button>
-              <button onClick={saveEdit} disabled={!editDraft.name.trim() || editDraft.pin.length !== 4}
+              <button onClick={saveEdit} disabled={!editDraft.name.trim() || (editDraft.pin.length > 0 && editDraft.pin.length !== 4)}
                 className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Save</button>
             </div>
           </div>

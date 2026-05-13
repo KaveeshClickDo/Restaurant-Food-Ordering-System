@@ -5,17 +5,17 @@
  * Requires admin authentication.
  */
 
-import { NextRequest, NextResponse }          from "next/server";
-import bcrypt                                  from "bcryptjs";
-import { supabaseAdmin }                       from "@/lib/supabaseAdmin";
+import { NextRequest, NextResponse } from "next/server";
+import bcrypt                         from "bcryptjs";
+import { supabaseAdmin }              from "@/lib/supabaseAdmin";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
-import type { AdminSettings, WaiterStaff }     from "@/types";
+import { ROLE_PERMISSIONS, type POSRole } from "@/types/pos";
 
 // ── Shared type ───────────────────────────────────────────────────────────────
 
 export interface ManagedUser {
   id: string;
-  type: "admin" | "customer" | "driver" | "waiter";
+  type: "admin" | "customer" | "driver" | "waiter" | "kitchen" | "pos";
   name: string;
   email?: string;
   phone?: string;
@@ -23,30 +23,41 @@ export interface ManagedUser {
   createdAt?: string;
   // customer extras
   emailVerified?: boolean;
-  // waiter extras
+  // staff extras (waiter / kitchen / pos)
   pin?: string;
   waiterRole?: "senior" | "waiter";
+  kitchenRole?: "chef" | "head_chef" | "kitchen_manager";
+  posRole?: POSRole;
   avatarColor?: string;
   // driver extras
   vehicleInfo?: string;
   notes?: string;
 }
 
+const HASH_ROUNDS = 10;
+
 // ── GET ───────────────────────────────────────────────────────────────────────
 
 export async function GET(): Promise<NextResponse> {
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
 
-  const [driversResult, settingsResult] = await Promise.all([
+  const [driversResult, waitersResult, kitchenResult, posResult] = await Promise.all([
     supabaseAdmin
       .from("drivers")
       .select("id, name, email, phone, active, vehicle_info, notes, created_at")
       .order("created_at", { ascending: false }),
     supabaseAdmin
-      .from("app_settings")
-      .select("data")
-      .limit(1)
-      .single(),
+      .from("waiters")
+      .select("id, name, email, active, avatar_color, created_at")
+      .order("created_at", { ascending: false }),
+    supabaseAdmin
+      .from("kitchen_staff")
+      .select("id, name, email, role, active, avatar_color, created_at")
+      .order("created_at", { ascending: false }),
+    supabaseAdmin
+      .from("pos_staff")
+      .select("id, name, email, role, active, avatar_color, created_at")
+      .order("created_at", { ascending: false }),
   ]);
 
   if (driversResult.error) {
@@ -82,10 +93,13 @@ export async function GET(): Promise<NextResponse> {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const driverRows = (driversResult.data ?? []) as any[];
-
-  const settings = settingsResult.data?.data as AdminSettings | undefined;
-  const waiters  = settings?.waiters ?? [];
+  const driverRows  = (driversResult.data ?? []) as any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const waiterRows  = (waitersResult.data ?? []) as any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const kitchenRows = (kitchenResult.data ?? []) as any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const posRows     = (posResult.data ?? []) as any[];
 
   const adminEntry: ManagedUser = {
     id:     "admin",
@@ -100,7 +114,6 @@ export async function GET(): Promise<NextResponse> {
     name:          row.name,
     email:         row.email ?? undefined,
     phone:         row.phone ?? undefined,
-    // active column may not exist yet — fall back to true
     active:        row.active ?? true,
     createdAt:     typeof row.created_at === "string"
                      ? row.created_at
@@ -122,18 +135,55 @@ export async function GET(): Promise<NextResponse> {
     notes:       row.notes ?? undefined,
   }));
 
-  const waiterUsers: ManagedUser[] = waiters.map((w: WaiterStaff) => ({
-    id:          w.id,
+  const waiterUsers: ManagedUser[] = waiterRows.map((row) => ({
+    id:          row.id,
     type:        "waiter",
-    name:        w.name,
-    active:      w.active,
-    createdAt:   w.createdAt,
+    name:        row.name,
+    email:       row.email ?? undefined,
+    active:      row.active,
+    createdAt:   typeof row.created_at === "string"
+                   ? row.created_at
+                   : new Date(row.created_at).toISOString(),
     pin:         "••••",
-    waiterRole:  w.role,
-    avatarColor: w.avatarColor,
+    avatarColor: row.avatar_color,
   }));
 
-  const users: ManagedUser[] = [adminEntry, ...customerUsers, ...driverUsers, ...waiterUsers];
+  const kitchenUsers: ManagedUser[] = kitchenRows.map((row) => ({
+    id:          row.id,
+    type:        "kitchen",
+    name:        row.name,
+    email:       row.email ?? undefined,
+    active:      row.active,
+    createdAt:   typeof row.created_at === "string"
+                   ? row.created_at
+                   : new Date(row.created_at).toISOString(),
+    pin:         "••••",
+    kitchenRole: row.role,
+    avatarColor: row.avatar_color,
+  }));
+
+  const posUsers: ManagedUser[] = posRows.map((row) => ({
+    id:          row.id,
+    type:        "pos",
+    name:        row.name,
+    email:       row.email ?? undefined,
+    active:      row.active,
+    createdAt:   typeof row.created_at === "string"
+                   ? row.created_at
+                   : new Date(row.created_at).toISOString(),
+    pin:         "••••",
+    posRole:     row.role,
+    avatarColor: row.avatar_color,
+  }));
+
+  const users: ManagedUser[] = [
+    adminEntry,
+    ...customerUsers,
+    ...driverUsers,
+    ...waiterUsers,
+    ...kitchenUsers,
+    ...posUsers,
+  ];
 
   return NextResponse.json({ ok: true, users });
 }
@@ -148,6 +198,9 @@ interface CreateUserBody {
   password?: string;
   pin?: string;
   waiterRole?: "senior" | "waiter";
+  kitchenRole?: "chef" | "head_chef" | "kitchen_manager";
+  posRole?: POSRole;
+  hourlyRate?: number;
   avatarColor?: string;
   vehicleInfo?: string;
   notes?: string;
@@ -164,7 +217,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 });
   }
 
-  const { type, name, email, phone, password, pin, waiterRole, avatarColor, vehicleInfo, notes, active = true } = body;
+  const {
+    type, name, email, phone, password, pin,
+    waiterRole, kitchenRole, posRole, hourlyRate,
+    avatarColor, vehicleInfo, notes, active = true,
+  } = body;
 
   if (!type) {
     return NextResponse.json({ ok: false, error: "type is required." }, { status: 400 });
@@ -302,57 +359,113 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ── Waiter ────────────────────────────────────────────────────────────────
   if (type === "waiter") {
-    if (!pin || !/^\d{4}$/.test(pin)) {
-      return NextResponse.json({ ok: false, error: "PIN must be exactly 4 digits." }, { status: 400 });
+    if (!pin || !/^\d{4,6}$/.test(pin)) {
+      return NextResponse.json({ ok: false, error: "PIN must be 4–6 digits." }, { status: 400 });
     }
-
-    const { data: settingsRow, error: settingsError } = await supabaseAdmin
-      .from("app_settings")
-      .select("data")
-      .limit(1)
+    const pinHash = await bcrypt.hash(pin, HASH_ROUNDS);
+    const { data, error } = await supabaseAdmin
+      .from("waiters")
+      .insert({
+        name:         name.trim(),
+        email:        email?.trim().toLowerCase() ?? "",
+        pin_hash:     pinHash,
+        active,
+        hourly_rate:  hourlyRate ?? null,
+        avatar_color: avatarColor ?? "#0891b2",
+      })
+      .select("id, name, email, active, avatar_color, created_at")
       .single();
-
-    if (settingsError) {
-      return NextResponse.json({ ok: false, error: settingsError.message }, { status: 500 });
-    }
-
-    const settings  = (settingsRow?.data ?? {}) as AdminSettings;
-    const existing  = settings.waiters ?? [];
-
-    const newWaiter: WaiterStaff = {
-      id:          crypto.randomUUID(),
-      name:        name.trim(),
-      pin,
-      role:        waiterRole ?? "waiter",
-      active,
-      avatarColor: avatarColor ?? "#f97316",
-      createdAt:   new Date().toISOString(),
-    };
-
-    const updatedSettings: AdminSettings = {
-      ...settings,
-      waiters: [...existing, newWaiter],
-    };
-
-    const { error: upsertError } = await supabaseAdmin
-      .from("app_settings")
-      .upsert({ data: updatedSettings });
-
-    if (upsertError) {
-      return NextResponse.json({ ok: false, error: upsertError.message }, { status: 500 });
-    }
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
     const user: ManagedUser = {
-      id:          newWaiter.id,
+      id:          data.id,
       type:        "waiter",
-      name:        newWaiter.name,
-      active:      newWaiter.active,
-      createdAt:   newWaiter.createdAt,
+      name:        data.name,
+      email:       data.email ?? undefined,
+      active:      data.active,
+      createdAt:   data.created_at,
       pin:         "••••",
-      waiterRole:  newWaiter.role,
-      avatarColor: newWaiter.avatarColor,
+      waiterRole:  waiterRole ?? "waiter",
+      avatarColor: data.avatar_color,
     };
+    return NextResponse.json({ ok: true, user }, { status: 201 });
+  }
 
+  // ── Kitchen staff ─────────────────────────────────────────────────────────
+  if (type === "kitchen") {
+    if (!pin || !/^\d{4,6}$/.test(pin)) {
+      return NextResponse.json({ ok: false, error: "PIN must be 4–6 digits." }, { status: 400 });
+    }
+    const role = kitchenRole ?? "chef";
+    if (!["chef", "head_chef", "kitchen_manager"].includes(role)) {
+      return NextResponse.json({ ok: false, error: "Invalid kitchen role." }, { status: 400 });
+    }
+    const pinHash = await bcrypt.hash(pin, HASH_ROUNDS);
+    const { data, error } = await supabaseAdmin
+      .from("kitchen_staff")
+      .insert({
+        name:         name.trim(),
+        email:        email?.trim().toLowerCase() ?? "",
+        role,
+        pin_hash:     pinHash,
+        active,
+        avatar_color: avatarColor ?? "#dc2626",
+      })
+      .select("id, name, email, role, active, avatar_color, created_at")
+      .single();
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+    const user: ManagedUser = {
+      id:          data.id,
+      type:        "kitchen",
+      name:        data.name,
+      email:       data.email ?? undefined,
+      active:      data.active,
+      createdAt:   data.created_at,
+      pin:         "••••",
+      kitchenRole: data.role,
+      avatarColor: data.avatar_color,
+    };
+    return NextResponse.json({ ok: true, user }, { status: 201 });
+  }
+
+  // ── POS staff ─────────────────────────────────────────────────────────────
+  if (type === "pos") {
+    if (!pin || !/^\d{4}$/.test(pin)) {
+      return NextResponse.json({ ok: false, error: "POS PIN must be exactly 4 digits." }, { status: 400 });
+    }
+    const role: POSRole = posRole ?? "cashier";
+    if (!["admin", "manager", "cashier"].includes(role)) {
+      return NextResponse.json({ ok: false, error: "Invalid POS role." }, { status: 400 });
+    }
+    const pinHash = await bcrypt.hash(pin, HASH_ROUNDS);
+    const { data, error } = await supabaseAdmin
+      .from("pos_staff")
+      .insert({
+        name:         name.trim(),
+        email:        email?.trim().toLowerCase() ?? "",
+        role,
+        pin_hash:     pinHash,
+        active,
+        permissions:  ROLE_PERMISSIONS[role],
+        hourly_rate:  hourlyRate ?? null,
+        avatar_color: avatarColor ?? "#7c3aed",
+      })
+      .select("id, name, email, role, active, avatar_color, created_at")
+      .single();
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+    const user: ManagedUser = {
+      id:          data.id,
+      type:        "pos",
+      name:        data.name,
+      email:       data.email ?? undefined,
+      active:      data.active,
+      createdAt:   data.created_at,
+      pin:         "••••",
+      posRole:     data.role,
+      avatarColor: data.avatar_color,
+    };
     return NextResponse.json({ ok: true, user }, { status: 201 });
   }
 

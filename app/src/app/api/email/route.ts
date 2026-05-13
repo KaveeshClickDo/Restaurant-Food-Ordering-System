@@ -1,26 +1,26 @@
 /**
  * POST /api/email
  *
- * Sends an HTML email via SMTP using nodemailer.
- * SMTP credentials are read exclusively from server-side environment variables.
+ * Ad-hoc email relay for authenticated staff (admin, POS, waiter, kitchen).
+ * Used by admin tooling like the Email Templates panel's "Send test" action.
  *
- * Required env vars:
- *   SMTP_HOST  — e.g. smtp.resend.com
- *   SMTP_PORT  — 465 (SSL) or 587 (STARTTLS). Defaults to 587.
- *   SMTP_USER  — SMTP username (for Resend this is the literal string "resend")
- *   SMTP_PASS  — SMTP password / API key
+ * The actual transport (Resend HTTP API vs SMTP) is resolved inside the
+ * dispatcher at lib/emailSender.ts based on env vars — this route just
+ * authorises the caller and forwards the payload.
+ *
+ * Required env (one of):
+ *   RESEND_API_KEY                         — Resend HTTP API key
+ *   SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS   — any SMTP provider
  *
  * Optional:
- *   SMTP_FROM  — sender address shown in the From field.
- *                For Resend use a verified domain address, e.g. noreply@yourdomain.com
- *                Falls back to SMTP_USER if it looks like an email, or
- *                onboarding@resend.dev for Resend's shared testing domain.
+ *   EMAIL_FROM / EMAIL_FROM_NAME           — sender address + display name
  *
- * Runs on Node.js runtime (not Edge) — required for nodemailer.
+ * Customer-facing transactional emails (order confirmation, password reset,
+ * verification) are sent in-process by lib/emailServer.ts and never hit this
+ * route.
  */
 
 import { NextResponse } from "next/server";
-import nodemailer from "nodemailer";
 import { isAdminAuthenticated } from "@/lib/adminAuth";
 import {
   getWaiterSession,
@@ -28,12 +28,10 @@ import {
   getKitchenSession,
   unauthorizedJson,
 } from "@/lib/auth";
+import { sendEmail, emailConfigured } from "@/lib/emailSender";
 
 export const runtime = "nodejs";
 
-// Only authenticated staff may use the generic email relay. Customer-facing
-// transactional emails (order confirmation, password reset, verification)
-// are sent in-process by lib/emailServer.ts and never hit this route.
 async function isStaffAuthenticated(): Promise<boolean> {
   if (await isAdminAuthenticated()) return true;
   const [waiter, pos, kitchen] = await Promise.all([
@@ -45,14 +43,10 @@ async function isStaffAuthenticated(): Promise<boolean> {
 }
 
 interface EmailRequest {
-  to:      string;
-  subject: string;
-  html:    string;
+  to:        string;
+  subject:   string;
+  html:      string;
   fromName?: string;
-}
-
-function isEmail(s: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 }
 
 export async function POST(request: Request) {
@@ -80,52 +74,16 @@ export async function POST(request: Request) {
     );
   }
 
-  const smtpHost = process.env.SMTP_HOST?.trim() ?? "";
-  const smtpPort = Number(process.env.SMTP_PORT) || 587;
-  const smtpUser = process.env.SMTP_USER?.trim() ?? "";
-  const smtpPass = process.env.SMTP_PASS?.trim() ?? "";
-
-  if (!smtpHost) {
+  if (!emailConfigured()) {
     return NextResponse.json(
-      { ok: false, error: "SMTP is not configured. Set SMTP_HOST in environment variables." },
+      { ok: false, error: "Email is not configured. Set RESEND_API_KEY or SMTP_HOST in environment variables." },
       { status: 503 },
     );
   }
 
-  // ── Resolve the From address ────────────────────────────────────────────────
-  // Priority: SMTP_FROM env var → SMTP_USER (if it's an email) → Resend shared testing address
-  let fromAddr = process.env.SMTP_FROM?.trim() ?? "";
-  if (!fromAddr) {
-    if (isEmail(smtpUser)) {
-      fromAddr = smtpUser;
-    } else if (smtpHost.includes("resend.com")) {
-      // Resend's shared domain for testing — works without domain verification
-      fromAddr = "onboarding@resend.dev";
-    } else {
-      fromAddr = smtpUser; // best-effort fallback
-    }
+  const result = await sendEmail({ to, subject, html, fromName });
+  if (!result.ok) {
+    return NextResponse.json({ ok: false, error: result.error }, { status: 500 });
   }
-
-  const senderName = fromName?.trim() || process.env.SMTP_FROM_NAME?.trim() || "";
-  const from = senderName ? `"${senderName}" <${fromAddr}>` : fromAddr;
-
-  try {
-    const transporter = nodemailer.createTransport({
-      host:   smtpHost,
-      port:   smtpPort,
-      secure: smtpPort === 465,
-      auth:   smtpUser ? { user: smtpUser, pass: smtpPass } : undefined,
-      connectionTimeout: 8_000,
-      greetingTimeout:   5_000,
-      socketTimeout:     10_000,
-    });
-
-    await transporter.sendMail({ from, to, subject, html });
-
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown SMTP error";
-    console.error("[/api/email]", message);
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
-  }
+  return NextResponse.json({ ok: true });
 }

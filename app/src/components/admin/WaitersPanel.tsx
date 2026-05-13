@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { useApp } from "@/context/AppContext";
+import { useCallback, useEffect, useState } from "react";
 import type { WaiterStaff, DiningTable } from "@/types";
 import {
   UserPlus, Pencil, Trash2, Users, UtensilsCrossed,
@@ -46,11 +45,16 @@ function WaiterForm({
     setErrors((e) => { const n = { ...e }; delete n[k as string]; return n; });
   }
 
+  // In edit mode (initial.id set), PIN may be left blank to keep the existing
+  // value — the server never returns real PINs to the browser, so there's no
+  // way to pre-fill the field.
+  const isEdit = Boolean(initial?.id);
+
   function validate(): boolean {
     const e: Record<string, string> = {};
     if (!form.name.trim()) e.name = "Name is required.";
-    if (!form.pin.trim())  e.pin  = "PIN is required.";
-    else if (!/^\d{4,6}$/.test(form.pin)) e.pin = "PIN must be 4–6 digits.";
+    if (!isEdit && !form.pin.trim())  e.pin = "PIN is required.";
+    else if (form.pin.trim() && !/^\d{4,6}$/.test(form.pin)) e.pin = "PIN must be 4–6 digits.";
     if (Object.keys(e).length) { setErrors(e); return false; }
     return true;
   }
@@ -77,13 +81,15 @@ function WaiterForm({
 
       {/* PIN */}
       <div>
-        <label className="block text-xs font-medium text-gray-400 mb-1">PIN (4–6 digits)</label>
+        <label className="block text-xs font-medium text-gray-400 mb-1">
+          PIN (4–6 digits){isEdit ? " — leave blank to keep current" : ""}
+        </label>
         <div className="relative">
           <input
             value={form.pin}
             onChange={(e) => set("pin", e.target.value.replace(/\D/g, "").slice(0, 6))}
             type={showPin ? "text" : "password"}
-            placeholder="••••"
+            placeholder={isEdit ? "Leave blank to keep current" : "••••"}
             inputMode="numeric"
             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 pr-9 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-orange-500"
           />
@@ -305,10 +311,31 @@ function TableForm({
 type PanelTab = "staff" | "tables";
 
 export default function WaitersPanel() {
-  const { settings, updateSettings } = useApp();
+  // Both lists are DB-backed via /api/admin/waiters and /api/admin/dining-tables.
+  // Each mutation calls the corresponding REST endpoint and re-fetches; we
+  // don't try to be clever with optimistic state since admin actions are rare.
+  const [waiters, setWaiters] = useState<WaiterStaff[]>([]);
+  const [tables,  setTables]  = useState<DiningTable[]>([]);
 
-  const waiters = settings.waiters ?? [];
-  const tables  = settings.diningTables ?? [];
+  const refreshWaiters = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/waiters");
+      if (!res.ok) return;
+      const json = await res.json() as { ok: boolean; waiters?: WaiterStaff[] };
+      if (json.ok) setWaiters(json.waiters ?? []);
+    } catch { /* ignore — UI keeps last good list */ }
+  }, []);
+
+  const refreshTables = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/dining-tables");
+      if (!res.ok) return;
+      const json = await res.json() as { ok: boolean; tables?: DiningTable[] };
+      if (json.ok) setTables(json.tables ?? []);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { refreshWaiters(); refreshTables(); }, [refreshWaiters, refreshTables]);
 
   const [panelTab, setPanelTab] = useState<PanelTab>("staff");
 
@@ -324,64 +351,94 @@ export default function WaitersPanel() {
 
   // ── Waiter CRUD ─────────────────────────────────────────────────────────────
 
-  function handleAddWaiter(data: Omit<WaiterStaff, "id" | "createdAt">) {
-    const newWaiter: WaiterStaff = {
-      ...data,
-      id: `w-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    };
-    updateSettings({ waiters: [...waiters, newWaiter] });
-    setAddingWaiter(false);
+  async function handleAddWaiter(data: Omit<WaiterStaff, "id" | "createdAt">) {
+    const res = await fetch("/api/admin/waiters", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(data),
+    });
+    if (res.ok) {
+      await refreshWaiters();
+      setAddingWaiter(false);
+    }
   }
 
-  function handleEditWaiter(data: Omit<WaiterStaff, "id" | "createdAt">) {
+  async function handleEditWaiter(data: Omit<WaiterStaff, "id" | "createdAt">) {
     if (!editingWaiter) return;
-    updateSettings({
-      waiters: waiters.map((w) =>
-        w.id === editingWaiter.id ? { ...w, ...data } : w
-      ),
+    const res = await fetch(`/api/admin/waiters/${editingWaiter.id}`, {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(data),
     });
-    setEditingWaiter(null);
+    if (res.ok) {
+      await refreshWaiters();
+      setEditingWaiter(null);
+    }
   }
 
-  function handleDeleteWaiter(id: string) {
-    updateSettings({ waiters: waiters.filter((w) => w.id !== id) });
-    setDeletingWaiter(null);
+  async function handleDeleteWaiter(id: string) {
+    const res = await fetch(`/api/admin/waiters/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      await refreshWaiters();
+      setDeletingWaiter(null);
+    }
   }
 
-  function toggleWaiterActive(id: string) {
-    updateSettings({
-      waiters: waiters.map((w) => w.id === id ? { ...w, active: !w.active } : w),
+  async function toggleWaiterActive(id: string) {
+    const member = waiters.find((w) => w.id === id);
+    if (!member) return;
+    const res = await fetch(`/api/admin/waiters/${id}`, {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ active: !member.active }),
     });
+    if (res.ok) await refreshWaiters();
   }
 
   // ── Table CRUD ───────────────────────────────────────────────────────────────
 
-  function handleAddTable(data: Omit<DiningTable, "id">) {
-    const newTable: DiningTable = { ...data, id: `tbl-${Date.now()}` };
-    updateSettings({ diningTables: [...tables, newTable] });
-    setAddingTable(false);
+  async function handleAddTable(data: Omit<DiningTable, "id">) {
+    const res = await fetch("/api/admin/dining-tables", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(data),
+    });
+    if (res.ok) {
+      await refreshTables();
+      setAddingTable(false);
+    }
   }
 
-  function handleEditTable(data: Omit<DiningTable, "id">) {
+  async function handleEditTable(data: Omit<DiningTable, "id">) {
     if (!editingTable) return;
-    updateSettings({
-      diningTables: tables.map((t) =>
-        t.id === editingTable.id ? { ...t, ...data } : t
-      ),
+    const res = await fetch(`/api/admin/dining-tables/${editingTable.id}`, {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(data),
     });
-    setEditingTable(null);
+    if (res.ok) {
+      await refreshTables();
+      setEditingTable(null);
+    }
   }
 
-  function handleDeleteTable(id: string) {
-    updateSettings({ diningTables: tables.filter((t) => t.id !== id) });
-    setDeletingTable(null);
+  async function handleDeleteTable(id: string) {
+    const res = await fetch(`/api/admin/dining-tables/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      await refreshTables();
+      setDeletingTable(null);
+    }
   }
 
-  function toggleTableActive(id: string) {
-    updateSettings({
-      diningTables: tables.map((t) => t.id === id ? { ...t, active: !t.active } : t),
+  async function toggleTableActive(id: string) {
+    const t = tables.find((x) => x.id === id);
+    if (!t) return;
+    const res = await fetch(`/api/admin/dining-tables/${id}`, {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ active: !t.active }),
     });
+    if (res.ok) await refreshTables();
   }
 
   // ── Group tables by section ───────────────────────────────────────────────
@@ -509,7 +566,7 @@ export default function WaitersPanel() {
                           {waiter.active ? "Active" : "Inactive"}
                         </span>
                       </div>
-                      <p className="text-gray-500 text-xs mt-0.5">PIN: {"•".repeat(waiter.pin.length)} · ID: {waiter.id}</p>
+                      <p className="text-gray-500 text-xs mt-0.5">PIN: •••• · ID: {waiter.id}</p>
                     </div>
 
                     {/* Actions */}

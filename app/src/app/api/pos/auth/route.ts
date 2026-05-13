@@ -1,18 +1,16 @@
 /**
- * POST /api/pos/auth — validate a POS staff PIN and issue an httpOnly session cookie.
+ * POST   /api/pos/auth — validate a POS staff PIN and issue a session cookie.
+ * DELETE /api/pos/auth — clear the POS session cookie (logout).
+ * GET    /api/pos/auth — return the current staff record if the cookie is valid.
  *
- * Staff records are stored in app_settings.data.pos_staff (managed via the admin
- * panel → POS Staff section). If no POS staff have been configured the endpoint
- * returns 503 so the caller knows setup is required, rather than falling back to
- * hard-coded seed credentials.
- *
- * The resulting `pos_staff_session` cookie is checked by /api/pos/orders and
- * /api/pos/menu POST handlers so that only authenticated POS terminals can push
- * data into the KDS / menu tables.
+ * Reads from the pos_staff table; PINs are bcrypt-hashed in pin_hash and
+ * never sent to the browser. POSContext relies on this endpoint to hydrate
+ * `currentStaff` from the httpOnly cookie on every page load.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin }             from "@/lib/supabaseAdmin";
+import bcrypt from "bcryptjs";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   createSessionToken,
   setSessionCookie,
@@ -22,6 +20,24 @@ import {
 import { rateLimit } from "@/lib/rateLimit";
 
 const POS_SESSION_HOURS = 8; // typical shift length
+const PUBLIC_COLUMNS = "id, name, email, role, active, permissions, hourly_rate, avatar_color, created_at";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapStaff(row: any) {
+  return {
+    id:          row.id,
+    name:        row.name,
+    email:       row.email ?? "",
+    role:        row.role,
+    active:      row.active,
+    permissions: row.permissions ?? {},
+    hourlyRate:  row.hourly_rate ?? undefined,
+    avatarColor: row.avatar_color,
+    createdAt:   typeof row.created_at === "string"
+                   ? row.created_at
+                   : new Date(row.created_at).toISOString(),
+  };
+}
 
 export async function POST(req: NextRequest) {
   let body: { staffId?: string; pin?: string };
@@ -33,7 +49,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "staffId and pin are required." }, { status: 400 });
   }
 
-  // Rate-limit per IP + staff ID — prevent PIN brute-force.
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
   const { limited } = rateLimit(`pos-auth:${ip}:${staffId}`, 10, 60_000);
   if (limited) {
@@ -41,22 +56,29 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { data: row } = await supabaseAdmin
-      .from("app_settings").select("data").eq("id", 1).single();
+    const { count } = await supabaseAdmin
+      .from("pos_staff").select("id", { count: "exact", head: true }).eq("active", true);
 
-    const posStaff: Array<{
-      id: string; name: string; role: string; pin: string; active: boolean;
-    }> = row?.data?.pos_staff ?? [];
-
-    if (posStaff.length === 0) {
+    if ((count ?? 0) === 0) {
       return NextResponse.json(
         { ok: false, error: "POS staff not configured. Add staff accounts via Admin → POS Staff." },
         { status: 503 },
       );
     }
 
-    const member = posStaff.find((s) => s.id === staffId && s.active);
-    if (!member || member.pin !== pin) {
+    const { data: member } = await supabaseAdmin
+      .from("pos_staff")
+      .select(`${PUBLIC_COLUMNS}, pin_hash`)
+      .eq("id", staffId)
+      .eq("active", true)
+      .maybeSingle();
+
+    if (!member) {
+      return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
+    }
+
+    const valid = await bcrypt.compare(pin, member.pin_hash);
+    if (!valid) {
       return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
     }
 
@@ -65,53 +87,36 @@ export async function POST(req: NextRequest) {
       POS_SESSION_HOURS * 60 * 60 * 1000,
     );
 
-    const { pin: _pin, ...safe } = member;
-    const res = NextResponse.json({
-      ok: true,
-      staff: safe
-    });
+    const res = NextResponse.json({ ok: true, staff: mapStaff(member) });
     setSessionCookie(res, COOKIE_POS, token);
     return res;
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unexpected error";
-    console.error("[pos/auth]", message);
+    console.error("[pos/auth POST]", message);
     return NextResponse.json({ ok: false, error: "Authentication failed. Please try again." }, { status: 500 });
   }
 }
 
-/** DELETE /api/pos/auth — clear the POS session cookie (logout). */
 export async function DELETE() {
   const res = NextResponse.json({ ok: true });
   res.cookies.set(COOKIE_POS, "", { httpOnly: true, maxAge: 0, path: "/" });
   return res;
 }
 
-/**
- * GET /api/pos/auth — return the current POS staff member if the session
- * cookie is valid. Used by POSContext on mount to hydrate `currentStaff`
- * from the server (httpOnly cookie is the source of truth).
- * The PIN is never returned.
- */
 export async function GET() {
   const session = await getPosSession();
   if (!session) return NextResponse.json({ ok: false }, { status: 401 });
 
   try {
-    const { data: row } = await supabaseAdmin
-      .from("app_settings").select("data").eq("id", 1).single();
+    const { data: member } = await supabaseAdmin
+      .from("pos_staff")
+      .select(PUBLIC_COLUMNS)
+      .eq("id", session.id)
+      .eq("active", true)
+      .maybeSingle();
 
-    const posStaff: Array<{
-      id: string; name: string; role: string; pin: string; active: boolean;
-      email?: string; permissions?: unknown; hourlyRate?: number;
-      avatarColor?: string; createdAt?: string;
-    }> = row?.data?.pos_staff ?? [];
-
-    const member = posStaff.find((s) => s.id === session.id && s.active);
     if (!member) return NextResponse.json({ ok: false }, { status: 401 });
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { pin: _p, ...safe } = member;
-    return NextResponse.json({ ok: true, staff: safe });
+    return NextResponse.json({ ok: true, staff: mapStaff(member) });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unexpected error";
     console.error("[pos/auth GET]", message);

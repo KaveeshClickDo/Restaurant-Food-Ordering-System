@@ -27,6 +27,7 @@ import POSReportsPanel      from "@/components/admin/POSReportsPanel";
 import OnlineReportsPanel  from "@/components/admin/OnlineReportsPanel";
 import WaitersPanel         from "@/components/admin/WaitersPanel";
 import KitchenStaffPanel    from "@/components/admin/KitchenStaffPanel";
+import POSStaffPanel        from "@/components/admin/POSStaffPanel";
 import UserManagementPanel  from "@/components/admin/UserManagementPanel";
 import ReservationsPanel         from "@/components/admin/ReservationsPanel";
 import TableStatusPanel          from "@/components/admin/TableStatusPanel";
@@ -36,6 +37,7 @@ import {
   MapPin, Bell, X, Mail, FileText, LayoutTemplate, Navigation, Palette, ImageIcon, Receipt,
   Tag, Percent, Car, Sunrise, RotateCcw, BarChart3, LineChart, UtensilsCrossed, CalendarDays, BookUser,
   Menu as MenuIcon, ChevronDown, ChevronRight, ChevronLeft, PanelLeftClose, PanelLeftOpen, UserCog,
+  Tablet,
 } from "lucide-react";
 
 // ─── Navigation structure ─────────────────────────────────────────────────────
@@ -71,6 +73,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "waiters",              label: "Staff & Tables",  icon: UtensilsCrossed },
       { id: "kitchen-staff",        label: "Kitchen Staff",   icon: ChefHat         },
+      { id: "pos-staff",            label: "POS Staff",       icon: Tablet          },
       { id: "reservations",         label: "Reservations",    icon: CalendarDays    },
       { id: "table-status",         label: "Table Status",    icon: UtensilsCrossed },
       { id: "reservation-customers",label: "Guest Profiles",  icon: BookUser        },
@@ -143,8 +146,9 @@ function bannerSubtitle(
     case "refunds":       return "Process full or partial refunds, choose refund method, and view the full refund history.";
     case "online-reports": return "Revenue, orders, refunds, VAT, and payment breakdowns — filter by date range and export to CSV or PDF.";
     case "pos-reports":    return "View POS sales reports — revenue, profit, staff performance, and best-selling items.";
-    case "waiters":        return `${settings.waiters?.length ?? 0} staff · ${settings.diningTables?.length ?? 0} tables — manage waiter accounts, PINs, and dining layout.`;
-    case "kitchen-staff":  return `${settings.kitchenStaff?.length ?? 0} kitchen staff — manage KDS login accounts, PINs, and roles.`;
+    case "waiters":        return `${settings.diningTables?.length ?? 0} tables — manage waiter accounts, PINs, and the dining layout.`;
+    case "kitchen-staff":  return "Manage KDS login accounts, PINs, and kitchen roles.";
+    case "pos-staff":      return "Manage POS terminal accounts — PINs, roles (Admin / Manager / Cashier), and per-role permissions.";
     case "reservations":          return settings.reservationSystem?.enabled ? "Reservations are live — customers can book tables from the website." : "Reservations are currently disabled — enable them below.";
     case "table-status":          return "Live table occupancy for today — check in arriving guests and free tables on checkout.";
     case "reservation-customers": return "Guest profiles built from reservation check-ins — add notes, tags, and manage marketing opt-ins.";
@@ -709,6 +713,7 @@ function AdminPageContent() {
             {activeTab === "pos-reports"   && <POSReportsPanel />}
             {activeTab === "waiters"        && <WaitersPanel />}
             {activeTab === "kitchen-staff"  && <KitchenStaffPanel />}
+            {activeTab === "pos-staff"      && <POSStaffPanel />}
             {activeTab === "reservations"          && <ReservationsPanel />}
             {activeTab === "table-status"          && <TableStatusPanel />}
             {activeTab === "reservation-customers" && <ReservationCustomersPanel />}

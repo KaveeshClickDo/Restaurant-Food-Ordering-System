@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "db:migrate": "node --env-file=.env.local migrate.mjs",
+    "db:migrate": "node --env-file=.env.local migrate.mjs && npx tsx --env-file=.env.local seed-settings.ts",
+    "db:seed-demo": "npx tsx --env-file=.env.local seed-demo.ts",
     "android": "npx cap sync android && npx cap open android",
     "android:build": "npm run build && npx cap sync android"
   },
@@ -19,6 +20,7 @@
     "next": "15.5.15",
     "nodemailer": "^8.0.5",
     "react": "19.1.0",
+    "resend": "^4.0.0",
     "react-dom": "19.1.0"
   },
   "devDependencies": {
@@ -29,12 +31,14 @@
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/nodemailer": "^8.0.0",
+    "@types/pg": "^8.15.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.5.15",
     "pg": "^8.20.0",
     "tailwindcss": "^4",
+    "tsx": "^4.20.6",
     "typescript": "^5"
   },
   "optionalDependencies": {

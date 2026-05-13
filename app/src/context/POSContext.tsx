@@ -10,10 +10,10 @@ import { enqueue as outboxEnqueue } from "@/lib/posOutbox";
 
 // ─── Seed data ───────────────────────────────────────────────────────────────
 
-// No hardcoded staff or PINs. Staff records must be configured via
-// Admin → POS Staff before the POS can be used. The login screen renders an
-// empty-state message when this list is empty.
-const SEED_STAFF: POSStaff[] = [];
+// Staff is loaded from app_settings.data.pos_staff on mount (see useEffect
+// in POSProvider). No localStorage cache and no hardcoded seed — the DB is
+// the only source of truth, so a fresh terminal renders the correct staff
+// list immediately and edits made on one terminal are visible everywhere.
 
 const SEED_CATEGORIES: POSCategory[] = [
   { id: "starters",  name: "Starters",       emoji: "🥗", color: "#f97316", order: 0 },
@@ -123,7 +123,10 @@ interface POSContextValue {
   logout: () => void;
   // Data
   staff: POSStaff[];
-  setStaff: React.Dispatch<React.SetStateAction<POSStaff[]>>;
+  addPosStaff:    (input: { name: string; email?: string; role: "admin" | "manager" | "cashier"; pin: string; hourlyRate?: number; avatarColor?: string }) => Promise<{ ok: boolean; error?: string }>;
+  updatePosStaff: (id: string, patch: { name?: string; email?: string; role?: "admin" | "manager" | "cashier"; pin?: string; active?: boolean; hourlyRate?: number; avatarColor?: string }) => Promise<{ ok: boolean; error?: string }>;
+  deletePosStaff: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  refreshPosStaff: () => Promise<void>;
   products: POSProduct[];
   setProducts: React.Dispatch<React.SetStateAction<POSProduct[]>>;
   categories: POSCategory[];
@@ -269,9 +272,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // to hydrate this from the server. localStorage is no longer trusted for
   // identity — only for non-auth UI state caches.
   const [currentStaff, setCurrentStaff] = useState<POSStaff | null>(null);
-  const [staff, setStaff] = useState<POSStaff[]>(() =>
-    load<POSStaff[]>("pos_staff", SEED_STAFF)
-  );
+  const [staff, setStaff] = useState<POSStaff[]>([]);
   const [products, setProducts] = useState<POSProduct[]>(() =>
     load<POSProduct[]>("pos_products", SEED_PRODUCTS)
   );
@@ -299,8 +300,58 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   const [assignedCustomer, setAssignedCustomer] = useState<POSCustomer | null>(null);
   const receiptCounter = useRef(load<number>("pos_receipt_counter", 1000));
 
-  // Persist (pos_session removed — currentStaff is hydrated from the server)
-  useEffect(() => { save("pos_staff", staff); }, [staff]);
+  // ── Staff — DB-backed (pos_staff table) ──────────────────────────────────
+  // The browser never holds a real PIN; the API strips pin_hash on every
+  // response. Mutations call the REST endpoints directly and re-fetch.
+  const refreshPosStaff = useCallback(async () => {
+    try {
+      const res = await fetch("/api/pos/staff");
+      if (!res.ok) return;
+      const json = await res.json() as { ok: boolean; staff?: POSStaff[] };
+      if (json.ok && Array.isArray(json.staff)) setStaff(json.staff);
+    } catch { /* network — leave staff state untouched */ }
+  }, []);
+
+  useEffect(() => { refreshPosStaff(); }, [refreshPosStaff]);
+
+  const addPosStaff = useCallback(async (input: {
+    name: string; email?: string; role: "admin" | "manager" | "cashier";
+    pin: string; hourlyRate?: number; avatarColor?: string;
+  }) => {
+    const res = await fetch("/api/pos/staff", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(input),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.ok) return { ok: false, error: json.error ?? "Failed to add staff" };
+    await refreshPosStaff();
+    return { ok: true };
+  }, [refreshPosStaff]);
+
+  const updatePosStaff = useCallback(async (id: string, patch: {
+    name?: string; email?: string; role?: "admin" | "manager" | "cashier";
+    pin?: string; active?: boolean; hourlyRate?: number; avatarColor?: string;
+  }) => {
+    const res = await fetch(`/api/pos/staff/${id}`, {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(patch),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.ok) return { ok: false, error: json.error ?? "Failed to update staff" };
+    await refreshPosStaff();
+    return { ok: true };
+  }, [refreshPosStaff]);
+
+  const deletePosStaff = useCallback(async (id: string) => {
+    const res = await fetch(`/api/pos/staff/${id}`, { method: "DELETE" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.ok) return { ok: false, error: json.error ?? "Failed to delete staff" };
+    await refreshPosStaff();
+    return { ok: true };
+  }, [refreshPosStaff]);
+
   useEffect(() => { save("pos_products", products); }, [products]);
   useEffect(() => { save("pos_categories", categories); }, [categories]);
   useEffect(() => {
@@ -712,7 +763,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   return (
     <POSContext.Provider value={{
       currentStaff, login, logout,
-      staff, setStaff,
+      staff, addPosStaff, updatePosStaff, deletePosStaff, refreshPosStaff,
       products, setProducts,
       categories, setCategories,
       sales, setSales,

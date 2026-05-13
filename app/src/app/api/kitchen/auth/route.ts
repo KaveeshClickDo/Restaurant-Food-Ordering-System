@@ -1,11 +1,13 @@
 /**
- * POST /api/kitchen/auth  — PIN login for kitchen staff
+ * POST /api/kitchen/auth  — PIN login for kitchen staff (bcrypt-hashed)
  * GET  /api/kitchen/auth  — return current session's staff record
+ *
+ * Reads from the kitchen_staff table.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin }             from "@/lib/supabaseAdmin";
-import type { KitchenStaff }         from "@/types";
+import bcrypt from "bcryptjs";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   createSessionToken,
   setSessionCookie,
@@ -14,13 +16,8 @@ import {
 } from "@/lib/auth";
 import { rateLimit } from "@/lib/rateLimit";
 
-async function getKitchenStaff(): Promise<KitchenStaff[]> {
-  const { data: row } = await supabaseAdmin
-    .from("app_settings").select("data").limit(1).single();
-  return row?.data?.kitchenStaff ?? [];
-}
+const PUBLIC_COLUMNS = "id, name, email, role, active, created_at";
 
-// ── POST: authenticate with staffId + PIN ─────────────────────────────────────
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
   const { limited } = rateLimit(`kitchen-auth:${ip}`, 10, 60_000);
@@ -38,20 +35,24 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const staff = await getKitchenStaff();
-    if (staff.length === 0) {
-      return NextResponse.json(
-        { ok: false, error: "Kitchen staff not configured. Ask your admin to add staff accounts." },
-        { status: 503 },
-      );
+    const { data: member } = await supabaseAdmin
+      .from("kitchen_staff")
+      .select(`${PUBLIC_COLUMNS}, pin_hash`)
+      .eq("id", staffId)
+      .eq("active", true)
+      .maybeSingle();
+
+    if (!member) {
+      return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
     }
-    const member = staff.find((s) => s.id === staffId && s.active);
-    if (!member || member.pin !== pin) {
+
+    const valid = await bcrypt.compare(pin, member.pin_hash);
+    if (!valid) {
       return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { pin: _p, ...safe } = member;
+    const { pin_hash: _h, ...safe } = member;
 
     const token = createSessionToken({ id: staffId, role: "kitchen" });
     const res   = NextResponse.json({ ok: true, staff: safe });
@@ -64,7 +65,6 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ── GET: return current staff member from session cookie ──────────────────────
 export async function GET() {
   const session = await getKitchenSession();
   if (!session) {
@@ -72,15 +72,17 @@ export async function GET() {
   }
 
   try {
-    const staff  = await getKitchenStaff();
-    const member = staff.find((s) => s.id === session.id);
-    if (!member || !member.active) {
+    const { data: member } = await supabaseAdmin
+      .from("kitchen_staff")
+      .select(PUBLIC_COLUMNS)
+      .eq("id", session.id)
+      .eq("active", true)
+      .maybeSingle();
+
+    if (!member) {
       return NextResponse.json({ ok: false, error: "Staff account not found or inactive." }, { status: 401 });
     }
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { pin: _p, ...safe } = member;
-    return NextResponse.json({ ok: true, staff: safe });
+    return NextResponse.json({ ok: true, staff: member });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unexpected error";
     console.error("[kitchen/auth GET]", message);
