@@ -92,8 +92,8 @@ function ReceiptModal({ receipt, onClose, onRefund }: { receipt: WaiterReceipt; 
   const { settings } = useApp();
   const rs = settings.receiptSettings;
   const restaurantName = rs?.restaurantName?.trim() || settings.restaurant?.name || "Restaurant";
-  const [emailTo, setEmailTo]   = useState("");
-  const [emailStatus, setEmailStatus] = useState<"idle"|"sending"|"sent"|"error">("idle");
+  const [emailTo, setEmailTo] = useState("");
+  const [emailStatus, setEmailStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
 
   function handlePrint() {
     const html = buildReceiptHtml(receipt, restaurantName, rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!");
@@ -143,8 +143,8 @@ function ReceiptModal({ receipt, onClose, onRefund }: { receipt: WaiterReceipt; 
           {/* Header block */}
           <div className="text-center space-y-0.5">
             <p className="text-white font-black text-base tracking-widest uppercase">{restaurantName}</p>
-            {rs?.phone    && <p className="text-slate-400 text-xs">{rs.phone}</p>}
-            {rs?.website  && <p className="text-slate-400 text-xs">{rs.website}</p>}
+            {rs?.phone && <p className="text-slate-400 text-xs">{rs.phone}</p>}
+            {rs?.website && <p className="text-slate-400 text-xs">{rs.website}</p>}
             <p className="text-slate-400 text-xs">{new Date(receipt.date).toLocaleString("en-GB")}</p>
             <p className="text-slate-400 text-xs">Table: <span className="text-white font-bold">{receipt.tableLabel}</span></p>
             <p className="text-slate-400 text-xs">Served by: <span className="text-white">{receipt.waiterName}</span></p>
@@ -199,11 +199,11 @@ function ReceiptModal({ receipt, onClose, onRefund }: { receipt: WaiterReceipt; 
                 className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-3 py-2.5 rounded-xl transition flex-shrink-0"
               >
                 {emailStatus === "sending" ? <Loader2 size={16} className="animate-spin" /> :
-                 emailStatus === "sent"    ? <CheckCircle2 size={16} className="text-green-300" /> :
-                 <Mail size={16} />}
+                  emailStatus === "sent" ? <CheckCircle2 size={16} className="text-green-300" /> :
+                    <Mail size={16} />}
               </button>
             </div>
-            {emailStatus === "sent"  && <p className="text-green-400 text-xs">Receipt sent!</p>}
+            {emailStatus === "sent" && <p className="text-green-400 text-xs">Receipt sent!</p>}
             {emailStatus === "error" && <p className="text-red-400 text-xs">Failed to send — check SMTP settings.</p>}
           </div>
         </div>
@@ -252,7 +252,7 @@ function BillEmailBar({ onPrint, tableLabel, waiterName, consolidatedLines, bill
   const rs = settings.receiptSettings;
   const restaurantName = rs?.restaurantName?.trim() || settings.restaurant?.name || "Restaurant";
   const [emailTo, setEmailTo] = useState("");
-  const [emailStatus, setEmailStatus] = useState<"idle"|"sending"|"sent"|"error">("idle");
+  const [emailStatus, setEmailStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
 
   async function handleEmail() {
     if (!emailTo.trim()) return;
@@ -285,7 +285,7 @@ function BillEmailBar({ onPrint, tableLabel, waiterName, consolidatedLines, bill
       >
         <Printer size={16} /> Print Bill
       </button>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <input
           type="email"
           value={emailTo}
@@ -299,8 +299,8 @@ function BillEmailBar({ onPrint, tableLabel, waiterName, consolidatedLines, bill
           className="flex items-center gap-2 px-4 py-2.5 bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition flex-shrink-0"
         >
           {emailStatus === "sending" ? <Loader2 size={15} className="animate-spin" /> :
-           emailStatus === "sent"    ? <CheckCircle2 size={15} /> :
-           <Mail size={15} />}
+            emailStatus === "sent" ? <CheckCircle2 size={15} /> :
+              <Mail size={15} />}
           {emailStatus === "sent" ? "Sent!" : emailStatus === "error" ? "Failed" : "Send"}
         </button>
       </div>
@@ -323,12 +323,12 @@ function VoidRefundModal({
   onSuccess: () => void;
   onClose: () => void;
 }) {
-  const [reason,          setReason]          = useState("");
-  const [refundType,      setRefundType]      = useState<"full" | "partial">("full");
+  const [reason, setReason] = useState("");
+  const [refundType, setRefundType] = useState<"full" | "partial">("full");
   const [refundAmountStr, setRefundAmountStr] = useState("");
-  const [refundMethod,    setRefundMethod]    = useState<"cash" | "card">("cash");
-  const [loading,         setLoading]         = useState(false);
-  const [error,           setError]           = useState<string | null>(null);
+  const [refundMethod, setRefundMethod] = useState<"cash" | "card">("cash");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (!isSenior) {
     return (
@@ -378,8 +378,8 @@ function VoidRefundModal({
     else setError(d.error ?? "Failed to process refund.");
   }
 
-  const isVoid   = mode === "void";
-  const Icon     = isVoid ? AlertTriangle : RotateCcw;
+  const isVoid = mode === "void";
+  const Icon = isVoid ? AlertTriangle : RotateCcw;
   const actionCls = isVoid
     ? "bg-red-600 hover:bg-red-500"
     : "bg-amber-600 hover:bg-amber-500";
@@ -413,11 +413,10 @@ function VoidRefundModal({
                     <button
                       key={t}
                       onClick={() => setRefundType(t)}
-                      className={`py-2.5 rounded-xl text-sm font-semibold transition border ${
-                        refundType === t
+                      className={`py-2.5 rounded-xl text-sm font-semibold transition border ${refundType === t
                           ? "bg-amber-500/20 border-amber-500 text-amber-300"
                           : "bg-slate-700 border-slate-600 text-slate-300 hover:border-slate-500"
-                      }`}
+                        }`}
                     >
                       {t === "full" ? `Full ${fmtCur(total)}` : "Partial"}
                     </button>
@@ -441,17 +440,16 @@ function VoidRefundModal({
                 <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">Return Method</p>
                 <div className="grid grid-cols-2 gap-2">
                   {([
-                    { v: "cash", label: "Cash",  Ico: Banknote   },
-                    { v: "card", label: "Card",  Ico: CreditCard },
+                    { v: "cash", label: "Cash", Ico: Banknote },
+                    { v: "card", label: "Card", Ico: CreditCard },
                   ] as const).map(({ v, label, Ico }) => (
                     <button
                       key={v}
                       onClick={() => setRefundMethod(v)}
-                      className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition border ${
-                        refundMethod === v
+                      className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition border ${refundMethod === v
                           ? "bg-amber-500/20 border-amber-500 text-amber-300"
                           : "bg-slate-700 border-slate-600 text-slate-300 hover:border-slate-500"
-                      }`}
+                        }`}
                     >
                       <Ico size={15} /> {label}
                     </button>
@@ -519,7 +517,7 @@ function isOutOfStock(item: MenuItem): boolean {
 // ─── PIN pad ──────────────────────────────────────────────────────────────────
 
 function PinPad({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const keys = ["1","2","3","4","5","6","7","8","9","","0","⌫"];
+  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"];
   return (
     <div className="grid grid-cols-3 gap-3 max-w-[280px] mx-auto">
       {keys.map((k, i) => (
@@ -532,11 +530,10 @@ function PinPad({ value, onChange }: { value: string; onChange: (v: string) => v
               if (k === "⌫") onChange(value.slice(0, -1));
               else if (value.length < 4) onChange(value + k);
             }}
-            className={`h-16 rounded-2xl text-2xl font-bold transition-all active:scale-95 select-none ${
-              k === "⌫"
+            className={`h-16 rounded-2xl text-2xl font-bold transition-all active:scale-95 select-none ${k === "⌫"
                 ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
                 : "bg-slate-700 text-white hover:bg-slate-600 active:bg-orange-500"
-            }`}
+              }`}
           >
             {k}
           </button>
@@ -560,11 +557,11 @@ function ItemModal({
   const firstVar = item.variations?.[0];
   const firstOpt = firstVar?.options?.[0];
 
-  const [selVarId,  setSelVarId]  = useState(firstVar?.id ?? "");
-  const [selOptId,  setSelOptId]  = useState(firstOpt?.id ?? "");
-  const [addOnIds,  setAddOnIds]  = useState<Set<string>>(new Set());
-  const [qty,       setQty]       = useState(1);
-  const [note,      setNote]      = useState("");
+  const [selVarId, setSelVarId] = useState(firstVar?.id ?? "");
+  const [selOptId, setSelOptId] = useState(firstOpt?.id ?? "");
+  const [addOnIds, setAddOnIds] = useState<Set<string>>(new Set());
+  const [qty, setQty] = useState(1);
+  const [note, setNote] = useState("");
 
   const selectedOption = item.variations
     ?.find((v) => v.id === selVarId)
@@ -588,12 +585,12 @@ function ItemModal({
 
   function handleAdd() {
     onAdd({
-      lineId:    crypto.randomUUID(),
+      lineId: crypto.randomUUID(),
       menuItemId: item.id,
-      name:      buildName(),
+      name: buildName(),
       unitPrice,
-      quantity:  qty,
-      note:      note.trim() || undefined,
+      quantity: qty,
+      note: note.trim() || undefined,
     });
     onClose();
   }
@@ -631,11 +628,10 @@ function ItemModal({
                     <button
                       key={opt.id}
                       onClick={() => { setSelVarId(variation.id); setSelOptId(opt.id); }}
-                      className={`flex items-center justify-between px-4 py-3 rounded-xl border text-sm font-medium transition-all ${
-                        active
+                      className={`flex items-center justify-between px-4 py-3 rounded-xl border text-sm font-medium transition-all ${active
                           ? "bg-orange-500 border-orange-500 text-white"
                           : "bg-slate-700/50 border-slate-600 text-slate-200 hover:border-orange-500/50"
-                      }`}
+                        }`}
                     >
                       <span>{opt.label}</span>
                       <span className={active ? "text-orange-100" : "text-slate-400"}>
@@ -665,11 +661,10 @@ function ItemModal({
                           return next;
                         });
                       }}
-                      className={`flex items-center justify-between px-4 py-3 rounded-xl border text-sm font-medium transition-all ${
-                        checked
+                      className={`flex items-center justify-between px-4 py-3 rounded-xl border text-sm font-medium transition-all ${checked
                           ? "bg-orange-500/20 border-orange-500 text-orange-300"
                           : "bg-slate-700/50 border-slate-600 text-slate-200 hover:border-orange-500/50"
-                      }`}
+                        }`}
                     >
                       <span>{addon.name}</span>
                       <span className={checked ? "text-orange-300" : "text-slate-400"}>
@@ -707,7 +702,7 @@ function ItemModal({
             >
               <Minus size={14} />
             </button>
-            <span className="text-white font-bold w-6 text-center text-lg">{qty}</span>
+            <span className="text-white font-bold w-5 text-center text-lg">{qty}</span>
             <button
               onClick={() => setQty(qty + 1)}
               className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-300 hover:bg-slate-600 transition"
@@ -718,7 +713,7 @@ function ItemModal({
 
           <button
             onClick={handleAdd}
-            className="flex-1 bg-orange-500 hover:bg-orange-400 active:scale-[0.98] text-white font-bold rounded-xl py-3 flex items-center justify-center gap-2 transition-all"
+            className="flex-1 bg-orange-500 hover:bg-orange-400 active:scale-[0.98] text-sm sm:text-base text-white font-bold rounded-xl py-3 flex items-center justify-center gap-2 transition-all"
           >
             <Plus size={16} />
             Add · {fmtCur(unitPrice * qty)}
@@ -736,43 +731,43 @@ export default function WaiterPage() {
   const { menuItems, categories, settings: appSettings } = useApp();
 
   // ── Data ────────────────────────────────────────────────────────────────────
-  const [allWaiters,     setAllWaiters]     = useState<Omit<WaiterStaff,"pin">[]>([]);
-  const [tables,         setTables]         = useState<DiningTable[]>([]);
+  const [allWaiters, setAllWaiters] = useState<Omit<WaiterStaff, "pin">[]>([]);
+  const [tables, setTables] = useState<DiningTable[]>([]);
   const [occupiedLabels, setOccupiedLabels] = useState<Set<string>>(new Set());
 
   // ── Auth ────────────────────────────────────────────────────────────────────
-  const [view,         setView]         = useState<View>("login");
-  const [loginStep,    setLoginStep]    = useState<LoginStep>("staff");
-  const [loginTarget,  setLoginTarget]  = useState<Omit<WaiterStaff,"pin"> | null>(null);
-  const [pin,          setPin]          = useState("");
-  const [pinError,     setPinError]     = useState(false);
-  const [waiter,       setWaiter]       = useState<Omit<WaiterStaff,"pin"> | null>(null);
+  const [view, setView] = useState<View>("login");
+  const [loginStep, setLoginStep] = useState<LoginStep>("staff");
+  const [loginTarget, setLoginTarget] = useState<Omit<WaiterStaff, "pin"> | null>(null);
+  const [pin, setPin] = useState("");
+  const [pinError, setPinError] = useState(false);
+  const [waiter, setWaiter] = useState<Omit<WaiterStaff, "pin"> | null>(null);
   const pinShakeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Table selection ──────────────────────────────────────────────────────────
-  const [activeSection,  setActiveSection]  = useState("All");
-  const [activeTable,    setActiveTable]    = useState<DiningTable | null>(null);
-  const [covers,         setCovers]         = useState(2);
+  const [activeSection, setActiveSection] = useState("All");
+  const [activeTable, setActiveTable] = useState<DiningTable | null>(null);
+  const [covers, setCovers] = useState(2);
 
   // ── Ordering ─────────────────────────────────────────────────────────────────
-  const [activeCatId,  setActiveCatId]  = useState<string | null>(null);
-  const [cart,         setCart]         = useState<WaiterCartItem[]>([]);
-  const [kitchenNote,  setKitchenNote]  = useState("");
-  const [modalItem,    setModalItem]    = useState<MenuItem | null>(null);
-  const [showCart,     setShowCart]     = useState(false); // mobile bottom-sheet
+  const [activeCatId, setActiveCatId] = useState<string | null>(null);
+  const [cart, setCart] = useState<WaiterCartItem[]>([]);
+  const [kitchenNote, setKitchenNote] = useState("");
+  const [modalItem, setModalItem] = useState<MenuItem | null>(null);
+  const [showCart, setShowCart] = useState(false); // mobile bottom-sheet
 
   // ── Send state ────────────────────────────────────────────────────────────────
-  const [sending,      setSending]      = useState(false);
+  const [sending, setSending] = useState(false);
 
   // ── Bill state ────────────────────────────────────────────────────────────────
-  const [billOrders,   setBillOrders]   = useState<BillOrder[]>([]);
-  const [billLoading,  setBillLoading]  = useState(false);
-  const [paying,       setPaying]       = useState(false);
+  const [billOrders, setBillOrders] = useState<BillOrder[]>([]);
+  const [billLoading, setBillLoading] = useState(false);
+  const [paying, setPaying] = useState(false);
   // table action sheet: null = closed, DiningTable = which table was tapped
-  const [tableAction,  setTableAction]  = useState<DiningTable | null>(null);
+  const [tableAction, setTableAction] = useState<DiningTable | null>(null);
 
   // ── Receipt state ─────────────────────────────────────────────────────────────
-  const [receipt,      setReceipt]      = useState<WaiterReceipt | null>(null);
+  const [receipt, setReceipt] = useState<WaiterReceipt | null>(null);
 
   // ── Void / Refund state ───────────────────────────────────────────────────────
   const [voidRefundTarget, setVoidRefundTarget] = useState<{
@@ -862,7 +857,7 @@ export default function WaiterPage() {
           }
         });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin]);
 
   function logout() {
@@ -945,13 +940,13 @@ export default function WaiterPage() {
     setSending(false);
     if (res.ok) {
       setReceipt({
-        tableLabel:    activeTable.label,
-        waiterName:    waiter?.name ?? "Staff",
-        date:          new Date().toISOString(),
-        items:         cart.map((l) => ({ name: l.name, qty: l.quantity, price: l.unitPrice })),
+        tableLabel: activeTable.label,
+        waiterName: waiter?.name ?? "Staff",
+        date: new Date().toISOString(),
+        items: cart.map((l) => ({ name: l.name, qty: l.quantity, price: l.unitPrice })),
         total,
         paymentMethod: "pending",
-        orderIds:      [],
+        orderIds: [],
       });
       setView("success");
       refreshOccupied();
@@ -973,10 +968,10 @@ export default function WaiterPage() {
 
     setBillOrders(
       (data ?? []).map((o) => ({
-        id:    o.id,
+        id: o.id,
         items: o.items ?? [],
         total: Number(o.total),
-        note:  String(o.note ?? ""),
+        note: String(o.note ?? ""),
       }))
     );
     setBillLoading(false);
@@ -986,11 +981,11 @@ export default function WaiterPage() {
     if (!activeTable || billOrders.length === 0 || paying) return;
     setPaying(true);
     await fetch("/api/waiter/settle", {
-      method:  "POST",
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({
-        orderIds:    billOrders.map((o) => o.id),
-        tableLabel:  activeTable.label,
+      body: JSON.stringify({
+        orderIds: billOrders.map((o) => o.id),
+        tableLabel: activeTable.label,
         paymentMethod: method,
       }),
     });
@@ -1006,21 +1001,21 @@ export default function WaiterPage() {
       }
     }
     setReceipt({
-      tableLabel:    activeTable.label,
-      waiterName:    waiter?.name ?? "Staff",
-      date:          new Date().toISOString(),
-      items:         Array.from(lineMap.values()),
-      total:         billOrders.reduce((s, o) => s + o.total, 0),
+      tableLabel: activeTable.label,
+      waiterName: waiter?.name ?? "Staff",
+      date: new Date().toISOString(),
+      items: Array.from(lineMap.values()),
+      total: billOrders.reduce((s, o) => s + o.total, 0),
       paymentMethod: method,
-      orderIds:      billOrders.map((o) => o.id),
+      orderIds: billOrders.map((o) => o.id),
     });
     // Stay on bill view — ReceiptModal overlays and navigates away on close
   }
 
   // ── Computed ─────────────────────────────────────────────────────────────────
-  const cartTotal   = cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
-  const cartCount   = cart.reduce((s, l) => s + l.quantity, 0);
-  const sections    = ["All", ...Array.from(new Set(tables.map((t) => t.section)))];
+  const cartTotal = cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
+  const cartCount = cart.reduce((s, l) => s + l.quantity, 0);
+  const sections = ["All", ...Array.from(new Set(tables.map((t) => t.section)))];
   const visibleTables = activeSection === "All"
     ? tables
     : tables.filter((t) => t.section === activeSection);
@@ -1036,59 +1031,59 @@ export default function WaiterPage() {
   if (view === "success") {
     return (
       <>
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
-        <div className="text-center space-y-6">
-          <div className="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center mx-auto">
-            <CheckCircle2 size={40} className="text-white" />
-          </div>
-          <div>
-            <h2 className="text-white text-2xl font-black">Order Sent!</h2>
-            <p className="text-slate-400 mt-1">Kitchen is preparing {activeTable?.label}</p>
-          </div>
-          <div className="flex gap-3 justify-center flex-wrap">
-            <button
-              onClick={() => { setCart([]); setKitchenNote(""); setView("menu"); }}
-              className="px-6 py-3 bg-slate-700 text-white font-semibold rounded-2xl hover:bg-slate-600 transition"
-            >
-              Add more items
-            </button>
-            <button
-              onClick={() => { setCart([]); setKitchenNote(""); setActiveTable(null); setView("tables"); }}
-              className="px-6 py-3 bg-orange-500 text-white font-bold rounded-2xl hover:bg-orange-400 transition"
-            >
-              New table
-            </button>
-          </div>
-
-          {/* Receipt actions */}
-          {receipt && (
-            <div className="flex gap-3 justify-center flex-wrap pt-2">
+        <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
+          <div className="text-center space-y-6">
+            <div className="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center mx-auto">
+              <CheckCircle2 size={40} className="text-white" />
+            </div>
+            <div>
+              <h2 className="text-white text-2xl font-black">Order Sent!</h2>
+              <p className="text-slate-400 mt-1">Kitchen is preparing {activeTable?.label}</p>
+            </div>
+            <div className="flex gap-3 justify-center flex-wrap">
               <button
-                onClick={() => setReceipt({ ...receipt })}
-                className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-medium transition"
+                onClick={() => { setCart([]); setKitchenNote(""); setView("menu"); }}
+                className="px-6 py-3 bg-slate-700 text-white font-semibold rounded-2xl hover:bg-slate-600 transition"
               >
-                <Eye size={15} /> View Receipt
+                Add more items
               </button>
               <button
-                onClick={() => {
-                  const win = window.open("", "_blank", "width=400,height=600");
-                  if (!win) return;
-                  win.document.write(`<script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}<\/script>`);
-                  win.document.close();
-                }}
-                className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-medium transition"
+                onClick={() => { setCart([]); setKitchenNote(""); setActiveTable(null); setView("tables"); }}
+                className="px-6 py-3 bg-orange-500 text-white font-bold rounded-2xl hover:bg-orange-400 transition"
               >
-                <Printer size={15} /> Print
+                New table
               </button>
             </div>
-          )}
-        </div>
-      </div>
 
-      {/* Receipt modal */}
-      {receipt && (
-        <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} />
-      )}
+            {/* Receipt actions */}
+            {receipt && (
+              <div className="flex gap-3 justify-center flex-wrap pt-2">
+                <button
+                  onClick={() => setReceipt({ ...receipt })}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-medium transition"
+                >
+                  <Eye size={15} /> View Receipt
+                </button>
+                <button
+                  onClick={() => {
+                    const win = window.open("", "_blank", "width=400,height=600");
+                    if (!win) return;
+                    win.document.write(`<script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}<\/script>`);
+                    win.document.close();
+                  }}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-medium transition"
+                >
+                  <Printer size={15} /> Print
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Receipt modal */}
+        {receipt && (
+          <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} />
+        )}
       </>
     );
   }
@@ -1156,14 +1151,13 @@ export default function WaiterPage() {
 
             {/* PIN dots */}
             <div className={`flex justify-center gap-4 ${pinError ? "animate-bounce" : ""}`}>
-              {[0,1,2,3].map((i) => (
+              {[0, 1, 2, 3].map((i) => (
                 <div
                   key={i}
-                  className={`w-4 h-4 rounded-full border-2 transition-all ${
-                    i < pin.length
+                  className={`w-4 h-4 rounded-full border-2 transition-all ${i < pin.length
                       ? pinError ? "bg-red-500 border-red-500" : "bg-orange-500 border-orange-500"
                       : "border-slate-600"
-                  }`}
+                    }`}
                 />
               ))}
             </div>
@@ -1183,149 +1177,147 @@ export default function WaiterPage() {
   if (view === "tables") {
     return (
       <>
-      <div className="min-h-screen bg-slate-950 flex flex-col h-full">
-        {/* Header */}
-        <header className="bg-slate-900 border-b border-slate-800 px-5 py-4 flex items-center justify-between gap-3 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-orange-500 rounded-xl flex items-center justify-center">
-              <UtensilsCrossed size={17} className="text-white" />
-            </div>
-            <h1 className="text-white font-black text-base">Table Selection</h1>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                style={{ backgroundColor: waiter?.avatarColor ?? "#666" }}
-              >
-                {initials(waiter?.name ?? "")}
+        <div className="min-h-screen bg-slate-950 flex flex-col h-full">
+          {/* Header */}
+          <header className="bg-slate-900 border-b border-slate-800 px-5 py-4 flex items-center justify-between gap-3 flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 bg-orange-500 rounded-xl flex items-center justify-center">
+                <UtensilsCrossed size={17} className="text-white" />
               </div>
-              <span className="text-slate-300 text-sm font-medium hidden sm:block">{waiter?.name}</span>
+              <h1 className="text-white font-black text-base">Table Selection</h1>
             </div>
-            <button
-              onClick={logout}
-              className="flex items-center gap-1.5 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-xl text-xs font-medium transition"
-            >
-              <LogOut size={13} /> Sign out
-            </button>
-          </div>
-        </header>
-
-        {/* Section filter */}
-        {sections.length > 2 && (
-          <div className="flex gap-2 px-5 py-3 overflow-x-auto flex-shrink-0 border-b border-slate-800">
-            {sections.map((s) => (
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                  style={{ backgroundColor: waiter?.avatarColor ?? "#666" }}
+                >
+                  {initials(waiter?.name ?? "")}
+                </div>
+                <span className="text-slate-300 text-sm font-medium hidden sm:block">{waiter?.name}</span>
+              </div>
               <button
-                key={s}
-                onClick={() => setActiveSection(s)}
-                className={`px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition ${
-                  activeSection === s
-                    ? "bg-orange-500 text-white"
-                    : "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                }`}
+                onClick={logout}
+                className="flex items-center gap-1.5 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-xl text-xs font-medium transition"
               >
-                {s}
+                <LogOut size={13} /> Sign out
               </button>
-            ))}
-          </div>
-        )}
-
-        {/* Table grid */}
-        <div className="flex-1 p-5 pb-15 overflow-y-auto h-full">
-          {tables.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-24 text-slate-600">
-              <UtensilsCrossed size={40} className="mb-3 opacity-30" />
-              <p className="text-sm">No tables configured</p>
             </div>
-          ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
-              {visibleTables.map((table) => {
-                const occupied = occupiedLabels.has(table.label);
-                return (
-                  <button
-                    key={table.id}
-                    onClick={() => occupied ? setTableAction(table) : selectTable(table)}
-                    className={`relative flex flex-col items-center justify-center rounded-2xl p-4 aspect-square border-2 transition-all active:scale-95 ${
-                      occupied
-                        ? "bg-amber-950/40 border-amber-500/60 hover:bg-amber-950/60"
-                        : "bg-slate-800 border-slate-700 hover:border-orange-500/60 hover:bg-slate-700"
+          </header>
+
+          {/* Section filter */}
+          {sections.length > 2 && (
+            <div className="flex gap-2 px-5 py-3 overflow-x-auto flex-shrink-0 border-b border-slate-800">
+              {sections.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setActiveSection(s)}
+                  className={`px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition ${activeSection === s
+                      ? "bg-orange-500 text-white"
+                      : "bg-slate-800 text-slate-300 hover:bg-slate-700"
                     }`}
-                  >
-                    {occupied && (
-                      <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
-                    )}
-                    <span className={`text-2xl font-black ${occupied ? "text-amber-300" : "text-white"}`}>
-                      {table.label}
-                    </span>
-                    <span className={`text-xs mt-1 ${occupied ? "text-amber-400/70" : "text-slate-500"}`}>
-                      <Users size={10} className="inline mr-0.5" />{table.seats}
-                    </span>
-                    {occupied && (
-                      <span className="text-[10px] text-amber-500 font-semibold mt-0.5">Occupied</span>
-                    )}
-                  </button>
-                );
-              })}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Table grid */}
+          <div className="flex-1 p-5 pb-15 overflow-y-auto h-full">
+            {tables.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-24 text-slate-600">
+                <UtensilsCrossed size={40} className="mb-3 opacity-30" />
+                <p className="text-sm">No tables configured</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                {visibleTables.map((table) => {
+                  const occupied = occupiedLabels.has(table.label);
+                  return (
+                    <button
+                      key={table.id}
+                      onClick={() => occupied ? setTableAction(table) : selectTable(table)}
+                      className={`relative flex flex-col items-center justify-center rounded-2xl p-4 aspect-square border-2 transition-all active:scale-95 ${occupied
+                          ? "bg-amber-950/40 border-amber-500/60 hover:bg-amber-950/60"
+                          : "bg-slate-800 border-slate-700 hover:border-orange-500/60 hover:bg-slate-700"
+                        }`}
+                    >
+                      {occupied && (
+                        <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+                      )}
+                      <span className={`text-2xl font-black ${occupied ? "text-amber-300" : "text-white"}`}>
+                        {table.label}
+                      </span>
+                      <span className={`text-xs mt-1 ${occupied ? "text-amber-400/70" : "text-slate-500"}`}>
+                        <Users size={10} className="inline mr-0.5" />{table.seats}
+                      </span>
+                      {occupied && (
+                        <span className="text-[10px] text-amber-500 font-semibold mt-0.5">Occupied</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* ── Occupied-table action sheet ─────────────────────────────────── */}
+          {tableAction && (
+            <div className="fixed inset-0 z-50 flex items-end justify-center">
+              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setTableAction(null)} />
+              <div className="relative bg-slate-900 rounded-t-3xl w-full max-w-md p-6 shadow-2xl space-y-4">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center">
+                    <UtensilsCrossed size={18} className="text-white" />
+                  </div>
+                  <div>
+                    <p className="text-white font-black text-lg">Table {tableAction.label}</p>
+                    <p className="text-amber-400 text-xs font-medium">Currently occupied</p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => { setTableAction(null); selectTable(tableAction); }}
+                  className="w-full flex items-center gap-4 bg-slate-800 hover:bg-slate-700 active:scale-[0.98] rounded-2xl px-5 py-4 transition-all"
+                >
+                  <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center flex-shrink-0">
+                    <Utensils size={18} className="text-white" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-white font-bold">Add More Items</p>
+                    <p className="text-slate-400 text-xs">Send another round to the kitchen</p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => openBill(tableAction)}
+                  className="w-full flex items-center gap-4 bg-slate-800 hover:bg-slate-700 active:scale-[0.98] rounded-2xl px-5 py-4 transition-all"
+                >
+                  <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center flex-shrink-0">
+                    <Receipt size={18} className="text-white" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-white font-bold">View Bill &amp; Pay</p>
+                    <p className="text-slate-400 text-xs">Show total and settle the table</p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => setTableAction(null)}
+                  className="w-full py-3 text-slate-500 hover:text-slate-300 text-sm font-medium transition"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
         </div>
 
-        {/* ── Occupied-table action sheet ─────────────────────────────────── */}
-        {tableAction && (
-          <div className="fixed inset-0 z-50 flex items-end justify-center">
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setTableAction(null)} />
-            <div className="relative bg-slate-900 rounded-t-3xl w-full max-w-md p-6 shadow-2xl space-y-4">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center">
-                  <UtensilsCrossed size={18} className="text-white" />
-                </div>
-                <div>
-                  <p className="text-white font-black text-lg">Table {tableAction.label}</p>
-                  <p className="text-amber-400 text-xs font-medium">Currently occupied</p>
-                </div>
-              </div>
-
-              <button
-                onClick={() => { setTableAction(null); selectTable(tableAction); }}
-                className="w-full flex items-center gap-4 bg-slate-800 hover:bg-slate-700 active:scale-[0.98] rounded-2xl px-5 py-4 transition-all"
-              >
-                <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center flex-shrink-0">
-                  <Utensils size={18} className="text-white" />
-                </div>
-                <div className="text-left">
-                  <p className="text-white font-bold">Add More Items</p>
-                  <p className="text-slate-400 text-xs">Send another round to the kitchen</p>
-                </div>
-              </button>
-
-              <button
-                onClick={() => openBill(tableAction)}
-                className="w-full flex items-center gap-4 bg-slate-800 hover:bg-slate-700 active:scale-[0.98] rounded-2xl px-5 py-4 transition-all"
-              >
-                <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center flex-shrink-0">
-                  <Receipt size={18} className="text-white" />
-                </div>
-                <div className="text-left">
-                  <p className="text-white font-bold">View Bill &amp; Pay</p>
-                  <p className="text-slate-400 text-xs">Show total and settle the table</p>
-                </div>
-              </button>
-
-              <button
-                onClick={() => setTableAction(null)}
-                className="w-full py-3 text-slate-500 hover:text-slate-300 text-sm font-medium transition"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
+        {/* Last receipt — floats above tables view after payment */}
+        {receipt && (
+          <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} />
         )}
-      </div>
-
-      {/* Last receipt — floats above tables view after payment */}
-      {receipt && (
-        <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} />
-      )}
       </>
     );
   }
@@ -1352,13 +1344,13 @@ export default function WaiterPage() {
     function printBillPreview() {
       const rs = appSettings?.receiptSettings;
       const tempReceipt: WaiterReceipt = {
-        tableLabel:    activeTable!.label,
-        waiterName:    waiter?.name ?? "Staff",
-        date:          new Date().toISOString(),
-        items:         consolidatedLines,
-        total:         billTotal,
+        tableLabel: activeTable!.label,
+        waiterName: waiter?.name ?? "Staff",
+        date: new Date().toISOString(),
+        items: consolidatedLines,
+        total: billTotal,
         paymentMethod: "pending",
-        orderIds:      billOrders.map(o => o.id),
+        orderIds: billOrders.map(o => o.id),
       };
       const restaurantName = rs?.restaurantName?.trim() || appSettings?.restaurant?.name || "Restaurant";
       const html = buildReceiptHtml(tempReceipt, restaurantName, rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!");
@@ -1373,180 +1365,185 @@ export default function WaiterPage() {
 
     return (
       <>
-      <div className="min-h-screen bg-slate-950 flex flex-col">
-        {/* Header */}
-        <header className="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center gap-3 flex-shrink-0">
-          <button
-            onClick={() => { setView("tables"); setActiveTable(null); setBillOrders([]); }}
-            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex-shrink-0"
-          >
-            <ArrowLeft size={16} />
-          </button>
-          <div className="flex-1 min-w-0">
-            <p className="text-white font-black text-base">Bill — Table {activeTable?.label}</p>
-            <p className="text-slate-400 text-xs">{billOrders.length} order{billOrders.length !== 1 ? "s" : ""} · {consolidatedLines.length} item type{consolidatedLines.length !== 1 ? "s" : ""}</p>
-          </div>
-          <Receipt size={20} className="text-emerald-400 flex-shrink-0" />
-        </header>
-
-        {/* Bill content */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {billLoading ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 size={28} className="text-orange-500 animate-spin" />
-            </div>
-          ) : billOrders.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-slate-600">
-              <ClipboardList size={40} className="mb-3 opacity-30" />
-              <p className="text-sm">No active orders found for this table.</p>
-            </div>
-          ) : (
-            <>
-              {/* Receipt card */}
-              <div className="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
-                <div className="px-5 py-4 border-b border-slate-800">
-                  <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Items</p>
-                </div>
-                <div className="divide-y divide-slate-800">
-                  {consolidatedLines.map((line, i) => (
-                    <div key={i} className="flex items-center justify-between px-5 py-3 gap-3">
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <span className="text-slate-500 text-sm font-bold w-6 flex-shrink-0">{line.qty}×</span>
-                        <span className="text-white text-sm leading-snug">{line.name}</span>
-                      </div>
-                      <span className="text-white text-sm font-semibold flex-shrink-0">
-                        {fmtCur(line.price * line.qty)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                {/* Total */}
-                <div className="px-5 py-4 border-t border-slate-700 bg-slate-800/50 flex items-center justify-between">
-                  <span className="text-slate-300 text-sm font-semibold">Total</span>
-                  <span className="text-white text-2xl font-black">{fmtCur(billTotal)}</span>
-                </div>
-              </div>
-
-              {/* Waiter note */}
-              <p className="text-slate-600 text-xs text-center">
-                {billOrders.length > 1 ? `Consolidated from ${billOrders.length} separate orders` : "Single order"}
-                {" · "}Table {activeTable?.label}
-              </p>
-            </>
-          )}
-        </div>
-
-        {/* Payment buttons */}
-        {!billLoading && billOrders.length > 0 && (
-          <div className="p-5 border-t border-slate-800 bg-slate-900 space-y-3 flex-shrink-0">
-            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest text-center mb-1">
-              Select Payment Method
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={() => payBill("cash")}
-                disabled={paying}
-                className="flex flex-col items-center gap-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 active:scale-[0.97] text-white font-bold py-5 rounded-2xl transition-all"
-              >
-                {paying ? <Loader2 size={22} className="animate-spin" /> : <Banknote size={22} />}
-                <span className="text-sm">Pay by Cash</span>
-              </button>
-              <button
-                onClick={() => payBill("card")}
-                disabled={paying}
-                className="flex flex-col items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 active:scale-[0.97] text-white font-bold py-5 rounded-2xl transition-all"
-              >
-                {paying ? <Loader2 size={22} className="animate-spin" /> : <CreditCard size={22} />}
-                <span className="text-sm">Pay by Card</span>
-              </button>
-            </div>
+        <div className="h-full bg-slate-950 flex flex-col ">
+          {/* Header */}
+          <header className="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center gap-3 flex-shrink-0">
             <button
               onClick={() => { setView("tables"); setActiveTable(null); setBillOrders([]); }}
-              className="w-full py-3 text-slate-500 hover:text-slate-300 text-sm font-medium transition"
+              className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex-shrink-0"
             >
-              Back to Tables
+              <ArrowLeft size={16} />
             </button>
+            <div className="flex-1 min-w-0">
+              <p className="text-white font-black text-base">Bill — Table {activeTable?.label}</p>
+              <p className="text-slate-400 text-xs">{billOrders.length} order{billOrders.length !== 1 ? "s" : ""} · {consolidatedLines.length} item type{consolidatedLines.length !== 1 ? "s" : ""}</p>
+            </div>
+            <Receipt size={20} className="text-emerald-400 flex-shrink-0" />
+          </header>
+
+          <div className="overflow-y-auto">
+
+            {/* Bill content */}
+            <div className="flex-1 p-5 space-y-4">
+              {billLoading ? (
+                <div className="flex items-center justify-center py-20">
+                  <Loader2 size={28} className="text-orange-500 animate-spin" />
+                </div>
+              ) : billOrders.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 text-slate-600">
+                  <ClipboardList size={40} className="mb-3 opacity-30" />
+                  <p className="text-sm">No active orders found for this table.</p>
+                </div>
+              ) : (
+                <>
+                  {/* Receipt card */}
+                  <div className="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
+                    <div className="px-5 py-4 border-b border-slate-800">
+                      <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Items</p>
+                    </div>
+                    <div className="divide-y divide-slate-800">
+                      {consolidatedLines.map((line, i) => (
+                        <div key={i} className="flex items-center justify-between px-5 py-3 gap-3">
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <span className="text-slate-500 text-sm font-bold w-6 flex-shrink-0">{line.qty}×</span>
+                            <span className="text-white text-sm leading-snug">{line.name}</span>
+                          </div>
+                          <span className="text-white text-sm font-semibold flex-shrink-0">
+                            {fmtCur(line.price * line.qty)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Total */}
+                    <div className="px-5 py-4 border-t border-slate-700 bg-slate-800/50 flex items-center justify-between">
+                      <span className="text-slate-300 text-sm font-semibold">Total</span>
+                      <span className="text-white text-2xl font-black">{fmtCur(billTotal)}</span>
+                    </div>
+                  </div>
+
+                  {/* Waiter note */}
+                  <p className="text-slate-600 text-xs text-center">
+                    {billOrders.length > 1 ? `Consolidated from ${billOrders.length} separate orders` : "Single order"}
+                    {" · "}Table {activeTable?.label}
+                  </p>
+                </>
+              )}
+            </div>
+
+            {/* Payment buttons */}
+            {!billLoading && billOrders.length > 0 && (
+              <div className="p-5 border-t border-slate-800 bg-slate-900 space-y-3 flex-shrink-0">
+                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest text-center mb-2">
+                  Select Payment Method
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => payBill("cash")}
+                    disabled={paying}
+                    className="flex flex-col items-center gap-1 md:gap-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 active:scale-[0.97] text-white font-bold py-2 md:py-5 rounded-2xl transition-all"
+                  >
+                    {paying ? <Loader2 size={22} className="animate-spin" /> : <Banknote size={22} />}
+                    <span className="text-sm">Pay by Cash</span>
+                  </button>
+                  <button
+                    onClick={() => payBill("card")}
+                    disabled={paying}
+                    className="flex flex-col items-center gap-1 md:gap-2  bg-blue-600 hover:bg-blue-500 disabled:opacity-50 active:scale-[0.97] text-white font-bold py-2 md:py-5 rounded-2xl transition-all"
+                  >
+                    {paying ? <Loader2 size={22} className="animate-spin" /> : <CreditCard size={22} />}
+                    <span className="text-sm">Pay by Card</span>
+                  </button>
+                </div>
+                <button
+                  onClick={() => { setView("tables"); setActiveTable(null); setBillOrders([]); }}
+                  className="w-full pt-3 text-slate-500 hover:text-slate-300 text-sm font-medium transition"
+                >
+                  Back to Tables
+                </button>
+              </div>
+            )}
+
+            {/* Print / Email bill (before payment) */}
+            {!billLoading && billOrders.length > 0 && !paying && (
+              <BillEmailBar
+                onPrint={printBillPreview}
+                tableLabel={activeTable!.label}
+                waiterName={waiter?.name ?? "Staff"}
+                consolidatedLines={consolidatedLines}
+                billTotal={billTotal}
+                orderIds={billOrders.map(o => o.id)}
+              />
+            )}
+
+            {/* Void Table — senior staff only */}
+            {!billLoading && billOrders.length > 0 && !paying && (
+              <div className="px-5 pb-5 flex-shrink-0">
+                <button
+                  onClick={() => setVoidRefundTarget({
+                    mode: "void",
+                    orderIds: billOrders.map(o => o.id),
+                    total: billTotal,
+                    tableLabel: activeTable!.label,
+                  })}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 bg-transparent border border-red-900/50 hover:border-red-700 text-red-500 hover:text-red-400 text-sm font-medium rounded-2xl transition"
+                >
+                  <AlertTriangle size={14} />
+                  {waiter?.role === "senior" ? "Void Table" : "Void Table (Senior only)"}
+                </button>
+              </div>
+            )}
           </div>
-        )}
 
-        {/* Print / Email bill (before payment) */}
-        {!billLoading && billOrders.length > 0 && !paying && (
-          <BillEmailBar
-            onPrint={printBillPreview}
-            tableLabel={activeTable!.label}
-            waiterName={waiter?.name ?? "Staff"}
-            consolidatedLines={consolidatedLines}
-            billTotal={billTotal}
-            orderIds={billOrders.map(o => o.id)}
-          />
-        )}
 
-        {/* Void Table — senior staff only */}
-        {!billLoading && billOrders.length > 0 && !paying && (
-          <div className="px-5 pb-5 flex-shrink-0">
-            <button
-              onClick={() => setVoidRefundTarget({
-                mode: "void",
-                orderIds: billOrders.map(o => o.id),
-                total: billTotal,
-                tableLabel: activeTable!.label,
-              })}
-              className="w-full flex items-center justify-center gap-2 py-2.5 bg-transparent border border-red-900/50 hover:border-red-700 text-red-500 hover:text-red-400 text-sm font-medium rounded-2xl transition"
-            >
-              <AlertTriangle size={14} />
-              {waiter?.role === "senior" ? "Void Table" : "Void Table (Senior only)"}
-            </button>
-          </div>
-        )}
-      </div>
+        </div>
 
-      {/* Receipt modal — overlays bill view after payment */}
-      {receipt && (
-        <ReceiptModal
-          receipt={receipt}
-          onClose={() => {
-            setReceipt(null);
-            setBillOrders([]);
-            setActiveTable(null);
-            refreshOccupied();
-            setView("tables");
-          }}
-          onRefund={receipt.orderIds.length > 0 ? () => {
-            setVoidRefundTarget({
-              mode: "refund",
-              orderIds: receipt.orderIds,
-              total: receipt.total,
-              tableLabel: receipt.tableLabel,
-            });
-          } : undefined}
-        />
-      )}
-
-      {/* Void / Refund modal */}
-      {voidRefundTarget && (
-        <VoidRefundModal
-          {...voidRefundTarget}
-          waiterName={waiter?.name ?? "Staff"}
-          isSenior={waiter?.role === "senior"}
-          onClose={() => setVoidRefundTarget(null)}
-          onSuccess={() => {
-            setVoidRefundTarget(null);
-            if (voidRefundTarget.mode === "void") {
-              setBillOrders([]);
-              setActiveTable(null);
-              refreshOccupied();
-              setView("tables");
-            } else {
-              // Refund: dismiss receipt + go back to tables
+        {/* Receipt modal — overlays bill view after payment */}
+        {receipt && (
+          <ReceiptModal
+            receipt={receipt}
+            onClose={() => {
               setReceipt(null);
               setBillOrders([]);
               setActiveTable(null);
               refreshOccupied();
               setView("tables");
-            }
-          }}
-        />
-      )}
+            }}
+            onRefund={receipt.orderIds.length > 0 ? () => {
+              setVoidRefundTarget({
+                mode: "refund",
+                orderIds: receipt.orderIds,
+                total: receipt.total,
+                tableLabel: receipt.tableLabel,
+              });
+            } : undefined}
+          />
+        )}
+
+        {/* Void / Refund modal */}
+        {voidRefundTarget && (
+          <VoidRefundModal
+            {...voidRefundTarget}
+            waiterName={waiter?.name ?? "Staff"}
+            isSenior={waiter?.role === "senior"}
+            onClose={() => setVoidRefundTarget(null)}
+            onSuccess={() => {
+              setVoidRefundTarget(null);
+              if (voidRefundTarget.mode === "void") {
+                setBillOrders([]);
+                setActiveTable(null);
+                refreshOccupied();
+                setView("tables");
+              } else {
+                // Refund: dismiss receipt + go back to tables
+                setReceipt(null);
+                setBillOrders([]);
+                setActiveTable(null);
+                refreshOccupied();
+                setView("tables");
+              }
+            }}
+          />
+        )}
       </>
     );
   }
@@ -1624,11 +1621,10 @@ export default function WaiterPage() {
               <button
                 key={cat.id}
                 onClick={() => setActiveCatId(cat.id)}
-                className={`px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition ${
-                  activeCatId === cat.id
+                className={`px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition ${activeCatId === cat.id
                     ? "bg-orange-500 text-white"
                     : "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                }`}
+                  }`}
               >
                 {cat.emoji && <span className="mr-1">{cat.emoji}</span>}{cat.name}
               </button>
@@ -1639,18 +1635,17 @@ export default function WaiterPage() {
           <div className="flex-1 overflow-y-auto p-4">
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
               {visibleItems.map((item) => {
-                const oos    = isOutOfStock(item);
+                const oos = isOutOfStock(item);
                 const hasVar = (item.variations?.length ?? 0) > 0 || (item.addOns?.length ?? 0) > 0;
                 return (
                   <button
                     key={item.id}
                     onClick={() => quickAdd(item)}
                     disabled={oos}
-                    className={`relative flex flex-col rounded-2xl border p-4 text-left transition-all active:scale-[0.97] ${
-                      oos
+                    className={`relative flex flex-col rounded-2xl border p-4 text-left transition-all active:scale-[0.97] ${oos
                         ? "bg-slate-800/40 border-slate-800 opacity-50 cursor-not-allowed"
                         : "bg-slate-800 border-slate-700 hover:border-orange-500/50 hover:bg-slate-750"
-                    }`}
+                      }`}
                   >
                     {item.popular && !oos && (
                       <span className="absolute top-2 right-2 bg-orange-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">

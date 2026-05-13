@@ -251,7 +251,7 @@ export default function KitchenStaffPanel() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-white font-semibold">Kitchen Staff</h2>
+          <h2 className="text-gray-900 font-semibold">Kitchen Staff</h2>
           <p className="text-gray-500 text-xs mt-0.5">
             {staff.length} staff · {staff.filter((s) => s.active).length} active
           </p>
