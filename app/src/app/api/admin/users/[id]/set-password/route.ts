@@ -50,7 +50,7 @@ export async function POST(
 
     const { error } = await supabaseAdmin
       .from("customers")
-      .update({ password_hash: passwordHash, password: "" })
+      .update({ password_hash: passwordHash })
       .eq("id", id);
 
     if (error) {

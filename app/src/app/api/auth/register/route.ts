@@ -1,9 +1,8 @@
 /**
  * POST /api/auth/register — public customer self-registration.
- * Hashes password with bcrypt, stores it, then sends an email verification link.
- *
- * Column fallback: if schema.sql hasn't been applied yet (PGRST204), stores
- * the bcrypt hash in the legacy `password` column and skips verification.
+ * Hashes password with bcrypt, stores it in password_hash, then sends an
+ * email verification link. The legacy plaintext `password` column was
+ * dropped in the latest schema migration — only password_hash is written.
  */
 
 import { NextRequest, NextResponse }  from "next/server";
@@ -12,7 +11,6 @@ import { rateLimit }                  from "@/lib/rateLimit";
 import { createHmac, randomBytes }    from "crypto";
 import { supabaseAdmin }              from "@/lib/supabaseAdmin";
 import { sendEmailDirect, fetchBrandPrimaryColor } from "@/lib/emailServer";
-import { createSessionToken, setSessionCookie, COOKIE_CUSTOMER } from "@/lib/auth";
 
 // Issue a session cookie immediately on register only when the auth migration
 // hasn't been applied yet — in that case email_verified doesn't exist and the
@@ -110,50 +108,21 @@ export async function POST(req: NextRequest) {
   };
 
   // ── Insert ────────────────────────────────────────────────────────────────
-  let migrationRun = true;
-
-  const { error: errFull } = await supabaseAdmin.from("customers").insert({
+  const { error: errInsert } = await supabaseAdmin.from("customers").insert({
     ...baseRow,
-    password:                   "",
     password_hash:              passwordHash,
     email_verified:             false,
     email_verification_token:   hashedToken,
     email_verification_expires: tokenExpires,
   });
 
-  if (errFull) {
-    if (errFull.code === "PGRST204") {
-      migrationRun = false;
-      const { error: errFallback } = await supabaseAdmin.from("customers").insert({
-        ...baseRow,
-        password: passwordHash,
-      });
-      if (errFallback) {
-        console.error("auth/register fallback:", errFallback.message);
-        return NextResponse.json({ ok: false, error: errFallback.message }, { status: 500 });
-      }
-    } else {
-      console.error("auth/register:", errFull.message);
-      return NextResponse.json({ ok: false, error: errFull.message }, { status: 500 });
-    }
+  if (errInsert) {
+    console.error("auth/register:", errInsert.message);
+    return NextResponse.json({ ok: false, error: errInsert.message }, { status: 500 });
   }
 
   // ── Send verification email ───────────────────────────────────────────────
-  if (migrationRun) {
-    await sendVerificationEmail(email.trim().toLowerCase(), name.trim(), rawToken);
-  }
-
-  // ── Issue session cookie ONLY when verification cannot be enforced ─────────
-  // When the migration is in place, the customer must click the verification
-  // link before logging in — no auto-login. When the migration is absent the
-  // verification column doesn't exist, login can't gate on it, so issuing the
-  // cookie here is the only path that keeps fresh registrations working.
-  if (!migrationRun) {
-    const token = createSessionToken({ id, role: "customer" });
-    const res   = NextResponse.json({ ok: true, requiresVerification: false });
-    setSessionCookie(res, COOKIE_CUSTOMER, token);
-    return res;
-  }
+  await sendVerificationEmail(email.trim().toLowerCase(), name.trim(), rawToken);
 
   return NextResponse.json({
     ok: true,

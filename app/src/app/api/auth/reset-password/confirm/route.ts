@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
   const passwordHash = await bcrypt.hash(password, 10);
   await supabaseAdmin
     .from("customers")
-    .update({ password_hash: passwordHash, password: "", reset_token: null, reset_token_expires: null })
+    .update({ password_hash: passwordHash, reset_token: null, reset_token_expires: null })
     .eq("id", data.id);
 
   return NextResponse.json({ ok: true });

@@ -281,7 +281,7 @@ function orderToRow(o: Order) {
 function customerToRow(c: Customer) {
   return {
     id: c.id, name: c.name, email: c.email,
-    phone: c.phone ?? "", password: c.password ?? "",
+    phone: c.phone ?? "",
     created_at: c.createdAt,
     tags: c.tags ?? [], favourites: c.favourites ?? [],
     saved_addresses: c.savedAddresses ?? [],

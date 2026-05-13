@@ -148,7 +148,6 @@ export async function GET(req: NextRequest) {
       name,
       email,
       phone:           "",
-      password:        "",
       tags:            [] as string[],
       favourites:      [] as string[],
       saved_addresses: [] as unknown[],

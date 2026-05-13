@@ -265,31 +265,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       if (errFull.code === "23505") {
         return NextResponse.json({ ok: false, error: "A customer with this email already exists." }, { status: 409 });
       }
-      if (errFull.code === "PGRST204") {
-        // Migration not run — insert without auth columns
-        const { error: errFallback } = await supabaseAdmin
-          .from("customers")
-          .insert({
-            id:              newCustomerId,
-            name:            name.trim(),
-            email:           email.trim().toLowerCase(),
-            phone:           phone?.trim() || null,
-            password:        passwordHash,
-            store_credit:    0,
-            tags:            [],
-            favourites:      [],
-            saved_addresses: [],
-            created_at:      now,
-          });
-        if (errFallback) {
-          if (errFallback.code === "23505") {
-            return NextResponse.json({ ok: false, error: "A customer with this email already exists." }, { status: 409 });
-          }
-          return NextResponse.json({ ok: false, error: errFallback.message }, { status: 500 });
-        }
-      } else {
-        return NextResponse.json({ ok: false, error: errFull.message }, { status: 500 });
-      }
+      return NextResponse.json({ ok: false, error: errFull.message }, { status: 500 });
     }
 
     const user: ManagedUser = {

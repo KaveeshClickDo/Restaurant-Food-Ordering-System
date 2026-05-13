@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
   const newHash = await bcrypt.hash(newPassword, 10);
   const { error } = await supabaseAdmin
     .from("customers")
-    .update({ password_hash: newHash, password: "" })
+    .update({ password_hash: newHash })
     .eq("id", session.id);
 
   if (error) {
