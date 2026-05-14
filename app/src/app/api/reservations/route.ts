@@ -59,15 +59,21 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Load settings to get table info + slot duration
-  const { data: settingsRow } = await supabaseAdmin
-    .from("app_settings").select("data").limit(1).single();
+  // Load settings (for slot duration + email templates) and the specific
+  // dining table being booked. Tables live in their own DB table.
+  const [{ data: settingsRow }, { data: tableRow }] = await Promise.all([
+    supabaseAdmin.from("app_settings").select("data").limit(1).single(),
+    supabaseAdmin
+      .from("dining_tables")
+      .select("id, label, seats, section, active")
+      .eq("id", tableId)
+      .maybeSingle(),
+  ]);
 
-  const tables: DiningTable[]  = settingsRow?.data?.diningTables ?? [];
   const rs: ReservationSystem  = settingsRow?.data?.reservationSystem ?? {};
   const slotDuration: number   = rs.slotDurationMinutes ?? 90;
 
-  const table = tables.find((t) => t.id === tableId && t.active);
+  const table = tableRow && tableRow.active ? (tableRow as DiningTable) : null;
   if (!table) {
     return NextResponse.json({ ok: false, error: "Table not found or inactive." }, { status: 400 });
   }

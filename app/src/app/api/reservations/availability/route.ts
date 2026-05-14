@@ -36,11 +36,16 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Load tables + reservation settings from app_settings
-  const { data: settingsRow } = await supabaseAdmin
-    .from("app_settings").select("data").limit(1).single();
+  // Load reservation settings from app_settings, dining tables from their own table
+  const [{ data: settingsRow }, { data: tableRows }] = await Promise.all([
+    supabaseAdmin.from("app_settings").select("data").limit(1).single(),
+    supabaseAdmin
+      .from("dining_tables")
+      .select("id, label, number, seats, section, active, sort_order")
+      .order("sort_order", { ascending: true }),
+  ]);
 
-  const tables: DiningTable[]      = settingsRow?.data?.diningTables ?? [];
+  const tables: DiningTable[]      = (tableRows ?? []) as DiningTable[];
   const rs: ReservationSystem      = settingsRow?.data?.reservationSystem ?? {};
   const slotDuration: number       = rs.slotDurationMinutes ?? 90;
   const maxPartySize: number       = rs.maxPartySize ?? 20;
