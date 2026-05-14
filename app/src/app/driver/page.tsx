@@ -257,9 +257,13 @@ function OrderCard({
   const ds  = (order.deliveryStatus ?? "assigned") as DSKey;
   const cfg = DS_CONFIG[ds];
   const [confirmDeliver, setConfirmDeliver] = useState(false);
+  // Block pickup until kitchen marks the order ready. A driver may accept an
+  // order while it's still "preparing" and head to the shop, but they can't
+  // confirm pick-up (or anything beyond) until the food is actually ready.
+  const pickupBlocked = ds === "assigned" && order.status !== "ready";
 
   function handleNext() {
-    if (!cfg.next) return;
+    if (!cfg.next || pickupBlocked) return;
     if (cfg.next === "delivered") {
       setConfirmDeliver(true);
     } else {
@@ -385,12 +389,25 @@ function OrderCard({
               </div>
             </div>
           ) : (
-            <button
-              onClick={handleNext}
-              className={`w-full ${cfg.nextClass} text-white font-bold py-3.5 rounded-xl transition-all active:scale-[0.97] shadow-sm`}
-            >
-              {cfg.nextLabel} →
-            </button>
+            <>
+              {pickupBlocked && (
+                <p className="text-xs text-gray-500 text-center mb-2 flex items-center justify-center gap-1.5">
+                  <ChefHat size={12} className="text-orange-400" />
+                  Waiting for kitchen to mark this order ready.
+                </p>
+              )}
+              <button
+                onClick={handleNext}
+                disabled={pickupBlocked}
+                className={`w-full text-white font-bold py-3.5 rounded-xl transition-all shadow-sm ${
+                  pickupBlocked
+                    ? "bg-gray-300 cursor-not-allowed"
+                    : `${cfg.nextClass} active:scale-[0.97]`
+                }`}
+              >
+                {pickupBlocked ? "Waiting for kitchen…" : `${cfg.nextLabel} →`}
+              </button>
+            </>
           )}
         </div>
       )}
