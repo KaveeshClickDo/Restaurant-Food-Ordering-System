@@ -1,7 +1,8 @@
 /**
  * POST /api/pos/reservations
  * Creates a walk-in or phone reservation from the POS terminal.
- * Skips the availability check — staff can see the room.
+ * Hard-blocks double-booking (table conflict at same time); allows capacity
+ * overrides since staff can pull extra chairs or merge tables.
  * Requires a POS or admin session.
  */
 
@@ -10,6 +11,11 @@ import { supabaseAdmin }              from "@/lib/supabaseAdmin";
 import { sendReservationEmailServer } from "@/lib/emailServer";
 import { isAdminAuthenticated }       from "@/lib/adminAuth";
 import { getPosSession, unauthorizedJson } from "@/lib/auth";
+
+function toMins(time: string): number {
+  const [h, m] = time.split(":").map(Number);
+  return h * 60 + m;
+}
 
 export async function POST(req: NextRequest) {
   const [pos, admin] = await Promise.all([getPosSession(), isAdminAuthenticated()]);
@@ -34,6 +40,41 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { ok: false, error: "tableId, tableLabel, date, time, partySize and customerName are required." },
       { status: 400 },
+    );
+  }
+
+  // Load settings once — used for both conflict detection (slot duration) and
+  // the phone-booking confirmation email further down.
+  const { data: settingsRow } = await supabaseAdmin
+    .from("app_settings").select("data").limit(1).single();
+  const slotDuration: number = settingsRow?.data?.reservationSystem?.slotDurationMinutes ?? 90;
+
+  // Hard-block double booking. The UI also disables booked tables, but a stale
+  // client or a concurrent booking can still hit this — reject with 409 so the
+  // staff member sees a clear message and picks a different table.
+  // Capacity is intentionally NOT enforced here: staff can pull chairs / merge
+  // tables, so the UI shows a soft warning instead.
+  const { data: conflicts, error: conflictErr } = await supabaseAdmin
+    .from("reservations")
+    .select("id, time, status")
+    .eq("date", date)
+    .eq("table_id", tableId)
+    .in("status", ["pending", "confirmed", "checked_in"]);
+
+  if (conflictErr && !conflictErr.message?.includes("schema cache") && !conflictErr.message?.includes("not found")) {
+    console.error("pos/reservations conflict check:", conflictErr.message);
+    return NextResponse.json({ ok: false, error: conflictErr.message }, { status: 500 });
+  }
+
+  const requestedMins = toMins(time);
+  const hasConflict = (conflicts ?? []).some((r) =>
+    r.status === "checked_in" ||
+    Math.abs(toMins(r.time as string) - requestedMins) < slotDuration
+  );
+  if (hasConflict) {
+    return NextResponse.json(
+      { ok: false, error: "This table is already reserved at the selected time. Please choose a different table." },
+      { status: 409 },
     );
   }
 
@@ -94,18 +135,15 @@ export async function POST(req: NextRequest) {
   }
 
   // Confirmation email for phone bookings (walk-ins are already present)
-  if (source === "phone" && email) {
-    const { data: settingsRow } = await supabaseAdmin.from("app_settings").select("data").limit(1).single();
-    if (settingsRow?.data) {
-      sendReservationEmailServer("reservation_confirmation", {
-        id, customer_name: customerName.trim(),
-        customer_email: email,
-        customer_phone: customerPhone?.trim() ?? "",
-        date, time, table_label: tableLabel,
-        party_size: partySize, status: "pending",
-        note: note ?? null, section: section ?? "", cancel_token,
-      }, settingsRow.data, req.headers.get("origin") ?? req.nextUrl.origin).catch(console.error);
-    }
+  if (source === "phone" && email && settingsRow?.data) {
+    sendReservationEmailServer("reservation_confirmation", {
+      id, customer_name: customerName.trim(),
+      customer_email: email,
+      customer_phone: customerPhone?.trim() ?? "",
+      date, time, table_label: tableLabel,
+      party_size: partySize, status: "pending",
+      note: note ?? null, section: section ?? "", cancel_token,
+    }, settingsRow.data, req.headers.get("origin") ?? req.nextUrl.origin).catch(console.error);
   }
 
   return NextResponse.json({ ok: true, reservationId: id });

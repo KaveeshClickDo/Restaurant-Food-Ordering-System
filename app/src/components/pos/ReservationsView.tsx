@@ -84,6 +84,7 @@ export default function ReservationsView() {
   const [addTableId,     setAddTableId]     = useState("");
   const [addTableMeta,   setAddTableMeta]   = useState<AvailTablePos | null>(null);
   const [addAvailTables, setAddAvailTables] = useState<AvailTablePos[]>([]);
+  const [addBookedIds,   setAddBookedIds]   = useState<Set<string>>(new Set());
   const [addLoadingTbl,  setAddLoadingTbl]  = useState(false);
   const [addName,        setAddName]        = useState("");
   const [addEmail,       setAddEmail]       = useState("");
@@ -92,22 +93,28 @@ export default function ReservationsView() {
   const [addSaving,      setAddSaving]      = useState(false);
   const [addError,       setAddError]       = useState("");
 
-  // Fetch available tables for the add modal
+  // Fetch available tables + currently-booked table IDs for the add modal.
+  // Phone bookings only see availableTables; walk-ins use bookedTableIds to
+  // grey out occupied tables while still showing every active table.
   const fetchAddTables = useCallback(async (date: string, time: string, party: number) => {
     if (!date || !time || !party) return;
     setAddLoadingTbl(true);
     try {
       const res  = await fetch(`/api/reservations/availability?date=${date}&time=${time}&partySize=${party}`);
-      const json = await res.json() as { ok: boolean; availableTables?: AvailTablePos[] };
+      const json = await res.json() as { ok: boolean; availableTables?: AvailTablePos[]; bookedTableIds?: string[] };
       setAddAvailTables(json.ok ? (json.availableTables ?? []) : []);
-    } catch { setAddAvailTables([]); }
-    finally { setAddLoadingTbl(false); }
+      setAddBookedIds(new Set(json.ok ? (json.bookedTableIds ?? []) : []));
+    } catch {
+      setAddAvailTables([]);
+      setAddBookedIds(new Set());
+    } finally { setAddLoadingTbl(false); }
   }, []);
 
   // Re-fetch tables when date/time/party changes in modal
   useEffect(() => {
     if (!showAdd) return;
     setAddTableId(""); setAddTableMeta(null);
+    setAddBookedIds(new Set());
     if (addTime && !isSlotPastRes(addTime, addDate)) fetchAddTables(addDate, addTime, addParty);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addDate, addTime, addParty, showAdd]);
@@ -126,12 +133,22 @@ export default function ReservationsView() {
     const firstSlot = allSlots.find((s) => !isSlotPastRes(s, today)) ?? allSlots[0] ?? "";
     setAddSource("walk-in"); setAddDate(today); setAddTime(firstSlot);
     setAddParty(2); setAddTableId(""); setAddTableMeta(null); setAddAvailTables([]);
+    setAddBookedIds(new Set());
     setAddName(""); setAddEmail(""); setAddPhone(""); setAddNote("");
     setAddError(""); setAddSaving(false); setShowAdd(true);
   }
 
   async function handleAddBooking() {
     if (!addTableMeta || !addName.trim()) return;
+    // Soft-warn: party exceeds table capacity. Staff often pulls extra chairs
+    // or merges tables, so we allow override after explicit confirmation.
+    if (addTableMeta.seats < addParty) {
+      const ok = window.confirm(
+        `Table ${addTableMeta.label} seats ${addTableMeta.seats}, but the party is ${addParty}. ` +
+        `You'll need extra chairs or a combined table. Continue?`
+      );
+      if (!ok) return;
+    }
     setAddSaving(true); setAddError("");
     try {
       const res  = await fetch("/api/pos/reservations", {
@@ -561,26 +578,70 @@ export default function ReservationsView() {
                   {addSource === "walk-in" && <span className="text-slate-500 font-normal normal-case ml-1">(select from all active tables)</span>}
                 </label>
                 {addSource === "walk-in" ? (
-                  /* Walk-ins: pick any active table — staff can see what's free */
-                  <div className="space-y-2">
-                    {Object.entries(tablesBySection).map(([sec, tbls]) => (
-                      <div key={sec}>
-                        {sec && <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">{sec}</p>}
-                        <div className="grid grid-cols-4 gap-1.5">
-                          {tbls.map((t) => {
-                            const sel = addTableId === t.id;
-                            return (
-                              <button key={t.id} type="button"
-                                onClick={() => { setAddTableId(t.id); setAddTableMeta({ id: t.id, label: t.label, seats: t.seats, section: t.section }); }}
-                                className={`py-2 rounded-lg text-xs font-semibold border transition-all ${
-                                  sel ? "bg-orange-500 text-white border-orange-500" : "bg-slate-800 text-slate-300 border-slate-700 hover:border-orange-500 hover:text-orange-300"
-                                }`}>{t.label}</button>
-                            );
-                          })}
+                  /* Walk-ins: pick any active table, but disable already-reserved
+                     ones (hard block) and warn on undersized ones (soft block —
+                     staff can still pick if they're combining tables / adding chairs). */
+                  addLoadingTbl ? (
+                    <div className="flex items-center gap-2 text-slate-400 text-sm py-2">
+                      <Loader2 size={14} className="animate-spin text-orange-500" /> Checking table status…
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {Object.entries(tablesBySection).map(([sec, tbls]) => (
+                        <div key={sec}>
+                          {sec && <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">{sec}</p>}
+                          <div className="grid grid-cols-4 gap-1.5">
+                            {tbls.map((t) => {
+                              const sel          = addTableId === t.id;
+                              const isBooked     = addBookedIds.has(t.id);
+                              const isUndersized = t.seats < addParty;
+                              const baseCls      = "py-2 rounded-lg text-[11px] font-semibold border transition-all flex flex-col items-center leading-tight";
+                              const cls = isBooked
+                                ? `${baseCls} bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed line-through`
+                                : sel
+                                  ? isUndersized
+                                    ? `${baseCls} bg-amber-500 text-white border-amber-400`
+                                    : `${baseCls} bg-orange-500 text-white border-orange-500`
+                                  : isUndersized
+                                    ? `${baseCls} bg-amber-900/30 text-amber-300 border-amber-700/50 hover:border-amber-500`
+                                    : `${baseCls} bg-slate-800 text-slate-300 border-slate-700 hover:border-orange-500 hover:text-orange-300`;
+                              return (
+                                <button
+                                  key={t.id}
+                                  type="button"
+                                  disabled={isBooked}
+                                  title={
+                                    isBooked     ? "Already reserved at this time" :
+                                    isUndersized ? `Seats ${t.seats} — party of ${addParty} (will need extra chairs)` :
+                                    `Seats ${t.seats}`
+                                  }
+                                  onClick={() => { setAddTableId(t.id); setAddTableMeta({ id: t.id, label: t.label, seats: t.seats, section: t.section }); }}
+                                  className={cls}
+                                >
+                                  <span>{t.label}</span>
+                                  <span className="text-[9px] font-normal opacity-75">
+                                    {isBooked ? "reserved" : `seats ${t.seats}`}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
+                      ))}
+                      {/* Legend */}
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-[10px] text-slate-500">
+                        <span className="flex items-center gap-1">
+                          <span className="w-2.5 h-2.5 rounded-sm bg-slate-800 border border-slate-700" /> free
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="w-2.5 h-2.5 rounded-sm bg-amber-900/40 border border-amber-700/50" /> too small (warn)
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="w-2.5 h-2.5 rounded-sm bg-slate-900 border border-slate-800" /> reserved (blocked)
+                        </span>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  )
                 ) : addLoadingTbl ? (
                   <div className="flex items-center gap-2 text-slate-400 text-sm py-2">
                     <Loader2 size={14} className="animate-spin text-orange-500" /> Checking availability…

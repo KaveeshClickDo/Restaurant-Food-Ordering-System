@@ -85,7 +85,7 @@ export async function GET(req: NextRequest) {
     // tables show as available. The POST route will surface the setup error clearly.
     if (error.message?.includes("schema cache") || error.message?.includes("not found")) {
       const allAvailable = eligibleTables.map(({ id, label, seats, section }) => ({ id, label, seats, section }));
-      return NextResponse.json({ ok: true, availableTables: allAvailable });
+      return NextResponse.json({ ok: true, availableTables: allAvailable, bookedTableIds: [] });
     }
     console.error("reservations/availability GET:", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
@@ -112,5 +112,9 @@ export async function GET(req: NextRequest) {
     .filter((t) => !bookedTableIds.has(t.id))
     .map(({ id, label, seats, section }) => ({ id, label, seats, section }));
 
-  return NextResponse.json({ ok: true, availableTables });
+  return NextResponse.json({
+    ok: true,
+    availableTables,
+    bookedTableIds: Array.from(bookedTableIds),
+  });
 }
