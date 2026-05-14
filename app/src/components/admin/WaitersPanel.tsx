@@ -475,7 +475,7 @@ export default function WaitersPanel() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-white font-semibold">Waiter Accounts</h2>
+              <h2 className="text-gray-900 font-semibold">Waiter Accounts</h2>
               <p className="text-gray-500 text-xs mt-0.5">{waiters.length} staff · {waiters.filter((w) => w.active).length} active</p>
             </div>
             {!addingWaiter && !editingWaiter && (

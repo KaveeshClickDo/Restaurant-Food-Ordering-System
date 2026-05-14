@@ -224,7 +224,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
       <div className="relative w-full sm:max-w-lg bg-white sm:rounded-2xl shadow-2xl flex flex-col max-h-[95dvh] overflow-hidden">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
+        <div className="flex flex-wrap gap-2 items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-orange-500 rounded-xl flex items-center justify-center flex-shrink-0">
               <CalendarDays size={17} className="text-white" />
@@ -314,7 +314,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                         onClick={() => !past && setTime(slot)}
                         title={past ? "Time has passed" : undefined}
                         className={[
-                          "py-2.5 rounded-xl text-sm font-semibold border transition-all",
+                          "py-2.5 rounded-xl text-xs sm:text-sm font-semibold border transition-all",
                           past
                             ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed line-through"
                             : selected
@@ -340,7 +340,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
           {/* ── Step 2: Table Selection ───────────────────────────────── */}
           {step === "table" && (
             <div className="p-5">
-              <div className="bg-orange-50 border border-orange-100 rounded-xl px-4 py-3 mb-5 text-sm text-orange-800">
+              <div className="bg-orange-50 border border-orange-100 rounded-xl px-4 py-3 mb-5 text-[13px] sm:text-sm text-orange-800">
                 <span className="font-semibold">{fmtDate(date)}</span>
                 {" · "}{fmt12(time)}{" · "}
                 {partySize} {partySize === 1 ? "guest" : "guests"}
