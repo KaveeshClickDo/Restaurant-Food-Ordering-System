@@ -434,7 +434,6 @@ export default function KitchenPage() {
   const router = useRouter();
   const [orders,          setOrders]          = useState<KDSOrder[]>([]);
   const [loading,         setLoading]         = useState(true);
-  const [completedToday,  setCompletedToday]  = useState(0);
   const [isFullscreen,    setIsFullscreen]    = useState(false);
   const [currentStaff,    setCurrentStaff]    = useState<Omit<KitchenStaff, "pin"> | null>(null);
 
@@ -551,7 +550,6 @@ export default function KitchenPage() {
     setOrders((prev) =>
       prev.map((o) => (o.id === order.id ? { ...o, status: nextStatus } : o))
     );
-    if (nextStatus === "ready") setCompletedToday((n) => n + 1);
 
     const res = await fetch(`/api/kds/orders/${order.id}/status`, {
       method: "PUT",
@@ -613,11 +611,6 @@ export default function KitchenPage() {
               </div>
             );
           })}
-          <span className="text-gray-600 text-xs hidden sm:inline">|</span>
-          <span className="text-gray-400 text-xs hidden sm:flex items-center gap-1">
-            <CheckCircle2 size={12} className="text-green-500" />
-            {completedToday} done
-          </span>
         </div>
 
         {/* Right — staff badge + clock + links */}
