@@ -18,6 +18,7 @@
  */
 
 import { NextRequest, NextResponse }    from "next/server";
+import { randomInt }                   from "crypto";
 import { supabaseAdmin }               from "@/lib/supabaseAdmin";
 import { sendOrderConfirmationEmail }  from "@/lib/emailServer";
 import { getCustomerSession, unauthorizedJson } from "@/lib/auth";
@@ -227,6 +228,16 @@ export async function POST(req: NextRequest) {
     ) * 100) / 100,
   );
 
+  // ── Delivery code (4-digit PIN) ───────────────────────────────────────────
+  // Customer-only secret used at hand-off to prevent misdelivery. The driver
+  // must enter this code to mark the order delivered. Generated only for
+  // delivery orders — collection / dine-in have no hand-off step.
+  // randomInt is cryptographically secure; pad to four digits so the value
+  // looks like "0042" rather than "42" both in the email and on the keypad.
+  const deliveryCode = fulfillment === "delivery"
+    ? String(randomInt(0, 10_000)).padStart(4, "0")
+    : null;
+
   // ── Fix 1: Explicit field whitelist — no ...body spread ───────────────────
   // Only columns a customer is permitted to set at order creation time are included.
   // driver_id, driver_name, delivery_status, refunds, refunded_amount, voided_by,
@@ -250,6 +261,7 @@ export async function POST(req: NextRequest) {
     coupon_code:      couponCode ?? null,
     coupon_discount:  couponCode ? verifiedCouponDiscount : 0,
     store_credit_used: storeCreditUsed,
+    delivery_code:    deliveryCode,
   };
 
   const { error } = await supabaseAdmin.from("orders").insert(row);
@@ -273,6 +285,7 @@ export async function POST(req: NextRequest) {
     vat_inclusive:   vatAmount     > 0 ? vatInclusive  : undefined,
     coupon_code:     couponCode    ?? undefined,
     coupon_discount: couponCode    ? verifiedCouponDiscount : undefined,
+    delivery_code:   deliveryCode  ?? undefined,
     date:            row.date,
   }).catch((err: unknown) =>
     console.error("[orders] confirmation email:", err instanceof Error ? err.message : err),

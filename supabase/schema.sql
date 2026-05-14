@@ -98,6 +98,7 @@ create table if not exists orders (
   driver_id         text,
   driver_name       text,
   delivery_status   text,
+  delivery_code     text,
   refunds           jsonb       not null default '[]',
   refunded_amount   numeric     not null default 0,
   store_credit_used numeric     not null default 0
@@ -277,6 +278,11 @@ alter table drivers add column if not exists reset_token_expires timestamptz;
 alter table orders add column if not exists voided_by   text;
 alter table orders add column if not exists void_reason text;
 alter table orders add column if not exists voided_at   timestamptz;
+
+-- 3c-ii. orders — delivery_code (4-digit PIN the customer reads to the driver
+-- to confirm hand-off, preventing misdelivery). Populated only for delivery
+-- fulfillment at order-creation time; null for collection / dine-in.
+alter table orders add column if not exists delivery_code text;
 
 -- 3d. reservations — check-in/out + source + cancel_token -------------------
 alter table reservations add column if not exists checked_in_at  timestamptz;

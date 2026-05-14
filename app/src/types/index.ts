@@ -454,6 +454,9 @@ export interface Order {
   driverId?: string;
   driverName?: string;
   deliveryStatus?: DeliveryStatus;
+  /** 4-digit PIN emailed to the customer; driver must enter it to confirm
+   *  delivery. Populated only for delivery fulfillment. */
+  deliveryCode?: string;
   // Refunds
   refunds?: Refund[];
   refundedAmount?: number;  // cumulative £ refunded so far

@@ -114,6 +114,7 @@ export async function sendOrderConfirmationEmail(row: {
   vat_inclusive?: boolean;
   coupon_code?: string;
   coupon_discount?: number;
+  delivery_code?: string;
   date?: string;
 }): Promise<void> {
   const customerId = row.customer_id;
@@ -151,6 +152,7 @@ export async function sendOrderConfirmationEmail(row: {
     vatInclusive:  row.vat_inclusive,
     couponCode:    row.coupon_code,
     couponDiscount: row.coupon_discount,
+    deliveryCode:  row.delivery_code,
   };
 
   const customer: Customer = {
@@ -240,6 +242,7 @@ export async function sendOrderStatusEmail(
     vatInclusive:   orderRow.vat_inclusive as boolean | undefined,
     couponCode:     orderRow.coupon_code as string | undefined,
     couponDiscount: orderRow.coupon_discount as number | undefined,
+    deliveryCode:   orderRow.delivery_code as string | undefined,
   };
 
   const customer: Customer = {

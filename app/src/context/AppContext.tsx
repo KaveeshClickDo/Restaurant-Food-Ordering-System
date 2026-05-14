@@ -117,7 +117,12 @@ interface AppContextValue {
   deleteDriver: (id: string) => Promise<void>;
   toggleDriver: (id: string, active: boolean) => Promise<void>;
   assignDriverToOrder: (customerId: string, orderId: string, driverId: string | null) => void;
-  updateDeliveryStatus: (customerId: string, orderId: string, status: DeliveryStatus) => void;
+  updateDeliveryStatus: (
+    customerId: string,
+    orderId: string,
+    status: DeliveryStatus,
+    code?: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
   addRefund: (customerId: string, orderId: string, refund: Refund) => void;
   spendStoreCredit: (customerId: string, amount: number) => void;
   // ─── Breakfast menu ───────────────────────────────────────────────────────
@@ -219,6 +224,7 @@ function mapOrder(row: any): Order {
     driverId: row.driver_id || undefined,
     driverName: row.driver_name || undefined,
     deliveryStatus: (row.delivery_status as DeliveryStatus) || undefined,
+    deliveryCode: row.delivery_code || undefined,
     refunds: row.refunds ?? [],
     refundedAmount: row.refunded_amount ? Number(row.refunded_amount) : undefined,
     storeCreditUsed: row.store_credit_used ? Number(row.store_credit_used) : undefined,
@@ -272,6 +278,7 @@ function orderToRow(o: Order) {
     vat_amount: o.vatAmount ?? 0, vat_inclusive: o.vatInclusive ?? true,
     driver_id: o.driverId ?? "", driver_name: o.driverName ?? "",
     delivery_status: o.deliveryStatus ?? "",
+    delivery_code: o.deliveryCode ?? null,
     refunds: o.refunds ?? [],
     refunded_amount: o.refundedAmount ?? 0,
     store_credit_used: o.storeCreditUsed ?? 0,
@@ -1324,28 +1331,55 @@ export function AppProvider({
     }).catch((e) => console.error("assignDriver:", e));
   };
 
-  const updateDeliveryStatus = (customerId: string, orderId: string, status: DeliveryStatus) => {
+  const updateDeliveryStatus = async (
+    customerId: string,
+    orderId: string,
+    status: DeliveryStatus,
+    code?: string,
+  ): Promise<{ ok: boolean; error?: string }> => {
     const orderPatch: Partial<Order> = {
       deliveryStatus: status,
       ...(status === "delivered" ? { status: "delivered" as OrderStatus } : {}),
     };
     const patchOrders = (orders: Order[]) =>
       orders.map((o) => (o.id === orderId ? { ...o, ...orderPatch } : o));
-    setCustomers((prev) => prev.map((c) =>
-      c.id !== customerId ? c : { ...c, orders: patchOrders(c.orders) }
-    ));
-    setCurrentUser((prev) =>
-      prev && prev.id === customerId ? { ...prev, orders: patchOrders(prev.orders) } : prev
-    );
+    const applyOptimistic = () => {
+      setCustomers((prev) => prev.map((c) =>
+        c.id !== customerId ? c : { ...c, orders: patchOrders(c.orders) }
+      ));
+      setCurrentUser((prev) =>
+        prev && prev.id === customerId ? { ...prev, orders: patchOrders(prev.orders) } : prev
+      );
+    };
+
+    // For pickup / on-the-way, the optimistic update is safe — the server
+    // can only reject these for the "kitchen not ready" guard, which the UI
+    // already prevents. For "delivered" we wait for the server first because
+    // it may reject the delivery code; flipping the row to delivered locally
+    // before confirmation would leave a stale UI on a wrong-PIN attempt.
+    if (status !== "delivered") applyOptimistic();
+
     const body: Record<string, string> = { delivery_status: status };
     if (status === "delivered") body.status = "delivered";
-    fetch(`/api/admin/orders/${orderId}/driver`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }).then(async (r) => {
-      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateDeliveryStatus:", j.error); }
-    }).catch((e) => console.error("updateDeliveryStatus:", e));
+    if (code) body.delivery_code = code;
+
+    try {
+      const r = await fetch(`/api/admin/orders/${orderId}/driver`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({})) as { error?: string };
+        console.error("updateDeliveryStatus:", j.error);
+        return { ok: false, error: j.error ?? "Failed to update delivery status." };
+      }
+      if (status === "delivered") applyOptimistic();
+      return { ok: true };
+    } catch (e) {
+      console.error("updateDeliveryStatus:", e);
+      return { ok: false, error: "Network error — please try again." };
+    }
   };
 
   // ─── Breakfast menu ────────────────────────────────────────────────────────

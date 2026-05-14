@@ -32,6 +32,7 @@ export const TEMPLATE_VARS: VarDef[] = [
   { name: "delivery_address",    label: "Delivery address",    group: "Order",       preview: "42 Example St, London" },
   { name: "payment_method",      label: "Payment method",      group: "Order",       preview: "Cash on Delivery" },
   { name: "estimated_time",      label: "Estimated time (min)", group: "Order",      preview: "30–45" },
+  { name: "delivery_code",       label: "Delivery confirmation code (delivery only)", group: "Order", preview: "<i>(styled PIN block — only for delivery orders)</i>" },
   // Restaurant
   { name: "restaurant_name",     label: "Restaurant name",     group: "Restaurant",  preview: "Your Restaurant" },
   { name: "restaurant_phone",    label: "Restaurant phone",    group: "Restaurant",  preview: "020 7123 4567" },
@@ -96,6 +97,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
   <strong>Fulfillment:</strong> {{fulfillment_type}}<br>
   <strong>Payment:</strong> {{payment_method}}
 </p>
+{{delivery_code}}
 <h3 style="color:#374151;margin:20px 0 10px 0;font-size:15px">Your items:</h3>
 {{order_items}}
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
@@ -397,9 +399,29 @@ export function buildVarMap(
     restaurant_address: restAddr,
     estimated_time:     estTime,
     order_vat:          buildVatString(order.vatAmount, order.vatInclusive, settings),
+    // Pre-built HTML block — only populated for delivery orders that have a
+    // delivery_code on the row. Server-built, so safe to inline unescaped.
+    delivery_code:      buildDeliveryCodeBlock(order.deliveryCode, primaryColor),
     brand_color:        primaryColor,       // hex — used in style attributes, not escaped
     brand_color_light:  brandColorLight(primaryColor),
   };
+}
+
+/** Build the styled HTML block shown to the customer when a delivery PIN
+ *  exists on the order. Returns "" for collection / dine-in (or any order
+ *  where the code is missing) so the template renders cleanly. The code
+ *  itself is shown in monospace so each digit is unambiguous. */
+function buildDeliveryCodeBlock(
+  code: string | undefined,
+  primaryColor: string,
+): string {
+  if (!code) return "";
+  return `
+<div style="margin:20px 0;padding:16px;border:2px dashed ${primaryColor};border-radius:12px;background:#fff7ed;text-align:center">
+  <p style="margin:0 0 4px 0;font-size:11px;font-weight:700;letter-spacing:1.5px;color:#6b7280;text-transform:uppercase">Delivery confirmation code</p>
+  <p style="margin:0;font-family:'Courier New',monospace;font-size:28px;font-weight:800;letter-spacing:6px;color:#111827">${escHtml(code)}</p>
+  <p style="margin:6px 0 0 0;font-size:12px;color:#6b7280">Tell this code to the driver to confirm delivery.</p>
+</div>`;
 }
 
 function buildVatString(
@@ -505,6 +527,8 @@ export function buildPreviewVarMap(settings: AdminSettings): Record<string, stri
     order_vat: previewVatEnabled && previewVatAmt > 0
       ? buildVatString(previewVatAmt, previewInclusive, settings)
       : "",
+    // Preview always shows the block populated (it represents the delivery flow).
+    delivery_code:     buildDeliveryCodeBlock("4729", primaryColor),
     brand_color:       primaryColor,
     brand_color_light: brandColorLight(primaryColor),
   };

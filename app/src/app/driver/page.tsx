@@ -8,7 +8,7 @@ import {
   Truck, LogOut, MapPin, Phone, Package,
   CheckCircle2, Navigation, ChefHat,
   AlertTriangle, ChevronDown, ChevronUp,
-  Inbox, Zap, Star,
+  Inbox, Zap, Star, KeyRound,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -251,23 +251,49 @@ function OrderCard({
   onAdvance,
 }: {
   driverOrder: DriverOrder;
-  onAdvance: (status: DSKey) => void;
+  onAdvance: (status: DSKey, code?: string) => Promise<{ ok: boolean; error?: string }>;
 }) {
   const { order, customerName, customerPhone } = driverOrder;
   const ds  = (order.deliveryStatus ?? "assigned") as DSKey;
   const cfg = DS_CONFIG[ds];
   const [confirmDeliver, setConfirmDeliver] = useState(false);
+  const [codeInput,      setCodeInput]      = useState("");
+  const [codeError,      setCodeError]      = useState<string | null>(null);
+  const [submitting,     setSubmitting]     = useState(false);
   // Block pickup until kitchen marks the order ready. A driver may accept an
   // order while it's still "preparing" and head to the shop, but they can't
   // confirm pick-up (or anything beyond) until the food is actually ready.
   const pickupBlocked = ds === "assigned" && order.status !== "ready";
+  // Only enforce the PIN when this delivery actually has one. Legacy orders
+  // placed before the delivery-code rollout fall back to the plain yes/no
+  // confirmation so they're not impossible to close out.
+  const needsCode = !!order.deliveryCode;
 
   function handleNext() {
     if (!cfg.next || pickupBlocked) return;
     if (cfg.next === "delivered") {
       setConfirmDeliver(true);
+      setCodeInput("");
+      setCodeError(null);
     } else {
       onAdvance(cfg.next);
+    }
+  }
+
+  async function handleConfirmDelivered() {
+    if (submitting) return;
+    if (needsCode && codeInput.length !== 4) return;
+    setSubmitting(true);
+    setCodeError(null);
+    const result = await onAdvance("delivered", needsCode ? codeInput : undefined);
+    setSubmitting(false);
+    if (result.ok) {
+      setConfirmDeliver(false);
+      setCodeInput("");
+      setCodeError(null);
+    } else {
+      setCodeError(result.error ?? "Failed to confirm delivery.");
+      setCodeInput("");
     }
   }
 
@@ -372,17 +398,54 @@ function OrderCard({
         <div className="px-4 pb-4">
           {confirmDeliver ? (
             <div className="space-y-2">
-              <p className="text-sm text-gray-600 font-semibold text-center">Confirm order delivered?</p>
+              {needsCode ? (
+                <>
+                  <p className="text-sm text-gray-700 font-semibold text-center flex items-center justify-center gap-1.5">
+                    <KeyRound size={14} className="text-orange-500" />
+                    Ask the customer for their 4-digit code
+                  </p>
+                  <p className="text-[11px] text-gray-500 text-center -mt-1">
+                    They received it in their order confirmation email.
+                  </p>
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={4}
+                    autoComplete="one-time-code"
+                    autoFocus
+                    value={codeInput}
+                    onChange={(e) => {
+                      setCodeInput(e.target.value.replace(/\D/g, "").slice(0, 4));
+                      setCodeError(null);
+                    }}
+                    placeholder="••••"
+                    disabled={submitting}
+                    className="w-full text-center font-mono text-3xl font-extrabold tracking-[0.6em] py-3 rounded-xl border-2 border-gray-200 focus:border-orange-400 focus:outline-none bg-gray-50 disabled:opacity-60"
+                  />
+                  {codeError && (
+                    <p className="text-xs text-red-600 text-center font-semibold">{codeError}</p>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-gray-600 font-semibold text-center">Confirm order delivered?</p>
+              )}
               <div className="flex gap-2">
                 <button
-                  onClick={() => { onAdvance("delivered"); setConfirmDeliver(false); }}
-                  className="flex-1 bg-green-500 hover:bg-green-400 text-white font-bold py-3 rounded-xl transition text-sm md:text-base"
+                  onClick={handleConfirmDelivered}
+                  disabled={submitting || (needsCode && codeInput.length !== 4)}
+                  className={`flex-1 text-white font-bold py-3 rounded-xl transition text-sm md:text-base ${
+                    submitting || (needsCode && codeInput.length !== 4)
+                      ? "bg-gray-300 cursor-not-allowed"
+                      : "bg-green-500 hover:bg-green-400"
+                  }`}
                 >
-                  Yes, Delivered
+                  {submitting ? "Confirming…" : needsCode ? "Confirm Delivery" : "Yes, Delivered"}
                 </button>
                 <button
-                  onClick={() => setConfirmDeliver(false)}
-                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-xl transition text-sm md:text-base"
+                  onClick={() => { setConfirmDeliver(false); setCodeInput(""); setCodeError(null); }}
+                  disabled={submitting}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-xl transition text-sm md:text-base disabled:opacity-60"
                 >
                   Cancel
                 </button>
@@ -499,8 +562,8 @@ export default function DriverDashboardPage() {
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
-  function handleAdvance(driverOrder: DriverOrder, status: DeliveryStatus) {
-    updateDeliveryStatus(driverOrder.customerId, driverOrder.order.id, status);
+  function handleAdvance(driverOrder: DriverOrder, status: DeliveryStatus, code?: string) {
+    return updateDeliveryStatus(driverOrder.customerId, driverOrder.order.id, status, code);
   }
 
   function handleAccept(av: AvailableOrder) {
@@ -647,7 +710,7 @@ export default function DriverDashboardPage() {
               <OrderCard
                 key={d.order.id}
                 driverOrder={d}
-                onAdvance={(status) => handleAdvance(d, status)}
+                onAdvance={(status, code) => handleAdvance(d, status, code)}
               />
             ))}
           </div>
