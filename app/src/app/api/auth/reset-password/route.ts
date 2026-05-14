@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHmac, randomBytes }   from "crypto";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import { sendEmailDirect, fetchBrandPrimaryColor } from "@/lib/emailServer";
+import { emailConfigured }          from "@/lib/emailSender";
 import { RESET_TOKEN_TTL_MS }        from "@/lib/auth";
 
 function hashToken(token: string): string {
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest) {
   const siteUrl  = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
   const resetUrl = `${siteUrl}/login?action=reset&token=${rawToken}&email=${encodeURIComponent(email)}`;
 
-  if (process.env.SMTP_HOST) {
+  if (emailConfigured()) {
     const brandColor = await fetchBrandPrimaryColor();
     const result = await sendEmailDirect(
       email,
@@ -73,7 +74,7 @@ export async function POST(req: NextRequest) {
     );
     if (!result.ok) console.error("[reset-password] email failed:", result.error);
   } else {
-    console.log("[reset-password] Reset URL (no SMTP):", resetUrl);
+    console.log("[reset-password] Reset URL (no email provider configured):", resetUrl);
   }
 
   return NextResponse.json({ ok: true });

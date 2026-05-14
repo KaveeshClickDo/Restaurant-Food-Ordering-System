@@ -11,6 +11,7 @@ import { rateLimit }                  from "@/lib/rateLimit";
 import { createHmac, randomBytes }    from "crypto";
 import { supabaseAdmin }              from "@/lib/supabaseAdmin";
 import { sendEmailDirect, fetchBrandPrimaryColor } from "@/lib/emailServer";
+import { emailConfigured }        from "@/lib/emailSender";
 
 // Issue a session cookie immediately on register only when the auth migration
 // hasn't been applied yet — in that case email_verified doesn't exist and the
@@ -28,8 +29,8 @@ async function sendVerificationEmail(to: string, name: string, rawToken: string)
   const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
   const link    = `${siteUrl}/verify-email?token=${rawToken}&email=${encodeURIComponent(to)}`;
 
-  if (!process.env.SMTP_HOST) {
-    console.log("[register] Verification URL (no SMTP configured):", link);
+  if (!emailConfigured()) {
+    console.log("[register] Verification URL (no email provider configured):", link);
     return;
   }
 

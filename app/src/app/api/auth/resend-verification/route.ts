@@ -17,6 +17,7 @@ import { NextRequest, NextResponse }  from "next/server";
 import { createHmac, randomBytes }    from "crypto";
 import { supabaseAdmin }              from "@/lib/supabaseAdmin";
 import { sendEmailDirect, fetchBrandPrimaryColor } from "@/lib/emailServer";
+import { emailConfigured }        from "@/lib/emailSender";
 import { getCustomerSession }         from "@/lib/auth";
 import { rateLimit }                  from "@/lib/rateLimit";
 
@@ -81,8 +82,8 @@ export async function POST(req: NextRequest) {
   const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
   const link    = `${siteUrl}/verify-email?token=${rawToken}&email=${encodeURIComponent(data.email)}`;
 
-  if (!process.env.SMTP_HOST) {
-    console.log("[resend-verification] Verify URL:", link);
+  if (!emailConfigured()) {
+    console.log("[resend-verification] Verify URL (no email provider configured):", link);
   } else {
     const brandColor = await fetchBrandPrimaryColor();
     const result = await sendEmailDirect(
