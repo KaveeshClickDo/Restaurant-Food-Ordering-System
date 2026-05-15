@@ -85,12 +85,10 @@ export const DEFAULT_SETTINGS: AdminSettings = {
   receiptSettings: DEFAULT_RECEIPT,
   coupons: [],                    // moved to coupons table
   taxSettings: DEFAULT_TAX,
-  breakfastMenu: {                // moved to menu_items.meal_period
-    enabled: false,
+  breakfastMenu: {                // schedule only; items live in menu_items with meal_period='breakfast'
+    enabled: true,
     startTime: "07:00",
     endTime: "11:30",
-    categories: [],
-    items: [],
   },
   waiters: [],                    // moved to waiters table
   kitchenStaff: [],               // moved to kitchen_staff table

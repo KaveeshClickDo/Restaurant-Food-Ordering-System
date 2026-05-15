@@ -16,6 +16,7 @@ import ScheduleOrderModal from "@/components/ScheduleOrderModal";
 import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import ReservationModal from "@/components/ReservationModal";
 import SiteFooter from "@/components/SiteFooter";
+import BreakfastSection from "@/components/BreakfastSection";
 import { resolveStock } from "@/lib/stockUtils";
 import { getNextOpenTime, formatNextOpen } from "@/lib/scheduleUtils";
 import MobileBottomNav from "@/components/MobileBottomNav";
@@ -279,8 +280,41 @@ export default function HomePage() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [showReservation, setShowReservation] = useState(false);
 
-  // Filtered items
-  const items = menuItems.filter((item) => {
+  // ── Breakfast window ─────────────────────────────────────────────────────
+  // Items tagged mealPeriod="breakfast" are only orderable during the configured
+  // window. Outside the window they're hidden from customers entirely.
+  const breakfastCfg = settings.breakfastMenu;
+  const inBreakfastWindow = (() => {
+    if (!breakfastCfg?.enabled || !breakfastCfg.startTime || !breakfastCfg.endTime) return false;
+    const now = new Date();
+    const mins = now.getHours() * 60 + now.getMinutes();
+    const [sh, sm] = breakfastCfg.startTime.split(":").map(Number);
+    const [eh, em] = breakfastCfg.endTime.split(":").map(Number);
+    const start = sh * 60 + sm;
+    const end   = eh * 60 + em;
+    return start <= end ? mins >= start && mins < end : mins >= start || mins < end;
+  })();
+
+  // Categories visible to the customer — hide any category whose only items are
+  // breakfast items when we're outside the breakfast window (or the feature is
+  // off). Categories with no items at all are kept.
+  const visibleCategories = inBreakfastWindow
+    ? categories
+    : categories.filter((cat) => {
+        const catItems = menuItems.filter((i) => i.categoryId === cat.id);
+        if (catItems.length === 0) return true;
+        return catItems.some((i) => i.mealPeriod !== "breakfast");
+      });
+
+  // If the customer was on a category that just became hidden (window closed
+  // or admin disabled), snap them back to "all".
+  useEffect(() => {
+    if (activeCat === "all") return;
+    if (!visibleCategories.some((c) => c.id === activeCat)) setActiveCat("all");
+  }, [activeCat, visibleCategories]);
+
+  // Filtered items (search + category)
+  const filteredItems = menuItems.filter((item) => {
     if (activeCat !== "all" && item.categoryId !== activeCat) return false;
     if (search) {
       const q = search.toLowerCase();
@@ -288,6 +322,27 @@ export default function HomePage() {
     }
     return true;
   });
+
+  // Drop breakfast items when outside the window. When inside the window AND
+  // showing the dedicated Breakfast section (no category/search filter), also
+  // drop them from the main grid to avoid duplication.
+  const isBrowsingAll = activeCat === "all" && !search;
+  const showBreakfastSection =
+    inBreakfastWindow && isBrowsingAll &&
+    filteredItems.some((i) => i.mealPeriod === "breakfast");
+
+  const items = filteredItems.filter((item) => {
+    if (item.mealPeriod !== "breakfast") return true;
+    if (!inBreakfastWindow) return false;
+    if (showBreakfastSection) return false; // shown in its own section
+    return true;
+  });
+
+  const breakfastItems = filteredItems.filter((i) => i.mealPeriod === "breakfast");
+
+  // Total visible to the customer = grid items + breakfast-section items
+  // (when section is shown). Outside the window, breakfast items are excluded.
+  const visibleTotal = items.length + (showBreakfastSection ? breakfastItems.length : 0);
 
   const activeCategory = categories.find((c) => c.id === activeCat);
 
@@ -300,6 +355,7 @@ export default function HomePage() {
         setCat={setActiveCat}
         onAuth={() => setAuthModal({ open: true, tab: "login" })}
         onReserve={() => setShowReservation(true)}
+        categories={visibleCategories}
       />
 
       {/* ── Main content area ─────────────────────────────────────────────── */}
@@ -389,7 +445,7 @@ export default function HomePage() {
               <span className="text-sm leading-none">🍽️</span>
               <span>Everything</span>
             </button>
-            {categories.map((cat) => (
+            {visibleCategories.map((cat) => (
               <button key={cat.id}
                 onClick={() => setActiveCat(cat.id)}
                 className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all active:scale-95 ${activeCat === cat.id
@@ -410,11 +466,24 @@ export default function HomePage() {
 
             <Hero isOpen={isOpen} onReserve={() => setShowReservation(true)} />
 
+            {/* Breakfast section — only inside the breakfast window, on the
+                default "Everything" view (no search, no category filter). */}
+            {showBreakfastSection && breakfastCfg && (
+              <div className="px-6 mb-5">
+                <BreakfastSection
+                  categories={categories}
+                  items={breakfastItems}
+                  startTime={breakfastCfg.startTime}
+                  endTime={breakfastCfg.endTime}
+                />
+              </div>
+            )}
+
             {/* Category header */}
             <div className="px-6 mb-5 flex items-center justify-between">
               <h2 className="font-semibold tracking-tight text-[20px] text-zinc-900">
                 {activeCat === "all" ? "Everything" : (activeCategory?.name ?? "Menu")}
-                <span className="ml-2 text-[13px] font-normal text-zinc-400 tabular-nums">· {items.length}</span>
+                <span className="ml-2 text-[13px] font-normal text-zinc-400 tabular-nums">· {visibleTotal}</span>
               </h2>
             </div>
 

@@ -98,7 +98,7 @@ async function main(): Promise<void> {
             JSON.stringify(m.variations ?? []),
             JSON.stringify(m.addOns ?? []),
             m.stockQty ?? null, m.stockStatus ?? "in_stock",
-            0, "all_day",
+            0, m.mealPeriod ?? "all_day",
           ],
         );
       }

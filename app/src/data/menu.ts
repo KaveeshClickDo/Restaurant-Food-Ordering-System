@@ -1,6 +1,7 @@
 import { Category, MenuItem } from "@/types";
 
 export const categories: Category[] = [
+  { id: "breakfast",   name: "Breakfast",          emoji: "☀️" },
   { id: "starters",    name: "Starters",          emoji: "🥗" },
   { id: "breads",      name: "Breads & Rice",      emoji: "🫓" },
   { id: "mains-veg",   name: "Vegetarian Mains",   emoji: "🥦" },
@@ -12,6 +13,46 @@ export const categories: Category[] = [
 ];
 
 export const menuItems: MenuItem[] = [
+  /* ── BREAKFAST (only visible during the configured breakfast window) ── */
+  {
+    id: "bf1", categoryId: "breakfast",
+    name: "Masala Omelette",
+    description: "Three-egg omelette with onions, green chillies, tomato and fresh coriander. Served with buttered toast.",
+    price: 6.95, dietary: ["vegetarian"], popular: true,
+    mealPeriod: "breakfast",
+    addOns: [
+      { id: "ao-bf-toast", name: "Extra toast",  price: 1.00 },
+      { id: "ao-bf-chai",  name: "Masala chai",  price: 2.50 },
+    ],
+  },
+  {
+    id: "bf2", categoryId: "breakfast",
+    name: "Aloo Paratha",
+    description: "Hand-rolled wheat flatbread stuffed with spiced potato, pan-fried in ghee. Served with yoghurt and pickle.",
+    price: 7.50, dietary: ["vegetarian"],
+    mealPeriod: "breakfast",
+    variations: [
+      { id: "v-bf-portion", name: "Portion", options: [
+        { id: "one",  label: "1 paratha",  price: 0 },
+        { id: "two",  label: "2 parathas", price: 3.00 },
+      ]},
+    ],
+  },
+  {
+    id: "bf3", categoryId: "breakfast",
+    name: "Puri Bhaji",
+    description: "Light puffed bread served with a spiced potato curry. A classic Indian breakfast.",
+    price: 6.50, dietary: ["vegetarian", "vegan"],
+    mealPeriod: "breakfast",
+  },
+  {
+    id: "bf4", categoryId: "breakfast",
+    name: "Idli Sambar (3 pcs)",
+    description: "Steamed rice cakes served with lentil sambar and coconut chutney.",
+    price: 6.95, dietary: ["vegetarian", "vegan", "gluten-free"],
+    mealPeriod: "breakfast",
+  },
+
   /* ── STARTERS ─────────────────────────────────── */
   {
     id: "s1", categoryId: "starters",

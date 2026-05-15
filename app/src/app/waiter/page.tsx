@@ -567,11 +567,13 @@ function ItemModal({
     ?.find((v) => v.id === selVarId)
     ?.options.find((o) => o.id === selOptId);
 
-  const basePrice = selectedOption?.price ?? item.price;
+  // variations[].options[].price is a delta added on top of item.price (matches
+  // ItemCustomizationModal and the admin MenuManagementPanel convention).
+  const variationExtra = selectedOption?.price ?? 0;
   const addOnTotal = (item.addOns ?? [])
     .filter((a) => addOnIds.has(a.id))
     .reduce((s, a) => s + a.price, 0);
-  const unitPrice = basePrice + addOnTotal;
+  const unitPrice = item.price + variationExtra + addOnTotal;
 
   function buildName(): string {
     let name = item.name;
@@ -635,7 +637,7 @@ function ItemModal({
                     >
                       <span>{opt.label}</span>
                       <span className={active ? "text-orange-100" : "text-slate-400"}>
-                        {fmtCur(opt.price)}
+                        {fmtCur(item.price + opt.price)}
                       </span>
                     </button>
                   );

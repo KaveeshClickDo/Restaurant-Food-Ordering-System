@@ -225,13 +225,16 @@ function syncMenuToSupabase(products: POSProduct[], categories: POSCategory[]) {
   const productRows = products
     .filter((p) => p.active)
     .map((p) => {
+      // online MenuItem.variations[].options[].price is a delta added on top of
+      // the item's base price. POS internally also uses priceAdjust (delta), so
+      // this is a 1:1 passthrough.
       const variations = (p.modifiers ?? [])
         .filter((m) => !m.multiSelect)
         .map((m) => ({
           id: m.id, name: m.name,
           options: m.options.map((o) => ({
             id: o.id, label: o.label,
-            price: parseFloat((p.price + o.priceAdjust).toFixed(2)),
+            price: parseFloat(o.priceAdjust.toFixed(2)),
           })),
         }));
 
@@ -242,6 +245,10 @@ function syncMenuToSupabase(products: POSProduct[], categories: POSCategory[]) {
         }
       }
 
+      // meal_period is intentionally NOT included — POS doesn't manage meal
+      // periods (that's the admin's Menu Management panel). Omitting it from
+      // the upsert payload preserves the existing DB value on conflict, and
+      // lets the schema default ('all_day') apply for brand-new POS products.
       return {
         id:          p.id,
         category_id: p.categoryId,
@@ -396,14 +403,16 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
               const existing = prev.find((p) => p.id === row.id);
               const basePrice = Number(row.price);
 
-              // Rebuild POS modifiers from online variations + add_ons
+              // Rebuild POS modifiers from online variations + add_ons.
+              // variations[].options[].price is stored as a delta on top of the
+              // item's base price, matching POS's internal priceAdjust model.
               const modifiers: POSModifier[] = [];
               for (const v of (row.variations as {id:string;name:string;options:{id:string;label:string;price:number}[]}[] ?? [])) {
                 modifiers.push({
                   id: v.id, name: v.name, required: false, multiSelect: false,
                   options: v.options.map((o) => ({
                     id: o.id, label: o.label,
-                    priceAdjust: parseFloat((o.price - basePrice).toFixed(2)),
+                    priceAdjust: parseFloat(Number(o.price).toFixed(2)),
                   })),
                 });
               }

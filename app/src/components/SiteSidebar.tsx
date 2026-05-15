@@ -4,19 +4,25 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { UtensilsCrossed, Heart, Receipt, User, CalendarDays, LogOut } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import type { Category } from "@/types";
 
 export default function SiteSidebar({
   activeCat,
   setCat,
   onAuth,
   onReserve,
+  categories: categoriesOverride,
 }: {
   activeCat: string;
   setCat: (id: string) => void;
   onAuth: () => void;
   onReserve: () => void;
+  /** Optional pre-filtered list (e.g. with breakfast hidden outside its window).
+   *  Falls back to the full AppContext list when omitted. */
+  categories?: Category[];
 }) {
-  const { settings, categories, currentUser, logout } = useApp();
+  const { settings, categories: allCategories, currentUser, logout } = useApp();
+  const categories = categoriesOverride ?? allCategories;
   const { restaurant } = settings;
   const pathname = usePathname();
   const router = useRouter();

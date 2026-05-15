@@ -126,14 +126,9 @@ interface AppContextValue {
   addRefund: (customerId: string, orderId: string, refund: Refund) => void;
   spendStoreCredit: (customerId: string, amount: number) => void;
   // ─── Breakfast menu ───────────────────────────────────────────────────────
+  // Items live in `menu_items` with `mealPeriod="breakfast"`; only the schedule
+  // (enabled + window) is stored in settings here.
   updateBreakfastSettings: (patch: Partial<BreakfastMenuSettings>) => void;
-  addBreakfastCategory: (cat: Category) => void;
-  updateBreakfastCategory: (cat: Category) => void;
-  deleteBreakfastCategory: (id: string) => void;
-  reorderBreakfastCategories: (cats: Category[]) => void;
-  addBreakfastItem: (item: MenuItem) => void;
-  updateBreakfastItem: (item: MenuItem) => void;
-  deleteBreakfastItem: (id: string) => void;
   /** Re-fetches the logged-in customer from the server and syncs state. */
   refreshCurrentUser: () => Promise<void>;
 }
@@ -198,6 +193,7 @@ function mapMenuItem(row: any): MenuItem {
     addOns: row.add_ons ?? [],
     stockQty: row.stock_qty ?? undefined,
     stockStatus: (row.stock_status as StockStatus) || undefined,
+    mealPeriod: (row.meal_period as "all_day" | "breakfast") ?? "all_day",
   };
 }
 
@@ -262,6 +258,7 @@ function menuItemToRow(m: MenuItem) {
     dietary: m.dietary, popular: m.popular ?? false,
     variations: m.variations ?? [], add_ons: m.addOns ?? [],
     stock_qty: m.stockQty ?? null, stock_status: m.stockStatus ?? "in_stock",
+    meal_period: m.mealPeriod ?? "all_day",
   };
 }
 
@@ -1382,40 +1379,14 @@ export function AppProvider({
     }
   };
 
-  // ─── Breakfast menu ────────────────────────────────────────────────────────
+  // ─── Breakfast schedule ────────────────────────────────────────────────────
+  // Items themselves live in `menu_items` tagged with `mealPeriod="breakfast"`.
+  // This setter only updates the visibility window stored in app_settings.
 
-  const bm = () => settings.breakfastMenu ?? { enabled: false, startTime: "07:00", endTime: "11:30", categories: [], items: [] };
+  const bm = () => settings.breakfastMenu ?? { enabled: true, startTime: "07:00", endTime: "11:30" };
 
   const updateBreakfastSettings = (patch: Partial<BreakfastMenuSettings>) =>
     mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), ...patch } }));
-
-  const addBreakfastCategory = (cat: Category) =>
-    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), categories: [...(bm().categories), cat] } }));
-
-  const updateBreakfastCategory = (cat: Category) =>
-    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), categories: bm().categories.map((c) => (c.id === cat.id ? cat : c)) } }));
-
-  const deleteBreakfastCategory = (id: string) =>
-    mutateSettings((p) => ({
-      ...p,
-      breakfastMenu: {
-        ...bm(),
-        categories: bm().categories.filter((c) => c.id !== id),
-        items: bm().items.filter((i) => i.categoryId !== id),
-      },
-    }));
-
-  const reorderBreakfastCategories = (cats: Category[]) =>
-    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), categories: cats } }));
-
-  const addBreakfastItem = (item: MenuItem) =>
-    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), items: [...bm().items, item] } }));
-
-  const updateBreakfastItem = (item: MenuItem) =>
-    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), items: bm().items.map((i) => (i.id === item.id ? item : i)) } }));
-
-  const deleteBreakfastItem = (id: string) =>
-    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), items: bm().items.filter((i) => i.id !== id) } }));
 
   // ─── Derived values ────────────────────────────────────────────────────────
 
@@ -1445,8 +1416,6 @@ export function AppProvider({
         addDriver, updateDriver, deleteDriver, toggleDriver,
         assignDriverToOrder, updateDeliveryStatus, addRefund, spendStoreCredit,
         updateBreakfastSettings,
-        addBreakfastCategory, updateBreakfastCategory, deleteBreakfastCategory, reorderBreakfastCategories,
-        addBreakfastItem, updateBreakfastItem, deleteBreakfastItem,
         refreshCurrentUser,
       }}
     >

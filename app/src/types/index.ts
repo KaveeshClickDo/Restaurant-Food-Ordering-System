@@ -17,6 +17,8 @@ export interface Variation {
 
 export type StockStatus = "in_stock" | "low_stock" | "out_of_stock";
 
+export type MealPeriod = "all_day" | "breakfast";
+
 export interface MenuItem {
   id: string;
   categoryId: string;
@@ -32,6 +34,9 @@ export interface MenuItem {
   stockQty?: number;
   /** Manual status override — used when stockQty is not set. */
   stockStatus?: StockStatus;
+  /** Time-of-day visibility on the customer site. "breakfast" items are
+   *  shown only during the configured breakfast window. */
+  mealPeriod?: MealPeriod;
 }
 
 export interface Category {
@@ -243,12 +248,14 @@ export interface ReceiptSettings {
   customMessage: string;      // optional extra line at bottom
 }
 
+/** Time window during which items tagged `mealPeriod="breakfast"` are shown
+ *  on the customer site. Items themselves live in `menu_items` and are tagged
+ *  via the admin Menu Management panel — this settings object only holds the
+ *  schedule. */
 export interface BreakfastMenuSettings {
   enabled: boolean;
   startTime: string;     // "07:00"
   endTime: string;       // "11:30"
-  categories: Category[];
-  items: MenuItem[];
 }
 
 export type ReservationStatus =

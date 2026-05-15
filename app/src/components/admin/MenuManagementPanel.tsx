@@ -56,7 +56,10 @@ export default function MenuManagementPanel() {
     categories, menuItems,
     addCategory, updateCategory, deleteCategory, reorderCategories,
     addMenuItem, updateMenuItem, deleteMenuItem,
+    settings, updateBreakfastSettings,
   } = useApp();
+
+  const breakfast = settings.breakfastMenu ?? { enabled: true, startTime: "07:00", endTime: "11:30" };
 
   const [selectedCatId, setSelectedCatId] = useState<string | "all">("all");
   const [search, setSearch] = useState("");
@@ -119,6 +122,41 @@ export default function MenuManagementPanel() {
           <Plus size={15} />
           Add item
         </button>
+      </div>
+
+      {/* Breakfast service hours — items tagged "Breakfast only" appear on the
+          customer site only inside this window. */}
+      <div className="px-6 py-3 border-b border-gray-100 bg-amber-50/50 flex flex-wrap items-center gap-3">
+        <span className="text-sm font-medium text-amber-800 flex items-center gap-1.5">
+          ☀️ Breakfast hours
+        </span>
+        <button
+          onClick={() => updateBreakfastSettings({ enabled: !breakfast.enabled })}
+          className={`relative w-10 h-6 rounded-full transition-colors ${breakfast.enabled ? "bg-amber-500" : "bg-gray-300"}`}
+          aria-label={breakfast.enabled ? "Disable breakfast window" : "Enable breakfast window"}
+        >
+          <span className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${breakfast.enabled ? "translate-x-4" : ""}`} />
+        </button>
+        <div className="flex items-center gap-2">
+          <input
+            type="time"
+            value={breakfast.startTime}
+            disabled={!breakfast.enabled}
+            onChange={(e) => updateBreakfastSettings({ startTime: e.target.value })}
+            className="text-sm px-2 py-1 rounded-lg border border-amber-200 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
+          />
+          <span className="text-xs text-amber-700">to</span>
+          <input
+            type="time"
+            value={breakfast.endTime}
+            disabled={!breakfast.enabled}
+            onChange={(e) => updateBreakfastSettings({ endTime: e.target.value })}
+            className="text-sm px-2 py-1 rounded-lg border border-amber-200 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
+          />
+        </div>
+        <span className="text-xs text-gray-500 ml-auto">
+          Tag items as <span className="font-semibold">Breakfast only</span> in the item editor to show them here.
+        </span>
       </div>
 
       <div className="flex flex-col md:flex-row md:divide-x divide-gray-100 min-h-[500px]">
@@ -322,6 +360,11 @@ export default function MenuManagementPanel() {
                         {item.popular && (
                           <span className="flex items-center gap-0.5 text-[10px] font-semibold text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded-full border border-orange-200">
                             <Flame size={9} /> Popular
+                          </span>
+                        )}
+                        {item.mealPeriod === "breakfast" && (
+                          <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-full border border-amber-200">
+                            ☀️ Breakfast
                           </span>
                         )}
                       </div>
@@ -777,6 +820,35 @@ function ItemModal({
               <span className="text-xs text-gray-400">Shows a &quot;Popular&quot; badge on the menu</span>
             </div>
           </label>
+
+          {/* Meal period */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-2">Availability</label>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { value: "all_day",   label: "All day",        hint: "Always shown" },
+                { value: "breakfast", label: "Breakfast only", hint: "Shown during breakfast hours" },
+              ] as const).map((opt) => {
+                const active = (form.mealPeriod ?? "all_day") === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    onClick={() => setForm((f) => ({ ...f, mealPeriod: opt.value }))}
+                    className={`text-left px-3 py-2.5 rounded-xl border-2 transition-all ${
+                      active
+                        ? "border-amber-400 bg-amber-50"
+                        : "border-gray-200 hover:border-gray-300"
+                    }`}
+                  >
+                    <div className={`text-sm font-medium ${active ? "text-amber-700" : "text-gray-700"}`}>
+                      {opt.label}
+                    </div>
+                    <div className="text-xs text-gray-400">{opt.hint}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
 

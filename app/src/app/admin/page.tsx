@@ -21,7 +21,6 @@ import ReceiptSettingsPanel from "@/components/admin/ReceiptSettingsPanel";
 import CouponsPanel         from "@/components/admin/CouponsPanel";
 import TaxSettingsPanel     from "@/components/admin/TaxSettingsPanel";
 import DriversPanel         from "@/components/admin/DriversPanel";
-import BreakfastMenuPanel   from "@/components/admin/BreakfastMenuPanel";
 import RefundsPanel         from "@/components/admin/RefundsPanel";
 import POSReportsPanel      from "@/components/admin/POSReportsPanel";
 import OnlineReportsPanel  from "@/components/admin/OnlineReportsPanel";
@@ -35,7 +34,7 @@ import ReservationCustomersPanel from "@/components/admin/ReservationCustomersPa
 import {
   LayoutDashboard, ExternalLink, ShieldCheck, Store, Calendar, Plug, ChefHat, Users, Truck,
   MapPin, Bell, X, Mail, FileText, LayoutTemplate, Navigation, Palette, ImageIcon, Receipt,
-  Tag, Percent, Car, Sunrise, RotateCcw, BarChart3, LineChart, UtensilsCrossed, CalendarDays, BookUser,
+  Tag, Percent, Car, RotateCcw, BarChart3, LineChart, UtensilsCrossed, CalendarDays, BookUser,
   Menu as MenuIcon, ChevronDown, ChevronRight, ChevronLeft, PanelLeftClose, PanelLeftOpen, UserCog,
   Tablet,
 } from "lucide-react";
@@ -57,7 +56,6 @@ const NAV_GROUPS: NavGroup[] = [
     id: "menu", label: "Menu",
     items: [
       { id: "menu",      label: "Menu Items",       icon: ChefHat  },
-      { id: "breakfast", label: "Breakfast",         icon: Sunrise  },
     ],
   },
   {
@@ -127,7 +125,6 @@ function bannerSubtitle(
   const s = settings;
   switch (tab) {
     case "menu":          return `Managing ${menuItemsLen} items across ${categoriesLen} categories.`;
-    case "breakfast":     return `${(s.breakfastMenu?.items ?? []).length} breakfast items · shown ${s.breakfastMenu?.enabled ? `${s.breakfastMenu.startTime}–${s.breakfastMenu.endTime}` : "(currently disabled)"}.`;
     case "customers":     return `${customersLen} registered customers · manage orders & history.`;
     case "delivery":      return `${activeOrderCount} active order${activeOrderCount !== 1 ? "s" : ""} in the queue · track and advance deliveries.`;
     case "zones":         return "Define delivery zones, set per-zone fees, and control distance rules.";
@@ -690,7 +687,6 @@ function AdminPageContent() {
 
             {/* Panel content */}
             {activeTab === "menu"          && <MenuManagementPanel />}
-            {activeTab === "breakfast"     && <BreakfastMenuPanel />}
             {activeTab === "customers"     && <CustomersPanel />}
             {activeTab === "delivery"      && <DeliveryPanel />}
             {activeTab === "zones"         && <DeliveryZonesPanel />}
