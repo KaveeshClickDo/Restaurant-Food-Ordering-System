@@ -181,9 +181,9 @@ export default function FavouritesPage() {
                                         ? (mp.label ?? "Currently unavailable")
                                         : "Add to order";
                                     return (
-                                        <div key={item.id} className="bg-white rounded-2xl border border-zinc-200/70 shadow-sm overflow-hidden group">
+                                        <div key={item.id} className="bg-white rounded-2xl border border-zinc-200/70 shadow-sm overflow-hidden group flex flex-col">
                                             {/* Image */}
-                                            <div className="relative h-[160px] bg-orange-50 overflow-hidden">
+                                            <div className="relative h-[160px] bg-orange-50 overflow-hidden flex-shrink-0">
                                                 {item.image ? (
                                                     /* eslint-disable-next-line @next/next/no-img-element */
                                                     <img src={item.image} alt={item.name}
@@ -209,16 +209,18 @@ export default function FavouritesPage() {
                                                 )}
                                             </div>
                                             {/* Body */}
-                                            <div className="p-4">
-                                                <div className="flex items-start justify-between gap-2 mb-1">
-                                                    <h3 className="font-medium text-[15px] leading-snug text-zinc-900">{item.name}</h3>
-                                                    <span className="font-semibold text-[15px] text-zinc-900 tabular-nums flex-shrink-0">£{item.price.toFixed(2)}</span>
+                                            <div className="p-4 flex-1 flex flex-col">
+                                                <div className="flex flex-col flex-1">
+                                                    <div className="flex items-start justify-between gap-2 mb-1">
+                                                        <h3 className="font-medium text-[15px] leading-snug text-zinc-900">{item.name}</h3>
+                                                        <span className="font-semibold text-[15px] text-zinc-900 tabular-nums flex-shrink-0">£{item.price.toFixed(2)}</span>
+                                                    </div>
+                                                    <p className="text-[12.5px] text-zinc-500 leading-snug line-clamp-2 mb-3">{item.description}</p>
                                                 </div>
-                                                <p className="text-[12.5px] text-zinc-500 leading-snug line-clamp-2 mb-3">{item.description}</p>
                                                 <button
                                                     disabled={!canAdd}
                                                     onClick={() => setOpenItem(item)}
-                                                    className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[13px] font-semibold transition-all active:scale-[0.98] ${canAdd
+                                                    className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[13px] font-semibold transition-all mt-auto active:scale-[0.98] ${canAdd
                                                         ? "bg-orange-500 hover:bg-orange-600 text-white"
                                                         : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
                                                         }`}

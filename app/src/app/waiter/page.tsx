@@ -414,8 +414,8 @@ function VoidRefundModal({
                       key={t}
                       onClick={() => setRefundType(t)}
                       className={`py-2.5 rounded-xl text-sm font-semibold transition border ${refundType === t
-                          ? "bg-amber-500/20 border-amber-500 text-amber-300"
-                          : "bg-slate-700 border-slate-600 text-slate-300 hover:border-slate-500"
+                        ? "bg-amber-500/20 border-amber-500 text-amber-300"
+                        : "bg-slate-700 border-slate-600 text-slate-300 hover:border-slate-500"
                         }`}
                     >
                       {t === "full" ? `Full ${fmtCur(total)}` : "Partial"}
@@ -447,8 +447,8 @@ function VoidRefundModal({
                       key={v}
                       onClick={() => setRefundMethod(v)}
                       className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition border ${refundMethod === v
-                          ? "bg-amber-500/20 border-amber-500 text-amber-300"
-                          : "bg-slate-700 border-slate-600 text-slate-300 hover:border-slate-500"
+                        ? "bg-amber-500/20 border-amber-500 text-amber-300"
+                        : "bg-slate-700 border-slate-600 text-slate-300 hover:border-slate-500"
                         }`}
                     >
                       <Ico size={15} /> {label}
@@ -531,8 +531,8 @@ function PinPad({ value, onChange }: { value: string; onChange: (v: string) => v
               else if (value.length < 4) onChange(value + k);
             }}
             className={`h-16 rounded-2xl text-2xl font-bold transition-all active:scale-95 select-none ${k === "⌫"
-                ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                : "bg-slate-700 text-white hover:bg-slate-600 active:bg-orange-500"
+              ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+              : "bg-slate-700 text-white hover:bg-slate-600 active:bg-orange-500"
               }`}
           >
             {k}
@@ -631,8 +631,8 @@ function ItemModal({
                       key={opt.id}
                       onClick={() => { setSelVarId(variation.id); setSelOptId(opt.id); }}
                       className={`flex items-center justify-between px-4 py-3 rounded-xl border text-sm font-medium transition-all ${active
-                          ? "bg-orange-500 border-orange-500 text-white"
-                          : "bg-slate-700/50 border-slate-600 text-slate-200 hover:border-orange-500/50"
+                        ? "bg-orange-500 border-orange-500 text-white"
+                        : "bg-slate-700/50 border-slate-600 text-slate-200 hover:border-orange-500/50"
                         }`}
                     >
                       <span>{opt.label}</span>
@@ -664,8 +664,8 @@ function ItemModal({
                         });
                       }}
                       className={`flex items-center justify-between px-4 py-3 rounded-xl border text-sm font-medium transition-all ${checked
-                          ? "bg-orange-500/20 border-orange-500 text-orange-300"
-                          : "bg-slate-700/50 border-slate-600 text-slate-200 hover:border-orange-500/50"
+                        ? "bg-orange-500/20 border-orange-500 text-orange-300"
+                        : "bg-slate-700/50 border-slate-600 text-slate-200 hover:border-orange-500/50"
                         }`}
                     >
                       <span>{addon.name}</span>
@@ -1157,8 +1157,8 @@ export default function WaiterPage() {
                 <div
                   key={i}
                   className={`w-4 h-4 rounded-full border-2 transition-all ${i < pin.length
-                      ? pinError ? "bg-red-500 border-red-500" : "bg-orange-500 border-orange-500"
-                      : "border-slate-600"
+                    ? pinError ? "bg-red-500 border-red-500" : "bg-orange-500 border-orange-500"
+                    : "border-slate-600"
                     }`}
                 />
               ))}
@@ -1215,8 +1215,8 @@ export default function WaiterPage() {
                   key={s}
                   onClick={() => setActiveSection(s)}
                   className={`px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition ${activeSection === s
-                      ? "bg-orange-500 text-white"
-                      : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                    ? "bg-orange-500 text-white"
+                    : "bg-slate-800 text-slate-300 hover:bg-slate-700"
                     }`}
                 >
                   {s}
@@ -1241,8 +1241,8 @@ export default function WaiterPage() {
                       key={table.id}
                       onClick={() => occupied ? setTableAction(table) : selectTable(table)}
                       className={`relative flex flex-col items-center justify-center rounded-2xl p-4 aspect-square border-2 transition-all active:scale-95 ${occupied
-                          ? "bg-amber-950/40 border-amber-500/60 hover:bg-amber-950/60"
-                          : "bg-slate-800 border-slate-700 hover:border-orange-500/60 hover:bg-slate-700"
+                        ? "bg-amber-950/40 border-amber-500/60 hover:bg-amber-950/60"
+                        : "bg-slate-800 border-slate-700 hover:border-orange-500/60 hover:bg-slate-700"
                         }`}
                     >
                       {occupied && (
@@ -1624,8 +1624,8 @@ export default function WaiterPage() {
                 key={cat.id}
                 onClick={() => setActiveCatId(cat.id)}
                 className={`px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition ${activeCatId === cat.id
-                    ? "bg-orange-500 text-white"
-                    : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  ? "bg-orange-500 text-white"
+                  : "bg-slate-800 text-slate-300 hover:bg-slate-700"
                   }`}
               >
                 {cat.emoji && <span className="mr-1">{cat.emoji}</span>}{cat.name}
@@ -1644,35 +1644,50 @@ export default function WaiterPage() {
                     key={item.id}
                     onClick={() => quickAdd(item)}
                     disabled={oos}
-                    className={`relative flex flex-col rounded-2xl border p-4 text-left transition-all active:scale-[0.97] ${oos
-                        ? "bg-slate-800/40 border-slate-800 opacity-50 cursor-not-allowed"
-                        : "bg-slate-800 border-slate-700 hover:border-orange-500/50 hover:bg-slate-750"
+                    className={`relative flex flex-col rounded-2xl border text-left transition-all active:scale-[0.97] overflow-hidden ${oos
+                      ? "bg-slate-800/40 border-slate-800 opacity-50 cursor-not-allowed"
+                      : "bg-slate-800 border-slate-700 hover:border-orange-500/50 hover:bg-slate-750"
                       }`}
                   >
-                    {item.popular && !oos && (
-                      <span className="absolute top-2 right-2 bg-orange-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">
-                        POPULAR
-                      </span>
-                    )}
-                    {/* Emoji or image */}
-                    <div className="text-3xl mb-2 leading-none">{item.image ? "🍽️" : "🍽️"}</div>
-                    <p className="text-white font-semibold text-sm leading-snug line-clamp-2 flex-1">
-                      {item.name}
-                    </p>
-                    {item.description && (
-                      <p className="text-slate-500 text-[11px] mt-0.5 line-clamp-1">{item.description}</p>
-                    )}
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-orange-400 font-black text-base">{fmtCur(item.price)}</span>
-                      {hasVar ? (
-                        <span className="text-slate-500 text-[10px] font-semibold">options</span>
-                      ) : oos ? (
-                        <span className="text-red-400 text-[10px] font-semibold">Out of stock</span>
-                      ) : (
-                        <span className="w-7 h-7 flex items-center justify-center bg-orange-500 rounded-lg text-white">
-                          <Plus size={13} />
+                    {/* Top image/placeholder */}
+                    <div className="relative w-full aspect-[5/2] bg-slate-800 flex items-center justify-start flex-shrink-0 px-4">
+                      {item.popular && !oos && (
+                        <span className="absolute top-2 left-2 z-10 bg-orange-500 text-white text-[10px] font-black px-2 py-1 rounded-full uppercase tracking-wide">
+                          POPULAR
                         </span>
                       )}
+                      
+                      {item.image ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={item.image} alt={item.name} className="absolute inset-0 w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-20 h-20 rounded-2xl flex items-center justify-center bg-[#fcdcae] text-[40px]">
+                          🍽️
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="p-4 flex flex-col flex-1 w-full">
+                      <p className="text-white font-semibold text-sm leading-snug line-clamp-2">
+                        {item.name}
+                      </p>
+                      {item.description && (
+                        <p className="text-slate-500 text-[11px] mt-0.5 line-clamp-1">{item.description}</p>
+                      )}
+                      <div className="mt-2 flex-1 flex items-end justify-between">
+                        <span className="text-orange-400 font-black text-base">{fmtCur(item.price)}</span>
+                        {hasVar ? (
+                          <span className="text-slate-500 text-[10px] font-semibold">options</span>
+                        ) : oos ? (
+                          <span className="text-red-400 text-[10px] font-semibold">Out of stock</span>
+                        ) : (
+                          <span className="text-slate-500 hover:text-white transition">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="m9 18 6-6-6-6"/>
+                            </svg>
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </button>
                 );

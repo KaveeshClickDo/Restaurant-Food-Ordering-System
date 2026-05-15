@@ -266,7 +266,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
                   >
                     {/* Image or emoji tile */}
                     {product.imageUrl ? (
-                      <div className="w-full aspect-[4/3] relative flex-shrink-0 overflow-hidden">
+                      <div className="w-full aspect-[5/2] relative flex-shrink-0 overflow-hidden">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={product.imageUrl}
@@ -282,7 +282,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
                     ) : (
                       <div className="w-full p-4 pb-0">
                         <div
-                          className="w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
+                          className="w-15 h-15 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
                           style={{ backgroundColor: product.color }}
                         >
                           {product.emoji ?? "🍽️"}
