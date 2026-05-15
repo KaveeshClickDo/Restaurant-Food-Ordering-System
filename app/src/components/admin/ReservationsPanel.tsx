@@ -31,8 +31,26 @@ function fmtTs(iso: string | undefined): string {
   return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
+// Local-date helpers (not UTC) so users east of UTC don't see yesterday
 function todayStr(): string {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function maxDateStr(days: number): string {
+  const d = new Date(); d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function nowLocalMins(): number { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); }
+function toMins(t: string): number { const [h, m] = t.split(":").map(Number); return h * 60 + m; }
+function isSlotPast(slot: string, date: string): boolean {
+  return date === todayStr() && toMins(slot) <= nowLocalMins();
+}
+function generateSlots(open: string, close: string, interval: number): string[] {
+  const out: string[] = [];
+  for (let t = toMins(open); t < toMins(close); t += interval) {
+    out.push(`${Math.floor(t / 60).toString().padStart(2, "0")}:${(t % 60).toString().padStart(2, "0")}`);
+  }
+  return out;
 }
 
 const STATUS_CONFIG: Record<ReservationStatus, { label: string; dotClass: string; badgeClass: string }> = {
@@ -422,6 +440,9 @@ export default function ReservationsPanel() {
   const [togglingEnabled, setTogglingEnabled] = useState(false);
 
   // Walk-in / phone booking modal
+  const allSlots   = generateSlots(rs.openTime ?? "12:00", rs.closeTime ?? "22:00", rs.slotIntervalMinutes ?? 30);
+  const firstSlot  = allSlots.find((s) => !isSlotPast(s, todayStr())) ?? allSlots[0] ?? "12:00";
+
   const [showAddModal,  setShowAddModal]  = useState(false);
   const [addSource,     setAddSource]     = useState<"walk-in" | "phone">("walk-in");
   const [addName,       setAddName]       = useState("");
@@ -430,10 +451,55 @@ export default function ReservationsPanel() {
   const [addParty,      setAddParty]      = useState(2);
   const [addTableId,    setAddTableId]    = useState("");
   const [addDate,       setAddDate]       = useState(todayStr());
-  const [addTime,       setAddTime]       = useState("12:00");
+  const [addTime,       setAddTime]       = useState(firstSlot);
   const [addNote,       setAddNote]       = useState("");
   const [addSaving,     setAddSaving]     = useState(false);
   const [addError,      setAddError]      = useState("");
+  const [addBookedIds,  setAddBookedIds]  = useState<Set<string>>(new Set());
+  const [addLoadingTbl, setAddLoadingTbl] = useState(false);
+
+  // Fetch which tables are already booked at the chosen date/time. Reuses the
+  // public availability endpoint (no auth required) — same data the customer
+  // and POS flows use, so admin sees the same conflicts.
+  const fetchAddTables = useCallback(async (date: string, time: string, party: number) => {
+    if (!date || !time || !party) return;
+    setAddLoadingTbl(true);
+    try {
+      const res  = await fetch(`/api/reservations/availability?date=${date}&time=${time}&partySize=${party}`);
+      const json = await res.json() as { ok: boolean; bookedTableIds?: string[] };
+      setAddBookedIds(new Set(json.ok ? (json.bookedTableIds ?? []) : []));
+    } catch {
+      setAddBookedIds(new Set());
+    } finally { setAddLoadingTbl(false); }
+  }, []);
+
+  // Re-fetch booked-IDs whenever date/time/party changes while the modal is open
+  useEffect(() => {
+    if (!showAddModal) return;
+    setAddTableId("");
+    setAddBookedIds(new Set());
+    if (addTime && !isSlotPast(addTime, addDate)) fetchAddTables(addDate, addTime, addParty);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addDate, addTime, addParty, showAddModal]);
+
+  // Auto-advance time when date changes to today and current slot is past
+  useEffect(() => {
+    if (isSlotPast(addTime, addDate)) {
+      const next = allSlots.find((s) => !isSlotPast(s, addDate));
+      if (next) setAddTime(next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addDate]);
+
+  function openAddModal() {
+    const today = todayStr();
+    const slot  = allSlots.find((s) => !isSlotPast(s, today)) ?? allSlots[0] ?? "12:00";
+    setAddSource("walk-in"); setAddDate(today); setAddTime(slot);
+    setAddParty(2); setAddTableId("");
+    setAddName(""); setAddEmail(""); setAddPhone(""); setAddNote("");
+    setAddBookedIds(new Set()); setAddError(""); setAddSaving(false);
+    setShowAddModal(true);
+  }
 
   const fetchReservations = useCallback(async () => {
     setLoading(true);
@@ -508,32 +574,52 @@ export default function ReservationsPanel() {
 
   async function handleAddBooking(e: React.FormEvent) {
     e.preventDefault();
-    if (!addTableId) { setAddError("Please select a table."); return; }
-    setAddSaving(true); setAddError("");
-    const table = settings.diningTables?.find((t) => t.id === addTableId);
-    const res = await fetch("/api/admin/reservations", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        tableId: addTableId, tableLabel: table?.label ?? addTableId,
-        tableSeats: table?.seats ?? 0, section: table?.section ?? "",
-        date: addDate, time: addTime, partySize: addParty,
-        customerName: addName.trim(), customerEmail: addEmail.trim(),
-        customerPhone: addPhone.trim(), note: addNote.trim(),
-        source: addSource,
-        status: addSource === "walk-in" ? "checked_in" : "pending",
-      }),
-    });
-    const json = await res.json() as { ok: boolean; error?: string };
-    if (json.ok) {
-      setShowAddModal(false);
-      setAddName(""); setAddEmail(""); setAddPhone(""); setAddNote("");
-      setAddParty(2); setAddTableId(""); setAddSource("walk-in");
-      setAddDate(todayStr()); setAddTime("12:00");
-      fetchReservations();
-    } else {
-      setAddError(json.error ?? "Failed to create booking.");
+    if (!addTableId)     { setAddError("Please select a table."); return; }
+    if (!addName.trim()) { setAddError("Guest name is required."); return; }
+    // Phone bookings always need a callback number — that's how staff reach
+    // the guest if the booking needs to be confirmed or changed.
+    if (addSource === "phone" && !addPhone.trim()) {
+      setAddError("Phone number is required for phone bookings.");
+      return;
     }
-    setAddSaving(false);
+
+    const table = settings.diningTables?.find((t) => t.id === addTableId);
+    if (!table) { setAddError("Selected table no longer exists. Refresh and try again."); return; }
+
+    // Soft-warn: party exceeds table capacity. Admin can pull chairs / merge
+    // tables, so we allow override after explicit confirmation (mirrors POS).
+    if (table.seats < addParty) {
+      const ok = window.confirm(
+        `Table ${table.label} seats ${table.seats}, but the party is ${addParty}. ` +
+        `Extra chairs or a combined table will be needed. Continue?`
+      );
+      if (!ok) return;
+    }
+
+    setAddSaving(true); setAddError("");
+    try {
+      const res = await fetch("/api/admin/reservations", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tableId: addTableId,
+          date: addDate, time: addTime, partySize: addParty,
+          customerName: addName.trim(), customerEmail: addEmail.trim(),
+          customerPhone: addPhone.trim(), note: addNote.trim(),
+          source: addSource,
+        }),
+      });
+      const json = await res.json() as { ok: boolean; error?: string };
+      if (json.ok) {
+        setShowAddModal(false);
+        fetchReservations();
+      } else {
+        setAddError(json.error ?? "Failed to create booking.");
+      }
+    } catch {
+      setAddError("Network error — please try again.");
+    } finally {
+      setAddSaving(false);
+    }
   }
 
   const filtered = reservations.filter((r) => {
@@ -594,7 +680,7 @@ export default function ReservationsPanel() {
             {showSettings ? "Hide settings" : "Configure booking settings"}
           </button>
           <button
-            onClick={() => setShowAddModal(true)}
+            onClick={openAddModal}
             className="flex items-center gap-1.5 text-xs font-semibold text-white bg-orange-500 hover:bg-orange-600 px-3 py-1.5 rounded-xl transition"
           >
             <UserPlus size={13} /> Add Walk-in / Phone Booking
@@ -704,95 +790,215 @@ export default function ReservationsPanel() {
         </div>
       )}
 
-      {/* Walk-in / Phone booking modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowAddModal(false)} />
-          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <div className="flex items-center gap-2">
-                <UserPlus size={16} className="text-orange-500" />
-                <h3 className="font-bold text-gray-900">Add Booking</h3>
-              </div>
-              <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-600 transition">
-                <XCircle size={20} />
-              </button>
-            </div>
-            <form onSubmit={handleAddBooking} className="p-5 space-y-4 overflow-y-auto max-h-[75vh]">
-              {/* Source toggle */}
-              <div className="flex rounded-xl border border-gray-200 overflow-hidden">
-                {(["walk-in", "phone"] as const).map((s) => (
-                  <button key={s} type="button" onClick={() => setAddSource(s)}
-                    className={`flex-1 py-2 text-sm font-semibold transition ${addSource === s ? "bg-orange-500 text-white" : "text-gray-500 hover:bg-gray-50"}`}>
-                    {s === "walk-in" ? "Walk-in (check in now)" : "Phone booking"}
-                  </button>
-                ))}
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Date <span className="text-red-400">*</span></label>
-                  <input type="date" required value={addDate} onChange={(e) => setAddDate(e.target.value)}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
+      {showAddModal && (() => {
+        // Derived per-render state for the modal
+        const activeTables   = (settings.diningTables ?? []).filter((t) => t.active);
+        const tablesBySection: Record<string, typeof activeTables> = {};
+        for (const t of activeTables) {
+          (tablesBySection[t.section || "Other"] = tablesBySection[t.section || "Other"] ?? []).push(t);
+        }
+        const slotPast      = isSlotPast(addTime, addDate);
+        const isBlackout    = (rs.blackoutDates ?? []).includes(addDate);
+        const maxParty      = rs.maxPartySize ?? 10;
+        const partyTooLarge = addParty > maxParty;
+        const phoneMissing  = addSource === "phone" && !addPhone.trim();
+        const canSubmit     = !addSaving && !!addTableId && !!addName.trim() && !slotPast && !isBlackout && !partyTooLarge && !phoneMissing;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowAddModal(false)} />
+            <div className="relative w-full sm:max-w-2xl bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[95dvh] overflow-hidden">
+
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <UserPlus size={16} className="text-orange-500" />
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-sm">Add Booking</h3>
+                    <p className="text-xs text-gray-400">Walk-in or phone reservation</p>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Time <span className="text-red-400">*</span></label>
-                  <input type="time" required value={addTime} onChange={(e) => setAddTime(e.target.value)}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Table <span className="text-red-400">*</span></label>
-                <select required value={addTableId} onChange={(e) => setAddTableId(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition">
-                  <option value="">Select a table…</option>
-                  {(settings.diningTables ?? []).filter((t) => t.active).map((t) => (
-                    <option key={t.id} value={t.id}>{t.label} — {t.section} ({t.seats} seats)</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Party size</label>
-                <input type="number" min={1} max={50} value={addParty} onChange={(e) => setAddParty(parseInt(e.target.value) || 1)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Guest name <span className="text-red-400">*</span></label>
-                <input type="text" required value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="Jane Smith"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Email <span className="text-gray-300 font-normal normal-case">(optional)</span></label>
-                <input type="email" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} placeholder="jane@example.com"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Phone</label>
-                <input type="tel" value={addPhone} onChange={(e) => setAddPhone(e.target.value)} placeholder="+44 7700 900123"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Note</label>
-                <textarea rows={2} value={addNote} onChange={(e) => setAddNote(e.target.value)} placeholder="Allergies, special requests…"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:border-orange-400 transition" />
-              </div>
-              {addError && (
-                <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">
-                  <AlertTriangle size={14} /> {addError}
-                </div>
-              )}
-              <div className="flex gap-3 pt-1">
-                <button type="button" onClick={() => setShowAddModal(false)}
-                  className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 transition">Cancel</button>
-                <button type="submit" disabled={addSaving}
-                  className="flex-1 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold text-sm transition flex items-center justify-center gap-2">
-                  {addSaving ? <Loader2 size={14} className="animate-spin" /> : null}
-                  {addSaving ? "Saving…" : addSource === "walk-in" ? "Check In Now" : "Create Booking"}
+                <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-600 transition">
+                  <XCircle size={20} />
                 </button>
               </div>
-            </form>
+
+              <form onSubmit={handleAddBooking} className="overflow-y-auto flex-1 p-5 space-y-5">
+
+                {/* Source toggle */}
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Source</p>
+                  <div className="flex rounded-xl border border-gray-200 overflow-hidden">
+                    {(["walk-in", "phone"] as const).map((s) => (
+                      <button key={s} type="button" onClick={() => setAddSource(s)}
+                        className={`flex-1 py-2 text-sm font-semibold transition ${addSource === s ? "bg-orange-500 text-white" : "text-gray-500 hover:bg-gray-50"}`}>
+                        {s === "walk-in" ? "Walk-in (check in now)" : "Phone booking"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Date + party */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Date <span className="text-red-400">*</span></label>
+                    <input type="date" required value={addDate}
+                      min={todayStr()} max={maxDateStr(rs.maxAdvanceDays ?? 30)}
+                      onChange={(e) => setAddDate(e.target.value)}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Guests <span className="text-red-400">*</span></label>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => setAddParty((p) => Math.max(1, p - 1))}
+                        className="w-9 h-9 rounded-full border border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-500 font-bold transition flex items-center justify-center">−</button>
+                      <span className="text-gray-900 font-bold text-lg w-8 text-center">{addParty}</span>
+                      <button type="button" onClick={() => setAddParty((p) => Math.min(maxParty, p + 1))}
+                        className="w-9 h-9 rounded-full border border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-500 font-bold transition flex items-center justify-center">+</button>
+                      <span className="text-xs text-gray-400 ml-1">max {maxParty}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Blackout warning */}
+                {isBlackout && (
+                  <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">
+                    <Ban size={14} className="flex-shrink-0" />
+                    Restaurant is closed on this date — booking cannot be created.
+                  </div>
+                )}
+
+                {/* Time slot picker (replaces free-form time input) */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Time <span className="text-red-400">*</span></label>
+                  <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
+                    {allSlots.map((slot) => {
+                      const past     = isSlotPast(slot, addDate);
+                      const selected = addTime === slot;
+                      return (
+                        <button key={slot} type="button" disabled={past}
+                          onClick={() => !past && setAddTime(slot)}
+                          title={past ? "Time has passed" : undefined}
+                          className={`py-2 rounded-lg text-xs font-semibold border transition ${
+                            past
+                              ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed line-through"
+                              : selected
+                                ? "bg-orange-500 text-white border-orange-500"
+                                : "bg-white text-gray-600 border-gray-200 hover:border-orange-300 hover:text-orange-600"
+                          }`}>{fmt12(slot)}</button>
+                      );
+                    })}
+                  </div>
+                  {allSlots.every((s) => isSlotPast(s, addDate)) && (
+                    <p className="text-xs text-amber-600 mt-2">All slots for today have passed — select a future date.</p>
+                  )}
+                </div>
+
+                {/* Table picker — section grouped, with reserved/undersized states */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                    Table <span className="text-red-400">*</span>
+                  </label>
+                  {activeTables.length === 0 ? (
+                    <p className="text-sm text-gray-400 py-2">No active tables — add tables in Waiters & Tables → Tables.</p>
+                  ) : addLoadingTbl ? (
+                    <div className="flex items-center gap-2 text-gray-500 text-sm py-2">
+                      <Loader2 size={14} className="animate-spin text-orange-500" /> Checking table availability…
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {Object.entries(tablesBySection).map(([sec, tbls]) => (
+                        <div key={sec}>
+                          {sec && <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">{sec}</p>}
+                          <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                            {tbls.map((t) => {
+                              const sel          = addTableId === t.id;
+                              const isBooked     = addBookedIds.has(t.id);
+                              const isUndersized = t.seats < addParty;
+                              const baseCls = "py-2 rounded-lg text-xs font-semibold border transition flex flex-col items-center leading-tight";
+                              const cls = isBooked
+                                ? `${baseCls} bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed line-through`
+                                : sel
+                                  ? isUndersized
+                                    ? `${baseCls} bg-amber-500 text-white border-amber-500`
+                                    : `${baseCls} bg-orange-500 text-white border-orange-500`
+                                  : isUndersized
+                                    ? `${baseCls} bg-amber-50 text-amber-700 border-amber-200 hover:border-amber-400`
+                                    : `${baseCls} bg-white text-gray-700 border-gray-200 hover:border-orange-300 hover:text-orange-600`;
+                              return (
+                                <button
+                                  key={t.id}
+                                  type="button"
+                                  disabled={isBooked}
+                                  title={
+                                    isBooked     ? "Already reserved at this time" :
+                                    isUndersized ? `Seats ${t.seats} — party of ${addParty} (will need extra chairs)` :
+                                    `Seats ${t.seats}`
+                                  }
+                                  onClick={() => setAddTableId(t.id)}
+                                  className={cls}
+                                >
+                                  <span>{t.label}</span>
+                                  <span className="text-[9px] font-normal opacity-75">
+                                    {isBooked ? "reserved" : `seats ${t.seats}`}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                      {/* Legend */}
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-[10px] text-gray-500">
+                        <span className="flex items-center gap-1">
+                          <span className="w-2.5 h-2.5 rounded-sm bg-white border border-gray-300" /> free
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="w-2.5 h-2.5 rounded-sm bg-amber-50 border border-amber-300" /> too small (warn)
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="w-2.5 h-2.5 rounded-sm bg-gray-100 border border-gray-300" /> reserved (blocked)
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Guest details */}
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Guest details</p>
+                  <input type="text" required value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="Full name *"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
+                  <input type="email" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} placeholder="Email (optional)"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
+                  <input type="tel" required={addSource === "phone"} value={addPhone} onChange={(e) => setAddPhone(e.target.value)}
+                    placeholder={addSource === "phone" ? "Phone *" : "Phone (optional)"}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
+                  <textarea rows={2} value={addNote} onChange={(e) => setAddNote(e.target.value)} placeholder="Notes (allergies, special requests…)"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:border-orange-400 transition" />
+                </div>
+
+                {addError && (
+                  <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">
+                    <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" /> {addError}
+                  </div>
+                )}
+              </form>
+
+              {/* Footer */}
+              <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-gray-100 flex-shrink-0">
+                <button type="button" onClick={() => setShowAddModal(false)}
+                  className="text-gray-500 hover:text-gray-700 text-sm font-semibold transition">Cancel</button>
+                <button type="button" onClick={(e) => handleAddBooking(e as unknown as React.FormEvent)} disabled={!canSubmit}
+                  className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition">
+                  {addSaving ? <><Loader2 size={14} className="animate-spin" /> Saving…</> :
+                   addSource === "walk-in" ? <><LogIn size={14} /> Check In Now</> : <><CheckCircle2 size={14} /> Create Booking</>}
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

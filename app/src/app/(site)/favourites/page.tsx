@@ -2,11 +2,12 @@
 
 import { useApp } from "@/context/AppContext";
 import { resolveStock } from "@/lib/stockUtils";
-import { Heart, UtensilsCrossed, Plus, Search, LayoutDashboard, LogOut } from "lucide-react";
+import { isMealPeriodActive, nextActivationLabel } from "@/lib/scheduleUtils";
+import { Heart, UtensilsCrossed, Plus, Search, LayoutDashboard, LogOut, Clock } from "lucide-react";
 import AuthModal from "@/components/AuthModal";
 import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { MenuItem } from "@/types";
 import { useRouter } from "next/navigation";
 import CartPanel from "@/components/CartPanel";
@@ -16,13 +17,38 @@ export default function FavouritesPage() {
     const router = useRouter();
     const [search, setSearch] = useState("");
     const [showMobileCart, setShowMobileCart] = useState(false);
-    const { currentUser, menuItems, settings, isOpen, toggleFavourite, logout } = useApp();
+    const { currentUser, menuItems, mealPeriods, settings, isOpen, toggleFavourite, logout } = useApp();
     const [authModal, setAuthModal] = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
     const [openItem, setOpenItem] = useState<MenuItem | null>(null);
     const [userMenuOpen, setUserMenuOpen] = useState(false);
 
+    // Tick to re-evaluate "is this item's meal period active?" every 30s
+    // so favourites flip from greyed-out → orderable as windows open.
+    const [nowTick, setNowTick] = useState(0);
+    useEffect(() => {
+      const t = setInterval(() => setNowTick((n) => n + 1), 30_000);
+      return () => clearInterval(t);
+    }, []);
+    void nowTick;
+
     const favIds = new Set(currentUser?.favourites ?? []);
     const favItems = menuItems.filter((m) => favIds.has(m.id));
+
+    // For each favourited item, figure out if it's currently orderable based
+    // on its meal-period tags. Items with no tags are always orderable.
+    function mealPeriodAvailability(item: MenuItem): { orderable: boolean; label: string | null } {
+      const tags = item.mealPeriodIds ?? [];
+      if (tags.length === 0) return { orderable: true, label: null };
+      const tagged = mealPeriods.filter((p) => tags.includes(p.id));
+      if (tagged.some((p) => isMealPeriodActive(p))) return { orderable: true, label: null };
+      // Build "Available 07:00–11:30" or "Available from tomorrow 07:00" hint.
+      const enabledTagged = tagged.filter((p) => p.enabled);
+      if (enabledTagged.length === 0) return { orderable: false, label: "Currently unavailable" };
+      const next = enabledTagged
+        .map((p) => ({ p, label: nextActivationLabel(p) }))
+        .filter((x) => x.label)[0];
+      return { orderable: false, label: next ? `Available ${next.label}` : "Currently unavailable" };
+    }
 
     return (
         <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: 'var(--brand-bg, #FAFAF9)' }}>
@@ -144,7 +170,16 @@ export default function FavouritesPage() {
                                 {favItems.map((item) => {
                                     const stockStatus = resolveStock(item);
                                     const outOfStock = stockStatus === "out_of_stock";
-                                    const canAdd = (isOpen || !!settings.restaurant) && !outOfStock;
+                                    const mp = mealPeriodAvailability(item);
+                                    // Stock check wins if both apply; meal-period
+                                    // unavailability shows the time hint instead.
+                                    const dimmed = outOfStock || !mp.orderable;
+                                    const canAdd = (isOpen || !!settings.restaurant) && !outOfStock && mp.orderable;
+                                    const buttonLabel = outOfStock
+                                      ? "Unavailable"
+                                      : !mp.orderable
+                                        ? (mp.label ?? "Currently unavailable")
+                                        : "Add to order";
                                     return (
                                         <div key={item.id} className="bg-white rounded-2xl border border-zinc-200/70 shadow-sm overflow-hidden group">
                                             {/* Image */}
@@ -152,7 +187,7 @@ export default function FavouritesPage() {
                                                 {item.image ? (
                                                     /* eslint-disable-next-line @next/next/no-img-element */
                                                     <img src={item.image} alt={item.name}
-                                                        className={`absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03] ${outOfStock ? "grayscale opacity-50" : ""}`}
+                                                        className={`absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03] ${dimmed ? "grayscale opacity-50" : ""}`}
                                                     />
                                                 ) : (
                                                     <div className="w-full h-full flex items-center justify-center">
@@ -167,6 +202,11 @@ export default function FavouritesPage() {
                                                 >
                                                     <Heart className="w-3.5 h-3.5" strokeWidth={2} fill="currentColor" />
                                                 </button>
+                                                {!outOfStock && !mp.orderable && mp.label && (
+                                                    <span className="absolute bottom-2.5 left-2.5 flex items-center gap-1 bg-white/95 backdrop-blur-sm text-amber-700 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-amber-200 shadow-sm">
+                                                        <Clock className="w-3 h-3" /> {mp.label}
+                                                    </span>
+                                                )}
                                             </div>
                                             {/* Body */}
                                             <div className="p-4">
@@ -183,8 +223,8 @@ export default function FavouritesPage() {
                                                         : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
                                                         }`}
                                                 >
-                                                    <Plus className="w-4 h-4" strokeWidth={2.5} />
-                                                    {outOfStock ? "Unavailable" : "Add to order"}
+                                                    {canAdd && <Plus className="w-4 h-4" strokeWidth={2.5} />}
+                                                    {buttonLabel}
                                                 </button>
                                             </div>
                                         </div>

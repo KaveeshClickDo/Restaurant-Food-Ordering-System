@@ -75,6 +75,7 @@ export const EVENT_CONFIGS: EventConfig[] = [
   { event: "reservation_confirmation",   name: "Reservation Confirmed",    description: "Sent when a customer books a table",             color: "bg-teal-100",    textColor: "text-teal-700",    emoji: "📅" },
   { event: "reservation_update",         name: "Reservation Update",       description: "Sent when admin confirms or changes the status", color: "bg-blue-100",    textColor: "text-blue-700",    emoji: "🔄" },
   { event: "reservation_cancellation",   name: "Reservation Cancelled",    description: "Sent when a reservation is cancelled",           color: "bg-rose-100",    textColor: "text-rose-700",    emoji: "🚫" },
+  { event: "reservation_check_in",       name: "Guest Checked In",         description: "Sent when staff check the guest in (welcome)",   color: "bg-sky-100",     textColor: "text-sky-700",     emoji: "🪑" },
   { event: "reservation_review_request", name: "Post-Visit Review Request",description: "Sent automatically when a guest checks out",     color: "bg-yellow-100",  textColor: "text-yellow-700",  emoji: "⭐" },
 ];
 
@@ -86,7 +87,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
   {
     event: "order_confirmation",
     name: "Order Confirmation",
-    subject: "Your order is confirmed — {{order_id}}",
+    subject: "Your order is received — {{order_id}}",
     body: `<h2 style="color:{{brand_color}};margin:0 0 16px 0">Thank you for your order! 🎉</h2>
 <p>Hi <strong>{{customer_name}}</strong>,</p>
 <p>We've received your order and it's being processed. Here's a summary:</p>
@@ -109,7 +110,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
   {
     event: "order_confirmed",
     name: "Order Confirmed",
-    subject: "Your order has been confirmed — {{restaurant_name}}",
+    subject: "Your order has been confirmed — {{order_id}}",
     body: `<h2 style="color:{{brand_color}};margin:0 0 16px 0">Order Confirmed ✅</h2>
 <p>Hi <strong>{{customer_name}}</strong>,</p>
 <p>Your order <strong>{{order_id}}</strong> has been confirmed and our team is getting started.</p>
@@ -147,7 +148,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
   {
     event: "order_delivered",
     name: "Order Delivered",
-    subject: "Your order has been delivered — enjoy! 🚀",
+    subject: "Your order has been delivered — {{order_id}}",
     body: `<h2 style="color:#059669;margin:0 0 16px 0">Order Delivered! 🚀</h2>
 <p>Hi <strong>{{customer_name}}</strong>,</p>
 <p>Your order <strong>{{order_id}}</strong> has been delivered. We hope you enjoy your meal!</p>
@@ -230,7 +231,26 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
 <p>If you have questions or would like to make a new booking, please contact us at <strong>{{restaurant_phone}}</strong>.</p>
 <p>We hope to see you again soon.</p>`,
-    enabled: false,
+    enabled: true,
+    lastModified: new Date(0).toISOString(),
+  },
+  {
+    event: "reservation_check_in",
+    name: "Guest Checked In",
+    subject: "Welcome — you're seated at {{table_label}}",
+    body: `<h2 style="color:{{brand_color}};margin:0 0 16px 0">Welcome to {{restaurant_name}}! 🪑</h2>
+<p>Hi <strong>{{customer_name}}</strong>,</p>
+<p>We've got you seated and we hope you enjoy your visit.</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
+<p>
+  <strong>Table:</strong> {{table_label}}<br>
+  <strong>Party size:</strong> {{party_size}} guests<br>
+  <strong>Booking Reference:</strong> {{booking_ref}}
+</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
+<p style="color:#6b7280;font-size:14px">If you need anything during your visit, please let a member of our team know.</p>
+<p>Enjoy your meal!</p>`,
+    enabled: true,
     lastModified: new Date(0).toISOString(),
   },
   {
@@ -246,7 +266,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
 </div>
 <p style="color:#6b7280;font-size:14px">Your feedback helps us improve and lets other guests know what to expect. Thank you for your support!</p>
 <p>We look forward to welcoming you back soon.</p>`,
-    enabled: false,
+    enabled: true,
     lastModified: new Date(0).toISOString(),
   },
 ];

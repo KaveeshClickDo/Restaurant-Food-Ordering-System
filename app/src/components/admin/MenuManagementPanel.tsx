@@ -2,15 +2,17 @@
 
 import { useState } from "react";
 import { useApp } from "@/context/AppContext";
-import { Category, MenuItem, Variation, AddOn } from "@/types";
+import { Category, MealPeriod, MenuItem, Variation, AddOn } from "@/types";
 import {
   ChefHat, Plus, Pencil, Trash2, Search,
   GripVertical, X, Check, AlertTriangle, Flame, Tag,
   ArrowUp, ArrowDown, ImagePlus, Link, Upload,
-  Package, PackageX, PackageMinus, Minus,
+  Package, PackageX, PackageMinus, Minus, Clock,
 } from "lucide-react";
 import { resolveStock, stockLabel, LOW_STOCK_THRESHOLD } from "@/lib/stockUtils";
 import type { StockStatus } from "@/types";
+
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const DIETARY_OPTIONS = ["vegetarian", "vegan", "halal", "gluten-free"] as const;
 
@@ -56,10 +58,11 @@ export default function MenuManagementPanel() {
     categories, menuItems,
     addCategory, updateCategory, deleteCategory, reorderCategories,
     addMenuItem, updateMenuItem, deleteMenuItem,
-    settings, updateBreakfastSettings,
+    mealPeriods, addMealPeriod, updateMealPeriod, deleteMealPeriod,
   } = useApp();
 
-  const breakfast = settings.breakfastMenu ?? { enabled: true, startTime: "07:00", endTime: "11:30" };
+  const [editingPeriod, setEditingPeriod] = useState<MealPeriod | null>(null);
+  const [deletingPeriod, setDeletingPeriod] = useState<MealPeriod | null>(null);
 
   const [selectedCatId, setSelectedCatId] = useState<string | "all">("all");
   const [search, setSearch] = useState("");
@@ -124,39 +127,76 @@ export default function MenuManagementPanel() {
         </button>
       </div>
 
-      {/* Breakfast service hours — items tagged "Breakfast only" appear on the
-          customer site only inside this window. */}
-      <div className="px-6 py-3 border-b border-gray-100 bg-amber-50/50 flex flex-wrap items-center gap-3">
-        <span className="text-sm font-medium text-amber-800 flex items-center gap-1.5">
-          ☀️ Breakfast hours
-        </span>
-        <button
-          onClick={() => updateBreakfastSettings({ enabled: !breakfast.enabled })}
-          className={`relative w-10 h-6 rounded-full transition-colors ${breakfast.enabled ? "bg-amber-500" : "bg-gray-300"}`}
-          aria-label={breakfast.enabled ? "Disable breakfast window" : "Enable breakfast window"}
-        >
-          <span className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${breakfast.enabled ? "translate-x-4" : ""}`} />
-        </button>
-        <div className="flex items-center gap-2">
-          <input
-            type="time"
-            value={breakfast.startTime}
-            disabled={!breakfast.enabled}
-            onChange={(e) => updateBreakfastSettings({ startTime: e.target.value })}
-            className="text-sm px-2 py-1 rounded-lg border border-amber-200 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
-          />
-          <span className="text-xs text-amber-700">to</span>
-          <input
-            type="time"
-            value={breakfast.endTime}
-            disabled={!breakfast.enabled}
-            onChange={(e) => updateBreakfastSettings({ endTime: e.target.value })}
-            className="text-sm px-2 py-1 rounded-lg border border-amber-200 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
-          />
+      {/* Meal periods — time-bounded sections on the customer menu. Tag items
+          to one or more periods in the item editor; customers see each section
+          only during its window. */}
+      <div className="px-6 py-3 border-b border-gray-100 bg-amber-50/40">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-medium text-amber-900 flex items-center gap-1.5">
+            <Clock size={14} /> Meal periods
+            <span className="text-xs text-amber-700/70 font-normal">
+              ({mealPeriods.length})
+            </span>
+          </span>
+          <button
+            onClick={() => setEditingPeriod({
+              id: "", name: "", enabled: true,
+              startTime: "12:00", endTime: "15:00",
+              daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+              sortOrder: mealPeriods.length,
+            })}
+            className="flex items-center gap-1 text-xs font-semibold text-amber-800 hover:text-amber-900 bg-white px-2.5 py-1 rounded-lg border border-amber-200"
+          >
+            <Plus size={12} /> Add meal period
+          </button>
         </div>
-        <span className="text-xs text-gray-500 ml-auto">
-          Tag items as <span className="font-semibold">Breakfast only</span> in the item editor to show them here.
-        </span>
+        {mealPeriods.length === 0 ? (
+          <p className="text-xs text-amber-700/70 italic">
+            No meal periods defined. Add one to show a time-based section (e.g. Breakfast, Dinner) on the customer menu.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {mealPeriods.map((p) => (
+              <div
+                key={p.id}
+                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border bg-white ${
+                  p.enabled ? "border-amber-200" : "border-gray-200 opacity-60"
+                }`}
+              >
+                <button
+                  onClick={() => updateMealPeriod(p.id, { enabled: !p.enabled })}
+                  className={`relative w-7 h-4 rounded-full transition-colors flex-shrink-0 ${p.enabled ? "bg-amber-500" : "bg-gray-300"}`}
+                  aria-label={p.enabled ? `Disable ${p.name}` : `Enable ${p.name}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${p.enabled ? "translate-x-3" : ""}`} />
+                </button>
+                <div className="text-xs">
+                  <span className="font-semibold text-gray-800">{p.name}</span>
+                  <span className="text-gray-500 ml-1.5">{p.startTime}–{p.endTime}</span>
+                  {p.daysOfWeek.length < 7 && (
+                    <span className="text-gray-400 ml-1.5">
+                      ({p.daysOfWeek.map((d) => DAY_LABELS[d]).join(" ")})
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => setEditingPeriod(p)}
+                  className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition"
+                  title="Edit"
+                >
+                  <Pencil size={11} />
+                </button>
+                <button
+                  onClick={() => setDeletingPeriod(p)}
+                  className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition"
+                  title="Delete"
+                >
+                  <Trash2 size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col md:flex-row md:divide-x divide-gray-100 min-h-[500px]">
@@ -362,11 +402,19 @@ export default function MenuManagementPanel() {
                             <Flame size={9} /> Popular
                           </span>
                         )}
-                        {item.mealPeriod === "breakfast" && (
-                          <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-full border border-amber-200">
-                            ☀️ Breakfast
-                          </span>
-                        )}
+                        {(item.mealPeriodIds ?? []).map((mpId) => {
+                          const mp = mealPeriods.find((p) => p.id === mpId);
+                          if (!mp) return null;
+                          return (
+                            <span
+                              key={mpId}
+                              className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-full border border-amber-200"
+                              title={`${mp.startTime}–${mp.endTime}`}
+                            >
+                              <Clock size={9} className="inline -mt-px mr-0.5" /> {mp.name}
+                            </span>
+                          );
+                        })}
                       </div>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {selectedCatId === "all" && (
@@ -475,6 +523,7 @@ export default function MenuManagementPanel() {
         <ItemModal
           item={editingItem}
           categories={categories}
+          mealPeriods={mealPeriods}
           isNew={!menuItems.find((i) => i.id === editingItem.id)}
           onSave={(item) => {
             if (menuItems.find((i) => i.id === item.id)) {
@@ -485,6 +534,31 @@ export default function MenuManagementPanel() {
             setEditingItem(null);
           }}
           onClose={() => setEditingItem(null)}
+        />
+      )}
+
+      {editingPeriod && (
+        <MealPeriodModal
+          period={editingPeriod}
+          isNew={!editingPeriod.id}
+          onSave={async (p) => {
+            if (!editingPeriod.id) {
+              await addMealPeriod(p);
+            } else {
+              await updateMealPeriod(editingPeriod.id, p);
+            }
+            setEditingPeriod(null);
+          }}
+          onClose={() => setEditingPeriod(null)}
+        />
+      )}
+
+      {deletingPeriod && (
+        <ConfirmModal
+          title="Delete meal period?"
+          message={`"${deletingPeriod.name}" will be removed. Items tagged to only this period will become anytime items.`}
+          onConfirm={async () => { await deleteMealPeriod(deletingPeriod.id); setDeletingPeriod(null); }}
+          onClose={() => setDeletingPeriod(null)}
         />
       )}
 
@@ -577,9 +651,9 @@ function CategoryModal({
 // ─── Item Modal ──────────────────────────────────────────────────────────────
 
 function ItemModal({
-  item, categories, isNew, onSave, onClose,
+  item, categories, mealPeriods, isNew, onSave, onClose,
 }: {
-  item: MenuItem; categories: Category[]; isNew: boolean;
+  item: MenuItem; categories: Category[]; mealPeriods: MealPeriod[]; isNew: boolean;
   onSave: (i: MenuItem) => void; onClose: () => void;
 }) {
   const [form, setForm] = useState<MenuItem>({ ...item });
@@ -821,33 +895,42 @@ function ItemModal({
             </div>
           </label>
 
-          {/* Meal period */}
+          {/* Availability — meal periods this item appears in. Empty = anytime. */}
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-2">Availability</label>
-            <div className="grid grid-cols-2 gap-2">
-              {([
-                { value: "all_day",   label: "All day",        hint: "Always shown" },
-                { value: "breakfast", label: "Breakfast only", hint: "Shown during breakfast hours" },
-              ] as const).map((opt) => {
-                const active = (form.mealPeriod ?? "all_day") === opt.value;
-                return (
-                  <button
-                    key={opt.value}
-                    onClick={() => setForm((f) => ({ ...f, mealPeriod: opt.value }))}
-                    className={`text-left px-3 py-2.5 rounded-xl border-2 transition-all ${
-                      active
-                        ? "border-amber-400 bg-amber-50"
-                        : "border-gray-200 hover:border-gray-300"
-                    }`}
-                  >
-                    <div className={`text-sm font-medium ${active ? "text-amber-700" : "text-gray-700"}`}>
-                      {opt.label}
-                    </div>
-                    <div className="text-xs text-gray-400">{opt.hint}</div>
-                  </button>
-                );
-              })}
-            </div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Availability</label>
+            <p className="text-xs text-gray-400 mb-2">
+              Pick which meal periods this item shows up in on the customer site. Leave blank to show it anytime.
+            </p>
+            {mealPeriods.length === 0 ? (
+              <p className="text-xs text-gray-400 italic">
+                No meal periods defined yet. Add one in the &quot;Meal periods&quot; bar at the top to tag items.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {mealPeriods.map((mp) => {
+                  const checked = (form.mealPeriodIds ?? []).includes(mp.id);
+                  return (
+                    <button
+                      key={mp.id}
+                      onClick={() => setForm((f) => {
+                        const next = new Set(f.mealPeriodIds ?? []);
+                        if (next.has(mp.id)) next.delete(mp.id); else next.add(mp.id);
+                        return { ...f, mealPeriodIds: Array.from(next) };
+                      })}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border-2 transition-all ${
+                        checked
+                          ? "border-amber-400 bg-amber-50 text-amber-700"
+                          : "border-gray-200 text-gray-500 hover:border-gray-300"
+                      }`}
+                    >
+                      {checked && <Check size={10} />}
+                      <span>{mp.name}</span>
+                      <span className="text-gray-400 font-normal">{mp.startTime}–{mp.endTime}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1163,6 +1246,120 @@ function ConfirmModal({
           className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition"
         >
           Delete
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ─── Meal Period Modal ───────────────────────────────────────────────────────
+
+function MealPeriodModal({
+  period, isNew, onSave, onClose,
+}: {
+  period: MealPeriod;
+  isNew: boolean;
+  onSave: (p: Omit<MealPeriod, "id">) => Promise<void> | void;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState<MealPeriod>({ ...period });
+  const isValid = form.name.trim() && form.startTime && form.endTime && form.daysOfWeek.length > 0;
+
+  function toggleDay(day: number) {
+    setForm((f) => ({
+      ...f,
+      daysOfWeek: f.daysOfWeek.includes(day)
+        ? f.daysOfWeek.filter((d) => d !== day)
+        : [...f.daysOfWeek, day].sort(),
+    }));
+  }
+
+  return (
+    <ModalShell title={isNew ? "Add meal period" : "Edit meal period"} onClose={onClose}>
+      <div className="space-y-4">
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1">Name</label>
+          <input
+            value={form.name}
+            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            placeholder="Breakfast, Lunch, Sunday Brunch…"
+            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Start</label>
+            <input
+              type="time"
+              value={form.startTime}
+              onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))}
+              className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">End</label>
+            <input
+              type="time"
+              value={form.endTime}
+              onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))}
+              className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-2">Days of week</label>
+          <div className="flex flex-wrap gap-1.5">
+            {DAY_LABELS.map((label, day) => {
+              const active = form.daysOfWeek.includes(day);
+              return (
+                <button
+                  key={day}
+                  onClick={() => toggleDay(day)}
+                  className={`w-11 h-9 rounded-lg text-xs font-semibold border-2 transition-all ${
+                    active
+                      ? "border-amber-400 bg-amber-50 text-amber-700"
+                      : "border-gray-200 text-gray-400 hover:border-gray-300"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <label className="flex items-center gap-3 cursor-pointer">
+          <div
+            onClick={() => setForm((f) => ({ ...f, enabled: !f.enabled }))}
+            className={`relative w-10 h-6 rounded-full transition-colors ${form.enabled ? "bg-amber-500" : "bg-gray-200"}`}
+          >
+            <span className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.enabled ? "translate-x-4" : ""}`} />
+          </div>
+          <span className="text-sm font-medium text-gray-700">
+            {form.enabled ? "Enabled" : "Disabled"}
+          </span>
+        </label>
+      </div>
+
+      <div className="flex gap-3 mt-6">
+        <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition">
+          Cancel
+        </button>
+        <button
+          onClick={() => isValid && onSave({
+            name: form.name.trim(),
+            enabled: form.enabled,
+            startTime: form.startTime,
+            endTime: form.endTime,
+            daysOfWeek: form.daysOfWeek,
+            sortOrder: form.sortOrder,
+          })}
+          disabled={!isValid}
+          className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:bg-gray-200 disabled:cursor-not-allowed text-white text-sm font-semibold transition"
+        >
+          {isNew ? "Add" : "Save"}
         </button>
       </div>
     </ModalShell>

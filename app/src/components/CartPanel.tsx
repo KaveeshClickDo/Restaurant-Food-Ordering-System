@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useApp } from "@/context/AppContext";
 import {
-  ShoppingBag, Trash2, X, Minus, Plus, CalendarDays, ChevronRight,
+  ShoppingBag, Trash2, X, Minus, Plus, CalendarDays, ChevronRight, AlertTriangle,
 } from "lucide-react";
 import AuthModal from "@/components/AuthModal";
 import CheckoutModal from "@/components/CheckoutModal";
 import ScheduleOrderModal from "@/components/ScheduleOrderModal";
 import { computeTax, taxSurcharge } from "@/lib/taxUtils";
+import { isMealPeriodActive } from "@/lib/scheduleUtils";
 
 interface CartPanelProps {
   onMobileClose?: () => void;
@@ -16,10 +17,31 @@ interface CartPanelProps {
 }
 
 export default function CartPanel({ onMobileClose, onOrderPlaced }: CartPanelProps) {
-  const { cart, updateQty, clearCart, cartTotal, settings, fulfillment, isOpen, scheduledTime, setScheduledTime, currentUser } = useApp();
+  const { cart, updateQty, clearCart, cartTotal, menuItems, mealPeriods, settings, fulfillment, isOpen, scheduledTime, setScheduledTime, currentUser } = useApp();
   const [showCheckout, setShowCheckout] = useState(false);
   const [showAuth,     setShowAuth]     = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
+
+  // Tick every 30s so meal-period orderability re-evaluates as windows roll over.
+  const [, setNowTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setNowTick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Lines whose item is currently outside its meal-period window.
+  // Anytime items (no tags) and items missing from the catalogue are skipped.
+  const activeMealPeriodIds = new Set(
+    mealPeriods.filter((p) => isMealPeriodActive(p)).map((p) => p.id),
+  );
+  const blockedLines = cart.filter((line) => {
+    const item = menuItems.find((m) => m.id === line.menuItemId);
+    if (!item) return false;
+    const tags = item.mealPeriodIds ?? [];
+    if (tags.length === 0) return false;
+    return !tags.some((id) => activeMealPeriodIds.has(id));
+  });
+  const hasBlockedLines = blockedLines.length > 0;
 
   const { minOrder, deliveryFee, serviceFee } = settings.restaurant;
   const delivery   = fulfillment === "delivery" ? deliveryFee : 0;
@@ -27,7 +49,7 @@ export default function CartPanel({ onMobileClose, onOrderPlaced }: CartPanelPro
   const tax        = computeTax(cartTotal, settings);
   const grandTotal = cartTotal + delivery + service + taxSurcharge(tax);
   const shortfall  = minOrder - cartTotal;
-  const canCheckout = cartTotal >= minOrder && cart.length > 0 && (isOpen || !!scheduledTime);
+  const canCheckout = cartTotal >= minOrder && cart.length > 0 && (isOpen || !!scheduledTime) && !hasBlockedLines;
 
   return (
     <>
@@ -171,6 +193,36 @@ export default function CartPanel({ onMobileClose, onOrderPlaced }: CartPanelPro
                   <CalendarDays className="w-3.5 h-3.5" strokeWidth={1.8} />
                   Schedule for later
                 </button>
+              </div>
+            )}
+
+            {/* Meal-period blocker — surfaces lines that can't be ordered right now. */}
+            {hasBlockedLines && (
+              <div className="px-5 pb-3">
+                <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200 text-[12px] text-amber-800">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold mb-1">
+                      {blockedLines.length === 1
+                        ? "1 item isn't available right now."
+                        : `${blockedLines.length} items aren't available right now.`}
+                    </p>
+                    <p className="text-amber-700 mb-2">Remove them to continue, or come back during their serving hours.</p>
+                    <ul className="space-y-1">
+                      {blockedLines.map((line) => (
+                        <li key={line.id} className="flex items-center justify-between gap-2 bg-white/60 rounded-lg px-2 py-1">
+                          <span className="truncate">{line.name}</span>
+                          <button
+                            onClick={() => updateQty(line.id, 0)}
+                            className="text-amber-700 hover:text-amber-900 font-semibold text-[11px] flex-shrink-0"
+                          >
+                            Remove
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
               </div>
             )}
 

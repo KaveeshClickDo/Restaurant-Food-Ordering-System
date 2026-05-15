@@ -1,18 +1,17 @@
 "use client";
 
-import { Category, MenuItem } from "@/types";
+import { Category, MealPeriod, MenuItem } from "@/types";
 import MenuItemCard from "@/components/MenuItemCard";
-import { Sun, Clock, ChevronDown, ChevronUp } from "lucide-react";
+import { Clock, ChevronDown, ChevronUp } from "lucide-react";
 import { useState } from "react";
 
 interface Props {
+  period: MealPeriod;
   categories: Category[];
   items: MenuItem[];
-  startTime: string;
-  endTime: string;
 }
 
-export default function BreakfastSection({ categories, items, startTime, endTime }: Props) {
+export default function MealPeriodSection({ period, categories, items }: Props) {
   const [collapsed, setCollapsed] = useState(false);
 
   if (items.length === 0) return null;
@@ -32,13 +31,13 @@ export default function BreakfastSection({ categories, items, startTime, endTime
       >
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-amber-400 flex items-center justify-center flex-shrink-0">
-            <Sun size={18} className="text-white" />
+            <Clock size={18} className="text-white" />
           </div>
           <div>
-            <h2 className="font-bold text-gray-900 text-base">☀️ Breakfast Menu</h2>
+            <h2 className="font-bold text-gray-900 text-base">{period.name}</h2>
             <p className="text-xs text-amber-600 font-medium flex items-center gap-1 mt-0.5">
               <Clock size={11} />
-              Available {startTime}–{endTime}
+              Available {period.startTime}–{period.endTime}
             </p>
           </div>
         </div>

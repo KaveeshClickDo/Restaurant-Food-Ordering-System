@@ -245,10 +245,10 @@ function syncMenuToSupabase(products: POSProduct[], categories: POSCategory[]) {
         }
       }
 
-      // meal_period is intentionally NOT included — POS doesn't manage meal
-      // periods (that's the admin's Menu Management panel). Omitting it from
-      // the upsert payload preserves the existing DB value on conflict, and
-      // lets the schema default ('all_day') apply for brand-new POS products.
+      // POS doesn't manage meal-period assignments — those live in a separate
+      // menu_item_meal_periods join table managed exclusively by the admin
+      // Menu Management panel. POS upserts to menu_items don't touch the
+      // join table, so existing tags are preserved across POS edits.
       return {
         id:          p.id,
         category_id: p.categoryId,

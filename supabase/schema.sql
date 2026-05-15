@@ -18,7 +18,7 @@
 -- Layout:
 --    1. Extensions
 --    2. Tables (in dependency order)
---    3. Column additions on existing tables (auth, audit, meal_period, links)
+--    3. Column additions on existing tables + meal-period tables, links
 --    4. Indexes
 --    5. RLS — enable + policies
 --    6. Grants (base table grants + column-level revokes)
@@ -253,6 +253,13 @@ create table if not exists dining_tables (
   created_at  timestamptz not null default now()
 );
 
+-- Case-insensitive unique label. Closes the race window where two concurrent
+-- POSTs could each pass the application-level duplicate check before either
+-- INSERT commits. Application code still does a friendly pre-check; this is
+-- the hard backstop.
+create unique index if not exists dining_tables_label_unique
+  on dining_tables (lower(label));
+
 
 -- ── 3. Column additions on existing tables ───────────────────────────────────
 -- Added separately as ALTERs so existing DBs created before these columns
@@ -320,11 +327,36 @@ begin
   end if;
 end $$;
 
--- 3e. menu_items — meal_period (replaces app_settings.data.breakfastMenu) ----
--- 'all_day' = always visible; 'breakfast' = visible only during breakfast hours.
--- Once the runtime stops reading breakfastMenu, drop that JSONB key in a
--- follow-up cleanup migration.
-alter table menu_items add column if not exists meal_period text not null default 'all_day';
+-- 3e. Meal periods — time-bounded sections on the customer menu --------------
+-- Replaces the earlier single-enum `meal_period` column and the legacy
+-- `settings.breakfastMenu` JSONB blob with a proper many-to-many model:
+--   * `meal_periods` row per period (Breakfast, Lunch, Dinner, Sunday Brunch…)
+--     with schedule (enabled, time window, days of week, sort_order).
+--   * `menu_item_meal_periods` join row per (item × period) pair.
+-- Items with zero join rows are "anytime" items shown on the customer menu
+-- regardless of time. Cascade deletes both ways so removing either side is
+-- self-cleaning.
+
+create table if not exists meal_periods (
+  id            uuid        primary key default gen_random_uuid(),
+  name          text        not null,
+  enabled       boolean     not null default true,
+  start_time    text        not null,           -- "HH:MM"
+  end_time      text        not null,           -- "HH:MM"
+  days_of_week  integer[]   not null default array[0,1,2,3,4,5,6], -- 0=Sun..6=Sat
+  sort_order    integer     not null default 0,
+  created_at    timestamptz not null default now()
+);
+
+create table if not exists menu_item_meal_periods (
+  menu_item_id    text not null references menu_items(id)   on delete cascade,
+  meal_period_id  uuid not null references meal_periods(id) on delete cascade,
+  primary key (menu_item_id, meal_period_id)
+);
+
+-- Drop the now-obsolete column (and its index) so the runtime can't
+-- accidentally read stale data after the refactor.
+alter table menu_items drop column if exists meal_period;
 
 -- 3f. reservation_customers ↔ customers link --------------------------------
 -- Nullable: not every reservation guest is (or becomes) a registered customer.
@@ -343,7 +375,10 @@ create index if not exists idx_orders_date          on orders(date desc);
 create index if not exists idx_orders_status        on orders(status);
 create index if not exists idx_orders_driver_id     on orders(driver_id) where driver_id is not null;
 create index if not exists idx_menu_items_category  on menu_items(category_id);
-create index if not exists idx_menu_items_meal      on menu_items(meal_period);
+drop index if exists idx_menu_items_meal;
+create index if not exists idx_mimp_item             on menu_item_meal_periods(menu_item_id);
+create index if not exists idx_mimp_period           on menu_item_meal_periods(meal_period_id);
+create index if not exists idx_meal_periods_order    on meal_periods(sort_order);
 create index if not exists idx_reservations_slot    on reservations(date, time);
 create index if not exists idx_reservations_status  on reservations(status);
 create index if not exists idx_pos_staff_active     on pos_staff(active) where active = true;
@@ -371,6 +406,8 @@ alter table kitchen_staff          enable row level security;
 alter table coupons                enable row level security;
 alter table payment_audit_log      enable row level security;
 alter table dining_tables          enable row level security;
+alter table meal_periods           enable row level security;
+alter table menu_item_meal_periods enable row level security;
 
 -- 5b. Read policies for anon (public-facing pages need these).
 drop policy if exists "anon_select_settings"       on app_settings;
@@ -400,6 +437,14 @@ create policy "anon_select_reservations"
 drop policy if exists "anon_select_dining_tables"  on dining_tables;
 create policy "anon_select_dining_tables"
   on dining_tables for select to anon using (true);
+
+drop policy if exists "anon_select_meal_periods"   on meal_periods;
+create policy "anon_select_meal_periods"
+  on meal_periods for select to anon using (true);
+
+drop policy if exists "anon_select_mimp"           on menu_item_meal_periods;
+create policy "anon_select_mimp"
+  on menu_item_meal_periods for select to anon using (true);
 
 -- 5c. Write policies for anon — none, except waitlist signup.
 -- Belt-and-suspenders drops for any DB that picked up stray policies from
@@ -514,7 +559,8 @@ begin
       'app_settings', 'categories', 'menu_items',
       'orders', 'drivers',
       'reservations', 'reservation_customers',
-      'dining_tables'
+      'dining_tables',
+      'meal_periods', 'menu_item_meal_periods'
     ]
     loop
       if not exists (
@@ -556,9 +602,9 @@ end $$;
 --                        'payment_audit_log','dining_tables')
 --   order by table_name;
 --
---   -- meal_period column on menu_items?
---   select column_name, column_default from information_schema.columns
---   where table_name = 'menu_items' and column_name = 'meal_period';
+--   -- meal-period tables present?
+--   select count(*) from meal_periods;
+--   select count(*) from menu_item_meal_periods;
 --
 --   -- sentinel rows?
 --   select id from app_settings;            -- expect 1

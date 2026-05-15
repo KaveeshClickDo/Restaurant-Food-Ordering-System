@@ -1,7 +1,6 @@
-import { Category, MenuItem } from "@/types";
+import { Category, MealPeriod, MenuItem } from "@/types";
 
 export const categories: Category[] = [
-  { id: "breakfast",   name: "Breakfast",          emoji: "☀️" },
   { id: "starters",    name: "Starters",          emoji: "🥗" },
   { id: "breads",      name: "Breads & Rice",      emoji: "🫓" },
   { id: "mains-veg",   name: "Vegetarian Mains",   emoji: "🥦" },
@@ -12,25 +11,43 @@ export const categories: Category[] = [
   { id: "drinks",      name: "Drinks",              emoji: "🥤" },
 ];
 
-export const menuItems: MenuItem[] = [
-  /* ── BREAKFAST (only visible during the configured breakfast window) ── */
+// Two sensible defaults. Admin can rename, edit times, add more periods, or
+// delete them entirely. Items reference these IDs in their mealPeriodIds list.
+export const mealPeriods: MealPeriod[] = [
   {
-    id: "bf1", categoryId: "breakfast",
+    id: "mp-breakfast", name: "Breakfast",
+    enabled: true, startTime: "07:00", endTime: "11:30",
+    daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+    sortOrder: 0,
+  },
+  {
+    id: "mp-dinner", name: "Dinner",
+    enabled: true, startTime: "17:00", endTime: "22:00",
+    daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+    sortOrder: 1,
+  },
+];
+
+export const menuItems: MenuItem[] = [
+  /* ── BREAKFAST-TAGGED ITEMS (live in regular food categories, but their
+        mealPeriodIds make them visible only during the Breakfast window) ── */
+  {
+    id: "bf1", categoryId: "mains-veg",
     name: "Masala Omelette",
     description: "Three-egg omelette with onions, green chillies, tomato and fresh coriander. Served with buttered toast.",
     price: 6.95, dietary: ["vegetarian"], popular: true,
-    mealPeriod: "breakfast",
+    mealPeriodIds: ["mp-breakfast"],
     addOns: [
       { id: "ao-bf-toast", name: "Extra toast",  price: 1.00 },
       { id: "ao-bf-chai",  name: "Masala chai",  price: 2.50 },
     ],
   },
   {
-    id: "bf2", categoryId: "breakfast",
+    id: "bf2", categoryId: "breads",
     name: "Aloo Paratha",
     description: "Hand-rolled wheat flatbread stuffed with spiced potato, pan-fried in ghee. Served with yoghurt and pickle.",
     price: 7.50, dietary: ["vegetarian"],
-    mealPeriod: "breakfast",
+    mealPeriodIds: ["mp-breakfast"],
     variations: [
       { id: "v-bf-portion", name: "Portion", options: [
         { id: "one",  label: "1 paratha",  price: 0 },
@@ -39,18 +56,18 @@ export const menuItems: MenuItem[] = [
     ],
   },
   {
-    id: "bf3", categoryId: "breakfast",
+    id: "bf3", categoryId: "mains-veg",
     name: "Puri Bhaji",
     description: "Light puffed bread served with a spiced potato curry. A classic Indian breakfast.",
     price: 6.50, dietary: ["vegetarian", "vegan"],
-    mealPeriod: "breakfast",
+    mealPeriodIds: ["mp-breakfast"],
   },
   {
-    id: "bf4", categoryId: "breakfast",
+    id: "bf4", categoryId: "sides",
     name: "Idli Sambar (3 pcs)",
     description: "Steamed rice cakes served with lentil sambar and coconut chutney.",
     price: 6.95, dietary: ["vegetarian", "vegan", "gluten-free"],
-    mealPeriod: "breakfast",
+    mealPeriodIds: ["mp-breakfast"],
   },
 
   /* ── STARTERS ─────────────────────────────────── */
@@ -204,6 +221,7 @@ export const menuItems: MenuItem[] = [
     name: "Chicken Tikka Masala",
     description: "Britain's favourite — tender tikka chicken in a velvety spiced tomato cream sauce.",
     price: 13.50, dietary: ["halal", "gluten-free"], popular: true,
+    mealPeriodIds: ["mp-dinner"],
     variations: [
       { id: "v-spice", name: "Spice level", options: [
         { id: "mild",   label: "Mild",   price: 0 },
@@ -261,6 +279,7 @@ export const menuItems: MenuItem[] = [
     name: "King Prawn Masala",
     description: "Juicy king prawns in a spiced onion and tomato masala. A house classic.",
     price: 16.95, dietary: ["halal", "gluten-free"], popular: true,
+    mealPeriodIds: ["mp-dinner"],
     variations: [
       { id: "v-spice", name: "Spice level", options: [
         { id: "mild",   label: "Mild",   price: 0 },

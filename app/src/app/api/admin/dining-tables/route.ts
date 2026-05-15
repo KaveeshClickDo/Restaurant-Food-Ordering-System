@@ -59,10 +59,25 @@ export async function POST(request: Request) {
     );
   }
 
+  // Block duplicate labels (case-insensitive). Defense-in-depth — the client
+  // also checks, but a stale form or direct API call can still slip through.
+  const trimmedLabel = label.trim();
+  const { data: existing } = await supabaseAdmin
+    .from("dining_tables")
+    .select("id")
+    .ilike("label", trimmedLabel)
+    .limit(1);
+  if (existing && existing.length > 0) {
+    return NextResponse.json(
+      { ok: false, error: `A table labeled "${trimmedLabel}" already exists. Use a different label.` },
+      { status: 409 },
+    );
+  }
+
   const { data, error } = await supabaseAdmin
     .from("dining_tables")
     .insert({
-      label:      label.trim(),
+      label:      trimmedLabel,
       number,
       seats,
       section:    section.trim(),
@@ -72,6 +87,16 @@ export async function POST(request: Request) {
     .select(COLUMNS)
     .single();
 
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (error) {
+    // 23505 = unique_violation. The DB-level constraint catches anything that
+    // slipped past the app-level check (concurrent POSTs, direct API hits).
+    if (error.code === "23505" || error.message?.includes("dining_tables_label_unique")) {
+      return NextResponse.json(
+        { ok: false, error: `A table labeled "${trimmedLabel}" already exists. Use a different label.` },
+        { status: 409 },
+      );
+    }
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
   return NextResponse.json({ ok: true, table: mapRow(data) }, { status: 201 });
 }

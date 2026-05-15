@@ -17,7 +17,17 @@ export interface Variation {
 
 export type StockStatus = "in_stock" | "low_stock" | "out_of_stock";
 
-export type MealPeriod = "all_day" | "breakfast";
+/** A time-bounded section on the customer menu (e.g. Breakfast, Lunch,
+ *  Dinner, Sunday Brunch). Admin-managed; many-to-many with menu items. */
+export interface MealPeriod {
+  id: string;
+  name: string;
+  enabled: boolean;
+  startTime: string;        // "HH:MM"
+  endTime: string;          // "HH:MM"
+  daysOfWeek: number[];     // 0=Sun..6=Sat
+  sortOrder: number;
+}
 
 export interface MenuItem {
   id: string;
@@ -34,9 +44,9 @@ export interface MenuItem {
   stockQty?: number;
   /** Manual status override — used when stockQty is not set. */
   stockStatus?: StockStatus;
-  /** Time-of-day visibility on the customer site. "breakfast" items are
-   *  shown only during the configured breakfast window. */
-  mealPeriod?: MealPeriod;
+  /** IDs of the meal periods this item appears in. Empty = "anytime" item,
+   *  shown in the main grid regardless of time of day. */
+  mealPeriodIds?: string[];
 }
 
 export interface Category {
@@ -155,6 +165,7 @@ export type EmailTemplateEvent =
   | "reservation_confirmation"
   | "reservation_update"
   | "reservation_cancellation"
+  | "reservation_check_in"
   | "reservation_review_request";
 
 export interface EmailTemplate {
@@ -248,15 +259,6 @@ export interface ReceiptSettings {
   customMessage: string;      // optional extra line at bottom
 }
 
-/** Time window during which items tagged `mealPeriod="breakfast"` are shown
- *  on the customer site. Items themselves live in `menu_items` and are tagged
- *  via the admin Menu Management panel — this settings object only holds the
- *  schedule. */
-export interface BreakfastMenuSettings {
-  enabled: boolean;
-  startTime: string;     // "07:00"
-  endTime: string;       // "11:30"
-}
 
 export type ReservationStatus =
   | "pending"
@@ -356,7 +358,8 @@ export interface KitchenStaff {
 
 export interface DiningTable {
   id: string;
-  number: number;
+  /** Legacy numeric identifier — kept for DB compatibility but not surfaced in the UI. `label` is the human-readable identifier used everywhere. */
+  number?: number | null;
   label: string;    // e.g. "T1", "Bar 2", "Terrace A"
   seats: number;
   section: string;  // e.g. "Main Hall", "Terrace"
@@ -388,7 +391,6 @@ export interface AdminSettings {
   colors: ColorSettings;
   footerLogos: FooterLogo[];
   receiptSettings: ReceiptSettings;
-  breakfastMenu: BreakfastMenuSettings;
   waiters: WaiterStaff[];
   kitchenStaff: KitchenStaff[];
   diningTables: DiningTable[];

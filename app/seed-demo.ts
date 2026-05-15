@@ -28,7 +28,7 @@
 
 import pg from "pg";
 import bcrypt from "bcryptjs";
-import { categories as demoCategories, menuItems as demoMenuItems } from "./src/data/menu.js";
+import { categories as demoCategories, menuItems as demoMenuItems, mealPeriods as demoMealPeriods } from "./src/data/menu.js";
 import { mockCustomers } from "./src/data/customers.js";
 
 const HASH_ROUNDS = 10;
@@ -83,14 +83,30 @@ async function main(): Promise<void> {
       summary.push("categories: already populated, skipped");
     }
 
+    // ── Meal periods ───────────────────────────────────────────────────────
+    if (await tableEmpty(client, "meal_periods")) {
+      for (const p of demoMealPeriods) {
+        await client.query(
+          `insert into meal_periods
+             (id, name, enabled, start_time, end_time, days_of_week, sort_order)
+           values ($1,$2,$3,$4,$5,$6,$7)`,
+          [p.id, p.name, p.enabled, p.startTime, p.endTime, p.daysOfWeek, p.sortOrder],
+        );
+      }
+      summary.push(`meal_periods: seeded ${demoMealPeriods.length}`);
+    } else {
+      summary.push("meal_periods: already populated, skipped");
+    }
+
     // ── Menu items ─────────────────────────────────────────────────────────
     if (await tableEmpty(client, "menu_items")) {
+      let mimpCount = 0;
       for (const m of demoMenuItems) {
         await client.query(
           `insert into menu_items
              (id, category_id, name, description, price, image, dietary, popular,
-              variations, add_ons, stock_qty, stock_status, sort_order, meal_period)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13,$14)`,
+              variations, add_ons, stock_qty, stock_status, sort_order)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13)`,
           [
             m.id, m.categoryId, m.name, m.description ?? "",
             m.price, m.image ?? "",
@@ -98,11 +114,19 @@ async function main(): Promise<void> {
             JSON.stringify(m.variations ?? []),
             JSON.stringify(m.addOns ?? []),
             m.stockQty ?? null, m.stockStatus ?? "in_stock",
-            0, m.mealPeriod ?? "all_day",
+            0,
           ],
         );
+        for (const mpId of m.mealPeriodIds ?? []) {
+          await client.query(
+            `insert into menu_item_meal_periods (menu_item_id, meal_period_id)
+             values ($1, $2)`,
+            [m.id, mpId],
+          );
+          mimpCount++;
+        }
       }
-      summary.push(`menu_items: seeded ${demoMenuItems.length}`);
+      summary.push(`menu_items: seeded ${demoMenuItems.length} (${mimpCount} meal-period tags)`);
     } else {
       summary.push("menu_items: already populated, skipped");
     }

@@ -16,7 +16,8 @@ import ScheduleOrderModal from "@/components/ScheduleOrderModal";
 import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import ReservationModal from "@/components/ReservationModal";
 import SiteFooter from "@/components/SiteFooter";
-import BreakfastSection from "@/components/BreakfastSection";
+import MealPeriodSection from "@/components/MealPeriodSection";
+import { isMealPeriodActive } from "@/lib/scheduleUtils";
 import { resolveStock } from "@/lib/stockUtils";
 import { getNextOpenTime, formatNextOpen } from "@/lib/scheduleUtils";
 import MobileBottomNav from "@/components/MobileBottomNav";
@@ -258,7 +259,7 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function HomePage() {
   const {
-    categories, menuItems, settings,
+    categories, menuItems, mealPeriods, settings,
     isOpen, currentUser, logout
   } = useApp();
 
@@ -280,31 +281,34 @@ export default function HomePage() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [showReservation, setShowReservation] = useState(false);
 
-  // ── Breakfast window ─────────────────────────────────────────────────────
-  // Items tagged mealPeriod="breakfast" are only orderable during the configured
-  // window. Outside the window they're hidden from customers entirely.
-  const breakfastCfg = settings.breakfastMenu;
-  const inBreakfastWindow = (() => {
-    if (!breakfastCfg?.enabled || !breakfastCfg.startTime || !breakfastCfg.endTime) return false;
-    const now = new Date();
-    const mins = now.getHours() * 60 + now.getMinutes();
-    const [sh, sm] = breakfastCfg.startTime.split(":").map(Number);
-    const [eh, em] = breakfastCfg.endTime.split(":").map(Number);
-    const start = sh * 60 + sm;
-    const end   = eh * 60 + em;
-    return start <= end ? mins >= start && mins < end : mins >= start || mins < end;
-  })();
+  // ── Meal-period awareness ────────────────────────────────────────────────
+  // Tick re-renders the page every 30s so meal-period sections appear/disappear
+  // as windows open and close while the tab stays open.
+  const [nowTick, setNowTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setNowTick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
 
-  // Categories visible to the customer — hide any category whose only items are
-  // breakfast items when we're outside the breakfast window (or the feature is
-  // off). Categories with no items at all are kept.
-  const visibleCategories = inBreakfastWindow
-    ? categories
-    : categories.filter((cat) => {
-        const catItems = menuItems.filter((i) => i.categoryId === cat.id);
-        if (catItems.length === 0) return true;
-        return catItems.some((i) => i.mealPeriod !== "breakfast");
-      });
+  const activeMealPeriods = mealPeriods.filter((p) => isMealPeriodActive(p));
+  const activeMealPeriodIds = new Set(activeMealPeriods.map((p) => p.id));
+
+  /** True iff this item is orderable right now. Anytime items (no tags) always
+   *  orderable; tagged items need at least one of their periods currently active. */
+  const isItemOrderable = (item: MenuItem) => {
+    const tags = item.mealPeriodIds ?? [];
+    if (tags.length === 0) return true;
+    return tags.some((id) => activeMealPeriodIds.has(id));
+  };
+
+  // Categories visible to the customer — hide any category whose only items
+  // are currently non-orderable (e.g. a category full of dinner-only items
+  // during breakfast). Empty categories stay visible.
+  const visibleCategories = categories.filter((cat) => {
+    const catItems = menuItems.filter((i) => i.categoryId === cat.id);
+    if (catItems.length === 0) return true;
+    return catItems.some(isItemOrderable);
+  });
 
   // If the customer was on a category that just became hidden (window closed
   // or admin disabled), snap them back to "all".
@@ -313,36 +317,42 @@ export default function HomePage() {
     if (!visibleCategories.some((c) => c.id === activeCat)) setActiveCat("all");
   }, [activeCat, visibleCategories]);
 
-  // Filtered items (search + category)
-  const filteredItems = menuItems.filter((item) => {
-    if (activeCat !== "all" && item.categoryId !== activeCat) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      if (!item.name.toLowerCase().includes(q) && !item.description.toLowerCase().includes(q)) return false;
-    }
-    return true;
-  });
+  // Filtered items (search + category). Apply meal-period orderability after.
+  const filteredItems = menuItems
+    .filter((item) => {
+      if (activeCat !== "all" && item.categoryId !== activeCat) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        if (!item.name.toLowerCase().includes(q) && !item.description.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    })
+    .filter(isItemOrderable);
 
-  // Drop breakfast items when outside the window. When inside the window AND
-  // showing the dedicated Breakfast section (no category/search filter), also
-  // drop them from the main grid to avoid duplication.
+  // Show dedicated meal-period sections only on the default "Everything" view
+  // with no search/filter active. Otherwise the customer is drilling into
+  // something specific and we keep the layout flat.
   const isBrowsingAll = activeCat === "all" && !search;
-  const showBreakfastSection =
-    inBreakfastWindow && isBrowsingAll &&
-    filteredItems.some((i) => i.mealPeriod === "breakfast");
+  const sectionsToShow = isBrowsingAll
+    ? activeMealPeriods
+        .map((p) => ({
+          period: p,
+          items: filteredItems.filter((i) => (i.mealPeriodIds ?? []).includes(p.id)),
+        }))
+        .filter(({ items }) => items.length > 0)
+    : [];
 
-  const items = filteredItems.filter((item) => {
-    if (item.mealPeriod !== "breakfast") return true;
-    if (!inBreakfastWindow) return false;
-    if (showBreakfastSection) return false; // shown in its own section
-    return true;
-  });
+  const itemsInAnySection = new Set(sectionsToShow.flatMap((s) => s.items.map((i) => i.id)));
 
-  const breakfastItems = filteredItems.filter((i) => i.mealPeriod === "breakfast");
+  // Main grid: anytime items + tagged items not currently shown in a section.
+  // When sectionsToShow is empty (search/filter view), the grid is everything
+  // orderable; when sections exist, those items move into them.
+  const items = filteredItems.filter((i) => !itemsInAnySection.has(i.id));
 
-  // Total visible to the customer = grid items + breakfast-section items
-  // (when section is shown). Outside the window, breakfast items are excluded.
-  const visibleTotal = items.length + (showBreakfastSection ? breakfastItems.length : 0);
+  const visibleTotal = filteredItems.length;
+  // We reference nowTick in render so re-renders keep the section state in
+  // sync with wall-clock time (eslint also stops complaining about an unused var).
+  void nowTick;
 
   const activeCategory = categories.find((c) => c.id === activeCat);
 
@@ -466,16 +476,18 @@ export default function HomePage() {
 
             <Hero isOpen={isOpen} onReserve={() => setShowReservation(true)} />
 
-            {/* Breakfast section — only inside the breakfast window, on the
-                default "Everything" view (no search, no category filter). */}
-            {showBreakfastSection && breakfastCfg && (
-              <div className="px-6 mb-5">
-                <BreakfastSection
-                  categories={categories}
-                  items={breakfastItems}
-                  startTime={breakfastCfg.startTime}
-                  endTime={breakfastCfg.endTime}
-                />
+            {/* Meal-period sections — one per currently-active period, only
+                on the default "Everything" view (no search, no category filter). */}
+            {sectionsToShow.length > 0 && (
+              <div className="px-6 mb-5 space-y-4">
+                {sectionsToShow.map(({ period, items: sectionItems }) => (
+                  <MealPeriodSection
+                    key={period.id}
+                    period={period}
+                    categories={categories}
+                    items={sectionItems}
+                  />
+                ))}
               </div>
             )}
 

@@ -315,13 +315,13 @@ src/
 │   ├── AuthModal.tsx                     # Login / Register modal with Google OAuth button
 │   ├── EmailVerificationBanner.tsx       # Unverified-email prompt bar (layout-level)
 │   ├── Header.tsx / Footer.tsx / Cart.tsx
-│   ├── BreakfastSection.tsx / MenuItemCard.tsx / MenuSection.tsx
+│   ├── MealPeriodSection.tsx / MenuItemCard.tsx / MenuSection.tsx
 │   ├── CategoryNav.tsx / SearchAndFilters.tsx
 │   ├── CheckoutModal.tsx / ItemCustomizationModal.tsx
 │   ├── ScheduleOrderModal.tsx / SeoHead.tsx
 │   └── admin/
 │       ├── DeliveryPanel.tsx / OnlineReportsPanel.tsx / RefundsPanel.tsx
-│       ├── MenuManagementPanel.tsx / BreakfastMenuPanel.tsx
+│       ├── MenuManagementPanel.tsx
 │       ├── CustomersPanel.tsx / ReservationCustomersPanel.tsx / DriversPanel.tsx
 │       ├── CouponsPanel.tsx / TaxSettingsPanel.tsx / POSReportsPanel.tsx
 │       ├── OperationsPanel.tsx / SchedulePanel.tsx / DeliveryZonesPanel.tsx

@@ -140,6 +140,12 @@ export default function ReservationsView() {
 
   async function handleAddBooking() {
     if (!addTableMeta || !addName.trim()) return;
+    // Phone bookings always need a callback number — that's how staff reach the
+    // guest if the table runs late, the booking needs confirmation, etc.
+    if (addSource === "phone" && !addPhone.trim()) {
+      setAddError("Phone number is required for phone bookings.");
+      return;
+    }
     // Soft-warn: party exceeds table capacity. Staff often pulls extra chairs
     // or merges tables, so we allow override after explicit confirmation.
     if (addTableMeta.seats < addParty) {
@@ -671,7 +677,8 @@ export default function ReservationsView() {
                   className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" />
                 <input type="email" placeholder="Email (optional)" value={addEmail} onChange={(e) => setAddEmail(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" />
-                <input type="tel" placeholder="Phone (optional)" value={addPhone} onChange={(e) => setAddPhone(e.target.value)}
+                <input type="tel" placeholder={addSource === "phone" ? "Phone *" : "Phone (optional)"}
+                  value={addPhone} onChange={(e) => setAddPhone(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" />
                 <textarea rows={2} placeholder="Notes (optional)" value={addNote} onChange={(e) => setAddNote(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 text-sm placeholder-slate-500 resize-none focus:outline-none focus:border-orange-500 transition" />
@@ -689,7 +696,7 @@ export default function ReservationsView() {
               <button onClick={() => setShowAdd(false)} className="text-slate-400 hover:text-slate-200 text-sm font-semibold transition">Cancel</button>
               <button
                 onClick={handleAddBooking}
-                disabled={addSaving || !addName.trim() || !addTableMeta || isSlotPastRes(addTime, addDate)}
+                disabled={addSaving || !addName.trim() || !addTableMeta || isSlotPastRes(addTime, addDate) || (addSource === "phone" && !addPhone.trim())}
                 className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-400 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-all"
               >
                 {addSaving ? <><Loader2 size={14} className="animate-spin" />Saving…</> :

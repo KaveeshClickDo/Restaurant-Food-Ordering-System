@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { WaiterStaff, DiningTable } from "@/types";
 import {
   UserPlus, Pencil, Trash2, Users, UtensilsCrossed,
@@ -27,18 +27,19 @@ const EMPTY_WAITER: Omit<WaiterStaff, "id" | "createdAt"> = {
 
 function WaiterForm({
   initial,
-  existingIds,
   onSave,
   onCancel,
 }: {
   initial?: Partial<typeof EMPTY_WAITER> & { id?: string };
-  existingIds: string[];
-  onSave: (data: typeof EMPTY_WAITER) => void;
+  onSave: (data: typeof EMPTY_WAITER) => Promise<void> | void;
   onCancel: () => void;
 }) {
   const [form, setForm]     = useState({ ...EMPTY_WAITER, ...initial });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showPin, setShowPin] = useState(false);
+  // Guards against rapid double-click creating duplicate rows.
+  const [saving, setSaving] = useState(false);
+  const inFlight = useRef(false);
 
   function set<K extends keyof typeof EMPTY_WAITER>(k: K, v: (typeof EMPTY_WAITER)[K]) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -59,10 +60,18 @@ function WaiterForm({
     return true;
   }
 
-  function handleSubmit(ev: React.FormEvent) {
+  async function handleSubmit(ev: React.FormEvent) {
     ev.preventDefault();
+    if (inFlight.current) return;
     if (!validate()) return;
-    onSave(form);
+    inFlight.current = true;
+    setSaving(true);
+    try {
+      await onSave(form);
+    } finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
   }
 
   return (
@@ -151,14 +160,16 @@ function WaiterForm({
       <div className="flex gap-2 pt-2">
         <button
           type="submit"
-          className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
+          disabled={saving}
+          className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
         >
-          <Save size={14} /> Save
+          <Save size={14} /> {saving ? "Saving…" : "Save"}
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
+          disabled={saving}
+          className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
         >
           <X size={14} /> Cancel
         </button>
@@ -169,23 +180,31 @@ function WaiterForm({
 
 // ─── Table Form ───────────────────────────────────────────────────────────────
 
-const EMPTY_TABLE: Omit<DiningTable, "id"> = {
-  number: 1, label: "", seats: 4, section: "Main Hall", active: true,
+const EMPTY_TABLE: Omit<DiningTable, "id" | "number"> = {
+  label: "", seats: 4, section: "Main Hall", active: true,
 };
 
 const SECTIONS = ["Main Hall", "Terrace", "Bar", "Private Dining", "Garden"];
 
 function TableForm({
   initial,
+  existingLabels,
   onSave,
   onCancel,
 }: {
   initial?: Partial<typeof EMPTY_TABLE>;
-  onSave: (data: typeof EMPTY_TABLE) => void;
+  /** Labels of OTHER tables (excluding the one being edited) — used to block duplicates. */
+  existingLabels: string[];
+  onSave: (data: typeof EMPTY_TABLE) => Promise<void> | void;
   onCancel: () => void;
 }) {
   const [form, setForm]     = useState({ ...EMPTY_TABLE, ...initial });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Local saving state guards against double-submit. The submit button is
+  // disabled while a request is in flight; a ref also guards the handler
+  // entry in case rapid clicks queue before the disabled prop applies.
+  const [saving, setSaving] = useState(false);
+  const inFlight = useRef(false);
 
   function set<K extends keyof typeof EMPTY_TABLE>(k: K, v: (typeof EMPTY_TABLE)[K]) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -194,17 +213,30 @@ function TableForm({
 
   function validate(): boolean {
     const e: Record<string, string> = {};
-    if (!form.label.trim())   e.label   = "Label is required.";
+    const trimmedLabel = form.label.trim();
+    if (!trimmedLabel)        e.label   = "Label is required.";
     if (!form.section.trim()) e.section = "Section is required.";
     if (form.seats < 1)       e.seats   = "Must have at least 1 seat.";
+    // Case-insensitive duplicate check — "T1" and "t1" should clash.
+    if (trimmedLabel && existingLabels.some((l) => l.trim().toLowerCase() === trimmedLabel.toLowerCase())) {
+      e.label = "Another table already uses this label.";
+    }
     if (Object.keys(e).length) { setErrors(e); return false; }
     return true;
   }
 
-  function handleSubmit(ev: React.FormEvent) {
+  async function handleSubmit(ev: React.FormEvent) {
     ev.preventDefault();
+    if (inFlight.current) return;
     if (!validate()) return;
-    onSave(form);
+    inFlight.current = true;
+    setSaving(true);
+    try {
+      await onSave({ ...form, label: form.label.trim(), section: form.section.trim() });
+    } finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
   }
 
   return (
@@ -222,20 +254,8 @@ function TableForm({
           {errors.label && <p className="text-red-400 text-xs mt-1">{errors.label}</p>}
         </div>
 
-        {/* Table number */}
-        <div>
-          <label className="block text-xs font-medium text-gray-400 mb-1">Number</label>
-          <input
-            type="number"
-            min={1}
-            value={form.number}
-            onChange={(e) => set("number", parseInt(e.target.value) || 1)}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
-          />
-        </div>
-
         {/* Seats */}
-        <div>
+        <div className="col-span-2 sm:col-span-1">
           <label className="block text-xs font-medium text-gray-400 mb-1">Seats</label>
           <input
             type="number"
@@ -290,14 +310,16 @@ function TableForm({
       <div className="flex gap-2 pt-2">
         <button
           type="submit"
-          className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
+          disabled={saving}
+          className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
         >
-          <Save size={14} /> Save
+          <Save size={14} /> {saving ? "Saving…" : "Save"}
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
+          disabled={saving}
+          className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
         >
           <X size={14} /> Cancel
         </button>
@@ -397,35 +419,51 @@ export default function WaitersPanel() {
 
   // ── Table CRUD ───────────────────────────────────────────────────────────────
 
-  async function handleAddTable(data: Omit<DiningTable, "id">) {
+  const [tableError, setTableError] = useState<string>("");
+
+  async function handleAddTable(data: Omit<DiningTable, "id" | "number">) {
+    setTableError("");
     const res = await fetch("/api/admin/dining-tables", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify(data),
     });
-    if (res.ok) {
+    const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+    if (res.ok && json.ok) {
       await refreshTables();
       setAddingTable(false);
+    } else {
+      setTableError(json.error ?? "Failed to add table.");
     }
   }
 
-  async function handleEditTable(data: Omit<DiningTable, "id">) {
+  async function handleEditTable(data: Omit<DiningTable, "id" | "number">) {
     if (!editingTable) return;
+    setTableError("");
     const res = await fetch(`/api/admin/dining-tables/${editingTable.id}`, {
       method:  "PATCH",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify(data),
     });
-    if (res.ok) {
+    const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+    if (res.ok && json.ok) {
       await refreshTables();
       setEditingTable(null);
+    } else {
+      setTableError(json.error ?? "Failed to update table.");
     }
   }
 
   async function handleDeleteTable(id: string) {
+    setTableError("");
     const res = await fetch(`/api/admin/dining-tables/${id}`, { method: "DELETE" });
-    if (res.ok) {
+    const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+    if (res.ok && json.ok) {
       await refreshTables();
+      setDeletingTable(null);
+    } else {
+      // 409 surfaces here when the table has historical reservations
+      setTableError(json.error ?? "Failed to delete table.");
       setDeletingTable(null);
     }
   }
@@ -493,7 +531,6 @@ export default function WaitersPanel() {
             <div className="bg-gray-900 rounded-2xl border border-gray-800 p-5">
               <h3 className="text-white font-semibold mb-4 flex items-center gap-2"><UserPlus size={16} /> New Staff Member</h3>
               <WaiterForm
-                existingIds={waiters.map((w) => w.id)}
                 onSave={handleAddWaiter}
                 onCancel={() => setAddingWaiter(false)}
               />
@@ -515,7 +552,6 @@ export default function WaitersPanel() {
                     <h3 className="text-white font-semibold mb-4 flex items-center gap-2"><Pencil size={15} /> Edit {waiter.name}</h3>
                     <WaiterForm
                       initial={waiter}
-                      existingIds={waiters.filter((w) => w.id !== waiter.id).map((w) => w.id)}
                       onSave={handleEditWaiter}
                       onCancel={() => setEditingWaiter(null)}
                     />
@@ -627,11 +663,23 @@ export default function WaitersPanel() {
             )}
           </div>
 
+          {/* Inline error banner — surfaces server-side duplicate/in-use errors */}
+          {tableError && (
+            <div className="flex items-start gap-2 bg-red-950/40 border border-red-700/50 rounded-xl px-3 py-2 text-sm text-red-300">
+              <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
+              <span className="flex-1">{tableError}</span>
+              <button onClick={() => setTableError("")} className="text-red-400 hover:text-red-200 transition">
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
           {/* Add form */}
           {addingTable && (
             <div className="bg-gray-900 rounded-2xl border border-gray-800 p-5">
               <h3 className="text-white font-semibold mb-4 flex items-center gap-2"><UtensilsCrossed size={16} /> New Table</h3>
               <TableForm
+                existingLabels={tables.map((t) => t.label)}
                 onSave={handleAddTable}
                 onCancel={() => setAddingTable(false)}
               />
@@ -657,6 +705,7 @@ export default function WaitersPanel() {
                         </h4>
                         <TableForm
                           initial={table}
+                          existingLabels={tables.filter((t) => t.id !== table.id).map((t) => t.label)}
                           onSave={handleEditTable}
                           onCancel={() => setEditingTable(null)}
                         />

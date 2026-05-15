@@ -1,6 +1,10 @@
 /**
- * GET  /api/admin/reservations          — list reservations (filtered)
- * POST /api/admin/reservations          — create walk-in or phone reservation (skips availability check)
+ * GET  /api/admin/reservations  — list reservations (filtered)
+ * POST /api/admin/reservations  — create walk-in or phone reservation.
+ *
+ * Validation matches the POS path: looks up the table server-side, hard-blocks
+ * double-booking at the same time, rejects blackout/past dates and oversized
+ * parties. Capacity is intentionally not enforced — admins can pull chairs.
  * Both require admin session cookie.
  */
 
@@ -8,7 +12,12 @@ import { NextRequest, NextResponse }            from "next/server";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
 import { sendReservationEmailServer }           from "@/lib/emailServer";
-import type { Reservation }                     from "@/types";
+import type { Reservation, DiningTable, ReservationSystem } from "@/types";
+
+function toMins(time: string): number {
+  const [h, m] = time.split(":").map(Number);
+  return h * 60 + m;
+}
 
 function mapRow(row: Record<string, unknown>): Reservation {
   return {
@@ -65,37 +74,115 @@ export async function POST(req: NextRequest) {
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
 
   let body: {
-    tableId?: string; tableLabel?: string; tableSeats?: number; section?: string;
-    date?: string; time?: string; partySize?: number;
+    tableId?: string; date?: string; time?: string; partySize?: number;
     customerName?: string; customerEmail?: string; customerPhone?: string;
-    note?: string; source?: string; status?: string;
+    note?: string; source?: string;
   };
   try { body = await req.json(); }
   catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
 
   const {
-    tableId, tableLabel, tableSeats, section,
-    date, time, partySize, customerName, customerEmail, customerPhone,
-    note, source = "walk-in", status = "checked_in",
+    tableId, date, time, partySize, customerName, customerEmail, customerPhone,
+    note, source = "walk-in",
   } = body;
 
-  if (!tableId || !tableLabel || !date || !time || !partySize || !customerName) {
+  if (!tableId || !date || !time || !partySize || !customerName) {
     return NextResponse.json(
-      { ok: false, error: "tableId, tableLabel, date, time, partySize and customerName are required." },
+      { ok: false, error: "tableId, date, time, partySize and customerName are required." },
       { status: 400 },
+    );
+  }
+  if (source !== "walk-in" && source !== "phone") {
+    return NextResponse.json({ ok: false, error: "source must be walk-in or phone." }, { status: 400 });
+  }
+  // Phone bookings always need a callback number — staff must be able to
+  // reach the guest. UI also enforces this; this is the server-side gate.
+  if (source === "phone" && !customerPhone?.trim()) {
+    return NextResponse.json(
+      { ok: false, error: "Phone number is required for phone bookings." },
+      { status: 400 },
+    );
+  }
+
+  // Reject past slots — 5 min grace for slow submissions
+  if (new Date(`${date}T${time}`).getTime() < Date.now() - 5 * 60 * 1000) {
+    return NextResponse.json(
+      { ok: false, error: "This time slot has already passed. Please select a future time." },
+      { status: 400 },
+    );
+  }
+
+  // Load settings + verify the table exists. Use server-side table data for
+  // label/seats/section — never trust client values.
+  const [{ data: settingsRow }, { data: tableRow }] = await Promise.all([
+    supabaseAdmin.from("app_settings").select("data").limit(1).single(),
+    supabaseAdmin
+      .from("dining_tables")
+      .select("id, label, seats, section, active")
+      .eq("id", tableId)
+      .maybeSingle(),
+  ]);
+
+  const rs: ReservationSystem = settingsRow?.data?.reservationSystem ?? {} as ReservationSystem;
+  const slotDuration: number  = rs.slotDurationMinutes ?? 90;
+  const maxPartySize: number  = rs.maxPartySize ?? 20;
+  const blackoutDates: string[] = rs.blackoutDates ?? [];
+
+  const table = tableRow && tableRow.active ? (tableRow as DiningTable) : null;
+  if (!table) {
+    return NextResponse.json({ ok: false, error: "Table not found or inactive." }, { status: 400 });
+  }
+  if (partySize > maxPartySize) {
+    return NextResponse.json(
+      { ok: false, error: `Party size exceeds the restaurant maximum of ${maxPartySize}.` },
+      { status: 400 },
+    );
+  }
+  if (blackoutDates.includes(date)) {
+    return NextResponse.json(
+      { ok: false, error: "Restaurant is closed on this date (blackout). Remove the blackout in Settings or pick another date." },
+      { status: 400 },
+    );
+  }
+
+  // Hard-block double booking. Mirrors the POS conflict check — checked_in
+  // tables are always blocked, others only if their time window overlaps.
+  const { data: conflicts, error: conflictErr } = await supabaseAdmin
+    .from("reservations")
+    .select("id, time, status")
+    .eq("date", date)
+    .eq("table_id", tableId)
+    .in("status", ["pending", "confirmed", "checked_in"]);
+
+  if (conflictErr && !conflictErr.message?.includes("schema cache") && !conflictErr.message?.includes("not found")) {
+    console.error("admin/reservations conflict check:", conflictErr.message);
+    return NextResponse.json({ ok: false, error: conflictErr.message }, { status: 500 });
+  }
+
+  const requestedMins = toMins(time);
+  const hasConflict = (conflicts ?? []).some((r) =>
+    r.status === "checked_in" ||
+    Math.abs(toMins(r.time as string) - requestedMins) < slotDuration
+  );
+  if (hasConflict) {
+    return NextResponse.json(
+      { ok: false, error: "This table is already reserved at the selected time. Please choose a different table or time." },
+      { status: 409 },
     );
   }
 
   const id           = crypto.randomUUID();
   const cancel_token = crypto.randomUUID();
   const now          = new Date().toISOString();
+  // Walk-ins are physically present → checked_in immediately. Phone bookings → pending.
+  const status       = source === "walk-in" ? "checked_in" : "pending";
 
   const row: Record<string, unknown> = {
     id,
-    table_id:       tableId,
-    table_label:    tableLabel,
-    table_seats:    tableSeats ?? 0,
-    section:        section ?? "",
+    table_id:       table.id,
+    table_label:    table.label,
+    table_seats:    table.seats,
+    section:        table.section ?? "",
     customer_name:  customerName.trim(),
     customer_email: customerEmail?.trim().toLowerCase() ?? "",
     customer_phone: customerPhone?.trim() ?? "",
@@ -108,7 +195,6 @@ export async function POST(req: NextRequest) {
     cancel_token,
     created_at:     now,
   };
-
   if (status === "checked_in") row.checked_in_at = now;
 
   const { error } = await supabaseAdmin.from("reservations").insert(row);
@@ -117,9 +203,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  // Upsert guest profile for walk-ins that have an email
-  if (customerEmail) {
-    const email = customerEmail.trim().toLowerCase();
+  // Upsert guest profile when email is provided
+  const email = customerEmail?.trim().toLowerCase();
+  if (email) {
     const { data: existing } = await supabaseAdmin
       .from("reservation_customers")
       .select("id, first_visit_at")
@@ -140,19 +226,16 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Send confirmation email for phone bookings (walk-ins are already here)
-  if (source === "phone" && customerEmail) {
-    const { data: settingsRow } = await supabaseAdmin.from("app_settings").select("data").limit(1).single();
-    if (settingsRow?.data) {
-      sendReservationEmailServer("reservation_confirmation", {
-        id, customer_name: customerName.trim(),
-        customer_email: customerEmail.trim().toLowerCase(),
-        customer_phone: customerPhone?.trim() ?? "",
-        date, time, table_label: tableLabel,
-        party_size: partySize, status, note: note ?? null,
-        section: section ?? "", cancel_token,
-      }, settingsRow.data, req.headers.get("origin") ?? req.nextUrl.origin).catch(console.error);
-    }
+  // Confirmation email for phone bookings (walk-ins are already here)
+  if (source === "phone" && email && settingsRow?.data) {
+    sendReservationEmailServer("reservation_confirmation", {
+      id, customer_name: customerName.trim(),
+      customer_email: email,
+      customer_phone: customerPhone?.trim() ?? "",
+      date, time, table_label: table.label,
+      party_size: partySize, status, note: note ?? null,
+      section: table.section ?? "", cancel_token,
+    }, settingsRow.data, req.headers.get("origin") ?? req.nextUrl.origin).catch(console.error);
   }
 
   return NextResponse.json({ ok: true, reservationId: id });

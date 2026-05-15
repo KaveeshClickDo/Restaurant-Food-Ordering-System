@@ -21,9 +21,14 @@ const VALID_STATUSES = new Set([
   "pending", "confirmed", "checked_in", "checked_out", "cancelled", "no_show",
 ]);
 
+// Every status transition that should notify the guest. Keeping this in one
+// place is what lets the admin and POS PUT routes stay in lockstep — both
+// derive their emails from this single map.
 const STATUS_EMAIL_MAP: Partial<Record<string, EmailTemplateEvent>> = {
-  confirmed:  "reservation_update",
-  cancelled:  "reservation_cancellation",
+  confirmed:   "reservation_update",
+  cancelled:   "reservation_cancellation",
+  checked_in:  "reservation_check_in",
+  checked_out: "reservation_review_request",
 };
 
 // Build the DB update payload for a given status transition
@@ -82,23 +87,6 @@ export async function PUT(
     ]);
 
     if (resRow) {
-      // Review request email on check-out
-      if (body.status === "checked_out" && settingsRow?.data) {
-        sendReservationEmailServer("reservation_review_request", {
-          id:             resRow.id,
-          customer_name:  resRow.customer_name,
-          customer_email: resRow.customer_email,
-          customer_phone: resRow.customer_phone ?? "",
-          date:           resRow.date,
-          time:           resRow.time,
-          table_label:    resRow.table_label,
-          party_size:     resRow.party_size,
-          status:         resRow.status,
-          note:           resRow.note,
-          section:        resRow.section ?? "",
-        }, settingsRow.data).catch(console.error);
-      }
-
       // Customer upsert (check-in/out)
       if (body.status === "checked_in" || body.status === "checked_out") {
         const email = (resRow.customer_email as string)?.trim().toLowerCase();

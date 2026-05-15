@@ -42,6 +42,14 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
+  // Phone bookings always need a callback number — staff must be able to
+  // reach the guest. UI also enforces this; this is the server-side gate.
+  if (source === "phone" && !customerPhone?.trim()) {
+    return NextResponse.json(
+      { ok: false, error: "Phone number is required for phone bookings." },
+      { status: 400 },
+    );
+  }
 
   // Load settings once — used for both conflict detection (slot duration) and
   // the phone-booking confirmation email further down.

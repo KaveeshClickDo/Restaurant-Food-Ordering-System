@@ -11,8 +11,8 @@ import React, {
 } from "react";
 import { supabase } from "@/lib/supabase";
 import {
-  AdminSettings, AuditEntry, BreakfastMenuSettings, CartItem, Category, Coupon,
-  DeliveryStatus, DeliveryZone, Driver, MenuItem, Customer, Order, OrderStatus, PaymentMethod,
+  AdminSettings, AuditEntry, CartItem, Category, Coupon,
+  DeliveryStatus, DeliveryZone, Driver, MealPeriod, MenuItem, Customer, Order, OrderStatus, PaymentMethod,
   Refund, SavedAddress, StockStatus,
 } from "@/types";
 import { buildColorCss } from "@/lib/colorUtils";
@@ -125,10 +125,14 @@ interface AppContextValue {
   ) => Promise<{ ok: boolean; error?: string }>;
   addRefund: (customerId: string, orderId: string, refund: Refund) => void;
   spendStoreCredit: (customerId: string, amount: number) => void;
-  // ─── Breakfast menu ───────────────────────────────────────────────────────
-  // Items live in `menu_items` with `mealPeriod="breakfast"`; only the schedule
-  // (enabled + window) is stored in settings here.
-  updateBreakfastSettings: (patch: Partial<BreakfastMenuSettings>) => void;
+  // ─── Meal periods ─────────────────────────────────────────────────────────
+  // Time-bounded customer-menu sections (Breakfast, Lunch, Dinner…). Items
+  // reference these via MenuItem.mealPeriodIds. Many-to-many.
+  mealPeriods: MealPeriod[];
+  addMealPeriod: (period: Omit<MealPeriod, "id"> & { id?: string }) => Promise<{ ok: boolean; mealPeriod?: MealPeriod; error?: string }>;
+  updateMealPeriod: (id: string, patch: Partial<Omit<MealPeriod, "id">>) => Promise<{ ok: boolean; error?: string }>;
+  deleteMealPeriod: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  reorderMealPeriods: (periods: MealPeriod[]) => Promise<{ ok: boolean; error?: string }>;
   /** Re-fetches the logged-in customer from the server and syncs state. */
   refreshCurrentUser: () => Promise<void>;
 }
@@ -181,7 +185,7 @@ function mapCategory(row: any): Category {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapMenuItem(row: any): MenuItem {
+function mapMenuItem(row: any, mealPeriodIds: string[] = []): MenuItem {
   return {
     id: row.id, categoryId: row.category_id,
     name: row.name, description: row.description ?? "",
@@ -193,7 +197,20 @@ function mapMenuItem(row: any): MenuItem {
     addOns: row.add_ons ?? [],
     stockQty: row.stock_qty ?? undefined,
     stockStatus: (row.stock_status as StockStatus) || undefined,
-    mealPeriod: (row.meal_period as "all_day" | "breakfast") ?? "all_day",
+    mealPeriodIds,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapMealPeriod(row: any): MealPeriod {
+  return {
+    id: row.id,
+    name: row.name,
+    enabled: !!row.enabled,
+    startTime: row.start_time,
+    endTime: row.end_time,
+    daysOfWeek: row.days_of_week ?? [0, 1, 2, 3, 4, 5, 6],
+    sortOrder: row.sort_order ?? 0,
   };
 }
 
@@ -251,6 +268,8 @@ function categoryToRow(c: Category, order: number) {
 }
 
 function menuItemToRow(m: MenuItem) {
+  // mealPeriodIds is intentionally NOT included — those go to the
+  // menu_item_meal_periods join table, handled separately by the admin API.
   return {
     id: m.id, category_id: m.categoryId,
     name: m.name, description: m.description ?? "",
@@ -258,7 +277,6 @@ function menuItemToRow(m: MenuItem) {
     dietary: m.dietary, popular: m.popular ?? false,
     variations: m.variations ?? [], add_ons: m.addOns ?? [],
     stock_qty: m.stockQty ?? null, stock_status: m.stockStatus ?? "in_stock",
-    meal_period: m.mealPeriod ?? "all_day",
   };
 }
 
@@ -348,6 +366,7 @@ export function AppProvider({
   );
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems]   = useState<MenuItem[]>([]);
+  const [mealPeriods, setMealPeriods] = useState<MealPeriod[]>([]);
   const [customers, setCustomers]   = useState<Customer[]>([]);
   // Mirror of customers state accessible from inside Realtime callbacks without
   // closure staleness — callbacks capture the ref value, not the state snapshot.
@@ -511,10 +530,28 @@ export function AppProvider({
         if (catsErr) console.error("AppContext: failed to load categories:", catsErr.message);
         else setCategories((catsData ?? []).map(mapCategory));
 
-        // Menu items
-        const { data: menuData, error: menuErr } = await supabase.from("menu_items").select("*");
-        if (menuErr) console.error("AppContext: failed to load menu items:", menuErr.message);
-        else setMenuItems((menuData ?? []).map(mapMenuItem));
+        // Menu items + their meal-period join rows (fetched in parallel).
+        const [menuRes, mimpRes] = await Promise.all([
+          supabase.from("menu_items").select("*"),
+          supabase.from("menu_item_meal_periods").select("menu_item_id, meal_period_id"),
+        ]);
+        if (menuRes.error) console.error("AppContext: failed to load menu items:", menuRes.error.message);
+        if (mimpRes.error) console.error("AppContext: failed to load menu_item_meal_periods:", mimpRes.error.message);
+        if (!menuRes.error) {
+          const tagsByItem = new Map<string, string[]>();
+          for (const row of (mimpRes.data ?? []) as { menu_item_id: string; meal_period_id: string }[]) {
+            const arr = tagsByItem.get(row.menu_item_id) ?? [];
+            arr.push(row.meal_period_id);
+            tagsByItem.set(row.menu_item_id, arr);
+          }
+          setMenuItems((menuRes.data ?? []).map((r) => mapMenuItem(r, tagsByItem.get(r.id) ?? [])));
+        }
+
+        // Meal periods
+        const { data: mpData, error: mpErr } = await supabase
+          .from("meal_periods").select("*").order("sort_order", { ascending: true });
+        if (mpErr) console.error("AppContext: failed to load meal_periods:", mpErr.message);
+        else setMealPeriods((mpData ?? []).map(mapMealPeriod));
 
         // Customers (with nested orders)
         const { data: custsData, error: custsErr } = await supabase
@@ -562,12 +599,43 @@ export function AppProvider({
           if (eventType === "DELETE") {
             setMenuItems((prev) => prev.filter((m) => m.id !== oldRow.id));
           } else {
-            const item = mapMenuItem(newRow);
             setMenuItems((prev) => {
+              const existing = prev.find((m) => m.id === newRow.id);
+              // Preserve mealPeriodIds — those live in a separate table and
+              // arrive via the menu_item_meal_periods subscription below.
+              const item = mapMenuItem(newRow, existing?.mealPeriodIds ?? []);
               const idx = prev.findIndex((m) => m.id === item.id);
               return idx >= 0 ? prev.map((m) => (m.id === item.id ? item : m)) : [...prev, item];
             });
           }
+        })
+      // Meal periods
+      .on("postgres_changes", { event: "*", schema: "public", table: "meal_periods" },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ({ eventType, new: newRow, old: oldRow }: any) => {
+          if (eventType === "DELETE") {
+            setMealPeriods((prev) => prev.filter((p) => p.id !== oldRow.id));
+          } else {
+            const period = mapMealPeriod(newRow);
+            setMealPeriods((prev) => {
+              const idx = prev.findIndex((p) => p.id === period.id);
+              const next = idx >= 0 ? prev.map((p) => (p.id === period.id ? period : p)) : [...prev, period];
+              return [...next].sort((a, b) => a.sortOrder - b.sortOrder);
+            });
+          }
+        })
+      // Menu item ↔ meal period assignments
+      .on("postgres_changes", { event: "*", schema: "public", table: "menu_item_meal_periods" },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ({ eventType, new: newRow, old: oldRow }: any) => {
+          const row = (eventType === "DELETE" ? oldRow : newRow) as { menu_item_id: string; meal_period_id: string };
+          setMenuItems((prev) => prev.map((m) => {
+            if (m.id !== row.menu_item_id) return m;
+            const tags = new Set(m.mealPeriodIds ?? []);
+            if (eventType === "DELETE") tags.delete(row.meal_period_id);
+            else tags.add(row.meal_period_id);
+            return { ...m, mealPeriodIds: Array.from(tags) };
+          }));
         })
       // Orders
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" },
@@ -794,7 +862,7 @@ export function AppProvider({
     fetch("/api/admin/menu", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(menuItemToRow(item)),
+      body: JSON.stringify({ ...menuItemToRow(item), mealPeriodIds: item.mealPeriodIds ?? [] }),
     }).then(async (r) => {
       if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("addMenuItem:", j.error); }
     }).catch((e) => console.error("addMenuItem:", e));
@@ -805,7 +873,7 @@ export function AppProvider({
     fetch(`/api/admin/menu/${item.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(menuItemToRow(item)),
+      body: JSON.stringify({ ...menuItemToRow(item), mealPeriodIds: item.mealPeriodIds ?? [] }),
     }).then(async (r) => {
       if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateMenuItem:", j.error); }
     }).catch((e) => console.error("updateMenuItem:", e));
@@ -1379,14 +1447,110 @@ export function AppProvider({
     }
   };
 
-  // ─── Breakfast schedule ────────────────────────────────────────────────────
-  // Items themselves live in `menu_items` tagged with `mealPeriod="breakfast"`.
-  // This setter only updates the visibility window stored in app_settings.
+  // ─── Meal periods ──────────────────────────────────────────────────────────
+  // CRUD methods talk to the /api/admin/meal-periods routes. Local state is
+  // updated optimistically; the Realtime subscription on `meal_periods`
+  // reconciles any divergence.
 
-  const bm = () => settings.breakfastMenu ?? { enabled: true, startTime: "07:00", endTime: "11:30" };
+  function periodToRow(p: MealPeriod | (Omit<MealPeriod, "id"> & { id?: string })) {
+    const row: Record<string, unknown> = {
+      name: p.name,
+      enabled: p.enabled,
+      start_time: p.startTime,
+      end_time: p.endTime,
+      days_of_week: p.daysOfWeek,
+      sort_order: p.sortOrder,
+    };
+    if ("id" in p && p.id) row.id = p.id;
+    return row;
+  }
 
-  const updateBreakfastSettings = (patch: Partial<BreakfastMenuSettings>) =>
-    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), ...patch } }));
+  const addMealPeriod = async (
+    period: Omit<MealPeriod, "id"> & { id?: string },
+  ): Promise<{ ok: boolean; mealPeriod?: MealPeriod; error?: string }> => {
+    try {
+      const r = await fetch("/api/admin/meal-periods", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(periodToRow(period)),
+      });
+      const j = await r.json().catch(() => ({})) as { ok: boolean; mealPeriod?: unknown; error?: string };
+      if (!r.ok || !j.ok) return { ok: false, error: j.error ?? "Failed to add meal period" };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const created = mapMealPeriod(j.mealPeriod as any);
+      setMealPeriods((prev) => [...prev, created].sort((a, b) => a.sortOrder - b.sortOrder));
+      return { ok: true, mealPeriod: created };
+    } catch (e) {
+      console.error("addMealPeriod:", e);
+      return { ok: false, error: "Network error" };
+    }
+  };
+
+  const updateMealPeriod = async (
+    id: string,
+    patch: Partial<Omit<MealPeriod, "id">>,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    setMealPeriods((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+    try {
+      const body: Record<string, unknown> = {};
+      if (patch.name        !== undefined) body.name         = patch.name;
+      if (patch.enabled     !== undefined) body.enabled      = patch.enabled;
+      if (patch.startTime   !== undefined) body.start_time   = patch.startTime;
+      if (patch.endTime     !== undefined) body.end_time     = patch.endTime;
+      if (patch.daysOfWeek  !== undefined) body.days_of_week = patch.daysOfWeek;
+      if (patch.sortOrder   !== undefined) body.sort_order   = patch.sortOrder;
+      const r = await fetch(`/api/admin/meal-periods/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const j = await r.json().catch(() => ({})) as { ok: boolean; error?: string };
+      if (!r.ok || !j.ok) return { ok: false, error: j.error ?? "Failed to update meal period" };
+      return { ok: true };
+    } catch (e) {
+      console.error("updateMealPeriod:", e);
+      return { ok: false, error: "Network error" };
+    }
+  };
+
+  const deleteMealPeriod = async (id: string): Promise<{ ok: boolean; error?: string }> => {
+    setMealPeriods((prev) => prev.filter((p) => p.id !== id));
+    // Cascade in DB drops the join rows, but the optimistic state needs the
+    // same cleanup so the customer page stops sectioning by the dead period.
+    setMenuItems((prev) => prev.map((m) => ({
+      ...m,
+      mealPeriodIds: (m.mealPeriodIds ?? []).filter((x) => x !== id),
+    })));
+    try {
+      const r = await fetch(`/api/admin/meal-periods/${id}`, { method: "DELETE" });
+      const j = await r.json().catch(() => ({})) as { ok: boolean; error?: string };
+      if (!r.ok || !j.ok) return { ok: false, error: j.error ?? "Failed to delete meal period" };
+      return { ok: true };
+    } catch (e) {
+      console.error("deleteMealPeriod:", e);
+      return { ok: false, error: "Network error" };
+    }
+  };
+
+  const reorderMealPeriods = async (
+    periods: MealPeriod[],
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const renumbered = periods.map((p, i) => ({ ...p, sortOrder: i }));
+    setMealPeriods(renumbered);
+    try {
+      await Promise.all(renumbered.map((p) =>
+        fetch(`/api/admin/meal-periods/${p.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sort_order: p.sortOrder }),
+        })
+      ));
+      return { ok: true };
+    } catch (e) {
+      console.error("reorderMealPeriods:", e);
+      return { ok: false, error: "Network error" };
+    }
+  };
 
   // ─── Derived values ────────────────────────────────────────────────────────
 
@@ -1415,7 +1579,7 @@ export function AppProvider({
         currentDriver, driverLogin, driverLogout,
         addDriver, updateDriver, deleteDriver, toggleDriver,
         assignDriverToOrder, updateDeliveryStatus, addRefund, spendStoreCredit,
-        updateBreakfastSettings,
+        mealPeriods, addMealPeriod, updateMealPeriod, deleteMealPeriod, reorderMealPeriods,
         refreshCurrentUser,
       }}
     >
