@@ -338,7 +338,7 @@ end $$;
 -- self-cleaning.
 
 create table if not exists meal_periods (
-  id            uuid        primary key default gen_random_uuid(),
+  id            text        primary key default gen_random_uuid()::text,
   name          text        not null,
   enabled       boolean     not null default true,
   start_time    text        not null,           -- "HH:MM"
@@ -350,9 +350,32 @@ create table if not exists meal_periods (
 
 create table if not exists menu_item_meal_periods (
   menu_item_id    text not null references menu_items(id)   on delete cascade,
-  meal_period_id  uuid not null references meal_periods(id) on delete cascade,
+  meal_period_id  text not null references meal_periods(id) on delete cascade,
   primary key (menu_item_id, meal_period_id)
 );
+
+-- Convert the early-version `uuid` columns to `text` on already-migrated DBs.
+-- Matches the rest of the schema's id convention and lets the demo seed and
+-- admin UI use human-readable IDs ("mp-breakfast") alongside auto-generated ones.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name   = 'meal_periods'
+      and column_name  = 'id'
+      and data_type    = 'uuid'
+  ) then
+    alter table menu_item_meal_periods drop constraint if exists menu_item_meal_periods_meal_period_id_fkey;
+    alter table menu_item_meal_periods alter column meal_period_id type text using meal_period_id::text;
+    alter table meal_periods alter column id drop default;
+    alter table meal_periods alter column id type text using id::text;
+    alter table meal_periods alter column id set default gen_random_uuid()::text;
+    alter table menu_item_meal_periods
+      add constraint menu_item_meal_periods_meal_period_id_fkey
+      foreign key (meal_period_id) references meal_periods(id) on delete cascade;
+  end if;
+end $$;
 
 -- Drop the now-obsolete column (and its index) so the runtime can't
 -- accidentally read stale data after the refactor.
