@@ -66,7 +66,7 @@ export default function ModifierModal({
         <div className="px-5 py-4 border-b border-slate-700 flex items-start justify-between">
           <div>
             <h2 className="text-white font-bold text-base">{product.name}</h2>
-            <p className="text-slate-400 text-sm">{fmt(product.price + totalAdjust)}</p>
+            <p className="text-slate-400 text-sm">{fmt(product.price + totalAdjust, currencySymbol)}</p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white p-1 transition-colors">
             <X size={20} />
@@ -109,7 +109,7 @@ export default function ModifierModal({
                       </div>
                       {option.priceAdjust !== 0 && (
                         <span className={`text-sm font-bold ${option.priceAdjust > 0 ? "text-green-400" : "text-red-400"}`}>
-                          {option.priceAdjust > 0 ? "+" : ""}{fmt(option.priceAdjust)}
+                          {option.priceAdjust > 0 ? "+" : ""}{fmt(option.priceAdjust, currencySymbol)}
                         </span>
                       )}
                     </button>

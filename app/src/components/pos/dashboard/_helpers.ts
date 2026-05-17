@@ -57,7 +57,7 @@ export function posHourlyBuckets(sales: POSSale[]) {
 }
 
 export function posExportCSV(sales: POSSale[], sym: string) {
-  const header = ["Receipt No","Date","Time","Staff","Customer","Items","Subtotal","Discount","VAT","Tip","Total","Payment","Voided","Void Reason"].join(",");
+  const header = ["Receipt No","Date","Time","Staff","Customer","Items",`Subtotal (${sym})`,`Discount (${sym})`,`VAT (${sym})`,`Tip (${sym})`,`Total (${sym})`,"Payment","Voided","Void Reason"].join(",");
   const rows = sales.map((s) => [
     s.receiptNo, fmtDate(s.date), fmtTime(s.date),
     `"${s.staffName}"`, `"${s.customerName ?? ""}"`,
