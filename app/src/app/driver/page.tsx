@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import type { DeliveryStatus, Order } from "@/types";
@@ -8,8 +9,17 @@ import {
   Truck, LogOut, MapPin, Phone, Package,
   CheckCircle2, Navigation, ChefHat,
   AlertTriangle, ChevronDown, ChevronUp,
-  Inbox, Zap, Star, KeyRound,
+  Inbox, Zap, Star, KeyRound, Map as MapIcon,
 } from "lucide-react";
+
+const DriverDeliveriesMap = dynamic(() => import("@/components/maps/DriverDeliveriesMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[260px] w-full bg-gray-50 rounded-2xl flex items-center justify-center text-xs text-gray-400 border border-gray-200">
+      Loading map…
+    </div>
+  ),
+});
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -495,6 +505,7 @@ export default function DriverDashboardPage() {
   const router = useRouter();
   const [showDelivered, setShowDelivered] = useState(false);
   const [acceptedId,    setAcceptedId]    = useState<string | null>(null);
+  const [showMap,       setShowMap]       = useState(true);
   // How long (ms) to wait for AppContext to populate currentDriver before
   // concluding the session is gone and redirecting to login.
   // AppContext fetches from /api/auth/driver/me when localStorage is empty,
@@ -687,6 +698,38 @@ export default function DriverDashboardPage() {
               <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Your deliveries</span>
               <div className="flex-1 h-px bg-gray-200" />
             </div>
+          </section>
+        )}
+
+        {/* ── Active deliveries map ─────────────────────────────────────────── */}
+        {active.length > 0 && (
+          <section className="space-y-2">
+            <button
+              onClick={() => setShowMap((v) => !v)}
+              className="w-full flex items-center justify-between bg-white border border-gray-200 rounded-2xl px-4 py-3 hover:bg-gray-50 transition"
+            >
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 bg-blue-500 rounded-lg flex items-center justify-center">
+                  <MapIcon size={13} className="text-white" />
+                </div>
+                <span className="font-bold text-gray-800 text-sm">Delivery map</span>
+                <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-0.5 rounded-full">
+                  {active.length}
+                </span>
+              </div>
+              {showMap ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+            </button>
+            {showMap && (
+              <DriverDeliveriesMap
+                restaurantLat={settings.restaurant.lat ?? 51.515}
+                restaurantLng={settings.restaurant.lng ?? -0.063}
+                stops={active.map((d) => ({
+                  id: d.order.id,
+                  address: d.order.address ?? "",
+                  customerName: d.customerName,
+                })).filter((s) => s.address)}
+              />
+            )}
           </section>
         )}
 

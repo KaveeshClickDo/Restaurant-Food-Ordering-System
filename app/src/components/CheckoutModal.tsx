@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import {
   X, CreditCard, Wallet, Banknote, CheckCircle,
   AlertCircle, MapPin, Navigation, Loader2, CalendarDays,
@@ -10,6 +11,15 @@ import { useApp } from "@/context/AppContext";
 import { DeliveryZone, Order, PaymentMethod, SavedAddress } from "@/types";
 import { printOrder } from "@/lib/escpos";
 import { computeTax, taxSurcharge } from "@/lib/taxUtils";
+
+const LocationMap = dynamic(() => import("@/components/maps/LocationMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[180px] w-full bg-gray-50 rounded-xl flex items-center justify-center text-xs text-gray-400 border border-gray-100">
+      Loading map…
+    </div>
+  ),
+});
 
 interface Props {
   onClose: () => void;
@@ -214,6 +224,8 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   const [locState, setLocState]   = useState<LocationState>("idle");
   const [distKm,   setDistKm]     = useState<number | null>(null);
   const [zone,     setZone]       = useState<DeliveryZone | null>(null);
+  const [custLat,  setCustLat]    = useState<number | null>(defaultAddress?.lat ?? null);
+  const [custLng,  setCustLng]    = useState<number | null>(defaultAddress?.lng ?? null);
 
   // Validation
   const [fieldErrors, setFieldErrors]  = useState<Record<string, string>>({});
@@ -262,15 +274,21 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     setLocState("detecting");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const km = haversineKm(restLat, restLng, pos.coords.latitude, pos.coords.longitude);
-        const found = findZone(km, settings.deliveryZones);
-        setDistKm(km);
-        setZone(found);
-        setLocState(found ? "found" : "outside");
+        applyCustomerCoords(pos.coords.latitude, pos.coords.longitude);
       },
       () => setLocState("denied"),
       { timeout: 8000 }
     );
+  }
+
+  function applyCustomerCoords(lat: number, lng: number) {
+    const km = haversineKm(restLat, restLng, lat, lng);
+    const found = findZone(km, settings.deliveryZones);
+    setCustLat(+lat.toFixed(6));
+    setCustLng(+lng.toFixed(6));
+    setDistKm(km);
+    setZone(found);
+    setLocState(found ? "found" : "outside");
   }
 
   function validate(): boolean {
@@ -625,6 +643,9 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                             phone: f.phone || addr.phone || "",
                           }));
                           if (fieldErrors.address) setFieldErrors((p) => ({ ...p, address: "" }));
+                          if (addr.lat != null && addr.lng != null) {
+                            applyCustomerCoords(addr.lat, addr.lng);
+                          }
                         }}
                         className={`w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-xl border transition ${
                           selectedAddressId === addr.id
@@ -713,6 +734,36 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                 zone={zone}
                 onDetect={detectLocation}
               />
+
+              {/* Mini-map: restaurant + zone circles + customer pin (when detected) */}
+              <div className="rounded-xl border border-gray-200 overflow-hidden">
+                <LocationMap
+                  center={
+                    custLat != null && custLng != null
+                      ? [(restLat + custLat) / 2, (restLng + custLng) / 2]
+                      : [restLat, restLng]
+                  }
+                  height={180}
+                  fitToContent={custLat != null && custLng != null}
+                  zones={settings.deliveryZones
+                    .filter((z) => z.enabled)
+                    .map((z) => ({ lat: restLat, lng: restLng, radiusKm: z.maxRadiusKm, color: z.color }))}
+                  markers={[
+                    { lat: restLat, lng: restLng, color: "#f97316", tooltip: "Restaurant" },
+                    ...(custLat != null && custLng != null
+                      ? [{ lat: custLat, lng: custLng, isPrimary: true, color: "#2563eb", tooltip: "Your location" }]
+                      : []),
+                  ]}
+                  draggable={custLat != null && custLng != null}
+                  clickToMove
+                  onPrimaryMove={(lat, lng) => applyCustomerCoords(lat, lng)}
+                />
+              </div>
+              {custLat != null && custLng != null && (
+                <p className="text-[11px] text-gray-400">
+                  Drag your blue pin to refine your exact spot — helps the driver find you.
+                </p>
+              )}
             </div>
           )}
 

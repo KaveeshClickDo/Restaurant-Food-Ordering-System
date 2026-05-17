@@ -484,6 +484,9 @@ export interface SavedAddress {
   note?: string;       // delivery note / access instructions
   isDefault: boolean;
   createdAt: string;   // ISO
+  /** Optional pinned coordinates — set when the customer drops a pin on the map. */
+  lat?: number;
+  lng?: number;
 }
 
 export interface Customer {

@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -12,6 +13,7 @@ import {
   LayoutDashboard,
   LogOut,
   Search,
+  Navigation,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { Order, OrderLine, OrderStatus, DeliveryStatus, MenuItem, SavedAddress, AddOn, CartItem } from "@/types";
@@ -20,6 +22,16 @@ import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import { resolveStock } from "@/lib/stockUtils";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import CartPanel from "@/components/CartPanel";
+import { geocode } from "@/lib/useGeocode";
+
+const LocationMap = dynamic(() => import("@/components/maps/LocationMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[200px] w-full bg-zinc-50 rounded-xl flex items-center justify-center text-xs text-zinc-400 border border-zinc-100">
+      Loading map…
+    </div>
+  ),
+});
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -499,18 +511,21 @@ function getLabelIcon(label: string) {
   return LABEL_ICONS[label] ?? <MapPin size={14} className="text-zinc-400" />;
 }
 
-const EMPTY_FORM: Omit<SavedAddress, "id" | "createdAt" | "isDefault"> = {
+type AddressFormDraft = Omit<SavedAddress, "id" | "createdAt" | "isDefault">;
+
+const EMPTY_FORM: AddressFormDraft = {
   label: "Home", address: "", postcode: "", phone: "", note: "",
 };
 
 function AddressesTab() {
-  const { currentUser, addSavedAddress, updateSavedAddress, deleteSavedAddress, setDefaultAddress } = useApp();
+  const { currentUser, settings, addSavedAddress, updateSavedAddress, deleteSavedAddress, setDefaultAddress } = useApp();
   const [editingId, setEditingId] = useState<string | null>(null); // null = adding new
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<Omit<SavedAddress, "id" | "createdAt" | "isDefault">>(EMPTY_FORM);
-  const [errors, setErrors] = useState<Partial<Record<keyof typeof EMPTY_FORM, string>>>({});
+  const [form, setForm] = useState<AddressFormDraft>(EMPTY_FORM);
+  const [errors, setErrors] = useState<Partial<Record<keyof AddressFormDraft, string>>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [locating, setLocating] = useState(false);
 
   if (!currentUser) return null;
   const user = currentUser; // narrowed — safe to use inside closures
@@ -535,22 +550,50 @@ function AddressesTab() {
 
   function openEdit(addr: SavedAddress) {
     setEditingId(addr.id);
-    setForm({ label: addr.label, address: addr.address, postcode: addr.postcode, phone: addr.phone ?? "", note: addr.note ?? "" });
+    setForm({
+      label: addr.label, address: addr.address, postcode: addr.postcode,
+      phone: addr.phone ?? "", note: addr.note ?? "",
+      lat: addr.lat, lng: addr.lng,
+    });
     setErrors({});
     setShowForm(true);
   }
 
-  function handleSave() {
+  function detectMyLocation() {
+    if (!navigator.geolocation) return;
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setForm((f) => ({
+          ...f,
+          lat: +pos.coords.latitude.toFixed(6),
+          lng: +pos.coords.longitude.toFixed(6),
+        }));
+        setLocating(false);
+      },
+      () => setLocating(false),
+      { timeout: 8000 },
+    );
+  }
+
+  async function handleSave() {
     if (!validate()) return;
+    // If no pin set yet, try to geocode silently from address + postcode.
+    let { lat, lng } = form;
+    if (lat == null || lng == null) {
+      const geo = await geocode(`${form.address}, ${form.postcode}`);
+      if (geo) { lat = geo.lat; lng = geo.lng; }
+    }
     if (editingId) {
       const existing = addresses.find((a) => a.id === editingId)!;
-      updateSavedAddress(user.id, { ...existing, ...form });
+      updateSavedAddress(user.id, { ...existing, ...form, lat, lng });
     } else {
       addSavedAddress(user.id, {
         id: crypto.randomUUID(),
         createdAt: new Date().toISOString(),
         isDefault: addresses.length === 0,
         ...form,
+        lat, lng,
       });
     }
     setShowForm(false);
@@ -629,6 +672,56 @@ function AddressesTab() {
           {field("postcode", "Postcode", { placeholder: "EC1A 1BB" })}
           {field("phone", "Phone (optional)", { type: "tel", placeholder: "+44 7700 900000" })}
           {field("note", "Delivery note (optional)", { placeholder: "Leave at front door…" })}
+
+          {/* Pin on map (optional but helps the driver find you) */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-medium text-zinc-500">
+                Pin on map <span className="text-zinc-300">(optional — helps the driver find you)</span>
+              </label>
+              <button
+                type="button"
+                onClick={detectMyLocation}
+                disabled={locating}
+                className="text-xs font-semibold text-orange-600 hover:text-orange-700 disabled:opacity-50 flex items-center gap-1"
+              >
+                <Navigation size={11} className={locating ? "animate-spin" : ""} />
+                {locating ? "Locating…" : "Use my location"}
+              </button>
+            </div>
+            <LocationMap
+              center={[
+                form.lat ?? settings.restaurant.lat ?? 51.515,
+                form.lng ?? settings.restaurant.lng ?? -0.063,
+              ]}
+              height={200}
+              className="rounded-xl border border-zinc-200"
+              markers={[
+                {
+                  lat: settings.restaurant.lat ?? 51.515,
+                  lng: settings.restaurant.lng ?? -0.063,
+                  color: "#f97316",
+                  tooltip: "Restaurant",
+                },
+                ...(form.lat != null && form.lng != null ? [{
+                  lat: form.lat,
+                  lng: form.lng,
+                  isPrimary: true,
+                  color: "#3b82f6",
+                  tooltip: "Your address",
+                }] : []),
+              ]}
+              clickToMove
+              draggable
+              fitToContent={form.lat != null && form.lng != null}
+              onPrimaryMove={(lat, lng) => setForm((f) => ({ ...f, lat, lng }))}
+            />
+            <p className="mt-1.5 text-[11px] text-zinc-400">
+              {form.lat != null && form.lng != null
+                ? "Pin set. Drag it or click somewhere else to refine."
+                : "Click the map to drop a pin, or skip — we'll try to find it from your address when you save."}
+            </p>
+          </div>
 
           <div className="flex gap-2 pt-1">
             <button

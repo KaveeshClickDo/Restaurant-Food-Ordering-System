@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { useApp } from "@/context/AppContext";
 import { DeliveryZone } from "@/types";
 import {
@@ -9,98 +10,19 @@ import {
   Info, AlertCircle,
 } from "lucide-react";
 
+const DeliveryZoneMap = dynamic(() => import("./DeliveryZoneMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm h-[420px] flex items-center justify-center text-sm text-gray-400">
+      Loading map…
+    </div>
+  ),
+});
+
 const PRESET_COLORS = [
   "#f97316", "#3b82f6", "#a855f7", "#10b981",
   "#ef4444", "#f59e0b", "#06b6d4", "#ec4899",
 ];
-
-// ─── Zone Map (SVG) ───────────────────────────────────────────────────────────
-
-function ZoneMap({ zones, restaurantLat, restaurantLng }: {
-  zones: DeliveryZone[];
-  restaurantLat: number;
-  restaurantLng: number;
-}) {
-  const enabled = zones.filter((z) => z.enabled).sort((a, b) => b.maxRadiusKm - a.maxRadiusKm);
-  const maxKm = enabled.length ? Math.max(...enabled.map((z) => z.maxRadiusKm)) : 15;
-  const CX = 110, CY = 110, MAX_R = 95;
-
-  function r(km: number) { return (km / maxKm) * MAX_R; }
-
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <MapPin size={15} className="text-orange-500" />
-        <h3 className="font-semibold text-gray-900 text-sm">Coverage map</h3>
-        <span className="ml-auto text-xs text-gray-400">{restaurantLat.toFixed(4)}, {restaurantLng.toFixed(4)}</span>
-      </div>
-
-      <svg viewBox="0 0 220 220" className="w-full max-w-[220px] mx-auto block">
-        {/* Background */}
-        <circle cx={CX} cy={CY} r={MAX_R + 5} fill="#f9fafb" stroke="#e5e7eb" strokeWidth="1" />
-
-        {/* Zone rings — outermost first so inner ones paint on top */}
-        {enabled.map((zone) => (
-          <g key={zone.id}>
-            <circle cx={CX} cy={CY} r={r(zone.maxRadiusKm)} fill={zone.color} opacity={0.18} />
-            <circle cx={CX} cy={CY} r={r(zone.maxRadiusKm)} fill="none" stroke={zone.color} strokeWidth="1.5" strokeDasharray="4 2" opacity={0.6} />
-            {/* Erase inner zone from this ring */}
-            {zone.minRadiusKm > 0 && (
-              <circle cx={CX} cy={CY} r={r(zone.minRadiusKm)} fill="#f9fafb" />
-            )}
-          </g>
-        ))}
-
-        {/* Compass ticks */}
-        {[0, 90, 180, 270].map((deg) => {
-          const rad = (deg - 90) * Math.PI / 180;
-          const x1 = CX + (MAX_R + 2) * Math.cos(rad);
-          const y1 = CY + (MAX_R + 2) * Math.sin(rad);
-          const x2 = CX + (MAX_R + 7) * Math.cos(rad);
-          const y2 = CY + (MAX_R + 7) * Math.sin(rad);
-          return <line key={deg} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#d1d5db" strokeWidth="1" />;
-        })}
-
-        {/* Distance labels on edge */}
-        {enabled.map((zone) => (
-          <text
-            key={zone.id + "-label"}
-            x={CX + r(zone.maxRadiusKm) * Math.cos(-Math.PI / 4)}
-            y={CY + r(zone.maxRadiusKm) * Math.sin(-Math.PI / 4) - 3}
-            fontSize="7"
-            fill={zone.color}
-            fontWeight="600"
-            textAnchor="middle"
-          >
-            {zone.maxRadiusKm}km
-          </text>
-        ))}
-
-        {/* Restaurant pin */}
-        <circle cx={CX} cy={CY} r={6} fill="#f97316" stroke="white" strokeWidth="2" />
-        <circle cx={CX} cy={CY} r={2} fill="white" />
-        <text x={CX} y={CY + 15} textAnchor="middle" fontSize="8" fill="#374151" fontWeight="600">
-          Restaurant
-        </text>
-      </svg>
-
-      {/* Legend */}
-      <div className="mt-3 space-y-1.5">
-        {enabled.map((zone) => (
-          <div key={zone.id} className="flex items-center gap-2 text-xs text-gray-600">
-            <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: zone.color }} />
-            <span className="font-medium">{zone.name}</span>
-            <span className="text-gray-400">{zone.minRadiusKm}–{zone.maxRadiusKm} km</span>
-            <span className="ml-auto font-semibold text-gray-700">£{zone.fee.toFixed(2)}</span>
-          </div>
-        ))}
-        {enabled.length === 0 && (
-          <p className="text-xs text-gray-400 text-center py-2">No active zones</p>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ─── Zone Card ────────────────────────────────────────────────────────────────
 
@@ -402,7 +324,7 @@ function PaymentDistanceRules() {
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 
 export default function DeliveryZonesPanel() {
-  const { settings, addDeliveryZone, updateDeliveryZone, deleteDeliveryZone } = useApp();
+  const { settings, updateSettings, addDeliveryZone, updateDeliveryZone, deleteDeliveryZone } = useApp();
   const zones = [...settings.deliveryZones].sort((a, b) => a.maxRadiusKm - b.maxRadiusKm);
   const [showAdd, setShowAdd] = useState(false);
   const [newZone, setNewZone] = useState({ name: "", minRadiusKm: 0, maxRadiusKm: 5, fee: 2.99, color: PRESET_COLORS[zones.length % PRESET_COLORS.length] });
@@ -458,7 +380,14 @@ export default function DeliveryZonesPanel() {
       {/* Main grid: location card + map side by side */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <RestaurantLocationCard />
-        <ZoneMap zones={zones} restaurantLat={restaurant.lat ?? 51.515} restaurantLng={restaurant.lng ?? -0.063} />
+        <DeliveryZoneMap
+          zones={zones}
+          lat={restaurant.lat ?? 51.515}
+          lng={restaurant.lng ?? -0.063}
+          onLocationChange={(lat, lng) =>
+            updateSettings({ restaurant: { ...restaurant, lat, lng } })
+          }
+        />
       </div>
 
       {/* Zone list */}

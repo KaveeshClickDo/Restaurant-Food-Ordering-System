@@ -1,10 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useApp } from "@/context/AppContext";
 import { RestaurantInfo } from "@/types";
 import { restaurantInfo as seedInfo } from "@/data/restaurant";
-import { Store, Clock, PoundSterling, MapPin, CheckCircle2, AlertCircle, Palette, Upload, X, Image as ImageIcon, Search, Code2, Info } from "lucide-react";
+import { Store, Clock, PoundSterling, MapPin, CheckCircle2, AlertCircle, Palette, Upload, X, Image as ImageIcon, Search, Code2, Info, Navigation } from "lucide-react";
+
+const LocationMap = dynamic(() => import("@/components/maps/LocationMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[220px] w-full bg-gray-50 rounded-xl flex items-center justify-center text-xs text-gray-400 border border-gray-100">
+      Loading map…
+    </div>
+  ),
+});
 
 // UK postcode validation (basic — covers the vast majority of valid formats)
 const UK_POSTCODE_RE = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i;
@@ -957,16 +967,52 @@ function LocationCard() {
           </div>
         </div>
 
-        {/* GPS coordinates note */}
-        <div className="bg-gray-50 rounded-xl px-4 py-3 flex items-start gap-2">
-          <span className="text-gray-400 mt-0.5">🗺️</span>
-          <div className="text-xs text-gray-500">
-            <span className="font-semibold text-gray-600">GPS coordinates</span> — lat{" "}
-            <span className="font-mono">{restaurant.lat ?? "—"}</span>, lng{" "}
-            <span className="font-mono">{restaurant.lng ?? "—"}</span>.{" "}
-            Edit precise coordinates in the{" "}
-            <span className="text-orange-600 font-medium">Zones</span> tab.
+        {/* GPS pin map — click or drag to set the restaurant's coordinates */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Navigation size={13} className="text-gray-400" />
+              <span className="text-xs font-semibold text-gray-600">GPS pin</span>
+              <span className="text-xs text-gray-400 font-mono">
+                {(restaurant.lat ?? 0).toFixed(4)}, {(restaurant.lng ?? 0).toFixed(4)}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (!navigator.geolocation) return;
+                navigator.geolocation.getCurrentPosition(
+                  (pos) => updateSettings({
+                    restaurant: {
+                      ...restaurant,
+                      lat: +pos.coords.latitude.toFixed(6),
+                      lng: +pos.coords.longitude.toFixed(6),
+                    },
+                  }),
+                );
+              }}
+              className="text-xs font-semibold text-orange-600 hover:text-orange-700 flex items-center gap-1"
+            >
+              <Navigation size={11} /> Use my location
+            </button>
           </div>
+          <LocationMap
+            center={[restaurant.lat ?? 51.515, restaurant.lng ?? -0.063]}
+            height={220}
+            className="rounded-xl border border-gray-200"
+            markers={[{
+              lat: restaurant.lat ?? 51.515,
+              lng: restaurant.lng ?? -0.063,
+              isPrimary: true,
+              tooltip: "Restaurant",
+            }]}
+            clickToMove
+            draggable
+            onPrimaryMove={(lat, lng) => updateSettings({ restaurant: { ...restaurant, lat, lng } })}
+          />
+          <p className="mt-2 text-[11px] text-gray-400">
+            Click anywhere on the map or drag the pin to set the precise restaurant location. Used for delivery distance calculations.
+          </p>
         </div>
 
         {/* Save button */}
