@@ -15,7 +15,8 @@ const DIETARY_BADGES: Record<string, { label: string; className: string }> = {
 };
 
 export default function MenuItemCard({ item }: { item: MenuItem }) {
-  const { isOpen, scheduledTime, currentUser, toggleFavourite, isFavourite } = useApp();
+  const { isOpen, scheduledTime, currentUser, toggleFavourite, isFavourite, settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [showModal, setShowModal] = useState(false);
 
   const stockStatus = resolveStock(item);
@@ -77,7 +78,7 @@ export default function MenuItemCard({ item }: { item: MenuItem }) {
           </p>
 
           <p className={`font-bold text-sm mt-2 ${outOfStock ? "text-gray-400" : "text-gray-900"}`}>
-            £{item.price.toFixed(2)}
+            {sym}{item.price.toFixed(2)}
           </p>
         </div>
 

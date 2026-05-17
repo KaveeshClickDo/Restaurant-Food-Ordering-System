@@ -10,7 +10,8 @@ import { fmtTime, getInitials } from "./_utils";
 
 export default function StaffView() {
   const { staff, addPosStaff, updatePosStaff, deletePosStaff,
-          clockEntries, clockIn, clockOut, isClocked, currentStaff } = usePOS();
+          clockEntries, clockIn, clockOut, isClocked, currentStaff, settings } = usePOS();
+  const sym = settings.currencySymbol;
   const [showAdd, setShowAdd] = useState(false);
   const [newStaff, setNewStaff] = useState({ name: "", email: "", role: "cashier" as "admin" | "manager" | "cashier", pin: "", hourlyRate: "" });
   const COLORS = ["#7c3aed", "#0891b2", "#16a34a", "#dc2626", "#ea580c", "#0284c7", "#9333ea", "#be185d"];
@@ -150,7 +151,7 @@ export default function StaffView() {
                       }`}>{member.role}</span>
                     </div>
                     <p className="text-slate-400 text-xs mt-0.5">{member.email} · PIN: ••••</p>
-                    {member.hourlyRate && <p className="text-slate-500 text-xs">£{member.hourlyRate}/hr</p>}
+                    {member.hourlyRate && <p className="text-slate-500 text-xs">{sym}{member.hourlyRate}/hr</p>}
                   </div>
                 </div>
 
@@ -249,7 +250,7 @@ export default function StaffView() {
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
               </div>
               <div>
-                <label className="text-xs text-slate-400 mb-1 block">Hourly Rate (£)</label>
+                <label className="text-xs text-slate-400 mb-1 block">Hourly Rate ({sym})</label>
                 <input type="number" step="0.5" value={newStaff.hourlyRate} onChange={(e) => setNewStaff((p) => ({ ...p, hourlyRate: e.target.value }))} placeholder="10.00"
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
               </div>
@@ -297,7 +298,7 @@ export default function StaffView() {
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
               </div>
               <div>
-                <label className="text-xs text-slate-400 mb-1 block">Hourly Rate (£)</label>
+                <label className="text-xs text-slate-400 mb-1 block">Hourly Rate ({sym})</label>
                 <input type="number" step="0.5" value={editDraft.hourlyRate} onChange={(e) => setEditDraft((p) => ({ ...p, hourlyRate: e.target.value }))} placeholder="10.00"
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
               </div>

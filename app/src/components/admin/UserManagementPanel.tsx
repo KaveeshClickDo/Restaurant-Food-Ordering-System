@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useApp } from "@/context/AppContext";
 import {
   Users, Plus, Search, Pencil, Key, Mail, Trash2,
   X, CheckCircle, AlertCircle, Loader2,
@@ -566,6 +567,8 @@ function CreateUserModal({
   onCreated: () => void;
   addToast: (msg: string, ok: boolean) => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   type CreateType = "customer" | "driver" | "waiter" | "kitchen" | "pos";
   const [type,        setType]        = useState<CreateType>("customer");
   const [name,        setName]        = useState("");
@@ -776,7 +779,7 @@ function CreateUserModal({
               </div>
             )}
 
-            <FormField label="Hourly rate (£, optional)">
+            <FormField label={`Hourly rate (${sym}, optional)`}>
               <input
                 type="number" step="0.5"
                 value={hourlyRate}

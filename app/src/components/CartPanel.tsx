@@ -44,6 +44,7 @@ export default function CartPanel({ onMobileClose, onOrderPlaced }: CartPanelPro
   const hasBlockedLines = blockedLines.length > 0;
 
   const { minOrder, deliveryFee, serviceFee } = settings.restaurant;
+  const sym = settings.currency?.symbol ?? "£";
   const delivery   = fulfillment === "delivery" ? deliveryFee : 0;
   const service    = cartTotal * (serviceFee / 100);
   const tax        = computeTax(cartTotal, settings);
@@ -108,7 +109,7 @@ export default function CartPanel({ onMobileClose, onOrderPlaced }: CartPanelPro
                     {item.specialInstructions && (
                       <p className="text-[11.5px] text-zinc-500 mt-0.5 italic">&ldquo;{item.specialInstructions}&rdquo;</p>
                     )}
-                    <p className="text-[12px] text-zinc-400 mt-1">£{item.price.toFixed(2)} each</p>
+                    <p className="text-[12px] text-zinc-400 mt-1">{sym}{item.price.toFixed(2)} each</p>
                   </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     <button onClick={() => updateQty(item.id, item.quantity - 1)}
@@ -122,7 +123,7 @@ export default function CartPanel({ onMobileClose, onOrderPlaced }: CartPanelPro
                     </button>
                   </div>
                   <span className="text-[13px] font-bold text-zinc-900 flex-shrink-0 w-12 text-right tabular-nums">
-                    £{(item.price * item.quantity).toFixed(2)}
+                    {sym}{(item.price * item.quantity).toFixed(2)}
                   </span>
                 </li>
               ))}
@@ -135,11 +136,11 @@ export default function CartPanel({ onMobileClose, onOrderPlaced }: CartPanelPro
           <div className="flex-shrink-0 border-t border-zinc-100">
             <div className="px-5 py-4 space-y-2">
               <div className="flex justify-between text-[13px] text-zinc-500">
-                <span>Subtotal</span><span className="tabular-nums">£{cartTotal.toFixed(2)}</span>
+                <span>Subtotal</span><span className="tabular-nums">{sym}{cartTotal.toFixed(2)}</span>
               </div>
               {fulfillment === "delivery" && delivery > 0 && (
                 <div className="flex justify-between text-[13px] text-zinc-500">
-                  <span>Delivery fee</span><span className="tabular-nums">£{delivery.toFixed(2)}</span>
+                  <span>Delivery fee</span><span className="tabular-nums">{sym}{delivery.toFixed(2)}</span>
                 </div>
               )}
               {fulfillment === "collection" && (
@@ -149,17 +150,17 @@ export default function CartPanel({ onMobileClose, onOrderPlaced }: CartPanelPro
               )}
               {serviceFee > 0 && (
                 <div className="flex justify-between text-[13px] text-zinc-500">
-                  <span>Service fee ({serviceFee}%)</span><span className="tabular-nums">£{service.toFixed(2)}</span>
+                  <span>Service fee ({serviceFee}%)</span><span className="tabular-nums">{sym}{service.toFixed(2)}</span>
                 </div>
               )}
               {tax.enabled && tax.showBreakdown && tax.vatAmount > 0 && (
                 <div className="flex justify-between text-[12px] font-semibold text-zinc-400">
                   <span>{tax.label}</span>
-                  <span className="tabular-nums">{tax.inclusive ? "" : "+"} £{tax.vatAmount.toFixed(2)}</span>
+                  <span className="tabular-nums">{tax.inclusive ? "" : "+"} {sym}{tax.vatAmount.toFixed(2)}</span>
                 </div>
               )}
               <div className="flex justify-between font-semibold text-[14px] text-zinc-900 pt-2 border-t border-zinc-100">
-                <span>Total</span><span className="tabular-nums">£{grandTotal.toFixed(2)}</span>
+                <span>Total</span><span className="tabular-nums">{sym}{grandTotal.toFixed(2)}</span>
               </div>
             </div>
 
@@ -167,7 +168,7 @@ export default function CartPanel({ onMobileClose, onOrderPlaced }: CartPanelPro
             {cartTotal < minOrder && (
               <div className="px-5 pb-3">
                 <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-[11.5px] text-amber-700 font-medium">
-                  Add £{shortfall.toFixed(2)} more to reach the £{minOrder.toFixed(2)} minimum
+                  Add {sym}{shortfall.toFixed(2)} more to reach the {sym}{minOrder.toFixed(2)} minimum
                 </div>
               </div>
             )}
@@ -240,7 +241,7 @@ export default function CartPanel({ onMobileClose, onOrderPlaced }: CartPanelPro
                 <span>{scheduledTime ? "Schedule order" : "Go to checkout"}</span>
                 {canCheckout && (
                   <span className="flex items-center gap-1 tabular-nums">
-                    £{grandTotal.toFixed(2)} <ChevronRight className="w-4 h-4" strokeWidth={2} />
+                    {sym}{grandTotal.toFixed(2)} <ChevronRight className="w-4 h-4" strokeWidth={2} />
                   </span>
                 )}
               </button>

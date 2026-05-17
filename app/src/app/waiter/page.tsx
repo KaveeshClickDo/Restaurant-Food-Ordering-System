@@ -45,8 +45,8 @@ interface WaiterReceipt {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const fmtCur = (n: number) =>
-  "£" + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+const fmtCur = (n: number, sym = "£") =>
+  sym + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
 function initials(name: string) {
   return name.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
@@ -54,11 +54,11 @@ function initials(name: string) {
 
 // ─── Receipt Modal ────────────────────────────────────────────────────────────
 
-function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string, receiptPhone: string, receiptWebsite: string, vatNumber: string, thankYou: string): string {
+function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string, receiptPhone: string, receiptWebsite: string, vatNumber: string, thankYou: string, sym: string): string {
   const itemsHtml = receipt.items.map((it) =>
     `<tr>
       <td style="padding:2px 0;font-size:12px">${it.name} ×${it.qty}</td>
-      <td style="padding:2px 0;font-size:12px;text-align:right">£${(it.price * it.qty).toFixed(2)}</td>
+      <td style="padding:2px 0;font-size:12px;text-align:right">${sym}${(it.price * it.qty).toFixed(2)}</td>
     </tr>`
   ).join("");
 
@@ -80,7 +80,7 @@ function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string, receip
   <table style="width:100%;border-collapse:collapse">${itemsHtml}</table>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
   <table style="width:100%;border-collapse:collapse">
-    <tr><td style="font-size:13px;font-weight:700">TOTAL</td><td style="font-size:13px;font-weight:700;text-align:right">£${receipt.total.toFixed(2)}</td></tr>
+    <tr><td style="font-size:13px;font-weight:700">TOTAL</td><td style="font-size:13px;font-weight:700;text-align:right">${sym}${receipt.total.toFixed(2)}</td></tr>
     <tr><td style="font-size:11px;color:#6b7280">Payment</td><td style="font-size:11px;color:#6b7280;text-align:right">${payLabel}</td></tr>
   </table>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
@@ -90,13 +90,14 @@ function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string, receip
 
 function ReceiptModal({ receipt, onClose, onRefund }: { receipt: WaiterReceipt; onClose: () => void; onRefund?: () => void }) {
   const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const rs = settings.receiptSettings;
   const restaurantName = rs?.restaurantName?.trim() || settings.restaurant?.name || "Restaurant";
   const [emailTo, setEmailTo] = useState("");
   const [emailStatus, setEmailStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
 
   function handlePrint() {
-    const html = buildReceiptHtml(receipt, restaurantName, rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!");
+    const html = buildReceiptHtml(receipt, restaurantName, rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
     const win = window.open("", "_blank", "width=400,height=600");
     if (!win) return;
     win.document.write(html);
@@ -109,7 +110,7 @@ function ReceiptModal({ receipt, onClose, onRefund }: { receipt: WaiterReceipt; 
   async function handleEmail() {
     if (!emailTo.trim()) return;
     setEmailStatus("sending");
-    const html = buildReceiptHtml(receipt, restaurantName, rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!");
+    const html = buildReceiptHtml(receipt, restaurantName, rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
     const subject = `Your receipt from ${restaurantName} — Table ${receipt.tableLabel}`;
     const res = await fetch("/api/email", {
       method: "POST",
@@ -158,7 +159,7 @@ function ReceiptModal({ receipt, onClose, onRefund }: { receipt: WaiterReceipt; 
             {items.map((it, i) => (
               <div key={i} className="flex items-center justify-between gap-3">
                 <span className="text-slate-300 text-sm flex-1">{it.name} <span className="text-slate-500">×{it.qty}</span></span>
-                <span className="text-white text-sm font-medium">{fmtCur(it.price * it.qty)}</span>
+                <span className="text-white text-sm font-medium">{fmtCur(it.price * it.qty, sym)}</span>
               </div>
             ))}
           </div>
@@ -169,7 +170,7 @@ function ReceiptModal({ receipt, onClose, onRefund }: { receipt: WaiterReceipt; 
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <span className="text-white font-black text-base">TOTAL</span>
-              <span className="text-white font-black text-xl">{fmtCur(receipt.total)}</span>
+              <span className="text-white font-black text-xl">{fmtCur(receipt.total, sym)}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-400 text-xs">Payment</span>
@@ -249,6 +250,7 @@ function BillEmailBar({ onPrint, tableLabel, waiterName, consolidatedLines, bill
   orderIds: string[];
 }) {
   const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const rs = settings.receiptSettings;
   const restaurantName = rs?.restaurantName?.trim() || settings.restaurant?.name || "Restaurant";
   const [emailTo, setEmailTo] = useState("");
@@ -265,7 +267,7 @@ function BillEmailBar({ onPrint, tableLabel, waiterName, consolidatedLines, bill
       paymentMethod: "pending",
       orderIds,
     };
-    const html = buildReceiptHtml(tempReceipt, restaurantName, rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!");
+    const html = buildReceiptHtml(tempReceipt, restaurantName, rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
     const subject = `Your bill from ${restaurantName} — Table ${tableLabel}`;
     const res = await fetch("/api/email", {
       method: "POST",
@@ -323,6 +325,8 @@ function VoidRefundModal({
   onSuccess: () => void;
   onClose: () => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [reason, setReason] = useState("");
   const [refundType, setRefundType] = useState<"full" | "partial">("full");
   const [refundAmountStr, setRefundAmountStr] = useState("");
@@ -365,7 +369,7 @@ function VoidRefundModal({
     if (!reason.trim()) { setError("Please enter a reason."); return; }
     const amount = refundType === "full" ? total : parseFloat(refundAmountStr);
     if (isNaN(amount) || amount <= 0) { setError("Enter a valid refund amount."); return; }
-    if (amount > total + 0.001) { setError(`Refund cannot exceed ${fmtCur(total)}.`); return; }
+    if (amount > total + 0.001) { setError(`Refund cannot exceed ${fmtCur(total, sym)}.`); return; }
     setLoading(true); setError(null);
     const res = await fetch("/api/waiter/refund", {
       method: "POST",
@@ -396,7 +400,7 @@ function VoidRefundModal({
             </div>
             <div>
               <h3 className="text-white font-bold">{isVoid ? "Void Table" : "Process Refund"}</h3>
-              <p className="text-slate-400 text-xs">Table {tableLabel} · {fmtCur(total)}</p>
+              <p className="text-slate-400 text-xs">Table {tableLabel} · {fmtCur(total, sym)}</p>
             </div>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white transition"><X size={18} /></button>
@@ -418,7 +422,7 @@ function VoidRefundModal({
                         : "bg-slate-700 border-slate-600 text-slate-300 hover:border-slate-500"
                         }`}
                     >
-                      {t === "full" ? `Full ${fmtCur(total)}` : "Partial"}
+                      {t === "full" ? `Full ${fmtCur(total, sym)}` : "Partial"}
                     </button>
                   ))}
                 </div>
@@ -430,7 +434,7 @@ function VoidRefundModal({
                     step="0.01"
                     value={refundAmountStr}
                     onChange={(e) => setRefundAmountStr(e.target.value)}
-                    placeholder={`Max ${fmtCur(total)}`}
+                    placeholder={`Max ${fmtCur(total, sym)}`}
                     className="w-full bg-slate-700 border border-slate-600 text-white placeholder-slate-500 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-amber-500"
                   />
                 )}
@@ -554,6 +558,8 @@ function ItemModal({
   onClose: () => void;
   onAdd: (cartItem: WaiterCartItem) => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const firstVar = item.variations?.[0];
   const firstOpt = firstVar?.options?.[0];
 
@@ -637,7 +643,7 @@ function ItemModal({
                     >
                       <span>{opt.label}</span>
                       <span className={active ? "text-orange-100" : "text-slate-400"}>
-                        {fmtCur(item.price + opt.price)}
+                        {fmtCur(item.price + opt.price, sym)}
                       </span>
                     </button>
                   );
@@ -670,7 +676,7 @@ function ItemModal({
                     >
                       <span>{addon.name}</span>
                       <span className={checked ? "text-orange-300" : "text-slate-400"}>
-                        +{fmtCur(addon.price)}
+                        +{fmtCur(addon.price, sym)}
                       </span>
                     </button>
                   );
@@ -718,7 +724,7 @@ function ItemModal({
             className="flex-1 bg-orange-500 hover:bg-orange-400 active:scale-[0.98] text-sm sm:text-base text-white font-bold rounded-xl py-3 flex items-center justify-center gap-2 transition-all"
           >
             <Plus size={16} />
-            Add · {fmtCur(unitPrice * qty)}
+            Add · {fmtCur(unitPrice * qty, sym)}
           </button>
         </div>
       </div>
@@ -731,6 +737,7 @@ function ItemModal({
 export default function WaiterPage() {
   // ── Menu data from AppContext (single source of truth, same as admin/online) ─
   const { menuItems, categories, settings: appSettings } = useApp();
+  const sym = appSettings.currency?.symbol ?? "£";
 
   // ── Data ────────────────────────────────────────────────────────────────────
   const [allWaiters, setAllWaiters] = useState<Omit<WaiterStaff, "pin">[]>([]);
@@ -1355,7 +1362,7 @@ export default function WaiterPage() {
         orderIds: billOrders.map(o => o.id),
       };
       const restaurantName = rs?.restaurantName?.trim() || appSettings?.restaurant?.name || "Restaurant";
-      const html = buildReceiptHtml(tempReceipt, restaurantName, rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!");
+      const html = buildReceiptHtml(tempReceipt, restaurantName, rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
       const win = window.open("", "_blank", "width=400,height=600");
       if (!win) return;
       win.document.write(html);
@@ -1411,7 +1418,7 @@ export default function WaiterPage() {
                             <span className="text-white text-sm leading-snug">{line.name}</span>
                           </div>
                           <span className="text-white text-sm font-semibold flex-shrink-0">
-                            {fmtCur(line.price * line.qty)}
+                            {fmtCur(line.price * line.qty, sym)}
                           </span>
                         </div>
                       ))}
@@ -1419,7 +1426,7 @@ export default function WaiterPage() {
                     {/* Total */}
                     <div className="px-5 py-4 border-t border-slate-700 bg-slate-800/50 flex items-center justify-between">
                       <span className="text-slate-300 text-sm font-semibold">Total</span>
-                      <span className="text-white text-2xl font-black">{fmtCur(billTotal)}</span>
+                      <span className="text-white text-2xl font-black">{fmtCur(billTotal, sym)}</span>
                     </div>
                   </div>
 
@@ -1675,7 +1682,7 @@ export default function WaiterPage() {
                         <p className="text-slate-500 text-[11px] mt-0.5 line-clamp-1">{item.description}</p>
                       )}
                       <div className="mt-2 flex-1 flex items-end justify-between">
-                        <span className="text-orange-400 font-black text-base">{fmtCur(item.price)}</span>
+                        <span className="text-orange-400 font-black text-base">{fmtCur(item.price, sym)}</span>
                         {hasVar ? (
                           <span className="text-slate-500 text-[10px] font-semibold">options</span>
                         ) : oos ? (
@@ -1724,7 +1731,7 @@ export default function WaiterPage() {
                         <StickyNote size={9} />{line.note}
                       </p>
                     )}
-                    <p className="text-orange-400 text-sm font-bold mt-1">{fmtCur(line.unitPrice)}</p>
+                    <p className="text-orange-400 text-sm font-bold mt-1">{fmtCur(line.unitPrice, sym)}</p>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
                     <button onClick={() => updateQty(line.lineId, -1)} className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition">
@@ -1761,7 +1768,7 @@ export default function WaiterPage() {
           <div className="p-3 border-t border-slate-800 flex-shrink-0 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-slate-400 text-sm">Total</span>
-              <span className="text-white font-black text-xl">{fmtCur(cartTotal)}</span>
+              <span className="text-white font-black text-xl">{fmtCur(cartTotal, sym)}</span>
             </div>
             <button
               onClick={sendToKitchen}
@@ -1792,7 +1799,7 @@ export default function WaiterPage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-white text-sm font-medium">{line.name}</p>
                     {line.note && <p className="text-amber-400 text-xs mt-0.5">{line.note}</p>}
-                    <p className="text-orange-400 text-sm font-bold mt-1">{fmtCur(line.unitPrice)}</p>
+                    <p className="text-orange-400 text-sm font-bold mt-1">{fmtCur(line.unitPrice, sym)}</p>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
                     <button onClick={() => updateQty(line.lineId, -1)} className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-700 text-slate-300"><Minus size={12} /></button>
@@ -1813,7 +1820,7 @@ export default function WaiterPage() {
               />
               <div className="flex items-center justify-between">
                 <span className="text-slate-400 text-sm">Total</span>
-                <span className="text-white font-black text-xl">{fmtCur(cartTotal)}</span>
+                <span className="text-white font-black text-xl">{fmtCur(cartTotal, sym)}</span>
               </div>
               <button
                 onClick={() => { sendToKitchen(); setShowCart(false); }}

@@ -5,7 +5,8 @@ import dynamic from "next/dynamic";
 import { useApp } from "@/context/AppContext";
 import { RestaurantInfo } from "@/types";
 import { restaurantInfo as seedInfo } from "@/data/restaurant";
-import { Store, Clock, PoundSterling, MapPin, CheckCircle2, AlertCircle, Palette, Upload, X, Image as ImageIcon, Search, Code2, Info, Navigation } from "lucide-react";
+import { CURRENCY_PRESETS, DEFAULT_CURRENCY } from "@/lib/currency";
+import { Store, Clock, Coins, MapPin, CheckCircle2, AlertCircle, Palette, Upload, X, Image as ImageIcon, Search, Code2, Info, Navigation, Star, Eye, EyeOff } from "lucide-react";
 
 const LocationMap = dynamic(() => import("@/components/maps/LocationMap"), {
   ssr: false,
@@ -22,6 +23,7 @@ const UK_POSTCODE_RE = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i;
 export default function OperationsPanel() {
   const { settings, updateSettings } = useApp();
   const { restaurant } = settings;
+  const sym = settings.currency?.symbol || DEFAULT_CURRENCY.symbol;
 
   function update(patch: Partial<RestaurantInfo>) {
     updateSettings({ restaurant: { ...restaurant, ...patch } });
@@ -31,6 +33,9 @@ export default function OperationsPanel() {
     <div className="space-y-6">
       {/* ── Branding ────────────────────────────────────────────────────── */}
       <BrandingCard />
+
+      {/* ── Currency ────────────────────────────────────────────────────── */}
+      <CurrencyCard />
 
       {/* ── SEO ─────────────────────────────────────────────────────────── */}
       <SeoCard />
@@ -52,15 +57,15 @@ export default function OperationsPanel() {
 
         <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-5">
           <Field
-            icon={<PoundSterling size={15} />}
-            label="Minimum order (£)"
+            icon={<span className="text-xs font-bold">{sym}</span>}
+            label={`Minimum order (${sym})`}
             value={restaurant.minOrder}
             onChange={(v) => update({ minOrder: Number(v) })}
             type="number" step="0.50" min="0"
           />
           <Field
-            icon={<PoundSterling size={15} />}
-            label="Delivery fee (£)"
+            icon={<span className="text-xs font-bold">{sym}</span>}
+            label={`Delivery fee (${sym})`}
             value={restaurant.deliveryFee}
             onChange={(v) => update({ deliveryFee: Number(v) })}
             type="number" step="0.10" min="0"
@@ -89,8 +94,256 @@ export default function OperationsPanel() {
         </div>
       </div>
 
+      {/* ── Hygiene Rating ──────────────────────────────────────────────── */}
+      <HygieneRatingCard restaurant={restaurant} update={update} />
+
       {/* ── Restaurant Location ──────────────────────────────────────────── */}
       <LocationCard />
+    </div>
+  );
+}
+
+// ─── Hygiene rating card ──────────────────────────────────────────────────────
+
+function HygieneRatingCard({
+  restaurant,
+  update,
+}: {
+  restaurant: RestaurantInfo;
+  update: (patch: Partial<RestaurantInfo>) => void;
+}) {
+  const rating  = Number(restaurant.hygieneRating ?? 0);
+  const visible = restaurant.hygieneRatingVisible !== false;
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+        <div className="w-9 h-9 bg-green-100 rounded-xl flex items-center justify-center">
+          <Star size={18} className="text-green-600" />
+        </div>
+        <div>
+          <h2 className="font-bold text-gray-900">Food Hygiene Rating</h2>
+          <p className="text-xs text-gray-400">Shown as a badge on the customer site header</p>
+        </div>
+      </div>
+
+      <div className="p-6 space-y-5">
+        {/* Rating value */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-2">Rating (0 – 5)</label>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1">
+              {[0, 1, 2, 3, 4, 5].map((n) => {
+                const active = n <= rating;
+                return (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => update({ hygieneRating: n })}
+                    className={`w-10 h-10 rounded-xl border flex items-center justify-center transition ${
+                      active
+                        ? "bg-green-50 border-green-300 text-green-700"
+                        : "bg-gray-50 border-gray-200 text-gray-400 hover:border-gray-300"
+                    }`}
+                    aria-label={`Set hygiene rating to ${n}`}
+                  >
+                    <span className="text-sm font-semibold">{n}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <span className="text-xs text-gray-400">
+              Current: <span className="font-semibold text-gray-700">{rating} / 5</span>
+            </span>
+          </div>
+          <p className="text-xs text-gray-400 mt-2">
+            UK Food Standards Agency scale. Use 0 if you have no published rating.
+          </p>
+        </div>
+
+        {/* Visibility toggle */}
+        <div className="flex items-center justify-between gap-4 pt-2 border-t border-gray-100">
+          <div className="flex items-start gap-3">
+            {visible ? (
+              <Eye size={18} className="text-gray-500 mt-0.5 flex-shrink-0" />
+            ) : (
+              <EyeOff size={18} className="text-gray-400 mt-0.5 flex-shrink-0" />
+            )}
+            <div>
+              <p className="text-sm font-semibold text-gray-800">Show on customer site</p>
+              <p className="text-xs text-gray-400">
+                {visible
+                  ? "The hygiene badge is visible in the customer header."
+                  : "The hygiene badge is hidden from customers."}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={visible}
+            onClick={() => update({ hygieneRatingVisible: !visible })}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full transition ${
+              visible ? "bg-green-500" : "bg-gray-300"
+            }`}
+          >
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                visible ? "translate-x-5" : "translate-x-0.5"
+              } mt-0.5`}
+            />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Currency card ────────────────────────────────────────────────────────────
+
+function CurrencyCard() {
+  const { settings, updateSettings } = useApp();
+  const current = settings.currency ?? DEFAULT_CURRENCY;
+
+  const matchedPreset = CURRENCY_PRESETS.find(
+    (p) => p.code === current.code && p.symbol === current.symbol,
+  );
+  const [mode, setMode] = useState<"preset" | "custom">(matchedPreset ? "preset" : "custom");
+  const [code, setCode] = useState(current.code);
+  const [symbol, setSymbol] = useState(current.symbol);
+  const [saved, setSaved] = useState(false);
+
+  // Re-sync local state when settings load from Supabase after mount
+  useEffect(() => {
+    setCode(current.code);
+    setSymbol(current.symbol);
+    const preset = CURRENCY_PRESETS.find((p) => p.code === current.code && p.symbol === current.symbol);
+    setMode(preset ? "preset" : "custom");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current.code, current.symbol]);
+
+  function handleSelectPreset(presetCode: string) {
+    const preset = CURRENCY_PRESETS.find((p) => p.code === presetCode);
+    if (!preset) return;
+    setMode("preset");
+    setCode(preset.code);
+    setSymbol(preset.symbol);
+    setSaved(false);
+  }
+
+  function handleSave() {
+    const trimmedSymbol = symbol.trim();
+    const trimmedCode = code.trim().toUpperCase();
+    if (!trimmedSymbol) return;
+    updateSettings({ currency: { code: trimmedCode || "XXX", symbol: trimmedSymbol } });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+        <div className="w-9 h-9 bg-emerald-50 rounded-xl flex items-center justify-center">
+          <Coins size={18} className="text-emerald-600" />
+        </div>
+        <div>
+          <h2 className="font-bold text-gray-900">Currency</h2>
+          <p className="text-xs text-gray-400">Displayed across the customer site, admin panels, POS, and receipts</p>
+        </div>
+      </div>
+
+      <div className="p-6 space-y-5">
+        {/* Live preview */}
+        <div className="bg-gray-50 rounded-xl px-4 py-3 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-0.5">Preview</p>
+            <p className="text-base font-mono text-gray-700">
+              {symbol}12.50 · {symbol}99.00 · {symbol}1.20
+            </p>
+          </div>
+          <span className="text-[10px] font-mono uppercase bg-gray-200 text-gray-600 px-2 py-1 rounded">{code || "—"}</span>
+        </div>
+
+        {/* Preset / Custom toggle */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setMode("preset")}
+            className={`px-3 py-2 text-xs font-semibold rounded-lg border transition ${
+              mode === "preset" ? "bg-emerald-50 border-emerald-300 text-emerald-700" : "bg-white border-gray-200 text-gray-500 hover:border-gray-300"
+            }`}
+          >
+            Preset
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("custom")}
+            className={`px-3 py-2 text-xs font-semibold rounded-lg border transition ${
+              mode === "custom" ? "bg-emerald-50 border-emerald-300 text-emerald-700" : "bg-white border-gray-200 text-gray-500 hover:border-gray-300"
+            }`}
+          >
+            Custom symbol
+          </button>
+        </div>
+
+        {mode === "preset" ? (
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Currency</label>
+            <select
+              value={code}
+              onChange={(e) => handleSelectPreset(e.target.value)}
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400 transition"
+            >
+              {CURRENCY_PRESETS.map((p) => (
+                <option key={p.code} value={p.code}>
+                  {p.symbol} — {p.label} ({p.code})
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Symbol</label>
+              <input
+                type="text"
+                value={symbol}
+                onChange={(e) => { setSymbol(e.target.value); setSaved(false); }}
+                maxLength={6}
+                placeholder="$"
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition"
+              />
+              <p className="mt-1 text-[11px] text-gray-400">Up to 6 characters — e.g. <span className="font-mono">Rs.</span>, <span className="font-mono">kr</span>, <span className="font-mono">د.إ</span></p>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">ISO Code (optional)</label>
+              <input
+                type="text"
+                value={code}
+                onChange={(e) => { setCode(e.target.value.toUpperCase().slice(0, 3)); setSaved(false); }}
+                maxLength={3}
+                placeholder="XXX"
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 font-mono uppercase focus:outline-none focus:ring-2 focus:ring-emerald-400 transition"
+              />
+              <p className="mt-1 text-[11px] text-gray-400">3-letter ISO 4217 code — used by future payment integrations.</p>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center gap-3 pt-1 border-t border-gray-100">
+          <button
+            onClick={handleSave}
+            className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold rounded-xl transition"
+          >
+            Save currency
+          </button>
+          {saved && (
+            <span className="flex items-center gap-1.5 text-sm text-green-600 font-medium">
+              <CheckCircle2 size={16} /> Saved — all prices now display in {symbol}
+            </span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

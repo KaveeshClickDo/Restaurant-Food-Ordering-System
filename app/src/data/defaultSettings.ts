@@ -18,7 +18,7 @@
  */
 
 import type {
-  AdminSettings, ColorSettings, DeliveryZone, PaymentMethod,
+  AdminSettings, ColorSettings, CurrencySettings, DeliveryZone, PaymentMethod,
   PrinterSettings, ReceiptSettings, SeoSettings, TaxSettings,
 } from "@/types";
 import { restaurantInfo, defaultSchedule } from "@/data/restaurant";
@@ -42,6 +42,8 @@ export const DEFAULT_DELIVERY_ZONES: DeliveryZone[] = [
 export const DEFAULT_COLORS: ColorSettings = { primaryColor: "#f97316", backgroundColor: "#f9fafb" };
 
 export const DEFAULT_TAX: TaxSettings = { enabled: false, rate: 20, inclusive: true, showBreakdown: true };
+
+export const DEFAULT_CURRENCY: CurrencySettings = { code: "GBP", symbol: "£" };
 
 export const DEFAULT_RECEIPT: ReceiptSettings = {
   showLogo: false, logoUrl: "", restaurantName: restaurantInfo.name,
@@ -99,4 +101,5 @@ export const DEFAULT_SETTINGS: AdminSettings = {
     blackoutDates: [],
     reviewUrl: "",
   },
+  currency: DEFAULT_CURRENCY,
 };

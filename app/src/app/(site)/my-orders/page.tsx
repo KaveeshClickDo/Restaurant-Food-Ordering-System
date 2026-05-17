@@ -25,6 +25,8 @@ import MobileBottomNav from "@/components/MobileBottomNav";
 
 // ── Track order modal ───────────────────────────────────────────────
 function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void }) {
+    const { settings } = useApp();
+    const sym = settings.currency?.symbol ?? "£";
     const STEPS: { key: string; label: string; icon: React.ReactNode }[] = [
         { key: "pending", label: "Order received", icon: <Receipt className="w-4 h-4" strokeWidth={1.8} /> },
         { key: "preparing", label: "In the kitchen", icon: <ChefHat className="w-4 h-4" strokeWidth={1.8} /> },
@@ -106,7 +108,7 @@ function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void
                     <div className="grid grid-cols-2 gap-2.5">
                         <div className="bg-zinc-50 rounded-2xl p-3.5">
                             <p className="text-[10px] text-zinc-400 mb-1">Total</p>
-                            <p className="text-[15px] font-bold text-zinc-900 tabular-nums">£{order.total.toFixed(2)}</p>
+                            <p className="text-[15px] font-bold text-zinc-900 tabular-nums">{sym}{order.total.toFixed(2)}</p>
                         </div>
                         <div className="bg-zinc-50 rounded-2xl p-3.5">
                             <p className="text-[10px] text-zinc-400 mb-1">Type</p>
@@ -131,6 +133,7 @@ function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void
 // ── Main Page ───────────────────────────────────────────────────────────────
 export default function MyOrdersPage() {
     const { currentUser, addToCart, settings, refreshCurrentUser, logout } = useApp();
+    const sym = settings.currency?.symbol ?? "£";
     const router = useRouter();
     const [search, setSearch] = useState("");
     const [trackingOrder, setTrackingOrder] = useState<Order | null>(null);
@@ -304,7 +307,7 @@ export default function MyOrdersPage() {
                                                     {activeOrder.items.map((i) => `${i.qty}× ${i.name}`).join(", ")}
                                                 </p>
                                                 <div className="flex items-center justify-between">
-                                                    <span className="text-[16px] font-bold text-white tabular-nums">£{activeOrder.total.toFixed(2)}</span>
+                                                    <span className="text-[16px] font-bold text-white tabular-nums">{sym}{activeOrder.total.toFixed(2)}</span>
                                                     <button
                                                         onClick={() => setTrackingOrder(activeOrder)}
                                                         className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-white text-zinc-900 text-[13px] font-bold hover:bg-zinc-100 transition-colors active:scale-[0.98]"
@@ -337,7 +340,7 @@ export default function MyOrdersPage() {
                                                         </div>
                                                         <p className="text-[14px] font-semibold text-zinc-900 leading-snug mb-3 line-clamp-2">{itemSummary}</p>
                                                         <div className="flex items-center justify-between">
-                                                            <span className="text-[15px] font-bold text-zinc-900 tabular-nums">£{order.total.toFixed(2)}</span>
+                                                            <span className="text-[15px] font-bold text-zinc-900 tabular-nums">{sym}{order.total.toFixed(2)}</span>
                                                             <button
                                                                 onClick={() => {
                                                                     order.items.forEach((line) => {

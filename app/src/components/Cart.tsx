@@ -13,6 +13,7 @@ export default function Cart() {
   const [showSchedule, setShowSchedule] = useState(false);
 
   const { minOrder, deliveryFee, serviceFee } = settings.restaurant;
+  const sym        = settings.currency?.symbol ?? "£";
   const delivery   = fulfillment === "delivery" ? deliveryFee : 0;
   const service    = cartTotal * (serviceFee / 100);
   const tax        = computeTax(cartTotal, settings);
@@ -65,7 +66,7 @@ export default function Cart() {
                         &ldquo;{item.specialInstructions}&rdquo;
                       </p>
                     )}
-                    <p className="text-xs text-gray-500 mt-1">£{item.price.toFixed(2)} each</p>
+                    <p className="text-xs text-gray-500 mt-1">{sym}{item.price.toFixed(2)} each</p>
                   </div>
 
                   {/* Qty controls */}
@@ -88,7 +89,7 @@ export default function Cart() {
                   </div>
 
                   <span className="text-sm font-bold text-gray-900 flex-shrink-0 w-14 text-right">
-                    £{(item.price * item.quantity).toFixed(2)}
+                    {sym}{(item.price * item.quantity).toFixed(2)}
                   </span>
                 </li>
               ))}
@@ -101,29 +102,29 @@ export default function Cart() {
           <div className="px-5 py-4 border-t border-gray-100 space-y-2">
             <div className="flex justify-between text-sm text-gray-600">
               <span>Subtotal</span>
-              <span>£{cartTotal.toFixed(2)}</span>
+              <span>{sym}{cartTotal.toFixed(2)}</span>
             </div>
             {fulfillment === "delivery" && (
               <div className="flex justify-between text-sm text-gray-600">
                 <span>Delivery fee</span>
-                <span>£{delivery.toFixed(2)}</span>
+                <span>{sym}{delivery.toFixed(2)}</span>
               </div>
             )}
             <div className="flex justify-between text-sm text-gray-600">
               <span>Service fee ({serviceFee}%)</span>
-              <span>£{service.toFixed(2)}</span>
+              <span>{sym}{service.toFixed(2)}</span>
             </div>
             {tax.enabled && tax.showBreakdown && tax.vatAmount > 0 && (
               <div className={`flex justify-between text-xs font-semibold ${
                 tax.inclusive ? "text-gray-400" : "text-orange-600"
               }`}>
                 <span>{tax.label}</span>
-                <span>{tax.inclusive ? `£${tax.vatAmount.toFixed(2)}` : `+£${tax.vatAmount.toFixed(2)}`}</span>
+                <span>{tax.inclusive ? `${sym}${tax.vatAmount.toFixed(2)}` : `+${sym}${tax.vatAmount.toFixed(2)}`}</span>
               </div>
             )}
             <div className="flex justify-between font-bold text-gray-900 pt-2 border-t border-gray-100">
               <span>Total</span>
-              <span>£{grandTotal.toFixed(2)}</span>
+              <span>{sym}{grandTotal.toFixed(2)}</span>
             </div>
             {tax.enabled && tax.inclusive && tax.showBreakdown && (
               <p className="text-[10px] text-gray-400 text-right">Prices include {tax.rate}% VAT</p>
@@ -135,7 +136,7 @@ export default function Cart() {
         {cart.length > 0 && cartTotal < minOrder && (
           <div className="px-5 pb-3">
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700 font-medium">
-              Add £{shortfall.toFixed(2)} more to reach the minimum order of £{minOrder.toFixed(2)}
+              Add {sym}{shortfall.toFixed(2)} more to reach the minimum order of {sym}{minOrder.toFixed(2)}
             </div>
           </div>
         )}
@@ -192,7 +193,7 @@ export default function Cart() {
             <span>{scheduledTime ? "Schedule order" : "Go to checkout"}</span>
             {canCheckout && (
               <span className="flex items-center gap-1">
-                £{grandTotal.toFixed(2)}
+                {sym}{grandTotal.toFixed(2)}
                 <ChevronRight size={16} />
               </span>
             )}

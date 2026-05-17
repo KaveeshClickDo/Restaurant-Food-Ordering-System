@@ -250,6 +250,8 @@ function QuickReorder({
   orders: Order[];
   onReorder: (order: Order) => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const eligible = orders
     .filter((o) => o.status === "delivered")
     .slice(0, 3);
@@ -284,7 +286,7 @@ function QuickReorder({
               <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                 <span className="text-xs text-zinc-400">{formatDate(order.date)}</span>
                 <span className="text-zinc-300 text-xs">·</span>
-                <span className="text-xs font-semibold text-zinc-700 tabular-nums">£{order.total.toFixed(2)}</span>
+                <span className="text-xs font-semibold text-zinc-700 tabular-nums">{sym}{order.total.toFixed(2)}</span>
               </div>
             </div>
 
@@ -314,6 +316,8 @@ function QuickReorder({
 // ─── Order Card ───────────────────────────────────────────────────────────────
 
 function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) => void }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [expanded, setExpanded] = useState(false);
   const isActive = !["delivered", "cancelled", "refunded", "partially_refunded"].includes(order.status);
   const canReorder = ["delivered", "refunded", "partially_refunded"].includes(order.status);
@@ -342,7 +346,7 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
           <DeliveryTracker order={order} />
         </div>
         <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-          <span className="font-bold text-zinc-900 tabular-nums">£{order.total.toFixed(2)}</span>
+          <span className="font-bold text-zinc-900 tabular-nums">{sym}{order.total.toFixed(2)}</span>
           {expanded ? <ChevronUp size={16} className="text-zinc-400" /> : <ChevronDown size={16} className="text-zinc-400" />}
         </div>
       </button>
@@ -356,12 +360,12 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
               <span className="text-zinc-600 min-w-0 flex-1">
                 <span className="font-medium text-gray-800">{item.qty}×</span> {item.name}
               </span>
-              <span className="font-medium text-gray-800 flex-shrink-0 tabular-nums">£{(item.price * item.qty).toFixed(2)}</span>
+              <span className="font-medium text-gray-800 flex-shrink-0 tabular-nums">{sym}{(item.price * item.qty).toFixed(2)}</span>
             </div>
           ))}
           <div className="border-t border-zinc-200 mt-3 pt-3 flex justify-between font-bold text-zinc-900 text-sm">
             <span>Total</span>
-            <span className="tabular-nums">£{order.total.toFixed(2)}</span>
+            <span className="tabular-nums">{sym}{order.total.toFixed(2)}</span>
           </div>
           {order.address && (
             <p className="text-xs text-zinc-400 mt-2 break-words">
@@ -393,7 +397,8 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
 // ─── Favourites Tab ───────────────────────────────────────────────────────────
 
 function FavouritesTab() {
-  const { currentUser, menuItems, toggleFavourite, isOpen, scheduledTime } = useApp();
+  const { currentUser, menuItems, toggleFavourite, isOpen, scheduledTime, settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [modalItem, setModalItem] = useState<MenuItem | null>(null);
 
   const favouriteIds = currentUser?.favourites ?? [];
@@ -468,7 +473,7 @@ function FavouritesTab() {
                 <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">{item.description}</p>
 
                 <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-50">
-                  <span className="font-bold text-zinc-900 text-sm">£{item.price.toFixed(2)}</span>
+                  <span className="font-bold text-zinc-900 text-sm">{sym}{item.price.toFixed(2)}</span>
                   {outOfStock ? (
                     <span className="flex items-center gap-1 text-xs font-semibold text-red-500 bg-red-50 px-3 py-1.5 rounded-xl border border-red-100">
                       <PackageX size={12} /> Unavailable
@@ -1153,6 +1158,7 @@ type TabId = typeof VALID_TABS[number];
 
 function AccountPageContent() {
   const { currentUser, customers, addToCart, menuItems, refreshCurrentUser, settings, logout } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const router = useRouter();
   const searchParams = useSearchParams();
   const [search, setSearch] = useState("");
@@ -1485,7 +1491,7 @@ function AccountPageContent() {
                     <TrendingUp size={14} className="text-zinc-700 flex-shrink-0" />
                     <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total spent</span>
                   </div>
-                  <p className="text-xl sm:text-2xl font-bold text-zinc-900 tabular-nums">£{totalSpent.toFixed(2)}</p>
+                  <p className="text-xl sm:text-2xl font-bold text-zinc-900 tabular-nums">{sym}{totalSpent.toFixed(2)}</p>
                 </div>
                 {favourite ? (
                   <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5 col-span-2 sm:col-span-1">
@@ -1504,7 +1510,7 @@ function AccountPageContent() {
                       <Gift size={14} className="text-teal-100 flex-shrink-0" />
                       <span className="text-[11px] sm:text-xs font-medium text-teal-100 truncate">Store credit</span>
                     </div>
-                    <p className="text-xl sm:text-2xl font-bold text-white tabular-nums">£{(liveUser.storeCredit ?? 0).toFixed(2)}</p>
+                    <p className="text-xl sm:text-2xl font-bold text-white tabular-nums">{sym}{(liveUser.storeCredit ?? 0).toFixed(2)}</p>
                     <p className="text-[10px] text-teal-200 mt-1">Auto-applied at checkout</p>
                   </div>
                 )}
@@ -1518,7 +1524,7 @@ function AccountPageContent() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-teal-800">
-                      You have <span className="text-teal-600 tabular-nums">£{(liveUser.storeCredit ?? 0).toFixed(2)}</span> store credit
+                      You have <span className="text-teal-600 tabular-nums">{sym}{(liveUser.storeCredit ?? 0).toFixed(2)}</span> store credit
                     </p>
                     <p className="text-xs text-teal-600 mt-0.5 leading-relaxed">
                       Automatically applied at checkout. Toggle on/off before paying.

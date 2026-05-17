@@ -59,7 +59,9 @@ export default function MenuManagementPanel() {
     addCategory, updateCategory, deleteCategory, reorderCategories,
     addMenuItem, updateMenuItem, deleteMenuItem,
     mealPeriods, addMealPeriod, updateMealPeriod, deleteMealPeriod,
+    settings,
   } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
 
   const [editingPeriod, setEditingPeriod] = useState<MealPeriod | null>(null);
   const [deletingPeriod, setDeletingPeriod] = useState<MealPeriod | null>(null);
@@ -475,7 +477,7 @@ export default function MenuManagementPanel() {
                     })()}
 
                     <span className="font-bold text-gray-900 text-sm flex-shrink-0">
-                      £{item.price.toFixed(2)}
+                      {sym}{item.price.toFixed(2)}
                     </span>
 
                     <div className="flex items-center gap-1 flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 transition">
@@ -656,6 +658,8 @@ function ItemModal({
   item: MenuItem; categories: Category[]; mealPeriods: MealPeriod[]; isNew: boolean;
   onSave: (i: MenuItem) => void; onClose: () => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [form, setForm] = useState<MenuItem>({ ...item });
   const [tab, setTab] = useState<"basic" | "variations" | "addons" | "stock">("basic");
 
@@ -781,7 +785,7 @@ function ItemModal({
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Base price (£) *</label>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Base price ({sym}) *</label>
               <input
                 type="number"
                 min="0"
@@ -965,7 +969,7 @@ function ItemModal({
                       placeholder="Option label"
                     />
                     <div className="relative w-24">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">+£</span>
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">+{sym}</span>
                       <input
                         type="number"
                         min="0"
@@ -1014,7 +1018,7 @@ function ItemModal({
                 placeholder="Add-on name"
               />
               <div className="relative w-24">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">+£</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">+{sym}</span>
                 <input
                   type="number"
                   min="0"

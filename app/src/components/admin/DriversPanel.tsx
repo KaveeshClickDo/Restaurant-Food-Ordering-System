@@ -264,6 +264,8 @@ function UnassignedOrderCard({
   drivers: Driver[];
   onAssign: (customerId: string, orderId: string, driverId: string) => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [selected, setSelected] = useState("");
   const activeDrivers = drivers.filter((d) => d.active);
 
@@ -279,7 +281,7 @@ function UnassignedOrderCard({
             <Package size={10} /> {order.address}
           </p>
         )}
-        <p className="text-xs text-gray-400 mt-0.5">{order.items.length} item{order.items.length !== 1 ? "s" : ""} · £{order.total.toFixed(2)}</p>
+        <p className="text-xs text-gray-400 mt-0.5">{order.items.length} item{order.items.length !== 1 ? "s" : ""} · {sym}{order.total.toFixed(2)}</p>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
         {activeDrivers.length === 0 ? (

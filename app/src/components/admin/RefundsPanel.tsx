@@ -50,8 +50,8 @@ function fmtDate(iso: string) {
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
-function fmtAmt(n: number) {
-  return `£${n.toFixed(2)}`;
+function fmtAmt(n: number, sym = "£") {
+  return `${sym}${n.toFixed(2)}`;
 }
 
 type EligibleFilter = "all" | "delivered" | "partially_refunded" | "refunded";
@@ -79,6 +79,8 @@ function StatusBadge({ status }: { status: string }) {
 // ─── Refund history row ───────────────────────────────────────────────────────
 
 function RefundHistoryRow({ refund }: { refund: Refund }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const method = METHOD_CONFIG[refund.method];
   return (
     <div className="flex items-start justify-between gap-4 py-2.5 border-t border-gray-50 first:border-t-0">
@@ -88,7 +90,7 @@ function RefundHistoryRow({ refund }: { refund: Refund }) {
         </div>
         <div className="min-w-0">
           <p className="text-sm font-semibold text-gray-800">
-            {refund.type === "full" ? "Full refund" : "Partial refund"} — {fmtAmt(refund.amount)}
+            {refund.type === "full" ? "Full refund" : "Partial refund"} — {fmtAmt(refund.amount, sym)}
           </p>
           <p className="text-xs text-gray-500 mt-0.5">{refund.reason}</p>
           {refund.note && (
@@ -100,7 +102,7 @@ function RefundHistoryRow({ refund }: { refund: Refund }) {
           </p>
         </div>
       </div>
-      <span className="text-sm font-bold text-teal-700 flex-shrink-0">{fmtAmt(refund.amount)}</span>
+      <span className="text-sm font-bold text-teal-700 flex-shrink-0">{fmtAmt(refund.amount, sym)}</span>
     </div>
   );
 }
@@ -116,6 +118,8 @@ function OrderRefundCard({
   customerName: string;
   onProcess: (order: Order, customerName: string) => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [expanded, setExpanded] = useState(false);
   const refunds = order.refunds ?? [];
   const refundedAmount = order.refundedAmount ?? 0;
@@ -147,12 +151,12 @@ function OrderRefundCard({
 
         {/* Amounts */}
         <div className="text-right flex-shrink-0">
-          <p className="text-base font-extrabold text-gray-900">{fmtAmt(order.total)}</p>
+          <p className="text-base font-extrabold text-gray-900">{fmtAmt(order.total, sym)}</p>
           {refundedAmount > 0 && (
-            <p className="text-xs text-teal-600 font-semibold">{fmtAmt(refundedAmount)} refunded</p>
+            <p className="text-xs text-teal-600 font-semibold">{fmtAmt(refundedAmount, sym)} refunded</p>
           )}
           {!isFullyRefunded && refundable > 0 && (
-            <p className="text-xs text-gray-400">{fmtAmt(refundable)} refundable</p>
+            <p className="text-xs text-gray-400">{fmtAmt(refundable, sym)} refundable</p>
           )}
         </div>
       </div>
@@ -211,6 +215,8 @@ function RefundModal({
   onClose: () => void;
   onSubmit: (refund: Omit<Refund, "id" | "processedAt" | "processedBy">) => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const refundedAmount = order.refundedAmount ?? 0;
   const maxRefundable = Math.max(0, order.total - refundedAmount);
 
@@ -224,8 +230,8 @@ function RefundModal({
 
   function validate() {
     const e: Record<string, string> = {};
-    if (!amount || amountNum <= 0) e.amount = "Enter a refund amount greater than £0.";
-    if (amountNum > maxRefundable) e.amount = `Maximum refundable is ${fmtAmt(maxRefundable)}.`;
+    if (!amount || amountNum <= 0) e.amount = `Enter a refund amount greater than ${sym}0.`;
+    if (amountNum > maxRefundable) e.amount = `Maximum refundable is ${fmtAmt(maxRefundable, sym)}.`;
     if (!reason) e.reason = "Select a reason for this refund.";
     return e;
   }
@@ -270,15 +276,15 @@ function RefundModal({
           <div className="bg-gray-50 rounded-xl px-4 py-3 grid grid-cols-3 gap-3 text-center">
             <div>
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Order total</p>
-              <p className="text-sm font-extrabold text-gray-900 mt-0.5">{fmtAmt(order.total)}</p>
+              <p className="text-sm font-extrabold text-gray-900 mt-0.5">{fmtAmt(order.total, sym)}</p>
             </div>
             <div>
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Already refunded</p>
-              <p className="text-sm font-extrabold text-teal-600 mt-0.5">{fmtAmt(refundedAmount)}</p>
+              <p className="text-sm font-extrabold text-teal-600 mt-0.5">{fmtAmt(refundedAmount, sym)}</p>
             </div>
             <div>
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Refundable</p>
-              <p className="text-sm font-extrabold text-gray-900 mt-0.5">{fmtAmt(maxRefundable)}</p>
+              <p className="text-sm font-extrabold text-gray-900 mt-0.5">{fmtAmt(maxRefundable, sym)}</p>
             </div>
           </div>
 
@@ -290,11 +296,11 @@ function RefundModal({
                 onClick={() => { setAmount(maxRefundable.toFixed(2)); setErrors((e) => ({ ...e, amount: "" })); }}
                 className="text-xs text-teal-600 hover:text-teal-700 font-semibold"
               >
-                Full refund ({fmtAmt(maxRefundable)})
+                Full refund ({fmtAmt(maxRefundable, sym)})
               </button>
             </div>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">£</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">{sym}</span>
               <input
                 type="number"
                 min="0.01"
@@ -392,7 +398,7 @@ function RefundModal({
             className="flex-1 bg-teal-500 hover:bg-teal-400 active:bg-teal-600 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
           >
             <RotateCcw size={15} />
-            Confirm refund {amountNum > 0 && amountNum <= maxRefundable ? `of ${fmtAmt(amountNum)}` : ""}
+            Confirm refund {amountNum > 0 && amountNum <= maxRefundable ? `of ${fmtAmt(amountNum, sym)}` : ""}
           </button>
           <button
             onClick={onClose}
@@ -425,7 +431,8 @@ function SuccessToast({ message, onClose }: { message: string; onClose: () => vo
 // ─── Main panel ───────────────────────────────────────────────────────────────
 
 export default function RefundsPanel() {
-  const { customers, addRefund } = useApp();
+  const { customers, addRefund, settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
 
   const [search,      setSearch]      = useState("");
   const [filter,      setFilter]      = useState<EligibleFilter>("all");
@@ -475,7 +482,7 @@ export default function RefundsPanel() {
     };
     addRefund(customerId, order.id, refund);
     setModalOrder(null);
-    setToast(`Refund of £${fields.amount.toFixed(2)} processed successfully.`);
+    setToast(`Refund of ${sym}${fields.amount.toFixed(2)} processed successfully.`);
     setTimeout(() => setToast(null), 4000);
   }
 
@@ -492,7 +499,7 @@ export default function RefundsPanel() {
       {/* ── Stats ──────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: "Total refunded",     value: fmtAmt(totalRefunded), icon: <DollarSign size={18} />, color: "text-teal-600 bg-teal-50 border-teal-100" },
+          { label: "Total refunded",     value: fmtAmt(totalRefunded, sym), icon: <DollarSign size={18} />, color: "text-teal-600 bg-teal-50 border-teal-100" },
           { label: "Full refunds",        value: fullRefundCount,        icon: <RotateCcw size={18} />,  color: "text-blue-600 bg-blue-50 border-blue-100"  },
           { label: "Partial refunds",     value: partialCount,           icon: <Clock size={18} />,      color: "text-amber-600 bg-amber-50 border-amber-100"},
           { label: "Still refundable",    value: refundableCount,        icon: <FileText size={18} />,   color: "text-orange-600 bg-orange-50 border-orange-100" },

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
+import { useApp } from "@/context/AppContext";
 import {
   TrendingUp, ShoppingBag, RotateCcw, Percent, CreditCard,
   Download, Printer, RefreshCw, CalendarDays, ChevronDown,
@@ -29,8 +30,8 @@ type Source  = "all" | "online" | "pos";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const fmtCur = (n: number) =>
-  "£" + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+const fmtCur = (n: number, sym = "£") =>
+  sym + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
 const pct = (n: number, d: number) =>
   d === 0 ? "0%" : (n / d * 100).toFixed(1) + "%";
@@ -160,7 +161,7 @@ function StatCard({
   );
 }
 
-function BarChart({ data }: { data: { label: string; revenue: number; count: number }[] }) {
+function BarChart({ data, sym }: { data: { label: string; revenue: number; count: number }[]; sym: string }) {
   if (!data.length) return (
     <div className="h-40 flex items-center justify-center text-gray-300 text-sm">
       No orders in this period
@@ -188,7 +189,7 @@ function BarChart({ data }: { data: { label: string; revenue: number; count: num
           <g key={t}>
             <line x1={pad.l} y1={y} x2={W - pad.r} y2={y} stroke="#f3f4f6" strokeWidth={1} />
             <text x={pad.l - 6} y={y + 4} textAnchor="end" fontSize={10} fill="#9ca3af">
-              {v >= 1000 ? `£${(v / 1000).toFixed(1)}k` : `£${Math.round(v)}`}
+              {v >= 1000 ? `${sym}${(v / 1000).toFixed(1)}k` : `${sym}${Math.round(v)}`}
             </text>
           </g>
         );
@@ -203,7 +204,7 @@ function BarChart({ data }: { data: { label: string; revenue: number; count: num
         return (
           <g key={i}>
             <rect x={x} y={y} width={barW} height={bH} rx={3} fill="#f97316" opacity={0.85}>
-              <title>{d.label} · {fmtCur(d.revenue)} · {d.count} order{d.count !== 1 ? "s" : ""}</title>
+              <title>{d.label} · {fmtCur(d.revenue, sym)} · {d.count} order{d.count !== 1 ? "s" : ""}</title>
             </rect>
             {showLabel && (
               <text x={x + barW / 2} y={H - 6} textAnchor="middle" fontSize={9} fill="#6b7280">
@@ -256,6 +257,9 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function OnlineReportsPanel() {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
+  const cur = (n: number) => fmtCur(n, sym);
   const [preset,      setPreset]      = useState<Preset>("30d");
   const [customStart, setCustomStart] = useState("");
   const [customEnd,   setCustomEnd]   = useState("");
@@ -353,7 +357,7 @@ export default function OnlineReportsPanel() {
 
   function exportCSV() {
     const rows = [
-      ["Date", "Order ID", "Status", "Source", "Fulfilment", "Total (£)", "Refunded (£)", "VAT (£)", "Net (£)", "Payment Method"],
+      ["Date", "Order ID", "Status", "Source", "Fulfilment", `Total (${sym})`, `Refunded (${sym})`, `VAT (${sym})`, `Net (${sym})`, "Payment Method"],
       ...filtered.map((o) => [
         new Date(o.date).toLocaleDateString("en-GB"),
         o.id,
@@ -487,15 +491,15 @@ export default function OnlineReportsPanel() {
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         <StatCard
           label="Gross Revenue"
-          value={fmtCur(metrics.revenue)}
-          sub={`${metrics.count} order${metrics.count !== 1 ? "s" : ""} · avg ${fmtCur(metrics.aov)}`}
+          value={cur(metrics.revenue)}
+          sub={`${metrics.count} order${metrics.count !== 1 ? "s" : ""} · avg ${cur(metrics.aov)}`}
           icon={TrendingUp}
           accent="bg-orange-500"
         />
         <StatCard
           label="Net Revenue"
-          value={fmtCur(metrics.netRev)}
-          sub={`After ${fmtCur(metrics.refunds)} in refunds`}
+          value={cur(metrics.netRev)}
+          sub={`After ${cur(metrics.refunds)} in refunds`}
           icon={TrendingUp}
           accent="bg-emerald-500"
           trend={metrics.refunds > 0 ? "down" : "neutral"}
@@ -509,14 +513,14 @@ export default function OnlineReportsPanel() {
         />
         <StatCard
           label="Average Order"
-          value={fmtCur(metrics.aov)}
+          value={cur(metrics.aov)}
           sub={`Over ${metrics.count} order${metrics.count !== 1 ? "s" : ""}`}
           icon={CreditCard}
           accent="bg-violet-500"
         />
         <StatCard
           label="Total Refunds"
-          value={fmtCur(metrics.refunds)}
+          value={cur(metrics.refunds)}
           sub={pct(metrics.refunds, metrics.revenue) + " refund rate"}
           icon={RotateCcw}
           accent="bg-red-500"
@@ -524,7 +528,7 @@ export default function OnlineReportsPanel() {
         />
         <StatCard
           label="VAT Collected"
-          value={fmtCur(metrics.vat)}
+          value={cur(metrics.vat)}
           sub={pct(metrics.vat, metrics.revenue) + " of gross revenue"}
           icon={Percent}
           accent="bg-indigo-500"
@@ -541,7 +545,7 @@ export default function OnlineReportsPanel() {
             </p>
           </div>
           <span className="text-xs font-semibold px-2.5 py-1 bg-orange-50 text-orange-600 rounded-lg">
-            {fmtCur(metrics.revenue)} total
+            {cur(metrics.revenue)} total
           </span>
         </div>
         {loading ? (
@@ -549,7 +553,7 @@ export default function OnlineReportsPanel() {
             <RefreshCw size={20} className="animate-spin text-gray-300" />
           </div>
         ) : (
-          <BarChart data={chartData} />
+          <BarChart data={chartData} sym={sym} />
         )}
       </div>
 
@@ -591,7 +595,7 @@ export default function OnlineReportsPanel() {
                   value={revenue}
                   total={metrics.revenue}
                   color={["bg-orange-400","bg-blue-400","bg-violet-400","bg-emerald-400","bg-pink-400"][i % 5]}
-                  fmt={fmtCur}
+                  fmt={cur}
                 />
               ))}
               <div className="pt-2 border-t border-gray-100">
@@ -614,12 +618,12 @@ export default function OnlineReportsPanel() {
               { label: "VAT Collected",     value: metrics.vat,              color: "bg-indigo-400" },
               { label: "Net (ex-VAT)",      value: metrics.revenue - metrics.vat, color: "bg-emerald-400" },
             ].map(({ label, value, color }) => (
-              <HBar key={label} label={label} value={value} total={metrics.revenue} color={color} fmt={fmtCur} />
+              <HBar key={label} label={label} value={value} total={metrics.revenue} color={color} fmt={cur} />
             ))}
           </div>
           <div className="mt-2 bg-indigo-50 rounded-xl p-3">
             <p className="text-xs text-indigo-700 font-semibold">VAT Due to HMRC</p>
-            <p className="text-xl font-black text-indigo-800 mt-0.5">{fmtCur(metrics.vat)}</p>
+            <p className="text-xl font-black text-indigo-800 mt-0.5">{cur(metrics.vat)}</p>
             <p className="text-xs text-indigo-600 mt-1">
               {pct(metrics.vat, metrics.revenue)} of gross · based on declared VAT per order
             </p>
@@ -667,7 +671,7 @@ export default function OnlineReportsPanel() {
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
             <div className="flex flex-wrap gap-1 items-center justify-between mb-4">
               <h3 className="font-bold text-gray-900">Refunds detail</h3>
-              <span className="text-sm font-semibold text-red-600">{fmtCur(metrics.refunds)} total refunded</span>
+              <span className="text-sm font-semibold text-red-600">{cur(metrics.refunds)} total refunded</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -694,9 +698,9 @@ export default function OnlineReportsPanel() {
                           {o.status.replace("_", " ")}
                         </span>
                       </td>
-                      <td className="py-2.5 pr-4 text-right font-semibold">{fmtCur(o.total)}</td>
+                      <td className="py-2.5 pr-4 text-right font-semibold">{cur(o.total)}</td>
                       <td className="py-2.5 text-right font-semibold text-red-600">
-                        −{fmtCur(o.refunded_amount ?? 0)}
+                        −{cur(o.refunded_amount ?? 0)}
                       </td>
                     </tr>
                   ))}
@@ -704,7 +708,7 @@ export default function OnlineReportsPanel() {
                 <tfoot>
                   <tr className="border-t border-gray-200">
                     <td colSpan={4} className="pt-3 text-right text-sm font-bold text-gray-700">Total refunded</td>
-                    <td className="pt-3 text-right font-black text-red-600">{fmtCur(metrics.refunds)}</td>
+                    <td className="pt-3 text-right font-black text-red-600">{cur(metrics.refunds)}</td>
                   </tr>
                 </tfoot>
               </table>
@@ -718,10 +722,10 @@ export default function OnlineReportsPanel() {
         <h3 className="font-bold text-sm text-gray-300 uppercase tracking-widest mb-4">Period Summary</h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
-            { label: "Gross Revenue",   value: fmtCur(metrics.revenue) },
-            { label: "Total Refunds",   value: fmtCur(metrics.refunds) },
-            { label: "VAT Due",         value: fmtCur(metrics.vat) },
-            { label: "Net Revenue",     value: fmtCur(metrics.netRev) },
+            { label: "Gross Revenue",   value: cur(metrics.revenue) },
+            { label: "Total Refunds",   value: cur(metrics.refunds) },
+            { label: "VAT Due",         value: cur(metrics.vat) },
+            { label: "Net Revenue",     value: cur(metrics.netRev) },
           ].map(({ label, value }) => (
             <div key={label}>
               <p className="text-xs text-gray-400 font-medium">{label}</p>

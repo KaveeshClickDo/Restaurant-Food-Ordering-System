@@ -190,9 +190,10 @@ export async function POST(req: NextRequest) {
       (s, i) => s + (i.price as number) * (i.qty as number), 0,
     );
     if (coupon.minOrderAmount > 0 && verifiedSubtotal < coupon.minOrderAmount) {
+      const sym = (settingsRow?.data?.currency?.symbol as string | undefined) ?? "£";
       return NextResponse.json({
         ok: false,
-        error: `This coupon requires a minimum order of £${coupon.minOrderAmount.toFixed(2)}.`,
+        error: `This coupon requires a minimum order of ${sym}${coupon.minOrderAmount.toFixed(2)}.`,
       }, { status: 400 });
     }
 

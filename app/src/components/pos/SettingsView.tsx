@@ -43,9 +43,16 @@ export default function SettingsView() {
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
                 <p className="text-[11px] text-slate-500 mt-1">Leave blank to use your restaurant branding name automatically.</p>
               </div>
+              {/* Currency is set centrally in Admin → Operations → Currency. */}
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Currency</label>
+                <div className="flex items-center gap-3 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5">
+                  <span className="text-white font-mono text-base">{appSettings.currency?.symbol ?? local.currencySymbol}</span>
+                  <span className="text-slate-500 text-xs">Managed in Admin → Operations → Currency</span>
+                </div>
+              </div>
               {[
                 { key: "location", label: "Location / Branch", type: "text" },
-                { key: "currencySymbol", label: "Currency Symbol", type: "text" },
                 { key: "receiptFooter", label: "Receipt Footer", type: "textarea" },
               ].map((f) => (
                 <div key={f.key}>
@@ -160,12 +167,12 @@ export default function SettingsView() {
               <h3 className="text-white font-semibold text-sm">Loyalty Program</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs text-slate-400 mb-1 block">Points per £</label>
+                  <label className="text-xs text-slate-400 mb-1 block">Points per {appSettings.currency?.symbol ?? local.currencySymbol}</label>
                   <input type="number" min={0} step={1} value={local.loyaltyPointsPerPound} onChange={(e) => setLocal((p) => ({ ...p, loyaltyPointsPerPound: parseInt(e.target.value) || 0 }))}
                     className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500" />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 mb-1 block">Point value (£)</label>
+                  <label className="text-xs text-slate-400 mb-1 block">Point value ({appSettings.currency?.symbol ?? local.currencySymbol})</label>
                   <input type="number" min={0} step={0.001} value={local.loyaltyPointsValue} onChange={(e) => setLocal((p) => ({ ...p, loyaltyPointsValue: parseFloat(e.target.value) || 0 }))}
                     className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500" />
                 </div>
@@ -315,18 +322,19 @@ export default function SettingsView() {
                 lines.push({ text: eq });
                 lines.push({ text: twoCol("ITEM", "PRICE"), bold: true });
                 lines.push({ text: dash });
-                lines.push({ text: twoCol("Chicken Tikka x2", "£11.98") });
-                lines.push({ text: twoCol("Garlic Naan x1", "£2.99") });
+                const previewSym = appSettings.currency?.symbol ?? local.currencySymbol;
+                lines.push({ text: twoCol("Chicken Tikka x2", `${previewSym}11.98`) });
+                lines.push({ text: twoCol("Garlic Naan x1", `${previewSym}2.99`) });
                 lines.push({ text: dash });
-                lines.push({ text: twoCol("Subtotal", "£14.97") });
+                lines.push({ text: twoCol("Subtotal", `${previewSym}14.97`) });
                 if (local.taxRate > 0) {
                   const vatAmt = local.taxInclusive
                     ? (14.97 * local.taxRate / (100 + local.taxRate)).toFixed(2)
                     : (14.97 * local.taxRate / 100).toFixed(2);
-                  lines.push({ text: twoCol(local.taxInclusive ? `VAT incl. (${local.taxRate}%)` : `VAT (${local.taxRate}%)`, local.taxInclusive ? `£${vatAmt}` : `+£${vatAmt}`), dim: true });
+                  lines.push({ text: twoCol(local.taxInclusive ? `VAT incl. (${local.taxRate}%)` : `VAT (${local.taxRate}%)`, local.taxInclusive ? `${previewSym}${vatAmt}` : `+${previewSym}${vatAmt}`), dim: true });
                 }
                 lines.push({ text: eq });
-                lines.push({ text: twoCol("TOTAL", "£14.97"), bold: true });
+                lines.push({ text: twoCol("TOTAL", `${previewSym}14.97`), bold: true });
                 lines.push({ text: eq });
                 lines.push({ text: "" });
                 const ty = local.receiptThankYouMessage || "Thank you for your order!";

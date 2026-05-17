@@ -310,13 +310,14 @@ export function buildVarMap(
   settings: AdminSettings,
 ): Record<string, string> {
   const primaryColor = settings.colors?.primaryColor ?? "#f97316";
+  const sym = settings.currency?.symbol || "£";
 
   const itemsHtml = order.items
     .map(
       (i) =>
         `<tr>
           <td style="padding:6px 8px;border-bottom:1px solid #f3f4f6">${i.name} × ${i.qty}</td>
-          <td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;text-align:right;white-space:nowrap">£${(i.price * i.qty).toFixed(2)}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;text-align:right;white-space:nowrap">${sym}${(i.price * i.qty).toFixed(2)}</td>
         </tr>`,
     )
     .join("");
@@ -328,28 +329,28 @@ export function buildVarMap(
   let totalsHtml = `
     <tr>
       <td style="padding:8px 8px 4px;font-weight:600;color:#374151;border-top:2px solid #e5e7eb">Subtotal</td>
-      <td style="padding:8px 8px 4px;text-align:right;font-weight:600;color:#374151;border-top:2px solid #e5e7eb">£${subtotalAmt.toFixed(2)}</td>
+      <td style="padding:8px 8px 4px;text-align:right;font-weight:600;color:#374151;border-top:2px solid #e5e7eb">${sym}${subtotalAmt.toFixed(2)}</td>
     </tr>`;
 
   if (order.deliveryFee && order.deliveryFee > 0) {
     totalsHtml += `
     <tr>
       <td style="padding:4px 8px;color:#6b7280">Delivery fee</td>
-      <td style="padding:4px 8px;text-align:right;color:#6b7280">£${order.deliveryFee.toFixed(2)}</td>
+      <td style="padding:4px 8px;text-align:right;color:#6b7280">${sym}${order.deliveryFee.toFixed(2)}</td>
     </tr>`;
   }
   if (order.serviceFee && order.serviceFee > 0) {
     totalsHtml += `
     <tr>
       <td style="padding:4px 8px;color:#6b7280">Service fee</td>
-      <td style="padding:4px 8px;text-align:right;color:#6b7280">£${order.serviceFee.toFixed(2)}</td>
+      <td style="padding:4px 8px;text-align:right;color:#6b7280">${sym}${order.serviceFee.toFixed(2)}</td>
     </tr>`;
   }
   if (order.couponDiscount && order.couponDiscount > 0) {
     totalsHtml += `
     <tr>
       <td style="padding:4px 8px;color:#16a34a;font-weight:600">Coupon (${order.couponCode ?? ""})</td>
-      <td style="padding:4px 8px;text-align:right;color:#16a34a;font-weight:600">−£${order.couponDiscount.toFixed(2)}</td>
+      <td style="padding:4px 8px;text-align:right;color:#16a34a;font-weight:600">−${sym}${order.couponDiscount.toFixed(2)}</td>
     </tr>`;
   }
   if (order.vatAmount && order.vatAmount > 0) {
@@ -359,13 +360,13 @@ export function buildVarMap(
     totalsHtml += `
     <tr>
       <td style="padding:4px 8px;color:${vatColor};font-weight:600">${vatLabel}</td>
-      <td style="padding:4px 8px;text-align:right;color:${vatColor};font-weight:600">${vatPrefix}£${order.vatAmount.toFixed(2)}</td>
+      <td style="padding:4px 8px;text-align:right;color:${vatColor};font-weight:600">${vatPrefix}${sym}${order.vatAmount.toFixed(2)}</td>
     </tr>`;
   }
   totalsHtml += `
     <tr style="background:#f9fafb">
       <td style="padding:8px;font-weight:700;font-size:15px;color:#111827;border-top:2px solid #e5e7eb">Total</td>
-      <td style="padding:8px;text-align:right;font-weight:700;font-size:15px;color:#111827;border-top:2px solid #e5e7eb">£${order.total.toFixed(2)}</td>
+      <td style="padding:8px;text-align:right;font-weight:700;font-size:15px;color:#111827;border-top:2px solid #e5e7eb">${sym}${order.total.toFixed(2)}</td>
     </tr>`;
 
   const vatNote = order.vatAmount && order.vatAmount > 0 && order.vatInclusive
@@ -411,7 +412,7 @@ export function buildVarMap(
       hour: "2-digit", minute: "2-digit",
     }),
     order_items:        orderItemsTable,   // server-built HTML — do not escape
-    order_total:        `£${order.total.toFixed(2)}`,
+    order_total:        `${sym}${order.total.toFixed(2)}`,
     order_status:       order.status,
     fulfillment_type:   order.fulfillment === "delivery" ? "Delivery" : "Collection",
     restaurant_name:    settings.restaurant.name,
@@ -451,8 +452,9 @@ function buildVatString(
 ): string {
   const tax = settings.taxSettings;
   if (!tax?.enabled || !vatAmount || vatAmount <= 0) return "";
+  const sym = settings.currency?.symbol || "£";
   const mode = vatInclusive ? `incl. ${tax.rate}% VAT` : `${tax.rate}% VAT`;
-  return `£${vatAmount.toFixed(2)} (${mode})`;
+  return `${sym}${vatAmount.toFixed(2)} (${mode})`;
 }
 
 /** Replace {{variable}} placeholders with actual values. */
@@ -463,6 +465,7 @@ export function applyVars(template: string, vars: Record<string, string>): strin
 /** Build the preview var map using dummy data (no real order needed). */
 export function buildPreviewVarMap(settings: AdminSettings): Record<string, string> {
   const primaryColor = settings.colors?.primaryColor ?? "#f97316";
+  const sym = settings.currency?.symbol || "£";
 
   const restAddr = [
     settings.restaurant.addressLine1,
@@ -486,15 +489,15 @@ export function buildPreviewVarMap(settings: AdminSettings): Record<string, stri
   let previewTotals = `
     <tr>
       <td style="padding:8px 8px 4px;font-weight:600;color:#374151;border-top:2px solid #e5e7eb">Subtotal</td>
-      <td style="padding:8px 8px 4px;text-align:right;font-weight:600;color:#374151;border-top:2px solid #e5e7eb">£${previewSubtotal.toFixed(2)}</td>
+      <td style="padding:8px 8px 4px;text-align:right;font-weight:600;color:#374151;border-top:2px solid #e5e7eb">${sym}${previewSubtotal.toFixed(2)}</td>
     </tr>
     <tr>
       <td style="padding:4px 8px;color:#6b7280">Delivery fee</td>
-      <td style="padding:4px 8px;text-align:right;color:#6b7280">£${previewDelivery.toFixed(2)}</td>
+      <td style="padding:4px 8px;text-align:right;color:#6b7280">${sym}${previewDelivery.toFixed(2)}</td>
     </tr>
     <tr>
       <td style="padding:4px 8px;color:#6b7280">Service fee (${settings.restaurant.serviceFee}%)</td>
-      <td style="padding:4px 8px;text-align:right;color:#6b7280">£${previewService.toFixed(2)}</td>
+      <td style="padding:4px 8px;text-align:right;color:#6b7280">${sym}${previewService.toFixed(2)}</td>
     </tr>`;
   if (previewVatEnabled && previewVatAmt > 0) {
     const vatLabel  = previewInclusive ? `VAT incl. (${previewVatRate}%)` : `VAT (${previewVatRate}%)`;
@@ -503,13 +506,13 @@ export function buildPreviewVarMap(settings: AdminSettings): Record<string, stri
     previewTotals += `
     <tr>
       <td style="padding:4px 8px;color:${vatColor};font-weight:600">${vatLabel}</td>
-      <td style="padding:4px 8px;text-align:right;color:${vatColor};font-weight:600">${vatPrefix}£${previewVatAmt.toFixed(2)}</td>
+      <td style="padding:4px 8px;text-align:right;color:${vatColor};font-weight:600">${vatPrefix}${sym}${previewVatAmt.toFixed(2)}</td>
     </tr>`;
   }
   previewTotals += `
     <tr style="background:#f9fafb">
       <td style="padding:8px;font-weight:700;font-size:15px;color:#111827;border-top:2px solid #e5e7eb">Total</td>
-      <td style="padding:8px;text-align:right;font-weight:700;font-size:15px;color:#111827;border-top:2px solid #e5e7eb">£${previewTotal.toFixed(2)}</td>
+      <td style="padding:8px;text-align:right;font-weight:700;font-size:15px;color:#111827;border-top:2px solid #e5e7eb">${sym}${previewTotal.toFixed(2)}</td>
     </tr>`;
 
   const previewVatNote = previewVatEnabled && previewVatAmt > 0 && previewInclusive
@@ -523,8 +526,8 @@ export function buildPreviewVarMap(settings: AdminSettings): Record<string, stri
         <th style="padding:6px 8px;text-align:right;font-weight:600;color:#374151">Price</th>
       </tr></thead>
       <tbody>
-        <tr><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6">Chicken Tikka Masala × 2</td><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;text-align:right">£11.98</td></tr>
-        <tr><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6">Garlic Naan × 1</td><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;text-align:right">£2.99</td></tr>
+        <tr><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6">Chicken Tikka Masala × 2</td><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;text-align:right">${sym}11.98</td></tr>
+        <tr><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6">Garlic Naan × 1</td><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;text-align:right">${sym}2.99</td></tr>
       </tbody>
       <tfoot>${previewTotals}</tfoot>
     </table>${previewVatNote}`;
@@ -535,7 +538,7 @@ export function buildPreviewVarMap(settings: AdminSettings): Record<string, stri
     order_id:           "ORD-A1B2C3D4",
     order_date:         "11 Apr 2026, 12:34",
     order_items:        itemsTable,
-    order_total:        `£${previewTotal.toFixed(2)}`,
+    order_total:        `${sym}${previewTotal.toFixed(2)}`,
     order_status:       "confirmed",
     fulfillment_type:   "Delivery",
     delivery_address:   "42 Example Street, London, E1 6RF",

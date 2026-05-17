@@ -82,6 +82,8 @@ export interface RestaurantInfo {
   coverImage: string;
   logoImage: string;
   hygieneRating: number;
+  /** When false, the hygiene badge is hidden from the customer site. Defaults to true. */
+  hygieneRatingVisible?: boolean;
   deliveryTime: number;   // minutes
   collectionTime: number; // minutes
   minOrder: number;       // £
@@ -230,6 +232,11 @@ export interface TaxSettings {
   inclusive: boolean;     // true  = prices already include VAT (show extracted amount)
                           // false = VAT is added on top at checkout
   showBreakdown: boolean; // show the VAT line on cart, checkout, receipts, and emails
+}
+
+export interface CurrencySettings {
+  code: string;   // ISO 4217 — "GBP", "USD", "EUR", "LKR"…
+  symbol: string; // "£", "$", "€", "Rs."
 }
 
 export type CouponType = "percentage" | "fixed";
@@ -395,6 +402,7 @@ export interface AdminSettings {
   kitchenStaff: KitchenStaff[];
   diningTables: DiningTable[];
   reservationSystem: ReservationSystem;
+  currency: CurrencySettings;
 }
 
 export type OrderStatus =

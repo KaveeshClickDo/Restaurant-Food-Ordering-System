@@ -188,6 +188,8 @@ function KanbanCard({
   onCancel: () => void;
   onClick: () => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const cfg = STATUS_CONFIG[order.status];
   const adminCanAdvance = canAdminAdvance(order);
 
@@ -214,7 +216,7 @@ function KanbanCard({
             <p className="font-semibold text-gray-900 text-sm mt-0.5">{order.customerName}</p>
           </div>
           <div className="text-right flex-shrink-0">
-            <div className="font-bold text-gray-900 text-sm">£{order.total.toFixed(2)}</div>
+            <div className="font-bold text-gray-900 text-sm">{sym}{order.total.toFixed(2)}</div>
             <div className="text-[10px] text-gray-400 flex items-center gap-0.5 justify-end mt-0.5">
               <Clock size={9} /> {timeSince(order.date)}
             </div>
@@ -280,6 +282,8 @@ function OrderModal({ order, onClose, onStatusChange }: {
   onClose: () => void;
   onStatusChange: (status: OrderStatus) => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const cfg = STATUS_CONFIG[order.status];
   const isActive = ACTIVE_STATUSES.includes(order.status);
   const adminCanAdvanceModal = canAdminAdvance(order);
@@ -403,13 +407,13 @@ function OrderModal({ order, onClose, onStatusChange }: {
               {order.items.map((item, i) => (
                 <div key={i} className="flex justify-between text-sm">
                   <span className="text-gray-700">{item.qty}× {item.name}</span>
-                  <span className="font-medium text-gray-900">£{(item.price * item.qty).toFixed(2)}</span>
+                  <span className="font-medium text-gray-900">{sym}{(item.price * item.qty).toFixed(2)}</span>
                 </div>
               ))}
             </div>
             <div className="border-t border-gray-100 mt-3 pt-3 flex justify-between font-bold text-gray-900 text-sm">
               <span>Total</span>
-              <span>£{order.total.toFixed(2)}</span>
+              <span>{sym}{order.total.toFixed(2)}</span>
             </div>
           </div>
 
@@ -486,7 +490,8 @@ function OrderModal({ order, onClose, onStatusChange }: {
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 
 export default function DeliveryPanel() {
-  const { customers, updateOrderStatus } = useApp();
+  const { customers, updateOrderStatus, settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
 
   const [modalOrder, setModalOrder] = useState<RichOrder | null>(null);
   const [fulfillmentFilter, setFulfillmentFilter] = useState<"all" | "delivery" | "collection">("all");
@@ -578,7 +583,7 @@ export default function DeliveryPanel() {
         />
         <StatCard
           label="Revenue today"
-          value={`£${todayRevenue.toFixed(2)}`}
+          value={`${sym}${todayRevenue.toFixed(2)}`}
           sub="delivered orders only"
           icon={<TrendingUp size={16} />}
           accent="purple"
@@ -729,7 +734,7 @@ export default function DeliveryPanel() {
                         {itemsSummary(order.items)}
                       </td>
                       <td className="px-4 py-3 font-bold text-gray-900 text-sm">
-                        £{order.total.toFixed(2)}
+                        {sym}{order.total.toFixed(2)}
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap hidden sm:table-cell">
                         {fmtTime(order.date)}

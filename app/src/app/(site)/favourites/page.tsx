@@ -18,6 +18,7 @@ export default function FavouritesPage() {
     const [search, setSearch] = useState("");
     const [showMobileCart, setShowMobileCart] = useState(false);
     const { currentUser, menuItems, mealPeriods, settings, isOpen, toggleFavourite, logout } = useApp();
+    const sym = settings.currency?.symbol ?? "£";
     const [authModal, setAuthModal] = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
     const [openItem, setOpenItem] = useState<MenuItem | null>(null);
     const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -213,7 +214,7 @@ export default function FavouritesPage() {
                                                 <div className="flex flex-col flex-1">
                                                     <div className="flex items-start justify-between gap-2 mb-1">
                                                         <h3 className="font-medium text-[15px] leading-snug text-zinc-900">{item.name}</h3>
-                                                        <span className="font-semibold text-[15px] text-zinc-900 tabular-nums flex-shrink-0">£{item.price.toFixed(2)}</span>
+                                                        <span className="font-semibold text-[15px] text-zinc-900 tabular-nums flex-shrink-0">{sym}{item.price.toFixed(2)}</span>
                                                     </div>
                                                     <p className="text-[12.5px] text-zinc-500 leading-snug line-clamp-2 mb-3">{item.description}</p>
                                                 </div>

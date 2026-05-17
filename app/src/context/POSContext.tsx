@@ -7,6 +7,7 @@ import {
   POSSettings, POSClockEntry, POSCartModifier, getOfferPrice, cartLineTotal,
 } from "@/types/pos";
 import { enqueue as outboxEnqueue } from "@/lib/posOutbox";
+import { useApp } from "@/context/AppContext";
 
 // ─── Seed data ───────────────────────────────────────────────────────────────
 
@@ -358,6 +359,17 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     await refreshPosStaff();
     return { ok: true };
   }, [refreshPosStaff]);
+
+  // Mirror the admin-configured currency symbol into POSSettings so existing
+  // POS components (which read settings.currencySymbol) stay correct without
+  // each one needing to switch to AppContext directly.
+  const { settings: appSettings } = useApp();
+  useEffect(() => {
+    const adminSym = appSettings.currency?.symbol;
+    if (adminSym && adminSym !== settings.currencySymbol) {
+      setSettings((p) => ({ ...p, currencySymbol: adminSym }));
+    }
+  }, [appSettings.currency?.symbol, settings.currencySymbol]);
 
   useEffect(() => { save("pos_products", products); }, [products]);
   useEffect(() => { save("pos_categories", categories); }, [categories]);

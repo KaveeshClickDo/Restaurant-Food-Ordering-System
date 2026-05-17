@@ -89,9 +89,10 @@ export function taxSurcharge(tax: TaxResult): number {
 
 /**
  * Format a VAT amount for display, prefixed with "+" for exclusive mode.
+ * Pass the admin-configured currency symbol (from settings.currency.symbol).
  */
-export function formatVat(tax: TaxResult): string {
+export function formatVat(tax: TaxResult, symbol = "£"): string {
   if (!tax.enabled) return "";
   const sign = tax.inclusive ? "" : "+";
-  return `${sign}£${tax.vatAmount.toFixed(2)}`;
+  return `${sign}${symbol}${tax.vatAmount.toFixed(2)}`;
 }

@@ -31,7 +31,8 @@ const DIET_SHORT: Record<string, string> = {
 
 // ── Individual food card (grid layout) ─────────────────────────────────────
 function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
-  const { isOpen, scheduledTime, currentUser, isFavourite, toggleFavourite } = useApp();
+  const { isOpen, scheduledTime, currentUser, isFavourite, toggleFavourite, settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const stockStatus = resolveStock(item);
   const outOfStock = stockStatus === "out_of_stock";
   const canAdd = (isOpen || !!scheduledTime) && !outOfStock;
@@ -106,7 +107,7 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
           </div>
         )}
         <span className="font-semibold text-[17px] text-zinc-900 tracking-tight tabular-nums">
-          £{item.price.toFixed(2)}
+          {sym}{item.price.toFixed(2)}
         </span>
       </div>
     </div>
@@ -124,9 +125,10 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
     : null;
 
   const isDelivery = fulfillment === "delivery";
+  const sym = settings.currency?.symbol ?? "£";
   const estTime = isDelivery ? restaurant.deliveryTime : restaurant.collectionTime;
   const feeLabel = isDelivery
-    ? (restaurant.deliveryFee > 0 ? `£${restaurant.deliveryFee.toFixed(2)} fee` : "Free delivery")
+    ? (restaurant.deliveryFee > 0 ? `${sym}${restaurant.deliveryFee.toFixed(2)} fee` : "Free delivery")
     : "Free · no fee";
 
   return (
@@ -196,12 +198,16 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
 
             {/* Stats — contextual to selected mode */}
             <div className="flex flex-wrap items-center gap-4 text-[12.5px] text-zinc-600">
-              <span className="inline-flex items-center gap-1.5">
-                <Star className="w-3.5 h-3.5" strokeWidth={2} fill="currentColor" />
-                <span className="font-semibold">{restaurant.hygieneRating}</span>
-                <span className="text-zinc-400">· hygiene</span>
-              </span>
-              <span className="w-1 h-1 rounded-full bg-zinc-300" />
+              {restaurant.hygieneRatingVisible !== false && (
+                <>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Star className="w-3.5 h-3.5" strokeWidth={2} fill="currentColor" />
+                    <span className="font-semibold">{restaurant.hygieneRating}</span>
+                    <span className="text-zinc-400">· hygiene</span>
+                  </span>
+                  <span className="w-1 h-1 rounded-full bg-zinc-300" />
+                </>
+              )}
               <span className="inline-flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5" strokeWidth={1.8} />
                 <span className="font-medium">{estTime} min</span>

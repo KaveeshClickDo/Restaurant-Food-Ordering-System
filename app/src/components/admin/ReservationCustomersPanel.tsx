@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
+import { useApp } from "@/context/AppContext";
 import type { ReservationCustomer } from "@/types";
 import {
   Users, Search, Mail, Phone, CalendarDays, Tag, FileDown,
@@ -35,8 +36,8 @@ const PRESET_TAGS = ["VIP", "Regular", "Birthday", "Anniversary", "Vegetarian", 
 
 // ─── CSV export ───────────────────────────────────────────────────────────────
 
-function exportCsv(customers: ReservationCustomer[]) {
-  const header = ["Name", "Email", "Phone", "Reservations", "Online Orders", "Total Spend (£)", "First Activity", "Last Order", "Last Reservation", "Marketing Opt-in", "Tags", "Notes"];
+function exportCsv(customers: ReservationCustomer[], sym: string) {
+  const header = ["Name", "Email", "Phone", "Reservations", "Online Orders", `Total Spend (${sym})`, "First Activity", "Last Order", "Last Reservation", "Marketing Opt-in", "Tags", "Notes"];
   const rows = customers.map((c) => [
     c.name,
     c.email,
@@ -109,7 +110,7 @@ function HistoryRow({ r }: { r: HistoryEntry }) {
 
 // ─── Customer card ────────────────────────────────────────────────────────────
 
-function CustomerCard({ customer, onSave }: {
+function CustomerCard({ customer, onSave, sym }: { sym: string;
   customer: ReservationCustomer;
   onSave: (id: string, patch: { notes?: string; tags?: string[]; marketingOptIn?: boolean }) => Promise<void>;
 }) {
@@ -199,7 +200,7 @@ function CustomerCard({ customer, onSave }: {
               <span className="flex items-center gap-1 text-blue-600"><ShoppingBag size={10} />{customer.orderCount} order{customer.orderCount !== 1 ? "s" : ""}</span>
             )}
             {customer.totalSpend > 0 && (
-              <span className="flex items-center gap-1 text-emerald-600"><TrendingUp size={10} />£{customer.totalSpend.toFixed(2)} spent</span>
+              <span className="flex items-center gap-1 text-emerald-600"><TrendingUp size={10} />{sym}{customer.totalSpend.toFixed(2)} spent</span>
             )}
             {(customer.lastOrderAt || customer.lastVisitAt) && (
               <span className="flex items-center gap-1">
@@ -318,7 +319,7 @@ function CustomerCard({ customer, onSave }: {
                   <div className="text-xs text-gray-400">order{customer.orderCount !== 1 ? "s" : ""} placed</div>
                 </div>
                 <div>
-                  <div className="text-lg font-bold text-emerald-700">£{customer.totalSpend.toFixed(2)}</div>
+                  <div className="text-lg font-bold text-emerald-700">{sym}{customer.totalSpend.toFixed(2)}</div>
                   <div className="text-xs text-gray-400">total spend</div>
                 </div>
                 {customer.lastOrderAt && (
@@ -356,6 +357,8 @@ function CustomerCard({ customer, onSave }: {
 // ─── Main panel ───────────────────────────────────────────────────────────────
 
 export default function ReservationCustomersPanel() {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [customers,    setCustomers]    = useState<ReservationCustomer[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [search,       setSearch]       = useState("");
@@ -450,7 +453,7 @@ export default function ReservationCustomersPanel() {
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
-            onClick={() => exportCsv(filtered)}
+            onClick={() => exportCsv(filtered, sym)}
             disabled={filtered.length === 0}
             className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-600 hover:text-gray-800 hover:border-gray-300 transition disabled:opacity-40"
           >
@@ -472,7 +475,7 @@ export default function ReservationCustomersPanel() {
         {[
           { label: "Total guests",      value: customers.length,                                                    bg: "bg-gray-50",    border: "border-gray-200",   text: "text-gray-800"   },
           { label: "Online orders",     value: customers.reduce((s, c) => s + (c.orderCount ?? 0), 0),             bg: "bg-blue-50",    border: "border-blue-200",   text: "text-blue-700"   },
-          { label: "Total revenue",     value: `£${customers.reduce((s, c) => s + (c.totalSpend ?? 0), 0).toFixed(2)}`, bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-700" },
+          { label: "Total revenue",     value: `${sym}${customers.reduce((s, c) => s + (c.totalSpend ?? 0), 0).toFixed(2)}`, bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-700" },
           { label: "Marketing opt-in",  value: optInCount,                                                          bg: "bg-green-50",   border: "border-green-200",  text: "text-green-700"  },
         ].map((s) => (
           <div key={s.label} className={`${s.bg} border ${s.border} rounded-xl p-3.5`}>
@@ -549,7 +552,7 @@ export default function ReservationCustomersPanel() {
       ) : (
         <div className="space-y-3">
           {filtered.map((c) => (
-            <CustomerCard key={c.id} customer={c} onSave={handleSave} />
+            <CustomerCard key={c.id} customer={c} onSave={handleSave} sym={sym} />
           ))}
         </div>
       )}

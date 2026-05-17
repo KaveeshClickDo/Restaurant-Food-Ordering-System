@@ -5,6 +5,7 @@ import { MapContainer, TileLayer, Marker, Circle, useMap, useMapEvents } from "r
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { DeliveryZone } from "@/types";
+import { useApp } from "@/context/AppContext";
 
 const restaurantIcon = L.divIcon({
   className: "delivery-zone-restaurant-pin",
@@ -64,6 +65,8 @@ export default function DeliveryZoneMap({
   lng: number;
   onLocationChange: (lat: number, lng: number) => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const enabled = useMemo(
     () => zones.filter((z) => z.enabled).sort((a, b) => b.maxRadiusKm - a.maxRadiusKm),
     [zones],
@@ -139,7 +142,7 @@ export default function DeliveryZoneMap({
               <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: zone.color }} />
               <span className="font-medium">{zone.name}</span>
               <span className="text-gray-400">{zone.minRadiusKm}–{zone.maxRadiusKm} km</span>
-              <span className="ml-auto font-semibold text-gray-700">£{zone.fee.toFixed(2)}</span>
+              <span className="ml-auto font-semibold text-gray-700">{sym}{zone.fee.toFixed(2)}</span>
             </div>
           ))}
         </div>

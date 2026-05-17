@@ -7,6 +7,7 @@ import {
   Trophy, Package, ChevronUp, ChevronDown, AlertTriangle,
 } from "lucide-react";
 import { POSSale, POSProduct } from "@/types/pos";
+import { useApp } from "@/context/AppContext";
 
 // ─── localStorage helpers ────────────────────────────────────────────────────
 
@@ -91,7 +92,7 @@ function buildHourlyBuckets(sales: POSSale[]) {
 
 // CSV export
 function exportCSV(sales: POSSale[], sym: string) {
-  const header = ["Receipt No","Date","Time","Staff","Customer","Items","Subtotal","Discount","VAT","Tip","Total","Payment","Voided","Void Reason"].join(",");
+  const header = ["Receipt No","Date","Time","Staff","Customer","Items",`Subtotal (${sym})`,`Discount (${sym})`,`VAT (${sym})`,`Tip (${sym})`,`Total (${sym})`,"Payment","Voided","Void Reason"].join(",");
   const rows = sales.map((s) => [
     s.receiptNo,
     fmtDate(s.date),
@@ -138,9 +139,10 @@ function KpiCard({ label, value, sub, icon: Icon, color, bg }: {
 // ─── Main Component ────────────────────────────────────────────────────────────
 
 export default function POSReportsPanel() {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [sales, setSales]       = useState<POSSale[]>([]);
   const [products, setProducts] = useState<POSProduct[]>([]);
-  const [sym, setSym]           = useState("£");
   const [loaded, setLoaded]     = useState(false);
 
   const [period, setPeriod]         = useState<Period>("today");
@@ -155,12 +157,10 @@ export default function POSReportsPanel() {
   const [sortDir, setSortDir]       = useState<"desc" | "asc">("desc");
   const [showVoided, setShowVoided] = useState(false);
 
-  // Load from localStorage on client
+  // Load from localStorage on client (currency comes from AppContext, not pos_settings)
   useEffect(() => {
     setSales(loadPOS<POSSale[]>("pos_sales", []));
     setProducts(loadPOS<POSProduct[]>("pos_products", []));
-    const s = loadPOS<{ currencySymbol?: string }>("pos_settings", {});
-    setSym(s.currencySymbol ?? "£");
     setLoaded(true);
   }, []);
 

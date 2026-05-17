@@ -87,6 +87,8 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 // ─── Receipt preview ──────────────────────────────────────────────────────────
 
 function ReceiptPreview({ r, restaurantName }: { r: ReceiptSettings; restaurantName?: string }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const W = 42;
 
   function center(str: string) {
@@ -126,15 +128,15 @@ function ReceiptPreview({ r, restaurantName }: { r: ReceiptSettings; restaurantN
   // ── Items ──
   lines.push({ text: twoCol("ITEM", "PRICE"), bold: true });
   lines.push({ text: dash });
-  lines.push({ text: twoCol("Chicken Tikka x2", "£11.98") });
-  lines.push({ text: twoCol("Garlic Naan x1", "£2.99") });
+  lines.push({ text: twoCol("Chicken Tikka x2", `${sym}11.98`) });
+  lines.push({ text: twoCol("Garlic Naan x1", `${sym}2.99`) });
   lines.push({ text: dash });
 
   // ── Totals ──
-  lines.push({ text: twoCol("Subtotal", "£14.97") });
-  lines.push({ text: twoCol("Delivery fee", "£2.99") });
+  lines.push({ text: twoCol("Subtotal", `${sym}14.97`) });
+  lines.push({ text: twoCol("Delivery fee", `${sym}2.99`) });
   lines.push({ text: eq });
-  lines.push({ text: twoCol("TOTAL", "£17.96"), bold: true });
+  lines.push({ text: twoCol("TOTAL", `${sym}17.96`), bold: true });
   lines.push({ text: eq });
 
   // ── Bottom section ──

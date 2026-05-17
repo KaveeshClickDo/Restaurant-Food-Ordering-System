@@ -160,7 +160,7 @@ function isStoreOpen(settings: AdminSettings): boolean {
 
 // ─── Coupon validator ─────────────────────────────────────────────────────────
 
-function validateCouponCode(code: string, subtotal: number, coupons: Coupon[]) {
+function validateCouponCode(code: string, subtotal: number, coupons: Coupon[], sym = "£") {
   const coupon = coupons.find((c) => c.code.toUpperCase() === code.trim().toUpperCase());
   if (!coupon)         return { valid: false as const, error: "Invalid coupon code." };
   if (!coupon.active)  return { valid: false as const, error: "This coupon is no longer active." };
@@ -169,7 +169,7 @@ function validateCouponCode(code: string, subtotal: number, coupons: Coupon[]) {
   if (coupon.usageLimit > 0 && coupon.usageCount >= coupon.usageLimit)
     return { valid: false as const, error: "This coupon has reached its usage limit." };
   if (coupon.minOrderAmount > 0 && subtotal < coupon.minOrderAmount)
-    return { valid: false as const, error: `Minimum order of £${coupon.minOrderAmount.toFixed(2)} required.` };
+    return { valid: false as const, error: `Minimum order of ${sym}${coupon.minOrderAmount.toFixed(2)} required.` };
   const discountAmount =
     coupon.type === "percentage"
       ? parseFloat((subtotal * (coupon.value / 100)).toFixed(2))
@@ -1297,7 +1297,7 @@ export function AppProvider({
     }));
 
   const applyCoupon = (code: string, subtotal: number): { valid: boolean; error?: string; discountAmount?: number } => {
-    const result = validateCouponCode(code, subtotal, settings.coupons ?? []);
+    const result = validateCouponCode(code, subtotal, settings.coupons ?? [], settings.currency?.symbol ?? "£");
     if (!result.valid) return { valid: false, error: result.error };
     setAppliedCoupon({ couponId: result.coupon.id, code: result.coupon.code, discountAmount: result.discountAmount });
     return { valid: true, discountAmount: result.discountAmount };

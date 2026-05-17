@@ -114,8 +114,8 @@ export class ReceiptBuilder {
 
 // ─── Receipt templates ───────────────────────────────────────────────────────
 
-function fmt(n: number) {
-  return `£${n.toFixed(2)}`;
+function fmt(n: number, sym: string) {
+  return `${sym}${n.toFixed(2)}`;
 }
 
 /** Build a full order receipt as ESC/POS bytes. */
@@ -123,6 +123,7 @@ export function buildReceipt(order: Order, settings: AdminSettings): number[] {
   const W  = [32, 48].includes(settings.printer.paperWidth) ? settings.printer.paperWidth : 48;
   const r  = settings.restaurant;
   const rs = settings.receiptSettings;
+  const sym = settings.currency?.symbol || "£";
   const b  = new ReceiptBuilder();
 
   const receiptName  = rs?.restaurantName?.trim() || r.name;
@@ -165,7 +166,7 @@ export function buildReceipt(order: Order, settings: AdminSettings): number[] {
   b.separator("-", W);
 
   for (const item of order.items) {
-    b.twoCol(`${item.name} x${item.qty}`, fmt(item.price * item.qty), W);
+    b.twoCol(`${item.name} x${item.qty}`, fmt(item.price * item.qty, sym), W);
   }
 
   b.separator("-", W);
@@ -176,32 +177,32 @@ export function buildReceipt(order: Order, settings: AdminSettings): number[] {
   const vatRate      = settings.taxSettings?.rate ?? 0;
   const showVat      = vatAmount > 0 && (settings.taxSettings?.showBreakdown ?? true);
 
-  b.twoCol("Subtotal", fmt(subtotal), W);
+  b.twoCol("Subtotal", fmt(subtotal, sym), W);
   if (order.deliveryFee && order.deliveryFee > 0) {
-    b.twoCol("Delivery fee", fmt(order.deliveryFee), W);
+    b.twoCol("Delivery fee", fmt(order.deliveryFee, sym), W);
   }
   if (order.serviceFee && order.serviceFee > 0) {
-    b.twoCol("Service fee", fmt(order.serviceFee), W);
+    b.twoCol("Service fee", fmt(order.serviceFee, sym), W);
   }
   if (order.couponDiscount && order.couponDiscount > 0) {
-    b.twoCol(`Coupon (${order.couponCode ?? ""})`, `-${fmt(order.couponDiscount)}`, W);
+    b.twoCol(`Coupon (${order.couponCode ?? ""})`, `-${fmt(order.couponDiscount, sym)}`, W);
   }
   if (showVat) {
     const vatLabel = vatInclusive ? `Incl. VAT (${vatRate}%)` : `VAT (${vatRate}%)`;
-    const vatValue = vatInclusive ? fmt(vatAmount) : `+${fmt(vatAmount)}`;
+    const vatValue = vatInclusive ? fmt(vatAmount, sym) : `+${fmt(vatAmount, sym)}`;
     b.twoCol(vatLabel, vatValue, W);
   }
 
   b.separator("=", W)
    .bold(true)
-   .twoCol("TOTAL", fmt(order.total), W)
+   .twoCol("TOTAL", fmt(order.total, sym), W)
    .bold(false);
 
   if (order.tipAmount && order.tipAmount > 0) {
-    b.twoCol("Tip", fmt(order.tipAmount), W);
+    b.twoCol("Tip", fmt(order.tipAmount, sym), W);
   }
   if (order.changeGiven !== undefined && order.changeGiven > 0) {
-    b.twoCol("Change", fmt(order.changeGiven), W);
+    b.twoCol("Change", fmt(order.changeGiven, sym), W);
   }
 
   if (showVat && vatInclusive) {
@@ -483,6 +484,7 @@ export function printReceiptBrowser(
   const r   = settings.restaurant;
   const rs  = settings.receiptSettings;
   const W   = settings.printer.paperWidth;
+  const sym = settings.currency?.symbol || "£";
   const sep = "-".repeat(W);
   const dbl = "=".repeat(W);
 
@@ -526,7 +528,7 @@ export function printReceiptBrowser(
   lines.push(sep);
 
   for (const item of order.items) {
-    lines.push(twoCol(`${item.name} x${item.qty}`, fmt(item.price * item.qty)));
+    lines.push(twoCol(`${item.name} x${item.qty}`, fmt(item.price * item.qty, sym)));
   }
 
   lines.push(sep);
@@ -537,22 +539,22 @@ export function printReceiptBrowser(
   const vatRate      = settings.taxSettings?.rate ?? 0;
   const showVat      = vatAmount > 0 && (settings.taxSettings?.showBreakdown ?? true);
 
-  lines.push(twoCol("Subtotal", fmt(subtotal)));
-  if (order.deliveryFee && order.deliveryFee > 0) lines.push(twoCol("Delivery fee", fmt(order.deliveryFee)));
-  if (order.serviceFee  && order.serviceFee  > 0) lines.push(twoCol("Service fee",  fmt(order.serviceFee)));
+  lines.push(twoCol("Subtotal", fmt(subtotal, sym)));
+  if (order.deliveryFee && order.deliveryFee > 0) lines.push(twoCol("Delivery fee", fmt(order.deliveryFee, sym)));
+  if (order.serviceFee  && order.serviceFee  > 0) lines.push(twoCol("Service fee",  fmt(order.serviceFee, sym)));
   if (order.couponDiscount && order.couponDiscount > 0) {
-    lines.push(twoCol(`Coupon (${order.couponCode ?? ""})`, `-${fmt(order.couponDiscount)}`));
+    lines.push(twoCol(`Coupon (${order.couponCode ?? ""})`, `-${fmt(order.couponDiscount, sym)}`));
   }
   if (showVat) {
     const vatLabel = vatInclusive ? `Incl. VAT (${vatRate}%)` : `VAT (${vatRate}%)`;
-    const vatValue = vatInclusive ? fmt(vatAmount) : `+${fmt(vatAmount)}`;
+    const vatValue = vatInclusive ? fmt(vatAmount, sym) : `+${fmt(vatAmount, sym)}`;
     lines.push(twoCol(vatLabel, vatValue));
   }
 
   lines.push(dbl);
-  lines.push(twoCol("TOTAL", fmt(order.total)));
-  if (order.tipAmount && order.tipAmount > 0) lines.push(twoCol("Tip", fmt(order.tipAmount)));
-  if (order.changeGiven !== undefined && order.changeGiven > 0) lines.push(twoCol("Change", fmt(order.changeGiven)));
+  lines.push(twoCol("TOTAL", fmt(order.total, sym)));
+  if (order.tipAmount && order.tipAmount > 0) lines.push(twoCol("Tip", fmt(order.tipAmount, sym)));
+  if (order.changeGiven !== undefined && order.changeGiven > 0) lines.push(twoCol("Change", fmt(order.changeGiven, sym)));
   if (showVat && vatInclusive) lines.push(center(`Prices include ${vatRate}% VAT`));
   lines.push(dbl);
   lines.push("");

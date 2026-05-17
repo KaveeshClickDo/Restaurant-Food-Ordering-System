@@ -40,6 +40,8 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 // ─── Live preview card ────────────────────────────────────────────────────────
 
 function TaxPreview({ draft }: { draft: TaxSettings }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const exampleSubtotal = 25.00;
   const exampleDelivery = 2.99;
   const exampleService  = 1.25;
@@ -61,7 +63,7 @@ function TaxPreview({ draft }: { draft: TaxSettings }) {
     }
   }
 
-  const fmt = (n: number) => `£${n.toFixed(2)}`;
+  const fmt = (n: number) => `${sym}${n.toFixed(2)}`;
 
   return (
     <div className="bg-gray-900 rounded-2xl p-4">

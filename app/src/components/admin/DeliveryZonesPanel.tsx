@@ -33,6 +33,8 @@ function ZoneCard({
   onUpdate: (z: DeliveryZone) => void;
   onDelete: () => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({
     name: zone.name,
@@ -68,7 +70,7 @@ function ZoneCard({
               </span>
             </div>
             <p className="text-xs text-gray-400 mt-0.5">
-              {zone.minRadiusKm}–{zone.maxRadiusKm} km &nbsp;·&nbsp; £{zone.fee.toFixed(2)} delivery
+              {zone.minRadiusKm}–{zone.maxRadiusKm} km &nbsp;·&nbsp; {sym}{zone.fee.toFixed(2)} delivery
             </p>
           </div>
         </div>
@@ -127,7 +129,7 @@ function ZoneCard({
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1.5">Fee (£)</label>
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5">Fee ({sym})</label>
               <input
                 type="number" min="0" step="0.10"
                 value={draft.fee}
@@ -325,6 +327,7 @@ function PaymentDistanceRules() {
 
 export default function DeliveryZonesPanel() {
   const { settings, updateSettings, addDeliveryZone, updateDeliveryZone, deleteDeliveryZone } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const zones = [...settings.deliveryZones].sort((a, b) => a.maxRadiusKm - b.maxRadiusKm);
   const [showAdd, setShowAdd] = useState(false);
   const [newZone, setNewZone] = useState({ name: "", minRadiusKm: 0, maxRadiusKm: 5, fee: 2.99, color: PRESET_COLORS[zones.length % PRESET_COLORS.length] });
@@ -370,7 +373,7 @@ export default function DeliveryZonesPanel() {
           <p className="text-xs text-gray-500 font-medium mb-1">Fee range</p>
           <p className="text-2xl font-bold text-gray-900">
             {zones.length
-              ? `£${Math.min(...zones.map((z) => z.fee)).toFixed(2)}–£${Math.max(...zones.map((z) => z.fee)).toFixed(2)}`
+              ? `${sym}${Math.min(...zones.map((z) => z.fee)).toFixed(2)}–${sym}${Math.max(...zones.map((z) => z.fee)).toFixed(2)}`
               : "—"}
           </p>
           <p className="text-xs text-gray-400">across all zones</p>
@@ -435,7 +438,7 @@ export default function DeliveryZonesPanel() {
                   className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white transition" />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Fee (£)</label>
+                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Fee ({sym})</label>
                 <input type="number" min="0" step="0.10" value={newZone.fee}
                   onChange={(e) => setNewZone((d) => ({ ...d, fee: Number(e.target.value) }))}
                   className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white transition" />

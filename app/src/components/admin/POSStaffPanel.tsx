@@ -6,6 +6,7 @@ import {
   CheckCircle2, XCircle, Eye, EyeOff, Save, X,
   AlertCircle, ExternalLink,
 } from "lucide-react";
+import { useApp } from "@/context/AppContext";
 import { ROLE_PERMISSIONS, type POSStaff, type POSRole } from "@/types/pos";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -52,6 +53,8 @@ function StaffForm({
   onSave: (data: FormDraft) => void | Promise<void>;
   onCancel: () => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [form,    setForm]    = useState<FormDraft>({ ...EMPTY, ...initial, pin: "" });
   const [errors,  setErrors]  = useState<Record<string, string>>({});
   const [showPin, setShowPin] = useState(false);
@@ -142,7 +145,7 @@ function StaffForm({
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-gray-400 mb-1">Hourly rate (£, optional)</label>
+        <label className="block text-xs font-medium text-gray-400 mb-1">Hourly rate ({sym}, optional)</label>
         <input
           type="number" step="0.5"
           value={form.hourlyRate}
@@ -198,6 +201,8 @@ function StaffForm({
 export default function POSStaffPanel() {
   // Backed by /api/pos/staff (table: pos_staff). The same endpoints are used
   // by the in-POS Staff tab, so changes here surface there instantly.
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [staff, setStaff] = useState<POSStaff[]>([]);
 
   const refresh = useCallback(async () => {
@@ -388,7 +393,7 @@ export default function POSStaffPanel() {
                     {member.email || "—"} · PIN: •••• · ID: {member.id}
                   </p>
                   {member.hourlyRate && (
-                    <p className="text-gray-500 text-xs">£{member.hourlyRate}/hr</p>
+                    <p className="text-gray-500 text-xs">{sym}{member.hourlyRate}/hr</p>
                   )}
                 </div>
 

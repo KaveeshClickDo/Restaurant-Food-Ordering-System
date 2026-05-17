@@ -111,6 +111,8 @@ function AvailableOrderCard({
   availableOrder: AvailableOrder;
   onAccept: () => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const { order, customerName, customerPhone } = availableOrder;
   const [confirming, setConfirming] = useState(false);
   const isReady = order.status === "ready";
@@ -206,7 +208,7 @@ function AvailableOrderCard({
           <p className="text-xs text-gray-500">
             Payment: <span className="font-semibold text-gray-700">{order.paymentMethod}</span>
             {order.paymentMethod.toLowerCase().includes("cash") && (
-              <span className="ml-2 text-orange-600 font-bold">· Collect £{order.total.toFixed(2)}</span>
+              <span className="ml-2 text-orange-600 font-bold">· Collect {sym}{order.total.toFixed(2)}</span>
             )}
           </p>
         </div>
@@ -263,6 +265,8 @@ function OrderCard({
   driverOrder: DriverOrder;
   onAdvance: (status: DSKey, code?: string) => Promise<{ ok: boolean; error?: string }>;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const { order, customerName, customerPhone } = driverOrder;
   const ds  = (order.deliveryStatus ?? "assigned") as DSKey;
   const cfg = DS_CONFIG[ds];
@@ -397,7 +401,7 @@ function OrderCard({
           <p className="text-xs text-gray-500">
             Payment: <span className="font-semibold text-gray-700">{order.paymentMethod}</span>
             {order.paymentMethod.toLowerCase().includes("cash") && (
-              <span className="ml-2 text-orange-600 font-bold">· Collect £{order.total.toFixed(2)}</span>
+              <span className="ml-2 text-orange-600 font-bold">· Collect {sym}{order.total.toFixed(2)}</span>
             )}
           </p>
         </div>
@@ -502,6 +506,7 @@ export default function DriverDashboardPage() {
     currentDriver, driverLogout, customers,
     updateDeliveryStatus, assignDriverToOrder, settings,
   } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const router = useRouter();
   const [showDelivered, setShowDelivered] = useState(false);
   const [acceptedId,    setAcceptedId]    = useState<string | null>(null);
@@ -772,7 +777,7 @@ export default function DriverDashboardPage() {
             </div>
             <div className="bg-white rounded-xl border border-gray-100 px-3 py-3 text-center">
               <p className="text-lg font-extrabold text-orange-500">
-                £{delivered.reduce((s, d) => s + d.order.total, 0).toFixed(0)}
+                {sym}{delivered.reduce((s, d) => s + d.order.total, 0).toFixed(0)}
               </p>
               <p className="text-[10px] text-gray-400 font-medium mt-0.5">Value</p>
             </div>
@@ -810,7 +815,7 @@ export default function DriverDashboardPage() {
                         </p>
                       )}
                     </div>
-                    <span className="text-sm font-bold text-gray-900">£{d.order.total.toFixed(2)}</span>
+                    <span className="text-sm font-bold text-gray-900">{sym}{d.order.total.toFixed(2)}</span>
                   </div>
                 ))}
               </div>

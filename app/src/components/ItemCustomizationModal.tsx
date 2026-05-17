@@ -19,7 +19,8 @@ interface Props {
 }
 
 export default function ItemCustomizationModal({ item, onClose }: Props) {
-  const { addToCart } = useApp();
+  const { addToCart, settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [quantity, setQuantity]               = useState(1);
   const [selectedVariations, setSelectedVariations] = useState<Record<string, string>>({});
   const [selectedAddOns, setSelectedAddOns]   = useState<string[]>([]);
@@ -157,7 +158,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                             {opt.label}
                           </p>
                           <p className={`text-xs mt-0.5 ${active ? "text-orange-500" : "text-gray-500"}`}>
-                            £{(item.price + (opt.price ?? 0)).toFixed(2)}
+                            {sym}{(item.price + (opt.price ?? 0)).toFixed(2)}
                           </p>
                         </button>
                       );
@@ -203,7 +204,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                             {ao.name}
                           </span>
                           <span className={`text-sm flex-shrink-0 ${checked ? "text-orange-600 font-semibold" : "text-gray-500"}`}>
-                            +£{ao.price.toFixed(2)}
+                            +{sym}{ao.price.toFixed(2)}
                           </span>
                         </button>
                       );
@@ -256,7 +257,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                   className="flex-1 flex-wrap bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white font-bold py-3 rounded-xl transition-all flex items-center justify-between px-5 text-sm sm:text-[15px]"
                 >
                   <span>Add to order</span>
-                  <span className="tabular-nums">£{total.toFixed(2)}</span>
+                  <span className="tabular-nums">{sym}{total.toFixed(2)}</span>
                 </button>
               </div>
             </div>

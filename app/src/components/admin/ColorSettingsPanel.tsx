@@ -113,6 +113,8 @@ function ColorInput({ label, hint, value, onChange }: ColorInputProps) {
 // ─── LivePreview ──────────────────────────────────────────────────────────────
 
 function LivePreview({ draft, name }: { draft: ColorSettings; name: string }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const shades = generateShades(draft.primaryColor) ?? {};
   const p500 = shades["500"] ?? draft.primaryColor;
   const p600 = shades["600"] ?? draft.primaryColor;
@@ -170,7 +172,7 @@ function LivePreview({ draft, name }: { draft: ColorSettings; name: string }) {
             <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">
               Tender chicken in a rich, creamy tomato sauce
             </p>
-            <p className="text-sm font-bold text-gray-900 mt-1.5">£12.95</p>
+            <p className="text-sm font-bold text-gray-900 mt-1.5">{sym}12.95</p>
           </div>
           <div className="flex flex-col items-center gap-1.5 flex-shrink-0">
             <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center text-xl">

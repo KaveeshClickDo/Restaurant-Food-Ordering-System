@@ -102,12 +102,13 @@ function hoverColor(id: string) {
 type LocationState = "idle" | "detecting" | "found" | "denied" | "outside";
 
 function LocationWidget({
-  state, distKm, zone, onDetect,
+  state, distKm, zone, onDetect, currencySymbol,
 }: {
   state: LocationState;
   distKm: number | null;
   zone: DeliveryZone | null;
   onDetect: () => void;
+  currencySymbol: string;
 }) {
   if (state === "idle") {
     return (
@@ -173,7 +174,7 @@ function LocationWidget({
         </p>
         {zone && (
           <p className="text-xs text-gray-500 mt-0.5">
-            Delivery fee for your area: <span className="font-semibold text-gray-700">£{zone.fee.toFixed(2)}</span>
+            Delivery fee for your area: <span className="font-semibold text-gray-700">{currencySymbol}{zone.fee.toFixed(2)}</span>
           </p>
         )}
       </div>
@@ -233,6 +234,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   const [submitting,  setSubmitting]   = useState(false);
 
   const isDelivery = fulfillment === "delivery";
+  const sym = settings.currency?.symbol ?? "£";
   const restLat = settings.restaurant.lat ?? 51.515;
   const restLng = settings.restaurant.lng ?? -0.063;
 
@@ -454,7 +456,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
               {cart.map((item) => (
                 <li key={item.id} className="flex justify-between text-sm">
                   <span className="text-gray-600">{item.quantity}× {item.name}</span>
-                  <span className="font-medium text-gray-900">£{(item.price * item.quantity).toFixed(2)}</span>
+                  <span className="font-medium text-gray-900">{sym}{(item.price * item.quantity).toFixed(2)}</span>
                 </li>
               ))}
             </ul>
@@ -462,19 +464,19 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
               {isDelivery && (
                 <div className="flex justify-between text-xs text-gray-500">
                   <span>Delivery fee{zone ? ` (${zone.name})` : ""}</span>
-                  <span>£{deliveryFee.toFixed(2)}</span>
+                  <span>{sym}{deliveryFee.toFixed(2)}</span>
                 </div>
               )}
               <div className="flex justify-between text-xs text-gray-500">
                 <span>Service fee ({settings.restaurant.serviceFee}%)</span>
-                <span>£{serviceFee.toFixed(2)}</span>
+                <span>{sym}{serviceFee.toFixed(2)}</span>
               </div>
               {tax.enabled && tax.showBreakdown && tax.vatAmount > 0 && (
                 <div className={`flex justify-between text-xs font-semibold ${
                   tax.inclusive ? "text-gray-400" : "text-orange-600"
                 }`}>
                   <span>{tax.label}</span>
-                  <span>{tax.inclusive ? `£${tax.vatAmount.toFixed(2)}` : `+£${tax.vatAmount.toFixed(2)}`}</span>
+                  <span>{tax.inclusive ? `${sym}${tax.vatAmount.toFixed(2)}` : `+${sym}${tax.vatAmount.toFixed(2)}`}</span>
                 </div>
               )}
               {appliedCoupon && (
@@ -482,7 +484,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                   <span className="flex items-center gap-1">
                     <Tag size={11} /> Coupon ({appliedCoupon.code})
                   </span>
-                  <span>−£{appliedCoupon.discountAmount.toFixed(2)}</span>
+                  <span>−{sym}{appliedCoupon.discountAmount.toFixed(2)}</span>
                 </div>
               )}
               {storeCreditApplied > 0 && (
@@ -490,12 +492,12 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                   <span className="flex items-center gap-1">
                     <Gift size={11} /> Store credit
                   </span>
-                  <span>−£{storeCreditApplied.toFixed(2)}</span>
+                  <span>−{sym}{storeCreditApplied.toFixed(2)}</span>
                 </div>
               )}
               <div className="flex justify-between font-bold text-gray-900 pt-1 border-t border-gray-200 mt-1">
                 <span>Total</span>
-                <span>£{orderTotal.toFixed(2)}</span>
+                <span>{sym}{orderTotal.toFixed(2)}</span>
               </div>
               {tax.enabled && tax.inclusive && tax.showBreakdown && (
                 <p className="text-[10px] text-gray-400 text-right">Prices include {tax.rate}% VAT</p>
@@ -512,7 +514,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                   <Tag size={15} className="text-green-600 flex-shrink-0" />
                   <div className="min-w-0">
                     <p className="text-sm font-bold text-green-800 font-mono tracking-wider">{appliedCoupon.code}</p>
-                    <p className="text-xs text-green-600">−£{appliedCoupon.discountAmount.toFixed(2)} discount applied</p>
+                    <p className="text-xs text-green-600">−{sym}{appliedCoupon.discountAmount.toFixed(2)} discount applied</p>
                   </div>
                 </div>
                 <button
@@ -570,11 +572,11 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                 </div>
                 <div className="flex-1 text-left">
                   <p className="text-sm font-semibold text-gray-900">
-                    Store credit — <span className="text-teal-600">£{availableCredit.toFixed(2)} available</span>
+                    Store credit — <span className="text-teal-600">{sym}{availableCredit.toFixed(2)} available</span>
                   </p>
                   <p className="text-xs text-gray-400">
                     {useCredit
-                      ? `−£${storeCreditApplied.toFixed(2)} applied · £${Math.max(0, availableCredit - storeCreditApplied).toFixed(2)} remaining after`
+                      ? `−${sym}${storeCreditApplied.toFixed(2)} applied · ${sym}${Math.max(0, availableCredit - storeCreditApplied).toFixed(2)} remaining after`
                       : "Tap to apply your credit to this order"}
                   </p>
                 </div>
@@ -733,6 +735,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                 distKm={distKm}
                 zone={zone}
                 onDetect={detectLocation}
+                currencySymbol={sym}
               />
 
               {/* Mini-map: restaurant + zone circles + customer pin (when detected) */}

@@ -72,7 +72,8 @@ type SortKey = "name" | "orders" | "spent" | "joined";
 type SortDir = "asc" | "desc";
 
 export default function CustomersPanel() {
-  const { customers, updateOrderStatus } = useApp();
+  const { customers, updateOrderStatus, settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("spent");
@@ -132,8 +133,8 @@ export default function CustomersPanel() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Total customers"  value={customers.length}         sub={`${activeToday} active today`}    icon={<Users size={18} />} />
         <StatCard label="Total orders"     value={totalOrders}              sub="all time"                          icon={<ShoppingBag size={18} />} />
-        <StatCard label="Total revenue"    value={`£${totalRevenue.toFixed(2)}`} sub="delivered orders only"      icon={<TrendingUp size={18} />} />
-        <StatCard label="Avg. order value" value={`£${totalOrders ? (totalRevenue / totalOrders).toFixed(2) : "0.00"}`} sub="per order"  icon={<Star size={18} />} />
+        <StatCard label="Total revenue"    value={`${sym}${totalRevenue.toFixed(2)}`} sub="delivered orders only"      icon={<TrendingUp size={18} />} />
+        <StatCard label="Avg. order value" value={`${sym}${totalOrders ? (totalRevenue / totalOrders).toFixed(2) : "0.00"}`} sub="per order"  icon={<Star size={18} />} />
       </div>
 
       {/* Table card */}
@@ -228,7 +229,7 @@ export default function CustomersPanel() {
                       <span className="font-semibold text-gray-900 text-sm">{c.orders.length}</span>
                     </td>
                     <td className="px-4 py-3.5">
-                      <span className="font-bold text-gray-900 text-sm">£{spent.toFixed(2)}</span>
+                      <span className="font-bold text-gray-900 text-sm">{sym}{spent.toFixed(2)}</span>
                     </td>
                     <td className="px-4 py-3.5 hidden lg:table-cell text-sm text-gray-500">{fmtDate(c.createdAt)}</td>
                     <td className="px-4 py-3.5 hidden sm:table-cell">
@@ -286,6 +287,7 @@ function buildPrintHtml(
   customer: Customer,
   rs: { showLogo: boolean; logoUrl: string; restaurantName: string; phone: string; website: string; email: string; vatNumber: string; thankYouMessage: string; customMessage: string },
   restaurantAddress: string,
+  sym: string,
 ): string {
   const subtotal     = order.items.reduce((s, l) => s + l.price * l.qty, 0);
   const deliveryFee  = order.deliveryFee  ?? 0;
@@ -331,15 +333,15 @@ function buildPrintHtml(
   ${order.address     ? `<div class="row"><span>Address:</span><span style="text-align:right;max-width:180px">${order.address}</span></div>` : ""}
   ${order.scheduledTime ? `<div class="row"><span>Scheduled:</span><span>${order.scheduledTime}</span></div>` : ""}
   <div class="d"></div>
-  ${order.items.map((l) => `<div class="row"><span>${l.qty}x ${l.name}</span><span>£${(l.price * l.qty).toFixed(2)}</span></div>`).join("")}
+  ${order.items.map((l) => `<div class="row"><span>${l.qty}x ${l.name}</span><span>${sym}${(l.price * l.qty).toFixed(2)}</span></div>`).join("")}
   <div class="d"></div>
-  <div class="row"><span>Subtotal</span><span>£${subtotal.toFixed(2)}</span></div>
-  ${order.fulfillment === "delivery" ? `<div class="row"><span>Delivery fee</span><span>£${deliveryFee.toFixed(2)}</span></div>` : ""}
-  ${serviceFee > 0 ? `<div class="row"><span>Service fee</span><span>£${serviceFee.toFixed(2)}</span></div>` : ""}
-  ${couponDisc > 0 ? `<div class="row" style="color:#16a34a;font-weight:600"><span>Coupon (${order.couponCode ?? ""})</span><span>-£${couponDisc.toFixed(2)}</span></div>` : ""}
-  ${vatAmt > 0 ? `<div class="row" style="color:${vatInclusive ? "#9ca3af" : "#ea580c"};font-weight:600"><span>${vatInclusive ? "Incl. VAT" : "VAT"}</span><span>${vatInclusive ? "" : "+"}£${vatAmt.toFixed(2)}</span></div>` : ""}
+  <div class="row"><span>Subtotal</span><span>${sym}${subtotal.toFixed(2)}</span></div>
+  ${order.fulfillment === "delivery" ? `<div class="row"><span>Delivery fee</span><span>${sym}${deliveryFee.toFixed(2)}</span></div>` : ""}
+  ${serviceFee > 0 ? `<div class="row"><span>Service fee</span><span>${sym}${serviceFee.toFixed(2)}</span></div>` : ""}
+  ${couponDisc > 0 ? `<div class="row" style="color:#16a34a;font-weight:600"><span>Coupon (${order.couponCode ?? ""})</span><span>-${sym}${couponDisc.toFixed(2)}</span></div>` : ""}
+  ${vatAmt > 0 ? `<div class="row" style="color:${vatInclusive ? "#9ca3af" : "#ea580c"};font-weight:600"><span>${vatInclusive ? "Incl. VAT" : "VAT"}</span><span>${vatInclusive ? "" : "+"}${sym}${vatAmt.toFixed(2)}</span></div>` : ""}
   <div class="d"></div>
-  <div class="tot"><span>TOTAL</span><span>£${order.total.toFixed(2)}</span></div>
+  <div class="tot"><span>TOTAL</span><span>${sym}${order.total.toFixed(2)}</span></div>
   ${vatAmt > 0 && vatInclusive ? `<div class="c sm" style="margin-top:3px">Prices include VAT</div>` : ""}
   ${order.paymentMethod ? `<div class="row" style="margin-top:6px"><span>Payment:</span><span>${order.paymentMethod}</span></div>` : ""}
   <div class="row"><span>Status:</span><span>${order.status.charAt(0).toUpperCase() + order.status.slice(1)}</span></div>
@@ -364,6 +366,7 @@ function ReceiptModal({
   onClose: () => void;
 }) {
   const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const { restaurant, receiptSettings: rs } = settings;
   const restaurantAddress = [restaurant.addressLine1, restaurant.city, restaurant.postcode].filter(Boolean).join(", ");
 
@@ -375,7 +378,7 @@ function ReceiptModal({
   const vatRate     = settings.taxSettings?.rate ?? 0;
 
   function handlePrint() {
-    const html = buildPrintHtml(order, customer, rs, restaurantAddress);
+    const html = buildPrintHtml(order, customer, rs, restaurantAddress, sym);
     const win  = window.open("", "_blank", "width=420,height=720");
     if (!win) return;
     win.document.write(html);
@@ -461,7 +464,7 @@ function ReceiptModal({
             {order.items.map((line, i) => (
               <div key={i} className="flex justify-between">
                 <span>{line.qty}× {line.name}</span>
-                <span className="font-medium">£{(line.price * line.qty).toFixed(2)}</span>
+                <span className="font-medium">{sym}{(line.price * line.qty).toFixed(2)}</span>
               </div>
             ))}
           </div>
@@ -470,28 +473,28 @@ function ReceiptModal({
 
           <div className="space-y-1">
             <div className="flex justify-between text-gray-500">
-              <span>Subtotal</span><span>£{subtotal.toFixed(2)}</span>
+              <span>Subtotal</span><span>{sym}{subtotal.toFixed(2)}</span>
             </div>
             {order.fulfillment === "delivery" && (
               <div className="flex justify-between text-gray-500">
-                <span>Delivery fee</span><span>£{deliveryFee.toFixed(2)}</span>
+                <span>Delivery fee</span><span>{sym}{deliveryFee.toFixed(2)}</span>
               </div>
             )}
             {serviceFee > 0 && (
               <div className="flex justify-between text-gray-500">
-                <span>Service fee</span><span>£{serviceFee.toFixed(2)}</span>
+                <span>Service fee</span><span>{sym}{serviceFee.toFixed(2)}</span>
               </div>
             )}
             {couponDisc > 0 && (
               <div className="flex justify-between text-green-700 font-semibold">
                 <span>Coupon ({order.couponCode})</span>
-                <span>−£{couponDisc.toFixed(2)}</span>
+                <span>−{sym}{couponDisc.toFixed(2)}</span>
               </div>
             )}
             {vatAmt > 0 && (
               <div className={`flex justify-between font-semibold ${order.vatInclusive ? "text-gray-400" : "text-orange-600"}`}>
                 <span>{order.vatInclusive ? `Incl. VAT (${vatRate}%)` : `VAT (${vatRate}%)`}</span>
-                <span>{order.vatInclusive ? `£${vatAmt.toFixed(2)}` : `+£${vatAmt.toFixed(2)}`}</span>
+                <span>{order.vatInclusive ? `${sym}${vatAmt.toFixed(2)}` : `+${sym}${vatAmt.toFixed(2)}`}</span>
               </div>
             )}
           </div>
@@ -499,7 +502,7 @@ function ReceiptModal({
           <div className="border-t border-dashed border-gray-300" />
 
           <div className="flex justify-between font-bold text-base">
-            <span>TOTAL</span><span>£{order.total.toFixed(2)}</span>
+            <span>TOTAL</span><span>{sym}{order.total.toFixed(2)}</span>
           </div>
           {vatAmt > 0 && order.vatInclusive && (
             <p className="text-[10px] text-gray-400 text-right">Prices include {vatRate}% VAT</p>
@@ -551,6 +554,7 @@ function CustomerDrawer({
   onStatusChange: (cid: string, oid: string, status: OrderStatus) => void;
 }) {
   const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
   const [emailToast, setEmailToast] = useState<{ orderId: string; state: "sending" | "sent" | "error" } | null>(null);
@@ -635,7 +639,7 @@ function CustomerDrawer({
                 <div className="text-[10px] text-orange-400 font-medium">Orders</div>
               </div>
               <div className="bg-green-50 rounded-xl p-3 text-center">
-                <div className="text-xl font-bold text-green-600">£{spent.toFixed(0)}</div>
+                <div className="text-xl font-bold text-green-600">{sym}{spent.toFixed(0)}</div>
                 <div className="text-[10px] text-green-500 font-medium">Spent</div>
               </div>
             </div>
@@ -676,7 +680,7 @@ function CustomerDrawer({
                           <span className="text-xs text-gray-500 flex items-center gap-1">
                             <Clock size={10} /> {fmtDate(order.date)} at {fmtTime(order.date)}
                           </span>
-                          <span className="font-bold text-gray-900 text-sm">£{order.total.toFixed(2)}</span>
+                          <span className="font-bold text-gray-900 text-sm">{sym}{order.total.toFixed(2)}</span>
                         </div>
                       </div>
                       <ChevronRight size={15} className={`text-gray-400 flex-shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
@@ -692,7 +696,7 @@ function CustomerDrawer({
                             {order.items.map((line, idx) => (
                               <div key={idx} className="flex justify-between text-sm">
                                 <span className="text-gray-700">{line.qty}× {line.name}</span>
-                                <span className="text-gray-900 font-medium">£{(line.price * line.qty).toFixed(2)}</span>
+                                <span className="text-gray-900 font-medium">{sym}{(line.price * line.qty).toFixed(2)}</span>
                               </div>
                             ))}
                           </div>
