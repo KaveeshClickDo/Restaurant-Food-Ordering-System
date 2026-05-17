@@ -241,6 +241,9 @@ function mapOrder(row: any): Order {
     refunds: row.refunds ?? [],
     refundedAmount: row.refunded_amount ? Number(row.refunded_amount) : undefined,
     storeCreditUsed: row.store_credit_used ? Number(row.store_credit_used) : undefined,
+    paymentStatus: row.payment_status ?? undefined,
+    stripePaymentIntentId: row.stripe_payment_intent_id ?? null,
+    stripeChargeId: row.stripe_charge_id ?? null,
   };
 }
 

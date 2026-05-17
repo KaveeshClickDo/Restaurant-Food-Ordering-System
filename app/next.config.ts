@@ -9,6 +9,18 @@ const nextConfig: NextConfig = {
     dangerouslyAllowSVG: true,
     contentDispositionType: "inline",
   },
+  async rewrites() {
+    return [
+      // Apple Pay domain verification — Stripe requires the merchant's domain
+      // to serve a specific file at this exact URL. We rewrite to a normal
+      // route handler so the content can come from the APPLE_PAY_DOMAIN_ASSOCIATION
+      // env var rather than being committed to the repo.
+      {
+        source: "/.well-known/apple-developer-merchantid-domain-association",
+        destination: "/api/apple-pay-domain-verification",
+      },
+    ];
+  },
   async headers() {
     return [
       {

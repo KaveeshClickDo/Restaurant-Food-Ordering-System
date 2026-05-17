@@ -13,6 +13,8 @@
     "android:build": "npm run build && npx cap sync android"
   },
   "dependencies": {
+    "@stripe/react-stripe-js": "^6.3.0",
+    "@stripe/stripe-js": "^9.5.0",
     "@supabase/supabase-js": "^2.103.2",
     "@types/bcryptjs": "^2.4.6",
     "bcryptjs": "^3.0.3",
@@ -23,7 +25,8 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-leaflet": "^5.0.0",
-    "resend": "^4.0.0"
+    "resend": "^4.0.0",
+    "stripe": "^22.1.1"
   },
   "devDependencies": {
     "@capacitor/android": "^7.6.2",

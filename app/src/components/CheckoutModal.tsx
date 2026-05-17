@@ -1,16 +1,34 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import {
-  X, CreditCard, Wallet, Banknote, CheckCircle,
+  X, CreditCard, Banknote, CheckCircle,
   AlertCircle, MapPin, Navigation, Loader2, CalendarDays,
-  Tag, XCircle, Gift,
+  Tag, XCircle, Gift, Lock,
 } from "lucide-react";
+import { loadStripe, type Stripe as StripeJs } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { useApp } from "@/context/AppContext";
 import { DeliveryZone, Order, PaymentMethod, SavedAddress } from "@/types";
 import { printOrder } from "@/lib/escpos";
 import { computeTax, taxSurcharge } from "@/lib/taxUtils";
+
+// Stripe.js loader — singleton so we don't re-download Stripe.js on every
+// modal open. `loadStripe` returns null if the key is missing, which the
+// card payment step handles with a friendly error message.
+let _stripePromise: Promise<StripeJs | null> | null = null;
+function getStripePromise(): Promise<StripeJs | null> {
+  if (_stripePromise) return _stripePromise;
+  const key = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+  if (!key) {
+    console.warn("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is not set — card payments will be unavailable.");
+    _stripePromise = Promise.resolve(null);
+    return _stripePromise;
+  }
+  _stripePromise = loadStripe(key);
+  return _stripePromise;
+}
 
 const LocationMap = dynamic(() => import("@/components/maps/LocationMap"), {
   ssr: false,
@@ -74,11 +92,6 @@ function MethodIcon({ id }: { id: string }) {
       <CreditCard size={18} className="text-white" />
     </div>
   );
-  if (id === "paypal") return (
-    <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-700 rounded-lg flex items-center justify-center flex-shrink-0">
-      <Wallet size={18} className="text-white" />
-    </div>
-  );
   if (id === "cash") return (
     <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center flex-shrink-0">
       <Banknote size={18} className="text-white" />
@@ -92,8 +105,7 @@ function MethodIcon({ id }: { id: string }) {
 }
 
 function hoverColor(id: string) {
-  if (id === "paypal") return "hover:border-blue-400";
-  if (id === "cash")   return "hover:border-green-400";
+  if (id === "cash") return "hover:border-green-400";
   return "hover:border-orange-400";
 }
 
@@ -199,9 +211,15 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   const savedAddresses: SavedAddress[] = currentUser?.savedAddresses ?? [];
   const defaultAddress = savedAddresses.find((a) => a.isDefault) ?? savedAddresses[0] ?? null;
 
-  const [step, setStep] = useState<"form" | "success">("form");
+  const [step, setStep] = useState<"form" | "card_payment" | "success">("form");
   const [chosenMethod, setChosenMethod] = useState<PaymentMethod | null>(null);
   const [placedScheduledTime, setPlacedScheduledTime] = useState<string | null>(null);
+
+  // Stripe card-payment session state — populated when the user picks "Card"
+  // and /api/payments/intent returns a client secret. The PaymentElement
+  // attaches to this secret and confirms the charge.
+  const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
+  const [pendingOrder, setPendingOrder] = useState<Order | null>(null);
   const [selectedAddressId, setSelectedAddressId] = useState<string | "manual">(
     defaultAddress ? defaultAddress.id : "manual"
   );
@@ -258,9 +276,13 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     }
   }
 
-  // Filter payment methods
+  // Filter payment methods.
+  // PayPal is hidden from the customer-facing UI: the admin can still toggle
+  // it in Integrations, but no SDK is wired so we won't expose a button that
+  // would create an order with no real payment. Remove this filter once
+  // /api/payments/paypal exists.
   const activeMethods = [...(settings.paymentMethods ?? [])]
-    .filter((m) => m.enabled)
+    .filter((m) => m.enabled && m.id !== "paypal")
     .sort((a, b) => a.order - b.order);
 
   const availableMethods = activeMethods.filter((m) =>
@@ -307,12 +329,14 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     return Object.keys(errors).length === 0;
   }
 
-  async function handlePay(method: PaymentMethod) {
-    if (!validate()) return;
-    setSubmitting(true);
-    setSubmitError("");
-
-    const newOrder: Order = {
+  /**
+   * Build the in-memory Order object that mirrors what the server will
+   * eventually insert. Both cash and card flows need the same shape — cash
+   * inserts it immediately via /api/orders, card stashes it in a
+   * payment_session and the webhook inserts after payment_intent.succeeded.
+   */
+  function buildOrder(method: PaymentMethod): Order {
+    return {
       id: `ord-${crypto.randomUUID().slice(0, 8)}`,
       customerId: currentUser?.id ?? "guest",
       date: new Date().toISOString(),
@@ -337,6 +361,43 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
       ...(tax.enabled && tax.vatAmount > 0 ? { vatAmount: tax.vatAmount, vatInclusive: tax.inclusive } : {}),
       ...(storeCreditApplied > 0 ? { storeCreditUsed: storeCreditApplied } : {}),
     };
+  }
+
+  /** Build the body for /api/payments/intent — same fields the cash flow sends to /api/orders. */
+  function buildOrderPayload(order: Order) {
+    return {
+      id: order.id,
+      customer_id: order.customerId,
+      date: order.date,
+      fulfillment: order.fulfillment,
+      items: order.items,
+      payment_method: order.paymentMethod ?? "",
+      address: order.address ?? "",
+      delivery_fee: order.deliveryFee ?? 0,
+      service_fee: order.serviceFee ?? 0,
+      scheduled_time: order.scheduledTime ?? "",
+      coupon_code: order.couponCode ?? "",
+      vat_amount: order.vatAmount ?? 0,
+      vat_inclusive: order.vatInclusive ?? true,
+      store_credit_used: order.storeCreditUsed ?? 0,
+      customer_email: form.email.trim() || undefined,
+    };
+  }
+
+  async function handlePay(method: PaymentMethod) {
+    if (!validate()) return;
+    if (method.id === "stripe") {
+      await startCardPayment(method);
+    } else {
+      await placeCashOrder(method);
+    }
+  }
+
+  /** Cash / pay-on-delivery — order is inserted immediately. */
+  async function placeCashOrder(method: PaymentMethod) {
+    setSubmitting(true);
+    setSubmitError("");
+    const newOrder = buildOrder(method);
 
     if (currentUser) {
       const result = await addOrder(currentUser.id, newOrder);
@@ -361,10 +422,8 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     setScheduledTime(null);
     setSubmitting(false);
 
-    // Fire-and-forget: print receipt (confirmation email is sent server-side by /api/orders)
     printOrder(newOrder, settings);
 
-    // Fire-and-forget: upsert guest profile so the admin can track this customer
     if (form.email.trim()) {
       fetch("/api/guest-profile", {
         method: "POST",
@@ -377,6 +436,120 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
         }),
       }).catch(() => {});
     }
+  }
+
+  /**
+   * Stripe card flow — call /api/payments/intent to mint a PaymentIntent
+   * and switch to the card_payment step where <PaymentElement /> takes
+   * over. The order is NOT created here; the webhook does that after
+   * payment_intent.succeeded fires.
+   */
+  async function startCardPayment(method: PaymentMethod) {
+    setSubmitting(true);
+    setSubmitError("");
+    const newOrder = buildOrder(method);
+
+    try {
+      const r = await fetch("/api/payments/intent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildOrderPayload(newOrder)),
+      });
+      const j = await r.json() as {
+        ok: boolean;
+        error?: string;
+        clientSecret?: string;
+      };
+      if (!j.ok || !j.clientSecret) {
+        setSubmitError(j.error ?? "Could not start payment. Please try again.");
+        setSubmitting(false);
+        return;
+      }
+      setStripeClientSecret(j.clientSecret);
+      setPendingOrder(newOrder);
+      setChosenMethod(method);
+      setStep("card_payment");
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Network error — please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  /** Called from the inner CardPaymentForm once Stripe confirms the charge. */
+  function handleCardPaid() {
+    if (appliedCoupon) {
+      incrementCouponUsage(appliedCoupon.couponId);
+      removeCoupon();
+    }
+    if (storeCreditApplied > 0 && currentUser) {
+      spendStoreCredit(currentUser.id, storeCreditApplied);
+    }
+    setPlacedScheduledTime(scheduledTime);
+    setStep("success");
+    clearCart();
+    setScheduledTime(null);
+    setStripeClientSecret(null);
+
+    // Receipt printing — the order itself will arrive via Realtime when the
+    // webhook inserts it; print the in-memory copy for an immediate receipt.
+    if (pendingOrder) printOrder(pendingOrder, settings);
+
+    if (form.email.trim()) {
+      fetch("/api/guest-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name:       form.name.trim(),
+          email:      form.email.trim(),
+          phone:      form.phone.trim(),
+          orderTotal: orderTotal,
+        }),
+      }).catch(() => {});
+    }
+  }
+
+  // ── Card payment screen — Stripe PaymentElement ─────────────────────────────
+  if (step === "card_payment" && stripeClientSecret) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+        <div className="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+          <div className="flex items-center justify-between p-5 border-b border-gray-100">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Complete payment</h2>
+              <p className="text-xs text-gray-500 mt-0.5">{sym}{orderTotal.toFixed(2)} · {chosenMethod?.name}</p>
+            </div>
+            <button
+              onClick={() => {
+                // Going back doesn't cancel the PaymentIntent — Stripe expires
+                // unfunded intents after a while. We just hide the UI.
+                setStep("form");
+                setStripeClientSecret(null);
+                setPendingOrder(null);
+              }}
+              className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition"
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-5">
+            <Elements
+              stripe={getStripePromise()}
+              options={{
+                clientSecret: stripeClientSecret,
+                appearance: { theme: "stripe", variables: { colorPrimary: "#f97316" } },
+              }}
+            >
+              <CardPaymentForm
+                amountLabel={`${sym}${orderTotal.toFixed(2)}`}
+                onPaid={handleCardPaid}
+              />
+            </Elements>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // ── Success screen ──────────────────────────────────────────────────────────
@@ -842,5 +1015,89 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── Inner card-payment form ──────────────────────────────────────────────────
+// Lives inside <Elements> so it can use the Stripe hooks. stripe.confirmPayment
+// returns when the customer has finished any 3-D-Secure / redirect challenge,
+// or with an error if the card was declined. The webhook is the source of
+// truth for order creation — we only call onPaid() on a clean success here.
+
+function CardPaymentForm({
+  amountLabel,
+  onPaid,
+}: {
+  amountLabel: string;
+  onPaid: () => void;
+}) {
+  const stripe   = useStripe();
+  const elements = useElements();
+  const [submitting, setSubmitting] = useState(false);
+  const [error,      setError]      = useState<string | null>(null);
+
+  // Stripe needs an absolute return_url for redirect-based methods (Klarna,
+  // Bancontact, etc.). Even when we confirm in-place via redirect:'if_required',
+  // Stripe rejects the request without a return_url being set.
+  const returnUrl = useMemo(() => {
+    if (typeof window === "undefined") return "https://example.com/checkout-return";
+    return `${window.location.origin}/checkout-return`;
+  }, []);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+    setSubmitting(true);
+    setError(null);
+
+    const { error: stripeError, paymentIntent } = await stripe.confirmPayment({
+      elements,
+      confirmParams: { return_url: returnUrl },
+      redirect: "if_required",
+    });
+
+    if (stripeError) {
+      // Card declined, validation error, or any other Stripe-side issue.
+      setError(stripeError.message ?? "Payment could not be processed.");
+      setSubmitting(false);
+      return;
+    }
+    if (paymentIntent && paymentIntent.status === "succeeded") {
+      onPaid();
+      return;
+    }
+    if (paymentIntent && paymentIntent.status === "processing") {
+      // Some payment methods (bank debits) confirm asynchronously. The webhook
+      // will eventually fire payment_intent.succeeded; treat as success here.
+      onPaid();
+      return;
+    }
+    setError(`Payment status: ${paymentIntent?.status ?? "unknown"}. Please try again.`);
+    setSubmitting(false);
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <PaymentElement options={{ layout: "tabs" }} />
+      {error && (
+        <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+          <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-red-700">{error}</p>
+        </div>
+      )}
+      <button
+        type="submit"
+        disabled={!stripe || submitting}
+        className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 disabled:cursor-not-allowed text-white font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2"
+      >
+        {submitting
+          ? <><Loader2 size={16} className="animate-spin" /> Processing…</>
+          : <><Lock size={14} /> Pay {amountLabel}</>
+        }
+      </button>
+      <p className="text-[10px] text-gray-400 text-center">
+        Payments are processed securely by Stripe. Your card details are never stored on our servers.
+      </p>
+    </form>
   );
 }

@@ -8,6 +8,7 @@ import {
   AlertCircle, CheckCircle2, Clock, DollarSign,
   FileText, CreditCard, Banknote, Gift,
 } from "lucide-react";
+import { PaymentStatusBadge, StripeIntentLink } from "@/components/admin/PaymentStatusBadge";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -136,6 +137,7 @@ function OrderRefundCard({
               #{order.id.slice(0, 8).toUpperCase()}
             </span>
             <StatusBadge status={order.status} />
+            <PaymentStatusBadge status={order.paymentStatus} size="xs" />
             {refunds.length > 0 && (
               <span className="text-[10px] font-semibold bg-teal-50 text-teal-600 border border-teal-100 rounded-full px-2 py-0.5">
                 {refunds.length} refund{refunds.length > 1 ? "s" : ""}
@@ -147,6 +149,11 @@ function OrderRefundCard({
             {fmtDate(order.date)} · {order.fulfillment === "delivery" ? "Delivery" : "Collection"}
             {order.paymentMethod && ` · ${order.paymentMethod}`}
           </p>
+          {order.stripePaymentIntentId && (
+            <p className="text-[10px] text-gray-400 mt-0.5">
+              Stripe: <StripeIntentLink paymentIntentId={order.stripePaymentIntentId} />
+            </p>
+          )}
         </div>
 
         {/* Amounts */}
@@ -348,31 +355,49 @@ function RefundModal({
           <div>
             <label className="text-sm font-semibold text-gray-700 block mb-2">Refund method</label>
             <div className="space-y-2">
-              {(Object.entries(METHOD_CONFIG) as [RefundMethod, typeof METHOD_CONFIG[RefundMethod]][]).map(([key, cfg]) => (
-                <label
-                  key={key}
-                  className={`flex items-start gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition ${
-                    method === key
-                      ? "border-teal-400 bg-teal-50"
-                      : "border-gray-200 hover:border-gray-300"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="refund-method"
-                    value={key}
-                    checked={method === key}
-                    onChange={() => setMethod(key)}
-                    className="mt-0.5 accent-teal-500"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-semibold flex items-center gap-1.5 ${method === key ? "text-teal-700" : "text-gray-700"}`}>
-                      {cfg.icon} {cfg.label}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-0.5">{cfg.desc}</p>
-                  </div>
-                </label>
-              ))}
+              {(Object.entries(METHOD_CONFIG) as [RefundMethod, typeof METHOD_CONFIG[RefundMethod]][]).map(([key, cfg]) => {
+                // When the order was paid with a Stripe card, the "original
+                // payment" choice will actually call stripe.refunds.create()
+                // and reverse the charge. Surface that explicitly so the
+                // admin knows it's a real gateway action, not a manual note.
+                const isOriginal = key === "original_payment";
+                const isStripeReversal = isOriginal && !!order.stripePaymentIntentId;
+                const desc = isStripeReversal
+                  ? "Reverses the Stripe charge via the gateway and refunds the customer's card."
+                  : isOriginal && order.paymentMethod?.toLowerCase().includes("cash")
+                    ? "Recorded only — there's no card to refund (paid in cash)."
+                    : cfg.desc;
+                return (
+                  <label
+                    key={key}
+                    className={`flex items-start gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition ${
+                      method === key
+                        ? "border-teal-400 bg-teal-50"
+                        : "border-gray-200 hover:border-gray-300"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="refund-method"
+                      value={key}
+                      checked={method === key}
+                      onChange={() => setMethod(key)}
+                      className="mt-0.5 accent-teal-500"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-semibold flex items-center gap-1.5 ${method === key ? "text-teal-700" : "text-gray-700"}`}>
+                        {cfg.icon} {cfg.label}
+                        {isStripeReversal && (
+                          <span className="text-[9px] font-bold bg-indigo-100 text-indigo-700 rounded-full px-1.5 py-0.5">
+                            Via Stripe
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5">{desc}</p>
+                    </div>
+                  </label>
+                );
+              })}
             </div>
           </div>
 

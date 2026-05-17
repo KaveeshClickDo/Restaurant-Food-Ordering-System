@@ -389,9 +389,12 @@ function ApiKeysTab() {
           <EnvVarRow name="SMTP_PORT"            description="SMTP port — 587 for STARTTLS (default), 465 for SSL" />
           <EnvVarRow name="SMTP_USER"            description="SMTP username / sender address" />
           <EnvVarRow name="SMTP_PASS"            description="SMTP password or app-specific password" />
-          <EnvVarRow name="STRIPE_SECRET_KEY"    description="Stripe secret key (sk_live_… or sk_test_…)" />
-          <EnvVarRow name="PAYPAL_CLIENT_ID"     description="PayPal REST API client ID" />
-          <EnvVarRow name="SUPABASE_SERVICE_ROLE_KEY" description="Supabase service-role key — used by server API routes only" />
+          <EnvVarRow name="STRIPE_SECRET_KEY"             description="Stripe secret key (sk_live_… or sk_test_…)" />
+          <EnvVarRow name="STRIPE_WEBHOOK_SECRET"         description="Webhook signing secret (whsec_…) from Stripe Dashboard → Webhooks" />
+          <EnvVarRow name="NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY" description="Stripe publishable key (pk_live_… or pk_test_…) — public, sent to the browser" />
+          <EnvVarRow name="APPLE_PAY_DOMAIN_ASSOCIATION"  description="Apple Pay domain verification file contents (optional)" />
+          <EnvVarRow name="PAYPAL_CLIENT_ID"              description="PayPal REST API client ID (not yet wired up)" />
+          <EnvVarRow name="SUPABASE_SERVICE_ROLE_KEY"     description="Supabase service-role key — used by server API routes only" />
         </div>
       </div>
 

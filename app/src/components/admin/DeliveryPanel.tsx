@@ -9,6 +9,7 @@ import {
   ChevronRight, X, RefreshCw, Bike, Store,
   AlertCircle, Search, Filter, Navigation, RotateCcw,
 } from "lucide-react";
+import { PaymentStatusBadge } from "@/components/admin/PaymentStatusBadge";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -202,7 +203,7 @@ function KanbanCard({
       <div className="px-4 pt-3.5 pb-2.5">
         <div className="flex items-start justify-between gap-2 mb-2">
           <div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-xs font-mono text-gray-400">#{order.id.slice(-6).toUpperCase()}</span>
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold border flex items-center gap-1 ${
                 order.fulfillment === "delivery"
@@ -212,6 +213,7 @@ function KanbanCard({
                 {order.fulfillment === "delivery" ? <Bike size={9} /> : <Store size={9} />}
                 {order.fulfillment === "delivery" ? "Delivery" : "Collection"}
               </span>
+              <PaymentStatusBadge status={order.paymentStatus} size="xs" />
             </div>
             <p className="font-semibold text-gray-900 text-sm mt-0.5">{order.customerName}</p>
           </div>

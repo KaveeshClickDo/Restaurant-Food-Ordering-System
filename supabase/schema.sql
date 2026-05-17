@@ -239,6 +239,28 @@ create table if not exists payment_audit_log (
   details    jsonb       not null default '{}'
 );
 
+-- Stripe payment sessions — staging table for the "payment-first" checkout flow.
+-- A row is created when the customer clicks Pay; it holds the verified cart and
+-- delivery details while Stripe authorises the card (including 3D Secure, which
+-- can take 30+ seconds and runs in a popup). On webhook payment_intent.succeeded
+-- the row is converted into a real `orders` row and deleted. On failure or
+-- abandonment the row expires and is cleaned up. The kitchen / driver views
+-- never see this table — only `orders`.
+create table if not exists payment_sessions (
+  id                       text        primary key default gen_random_uuid()::text,
+  stripe_payment_intent_id text        not null unique,
+  customer_id              text        not null,
+  amount                   numeric     not null,
+  currency                 text        not null,
+  order_payload            jsonb       not null,
+  status                   text        not null default 'pending'
+                           check (status in ('pending','succeeded','failed','expired')),
+  created_at               timestamptz not null default now(),
+  expires_at               timestamptz not null default (now() + interval '1 hour'),
+  completed_order_id       text,
+  last_error               text
+);
+
 -- Dining tables (replaces app_settings.data.diningTables). Promoted to a
 -- real table so reservations.table_id and POS dine-in orders have a real
 -- FK target.
@@ -353,6 +375,31 @@ alter table orders add column if not exists voided_at   timestamptz;
 -- to confirm hand-off, preventing misdelivery). Populated only for delivery
 -- fulfillment at order-creation time; null for collection / dine-in.
 alter table orders add column if not exists delivery_code text;
+
+-- 3c-iii. orders — Stripe payment tracking.
+-- payment_status distinguishes "money collected" from order fulfillment status:
+--   • 'unpaid'   — cash / pay-on-delivery; expect to collect at hand-off.
+--   • 'paid'     — Stripe (or future PayPal) authorised + captured.
+--   • 'refunded' — full refund processed through the gateway.
+--   • 'partially_refunded' — at least one partial refund processed.
+-- The original `status` column continues to track fulfillment (pending →
+-- preparing → delivered). The two move independently: a 'paid' order can still
+-- be 'pending' (just placed), and a 'delivered' order can be 'unpaid' (cash).
+alter table orders add column if not exists payment_status text not null default 'unpaid'
+  check (payment_status in ('unpaid','paid','refunded','partially_refunded','failed'));
+alter table orders add column if not exists stripe_payment_intent_id text;
+alter table orders add column if not exists stripe_charge_id         text;
+
+-- 3c-iv. orders — refund tracking on the refunds JSONB.
+-- The refunds array entries gain optional stripe_refund_id / processor fields
+-- when the refund was processed through Stripe. No schema change needed —
+-- JSONB shape lives in @/types Refund interface.
+
+-- 3c-v. payment_sessions — back-fill index for webhook lookups.
+create index if not exists idx_payment_sessions_pi    on payment_sessions(stripe_payment_intent_id);
+create index if not exists idx_payment_sessions_exp   on payment_sessions(expires_at);
+create index if not exists idx_orders_payment_status  on orders(payment_status);
+create index if not exists idx_orders_stripe_pi       on orders(stripe_payment_intent_id) where stripe_payment_intent_id is not null;
 
 -- 3d. reservations — check-in/out + source + cancel_token -------------------
 alter table reservations add column if not exists checked_in_at  timestamptz;
@@ -497,6 +544,7 @@ alter table waiters                enable row level security;
 alter table kitchen_staff          enable row level security;
 alter table coupons                enable row level security;
 alter table payment_audit_log      enable row level security;
+alter table payment_sessions       enable row level security;
 alter table dining_tables          enable row level security;
 alter table meal_periods           enable row level security;
 alter table menu_item_meal_periods enable row level security;
@@ -585,6 +633,10 @@ create policy "deny_anon_all" on coupons
 
 drop policy if exists "deny_anon_all" on payment_audit_log;
 create policy "deny_anon_all" on payment_audit_log
+  for all to anon using (false) with check (false);
+
+drop policy if exists "deny_anon_all" on payment_sessions;
+create policy "deny_anon_all" on payment_sessions
   for all to anon using (false) with check (false);
 
 

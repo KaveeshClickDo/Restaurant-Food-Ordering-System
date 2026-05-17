@@ -22,6 +22,7 @@ import CouponsPanel         from "@/components/admin/CouponsPanel";
 import TaxSettingsPanel     from "@/components/admin/TaxSettingsPanel";
 import DriversPanel         from "@/components/admin/DriversPanel";
 import RefundsPanel         from "@/components/admin/RefundsPanel";
+import PaymentsPanel        from "@/components/admin/PaymentsPanel";
 import POSReportsPanel      from "@/components/admin/POSReportsPanel";
 import OnlineReportsPanel  from "@/components/admin/OnlineReportsPanel";
 import WaitersPanel         from "@/components/admin/WaitersPanel";
@@ -36,7 +37,7 @@ import {
   MapPin, Bell, X, Mail, FileText, LayoutTemplate, Navigation, Palette, ImageIcon, Receipt,
   Tag, Percent, Car, RotateCcw, BarChart3, LineChart, UtensilsCrossed, CalendarDays, BookUser,
   Menu as MenuIcon, ChevronDown, ChevronRight, ChevronLeft, PanelLeftClose, PanelLeftOpen, UserCog,
-  Tablet,
+  Tablet, CreditCard,
 } from "lucide-react";
 
 // ─── Navigation structure ─────────────────────────────────────────────────────
@@ -80,7 +81,8 @@ const NAV_GROUPS: NavGroup[] = [
   {
     id: "finance", label: "Finance",
     items: [
-      { id: "online-reports", label: "Finance Reports", icon: LineChart },
+      { id: "payments",       label: "Payments",         icon: CreditCard },
+      { id: "online-reports", label: "Finance Reports",  icon: LineChart },
       { id: "coupons",        label: "Coupons",          icon: Tag       },
       { id: "tax",            label: "Tax & VAT",         icon: Percent   },
       { id: "pos-reports",    label: "POS Reports",       icon: BarChart3 },
@@ -141,6 +143,7 @@ function bannerSubtitle(
     case "drivers":       return "Manage driver accounts and track deliveries.";
     case "users":         return "Create, view, and manage all user accounts — customers, drivers, and staff.";
     case "refunds":       return "Process full or partial refunds, choose refund method, and view the full refund history.";
+    case "payments":      return "Stripe and cash transactions with status, customer, and gateway links — every order where money actually moved.";
     case "online-reports": return "Revenue, orders, refunds, VAT, and payment breakdowns — filter by date range and export to CSV or PDF.";
     case "pos-reports":    return "View POS sales reports — revenue, profit, staff performance, and best-selling items.";
     case "waiters":        return `${settings.diningTables?.length ?? 0} tables — manage waiter accounts, PINs, and the dining layout.`;
@@ -705,6 +708,7 @@ function AdminPageContent() {
             {activeTab === "drivers"       && <DriversPanel />}
             {activeTab === "users"         && <UserManagementPanel />}
             {activeTab === "refunds"       && <RefundsPanel />}
+            {activeTab === "payments"      && <PaymentsPanel />}
             {activeTab === "online-reports" && <OnlineReportsPanel />}
             {activeTab === "pos-reports"   && <POSReportsPanel />}
             {activeTab === "waiters"        && <WaitersPanel />}

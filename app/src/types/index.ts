@@ -414,6 +414,8 @@ export type DeliveryStatus = "assigned" | "picked_up" | "on_the_way" | "delivere
 
 export type RefundMethod = "original_payment" | "store_credit" | "cash";
 
+export type PaymentStatus = "unpaid" | "paid" | "refunded" | "partially_refunded" | "failed";
+
 export interface Refund {
   id: string;
   orderId: string;
@@ -424,6 +426,8 @@ export interface Refund {
   note?: string;           // internal admin note
   processedAt: string;     // ISO
   processedBy: string;     // e.g. "Admin"
+  /** Stripe refund id when the refund was processed through the gateway. */
+  stripeRefundId?: string | null;
 }
 
 export interface Driver {
@@ -460,6 +464,12 @@ export interface Order {
   address?: string;
   note?: string;
   paymentMethod?: string;   // display name of payment method used
+  /** Distinct from `status` (fulfillment). 'unpaid' = cash/COD; 'paid' = Stripe authorised+captured. */
+  paymentStatus?: PaymentStatus;
+  /** Stripe PaymentIntent id — present on card orders, null on cash. */
+  stripePaymentIntentId?: string | null;
+  /** Stripe Charge id — pinned at webhook time so refunds know which charge to reverse. */
+  stripeChargeId?: string | null;
   deliveryFee?: number;     // delivery fee applied at checkout
   serviceFee?: number;      // service fee (£) applied at checkout
   scheduledTime?: string;   // "ASAP" or a human-readable future slot, e.g. "Monday at 12:30"
