@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
 
   // ── Session ownership check ──────────────────────────────────────────────
   // The "pos-walk-in" sentinel is for POS-placed orders and must never appear
-  // on the customer-facing endpoint (POS uses /api/pos/orders). The string
+  // on the customer-facing endpoint (POS uses /api/pos/sales). The string
   // "guest" is the documented unauthenticated checkout value — any other
   // customer_id must match the logged-in session.
   if (customer_id === "pos-walk-in") return unauthorizedJson();

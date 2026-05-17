@@ -1,13 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
 import { useConnectivity } from "@/lib/connectivity";
-import { drainOutbox, pendingCount, retryFailed } from "@/lib/posOutbox";
 import {
-  ChefHat, LogOut, WifiOff, RefreshCw, Wifi,
+  ChefHat, LogOut, WifiOff, RefreshCw,
   ShoppingCart, LayoutDashboard, Users, UserCog, Settings2,
   UtensilsCrossed, CalendarDays,
 } from "lucide-react";
@@ -29,10 +28,11 @@ export default function POSPage() {
   const [time, setTime] = useState(""); // empty string on SSR, filled after mount
   const [mounted, setMounted] = useState(false);
 
-  // ── Connectivity & offline outbox ─────────────────────────────────────────
+  // ── Connectivity ──────────────────────────────────────────────────────────
+  // Sales go straight to the server (no offline queue), so the only thing
+  // the connectivity hook drives now is the "card payments unavailable"
+  // offline banner below.
   const { isOnline, recheck } = useConnectivity();
-  const [outboxCount, setOutboxCount] = useState(0);
-  const prevOnline = useRef(true);
 
   // Mount guard: prevents SSR/hydration mismatch from localStorage state
   useEffect(() => { setMounted(true); }, []);
@@ -59,34 +59,6 @@ export default function POSPage() {
     setTime(new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }));
     const id = setInterval(() => setTime(new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })), 30000);
     return () => clearInterval(id);
-  }, []);
-
-  // Drain outbox when we come back online
-  useEffect(() => {
-    if (isOnline && !prevOnline.current) {
-      retryFailed();
-      drainOutbox().then(() => setOutboxCount(pendingCount()));
-    }
-    prevOnline.current = isOnline;
-  }, [isOnline]);
-
-  // Keep outbox badge count fresh (poll every 5 s)
-  useEffect(() => {
-    setOutboxCount(pendingCount());
-    const id = setInterval(() => setOutboxCount(pendingCount()), 5000);
-    return () => clearInterval(id);
-  }, []);
-
-  // Warn before tab close when there are unsynced sales
-  useEffect(() => {
-    function onBeforeUnload(e: BeforeUnloadEvent) {
-      if (pendingCount() > 0) {
-        e.preventDefault();
-        e.returnValue = "";
-      }
-    }
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, []);
 
   // Show nothing until client has hydrated (avoids mismatch between SSR null and client session)
@@ -171,13 +143,13 @@ export default function POSPage() {
         </button>
       </header>
 
-      {/* Offline banner */}
+      {/* Offline banner — sales now go straight to the server, so this is
+          purely a "card terminal may be unavailable" advisory. */}
       {!isOnline && (
         <div className="flex-shrink-0 bg-amber-500/10 border-b border-amber-500/30 px-4 py-2 flex items-center gap-3">
           <WifiOff size={14} className="text-amber-400 flex-shrink-0" />
           <p className="text-amber-300 text-xs font-medium flex-1">
-            No internet connection — cash payments only. Sales are saved locally.
-            {outboxCount > 0 && ` ${outboxCount} sale${outboxCount > 1 ? "s" : ""} pending sync.`}
+            No internet connection — sales cannot be completed until you reconnect.
           </p>
           <button
             onClick={recheck}
@@ -186,16 +158,6 @@ export default function POSPage() {
           >
             <RefreshCw size={13} />
           </button>
-        </div>
-      )}
-
-      {/* Online + pending sync indicator */}
-      {isOnline && outboxCount > 0 && (
-        <div className="flex-shrink-0 bg-blue-500/10 border-b border-blue-500/20 px-4 py-1.5 flex items-center gap-2">
-          <Wifi size={12} className="text-blue-400 flex-shrink-0" />
-          <p className="text-blue-300 text-xs flex-1">
-            Syncing {outboxCount} offline sale{outboxCount > 1 ? "s" : ""} to server…
-          </p>
         </div>
       )}
 

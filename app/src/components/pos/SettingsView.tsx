@@ -4,12 +4,12 @@ import { useState } from "react";
 import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
 import { POSSettings } from "@/types/pos";
-import { Mail, Package, Receipt, Save, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
+import { Mail, Receipt, Save, ToggleLeft, ToggleRight } from "lucide-react";
 import POSPrinterPanel from "./POSPrinterPanel";
 import MenuTab from "./settings/MenuTab";
 
 export default function SettingsView() {
-  const { settings, setSettings, sales, salesRetentionDays, exportSales, purgeOldSales } = usePOS();
+  const { settings, setSettings, sales, exportSales } = usePOS();
   const { settings: appSettings } = useApp();
   const [local, setLocal] = useState({ ...settings });
   const [tab, setTab] = useState<"general"|"menu"|"receipt"|"hardware">("general");
@@ -424,54 +424,28 @@ export default function SettingsView() {
               </button>
             </div>
 
-            {/* Local Storage */}
-            {(() => {
-              const cutoff   = Date.now() - salesRetentionDays * 24 * 60 * 60 * 1000;
-              const recent   = sales.filter((s) => new Date(s.date).getTime() >= cutoff).length;
-              const archived = sales.length - recent;
-              return (
-                <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4">
-                  <h3 className="text-white font-semibold text-sm flex items-center gap-2">
-                    <Package size={16} className="text-slate-400" /> Local Storage
-                  </h3>
-                  <div className="bg-slate-900 rounded-xl p-4 space-y-2 text-sm">
-                    <div className="flex justify-between text-slate-300">
-                      <span>Sales in memory</span>
-                      <span className="font-mono font-semibold">{sales.length}</span>
-                    </div>
-                    <div className="flex justify-between text-slate-400">
-                      <span>Within {salesRetentionDays}-day window</span>
-                      <span className="font-mono">{recent}</span>
-                    </div>
-                    {archived > 0 && (
-                      <div className="flex justify-between text-amber-400">
-                        <span>Older than {salesRetentionDays} days (not persisted)</span>
-                        <span className="font-mono">{archived}</span>
-                      </div>
-                    )}
-                  </div>
-                  <p className="text-slate-500 text-xs">
-                    Only the last {salesRetentionDays} days of sales are written to localStorage to prevent quota exhaustion.
-                    Export a full archive before older records are lost on page refresh.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={exportSales}
-                      className="sm:flex-1 px-3 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
-                    >
-                      <Receipt size={14} /> Export JSON
-                    </button>
-                    <button
-                      onClick={() => { if (confirm(`Remove ${archived} sale${archived !== 1 ? "s" : ""} older than ${salesRetentionDays} days from memory?`)) purgeOldSales(); }}
-                      disabled={archived === 0}
-                      className="sm:flex-1 px-3 py-2.5 rounded-xl border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-30 disabled:cursor-not-allowed text-sm font-semibold transition-colors flex items-center justify-center gap-2"
-                    >
-                      <Trash2 size={14} /> Purge old
-                    </button>
-                  </div>
+            {/* Sales archive */}
+            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4">
+              <h3 className="text-white font-semibold text-sm flex items-center gap-2">
+                <Receipt size={16} className="text-slate-400" /> Sales archive
+              </h3>
+              <div className="bg-slate-900 rounded-xl p-4 space-y-2 text-sm">
+                <div className="flex justify-between text-slate-300">
+                  <span>Sales loaded from server</span>
+                  <span className="font-mono font-semibold">{sales.length}</span>
                 </div>
-              );
-            })()}
+              </div>
+              <p className="text-slate-500 text-xs">
+                Sales are stored in the pos_sales database table — all tills aggregate to the
+                same record set. Use the export below for an offline JSON copy.
+              </p>
+              <button
+                onClick={exportSales}
+                className="w-full px-3 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+              >
+                <Receipt size={14} /> Export loaded sales as JSON
+              </button>
+            </div>
           </div>
         )}
       </div>

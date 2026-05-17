@@ -253,6 +253,69 @@ create table if not exists dining_tables (
   created_at  timestamptz not null default now()
 );
 
+-- Atomic receipt-number allocator. nextval() is a serializable database
+-- operation, so two concurrent tills always get distinct numbers — the
+-- per-device counter race goes away by definition. start 1000 keeps printed
+-- receipts looking like the existing format. Defined *before* pos_sales so
+-- its default expression can reference the sequence.
+create sequence if not exists pos_receipt_seq start 1000;
+
+-- POS sales — full audit/tax record of every till transaction.
+-- Replaces the per-device pos_sales localStorage key. Each terminal POSTs to
+-- /api/pos/sales which inserts here, then also writes a summary into orders
+-- so the Kitchen Display System sees the ticket in real-time.
+--
+-- receipt_no defaults to 'R<nextval>' so the client never has to (and never
+-- gets to) pick its own number — duplicates across tills are impossible.
+create table if not exists pos_sales (
+  id              text        primary key,
+  receipt_no      text        not null unique default ('R' || nextval('pos_receipt_seq')::text),
+  date            timestamptz not null default now(),
+  staff_id        text,
+  staff_name      text        not null default '',
+  customer_id     text,
+  customer_name   text,
+  table_number    integer,
+  items           jsonb       not null default '[]',
+  subtotal        numeric     not null,
+  discount_amount numeric     not null default 0,
+  discount_note   text,
+  tax_amount      numeric     not null default 0,
+  tax_rate        numeric     not null default 0,
+  tax_inclusive   boolean     not null default false,
+  tip_amount      numeric     not null default 0,
+  total           numeric     not null,
+  payment_method  text        not null check (payment_method in ('cash','card','split')),
+  payments        jsonb       not null default '[]',
+  cash_tendered   numeric,
+  change_given    numeric,
+  voided          boolean     not null default false,
+  void_reason     text,
+  voided_at       timestamptz,
+  refund_method   text                  check (refund_method in ('cash','card','none')),
+  refund_amount   numeric,
+  created_at      timestamptz not null default now()
+);
+
+-- POS clock-in/out — shared across all terminals so admin payroll reports
+-- aggregate across the fleet. Replaces the per-device pos_clock localStorage
+-- key. The partial unique index enforces "at most one open entry per staff
+-- member" at the database level — a second clock-in without clock-out is
+-- rejected by Postgres, not by application logic.
+create table if not exists pos_clock_entries (
+  id            text        primary key default gen_random_uuid()::text,
+  staff_id      text        not null,
+  staff_name    text        not null,
+  clock_in      timestamptz not null default now(),
+  clock_out     timestamptz,
+  total_minutes integer,
+  notes         text,
+  created_at    timestamptz not null default now()
+);
+
+create unique index if not exists uniq_pos_clock_open
+  on pos_clock_entries (staff_id) where clock_out is null;
+
 -- Case-insensitive unique label. Closes the race window where two concurrent
 -- POSTs could each pass the application-level duplicate check before either
 -- INSERT commits. Application code still does a friendly pre-check; this is
@@ -405,6 +468,10 @@ create index if not exists idx_meal_periods_order    on meal_periods(sort_order)
 create index if not exists idx_reservations_slot    on reservations(date, time);
 create index if not exists idx_reservations_status  on reservations(status);
 create index if not exists idx_pos_staff_active     on pos_staff(active) where active = true;
+create index if not exists idx_pos_sales_date        on pos_sales(date desc);
+create index if not exists idx_pos_sales_staff       on pos_sales(staff_id) where staff_id is not null;
+create index if not exists idx_pos_sales_voided      on pos_sales(voided) where voided = true;
+create index if not exists idx_pos_clock_staff_in    on pos_clock_entries(staff_id, clock_in desc);
 create index if not exists idx_waiters_active       on waiters(active)   where active = true;
 create index if not exists idx_kitchen_staff_active on kitchen_staff(active) where active = true;
 create index if not exists idx_coupons_active       on coupons(active)   where active = true;
@@ -424,6 +491,8 @@ alter table reservations           enable row level security;
 alter table reservation_customers  enable row level security;
 alter table reservation_waitlist   enable row level security;
 alter table pos_staff              enable row level security;
+alter table pos_sales              enable row level security;
+alter table pos_clock_entries      enable row level security;
 alter table waiters                enable row level security;
 alter table kitchen_staff          enable row level security;
 alter table coupons                enable row level security;
@@ -492,6 +561,14 @@ create policy "deny_anon_all" on drivers
 
 drop policy if exists "deny_anon_all" on pos_staff;
 create policy "deny_anon_all" on pos_staff
+  for all to anon using (false) with check (false);
+
+drop policy if exists "deny_anon_all" on pos_sales;
+create policy "deny_anon_all" on pos_sales
+  for all to anon using (false) with check (false);
+
+drop policy if exists "deny_anon_all" on pos_clock_entries;
+create policy "deny_anon_all" on pos_clock_entries
   for all to anon using (false) with check (false);
 
 drop policy if exists "deny_anon_all" on waiters;

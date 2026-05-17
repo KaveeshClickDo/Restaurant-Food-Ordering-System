@@ -115,7 +115,7 @@ export default function StaffView() {
                     )}
                   </div>
                   <button
-                    onClick={() => clocked ? clockOut(member.id) : clockIn(member.id)}
+                    onClick={() => { void (clocked ? clockOut(member.id) : clockIn(member.id)); }}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 ${clocked
                         ? "bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30"
                         : "bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30"

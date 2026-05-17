@@ -12,10 +12,18 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
   const [refundMethod, setRefundMethod] = useState<"cash" | "card" | "none">(sale.paymentMethod === "card" ? "card" : "cash");
   const [refundAmount, setRefundAmount] = useState(sale.total.toFixed(2));
 
-  function confirmVoid() {
-    if (!voidReason.trim()) return;
+  const [submitting, setSubmitting] = useState(false);
+
+  async function confirmVoid() {
+    if (!voidReason.trim() || submitting) return;
     const amt = parseFloat(refundAmount);
-    voidSale(sale.id, voidReason.trim(), refundMethod, isNaN(amt) ? 0 : amt);
+    setSubmitting(true);
+    const ok = await voidSale(sale.id, voidReason.trim(), refundMethod, isNaN(amt) ? 0 : amt);
+    setSubmitting(false);
+    if (!ok) {
+      alert("Couldn't void the sale on the server. Check your network and try again.");
+      return;
+    }
     onClose();
   }
 
@@ -121,10 +129,12 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
           </button>
           <button
             onClick={confirmVoid}
-            disabled={!voidReason.trim()}
+            disabled={!voidReason.trim() || submitting}
             className="py-3 rounded-xl bg-red-500 hover:bg-red-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Void &amp; {refundMethod === "none" ? "No Refund" : `Refund ${fmt(parseFloat(refundAmount) || 0, settings.currencySymbol)}`}
+            {submitting
+              ? "Voiding…"
+              : <>Void &amp; {refundMethod === "none" ? "No Refund" : `Refund ${fmt(parseFloat(refundAmount) || 0, settings.currencySymbol)}`}</>}
           </button>
         </div>
       </div>

@@ -6,7 +6,6 @@ import {
   POSStaff, POSProduct, POSCategory, POSModifier, POSCartItem, POSSale, POSCustomer,
   POSSettings, POSClockEntry, POSCartModifier, getOfferPrice, cartLineTotal,
 } from "@/types/pos";
-import { enqueue as outboxEnqueue } from "@/lib/posOutbox";
 import { useApp } from "@/context/AppContext";
 
 // ─── Seed data ───────────────────────────────────────────────────────────────
@@ -133,11 +132,9 @@ interface POSContextValue {
   categories: POSCategory[];
   setCategories: React.Dispatch<React.SetStateAction<POSCategory[]>>;
   sales: POSSale[];
-  setSales: React.Dispatch<React.SetStateAction<POSSale[]>>;
   customers: POSCustomer[];
   setCustomers: React.Dispatch<React.SetStateAction<POSCustomer[]>>;
   clockEntries: POSClockEntry[];
-  setClockEntries: React.Dispatch<React.SetStateAction<POSClockEntry[]>>;
   settings: POSSettings;
   setSettings: React.Dispatch<React.SetStateAction<POSSettings>>;
   // Cart
@@ -160,20 +157,21 @@ interface POSContextValue {
   taxAmount: number;
   grandTotal: number;
   // Actions
+  // completeSale is async — the receipt_no is server-allocated from
+  // pos_receipt_seq to prevent duplicate numbers across tills. Returns null
+  // when the sale could not be persisted (network / server error); callers
+  // must surface that to the cashier and not print a receipt.
   completeSale: (
     paymentMethod: "cash" | "card" | "split",
     payments: { method: "cash" | "card"; amount: number }[],
     cashTendered?: number
-  ) => POSSale;
-  voidSale: (saleId: string, reason: string, refundMethod?: "cash" | "card" | "none", refundAmount?: number) => void;
-  clockIn: (staffId: string) => void;
-  clockOut: (staffId: string) => void;
+  ) => Promise<POSSale | null>;
+  voidSale: (saleId: string, reason: string, refundMethod?: "cash" | "card" | "none", refundAmount?: number) => Promise<boolean>;
+  clockIn: (staffId: string) => Promise<boolean>;
+  clockOut: (staffId: string) => Promise<boolean>;
   isClocked: (staffId: string) => boolean;
-  receiptCounter: number;
-  // Storage management
-  salesRetentionDays: number;
+  // Convenience
   exportSales: () => void;
-  purgeOldSales: () => void;
 }
 
 const POSContext = createContext<POSContextValue | null>(null);
@@ -185,10 +183,9 @@ export function usePOS() {
 }
 
 // ─── Storage helpers ──────────────────────────────────────────────────────────
-
-// Sales older than this are excluded from localStorage to prevent quota exhaustion.
-// Full history remains available in memory for the duration of the session.
-const SALES_RETENTION_DAYS = 90;
+// Used for the slowly-changing caches (products/categories/customers/settings).
+// pos_sales, pos_clock and the receipt counter now live in the DB — see the
+// /api/pos/sales and /api/pos/clock routes.
 
 function load<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -287,15 +284,14 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   const [categories, setCategories] = useState<POSCategory[]>(() =>
     load<POSCategory[]>("pos_categories", SEED_CATEGORIES)
   );
-  const [sales, setSales] = useState<POSSale[]>(() =>
-    load<POSSale[]>("pos_sales", [])
-  );
+  // sales + clockEntries are DB-backed (pos_sales / pos_clock_entries tables).
+  // They start empty and are hydrated from the API once the staff session
+  // resolves below.
+  const [sales, setSales] = useState<POSSale[]>([]);
   const [customers, setCustomers] = useState<POSCustomer[]>(() =>
     load<POSCustomer[]>("pos_customers", SEED_CUSTOMERS)
   );
-  const [clockEntries, setClockEntries] = useState<POSClockEntry[]>(() =>
-    load<POSClockEntry[]>("pos_clock", [])
-  );
+  const [clockEntries, setClockEntries] = useState<POSClockEntry[]>([]);
   const [settings, setSettings] = useState<POSSettings>(() => {
     // Merge stored data with SEED_SETTINGS so any field added after the user's
     // last save is present with its default value, avoiding `undefined` in inputs.
@@ -306,7 +302,6 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   const [discount, setDiscount] = useState({ pct: 0, note: "" });
   const [tipAmount, setTipAmount] = useState(0);
   const [assignedCustomer, setAssignedCustomer] = useState<POSCustomer | null>(null);
-  const receiptCounter = useRef(load<number>("pos_receipt_counter", 1000));
 
   // ── Staff — DB-backed (pos_staff table) ──────────────────────────────────
   // The browser never holds a real PIN; the API strips pin_hash on every
@@ -360,6 +355,35 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     return { ok: true };
   }, [refreshPosStaff]);
 
+  // ── Sales — DB-backed (pos_sales table) ──────────────────────────────────
+  const fetchSales = useCallback(async () => {
+    try {
+      const res = await fetch("/api/pos/sales");
+      if (!res.ok) return;
+      const json = await res.json() as { ok: boolean; sales?: POSSale[] };
+      if (json.ok && Array.isArray(json.sales)) setSales(json.sales);
+    } catch { /* offline — keep current state */ }
+  }, []);
+
+  // ── Clock entries — DB-backed (pos_clock_entries table) ─────────────────
+  const fetchClockEntries = useCallback(async () => {
+    try {
+      const res = await fetch("/api/pos/clock");
+      if (!res.ok) return;
+      const json = await res.json() as { ok: boolean; entries?: POSClockEntry[] };
+      if (json.ok && Array.isArray(json.entries)) setClockEntries(json.entries);
+    } catch { /* offline — keep current state */ }
+  }, []);
+
+  // Hydrate from the API once the staff session resolves. Both endpoints
+  // require a valid pos_staff_session cookie, so calling them before login
+  // would just 401 — gating on currentStaff avoids that noise.
+  useEffect(() => {
+    if (!currentStaff) return;
+    fetchSales();
+    fetchClockEntries();
+  }, [currentStaff, fetchSales, fetchClockEntries]);
+
   // Mirror the admin-configured currency symbol into POSSettings so existing
   // POS components (which read settings.currencySymbol) stay correct without
   // each one needing to switch to AppContext directly.
@@ -373,15 +397,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { save("pos_products", products); }, [products]);
   useEffect(() => { save("pos_categories", categories); }, [categories]);
-  useEffect(() => {
-    // Only persist sales within the retention window to prevent localStorage quota exhaustion.
-    // Sales older than SALES_RETENTION_DAYS days remain available in memory for this session
-    // but are not written to disk. Use exportSales() to download a full archive before they age out.
-    const cutoff = Date.now() - SALES_RETENTION_DAYS * 24 * 60 * 60 * 1000;
-    save("pos_sales", sales.filter((s) => new Date(s.date).getTime() >= cutoff));
-  }, [sales]);
   useEffect(() => { save("pos_customers", customers); }, [customers]);
-  useEffect(() => { save("pos_clock", clockEntries); }, [clockEntries]);
   useEffect(() => { save("pos_settings", settings); }, [settings]);
 
   // ── Supabase menu sync ────────────────────────────────────────────────────
@@ -623,14 +639,11 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     : afterDiscount + taxAmount + tipAmount;
 
   // ── Complete sale ─────────────────────────────────────────────────────────
-  const completeSale = useCallback((
+  const completeSale = useCallback(async (
     paymentMethod: "cash" | "card" | "split",
     payments: { method: "cash" | "card"; amount: number }[],
     cashTendered?: number
-  ): POSSale => {
-    receiptCounter.current += 1;
-    save("pos_receipt_counter", receiptCounter.current);
-
+  ): Promise<POSSale | null> => {
     const sub = cart.reduce((s, l) => s + cartLineTotal(l), 0);
     const disc = sub * (discount.pct / 100);
     const after = sub - disc;
@@ -644,16 +657,17 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     const cashPayment = payments.filter((p) => p.method === "cash").reduce((s, p) => s + p.amount, 0);
     const change = cashTendered !== undefined ? cashTendered - cashPayment : undefined;
 
-    const sale: POSSale = {
+    // Build the payload. receiptNo is intentionally omitted — the server
+    // assigns it atomically from pos_receipt_seq so two tills can't collide.
+    const payload = {
       id: uuid(),
-      receiptNo: `R${receiptCounter.current}`,
       items: [...cart],
       subtotal: sub,
       discountAmount: disc,
       discountNote: discount.note,
       taxAmount: tax,
-      // Snapshot the VAT mode at time of sale so receipts always show the correct label,
-      // even if the settings change later.
+      // Snapshot the VAT mode + rate at time of sale so receipts always show
+      // the correct label, even if the settings change later.
       taxRate: settings.taxRate,
       taxInclusive: settings.taxInclusive,
       tipAmount,
@@ -670,27 +684,32 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       voided: false,
     };
 
-    setSales((prev) => [sale, ...prev]);
-
-    // Route the sale to the Kitchen Display System via the orders table.
-    // Fire-and-forget — a network failure must never block the POS workflow.
-    // On failure the sale is placed in the outbox and retried when connectivity restores.
-    fetch("/api/pos/orders", {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(sale),
-    }).then(async (r) => {
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({})) as { error?: string };
-        console.error("POS→KDS sync failed:", r.status, j.error ?? "(no details)");
-        outboxEnqueue(sale);
+    let sale: POSSale | null = null;
+    try {
+      const res = await fetch("/api/pos/sales", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(payload),
+      });
+      // 409 means the outbox / a retry re-sent a sale we already persisted —
+      // treat the returned `sale` as authoritative.
+      if (res.ok || res.status === 409) {
+        const json = await res.json() as { ok: boolean; sale?: POSSale };
+        if (json.sale) sale = json.sale;
+      } else {
+        const json = await res.json().catch(() => ({})) as { error?: string };
+        console.error("completeSale POST failed:", res.status, json.error ?? "(no details)");
       }
-    }).catch((err) => {
-      console.error("POS→KDS sync network error:", err);
-      outboxEnqueue(sale);
-    });
+    } catch (err) {
+      console.error("completeSale network error:", err);
+    }
 
-    // Update customer loyalty points
+    if (!sale) return null;
+
+    // Optimistic local state update + downstream effects only run after the
+    // sale is durably persisted in the DB.
+    setSales((prev) => [sale!, ...prev]);
+
     if (assignedCustomer) {
       const pts = Math.floor(total * settings.loyaltyPointsPerPound);
       setCustomers((prev) =>
@@ -708,7 +727,6 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       );
     }
 
-    // Deduct stock
     setProducts((prev) =>
       prev.map((p) => {
         const cartLine = cart.find((l) => l.productId === p.id);
@@ -721,49 +739,91 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     return sale;
   }, [cart, discount, tipAmount, settings, currentStaff, assignedCustomer, clearCart]);
 
-  const voidSale = useCallback((
+  const voidSale = useCallback(async (
     saleId: string,
     reason: string,
     refundMethod?: "cash" | "card" | "none",
     refundAmount?: number,
-  ) => {
+  ): Promise<boolean> => {
+    try {
+      const res = await fetch(`/api/pos/sales/${saleId}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ voidReason: reason, refundMethod, refundAmount }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({})) as { error?: string };
+        console.error("voidSale failed:", res.status, json.error ?? "(no details)");
+        return false;
+      }
+    } catch (err) {
+      console.error("voidSale network error:", err);
+      return false;
+    }
     setSales((prev) =>
       prev.map((s) => s.id === saleId
         ? { ...s, voided: true, voidReason: reason, refundMethod, refundAmount }
         : s)
     );
+    return true;
   }, []);
 
   // ── Clock in/out ──────────────────────────────────────────────────────────
-  const clockIn = useCallback((staffId: string) => {
+  const clockIn = useCallback(async (staffId: string): Promise<boolean> => {
     const member = staff.find((s) => s.id === staffId);
-    if (!member) return;
-    setClockEntries((prev) => [
-      ...prev,
-      { id: uuid(), staffId, staffName: member.name, clockIn: new Date().toISOString() },
-    ]);
+    if (!member) return false;
+    try {
+      const res = await fetch("/api/pos/clock", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ action: "in", staffId, staffName: member.name }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({})) as { error?: string };
+        console.error("clockIn failed:", res.status, json.error ?? "(no details)");
+        return false;
+      }
+      const json = await res.json() as { ok: boolean; entry?: POSClockEntry };
+      if (json.entry) setClockEntries((prev) => [json.entry!, ...prev]);
+      return true;
+    } catch (err) {
+      console.error("clockIn network error:", err);
+      return false;
+    }
   }, [staff]);
 
-  const clockOut = useCallback((staffId: string) => {
-    setClockEntries((prev) => {
-      const lastOpen = [...prev].reverse().find((e) => e.staffId === staffId && !e.clockOut);
-      if (!lastOpen) return prev;
-      const totalMinutes = Math.floor((Date.now() - new Date(lastOpen.clockIn).getTime()) / 60000);
-      return prev.map((e) =>
-        e.id === lastOpen.id ? { ...e, clockOut: new Date().toISOString(), totalMinutes } : e
-      );
-    });
-  }, []);
+  const clockOut = useCallback(async (staffId: string): Promise<boolean> => {
+    const member = staff.find((s) => s.id === staffId);
+    if (!member) return false;
+    try {
+      const res = await fetch("/api/pos/clock", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ action: "out", staffId, staffName: member.name }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({})) as { error?: string };
+        console.error("clockOut failed:", res.status, json.error ?? "(no details)");
+        return false;
+      }
+      const json = await res.json() as { ok: boolean; entry?: POSClockEntry };
+      if (json.entry) {
+        const updated = json.entry;
+        setClockEntries((prev) => prev.map((e) => e.id === updated.id ? updated : e));
+      }
+      return true;
+    } catch (err) {
+      console.error("clockOut network error:", err);
+      return false;
+    }
+  }, [staff]);
 
   const isClocked = useCallback((staffId: string): boolean => {
     const last = [...clockEntries].reverse().find((e) => e.staffId === staffId);
     return !!last && !last.clockOut;
   }, [clockEntries]);
 
-  // ── Storage management ────────────────────────────────────────────────────
-
-  // Download all in-memory sales as a JSON file so admins can archive data
-  // before it ages past SALES_RETENTION_DAYS and drops off localStorage.
+  // ── Convenience: export sales as JSON for archival / accounting ──────────
   const exportSales = useCallback(() => {
     const blob = new Blob([JSON.stringify(sales, null, 2)], { type: "application/json" });
     const url  = URL.createObjectURL(blob);
@@ -774,22 +834,15 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     URL.revokeObjectURL(url);
   }, [sales]);
 
-  // Drop sales older than SALES_RETENTION_DAYS from both memory and localStorage.
-  // Call this to reclaim localStorage space if the quota warning appears.
-  const purgeOldSales = useCallback(() => {
-    const cutoff = Date.now() - SALES_RETENTION_DAYS * 24 * 60 * 60 * 1000;
-    setSales((prev) => prev.filter((s) => new Date(s.date).getTime() >= cutoff));
-  }, []);
-
   return (
     <POSContext.Provider value={{
       currentStaff, login, logout,
       staff, addPosStaff, updatePosStaff, deletePosStaff, refreshPosStaff,
       products, setProducts,
       categories, setCategories,
-      sales, setSales,
+      sales,
       customers, setCustomers,
-      clockEntries, setClockEntries,
+      clockEntries,
       settings, setSettings,
       cart, addToCart, updateCartQty, removeFromCart, clearCart, updateCartNote,
       discount, setDiscount,
@@ -798,10 +851,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       subtotal, discountAmount, taxAmount, grandTotal,
       completeSale, voidSale,
       clockIn, clockOut, isClocked,
-      receiptCounter: receiptCounter.current,
-      salesRetentionDays: SALES_RETENTION_DAYS,
       exportSales,
-      purgeOldSales,
     }}>
       {children}
     </POSContext.Provider>

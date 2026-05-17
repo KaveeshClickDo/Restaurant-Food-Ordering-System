@@ -9,12 +9,28 @@ import {
 import { POSSale, POSProduct } from "@/types/pos";
 import { useApp } from "@/context/AppContext";
 
-// ─── localStorage helpers ────────────────────────────────────────────────────
+// ─── localStorage helper (still used for POS products — cost data lives only
+// on the admin's browser cache today; menu_items table has no `cost` column
+// yet, so cost / margin numbers are best-effort until that column is added).
 
 function loadPOS<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   try { return JSON.parse(localStorage.getItem(key) ?? "null") ?? fallback; }
   catch { return fallback; }
+}
+
+// Fetch all POS sales from the DB. The pos_sales table is the source of
+// truth — every terminal POSTs through /api/pos/sales, so reports here
+// aggregate across all tills regardless of which device the admin is on.
+async function fetchAllSales(): Promise<POSSale[]> {
+  try {
+    const res = await fetch("/api/pos/sales?limit=5000");
+    if (!res.ok) return [];
+    const json = await res.json() as { ok: boolean; sales?: POSSale[] };
+    return json.ok && Array.isArray(json.sales) ? json.sales : [];
+  } catch {
+    return [];
+  }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -157,15 +173,24 @@ export default function POSReportsPanel() {
   const [sortDir, setSortDir]       = useState<"desc" | "asc">("desc");
   const [showVoided, setShowVoided] = useState(false);
 
-  // Load from localStorage on client (currency comes from AppContext, not pos_settings)
+  // Sales come from the DB (pos_sales table) so reports aggregate across all
+  // tills. Products are still read from localStorage because the cost field
+  // isn't in the menu_items DB schema yet — see comment on loadPOS above.
   useEffect(() => {
-    setSales(loadPOS<POSSale[]>("pos_sales", []));
-    setProducts(loadPOS<POSProduct[]>("pos_products", []));
-    setLoaded(true);
+    let cancelled = false;
+    (async () => {
+      const fetched = await fetchAllSales();
+      if (!cancelled) {
+        setSales(fetched);
+        setProducts(loadPOS<POSProduct[]>("pos_products", []));
+        setLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
-  function refresh() {
-    setSales(loadPOS<POSSale[]>("pos_sales", []));
+  async function refresh() {
+    setSales(await fetchAllSales());
     setProducts(loadPOS<POSProduct[]>("pos_products", []));
   }
 
