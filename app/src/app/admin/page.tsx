@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useApp } from "@/context/AppContext";
+import { useIdleLogout } from "@/lib/useIdleLogout";
 import OperationsPanel      from "@/components/admin/OperationsPanel";
 import SchedulePanel        from "@/components/admin/SchedulePanel";
 import IntegrationsPanel    from "@/components/admin/IntegrationsPanel";
@@ -269,6 +270,15 @@ function AdminPageContent() {
       logoutInFlight.current = false;
     }
   }
+
+  // Auto-logout after 15 minutes of inactivity. Admin sessions carry the most
+  // power in the system, so an unattended browser tab is the highest-risk
+  // session to leave alive.
+  useIdleLogout({
+    enabled:   adminAuthed === true,
+    timeoutMs: 15 * 60 * 1000,
+    onIdle:    handleLogout,
+  });
 
   // ── Auth loading / login gate ─────────────────────────────────────────────
   if (adminAuthed === null) {

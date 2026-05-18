@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
+import { useIdleLogout } from "@/lib/useIdleLogout";
 import type { MenuItem, WaiterStaff, DiningTable } from "@/types";
 import {
   ChefHat, ArrowLeft, Plus, Minus, Trash2, SendHorizonal,
@@ -890,7 +891,11 @@ export default function WaiterPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin]);
 
-  function logout() {
+  const logout = useCallback(() => {
+    // Tell the server to drop the cookie before we wipe the local mirror.
+    // Fire-and-forget — even if the request fails (network blip), wiping the
+    // client state still removes the visible session.
+    fetch("/api/waiter/logout", { method: "POST" }).catch(() => {});
     sessionStorage.removeItem("waiter_session");
     setWaiter(null);
     setLoginStep("staff");
@@ -899,7 +904,16 @@ export default function WaiterPage() {
     setCart([]);
     setActiveTable(null);
     setView("login");
-  }
+  }, []);
+
+  // Auto-logout after 15 minutes of inactivity. Tablets get passed around
+  // during a shift — without this, a forgotten tab keeps the waiter PIN
+  // valid for the full 30-day server cookie window.
+  useIdleLogout({
+    enabled:   Boolean(waiter),
+    timeoutMs: 15 * 60 * 1000,
+    onIdle:    logout,
+  });
 
   // ── Table selection ──────────────────────────────────────────────────────────
   function selectTable(table: DiningTable) {

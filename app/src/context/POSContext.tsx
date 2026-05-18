@@ -102,20 +102,26 @@ const SEED_SETTINGS: POSSettings = {
   smtpFromName: "",
 };
 
-const SEED_CUSTOMERS: POSCustomer[] = [
-  { id: "pc-1", name: "Arjun Sharma", email: "arjun@example.com", phone: "07700 900123",
-    loyaltyPoints: 245, giftCardBalance: 0, totalSpend: 245.00, visitCount: 18,
-    lastVisit: "2024-04-13T10:00:00.000Z",
-    tags: ["VIP", "Regular"], notes: "Prefers mild dishes", createdAt: "2024-01-15T00:00:00.000Z" },
-  { id: "pc-2", name: "Emma Wilson", email: "emma@example.com", phone: "07700 900456",
-    loyaltyPoints: 80, giftCardBalance: 20.00, totalSpend: 80.00, visitCount: 6,
-    lastVisit: "2024-04-09T14:00:00.000Z",
-    tags: ["Regular"], notes: "", createdAt: "2024-02-10T00:00:00.000Z" },
-  { id: "pc-3", name: "Mohammed Khan", email: "mo@example.com", phone: "07700 900789",
-    loyaltyPoints: 512, giftCardBalance: 0, totalSpend: 512.00, visitCount: 34,
-    lastVisit: "2024-04-15T19:00:00.000Z",
-    tags: ["VIP", "Regular", "Halal"], notes: "Always orders Lamb Rogan Josh", createdAt: "2023-12-01T00:00:00.000Z" },
-];
+// Demo customer rows used only in development so a fresh POS install has
+// something visible. Production builds ship an empty seed — the POS staff
+// adds real customers via the CustomersView screen. (BS-2)
+const SEED_CUSTOMERS: POSCustomer[] =
+  process.env.NODE_ENV !== "production"
+    ? [
+        { id: "pc-1", name: "Arjun Sharma", email: "arjun@example.com", phone: "07700 900123",
+          loyaltyPoints: 245, giftCardBalance: 0, totalSpend: 245.00, visitCount: 18,
+          lastVisit: "2024-04-13T10:00:00.000Z",
+          tags: ["VIP", "Regular"], notes: "Prefers mild dishes", createdAt: "2024-01-15T00:00:00.000Z" },
+        { id: "pc-2", name: "Emma Wilson", email: "emma@example.com", phone: "07700 900456",
+          loyaltyPoints: 80, giftCardBalance: 20.00, totalSpend: 80.00, visitCount: 6,
+          lastVisit: "2024-04-09T14:00:00.000Z",
+          tags: ["Regular"], notes: "", createdAt: "2024-02-10T00:00:00.000Z" },
+        { id: "pc-3", name: "Mohammed Khan", email: "mo@example.com", phone: "07700 900789",
+          loyaltyPoints: 512, giftCardBalance: 0, totalSpend: 512.00, visitCount: 34,
+          lastVisit: "2024-04-15T19:00:00.000Z",
+          tags: ["VIP", "Regular", "Halal"], notes: "Always orders Lamb Rogan Josh", createdAt: "2023-12-01T00:00:00.000Z" },
+      ]
+    : [];
 
 // ─── Context ─────────────────────────────────────────────────────────────────
 
@@ -539,6 +545,16 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     setDiscount({ pct: 0, note: "" });
     setTipAmount(0);
     setAssignedCustomer(null);
+    // BS-1: clear cached customer PII so the next operator on this terminal
+    // starts with an empty list. The customers array is purely client-side
+    // (no server sync), so re-populating it is the next staff's responsibility.
+    // Menu (`pos_products` / `pos_categories`) is public catalog data and
+    // re-fetches from /api/pos/menu on every mount, so it's left in place
+    // to keep the offline-startup path fast.
+    setCustomers([]);
+    try {
+      localStorage.removeItem("pos_customers");
+    } catch { /* ignore — quota / private browsing */ }
     // Clear the server-side session cookie.
     fetch("/api/pos/auth", { method: "DELETE" }).catch(() => {});
   }, []);

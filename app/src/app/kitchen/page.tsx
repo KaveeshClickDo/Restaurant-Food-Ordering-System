@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
+import { useIdleLogout } from "@/lib/useIdleLogout";
 import type { KitchenStaff } from "@/types";
 import {
   ChefHat, Clock, Truck, ShoppingBag, CheckCircle2,
@@ -450,6 +451,16 @@ export default function KitchenPage() {
     await fetch("/api/kitchen/logout", { method: "POST" }).catch(() => {});
     router.replace("/kitchen/login");
   }
+
+  // Auto-logout after 60 minutes of inactivity. Kitchen displays are usually
+  // always-on, so the timeout is longer than waiter/admin to avoid kicking
+  // staff out during a quiet hour. A locked-out kitchen on a busy night is
+  // worse than a forgotten one on a quiet night.
+  useIdleLogout({
+    enabled:   currentStaff !== null,
+    timeoutMs: 60 * 60 * 1000,
+    onIdle:    handleLogout,
+  });
 
   // ── Fetch via authenticated server endpoint + poll every 4 s ──────────────
   // Replaces the prior direct supabase.from("orders") read + realtime channel.
