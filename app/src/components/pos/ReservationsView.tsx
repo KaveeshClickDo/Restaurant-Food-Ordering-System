@@ -128,6 +128,17 @@ export default function ReservationsView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addDate]);
 
+  // Walk-ins are seated right now — force date to today and time to the
+  // current slot whenever the source toggle is set to walk-in.
+  useEffect(() => {
+    if (!showAdd || addSource !== "walk-in") return;
+    const today   = localTodayStrRes();
+    const nowSlot = allSlots.find((s) => !isSlotPastRes(s, today)) ?? allSlots[0] ?? "";
+    setAddDate(today);
+    setAddTime(nowSlot);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addSource, showAdd]);
+
   function openAddModal() {
     const today = localTodayStrRes();
     const firstSlot = allSlots.find((s) => !isSlotPastRes(s, today)) ?? allSlots[0] ?? "";
@@ -531,14 +542,17 @@ export default function ReservationsView() {
                 </div>
               </div>
 
-              {/* Date + party */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Date</label>
-                  <input type="date" value={addDate} min={localTodayStrRes()} max={localMaxDateStrRes(rs.maxAdvanceDays ?? 30)}
-                    onChange={(e) => setAddDate(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-600 rounded-xl px-3 py-2.5 text-slate-200 text-sm focus:outline-none focus:border-orange-500 transition" />
-                </div>
+              {/* Date + party. Date column is hidden for walk-ins — they're
+                  seated now, so a "Seating now" pill replaces it. */}
+              <div className={`grid gap-3 ${addSource === "phone" ? "grid-cols-2" : "grid-cols-1"}`}>
+                {addSource === "phone" && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Date</label>
+                    <input type="date" value={addDate} min={localTodayStrRes()} max={localMaxDateStrRes(rs.maxAdvanceDays ?? 30)}
+                      onChange={(e) => setAddDate(e.target.value)}
+                      className="w-full bg-slate-800 border border-slate-600 rounded-xl px-3 py-2.5 text-slate-200 text-sm focus:outline-none focus:border-orange-500 transition" />
+                  </div>
+                )}
                 <div>
                   <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Guests</label>
                   <div className="flex items-center gap-2">
@@ -551,31 +565,40 @@ export default function ReservationsView() {
                 </div>
               </div>
 
-              {/* Time slots */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Time</label>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {addSlotsForDate.map((slot) => {
-                    const past     = isSlotPastRes(slot, addDate);
-                    const selected = addTime === slot;
-                    return (
-                      <button key={slot} type="button" disabled={past}
-                        onClick={() => !past && setAddTime(slot)}
-                        title={past ? "Time has passed" : undefined}
-                        className={`py-2 rounded-lg text-xs font-semibold border transition-all ${
-                          past
-                            ? "bg-slate-900 text-slate-700 border-slate-800 cursor-not-allowed line-through"
-                            : selected
-                              ? "bg-orange-500 text-white border-orange-500"
-                              : "bg-slate-800 text-slate-300 border-slate-700 hover:border-orange-500 hover:text-orange-300"
-                        }`}>{fmt12Pos(slot)}</button>
-                    );
-                  })}
+              {addSource === "walk-in" && (
+                <div className="flex items-center gap-2 bg-orange-500/15 border border-orange-500/40 rounded-xl px-3 py-2.5 text-sm text-orange-200">
+                  <Clock size={14} className="flex-shrink-0" />
+                  Seating now · <strong>{fmt12Pos(addTime)}</strong>
                 </div>
-                {addSlotsForDate.every((s) => isSlotPastRes(s, addDate)) && (
-                  <p className="text-xs text-amber-400 mt-2">All slots for today have passed — select a future date.</p>
-                )}
-              </div>
+              )}
+
+              {/* Time slots — only shown for phone bookings */}
+              {addSource === "phone" && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Time</label>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {addSlotsForDate.map((slot) => {
+                      const past     = isSlotPastRes(slot, addDate);
+                      const selected = addTime === slot;
+                      return (
+                        <button key={slot} type="button" disabled={past}
+                          onClick={() => !past && setAddTime(slot)}
+                          title={past ? "Time has passed" : undefined}
+                          className={`py-2 rounded-lg text-xs font-semibold border transition-all ${
+                            past
+                              ? "bg-slate-900 text-slate-700 border-slate-800 cursor-not-allowed line-through"
+                              : selected
+                                ? "bg-orange-500 text-white border-orange-500"
+                                : "bg-slate-800 text-slate-300 border-slate-700 hover:border-orange-500 hover:text-orange-300"
+                          }`}>{fmt12Pos(slot)}</button>
+                      );
+                    })}
+                  </div>
+                  {addSlotsForDate.every((s) => isSlotPastRes(s, addDate)) && (
+                    <p className="text-xs text-amber-400 mt-2">All slots for today have passed — select a future date.</p>
+                  )}
+                </div>
+              )}
 
               {/* Table selector */}
               <div>

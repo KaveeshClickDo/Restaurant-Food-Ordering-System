@@ -491,6 +491,17 @@ export default function ReservationsPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addDate]);
 
+  // Walk-ins are seated right now — force date to today and time to the
+  // current slot whenever the source toggle is set to walk-in.
+  useEffect(() => {
+    if (!showAddModal || addSource !== "walk-in") return;
+    const today   = todayStr();
+    const nowSlot = allSlots.find((s) => !isSlotPast(s, today)) ?? allSlots[0] ?? "12:00";
+    setAddDate(today);
+    setAddTime(nowSlot);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addSource, showAddModal]);
+
   function openAddModal() {
     const today = todayStr();
     const slot  = allSlots.find((s) => !isSlotPast(s, today)) ?? allSlots[0] ?? "12:00";
@@ -838,15 +849,18 @@ export default function ReservationsPanel() {
                   </div>
                 </div>
 
-                {/* Date + party */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Date <span className="text-red-400">*</span></label>
-                    <input type="date" required value={addDate}
-                      min={todayStr()} max={maxDateStr(rs.maxAdvanceDays ?? 30)}
-                      onChange={(e) => setAddDate(e.target.value)}
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
-                  </div>
+                {/* Date + party. Date column is hidden for walk-ins — they're
+                    seated now, so a "Seating now" pill replaces it. */}
+                <div className={`grid gap-3 ${addSource === "phone" ? "grid-cols-2" : "grid-cols-1"}`}>
+                  {addSource === "phone" && (
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Date <span className="text-red-400">*</span></label>
+                      <input type="date" required value={addDate}
+                        min={todayStr()} max={maxDateStr(rs.maxAdvanceDays ?? 30)}
+                        onChange={(e) => setAddDate(e.target.value)}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
+                    </div>
+                  )}
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Guests <span className="text-red-400">*</span></label>
                     <div className="flex items-center gap-2">
@@ -860,39 +874,48 @@ export default function ReservationsPanel() {
                   </div>
                 </div>
 
-                {/* Blackout warning */}
-                {isBlackout && (
+                {addSource === "walk-in" && (
+                  <div className="flex items-center gap-2 bg-orange-50 border border-orange-200 rounded-xl px-3 py-2.5 text-sm text-orange-800">
+                    <Clock size={14} className="flex-shrink-0" />
+                    Seating now · <strong>{fmt12(addTime)}</strong>
+                  </div>
+                )}
+
+                {/* Blackout warning — only relevant for future phone bookings */}
+                {addSource === "phone" && isBlackout && (
                   <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">
                     <Ban size={14} className="flex-shrink-0" />
                     Restaurant is closed on this date — booking cannot be created.
                   </div>
                 )}
 
-                {/* Time slot picker (replaces free-form time input) */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Time <span className="text-red-400">*</span></label>
-                  <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
-                    {allSlots.map((slot) => {
-                      const past     = isSlotPast(slot, addDate);
-                      const selected = addTime === slot;
-                      return (
-                        <button key={slot} type="button" disabled={past}
-                          onClick={() => !past && setAddTime(slot)}
-                          title={past ? "Time has passed" : undefined}
-                          className={`py-2 rounded-lg text-xs font-semibold border transition ${
-                            past
-                              ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed line-through"
-                              : selected
-                                ? "bg-orange-500 text-white border-orange-500"
-                                : "bg-white text-gray-600 border-gray-200 hover:border-orange-300 hover:text-orange-600"
-                          }`}>{fmt12(slot)}</button>
-                      );
-                    })}
+                {/* Time slot picker — only shown for phone bookings */}
+                {addSource === "phone" && (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Time <span className="text-red-400">*</span></label>
+                    <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
+                      {allSlots.map((slot) => {
+                        const past     = isSlotPast(slot, addDate);
+                        const selected = addTime === slot;
+                        return (
+                          <button key={slot} type="button" disabled={past}
+                            onClick={() => !past && setAddTime(slot)}
+                            title={past ? "Time has passed" : undefined}
+                            className={`py-2 rounded-lg text-xs font-semibold border transition ${
+                              past
+                                ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed line-through"
+                                : selected
+                                  ? "bg-orange-500 text-white border-orange-500"
+                                  : "bg-white text-gray-600 border-gray-200 hover:border-orange-300 hover:text-orange-600"
+                            }`}>{fmt12(slot)}</button>
+                        );
+                      })}
+                    </div>
+                    {allSlots.every((s) => isSlotPast(s, addDate)) && (
+                      <p className="text-xs text-amber-600 mt-2">All slots for today have passed — select a future date.</p>
+                    )}
                   </div>
-                  {allSlots.every((s) => isSlotPast(s, addDate)) && (
-                    <p className="text-xs text-amber-600 mt-2">All slots for today have passed — select a future date.</p>
-                  )}
-                </div>
+                )}
 
                 {/* Table picker — section grouped, with reserved/undersized states */}
                 <div>
