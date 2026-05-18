@@ -55,7 +55,32 @@ function fmtAmt(n: number, sym = "£") {
   return `${sym}${n.toFixed(2)}`;
 }
 
-type EligibleFilter = "all" | "delivered" | "partially_refunded" | "refunded";
+type EligibleFilter = "all" | "in_progress" | "delivered" | "partially_refunded" | "refunded";
+
+/**
+ * Is this order eligible to appear in the Refunds panel?
+ *
+ * Two distinct cases:
+ *   1. Card-paid orders — refundable from the moment Stripe captured the
+ *      charge, regardless of fulfillment status. The kitchen might reject it,
+ *      the customer might cancel, the item might be out of stock. The money
+ *      has been taken and the gateway lets us return it.
+ *   2. Cash orders — only refundable after delivery (`status='delivered'`),
+ *      because the cashier hasn't actually collected the money until then.
+ *
+ * Anything cancelled is excluded regardless of payment status — no money
+ * was collected so there's nothing to refund.
+ */
+function isRefundEligible(o: Order): boolean {
+  if (o.status === "cancelled") return false;
+  if (o.paymentStatus === "paid")               return true;
+  if (o.paymentStatus === "partially_refunded") return true;
+  if (o.paymentStatus === "refunded")           return true;
+  // Pre-Stripe cash-only path — delivered orders remain refundable.
+  return o.status === "delivered"
+      || o.status === "partially_refunded"
+      || o.status === "refunded";
+}
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
@@ -326,7 +351,7 @@ function RefundModal({
             )}
             {amountNum > 0 && amountNum <= maxRefundable && (
               <p className="text-xs text-gray-400 mt-1">
-                {amountNum >= maxRefundable ? "Full refund" : `Partial refund — ${fmtAmt(maxRefundable - amountNum)} remaining`}
+                {amountNum >= maxRefundable ? "Full refund" : `Partial refund — ${fmtAmt(maxRefundable - amountNum, sym)} remaining`}
               </p>
             )}
           </div>
@@ -464,16 +489,13 @@ export default function RefundsPanel() {
   const [modalOrder,  setModalOrder]  = useState<{ order: Order; customerName: string } | null>(null);
   const [toast,       setToast]       = useState<string | null>(null);
 
-  // Flatten all eligible orders across all customers
-  const eligibleStatuses = new Set(["delivered", "partially_refunded", "refunded"]);
-
+  // Flatten all eligible orders across all customers — see isRefundEligible.
   const allEligible = useMemo(() => {
     return customers.flatMap((c) =>
       c.orders
-        .filter((o) => eligibleStatuses.has(o.status))
+        .filter(isRefundEligible)
         .map((o) => ({ order: o, customerName: c.name, customerId: c.id }))
     ).sort((a, b) => new Date(b.order.date).getTime() - new Date(a.order.date).getTime());
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customers]);
 
   // Stats
@@ -485,8 +507,11 @@ export default function RefundsPanel() {
   // Filtered + searched
   const displayed = allEligible.filter(({ order, customerName }) => {
     const matchFilter =
-      filter === "all" ||
-      order.status === filter;
+      filter === "all"
+        ? true
+        : filter === "in_progress"
+          ? order.paymentStatus === "paid" && order.status !== "delivered"
+          : order.status === filter;
     const q = search.toLowerCase();
     const matchSearch =
       !q ||
@@ -513,6 +538,7 @@ export default function RefundsPanel() {
 
   const FILTER_OPTIONS: { value: EligibleFilter; label: string }[] = [
     { value: "all",                label: "All eligible" },
+    { value: "in_progress",        label: "Paid (in progress)" },
     { value: "delivered",          label: "Delivered" },
     { value: "partially_refunded", label: "Partially refunded" },
     { value: "refunded",           label: "Fully refunded" },
@@ -578,7 +604,7 @@ export default function RefundsPanel() {
           <p className="text-sm mt-1">
             {search || filter !== "all"
               ? "Try adjusting your search or filter."
-              : "Refundable orders appear here once orders are delivered."}
+              : "Paid card orders show up here immediately. Cash orders appear once they're marked delivered."}
           </p>
         </div>
       ) : (

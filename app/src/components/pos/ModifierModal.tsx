@@ -131,7 +131,7 @@ export default function ModifierModal({
                 : "bg-slate-700 text-slate-500 cursor-not-allowed"
             }`}
           >
-            Add to order · {fmt(product.price + totalAdjust)}
+            Add to order · {fmt(product.price + totalAdjust, currencySymbol)}
           </button>
         </div>
       </div>
