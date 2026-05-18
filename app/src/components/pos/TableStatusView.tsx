@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useApp } from "@/context/AppContext";
-import { supabase } from "@/lib/supabase";
 import {
   RefreshCw, UtensilsCrossed, Loader2, Clock, Users, Phone, LogIn, LogOut, CheckCircle2,
 } from "lucide-react";
@@ -36,26 +35,18 @@ export default function TableStatusView() {
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       })();
 
-      const COLUMN_SETS = [
-        "id,table_id,customer_name,customer_phone,time,party_size,status,note,checked_in_at,checked_out_at",
-        "id,table_id,customer_name,customer_phone,time,party_size,status,note",
-      ];
-
-      let data = null;
-      for (const cols of COLUMN_SETS) {
-        const { data: d, error: e } = await supabase
-          .from("reservations")
-          .select(cols)
-          .eq("date", today)
-          .in("status", ["pending", "confirmed", "checked_in", "checked_out"]);
-        if (!e) { data = d; break; }
-        if (!e.message?.includes("does not exist") && !e.message?.includes("schema cache")) {
-          console.error("TableStatusView fetch:", e.message);
-          break;
-        }
+      const r = await fetch(`/api/pos/reservations?date=${encodeURIComponent(today)}`, { cache: "no-store" });
+      if (!r.ok) {
+        if (r.status !== 401) console.error("TableStatusView fetch:", r.status);
+        return;
       }
+      const json = await r.json() as { ok: boolean; reservations?: ResRow[] };
+      if (!json.ok || !json.reservations) return;
 
-      setReservations((data ?? []) as unknown as ResRow[]);
+      const active = json.reservations.filter((row) =>
+        ["pending", "confirmed", "checked_in", "checked_out"].includes(String(row.status)),
+      );
+      setReservations(active);
     } catch (err) {
       console.error("TableStatusView fetch:", err);
     } finally {
@@ -65,12 +56,10 @@ export default function TableStatusView() {
 
   useEffect(() => { fetchToday(); }, [fetchToday]);
 
+  // Poll every 5 s — anon supabase realtime no longer fires after RLS revoke.
   useEffect(() => {
-    const ch = supabase
-      .channel("pos-table-status")
-      .on("postgres_changes", { event: "*", schema: "public", table: "reservations" }, fetchToday)
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
+    const id = setInterval(fetchToday, 5_000);
+    return () => clearInterval(id);
   }, [fetchToday]);
 
   async function doAction(resId: string, status: "checked_in" | "checked_out") {

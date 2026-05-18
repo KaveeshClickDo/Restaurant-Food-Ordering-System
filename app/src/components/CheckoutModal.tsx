@@ -415,7 +415,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
       removeCoupon();
     }
     if (storeCreditApplied > 0 && currentUser) {
-      spendStoreCredit(currentUser.id, storeCreditApplied);
+      spendStoreCredit(currentUser.id, storeCreditApplied, newOrder.id);
     }
     setChosenMethod(method);
     setPlacedScheduledTime(scheduledTime);
@@ -484,8 +484,8 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
       incrementCouponUsage(appliedCoupon.couponId);
       removeCoupon();
     }
-    if (storeCreditApplied > 0 && currentUser) {
-      spendStoreCredit(currentUser.id, storeCreditApplied);
+    if (storeCreditApplied > 0 && currentUser && pendingOrder) {
+      spendStoreCredit(currentUser.id, storeCreditApplied, pendingOrder.id);
     }
     setPlacedScheduledTime(scheduledTime);
     setStep("success");

@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
 import { useApp } from "@/context/AppContext";
 import type { KitchenStaff } from "@/types";
 import {
@@ -452,97 +451,35 @@ export default function KitchenPage() {
     router.replace("/kitchen/login");
   }
 
-  // ── Initial load — direct orders query, no customer-state dependency ─────────
+  // ── Fetch via authenticated server endpoint + poll every 4 s ──────────────
+  // Replaces the prior direct supabase.from("orders") read + realtime channel.
+  // Anon role no longer has SELECT on orders, so the realtime channel would
+  // deliver no events anyway; polling is simpler and gates on the kitchen
+  // session cookie that the API route checks.
   useEffect(() => {
-    supabase
-      .from("orders")
-      .select("id, items, total, note, status, fulfillment, date, address, scheduled_time, customer:customers(name)")
-      .in("status", ACTIVE_STATUSES)
-      .order("date", { ascending: true })
-      .then(({ data, error }) => {
-        if (error) console.error("KDS initial load:", error.message);
-        setOrders((data ?? []).map((r) => mapRow(r as Record<string, unknown>)));
-        setLoading(false);
-      });
-  }, []);
-
-  // ── Realtime subscription — direct on orders table ────────────────────────
-  useEffect(() => {
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let active = true;
 
-    // Remove any stale channel with this name before subscribing.
-    // Guards against the React Strict Mode double-mount race where the cleanup
-    // of the first mount hasn't completed before the second mount fires.
-    supabase.getChannels().forEach((ch) => {
-      if ((ch as { topic?: string }).topic === "realtime:kds-orders-live") {
-        supabase.removeChannel(ch);
+    async function fetchOrders() {
+      try {
+        const r = await fetch("/api/kds/orders", { cache: "no-store" });
+        if (!r.ok) {
+          if (r.status === 401) router.replace("/kitchen/login");
+          return;
+        }
+        const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
+        if (!active || !json.ok || !json.orders) return;
+        setOrders(json.orders.map((row) => mapRow(row)));
+      } catch {
+        // Network error — keep last-known orders, try again next tick.
+      } finally {
+        if (active) setLoading(false);
       }
-    });
-
-    function handlePayload(payload: Parameters<Parameters<ReturnType<typeof supabase.channel>["on"]>[2]>[0]) {
-      if (payload.eventType === "DELETE") {
-        setOrders((prev) => prev.filter((o) => o.id !== (payload.old as { id: string }).id));
-        return;
-      }
-
-      const newRow = payload.new as Record<string, unknown>;
-      const status = newRow.status as string;
-
-      // If status is not a kitchen-active status, remove from KDS
-      if (!ACTIVE_STATUSES.includes(status as KDSStatus)) {
-        setOrders((prev) => prev.filter((o) => o.id !== newRow.id));
-        return;
-      }
-
-      // Fetch the full row with the customer JOIN (Realtime payload doesn't carry join data)
-      supabase
-        .from("orders")
-        .select("id, items, total, note, status, fulfillment, date, address, scheduled_time, customer:customers(name)")
-        .eq("id", newRow.id as string)
-        .single()
-        .then(({ data }) => {
-          if (!data || !active) return;
-          const mapped = mapRow(data as Record<string, unknown>);
-          setOrders((prev) => {
-            const idx = prev.findIndex((o) => o.id === mapped.id);
-            if (idx >= 0) {
-              const next = [...prev];
-              next[idx] = mapped;
-              return next;
-            }
-            return [...prev, mapped].sort(
-              (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-            );
-          });
-        });
     }
 
-    let channel: ReturnType<typeof supabase.channel>;
-
-    function subscribe() {
-      channel = supabase
-        .channel("kds-orders-live")
-        .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, handlePayload)
-        .subscribe((status) => {
-          if (status === "SUBSCRIBED") {
-            console.log("KDS: Realtime connected");
-          } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-            console.error("KDS: Realtime error (%s) — retrying in 5 s", status);
-            supabase.removeChannel(channel);
-            if (active) retryTimer = setTimeout(subscribe, 5_000);
-          }
-        });
-    }
-
-    subscribe();
-
-    return () => {
-      active = false;
-      if (retryTimer) clearTimeout(retryTimer);
-      supabase.removeChannel(channel);
-    };
-  }, []);
+    fetchOrders();
+    const id = setInterval(fetchOrders, 4_000);
+    return () => { active = false; clearInterval(id); };
+  }, [router]);
 
   // ── Advance order to next kitchen status ──────────────────────────────────
   async function advanceOrder(order: KDSOrder, nextStatus: KDSStatus) {

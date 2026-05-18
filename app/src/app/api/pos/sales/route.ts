@@ -18,31 +18,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import { cartLineTotal }             from "@/types/pos";
 import type { POSSale, POSCartItem } from "@/types/pos";
-import { getPosSession }             from "@/lib/auth";
 import { parseBody }                 from "@/lib/apiValidation";
 import { PosSaleCreateSchema }       from "@/lib/schemas/pos";
+import { requirePosSession, requirePosPermission } from "@/lib/posPermissions";
 
 const POS_CUSTOMER_ID = "pos-walk-in";
 
-// ── auth ─────────────────────────────────────────────────────────────────────
-// Once any active POS staff member exists we require a valid session cookie.
-// Before that (fresh install) we allow through so a chicken-and-egg setup is
-// possible. Same pattern as the rest of the POS API routes.
-async function requirePosSessionOrFreshInstall(): Promise<NextResponse | null> {
-  const session = await getPosSession();
-  if (session) return null;
-  const { count } = await supabaseAdmin
-    .from("pos_staff").select("id", { count: "exact", head: true }).eq("active", true);
-  if ((count ?? 0) > 0) {
-    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  }
-  return null;
-}
-
 // ── GET ──────────────────────────────────────────────────────────────────────
+// Returns sales for the calling staff member. Managers/admins (who hold the
+// `canAccessDashboard` permission) get the full fleet view.
 export async function GET(req: NextRequest) {
-  const unauth = await requirePosSessionOrFreshInstall();
-  if (unauth) return unauth;
+  const gate = await requirePosSession();
+  if (!gate.ok) return gate.response;
+  const session = gate.staff;
 
   const { searchParams } = new URL(req.url);
   const from  = searchParams.get("from");
@@ -54,6 +42,12 @@ export async function GET(req: NextRequest) {
     .select("*")
     .order("date", { ascending: false })
     .limit(limit);
+
+  // Cashiers see only their own sales. Managers/admins (canAccessDashboard)
+  // see everything for end-of-shift reports.
+  if (!session.permissions?.canAccessDashboard) {
+    q = q.eq("staff_id", session.id);
+  }
 
   if (from) q = q.gte("date", from);
   if (to)   q = q.lte("date", to);
@@ -68,34 +62,88 @@ export async function GET(req: NextRequest) {
 }
 
 // ── POST ─────────────────────────────────────────────────────────────────────
+// Inserts a sale ATTRIBUTED to the calling staff session — body.staffId /
+// body.staffName are ignored. Totals are recomputed from items and rejected
+// if the body's numbers diverge by more than a small rounding tolerance.
 export async function POST(req: NextRequest) {
-  const unauth = await requirePosSessionOrFreshInstall();
-  if (unauth) return unauth;
+  const gate = await requirePosSession();
+  if (!gate.ok) return gate.response;
+  const session = gate.staff;
 
   const parsed = await parseBody(req, PosSaleCreateSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const body = parsed.data as unknown as Partial<POSSale>;
 
+  // Discount + refund permission gates: only operators with the flag can
+  // commit a sale that carries a non-zero discount.
+  if ((body.discountAmount ?? 0) > 0) {
+    const discountGate = await requirePosPermission("canApplyDiscount");
+    if (!discountGate.ok) return discountGate.response;
+  }
+
+  // ─── Server-side totals recompute (F-INS-3b) ────────────────────────────────
+  // Subtotal is derived from items via cartLineTotal — clients cannot under-
+  // declare it. Total is then derived from subtotal − discount + tax (when
+  // tax is exclusive) + tip, and compared to the body's claimed total. A
+  // divergence beyond a few pence is rejected outright; up to that tolerance
+  // we accept the body figure (clients format with 2dp rounding which can
+  // introduce sub-cent drift after multi-item discounts).
+  const items = (body.items ?? []) as POSCartItem[];
+  if (items.length === 0) {
+    return NextResponse.json({ ok: false, error: "Cart cannot be empty." }, { status: 400 });
+  }
+  const subtotalServer = parseFloat(
+    items.reduce((s, it) => s + cartLineTotal(it), 0).toFixed(2),
+  );
+
+  const discountAmount = Number(body.discountAmount ?? 0);
+  const taxAmount      = Number(body.taxAmount      ?? 0);
+  const tipAmount      = Number(body.tipAmount      ?? 0);
+  const taxInclusive   = Boolean(body.taxInclusive  ?? false);
+
+  // When tax is inclusive the tax is already inside subtotalServer; when
+  // exclusive we add it. Discounts always reduce the pre-tax base.
+  const totalServer = parseFloat((
+    subtotalServer - discountAmount + tipAmount + (taxInclusive ? 0 : taxAmount)
+  ).toFixed(2));
+
+  const SUBTOTAL_TOLERANCE = 0.05; // 5p — guards against per-line rounding drift
+  const TOTAL_TOLERANCE    = 0.05;
+
+  if (Math.abs(subtotalServer - Number(body.subtotal ?? 0)) > SUBTOTAL_TOLERANCE) {
+    return NextResponse.json(
+      { ok: false, error: "Subtotal does not match items.", subtotalServer },
+      { status: 400 },
+    );
+  }
+  if (Math.abs(totalServer - Number(body.total ?? 0)) > TOTAL_TOLERANCE) {
+    return NextResponse.json(
+      { ok: false, error: "Total does not match items + tax + tip − discount.", totalServer },
+      { status: 400 },
+    );
+  }
+
   // Insert into pos_sales. receipt_no is filled by the DB default expression
   // ('R' || nextval('pos_receipt_seq')) so neither client nor server has to
-  // touch the counter.
+  // touch the counter. staff_id and staff_name are SET FROM SESSION — body
+  // attribution is intentionally discarded (F-INS-3).
   const row = {
     id:              body.id,
     date:            body.date ?? new Date().toISOString(),
-    staff_id:        body.staffId || null,
-    staff_name:      body.staffName ?? "",
+    staff_id:        session.id,
+    staff_name:      session.name,
     customer_id:     body.customerId || null,
     customer_name:   body.customerName ?? null,
     table_number:    body.tableNumber ?? null,
-    items:           body.items,
-    subtotal:        body.subtotal       ?? 0,
-    discount_amount: body.discountAmount ?? 0,
+    items,
+    subtotal:        subtotalServer,
+    discount_amount: discountAmount,
     discount_note:   body.discountNote   ?? null,
-    tax_amount:      body.taxAmount      ?? 0,
-    tax_rate:        body.taxRate        ?? 0,
-    tax_inclusive:   body.taxInclusive   ?? false,
-    tip_amount:      body.tipAmount      ?? 0,
-    total:           body.total          ?? 0,
+    tax_amount:      taxAmount,
+    tax_rate:        Number(body.taxRate ?? 0),
+    tax_inclusive:   taxInclusive,
+    tip_amount:      tipAmount,
+    total:           totalServer,
     payment_method:  body.paymentMethod  ?? "cash",
     payments:        body.payments       ?? [],
     cash_tendered:   body.cashTendered   ?? null,

@@ -204,12 +204,19 @@ export interface PrinterSettings {
   enabled: boolean;
   name: string;              // display label, e.g. "Kitchen Printer"
   connection: "network" | "usb" | "bluetooth" | "browser";
-  ip: string;                // printer IP (network mode)
+  ip: string;                // primary printer IP (network mode)
   port: number;              // TCP port — Epson/Star default: 9100
   bluetoothAddress: string;  // BT device MAC, e.g. "AA:BB:CC:DD:EE:FF"
   bluetoothName: string;     // BT device display name
   autoPrint: boolean;        // send receipt automatically on new order
   paperWidth: number;        // chars per line: 48 = 80 mm, 32 = 58 mm
+  /**
+   * Optional allowlist of IPs the /api/print server proxy is permitted to
+   * forward bytes to. When empty, /api/print falls back to allowing only
+   * the primary `ip` field. Set this to add extra printers (e.g. kitchen
+   * bar printer + counter receipt printer) without weakening the proxy.
+   */
+  allowedIps?: string[];
 }
 
 export interface FooterLogo {

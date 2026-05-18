@@ -14,6 +14,7 @@ import {
   misconfiguredResponse,
 } from "@/lib/adminAuth";
 import { parseBody }       from "@/lib/apiValidation";
+import { rateLimit }        from "@/lib/rateLimit";
 import { AdminLoginSchema } from "@/lib/schemas/auth";
 
 export async function GET() {
@@ -25,6 +26,12 @@ export async function POST(req: NextRequest) {
   const adminPassword = process.env.ADMIN_PASSWORD?.trim();
   if (!adminPassword) {
     return misconfiguredResponse("ADMIN_PASSWORD env var is not set.");
+  }
+
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const { limited } = rateLimit(`admin-login:${ip}`, 5, 60_000);
+  if (limited) {
+    return NextResponse.json({ ok: false, error: "Too many attempts. Please wait a minute." }, { status: 429 });
   }
 
   const parsed = await parseBody(req, AdminLoginSchema);

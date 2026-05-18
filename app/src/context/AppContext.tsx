@@ -6,7 +6,6 @@ import React, {
   useContext,
   useEffect,
   useReducer,
-  useRef,
   useState,
 } from "react";
 import { supabase } from "@/lib/supabase";
@@ -124,7 +123,7 @@ interface AppContextValue {
     code?: string,
   ) => Promise<{ ok: boolean; error?: string }>;
   addRefund: (customerId: string, orderId: string, refund: Refund) => void;
-  spendStoreCredit: (customerId: string, amount: number) => void;
+  spendStoreCredit: (customerId: string, amount: number, orderId: string) => void;
   // ─── Meal periods ─────────────────────────────────────────────────────────
   // Time-bounded customer-menu sections (Breakfast, Lunch, Dinner…). Items
   // reference these via MenuItem.mealPeriodIds. Many-to-many.
@@ -135,6 +134,13 @@ interface AppContextValue {
   reorderMealPeriods: (periods: MealPeriod[]) => Promise<{ ok: boolean; error?: string }>;
   /** Re-fetches the logged-in customer from the server and syncs state. */
   refreshCurrentUser: () => Promise<void>;
+  /**
+   * Admin/driver surfaces only — populates the `customers` array from the
+   * admin-gated /api/admin/customers/list endpoint. Customer-facing pages
+   * MUST NOT call this; they use `currentUser` instead. Returns ok=false
+   * when the admin session is missing (anyone else gets an empty result).
+   */
+  loadAllCustomers: () => Promise<{ ok: boolean; error?: string }>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -247,22 +253,10 @@ function mapOrder(row: any): Order {
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapCustomer(row: any): Customer {
-  return {
-    id: row.id, name: row.name, email: row.email,
-    phone: row.phone ?? "",
-    password: row.password || undefined,
-    createdAt: typeof row.created_at === "string" ? row.created_at : new Date(row.created_at).toISOString(),
-    tags: row.tags ?? [],
-    orders: (row.orders ?? []).map(mapOrder).sort(
-      (a: Order, b: Order) => new Date(b.date).getTime() - new Date(a.date).getTime()
-    ),
-    favourites: row.favourites ?? [],
-    savedAddresses: row.saved_addresses ?? [],
-    storeCredit: row.store_credit ? Number(row.store_credit) : undefined,
-  };
-}
+// mapCustomer + customersRef were used by the old client-side anon SELECT on
+// `customers` and the matching realtime hydration. Both paths are gone —
+// customers now come from /api/auth/me (logged-in user only) and
+// /api/admin/customers/list (admin tree).
 
 // ─── TypeScript → DB row mappers ─────────────────────────────────────────────
 
@@ -373,7 +367,6 @@ export function AppProvider({
   const [customers, setCustomers]   = useState<Customer[]>([]);
   // Mirror of customers state accessible from inside Realtime callbacks without
   // closure staleness — callbacks capture the ref value, not the state snapshot.
-  const customersRef = useRef<Customer[]>([]);
   // Drivers are fetched from the server-side /api/admin/drivers endpoint —
   // they are NOT part of app_settings so they are never exposed to customers.
   const [drivers, setDrivers]       = useState<Driver[]>([]);
@@ -389,8 +382,6 @@ export function AppProvider({
   // (UTC) and the browser (local timezone). Updated after mount via useEffect.
   const [isOpen, setIsOpen] = useState(false);
 
-  // Keep customersRef in sync so Realtime callbacks always read current state.
-  useEffect(() => { customersRef.current = customers; }, [customers]);
 
   // ── Session data: cart, user, driver stay in localStorage ─────────────────
 
@@ -556,11 +547,12 @@ export function AppProvider({
         if (mpErr) console.error("AppContext: failed to load meal_periods:", mpErr.message);
         else setMealPeriods((mpData ?? []).map(mapMealPeriod));
 
-        // Customers (with nested orders)
-        const { data: custsData, error: custsErr } = await supabase
-          .from("customers").select("id, name, email, phone, created_at, tags, favourites, saved_addresses, store_credit, email_verified, orders(*)");
-        if (custsErr) console.error("AppContext: failed to load customers:", custsErr.message);
-        else setCustomers((custsData ?? []).map(mapCustomer));
+        // NOTE: customers + their orders are NOT loaded here. The previous
+        // anon-key SELECT on customers leaked every customer's PII to every
+        // browser visitor (F-DATA-1). The customer site uses `currentUser`
+        // (fetched via /api/auth/me with cookie auth). Admin/driver/POS
+        // surfaces fetch via `loadAllCustomers()` after their own auth
+        // check passes.
       } catch (err) {
         // Network down, CORS issue, or unexpected data shape — log it clearly
         console.error("AppContext init failed:", err instanceof Error ? err.message : err);
@@ -640,88 +632,11 @@ export function AppProvider({
             return { ...m, mealPeriodIds: Array.from(tags) };
           }));
         })
-      // Orders
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        async ({ eventType, new: newRow, old: oldRow }: any) => {
-          if (eventType === "DELETE") {
-            const gone = (o: Order) => o.id !== oldRow.id;
-            setCustomers((prev) => prev.map((c) => ({ ...c, orders: c.orders.filter(gone) })));
-            setCurrentUser((prev) => prev ? { ...prev, orders: prev.orders.filter(gone) } : prev);
-          } else {
-            const order = mapOrder(newRow);
-            const patchOrders = (orders: Order[]) => {
-              const exists = orders.some((o) => o.id === order.id);
-              return exists ? orders.map((o) => (o.id === order.id ? order : o))
-                            : [order, ...orders];
-            };
-
-            // Always update currentUser regardless of which code path we take below.
-            setCurrentUser((prev) =>
-              prev && prev.id === order.customerId
-                ? { ...prev, orders: patchOrders(prev.orders) }
-                : prev
-            );
-
-            // If the order's customer is not yet in state (e.g. pos-walk-in sentinel
-            // or a race condition where the customer INSERT event hasn't arrived yet),
-            // fetch and add them so the order isn't silently dropped.
-            const knownCustomer = customersRef.current.some((c) => c.id === order.customerId);
-            if (!knownCustomer) {
-              const { data: cusData } = await supabase
-                .from("customers").select("id, name, email, phone, created_at, tags, favourites, saved_addresses, store_credit, email_verified, orders(*)").eq("id", order.customerId).single();
-              if (cusData) {
-                const newCustomer = mapCustomer(cusData);
-                setCustomers((prev) => {
-                  // Another concurrent event may have already added this customer
-                  if (prev.some((c) => c.id === newCustomer.id)) {
-                    return prev.map((c) => c.id !== newCustomer.id ? c : { ...c, orders: patchOrders(c.orders) });
-                  }
-                  return [...prev, { ...newCustomer, orders: patchOrders(newCustomer.orders) }];
-                });
-              }
-              return;
-            }
-
-            setCustomers((prev) => prev.map((c) =>
-              c.id !== order.customerId ? c : { ...c, orders: patchOrders(c.orders) }
-            ));
-          }
-        })
-      // Customers
-      .on("postgres_changes", { event: "*", schema: "public", table: "customers" },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        async ({ eventType, new: newRow, old: oldRow }: any) => {
-          if (eventType === "DELETE") {
-            setCustomers((prev) => prev.filter((c) => c.id !== oldRow.id));
-          } else if (eventType === "INSERT") {
-            const { data } = await supabase
-              .from("customers").select("id, name, email, phone, created_at, tags, favourites, saved_addresses, store_credit, email_verified, orders(*)").eq("id", newRow.id).single();
-            if (data) setCustomers((prev) => [...prev, mapCustomer(data)]);
-          } else {
-            // UPDATE — patch fields, keep in-memory orders
-            setCustomers((prev) => prev.map((c) =>
-              c.id !== newRow.id ? c : {
-                ...c,
-                name: newRow.name, email: newRow.email, phone: newRow.phone ?? "",
-                tags: newRow.tags ?? [], favourites: newRow.favourites ?? [],
-                savedAddresses: newRow.saved_addresses ?? [],
-                storeCredit: newRow.store_credit ? Number(newRow.store_credit) : undefined,
-              }
-            ));
-            setCurrentUser((prev) =>
-              prev && prev.id === newRow.id
-                ? {
-                    ...prev,
-                    name: newRow.name, email: newRow.email, phone: newRow.phone ?? "",
-                    tags: newRow.tags ?? [], favourites: newRow.favourites ?? [],
-                    savedAddresses: newRow.saved_addresses ?? [],
-                    storeCredit: newRow.store_credit ? Number(newRow.store_credit) : undefined,
-                  }
-                : prev
-            );
-          }
-        })
+      // Orders + Customers realtime subscriptions removed. The anon client
+      // no longer has SELECT on these tables (RLS revoke), so the channel
+      // would deliver no events anyway. Customer-side freshness is handled
+      // by polling /api/auth/me on the account page; admin/driver/kitchen
+      // surfaces poll their own dedicated endpoints.
       // Drivers
       .on("postgres_changes", { event: "*", schema: "public", table: "drivers" },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1029,17 +944,25 @@ export function AppProvider({
     }).catch((e) => console.error("addRefund:", e));
   };
 
-  const spendStoreCredit = (customerId: string, amount: number) => {
-    const prevCredit = customers.find((c) => c.id === customerId)?.storeCredit ?? 0;
-    const newBalance = Math.max(0, prevCredit - amount);
-    const patch = (c: Customer) => ({ ...c, storeCredit: newBalance });
-    setCustomers((prev) => prev.map((c) => (c.id === customerId ? patch(c) : c)));
-    setCurrentUser((prev) => (prev && prev.id === customerId ? patch(prev) : prev));
-    // Server validates current balance and computes the new value — client cannot manipulate the result
+  const spendStoreCredit = (customerId: string, amount: number, orderId: string) => {
+    // Optimistic local update: use currentUser as the source of truth on the
+    // customer site (customers[] may be empty for non-admin surfaces now).
+    setCurrentUser((prev) => {
+      if (!prev || prev.id !== customerId) return prev;
+      const newBalance = Math.max(0, (prev.storeCredit ?? 0) - amount);
+      return { ...prev, storeCredit: newBalance };
+    });
+    setCustomers((prev) => prev.map((c) => {
+      if (c.id !== customerId) return c;
+      const newBalance = Math.max(0, (c.storeCredit ?? 0) - amount);
+      return { ...c, storeCredit: newBalance };
+    }));
+    // Server is authoritative: it verifies ownership, idempotency (per-order),
+    // and caps the deduction at order.total and customer.storeCredit.
     fetch(`/api/customers/${customerId}/spend-credit`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amount }),
+      body: JSON.stringify({ amount, order_id: orderId }),
     }).then(async (r) => {
       if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("spendStoreCredit:", j.error); }
     }).catch((e) => console.error("spendStoreCredit:", e));
@@ -1104,6 +1027,23 @@ export function AppProvider({
       });
     } catch { /* network error — silently ignore */ }
   }, []); // setCurrentUser / setCustomers are stable setState refs
+
+  // ─── Admin/driver/staff: load the full customers list via authenticated API.
+  // The customer site MUST NOT call this — it's gated server-side to admin.
+  const loadAllCustomers = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const r = await fetch("/api/admin/customers/list", { cache: "no-store" });
+      if (!r.ok) {
+        return { ok: false, error: r.status === 401 ? "Unauthorized" : `HTTP ${r.status}` };
+      }
+      const json = await r.json() as { ok: boolean; customers?: Customer[]; error?: string };
+      if (!json.ok || !json.customers) return { ok: false, error: json.error ?? "Bad response" };
+      setCustomers(json.customers);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+    }
+  }, []);
 
   // ─── Auth ─────────────────────────────────────────────────────────────────
 
@@ -1584,6 +1524,7 @@ export function AppProvider({
         assignDriverToOrder, updateDeliveryStatus, addRefund, spendStoreCredit,
         mealPeriods, addMealPeriod, updateMealPeriod, deleteMealPeriod, reorderMealPeriods,
         refreshCurrentUser,
+        loadAllCustomers,
       }}
     >
       <SeoHead settings={settings} />

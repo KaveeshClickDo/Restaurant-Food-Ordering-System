@@ -5,22 +5,29 @@
  *
  * Marks the pos_sales row as voided and also flips the corresponding orders
  * row so the KDS view stays consistent.
+ *
+ * AUTHZ:
+ *   - Requires `canVoidSale` permission on the caller's pos_staff row, OR an
+ *     admin session. A bare cashier session is not enough.
+ *   - When a refundAmount is supplied, additionally requires `canIssueRefund`.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
-import { getPosSession }             from "@/lib/auth";
 import { parseBody }                 from "@/lib/apiValidation";
 import { PosSaleVoidSchema }         from "@/lib/schemas/pos";
+import { requirePosPermission }      from "@/lib/posPermissions";
 
 export async function PATCH(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> },
 ) {
-  const session = await getPosSession();
-  if (!session) {
-    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  }
+  // Void requires `canVoidSale`. We re-check `canIssueRefund` below when a
+  // refund amount is present so refund-without-void or refund-only flows
+  // can't be triggered by a void-only operator.
+  const voidGate = await requirePosPermission("canVoidSale");
+  if (!voidGate.ok) return voidGate.response;
+  const actor = voidGate.staff; // null when admin
 
   const { id } = await ctx.params;
   if (!id) return NextResponse.json({ ok: false, error: "Missing id." }, { status: 400 });
@@ -32,6 +39,12 @@ export async function PATCH(
   const reason = body.voidReason;
   const refundMethod = body.refundMethod ?? "none";
   const refundAmount = body.refundAmount && body.refundAmount > 0 ? body.refundAmount : null;
+
+  // Refund-side gate: only managers/admins (canIssueRefund) can move money.
+  if (refundAmount !== null) {
+    const refundGate = await requirePosPermission("canIssueRefund");
+    if (!refundGate.ok) return refundGate.response;
+  }
 
   const { data: updated, error } = await supabaseAdmin
     .from("pos_sales")
@@ -60,7 +73,7 @@ export async function PATCH(
     .from("orders")
     .update({
       status:      "cancelled",
-      voided_by:   session.id,
+      voided_by:   actor?.id ?? "admin",
       void_reason: reason,
       voided_at:   new Date().toISOString(),
     })

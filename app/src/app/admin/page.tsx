@@ -167,7 +167,7 @@ export default function AdminPage() {
 }
 
 function AdminPageContent() {
-  const { isOpen, settings, menuItems, categories, customers } = useApp();
+  const { isOpen, settings, menuItems, categories, customers, loadAllCustomers } = useApp();
   const router       = useRouter();
   const searchParams = useSearchParams();
 
@@ -198,6 +198,16 @@ function AdminPageContent() {
       .then((r) => setAdminAuthed(r.ok))
       .catch(() => setAdminAuthed(false));
   }, []);
+
+  // Once admin-authed, pull the full customers/orders list via the
+  // admin-gated API (replaces the prior AppContext anon supabase read)
+  // and refresh every 8 seconds to keep panels current.
+  useEffect(() => {
+    if (adminAuthed !== true) return;
+    loadAllCustomers();
+    const id = setInterval(() => { loadAllCustomers(); }, 8_000);
+    return () => clearInterval(id);
+  }, [adminAuthed, loadAllCustomers]);
 
   useEffect(() => {
     const prev = prevCountRef.current;

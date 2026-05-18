@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireWaiterAuth } from "@/lib/waiterAuth";
+import { getWaiterSession } from "@/lib/auth";
 import { parseBody } from "@/lib/apiValidation";
 import { WaiterRefundSchema } from "@/lib/schemas/waiter";
 
@@ -26,10 +27,18 @@ interface RefundRecord {
 export async function POST(req: NextRequest) {
   const unauth = await requireWaiterAuth();
   if (unauth) return unauth;
+  const session = await getWaiterSession();
+  if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
   const parsed = await parseBody(req, WaiterRefundSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { orderIds, refundAmount, refundMethod, reason, refundedBy } = parsed.data;
+  // F-INS-5: refundedBy in body is ignored — server stamps the actor from
+  // the session-bound waiter row so the audit trail can't be forged.
+  const { orderIds, refundAmount, refundMethod, reason } = parsed.data;
+
+  const { data: waiterRow } = await supabaseAdmin
+    .from("waiters").select("name").eq("id", session.id).maybeSingle();
+  const actorName = waiterRow?.name ?? "Staff";
 
   // Fetch the current orders to get totals and existing refund records
   const { data: orders, error: fetchErr } = await supabaseAdmin
@@ -52,7 +61,7 @@ export async function POST(req: NextRequest) {
   const isFullRefund = refundAmount >= grandTotal - 0.001; // tolerance for float rounding
   const newStatus = isFullRefund ? "refunded" : "partially_refunded";
   const processedAt = new Date().toISOString();
-  const processedBy = refundedBy?.trim() ?? "Staff";
+  const processedBy = actorName;
 
   // Distribute refund proportionally across orders
   // Each order gets: its_total / grand_total * refundAmount

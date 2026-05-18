@@ -8,16 +8,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireWaiterAuth } from "@/lib/waiterAuth";
+import { getWaiterSession } from "@/lib/auth";
 import { parseBody } from "@/lib/apiValidation";
 import { WaiterVoidSchema } from "@/lib/schemas/waiter";
 
 export async function POST(req: NextRequest) {
   const unauth = await requireWaiterAuth();
   if (unauth) return unauth;
+  const session = await getWaiterSession();
+  if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
   const parsed = await parseBody(req, WaiterVoidSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { orderIds, reason, voidedBy } = parsed.data;
+  // F-INS-5: voidedBy from body is ignored — stamped from session-bound waiter
+  // row so the audit trail can't be forged.
+  const { orderIds, reason } = parsed.data;
+
+  const { data: waiterRow } = await supabaseAdmin
+    .from("waiters").select("name").eq("id", session.id).maybeSingle();
+  const actorName = waiterRow?.name ?? "Staff";
 
   try {
     // Try to update with optional void-audit columns first.
@@ -27,7 +36,7 @@ export async function POST(req: NextRequest) {
       .update({
         status:      "cancelled",
         void_reason: reason.trim(),
-        voided_by:   voidedBy?.trim() ?? null,
+        voided_by:   actorName,
         voided_at:   new Date().toISOString(),
       })
       .in("id", orderIds)

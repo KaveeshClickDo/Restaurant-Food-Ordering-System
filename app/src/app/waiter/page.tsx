@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { supabase } from "@/lib/supabase";
+import { useState, useEffect, useCallback } from "react";
 import { useApp } from "@/context/AppContext";
 import type { MenuItem, WaiterStaff, DiningTable } from "@/types";
 import {
@@ -816,19 +815,26 @@ export default function WaiterPage() {
   }, [categories, activeCatId]);
 
   // ── Occupied table detection ─────────────────────────────────────────────────
+  // Pulls all active dine-in orders via the authenticated /api/waiter/orders
+  // endpoint and scans for the [WAITER] note pattern. Replaces the prior anon
+  // supabase read.
   const refreshOccupied = useCallback(async () => {
-    const { data } = await supabase
-      .from("orders")
-      .select("note, status")
-      .like("note", "[WAITER]%")
-      .not("status", "in", '("delivered","cancelled")');
+    try {
+      const r = await fetch("/api/waiter/orders", { cache: "no-store" });
+      if (!r.ok) return;
+      const json = await r.json() as { ok: boolean; orders?: Array<{ note?: string | null; status?: string }> };
+      if (!json.ok || !json.orders) return;
 
-    const labels = new Set<string>();
-    for (const o of data ?? []) {
-      const m = String(o.note ?? "").match(/Table\s+(\S+)/);
-      if (m) labels.add(m[1]);
-    }
-    setOccupiedLabels(labels);
+      const labels = new Set<string>();
+      for (const o of json.orders) {
+        const note = String(o.note ?? "");
+        if (!note.startsWith("[WAITER]")) continue;
+        if (o.status === "delivered" || o.status === "cancelled") continue;
+        const m = note.match(/Table\s+(\S+)/);
+        if (m) labels.add(m[1]);
+      }
+      setOccupiedLabels(labels);
+    } catch { /* ignore — surface is non-critical */ }
   }, []);
 
   useEffect(() => {
@@ -969,21 +975,36 @@ export default function WaiterPage() {
     setBillLoading(true);
     setView("bill");
 
-    const { data } = await supabase
-      .from("orders")
-      .select("id, items, total, note, status")
-      .like("note", `[WAITER]%Table ${table.label}%`)
-      .not("status", "in", '("delivered","cancelled")');
+    try {
+      const r = await fetch("/api/waiter/orders", { cache: "no-store" });
+      if (!r.ok) { setBillOrders([]); return; }
+      const json = await r.json() as {
+        ok: boolean;
+        orders?: Array<{ id: string; items?: unknown[]; total?: number; note?: string | null; status?: string }>;
+      };
+      if (!json.ok || !json.orders) { setBillOrders([]); return; }
 
-    setBillOrders(
-      (data ?? []).map((o) => ({
-        id: o.id,
-        items: o.items ?? [],
-        total: Number(o.total),
-        note: String(o.note ?? ""),
-      }))
-    );
-    setBillLoading(false);
+      const match = `[WAITER]`;
+      const tableTag = `Table ${table.label}`;
+      const filtered = json.orders.filter(
+        (o) =>
+          o.status !== "delivered" &&
+          o.status !== "cancelled" &&
+          String(o.note ?? "").startsWith(match) &&
+          String(o.note ?? "").includes(tableTag),
+      );
+
+      setBillOrders(
+        filtered.map((o) => ({
+          id:    o.id,
+          items: o.items ?? [],
+          total: Number(o.total ?? 0),
+          note:  String(o.note ?? ""),
+        }))
+      );
+    } finally {
+      setBillLoading(false);
+    }
   }
 
   async function payBill(method: "cash" | "card") {

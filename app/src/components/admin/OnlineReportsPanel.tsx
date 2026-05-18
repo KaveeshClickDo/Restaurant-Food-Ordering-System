@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
 import { useApp } from "@/context/AppContext";
 import {
   TrendingUp, ShoppingBag, RotateCcw, Percent, CreditCard,
@@ -282,18 +281,21 @@ export default function OnlineReportsPanel() {
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("orders")
-      .select("id, date, status, total, fulfillment, refunded_amount, vat_amount, vat_inclusive, payment_method, customer_id, items")
-      .gte("date", startDate.toISOString())
-      .lte("date", endDate.toISOString())
-      .order("date", { ascending: true });
-
-    if (!error && data) {
-      setOrders(data as RawOrder[]);
+    try {
+      const params = new URLSearchParams({
+        from:  startDate.toISOString(),
+        to:    endDate.toISOString(),
+        limit: "10000",
+      });
+      const r = await fetch(`/api/admin/orders?${params}`, { cache: "no-store" });
+      if (!r.ok) return;
+      const json = await r.json() as { ok: boolean; orders?: RawOrder[] };
+      if (!json.ok || !json.orders) return;
+      setOrders(json.orders);
       setLastFetched(new Date());
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [startDate, endDate]);
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);

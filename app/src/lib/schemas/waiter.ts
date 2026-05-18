@@ -44,6 +44,10 @@ export const AdminRefundSchema = z.object({
   newStoreCredit: z.number().nonnegative().optional(),
 });
 
+// F-PU-1: credit spend is now tied to a specific order — server verifies the
+// order belongs to the calling session, and idempotently sets the order's
+// store_credit_used field so a replay can't drain the balance twice.
 export const SpendCreditSchema = z.object({
-  amount: PositiveMoney,
+  amount:   PositiveMoney,
+  order_id: NonEmptyString,
 });

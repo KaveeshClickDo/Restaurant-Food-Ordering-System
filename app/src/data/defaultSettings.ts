@@ -63,7 +63,7 @@ export const DEFAULT_SEO: SeoSettings = {
 export const DEFAULT_PRINTER: PrinterSettings = {
   enabled: false, name: "Kitchen Printer", connection: "network",
   ip: "", port: 9100, bluetoothAddress: "", bluetoothName: "",
-  autoPrint: true, paperWidth: 48,
+  autoPrint: true, paperWidth: 48, allowedIps: [],
 };
 
 export const DEFAULT_SETTINGS: AdminSettings = {

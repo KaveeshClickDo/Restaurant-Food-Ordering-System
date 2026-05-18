@@ -17,7 +17,10 @@ import { ROLE_PERMISSIONS } from "@/types/pos";
 import { parseBody } from "@/lib/apiValidation";
 import { PosStaffCreateSchema } from "@/lib/schemas/staff";
 
-const PUBLIC_COLUMNS = "id, name, email, role, active, permissions, hourly_rate, avatar_color, created_at";
+// Full row — only returned to authenticated managers/admins.
+const FULL_COLUMNS = "id, name, email, role, active, permissions, hourly_rate, avatar_color, created_at";
+// Tile-picker columns — what the public /pos/login screen needs (no PII, no payroll).
+const TILE_COLUMNS = "id, name, role, active, avatar_color";
 const HASH_ROUNDS = 10;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -34,6 +37,23 @@ function mapRow(row: any) {
     createdAt:   typeof row.created_at === "string"
                    ? row.created_at
                    : new Date(row.created_at).toISOString(),
+    pin:         "",
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapTileRow(row: any) {
+  return {
+    id:          row.id,
+    name:        row.name,
+    role:        row.role,
+    active:      row.active,
+    avatarColor: row.avatar_color,
+    // The login UI expects these keys to exist; return empty so its shape stays.
+    email:       "",
+    permissions: {},
+    hourlyRate:  undefined,
+    createdAt:   "",
     pin:         "",
   };
 }
@@ -55,13 +75,20 @@ async function canManageStaff(): Promise<boolean> {
 
 export async function GET() {
   try {
+    // F-INS-10: public callers (the /pos/login tile picker) get only the
+    // minimum fields needed to show name + avatar. `hourly_rate`, `email`,
+    // and `permissions` are returned only to admin / manager sessions.
+    const elevated = await canManageStaff();
+
     const { data, error } = await supabaseAdmin
       .from("pos_staff")
-      .select(PUBLIC_COLUMNS)
+      .select(elevated ? FULL_COLUMNS : TILE_COLUMNS)
+      .eq("active", true)
       .order("created_at", { ascending: true });
 
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-    return NextResponse.json({ ok: true, staff: (data ?? []).map(mapRow) });
+    const mapped = (data ?? []).map(elevated ? mapRow : mapTileRow);
+    return NextResponse.json({ ok: true, staff: mapped });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unexpected error";
     console.error("[pos/staff GET]", message);
@@ -95,7 +122,7 @@ export async function POST(request: Request) {
       hourly_rate:  hourlyRate ?? null,
       avatar_color: finalColor,
     })
-    .select(PUBLIC_COLUMNS)
+    .select(FULL_COLUMNS)
     .single();
 
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });

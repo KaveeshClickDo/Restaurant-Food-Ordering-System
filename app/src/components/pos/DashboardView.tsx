@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
-import { supabase } from "@/lib/supabase";
 import { POSSale } from "@/types/pos";
 import {
   AlertTriangle, BadgeDollarSign, Banknote, BarChart3, CreditCard, Download,
@@ -64,29 +63,33 @@ export default function DashboardView() {
   const refreshTodayDineIn = useCallback(async () => {
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
     const todayEnd   = new Date(); todayEnd.setHours(23, 59, 59, 999);
-    const { data } = await supabase
-      .from("orders")
-      .select("id, items, total, note, status, payment_method, date")
-      .eq("fulfillment", "dine-in")
-      .gte("date", todayStart.toISOString())
-      .lte("date", todayEnd.toISOString())
-      .order("date", { ascending: false });
-    setTodayDineIn((data ?? []).map(mapDineInRow));
-  }, []);  
+    const params = new URLSearchParams({
+      from: todayStart.toISOString(),
+      to:   todayEnd.toISOString(),
+    });
+    try {
+      const r = await fetch(`/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
+      if (!r.ok) return;
+      const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
+      if (!json.ok || !json.orders) return;
+      setTodayDineIn(json.orders.map(mapDineInRow));
+    } catch { /* network blip — keep last-known */ }
+  }, []);
 
   // Fetch today's dine-in on mount
   useEffect(() => { refreshTodayDineIn(); }, [refreshTodayDineIn]);
 
   const refreshDineInTab = useCallback(async () => {
     setDineInLoading(true);
-    const { data } = await supabase
-      .from("orders")
-      .select("id, items, total, note, status, payment_method, date")
-      .eq("fulfillment", "dine-in")
-      .order("date", { ascending: false })
-      .limit(200);
-    setDineInOrders((data ?? []).map(mapDineInRow));
-    setDineInLoading(false);
+    try {
+      const r = await fetch("/api/pos/orders/dine-in", { cache: "no-store" });
+      if (!r.ok) { setDineInOrders([]); return; }
+      const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
+      if (!json.ok || !json.orders) { setDineInOrders([]); return; }
+      setDineInOrders(json.orders.map(mapDineInRow));
+    } finally {
+      setDineInLoading(false);
+    }
   }, []);  
 
   useEffect(() => {
@@ -185,42 +188,37 @@ export default function DashboardView() {
 
   const refreshReportsDineIn = useCallback(async () => {
     setReportsDineInLoading(true);
-    const { data } = await supabase
-      .from("orders")
-      .select("id, items, total, note, status, payment_method, date")
-      .eq("fulfillment", "dine-in")
-      .gte("date", startDate.toISOString())
-      .lte("date", endDate.toISOString())
-      .order("date", { ascending: false })
-      .limit(500);
-    setReportsDineIn((data ?? []).map(mapDineInRow));
-    setReportsDineInLoading(false);
-  }, [startDate, endDate]);  
+    try {
+      const params = new URLSearchParams({
+        from:  startDate.toISOString(),
+        to:    endDate.toISOString(),
+        limit: "500",
+      });
+      const r = await fetch(`/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
+      if (!r.ok) { setReportsDineIn([]); return; }
+      const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
+      if (!json.ok || !json.orders) { setReportsDineIn([]); return; }
+      setReportsDineIn(json.orders.map(mapDineInRow));
+    } finally {
+      setReportsDineInLoading(false);
+    }
+  }, [startDate, endDate]);
 
   useEffect(() => {
     if (dashTab !== "reports") return;
     refreshReportsDineIn();
   }, [dashTab, refreshReportsDineIn]);
 
-  // ── Realtime: auto-refresh when a waiter settles a payment ──────────────────
+  // ── Polling: every 6 s refresh the active tab's data ──────────────────────
+  // Replaces the prior supabase Realtime channel; anon will no longer get
+  // postgres_changes events after RLS revoke.
   useEffect(() => {
-    const channel = supabase
-      .channel("pos-dine-in-live")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "orders" },
-        (payload) => {
-          const row = payload.new as Record<string, unknown> | undefined;
-          if (!row || row.fulfillment !== "dine-in") return;
-          // Always keep today's overview data fresh
-          refreshTodayDineIn();
-          // Refresh the active tab's data
-          if (dashTab === "dine-in") refreshDineInTab();
-          if (dashTab === "reports") refreshReportsDineIn();
-        }
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    const id = setInterval(() => {
+      refreshTodayDineIn();
+      if (dashTab === "dine-in") refreshDineInTab();
+      if (dashTab === "reports") refreshReportsDineIn();
+    }, 6_000);
+    return () => clearInterval(id);
   }, [dashTab, refreshTodayDineIn, refreshDineInTab, refreshReportsDineIn]);
 
   const inRange = useMemo(

@@ -32,31 +32,65 @@ export async function POST(
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const body = parsed.data;
 
-  // ── Stripe gateway refund (only when applicable) ─────────────────────────
-  // The last refund in the array is the new one being processed; older entries
-  // are already-recorded refunds.
-  const newest = body.refunds?.[body.refunds.length - 1];
+  // F-AD-3: server-side recompute + ownership check.
+  // Fetch the authoritative order row up-front; we use it for:
+  //   - capping the new refund at (order.total - prior_refunded_amount)
+  //   - asserting body.customerId === order.customer_id before store-credit mutation
+  //   - replacing body.refundedAmount with the sum of all refund entries
+  const { data: orderRow, error: lookupErr } = await supabaseAdmin
+    .from("orders")
+    .select("stripe_payment_intent_id, total, customer_id, refunds, refunded_amount")
+    .eq("id", id)
+    .maybeSingle();
 
-  if (newest && newest.method === "original_payment") {
-    // Look up the order's Stripe payment intent + currency.
-    const { data: orderRow, error: lookupErr } = await supabaseAdmin
-      .from("orders")
-      .select("stripe_payment_intent_id, total")
-      .eq("id", id)
-      .maybeSingle();
+  if (lookupErr || !orderRow) {
+    return NextResponse.json(
+      { ok: false, error: lookupErr?.message ?? "Order not found." },
+      { status: 404 },
+    );
+  }
 
-    if (lookupErr) {
-      console.error("admin/orders/[id]/refund POST (lookup):", lookupErr.message);
-      return NextResponse.json({ ok: false, error: lookupErr.message }, { status: 500 });
+  const orderTotal = Number(orderRow.total);
+  const priorRefunds = Array.isArray(orderRow.refunds) ? orderRow.refunds.length : 0;
+  const submittedRefunds = body.refunds ?? [];
+  if (submittedRefunds.length < priorRefunds) {
+    return NextResponse.json(
+      { ok: false, error: "Cannot drop existing refund records." },
+      { status: 400 },
+    );
+  }
+
+  // Sum up the submitted refunds — this is the new authoritative `refunded_amount`.
+  // The body's `refundedAmount` field is ignored.
+  const refundedAmountServer = parseFloat(
+    submittedRefunds.reduce((s, r) => s + Number(r.amount ?? 0), 0).toFixed(2),
+  );
+
+  if (refundedAmountServer > orderTotal + 0.001) {
+    return NextResponse.json(
+      { ok: false, error: `Total refunded (${refundedAmountServer}) cannot exceed order total (${orderTotal}).` },
+      { status: 400 },
+    );
+  }
+
+  // The "newest" refund is the only one we may call Stripe for. Its amount
+  // must fit within the remaining refundable budget.
+  const newest = submittedRefunds[submittedRefunds.length - 1];
+  if (newest) {
+    const remainingBudget = parseFloat((orderTotal - Number(orderRow.refunded_amount ?? 0)).toFixed(2));
+    if (Number(newest.amount) > remainingBudget + 0.001) {
+      return NextResponse.json(
+        { ok: false, error: `Refund (${newest.amount}) exceeds remaining refundable (${remainingBudget}).` },
+        { status: 400 },
+      );
     }
+  }
 
-    if (!orderRow?.stripe_payment_intent_id) {
-      // This order was paid in cash or by a non-Stripe method. We can still
-      // record an "original_payment" refund (someone handed the card back at
-      // the counter), but no gateway call is possible. Continue without calling
-      // Stripe — refund is recorded as-is.
+  // ── Stripe gateway refund (only when applicable) ─────────────────────────
+  if (newest && newest.method === "original_payment") {
+    if (!orderRow.stripe_payment_intent_id) {
+      // Cash / non-Stripe — record-only, no gateway call.
     } else {
-      // Read currency from settings so zero-decimal currencies stay correct.
       const { data: settingsRow } = await supabaseAdmin
         .from("app_settings").select("data").eq("id", 1).single();
       const currencyCode = (settingsRow?.data?.currency?.code as string | undefined) ?? "GBP";
@@ -65,8 +99,6 @@ export async function POST(
         const stripeRefund = await getStripe().refunds.create({
           payment_intent: orderRow.stripe_payment_intent_id,
           amount:         toStripeAmount(newest.amount, currencyCode),
-          // reason must be one of Stripe's enum values; we only pass it for
-          // those, and store the human-readable reason in our own DB.
           reason: stripeReason(newest.reason),
           metadata: {
             order_id:    id,
@@ -74,11 +106,6 @@ export async function POST(
             processed_by: newest.processedBy,
           },
         });
-
-        // Stamp the Stripe refund id onto our refund entry so future audits
-        // can trace it. The webhook charge.refunded event will also fire and
-        // run through `handleChargeRefunded`, which is a no-op once we've
-        // already updated refunded_amount to match.
         newest.stripeRefundId = stripeRefund.id;
       } catch (err) {
         const message = err instanceof Error ? err.message : "Stripe refund failed.";
@@ -88,19 +115,22 @@ export async function POST(
     }
   }
 
-  // ── Update the order ──────────────────────────────────────────────────────
-  const newPaymentStatus = body.newStatus === "refunded"
-    ? "refunded"
-    : body.newStatus === "partially_refunded"
-      ? "partially_refunded"
-      : undefined;
+  // ── Derive payment_status server-side from refundedAmountServer ─────────
+  let newPaymentStatus: "refunded" | "partially_refunded" | undefined;
+  if (refundedAmountServer >= orderTotal - 0.001) newPaymentStatus = "refunded";
+  else if (refundedAmountServer > 0)              newPaymentStatus = "partially_refunded";
+
+  const newOrderStatus =
+    newPaymentStatus === "refunded"           ? "refunded"
+    : newPaymentStatus === "partially_refunded" ? "partially_refunded"
+    : body.newStatus;
 
   const { error: orderErr } = await supabaseAdmin
     .from("orders")
     .update({
-      status:           body.newStatus,
-      refunds:          body.refunds,
-      refunded_amount:  body.refundedAmount,
+      status:           newOrderStatus,
+      refunds:          submittedRefunds,
+      refunded_amount:  refundedAmountServer,
       ...(newPaymentStatus ? { payment_status: newPaymentStatus } : {}),
     })
     .eq("id", id);
@@ -110,7 +140,14 @@ export async function POST(
     return NextResponse.json({ ok: false, error: orderErr.message }, { status: 500 });
   }
 
+  // Store-credit mutation: only allowed for the order's own customer.
   if (body.customerId !== undefined && body.newStoreCredit !== undefined) {
+    if (body.customerId !== orderRow.customer_id) {
+      return NextResponse.json(
+        { ok: false, error: "Refund customerId does not match the order's customer." },
+        { status: 400 },
+      );
+    }
     const { error: custErr } = await supabaseAdmin
       .from("customers")
       .update({ store_credit: body.newStoreCredit })
@@ -120,7 +157,11 @@ export async function POST(
     }
   }
 
-  return NextResponse.json({ ok: true, stripeRefundId: newest?.stripeRefundId ?? null });
+  return NextResponse.json({
+    ok: true,
+    stripeRefundId:  newest?.stripeRefundId ?? null,
+    refundedAmount:  refundedAmountServer,
+  });
 }
 
 /**

@@ -25,9 +25,16 @@ import { NextRequest, NextResponse }    from "next/server";
 import { supabaseAdmin }                from "@/lib/supabaseAdmin";
 import { sendOrderConfirmationEmail }   from "@/lib/emailServer";
 import { getCustomerSession, unauthorizedJson } from "@/lib/auth";
+import { rateLimit }                    from "@/lib/rateLimit";
 import { validateAndNormaliseOrder, incrementCouponUsage } from "@/lib/orderValidation";
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const { limited } = rateLimit(`orders:${ip}`, 10, 60_000);
+  if (limited) {
+    return NextResponse.json({ ok: false, error: "Too many requests. Please wait a minute." }, { status: 429 });
+  }
+
   let body: Record<string, unknown>;
   try {
     body = await req.json();

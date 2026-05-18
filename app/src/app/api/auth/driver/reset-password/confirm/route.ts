@@ -8,6 +8,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import bcrypt                          from "bcryptjs";
 import { supabaseAdmin }               from "@/lib/supabaseAdmin";
 import { parseBody }                   from "@/lib/apiValidation";
+import { rateLimit }                   from "@/lib/rateLimit";
 import { ResetPasswordConfirmSchema }  from "@/lib/schemas/auth";
 
 function hashToken(rawToken: string): string {
@@ -16,6 +17,12 @@ function hashToken(rawToken: string): string {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const { limited } = rateLimit(`driver-reset-confirm:${ip}`, 5, 60_000);
+  if (limited) {
+    return NextResponse.json({ ok: false, error: "Too many attempts. Please wait a minute." }, { status: 429 });
+  }
+
   const parsed = await parseBody(req, ResetPasswordConfirmSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const { email, token, password } = parsed.data;

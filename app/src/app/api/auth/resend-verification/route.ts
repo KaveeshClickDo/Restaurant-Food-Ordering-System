@@ -31,18 +31,22 @@ function hashToken(raw: string): string {
 export async function POST(req: NextRequest) {
   const session = await getCustomerSession();
 
+  // F-PU-10: rate-limit BOTH paths. The previous version only throttled the
+  // logged-out branch, so a signed-in attacker holding any valid session
+  // could spam verification mail to their own account (or to whatever email
+  // the customer record holds) indefinitely.
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const bucketKey = session ? `resend-verify:session:${session.id}` : `resend-verify:ip:${ip}`;
+  const { limited } = rateLimit(bucketKey, session ? 3 : 5, 60_000);
+  if (limited) {
+    return NextResponse.json({ ok: false, error: "Too many requests. Please wait a minute." }, { status: 429 });
+  }
+
   let customerLookup: { id: string } | { email: string } | null = null;
 
   if (session) {
     customerLookup = { id: session.id };
   } else {
-    // Logged-out path — accept email from body, rate-limit per IP
-    const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
-    const { limited } = rateLimit(`resend-verify:${ip}`, 5, 60_000);
-    if (limited) {
-      return NextResponse.json({ ok: false, error: "Too many requests. Please wait a minute." }, { status: 429 });
-    }
-
     let body: { email?: string } = {};
     try { body = await req.json(); } catch { /* empty body OK */ }
     const email = body.email?.trim().toLowerCase();

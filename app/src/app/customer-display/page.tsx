@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { supabase } from "@/lib/supabase";
 import { ChefHat, CheckCircle2, Clock, UtensilsCrossed, Wifi } from "lucide-react";
 import type { OrderLine } from "@/types";
 
@@ -25,17 +24,12 @@ const PAGE_INTERVAL = 8_000;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function extractReceiptNo(note?: string | null): string | null {
-  if (!note) return null;
-  const m = note.match(/Receipt:\s*(R\d+)/);
-  return m ? m[1] : null;
-}
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function rowToDisplay(row: any): DisplayOrder | null {
   if (!ACTIVE_STATUSES.includes(row.status)) return null;
-  const receipt = extractReceiptNo(row.note);
-  const label   = receipt ?? "#" + String(row.id).slice(-6).toUpperCase();
+  // Server now extracts receiptNo from the order note (which we never receive
+  // on the client, so PII embedded in the note never leaves the server).
+  const label = (row.receiptNo as string | null) ?? "#" + String(row.id).slice(-6).toUpperCase();
   return {
     id:     row.id,
     label,
@@ -374,55 +368,42 @@ export default function CustomerDisplayPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase
-      .from("app_settings").select("data").limit(1).single()
-      .then(({ data }) => {
-        const name = data?.data?.restaurant?.name;
-        if (name) setRestaurantName(name);
-      });
+    fetch("/api/settings/public", { cache: "no-store" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((json: { restaurant?: { name?: string } } | null) => {
+        if (json?.restaurant?.name) setRestaurantName(json.restaurant.name);
+      })
+      .catch(() => {});
   },[]);
 
+  // Poll the public display endpoint every 4 s. Replaces the prior direct
+  // supabase read + realtime channel on the anon client (which would no
+  // longer deliver events after RLS revokes anon SELECT on orders).
   useEffect(() => {
-    supabase
-      .from("orders")
-      .select("*")
-      .in("status", ACTIVE_STATUSES)
-      .order("date", { ascending: true })
-      .then(({ data }) => {
-        setOrders((data ??[]).flatMap((r) => { const d = rowToDisplay(r); return d ? [d] :[]; }));
-        setLoading(false);
-      });
+    let active = true;
 
-    const channel = supabase
-      .channel("customer-display")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "orders" },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ({ eventType, new: newRow, old: oldRow }: any) => {
-          if (eventType === "DELETE") {
-            setOrders((prev) => prev.filter((o) => o.id !== oldRow.id));
-            return;
-          }
-          const display = rowToDisplay(newRow);
-          if (!display) {
-            setOrders((prev) => prev.filter((o) => o.id !== newRow.id));
-            return;
-          }
-          setOrders((prev) => {
-            const idx = prev.findIndex((o) => o.id === display.id);
-            if (idx >= 0) {
-              const next = [...prev]; next[idx] = display; return next;
-            }
-            return[...prev, display].sort(
-              (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-            );
-          });
-        },
-      )
-      .subscribe((status) => setConnected(status === "SUBSCRIBED"));
+    async function fetchOrders() {
+      try {
+        const r = await fetch("/api/customer-display/orders", { cache: "no-store" });
+        if (!r.ok) { setConnected(false); return; }
+        const json = await r.json() as { ok: boolean; orders?: Array<Record<string, unknown>> };
+        if (!active || !json.ok || !json.orders) return;
+        const mapped = json.orders.flatMap((r) => {
+          const d = rowToDisplay(r);
+          return d ? [d] : [];
+        });
+        setOrders(mapped);
+        setConnected(true);
+      } catch {
+        setConnected(false);
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
 
-    return () => { supabase.removeChannel(channel); };
+    fetchOrders();
+    const id = setInterval(fetchOrders, 4_000);
+    return () => { active = false; clearInterval(id); };
   }, []);
 
   const preparing = orders.filter((o) =>["pending", "confirmed", "preparing"].includes(o.status));

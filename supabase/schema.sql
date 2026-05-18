@@ -549,7 +549,9 @@ alter table dining_tables          enable row level security;
 alter table meal_periods           enable row level security;
 alter table menu_item_meal_periods enable row level security;
 
--- 5b. Read policies for anon (public-facing pages need these).
+-- 5b. Read policies for anon. Public catalog tables are readable so the
+-- storefront can render without a session; everything that holds customer
+-- PII or operational records is locked behind the service-role API layer.
 drop policy if exists "anon_select_settings"       on app_settings;
 create policy "anon_select_settings"
   on app_settings for select to anon using (true);
@@ -562,18 +564,6 @@ drop policy if exists "anon_select_menu_items"     on menu_items;
 create policy "anon_select_menu_items"
   on menu_items for select to anon using (true);
 
-drop policy if exists "anon_select_customers"      on customers;
-create policy "anon_select_customers"
-  on customers for select to anon using (true);
-
-drop policy if exists "anon_select_orders"         on orders;
-create policy "anon_select_orders"
-  on orders for select to anon using (true);
-
-drop policy if exists "anon_select_reservations"   on reservations;
-create policy "anon_select_reservations"
-  on reservations for select to anon using (true);
-
 drop policy if exists "anon_select_dining_tables"  on dining_tables;
 create policy "anon_select_dining_tables"
   on dining_tables for select to anon using (true);
@@ -585,6 +575,18 @@ create policy "anon_select_meal_periods"
 drop policy if exists "anon_select_mimp"           on menu_item_meal_periods;
 create policy "anon_select_mimp"
   on menu_item_meal_periods for select to anon using (true);
+
+-- 5b-i. Deny anon select on PII-carrying tables (F-DATA-1 fix).
+-- Replaces the prior `using (true)` policies which let any anon caller read
+-- every customer's name/email/phone/address and every order. All reads now
+-- go through service-role API routes (lib/supabaseAdmin) that enforce
+-- per-role authorization (customer session, admin cookie, etc.).
+drop policy if exists "anon_select_customers"      on customers;
+drop policy if exists "anon_select_orders"         on orders;
+drop policy if exists "anon_select_reservations"   on reservations;
+create policy "deny_anon_select" on customers     for select to anon using (false);
+create policy "deny_anon_select" on orders        for select to anon using (false);
+create policy "deny_anon_select" on reservations  for select to anon using (false);
 
 -- 5c. Write policies for anon — none, except waitlist signup.
 -- Belt-and-suspenders drops for any DB that picked up stray policies from

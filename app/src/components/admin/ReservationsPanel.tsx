@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
 import { useApp }   from "@/context/AppContext";
 import type { Reservation, ReservationStatus } from "@/types";
 import {
@@ -531,14 +530,10 @@ export default function ReservationsPanel() {
 
   useEffect(() => { fetchReservations(); }, [fetchReservations]);
 
+  // Poll every 8 s — anon supabase realtime no longer fires after RLS revoke.
   useEffect(() => {
-    const channel = supabase
-      .channel("reservations-admin")
-      .on("postgres_changes", { event: "*", schema: "public", table: "reservations" }, () => {
-        fetchReservations();
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    const id = setInterval(fetchReservations, 8_000);
+    return () => clearInterval(id);
   }, [fetchReservations]);
 
   async function toggleEnabled() {

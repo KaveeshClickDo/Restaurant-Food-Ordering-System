@@ -1,9 +1,9 @@
 /**
- * POST /api/pos/reservations
- * Creates a walk-in or phone reservation from the POS terminal.
- * Hard-blocks double-booking (table conflict at same time); allows capacity
- * overrides since staff can pull extra chairs or merge tables.
- * Requires a POS or admin session.
+ * GET  /api/pos/reservations — list reservations (with optional date filter).
+ * POST /api/pos/reservations — create a walk-in or phone reservation.
+ *
+ * Both require a POS or admin session. The GET replaces the direct
+ * `supabase.from("reservations")` reads in POS components.
  */
 
 import { NextRequest, NextResponse }  from "next/server";
@@ -17,6 +17,35 @@ import { ReservationPosSchema }       from "@/lib/schemas/reservation";
 function toMins(time: string): number {
   const [h, m] = time.split(":").map(Number);
   return h * 60 + m;
+}
+
+export async function GET(req: NextRequest) {
+  const [pos, admin] = await Promise.all([getPosSession(), isAdminAuthenticated()]);
+  if (!pos && !admin) return unauthorizedJson();
+
+  const { searchParams } = new URL(req.url);
+  const date  = searchParams.get("date");
+  const from  = searchParams.get("from");
+  const to    = searchParams.get("to");
+  const limit = Math.min(Number(searchParams.get("limit") ?? 500), 2000);
+
+  let q = supabaseAdmin
+    .from("reservations")
+    .select("*")
+    .order("date", { ascending: true })
+    .order("time", { ascending: true })
+    .limit(limit);
+
+  if (date) q = q.eq("date", date);
+  if (from) q = q.gte("date", from);
+  if (to)   q = q.lte("date", to);
+
+  const { data, error } = await q;
+  if (error) {
+    console.error("pos/reservations GET:", error.message);
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
+  return NextResponse.json({ ok: true, reservations: data ?? [] });
 }
 
 export async function POST(req: NextRequest) {

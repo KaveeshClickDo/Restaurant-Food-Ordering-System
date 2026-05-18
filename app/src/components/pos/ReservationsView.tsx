@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useApp } from "@/context/AppContext";
-import { supabase } from "@/lib/supabase";
 import {
   AlertTriangle, Calendar, CalendarDays, CheckCircle2, Clock, Loader2,
   LogIn, LogOut, RefreshCw, Search, UserPlus, Users, UtensilsCrossed, X,
@@ -187,38 +186,26 @@ export default function ReservationsView() {
   }
 
   // ── Main list ──────────────────────────────────────────────────────────────
+  // Fetch via the authenticated /api/pos/reservations endpoint and filter
+  // client-side. Replaces the prior anon supabase read.
   const fetchRows = useCallback(async () => {
     setLoading(true);
     try {
-      // Column sets in descending order of preference.
-      // Each entry is tried in turn; we fall back if a column doesn't exist yet.
-      const COLUMN_SETS = [
-        "id,table_id,table_label,section,customer_name,customer_email,customer_phone,date,time,party_size,status,note,source,checked_in_at,checked_out_at",
-        "id,table_id,table_label,section,customer_name,customer_email,customer_phone,date,time,party_size,status,note,checked_in_at,checked_out_at",
-        "id,table_id,table_label,section,customer_name,customer_email,customer_phone,date,time,party_size,status,note",
-      ];
-
-      let data = null;
-      for (const cols of COLUMN_SETS) {
-        let q = supabase
-          .from("reservations")
-          .select(cols)
-          .eq("date", filterDate)
-          .order("time", { ascending: true });
-        if (filterStatus) q = q.eq("status", filterStatus);
-        // Only filter by source when the column set includes it
-        if (filterSource && cols.includes("source")) q = q.eq("source", filterSource);
-
-        const { data: d, error: e } = await q;
-        if (!e) { data = d; break; }
-        // Any error other than a missing-column schema error is terminal
-        if (!e.message?.includes("does not exist") && !e.message?.includes("schema cache")) {
-          console.error("ReservationsView fetch:", e.message);
-          break;
-        }
+      const params = new URLSearchParams({ date: filterDate });
+      const r = await fetch(`/api/pos/reservations?${params}`, { cache: "no-store" });
+      if (!r.ok) {
+        if (r.status !== 401) console.error("ReservationsView fetch:", r.status);
+        return;
       }
+      const json = await r.json() as { ok: boolean; reservations?: ResRowEx[] };
+      if (!json.ok || !json.reservations) return;
 
-      setRows((data ?? []) as unknown as ResRowEx[]);
+      const filtered = json.reservations
+        .filter((row) => !filterStatus || row.status === filterStatus)
+        .filter((row) => !filterSource || (row as ResRowEx & { source?: string }).source === filterSource)
+        .sort((a, b) => String(a.time ?? "").localeCompare(String(b.time ?? "")));
+
+      setRows(filtered);
     } catch (err) {
       console.error("ReservationsView fetch:", err);
     } finally {
@@ -228,12 +215,11 @@ export default function ReservationsView() {
 
   useEffect(() => { fetchRows(); }, [fetchRows]);
 
+  // Poll every 5 s — Supabase Realtime on the anon client no longer fires for
+  // reservations after RLS is tightened.
   useEffect(() => {
-    const ch = supabase
-      .channel("pos-reservations-list")
-      .on("postgres_changes", { event: "*", schema: "public", table: "reservations" }, fetchRows)
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
+    const id = setInterval(fetchRows, 5_000);
+    return () => clearInterval(id);
   }, [fetchRows]);
 
   async function doStatus(resId: string, status: string) {
