@@ -7,10 +7,10 @@ import { supabase } from "@/lib/supabase";
 import { POSSale } from "@/types/pos";
 import {
   AlertTriangle, BadgeDollarSign, Banknote, BarChart3, CreditCard, Download,
-  Flame, Loader2, Mail, Package, Percent, Printer, Receipt, RefreshCw,
-  RotateCcw, Search, Shuffle, Tag, Trash2, TrendingUp, Trophy, Users, Utensils, X,
+  Flame, Mail, Package, Percent, Printer, Receipt, RefreshCw,
+  RotateCcw, Search, Shuffle, Tag, Trash2, TrendingUp, Trophy, Users, Utensils,
 } from "lucide-react";
-import { fmt, fmtPct, fmtDate, fmtTime, relTime, getInitials } from "./_utils";
+import { fmt, fmtPct, fmtDate, fmtTime, relTime } from "./_utils";
 import { buildDineInReceiptHtml, type DineInOrder } from "./_receipts";
 import {
   type POSPeriod, POS_PERIODS, getPOSDateRange,
@@ -38,8 +38,6 @@ export default function DashboardView() {
   const [dineInLoading,    setDineInLoading]    = useState(false);
   const [dineInEmail,      setDineInEmail]      = useState<Record<string, string>>({});
   const [dineInEmailSt,    setDineInEmailSt]    = useState<Record<string, "idle"|"sending"|"sent"|"error">>({});
-  const [dineInPrintId,    setDineInPrintId]    = useState<string | null>(null);
-
   // ── Today's dine-in: always-loaded for Overview KPIs ───────────────────────
   const [todayDineIn,      setTodayDineIn]      = useState<DineInOrder[]>([]);
 
@@ -74,7 +72,7 @@ export default function DashboardView() {
       .lte("date", todayEnd.toISOString())
       .order("date", { ascending: false });
     setTodayDineIn((data ?? []).map(mapDineInRow));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);  
 
   // Fetch today's dine-in on mount
   useEffect(() => { refreshTodayDineIn(); }, [refreshTodayDineIn]);
@@ -89,7 +87,7 @@ export default function DashboardView() {
       .limit(200);
     setDineInOrders((data ?? []).map(mapDineInRow));
     setDineInLoading(false);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);  
 
   useEffect(() => {
     if (dashTab !== "dine-in") return;
@@ -197,7 +195,7 @@ export default function DashboardView() {
       .limit(500);
     setReportsDineIn((data ?? []).map(mapDineInRow));
     setReportsDineInLoading(false);
-  }, [startDate, endDate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [startDate, endDate]);  
 
   useEffect(() => {
     if (dashTab !== "reports") return;

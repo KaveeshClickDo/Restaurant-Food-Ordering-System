@@ -9,6 +9,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import { getCustomerSession, unauthorizedJson } from "@/lib/auth";
+import { parseBody }                 from "@/lib/apiValidation";
+import { SpendCreditSchema }         from "@/lib/schemas/waiter";
 
 export async function POST(
   req: NextRequest,
@@ -19,14 +21,9 @@ export async function POST(
   const session = await getCustomerSession();
   if (!session || session.id !== id) return unauthorizedJson();
 
-  let body: { amount?: number };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  const amount = body.amount;
-  if (typeof amount !== "number" || amount <= 0) {
-    return NextResponse.json({ ok: false, error: "'amount' must be a positive number." }, { status: 400 });
-  }
+  const parsed = await parseBody(req, SpendCreditSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { amount } = parsed.data;
 
   // Fetch current balance from DB — client cannot influence the resulting value
   const { data, error: fetchErr } = await supabaseAdmin

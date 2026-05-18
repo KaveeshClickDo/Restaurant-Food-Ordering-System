@@ -19,8 +19,12 @@ import { sendReservationEmailServer }      from "@/lib/emailServer";
 import { isAdminAuthenticated }            from "@/lib/adminAuth";
 import { getPosSession, unauthorizedJson } from "@/lib/auth";
 import type { EmailTemplateEvent }         from "@/types";
+import { parseBody }                       from "@/lib/apiValidation";
+import { z }                               from "zod";
 
-const ALLOWED = new Set(["checked_in", "checked_out", "confirmed", "cancelled", "no_show"]);
+const PosReservationStatusSchema = z.object({
+  status: z.enum(["checked_in", "checked_out", "confirmed", "cancelled", "no_show"]),
+});
 
 // Keep in lockstep with /api/admin/reservations/[id]. Any status with a mapped
 // event sends the guest an email after the row is updated.
@@ -40,16 +44,9 @@ export async function PUT(
 
   const { id } = await params;
 
-  let body: { status?: string };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  if (!body.status || !ALLOWED.has(body.status)) {
-    return NextResponse.json(
-      { ok: false, error: "status must be one of: checked_in, checked_out, confirmed, cancelled, no_show." },
-      { status: 400 },
-    );
-  }
+  const parsed = await parseBody(req, PosReservationStatusSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data;
 
   const patch: Record<string, unknown> = { status: body.status };
   if (body.status === "checked_in")  patch.checked_in_at  = new Date().toISOString();

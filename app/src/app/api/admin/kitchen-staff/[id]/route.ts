@@ -7,10 +7,10 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
+import { parseBody } from "@/lib/apiValidation";
+import { KitchenStaffUpdateSchema } from "@/lib/schemas/staff";
 
-const PUBLIC_COLUMNS = "id, name, email, role, active, avatar_color, created_at";
 const HASH_ROUNDS = 10;
-const ROLES = ["chef", "head_chef", "kitchen_manager"] as const;
 
 export async function PATCH(
   req: NextRequest,
@@ -19,31 +19,17 @@ export async function PATCH(
   if (!await isAdminAuthenticated()) return unauthorizedResponse();
   const { id } = await params;
 
-  let body: { name?: string; email?: string; role?: string; pin?: string;
-              active?: boolean; avatarColor?: string };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 }); }
+  const parsed = await parseBody(req, KitchenStaffUpdateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data;
 
   const patch: Record<string, unknown> = {};
-  if (body.name        !== undefined) patch.name         = body.name.trim();
-  if (body.email       !== undefined) patch.email        = body.email.trim().toLowerCase();
+  if (body.name        !== undefined) patch.name         = body.name;
+  if (body.email       !== undefined) patch.email        = body.email ? body.email.toLowerCase() : "";
   if (body.active      !== undefined) patch.active       = body.active;
   if (body.avatarColor !== undefined) patch.avatar_color = body.avatarColor;
-  if (body.role        !== undefined) {
-    if (!ROLES.includes(body.role as typeof ROLES[number])) {
-      return NextResponse.json(
-        { ok: false, error: `Role must be one of: ${ROLES.join(", ")}` },
-        { status: 400 },
-      );
-    }
-    patch.role = body.role;
-  }
-  if (body.pin) {
-    if (!/^\d{4,6}$/.test(body.pin)) {
-      return NextResponse.json({ ok: false, error: "PIN must be 4–6 digits" }, { status: 400 });
-    }
-    patch.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
-  }
+  if (body.role        !== undefined) patch.role         = body.role;
+  if (body.pin) patch.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ ok: false, error: "No fields to update" }, { status: 400 });

@@ -7,6 +7,8 @@
 import { NextRequest, NextResponse }            from "next/server";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
+import { parseBody }                            from "@/lib/apiValidation";
+import { ReservationCustomerUpdateSchema }      from "@/lib/schemas/customer";
 
 export async function PATCH(
   req: NextRequest,
@@ -15,9 +17,9 @@ export async function PATCH(
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
   const { id } = await params;
 
-  let body: { notes?: string; tags?: string[]; marketingOptIn?: boolean };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
+  const parsed = await parseBody(req, ReservationCustomerUpdateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data;
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (body.notes        !== undefined) patch.notes            = body.notes.trim();

@@ -11,6 +11,8 @@ import { supabaseAdmin }              from "@/lib/supabaseAdmin";
 import { sendReservationEmailServer } from "@/lib/emailServer";
 import { isAdminAuthenticated }       from "@/lib/adminAuth";
 import { getPosSession, unauthorizedJson } from "@/lib/auth";
+import { parseBody }                  from "@/lib/apiValidation";
+import { ReservationPosSchema }       from "@/lib/schemas/reservation";
 
 function toMins(time: string): number {
   const [h, m] = time.split(":").map(Number);
@@ -21,35 +23,13 @@ export async function POST(req: NextRequest) {
   const [pos, admin] = await Promise.all([getPosSession(), isAdminAuthenticated()]);
   if (!pos && !admin) return unauthorizedJson();
 
-  let body: {
-    tableId?: string; tableLabel?: string; tableSeats?: number; section?: string;
-    date?: string; time?: string; partySize?: number;
-    customerName?: string; customerEmail?: string; customerPhone?: string;
-    note?: string; source?: string;
-  };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
+  const parsed = await parseBody(req, ReservationPosSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const {
     tableId, tableLabel, tableSeats, section,
     date, time, partySize, customerName, customerEmail, customerPhone,
-    note, source = "walk-in",
-  } = body;
-
-  if (!tableId || !tableLabel || !date || !time || !partySize || !customerName) {
-    return NextResponse.json(
-      { ok: false, error: "tableId, tableLabel, date, time, partySize and customerName are required." },
-      { status: 400 },
-    );
-  }
-  // Phone bookings always need a callback number — staff must be able to
-  // reach the guest. UI also enforces this; this is the server-side gate.
-  if (source === "phone" && !customerPhone?.trim()) {
-    return NextResponse.json(
-      { ok: false, error: "Phone number is required for phone bookings." },
-      { status: 400 },
-    );
-  }
+    note, source,
+  } = parsed.data;
 
   // Load settings once — used for both conflict detection (slot duration) and
   // the phone-booking confirmation email further down.

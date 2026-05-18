@@ -15,6 +15,8 @@ import {
   COOKIE_KITCHEN,
 } from "@/lib/auth";
 import { rateLimit } from "@/lib/rateLimit";
+import { parseBody } from "@/lib/apiValidation";
+import { StaffPinLoginSchema } from "@/lib/schemas/auth";
 
 const PUBLIC_COLUMNS = "id, name, email, role, active, created_at";
 
@@ -25,14 +27,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Too many attempts. Please wait a minute." }, { status: 429 });
   }
 
-  let body: { staffId?: string; pin?: string };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  const { staffId, pin } = body;
-  if (!staffId || !pin) {
-    return NextResponse.json({ ok: false, error: "staffId and pin are required." }, { status: 400 });
-  }
+  const parsed = await parseBody(req, StaffPinLoginSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { staffId, pin } = parsed.data;
 
   try {
     const { data: member } = await supabaseAdmin

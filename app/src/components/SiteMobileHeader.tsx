@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   UtensilsCrossed, Receipt, CalendarDays, User, LogOut,
-  Heart, MapPin, Menu as MenuIcon, X,
+  Heart, Menu as MenuIcon, X,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 

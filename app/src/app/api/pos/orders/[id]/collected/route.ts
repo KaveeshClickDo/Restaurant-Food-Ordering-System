@@ -17,6 +17,8 @@ import {
   unauthorizedJson,
 } from "@/lib/auth";
 
+// PUT body is empty — no schema needed. Auth + DB-state check are the guards.
+
 async function isStaffAuthenticated(): Promise<boolean> {
   if (await isAdminAuthenticated()) return true;
   const [pos, kitchen, waiter] = await Promise.all([

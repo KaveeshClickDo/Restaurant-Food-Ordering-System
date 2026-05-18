@@ -19,6 +19,8 @@ import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import { cartLineTotal }             from "@/types/pos";
 import type { POSSale, POSCartItem } from "@/types/pos";
 import { getPosSession }             from "@/lib/auth";
+import { parseBody }                 from "@/lib/apiValidation";
+import { PosSaleCreateSchema }       from "@/lib/schemas/pos";
 
 const POS_CUSTOMER_ID = "pos-walk-in";
 
@@ -70,13 +72,9 @@ export async function POST(req: NextRequest) {
   const unauth = await requirePosSessionOrFreshInstall();
   if (unauth) return unauth;
 
-  let body: Partial<POSSale>;
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  if (!body.id || !Array.isArray(body.items) || body.items.length === 0) {
-    return NextResponse.json({ ok: false, error: "Invalid sale payload." }, { status: 400 });
-  }
+  const parsed = await parseBody(req, PosSaleCreateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data as unknown as Partial<POSSale>;
 
   // Insert into pos_sales. receipt_no is filled by the DB default expression
   // ('R' || nextval('pos_receipt_seq')) so neither client nor server has to

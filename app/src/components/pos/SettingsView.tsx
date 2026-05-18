@@ -216,6 +216,7 @@ export default function SettingsView() {
                     />
                     {local.receiptLogoUrl && (
                       <div className="w-10 h-10 border border-slate-600 rounded-xl overflow-hidden flex-shrink-0 bg-slate-900">
+                        {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary URL or data: URI, needs onError fallback */}
                         <img
                           src={local.receiptLogoUrl}
                           alt="Logo preview"
@@ -351,6 +352,7 @@ export default function SettingsView() {
                     <div className="px-4 py-4">
                       {local.receiptShowLogo && local.receiptLogoUrl && (
                         <div className="flex justify-center mb-3">
+                          {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary URL or data: URI, needs onError fallback */}
                           <img src={local.receiptLogoUrl} alt="Logo" className="h-10 w-auto object-contain"
                             onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                         </div>

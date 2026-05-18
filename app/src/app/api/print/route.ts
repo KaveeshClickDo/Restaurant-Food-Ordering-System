@@ -19,12 +19,8 @@ import {
   getWaiterSession,
   unauthorizedJson,
 } from "@/lib/auth";
-
-interface PrintRequest {
-  ip:    string;
-  port:  number;
-  bytes: number[];
-}
+import { parseBody } from "@/lib/apiValidation";
+import { PrintSchema } from "@/lib/schemas/pos";
 
 // Block loopback, link-local (cloud metadata at 169.254.169.254), and 0.0.0.0.
 // Printers live on private LANs (192.168/172.16/10.0), so those ranges stay
@@ -53,32 +49,9 @@ async function isStaffAuthenticated(): Promise<boolean> {
 export async function POST(request: Request) {
   if (!await isStaffAuthenticated()) return unauthorizedJson();
 
-  let body: PrintRequest;
-
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { ok: false, error: "Invalid JSON body" },
-      { status: 400 },
-    );
-  }
-
-  const { ip, port, bytes } = body;
-
-  if (!ip || !port || !Array.isArray(bytes) || bytes.length === 0) {
-    return NextResponse.json(
-      { ok: false, error: "Required fields: ip (string), port (number), bytes (number[])" },
-      { status: 400 },
-    );
-  }
-
-  if (typeof ip !== "string" || ip.trim().length === 0) {
-    return NextResponse.json(
-      { ok: false, error: "Invalid printer IP address" },
-      { status: 400 },
-    );
-  }
+  const parsed = await parseBody(request, PrintSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { ip, port, bytes } = parsed.data;
 
   if (isBlockedIp(ip.trim())) {
     return NextResponse.json(
@@ -87,22 +60,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const portNum = Number(port);
-  if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
-    return NextResponse.json(
-      { ok: false, error: "Port must be an integer between 1 and 65535" },
-      { status: 400 },
-    );
-  }
-
-  // Cap payload size to prevent abuse — 64 KB is plenty for any receipt
-  if (bytes.length > 65_536) {
-    return NextResponse.json(
-      { ok: false, error: "Print payload too large (max 64 KB)." },
-      { status: 413 },
-    );
-  }
-
+  const portNum = port;
   const buffer = Buffer.from(bytes);
 
   try {

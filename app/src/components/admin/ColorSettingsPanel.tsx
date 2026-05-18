@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import { useApp } from "@/context/AppContext";
 import type { ColorSettings } from "@/types";
-import { generateShades, hslToHex, hexToHsl } from "@/lib/colorUtils";
+import { generateShades } from "@/lib/colorUtils";
 import { Palette, RotateCcw, Check, ShoppingBag, Star, Flame } from "lucide-react";
 
 // ─── Defaults ────────────────────────────────────────────────────────────────
@@ -27,12 +27,6 @@ const PRESETS: { name: string; primary: string; bg: string }[] = [
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Lighten a hex color by `amount` lightness points (0-100). */
-function lighten(hex: string, amount: number): string {
-  const [h, s, l] = hexToHsl(hex);
-  return hslToHex(h, s, Math.min(l + amount, 98));
-}
 
 /** Return true if the hex represents a "light" color (use dark text on it). */
 function isLight(hex: string): boolean {

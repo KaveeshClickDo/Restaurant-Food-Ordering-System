@@ -6,6 +6,8 @@
 import { NextRequest, NextResponse }            from "next/server";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
+import { parseBody }                            from "@/lib/apiValidation";
+import { OrderDriverAssignSchema }              from "@/lib/schemas/pos";
 
 export async function PUT(
   req: NextRequest,
@@ -14,19 +16,9 @@ export async function PUT(
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
   const { id } = await params;
 
-  let body: {
-    driver_id:       string;
-    driver_name:     string;
-    delivery_status: string;
-    // Optional: also update order status (e.g. "delivered")
-    status?: string;
-    // Optional: 4-digit PIN entered by the driver at hand-off. Required when
-    // advancing delivery_status to "delivered" if the order was created with
-    // a delivery_code.
-    delivery_code?: string;
-  };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
+  const parsed = await parseBody(req, OrderDriverAssignSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data;
 
   // Block advancing delivery beyond "assigned" until the kitchen has marked
   // the order ready. A driver may accept (assign) a preparing order and head

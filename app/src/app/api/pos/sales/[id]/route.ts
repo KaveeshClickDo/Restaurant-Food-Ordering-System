@@ -10,12 +10,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import { getPosSession }             from "@/lib/auth";
-
-interface VoidBody {
-  voidReason?:   string;
-  refundMethod?: "cash" | "card" | "none";
-  refundAmount?: number;
-}
+import { parseBody }                 from "@/lib/apiValidation";
+import { PosSaleVoidSchema }         from "@/lib/schemas/pos";
 
 export async function PATCH(
   req: NextRequest,
@@ -29,16 +25,13 @@ export async function PATCH(
   const { id } = await ctx.params;
   if (!id) return NextResponse.json({ ok: false, error: "Missing id." }, { status: 400 });
 
-  let body: VoidBody;
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
+  const parsed = await parseBody(req, PosSaleVoidSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data;
 
-  const reason = (body.voidReason ?? "").trim();
-  if (!reason) return NextResponse.json({ ok: false, error: "Void reason is required." }, { status: 400 });
-
+  const reason = body.voidReason;
   const refundMethod = body.refundMethod ?? "none";
-  const refundAmount = typeof body.refundAmount === "number" && body.refundAmount > 0
-    ? body.refundAmount : null;
+  const refundAmount = body.refundAmount && body.refundAmount > 0 ? body.refundAmount : null;
 
   const { data: updated, error } = await supabaseAdmin
     .from("pos_sales")

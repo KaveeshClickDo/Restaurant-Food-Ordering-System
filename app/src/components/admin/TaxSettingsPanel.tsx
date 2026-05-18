@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { TaxSettings } from "@/types";
 import {
-  Receipt, CheckCircle, ToggleLeft, ToggleRight,
+  Receipt, CheckCircle,
   AlertTriangle, Info, ShoppingCart, Tag,
 } from "lucide-react";
 

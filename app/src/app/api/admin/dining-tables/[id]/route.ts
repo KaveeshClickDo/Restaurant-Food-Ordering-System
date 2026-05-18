@@ -6,6 +6,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
+import { parseBody } from "@/lib/apiValidation";
+import { DiningTableUpdateSchema } from "@/lib/schemas/menu";
 
 export async function PATCH(
   req: NextRequest,
@@ -14,19 +16,13 @@ export async function PATCH(
   if (!await isAdminAuthenticated()) return unauthorizedResponse();
   const { id } = await params;
 
-  let body: {
-    label?: string; number?: number | null; seats?: number;
-    section?: string; active?: boolean; sortOrder?: number;
-  };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 }); }
+  const parsed = await parseBody(req, DiningTableUpdateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data;
 
   // Block duplicate labels on rename (case-insensitive, ignoring self).
   if (body.label !== undefined) {
-    const trimmedLabel = body.label.trim();
-    if (!trimmedLabel) {
-      return NextResponse.json({ ok: false, error: "Label cannot be empty." }, { status: 400 });
-    }
+    const trimmedLabel = body.label;
     const { data: existing } = await supabaseAdmin
       .from("dining_tables")
       .select("id")
@@ -46,7 +42,7 @@ export async function PATCH(
   if (body.label     !== undefined) patch.label      = body.label;
   if (body.number    !== undefined) patch.number     = body.number;
   if (body.seats     !== undefined) patch.seats      = body.seats;
-  if (body.section   !== undefined) patch.section    = body.section.trim();
+  if (body.section   !== undefined) patch.section    = body.section?.trim() ?? "";
   if (body.active    !== undefined) patch.active     = body.active;
   if (body.sortOrder !== undefined) patch.sort_order = body.sortOrder;
 

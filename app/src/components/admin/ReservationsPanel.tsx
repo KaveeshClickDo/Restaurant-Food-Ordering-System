@@ -10,6 +10,7 @@ import {
   ToggleLeft, ToggleRight, Settings2, Search, Mail, Phone,
   LogIn, LogOut, UserPlus, Ban, Star, Link, ExternalLink,
 } from "lucide-react";
+import { cleanPhone } from "@/lib/inputUtils";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -992,9 +993,9 @@ export default function ReservationsPanel() {
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Guest details</p>
                   <input type="text" required value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="Full name *"
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
-                  <input type="email" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} placeholder="Email (optional)"
+                  <input type="email" autoComplete="off" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} placeholder="Email (optional)"
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
-                  <input type="tel" required={addSource === "phone"} value={addPhone} onChange={(e) => setAddPhone(e.target.value)}
+                  <input type="tel" inputMode="tel" autoComplete="off" required={addSource === "phone"} value={addPhone} onChange={(e) => setAddPhone(cleanPhone(e.target.value))}
                     placeholder={addSource === "phone" ? "Phone *" : "Phone (optional)"}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
                   <textarea rows={2} value={addNote} onChange={(e) => setAddNote(e.target.value)} placeholder="Notes (allergies, special requests…)"

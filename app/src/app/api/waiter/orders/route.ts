@@ -8,6 +8,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import { requireWaiterAuth }         from "@/lib/waiterAuth";
+import { parseBody }                 from "@/lib/apiValidation";
+import { WaiterOrderCreateSchema }   from "@/lib/schemas/pos";
 
 const POS_CUSTOMER_ID = "pos-walk-in";
 
@@ -23,22 +25,9 @@ export async function POST(req: NextRequest) {
   const authError = await requireWaiterAuth();
   if (authError) return authError;
 
-  let body: {
-    tableLabel?: string;
-    covers?: number;
-    staffName?: string;
-    items?: { name: string; qty: number; price: number }[];
-    total?: number;
-    kitchenNote?: string;
-  };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  const { tableLabel, covers, staffName, items, total, kitchenNote } = body;
-
-  if (!tableLabel || !Array.isArray(items) || items.length === 0) {
-    return NextResponse.json({ ok: false, error: "tableLabel and items are required." }, { status: 400 });
-  }
+  const parsed = await parseBody(req, WaiterOrderCreateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { tableLabel, covers, staffName, items, total, kitchenNote } = parsed.data;
 
   try {
     await ensureWalkInCustomer();

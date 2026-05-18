@@ -64,6 +64,7 @@ export default function Footer() {
                     title={logo.label}
                     className="flex items-center opacity-60 hover:opacity-100 transition"
                   >
+                    {/* eslint-disable-next-line @next/next/no-img-element -- admin-configured logo URLs from arbitrary hosts */}
                     <img
                       src={logo.imageUrl}
                       alt={logo.label}
@@ -71,6 +72,7 @@ export default function Footer() {
                     />
                   </a>
                 ) : (
+                  // eslint-disable-next-line @next/next/no-img-element -- admin-configured logo URLs from arbitrary hosts
                   <img
                     key={logo.id}
                     src={logo.imageUrl}

@@ -9,6 +9,8 @@ import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import type { DiningTable, ReservationSystem } from "@/types";
 import { sendReservationEmailServer }          from "@/lib/emailServer";
 import { rateLimit }                  from "@/lib/rateLimit";
+import { parseBody }                  from "@/lib/apiValidation";
+import { ReservationPublicSchema }    from "@/lib/schemas/reservation";
 
 function toMins(time: string): number {
   const [h, m] = time.split(":").map(Number);
@@ -28,28 +30,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: {
-    tableId?: string;
-    date?: string;
-    time?: string;
-    partySize?: number;
-    customerName?: string;
-    customerEmail?: string;
-    customerPhone?: string;
-    note?: string;
-    source?: string;
-  };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  const { tableId, date, time, partySize, customerName, customerEmail, customerPhone, note, source } = body;
-
-  if (!tableId || !date || !time || !partySize || !customerName || !customerEmail) {
-    return NextResponse.json(
-      { ok: false, error: "tableId, date, time, partySize, customerName, and customerEmail are required." },
-      { status: 400 },
-    );
-  }
+  const parsed = await parseBody(req, ReservationPublicSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { tableId, date, time, partySize, customerName, customerEmail, customerPhone, note, source } = parsed.data;
 
   // Reject past slots — 5-minute buffer for slow submissions
   if (new Date(`${date}T${time}`).getTime() < Date.now() - 5 * 60 * 1000) {

@@ -8,6 +8,7 @@ import {
   Truck, UtensilsCrossed, UserCircle2, ChevronDown,
   ChefHat, Tablet,
 } from "lucide-react";
+import { cleanPhone } from "@/lib/inputUtils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -711,7 +712,7 @@ function CreateUserModal({
         {/* Phone — required for drivers, optional for customers, hidden for staff */}
         {!isStaffPin && (
           <FormField label="Phone" error={errors.phone} required={type === "driver"}>
-            <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+44 7700 900000" className={inputCls(!!errors.phone)} />
+            <input type="tel" inputMode="tel" autoComplete="off" value={phone} onChange={(e) => setPhone(cleanPhone(e.target.value))} placeholder="+44 7700 900000" className={inputCls(!!errors.phone)} />
           </FormField>
         )}
 
@@ -915,7 +916,7 @@ function EditUserModal({
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@example.com" className={inputCls(!!errors.email)} />
             </FormField>
             <FormField label="Phone">
-              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+44 7700 900000" className={inputCls(false)} />
+              <input type="tel" inputMode="tel" autoComplete="off" value={phone} onChange={(e) => setPhone(cleanPhone(e.target.value))} placeholder="+44 7700 900000" className={inputCls(false)} />
             </FormField>
           </>
         )}

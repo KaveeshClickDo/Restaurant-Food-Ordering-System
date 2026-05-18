@@ -28,12 +28,6 @@ export default function TableStatusView() {
 
   const sections = [...new Set(tables.map((t) => t.section).filter(Boolean))];
 
-  // Local date string — toISOString() is UTC and can return yesterday east of UTC+0
-  const todayStr = () => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  };
-
   const fetchToday = useCallback(async () => {
     setLoading(true);
     try {

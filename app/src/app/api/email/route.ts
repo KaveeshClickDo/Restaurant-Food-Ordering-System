@@ -29,6 +29,8 @@ import {
   unauthorizedJson,
 } from "@/lib/auth";
 import { sendEmail, emailConfigured } from "@/lib/emailSender";
+import { parseBody } from "@/lib/apiValidation";
+import { EmailRelaySchema } from "@/lib/schemas/pos";
 
 export const runtime = "nodejs";
 
@@ -42,37 +44,12 @@ async function isStaffAuthenticated(): Promise<boolean> {
   return Boolean(waiter || pos || kitchen);
 }
 
-interface EmailRequest {
-  to:        string;
-  subject:   string;
-  html:      string;
-  fromName?: string;
-}
-
 export async function POST(request: Request) {
   if (!await isStaffAuthenticated()) return unauthorizedJson();
 
-  let body: EmailRequest & { smtp?: unknown };
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
-  }
-
-  if (body.smtp) {
-    return NextResponse.json(
-      { ok: false, error: "SMTP credentials must not be passed in the request body." },
-      { status: 400 },
-    );
-  }
-
-  const { to, subject, html, fromName } = body;
-  if (!to || !subject || !html) {
-    return NextResponse.json(
-      { ok: false, error: "Required fields: to, subject, html" },
-      { status: 400 },
-    );
-  }
+  const parsed = await parseBody(request, EmailRelaySchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { to, subject, html, fromName } = parsed.data;
 
   if (!emailConfigured()) {
     return NextResponse.json(

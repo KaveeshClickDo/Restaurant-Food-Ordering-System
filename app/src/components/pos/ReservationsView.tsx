@@ -8,6 +8,7 @@ import {
   LogIn, LogOut, RefreshCw, Search, UserPlus, Users, UtensilsCrossed, X,
 } from "lucide-react";
 import { type ResRow, fmt12Pos, fmtTsPos } from "./_reservations";
+import { cleanPhone } from "@/lib/inputUtils";
 
 // ─── Reservations View (POS) ──────────────────────────────────────────────────
 
@@ -698,10 +699,10 @@ export default function ReservationsView() {
                 <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Guest details</p>
                 <input type="text" placeholder="Full name *" value={addName} onChange={(e) => setAddName(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" />
-                <input type="email" placeholder="Email (optional)" value={addEmail} onChange={(e) => setAddEmail(e.target.value)}
+                <input type="email" autoComplete="off" placeholder="Email (optional)" value={addEmail} onChange={(e) => setAddEmail(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" />
-                <input type="tel" placeholder={addSource === "phone" ? "Phone *" : "Phone (optional)"}
-                  value={addPhone} onChange={(e) => setAddPhone(e.target.value)}
+                <input type="tel" inputMode="tel" autoComplete="off" placeholder={addSource === "phone" ? "Phone *" : "Phone (optional)"}
+                  value={addPhone} onChange={(e) => setAddPhone(cleanPhone(e.target.value))}
                   className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" />
                 <textarea rows={2} placeholder="Notes (optional)" value={addNote} onChange={(e) => setAddNote(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 text-sm placeholder-slate-500 resize-none focus:outline-none focus:border-orange-500 transition" />

@@ -219,7 +219,7 @@ function CurrencyCard() {
     setSymbol(current.symbol);
     const preset = CURRENCY_PRESETS.find((p) => p.code === current.code && p.symbol === current.symbol);
     setMode(preset ? "preset" : "custom");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [current.code, current.symbol]);
 
   function handleSelectPreset(presetCode: string) {

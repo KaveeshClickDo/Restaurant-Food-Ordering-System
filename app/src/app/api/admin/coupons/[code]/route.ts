@@ -8,6 +8,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
+import { parseBody } from "@/lib/apiValidation";
+import { CouponUpdateSchema } from "@/lib/schemas/coupon";
 
 export async function PATCH(
   req: NextRequest,
@@ -16,14 +18,9 @@ export async function PATCH(
   if (!await isAdminAuthenticated()) return unauthorizedResponse();
   const { code } = await params;
 
-  let body: {
-    description?: string;
-    discountType?: "percent" | "fixed"; discountValue?: number;
-    minOrderTotal?: number; maxUses?: number | null;
-    expiresAt?: string | null; active?: boolean; usageCount?: number;
-  };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 }); }
+  const parsed = await parseBody(req, CouponUpdateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data;
 
   const patch: Record<string, unknown> = {};
   if (body.description    !== undefined) patch.description     = body.description;

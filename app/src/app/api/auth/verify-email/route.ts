@@ -7,6 +7,8 @@ import { NextRequest, NextResponse }   from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { supabaseAdmin }               from "@/lib/supabaseAdmin";
 import { createSessionToken, setSessionCookie, COOKIE_CUSTOMER } from "@/lib/auth";
+import { parseBody }                   from "@/lib/apiValidation";
+import { VerifyEmailSchema }           from "@/lib/schemas/auth";
 
 function hashToken(raw: string): string {
   const secret = (process.env.AUTH_JWT_SECRET ?? process.env.ADMIN_JWT_SECRET ?? "").trim();
@@ -14,14 +16,9 @@ function hashToken(raw: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  let body: { email?: string; token?: string };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  const { email, token } = body;
-  if (!email?.trim() || !token) {
-    return NextResponse.json({ ok: false, error: "email and token are required." }, { status: 400 });
-  }
+  const parsed = await parseBody(req, VerifyEmailSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { email, token } = parsed.data;
 
   const { data, error } = await supabaseAdmin
     .from("customers")

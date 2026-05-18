@@ -9,6 +9,8 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
+import { parseBody } from "@/lib/apiValidation";
+import { DiningTableCreateSchema } from "@/lib/schemas/menu";
 
 const COLUMNS = "id, label, number, seats, section, active, sort_order, created_at";
 
@@ -43,25 +45,13 @@ export async function GET() {
 export async function POST(request: Request) {
   if (!await isAdminAuthenticated()) return unauthorizedResponse();
 
-  let body: {
-    label?: string; number?: number | null; seats?: number;
-    section?: string; active?: boolean; sortOrder?: number;
-  };
-  try { body = await request.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 }); }
-
-  const { label, number = null, seats, section = "", active = true, sortOrder = 0 } = body;
-
-  if (!label?.trim() || typeof seats !== "number" || seats < 1) {
-    return NextResponse.json(
-      { ok: false, error: "Required: label, seats (>=1)" },
-      { status: 400 },
-    );
-  }
+  const parsed = await parseBody(request, DiningTableCreateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { label, number = null, seats, section = "", active = true, sortOrder = 0 } = parsed.data;
 
   // Block duplicate labels (case-insensitive). Defense-in-depth — the client
   // also checks, but a stale form or direct API call can still slip through.
-  const trimmedLabel = label.trim();
+  const trimmedLabel = label;
   const { data: existing } = await supabaseAdmin
     .from("dining_tables")
     .select("id")

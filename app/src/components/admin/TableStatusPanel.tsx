@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useApp } from "@/context/AppContext";
-import type { Reservation, ReservationStatus } from "@/types";
+import type { Reservation } from "@/types";
 import {
   UtensilsCrossed, Users, Clock, LogIn, LogOut,
   Loader2, RefreshCw, CheckCircle2, CalendarDays,

@@ -13,6 +13,8 @@ import { useApp } from "@/context/AppContext";
 import { DeliveryZone, Order, PaymentMethod, SavedAddress } from "@/types";
 import { printOrder } from "@/lib/escpos";
 import { computeTax, taxSurcharge } from "@/lib/taxUtils";
+import { checkoutFormSchema } from "@/lib/schemas/order";
+import { cleanPhone } from "@/lib/inputUtils";
 
 // Stripe.js loader — singleton so we don't re-download Stripe.js on every
 // modal open. `loadStripe` returns null if the key is missing, which the
@@ -316,17 +318,17 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   }
 
   function validate(): boolean {
+    const result = checkoutFormSchema({ isDelivery }).safeParse({
+      name: form.name, email: form.email, phone: form.phone, address: form.address,
+    });
+    if (result.success) { setFieldErrors({}); return true; }
     const errors: Record<string, string> = {};
-    if (!form.name.trim())  errors.name  = "Full name is required.";
-    if (!form.email.trim()) {
-      errors.email = "Email address is required.";
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
-      errors.email = "Enter a valid email address.";
+    for (const issue of result.error.issues) {
+      const key = issue.path[0];
+      if (typeof key === "string" && !errors[key]) errors[key] = issue.message;
     }
-    if (!form.phone.trim()) errors.phone = "Phone number is required.";
-    if (isDelivery && !form.address.trim()) errors.address = "Delivery address is required.";
     setFieldErrors(errors);
-    return Object.keys(errors).length === 0;
+    return false;
   }
 
   /**
@@ -776,9 +778,12 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                 </label>
                 <input
                   type={type}
+                  inputMode={key === "phone" ? "tel" : undefined}
+                  autoComplete={key === "phone" ? "tel" : key === "email" ? "email" : key === "name" ? "name" : undefined}
                   value={form[key as keyof typeof form]}
                   onChange={(e) => {
-                    setForm((f) => ({ ...f, [key]: e.target.value }));
+                    const v = key === "phone" ? cleanPhone(e.target.value) : e.target.value;
+                    setForm((f) => ({ ...f, [key]: v }));
                     if (fieldErrors[key]) setFieldErrors((p) => ({ ...p, [key]: "" }));
                   }}
                   placeholder={placeholder}

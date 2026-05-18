@@ -8,27 +8,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireWaiterAuth } from "@/lib/waiterAuth";
+import { parseBody } from "@/lib/apiValidation";
+import { WaiterVoidSchema } from "@/lib/schemas/waiter";
 
 export async function POST(req: NextRequest) {
   const unauth = await requireWaiterAuth();
   if (unauth) return unauth;
 
-  let body: {
-    orderIds?: string[];
-    reason?: string;
-    voidedBy?: string;
-  };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  const { orderIds, reason, voidedBy } = body;
-
-  if (!Array.isArray(orderIds) || orderIds.length === 0) {
-    return NextResponse.json({ ok: false, error: "orderIds is required." }, { status: 400 });
-  }
-  if (!reason?.trim()) {
-    return NextResponse.json({ ok: false, error: "reason is required." }, { status: 400 });
-  }
+  const parsed = await parseBody(req, WaiterVoidSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { orderIds, reason, voidedBy } = parsed.data;
 
   try {
     // Try to update with optional void-audit columns first.

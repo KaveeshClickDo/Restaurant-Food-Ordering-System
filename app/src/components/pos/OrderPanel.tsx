@@ -20,7 +20,7 @@ export default function OrderPanel({
   onOpenTip: () => void;
 }) {
   const {
-    cart, updateCartQty, removeFromCart, clearCart,
+    cart, updateCartQty, clearCart,
     subtotal, discountAmount, taxAmount, grandTotal, tipAmount,
     discount, settings, assignedCustomer, currentStaff,
   } = usePOS();

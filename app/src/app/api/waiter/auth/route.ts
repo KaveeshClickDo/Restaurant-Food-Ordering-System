@@ -13,16 +13,13 @@ import {
   COOKIE_WAITER,
 } from "@/lib/auth";
 import { rateLimit } from "@/lib/rateLimit";
+import { parseBody } from "@/lib/apiValidation";
+import { StaffPinLoginSchema } from "@/lib/schemas/auth";
 
 export async function POST(req: NextRequest) {
-  let body: { staffId?: string; pin?: string };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  const { staffId, pin } = body;
-  if (!staffId || !pin) {
-    return NextResponse.json({ ok: false, error: "staffId and pin are required." }, { status: 400 });
-  }
+  const parsed = await parseBody(req, StaffPinLoginSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { staffId, pin } = parsed.data;
 
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
   const { limited } = rateLimit(`waiter-auth:${ip}:${staffId}`, 10, 60_000);

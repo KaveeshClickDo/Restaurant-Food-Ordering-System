@@ -7,41 +7,18 @@ import { NextRequest, NextResponse }   from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import bcrypt                          from "bcryptjs";
 import { supabaseAdmin }               from "@/lib/supabaseAdmin";
+import { parseBody }                   from "@/lib/apiValidation";
+import { ResetPasswordConfirmSchema }  from "@/lib/schemas/auth";
 
 function hashToken(rawToken: string): string {
   const secret = (process.env.AUTH_JWT_SECRET ?? process.env.ADMIN_JWT_SECRET ?? "").trim();
   return createHmac("sha256", secret).update(rawToken).digest("hex");
 }
 
-interface ConfirmBody {
-  email?: string;
-  token?: string;
-  password?: string;
-}
-
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  let body: ConfirmBody;
-  try {
-    body = await req.json() as ConfirmBody;
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 });
-  }
-
-  const { email, token, password } = body;
-
-  if (!email?.trim() || !token || !password) {
-    return NextResponse.json(
-      { ok: false, error: "email, token, and password are required." },
-      { status: 400 },
-    );
-  }
-
-  if (password.length < 6) {
-    return NextResponse.json(
-      { ok: false, error: "Password must be at least 6 characters." },
-      { status: 400 },
-    );
-  }
+  const parsed = await parseBody(req, ResetPasswordConfirmSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { email, token, password } = parsed.data;
 
   const { data } = await supabaseAdmin
     .from("drivers")

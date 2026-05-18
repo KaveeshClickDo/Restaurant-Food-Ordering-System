@@ -327,7 +327,7 @@ function customerToRow(c: Customer) {
 //
 // The only fallback kept is "raw is null" → return DEFAULT_SETTINGS, which
 // covers the brief SSR window before the first DB query resolves.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function buildSettingsFromData(raw: Record<string, unknown> | null): AdminSettings {
   if (!raw) return DEFAULT_SETTINGS;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

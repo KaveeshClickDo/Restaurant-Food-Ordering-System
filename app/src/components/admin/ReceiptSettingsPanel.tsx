@@ -161,6 +161,7 @@ function ReceiptPreview({ r, restaurantName }: { r: ReceiptSettings; restaurantN
           {/* Logo */}
           {r.showLogo && r.logoUrl && (
             <div className="flex justify-center mb-3">
+              {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary URL or data: URI, needs onError fallback */}
               <img
                 src={r.logoUrl}
                 alt="Receipt logo"
@@ -283,6 +284,7 @@ export default function ReceiptSettingsPanel() {
                       />
                       {draft.logoUrl && (
                         <div className="w-10 h-10 border border-gray-200 rounded-xl overflow-hidden flex-shrink-0 bg-gray-50">
+                          {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary URL or data: URI, needs onError fallback */}
                           <img
                             src={draft.logoUrl}
                             alt="Logo preview"

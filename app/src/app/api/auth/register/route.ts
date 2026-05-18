@@ -12,6 +12,8 @@ import { createHmac, randomBytes }    from "crypto";
 import { supabaseAdmin }              from "@/lib/supabaseAdmin";
 import { sendEmailDirect, fetchBrandPrimaryColor } from "@/lib/emailServer";
 import { emailConfigured }        from "@/lib/emailSender";
+import { parseBody }              from "@/lib/apiValidation";
+import { RegisterSchema }         from "@/lib/schemas/auth";
 
 // Issue a session cookie immediately on register only when the auth migration
 // hasn't been applied yet — in that case email_verified doesn't exist and the
@@ -66,22 +68,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Too many registration attempts. Please wait a minute." }, { status: 429 });
   }
 
-  let body: { id?: string; name?: string; email?: string; phone?: string; password?: string; createdAt?: string };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  const { id, name, email, phone, password, createdAt } = body;
-
-  // ── Validation ────────────────────────────────────────────────────────────
-  if (!id || !name?.trim() || !email?.trim() || !password) {
-    return NextResponse.json({ ok: false, error: "id, name, email, and password are required." }, { status: 400 });
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-    return NextResponse.json({ ok: false, error: "Invalid email address." }, { status: 400 });
-  }
-  if (password.length < 6) {
-    return NextResponse.json({ ok: false, error: "Password must be at least 6 characters." }, { status: 400 });
-  }
+  const parsed = await parseBody(req, RegisterSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { id, name, email, phone, password, createdAt } = parsed.data;
 
   // ── Duplicate check ───────────────────────────────────────────────────────
   const { data: existing } = await supabaseAdmin

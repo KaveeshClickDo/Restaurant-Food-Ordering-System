@@ -15,6 +15,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import { getPosSession }             from "@/lib/auth";
 import type { POSClockEntry }        from "@/types/pos";
+import { parseBody }                 from "@/lib/apiValidation";
+import { PosClockSchema }            from "@/lib/schemas/pos";
 
 // ── snake_case row → POSClockEntry ──────────────────────────────────────────
 type ClockRow = {
@@ -72,26 +74,15 @@ export async function GET(req: NextRequest) {
 }
 
 // ── POST ────────────────────────────────────────────────────────────────────
-interface ClockBody {
-  action:    "in" | "out";
-  staffId:   string;
-  staffName: string;
-  notes?:    string;
-}
-
 export async function POST(req: NextRequest) {
   const session = await getPosSession();
   if (!session) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: ClockBody;
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  if (!body.staffId || !body.staffName) {
-    return NextResponse.json({ ok: false, error: "staffId and staffName are required." }, { status: 400 });
-  }
+  const parsed = await parseBody(req, PosClockSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data;
 
   if (body.action === "in") {
     const { data, error } = await supabaseAdmin

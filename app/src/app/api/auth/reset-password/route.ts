@@ -11,6 +11,8 @@ import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import { sendEmailDirect, fetchBrandPrimaryColor } from "@/lib/emailServer";
 import { emailConfigured }          from "@/lib/emailSender";
 import { RESET_TOKEN_TTL_MS }        from "@/lib/auth";
+import { parseBody }                 from "@/lib/apiValidation";
+import { ResetPasswordRequestSchema } from "@/lib/schemas/auth";
 
 function hashToken(token: string): string {
   const secret = (process.env.AUTH_JWT_SECRET ?? process.env.ADMIN_JWT_SECRET ?? "").trim();
@@ -18,17 +20,9 @@ function hashToken(token: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  let body: { email?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 });
-  }
-
-  const email = body.email?.trim().toLowerCase();
-  if (!email) {
-    return NextResponse.json({ ok: false, error: "Email is required." }, { status: 400 });
-  }
+  const parsed = await parseBody(req, ResetPasswordRequestSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const email = parsed.data.email.toLowerCase();
 
   // Always respond with ok: true — never reveal if email exists
   const { data } = await supabaseAdmin

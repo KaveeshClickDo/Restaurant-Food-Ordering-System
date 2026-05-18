@@ -8,6 +8,9 @@ import {
 } from "@/types/pos";
 import { useApp } from "@/context/AppContext";
 
+// Module-scope so the value is stable across renders (used by the idle-logout effect).
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+
 // ─── Seed data ───────────────────────────────────────────────────────────────
 
 // Staff is loaded from app_settings.data.pos_staff on mount (see useEffect
@@ -479,7 +482,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         }
       })
       .catch(() => { /* network error — POS keeps working from localStorage */ });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, []);
 
   // Debounced push: whenever the POS menu changes, sync to Supabase so the
@@ -541,9 +544,9 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ── Idle-timeout auto-logout ──────────────────────────────────────────────
-  // Log the staff member out after 30 minutes of inactivity so unattended
-  // POS terminals cannot be accessed without re-authenticating.
-  const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+  // Log the staff member out after 30 minutes of inactivity (see IDLE_TIMEOUT_MS
+  // at module top) so unattended POS terminals cannot be accessed without
+  // re-authenticating.
   const lastActivity = useRef(Date.now());
 
   useEffect(() => {

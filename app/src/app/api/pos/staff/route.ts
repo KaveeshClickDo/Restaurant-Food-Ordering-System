@@ -13,7 +13,9 @@ import bcrypt from "bcryptjs";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isAdminAuthenticated } from "@/lib/adminAuth";
 import { getPosSession } from "@/lib/auth";
-import { ROLE_PERMISSIONS, type POSRole } from "@/types/pos";
+import { ROLE_PERMISSIONS } from "@/types/pos";
+import { parseBody } from "@/lib/apiValidation";
+import { PosStaffCreateSchema } from "@/lib/schemas/staff";
 
 const PUBLIC_COLUMNS = "id, name, email, role, active, permissions, hourly_rate, avatar_color, created_at";
 const HASH_ROUNDS = 10;
@@ -72,26 +74,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: {
-    name?: string; email?: string; role?: POSRole; pin?: string;
-    active?: boolean; permissions?: Record<string, boolean>;
-    hourlyRate?: number; avatarColor?: string;
-  };
-  try { body = await request.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 }); }
-
+  const parsed = await parseBody(request, PosStaffCreateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const { name, email = "", role = "cashier", pin,
-          active = true, permissions, hourlyRate, avatarColor } = body;
-
-  if (!name?.trim() || !pin || !/^\d{4}$/.test(pin)) {
-    return NextResponse.json(
-      { ok: false, error: "Required: name + 4-digit numeric PIN" },
-      { status: 400 },
-    );
-  }
-  if (!["admin", "manager", "cashier"].includes(role)) {
-    return NextResponse.json({ ok: false, error: "Invalid role" }, { status: 400 });
-  }
+          active = true, permissions, hourlyRate, avatarColor } = parsed.data;
 
   const pinHash      = await bcrypt.hash(pin, HASH_ROUNDS);
   const finalPerms   = permissions ?? ROLE_PERMISSIONS[role];
@@ -100,8 +86,8 @@ export async function POST(request: Request) {
   const { data, error } = await supabaseAdmin
     .from("pos_staff")
     .insert({
-      name:         name.trim(),
-      email:        email.trim().toLowerCase(),
+      name:         name,
+      email:        email ? email.toLowerCase() : "",
       role,
       pin_hash:     pinHash,
       active,

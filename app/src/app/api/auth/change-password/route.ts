@@ -7,31 +7,16 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt                         from "bcryptjs";
 import { supabaseAdmin }              from "@/lib/supabaseAdmin";
 import { getCustomerSession, unauthorizedJson } from "@/lib/auth";
+import { parseBody }                  from "@/lib/apiValidation";
+import { ChangePasswordSchema }       from "@/lib/schemas/auth";
 
 export async function POST(req: NextRequest) {
   const session = await getCustomerSession();
   if (!session) return unauthorizedJson();
 
-  let body: { currentPassword?: string; newPassword?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 });
-  }
-
-  const { currentPassword, newPassword } = body;
-  if (!currentPassword || !newPassword) {
-    return NextResponse.json(
-      { ok: false, error: "currentPassword and newPassword are required." },
-      { status: 400 },
-    );
-  }
-  if (newPassword.length < 6) {
-    return NextResponse.json(
-      { ok: false, error: "New password must be at least 6 characters." },
-      { status: 400 },
-    );
-  }
+  const parsed = await parseBody(req, ChangePasswordSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { currentPassword, newPassword } = parsed.data;
 
   // Fetch stored hash
   const { data } = await supabaseAdmin

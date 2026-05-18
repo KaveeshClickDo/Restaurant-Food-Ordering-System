@@ -10,6 +10,8 @@ import bcrypt                         from "bcryptjs";
 import { supabaseAdmin }              from "@/lib/supabaseAdmin";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { ROLE_PERMISSIONS, type POSRole } from "@/types/pos";
+import { parseBody } from "@/lib/apiValidation";
+import { UserCreateSchema } from "@/lib/schemas/staff";
 
 // ── Shared type ───────────────────────────────────────────────────────────────
 
@@ -190,55 +192,17 @@ export async function GET(): Promise<NextResponse> {
 
 // ── POST ──────────────────────────────────────────────────────────────────────
 
-interface CreateUserBody {
-  type?: string;
-  name?: string;
-  email?: string;
-  phone?: string;
-  password?: string;
-  pin?: string;
-  waiterRole?: "senior" | "waiter";
-  kitchenRole?: "chef" | "head_chef" | "kitchen_manager";
-  posRole?: POSRole;
-  hourlyRate?: number;
-  avatarColor?: string;
-  vehicleInfo?: string;
-  notes?: string;
-  active?: boolean;
-}
-
 export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
 
-  let body: CreateUserBody;
-  try {
-    body = await req.json() as CreateUserBody;
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 });
-  }
-
-  const {
-    type, name, email, phone, password, pin,
-    waiterRole, kitchenRole, posRole, hourlyRate,
-    avatarColor, vehicleInfo, notes, active = true,
-  } = body;
-
-  if (!type) {
-    return NextResponse.json({ ok: false, error: "type is required." }, { status: 400 });
-  }
-  if (!name?.trim()) {
-    return NextResponse.json({ ok: false, error: "name is required." }, { status: 400 });
-  }
+  const parsed = await parseBody(req, UserCreateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data;
+  const { type, name } = body;
 
   // ── Customer ──────────────────────────────────────────────────────────────
   if (type === "customer") {
-    if (!email?.trim()) {
-      return NextResponse.json({ ok: false, error: "email is required for customer." }, { status: 400 });
-    }
-    if (!password || password.length < 6) {
-      return NextResponse.json({ ok: false, error: "Password must be at least 6 characters." }, { status: 400 });
-    }
-
+    const { email, phone, password } = body;
     const passwordHash = await bcrypt.hash(password, 10);
 
     const newCustomerId = crypto.randomUUID();
@@ -249,8 +213,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       .from("customers")
       .insert({
         id:              newCustomerId,
-        name:            name.trim(),
-        email:           email.trim().toLowerCase(),
+        name:            name,
+        email:           email.toLowerCase(),
         phone:           phone?.trim() || null,
         password_hash:   passwordHash,
         email_verified:  false,
@@ -271,8 +235,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const user: ManagedUser = {
       id:            newCustomerId,
       type:          "customer",
-      name:          name.trim(),
-      email:         email.trim().toLowerCase(),
+      name:          name,
+      email:         email.toLowerCase(),
       phone:         phone?.trim() || undefined,
       active:        true,
       createdAt:     now,
@@ -284,25 +248,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ── Driver ────────────────────────────────────────────────────────────────
   if (type === "driver") {
-    if (!email?.trim()) {
-      return NextResponse.json({ ok: false, error: "email is required for driver." }, { status: 400 });
-    }
-    if (!phone?.trim()) {
-      return NextResponse.json({ ok: false, error: "phone is required for driver." }, { status: 400 });
-    }
-    if (!password || password.length < 6) {
-      return NextResponse.json({ ok: false, error: "Password must be at least 6 characters." }, { status: 400 });
-    }
-
+    const { email, phone, password, vehicleInfo, notes, active = true } = body;
     const passwordHash = await bcrypt.hash(password, 12);
 
     const { data, error } = await supabaseAdmin
       .from("drivers")
       .insert({
         id:            crypto.randomUUID(),
-        name:          name.trim(),
-        email:         email.trim().toLowerCase(),
-        phone:         phone.trim(),
+        name:          name,
+        email:         email.toLowerCase(),
+        phone:         phone,
         password_hash: passwordHash,
         active,
         vehicle_info:  vehicleInfo?.trim() || null,
@@ -335,15 +290,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ── Waiter ────────────────────────────────────────────────────────────────
   if (type === "waiter") {
-    if (!pin || !/^\d{4,6}$/.test(pin)) {
-      return NextResponse.json({ ok: false, error: "PIN must be 4–6 digits." }, { status: 400 });
-    }
+    const { email, pin, hourlyRate, avatarColor, waiterRole, active = true } = body;
     const pinHash = await bcrypt.hash(pin, HASH_ROUNDS);
     const { data, error } = await supabaseAdmin
       .from("waiters")
       .insert({
-        name:         name.trim(),
-        email:        email?.trim().toLowerCase() ?? "",
+        name:         name,
+        email:        email ? email.toLowerCase() : "",
         pin_hash:     pinHash,
         active,
         hourly_rate:  hourlyRate ?? null,
@@ -369,19 +322,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ── Kitchen staff ─────────────────────────────────────────────────────────
   if (type === "kitchen") {
-    if (!pin || !/^\d{4,6}$/.test(pin)) {
-      return NextResponse.json({ ok: false, error: "PIN must be 4–6 digits." }, { status: 400 });
-    }
+    const { email, pin, kitchenRole, avatarColor, active = true } = body;
     const role = kitchenRole ?? "chef";
-    if (!["chef", "head_chef", "kitchen_manager"].includes(role)) {
-      return NextResponse.json({ ok: false, error: "Invalid kitchen role." }, { status: 400 });
-    }
     const pinHash = await bcrypt.hash(pin, HASH_ROUNDS);
     const { data, error } = await supabaseAdmin
       .from("kitchen_staff")
       .insert({
-        name:         name.trim(),
-        email:        email?.trim().toLowerCase() ?? "",
+        name:         name,
+        email:        email ? email.toLowerCase() : "",
         role,
         pin_hash:     pinHash,
         active,
@@ -407,19 +355,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ── POS staff ─────────────────────────────────────────────────────────────
   if (type === "pos") {
-    if (!pin || !/^\d{4}$/.test(pin)) {
-      return NextResponse.json({ ok: false, error: "POS PIN must be exactly 4 digits." }, { status: 400 });
-    }
+    const { email, pin, posRole, hourlyRate, avatarColor, active = true } = body;
     const role: POSRole = posRole ?? "cashier";
-    if (!["admin", "manager", "cashier"].includes(role)) {
-      return NextResponse.json({ ok: false, error: "Invalid POS role." }, { status: 400 });
-    }
     const pinHash = await bcrypt.hash(pin, HASH_ROUNDS);
     const { data, error } = await supabaseAdmin
       .from("pos_staff")
       .insert({
-        name:         name.trim(),
-        email:        email?.trim().toLowerCase() ?? "",
+        name:         name,
+        email:        email ? email.toLowerCase() : "",
         role,
         pin_hash:     pinHash,
         active,

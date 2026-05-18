@@ -665,7 +665,7 @@ function ItemModal({
                       onClick={() => {
                         setAddOnIds((prev) => {
                           const next = new Set(prev);
-                          checked ? next.delete(addon.id) : next.add(addon.id);
+                          if (checked) next.delete(addon.id); else next.add(addon.id);
                           return next;
                         });
                       }}

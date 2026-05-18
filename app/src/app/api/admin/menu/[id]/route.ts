@@ -7,6 +7,8 @@
 import { NextRequest, NextResponse }            from "next/server";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
+import { parseBody }                            from "@/lib/apiValidation";
+import { MenuUpdateSchema }                     from "@/lib/schemas/menu";
 
 export async function PUT(
   req: NextRequest,
@@ -15,9 +17,9 @@ export async function PUT(
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
   const { id } = await params;
 
-  let body: Record<string, unknown>;
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
+  const parsed = await parseBody(req, MenuUpdateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data as Record<string, unknown>;
 
   // Pull meal-period assignments out — they live in the join table, not on menu_items.
   // Only reconcile if the field was actually sent (undefined = "don't touch tags").

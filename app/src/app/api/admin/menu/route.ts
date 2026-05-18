@@ -6,20 +6,15 @@
 import { NextRequest, NextResponse }            from "next/server";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
+import { parseBody }                            from "@/lib/apiValidation";
+import { MenuCreateSchema }                     from "@/lib/schemas/menu";
 
 export async function POST(req: NextRequest) {
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
 
-  let body: Record<string, unknown>;
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  if (!body.id || !body.name || body.category_id === undefined) {
-    return NextResponse.json(
-      { ok: false, error: "id, name, and category_id are required." },
-      { status: 400 },
-    );
-  }
+  const parsed = await parseBody(req, MenuCreateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data as Record<string, unknown>;
 
   // Meal-period assignments live in the join table, not on menu_items.
   const mealPeriodIds = Array.isArray(body.mealPeriodIds) ? (body.mealPeriodIds as string[]) : [];

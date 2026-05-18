@@ -8,6 +8,8 @@ import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
 import { sendOrderStatusEmail }                 from "@/lib/emailServer";
 import type { OrderStatus }                     from "@/types";
+import { parseBody }                            from "@/lib/apiValidation";
+import { OrderStatusUpdateSchema }              from "@/lib/schemas/pos";
 
 export async function PUT(
   req: NextRequest,
@@ -16,13 +18,9 @@ export async function PUT(
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
   const { id } = await params;
 
-  let body: { status?: string };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  if (!body.status) {
-    return NextResponse.json({ ok: false, error: "'status' is required." }, { status: 400 });
-  }
+  const parsed = await parseBody(req, OrderStatusUpdateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data;
 
   const { error } = await supabaseAdmin
     .from("orders")

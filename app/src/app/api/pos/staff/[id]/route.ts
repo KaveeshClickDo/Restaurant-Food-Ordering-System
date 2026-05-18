@@ -11,7 +11,9 @@ import bcrypt from "bcryptjs";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isAdminAuthenticated } from "@/lib/adminAuth";
 import { getPosSession } from "@/lib/auth";
-import { ROLE_PERMISSIONS, type POSRole } from "@/types/pos";
+import { ROLE_PERMISSIONS } from "@/types/pos";
+import { parseBody } from "@/lib/apiValidation";
+import { PosStaffUpdateSchema } from "@/lib/schemas/staff";
 
 const HASH_ROUNDS = 10;
 
@@ -33,36 +35,24 @@ export async function PATCH(
   }
   const { id } = await params;
 
-  let body: {
-    name?: string; email?: string; role?: POSRole; pin?: string;
-    active?: boolean; permissions?: Record<string, boolean>;
-    hourlyRate?: number; avatarColor?: string;
-  };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 }); }
+  const parsed = await parseBody(req, PosStaffUpdateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data;
 
   const patch: Record<string, unknown> = {};
-  if (body.name        !== undefined) patch.name         = body.name.trim();
-  if (body.email       !== undefined) patch.email        = body.email.trim().toLowerCase();
+  if (body.name        !== undefined) patch.name         = body.name;
+  if (body.email       !== undefined) patch.email        = body.email ? body.email.toLowerCase() : "";
   if (body.active      !== undefined) patch.active       = body.active;
   if (body.hourlyRate  !== undefined) patch.hourly_rate  = body.hourlyRate;
   if (body.avatarColor !== undefined) patch.avatar_color = body.avatarColor;
   if (body.permissions !== undefined) patch.permissions  = body.permissions;
   if (body.role        !== undefined) {
-    if (!["admin", "manager", "cashier"].includes(body.role)) {
-      return NextResponse.json({ ok: false, error: "Invalid role" }, { status: 400 });
-    }
     patch.role = body.role;
     // If permissions wasn't explicitly sent alongside, re-apply the role's
     // default permission map so dropping role->cashier actually downgrades.
     if (body.permissions === undefined) patch.permissions = ROLE_PERMISSIONS[body.role];
   }
-  if (body.pin) {
-    if (!/^\d{4}$/.test(body.pin)) {
-      return NextResponse.json({ ok: false, error: "PIN must be 4 digits" }, { status: 400 });
-    }
-    patch.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
-  }
+  if (body.pin) patch.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ ok: false, error: "No fields to update" }, { status: 400 });

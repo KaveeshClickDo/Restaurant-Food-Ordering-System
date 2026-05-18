@@ -18,19 +18,8 @@ import { NextRequest, NextResponse }            from "next/server";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
 import { getStripe, toStripeAmount }            from "@/lib/stripeServer";
-
-interface RefundEntry {
-  id: string;
-  orderId: string;
-  amount: number;
-  type: "full" | "partial";
-  reason: string;
-  method: "original_payment" | "store_credit" | "cash";
-  note?: string;
-  processedAt: string;
-  processedBy: string;
-  stripeRefundId?: string | null;
-}
+import { parseBody }                            from "@/lib/apiValidation";
+import { AdminRefundSchema }                    from "@/lib/schemas/waiter";
 
 export async function POST(
   req: NextRequest,
@@ -39,15 +28,9 @@ export async function POST(
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
   const { id } = await params;
 
-  let body: {
-    newStatus: string;
-    refunds: RefundEntry[];
-    refundedAmount: number;
-    customerId?: string;
-    newStoreCredit?: number;
-  };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
+  const parsed = await parseBody(req, AdminRefundSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data;
 
   // ── Stripe gateway refund (only when applicable) ─────────────────────────
   // The last refund in the array is the new one being processed; older entries
