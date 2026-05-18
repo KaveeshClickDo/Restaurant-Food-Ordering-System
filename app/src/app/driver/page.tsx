@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
@@ -622,11 +622,21 @@ export default function DriverDashboardPage() {
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
+  // Per-order in-flight guards. The OrderCard's "delivered" button has its
+  // own local `submitting` flag, but the intermediate advance buttons and the
+  // accept button were unguarded — a rapid double-click could fire twice.
+  const advanceInFlight = useRef<Set<string>>(new Set());
+  const acceptInFlight  = useRef<Set<string>>(new Set());
+
   async function handleAdvance(
     driverOrder: DriverOrder,
     status: DeliveryStatus,
     code?: string,
   ): Promise<{ ok: boolean; error?: string }> {
+    if (advanceInFlight.current.has(driverOrder.order.id)) {
+      return { ok: false, error: "Already updating this order." };
+    }
+    advanceInFlight.current.add(driverOrder.order.id);
     const body: Record<string, string> = { delivery_status: status };
     if (code) body.delivery_code = code;
     try {
@@ -650,10 +660,14 @@ export default function DriverDashboardPage() {
       return { ok: true };
     } catch {
       return { ok: false, error: "Network error — please try again." };
+    } finally {
+      advanceInFlight.current.delete(driverOrder.order.id);
     }
   }
 
   async function handleAccept(av: AvailableOrder) {
+    if (acceptInFlight.current.has(av.order.id)) return;
+    acceptInFlight.current.add(av.order.id);
     // Optimistic move from available → mine. Server is authoritative; the
     // next poll will reconcile if the row was claimed by a peer.
     setAvailable((prev) => prev.filter((a) => a.order.id !== av.order.id));
@@ -664,10 +678,14 @@ export default function DriverDashboardPage() {
     setAcceptedId(av.order.id);
     setTimeout(() => setAcceptedId(null), 3000);
 
-    const r = await fetch(`/api/driver/orders/${av.order.id}/accept`, { method: "POST" });
-    if (!r.ok) {
-      // Roll back optimistic move on conflict.
-      setMine((prev) => prev.filter((m) => m.order.id !== av.order.id));
+    try {
+      const r = await fetch(`/api/driver/orders/${av.order.id}/accept`, { method: "POST" });
+      if (!r.ok) {
+        // Roll back optimistic move on conflict.
+        setMine((prev) => prev.filter((m) => m.order.id !== av.order.id));
+      }
+    } finally {
+      acceptInFlight.current.delete(av.order.id);
     }
   }
 

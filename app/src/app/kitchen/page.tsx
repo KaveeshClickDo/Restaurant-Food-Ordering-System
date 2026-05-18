@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
@@ -482,24 +482,33 @@ export default function KitchenPage() {
   }, [router]);
 
   // ── Advance order to next kitchen status ──────────────────────────────────
+  // Per-order guard so a frantic double-click only fires one status PUT.
+  const advanceInFlight = useRef<Set<string>>(new Set());
+
   async function advanceOrder(order: KDSOrder, nextStatus: KDSStatus) {
+    if (advanceInFlight.current.has(order.id)) return;
+    advanceInFlight.current.add(order.id);
     // Optimistic update
     setOrders((prev) =>
       prev.map((o) => (o.id === order.id ? { ...o, status: nextStatus } : o))
     );
 
-    const res = await fetch(`/api/kds/orders/${order.id}/status`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: nextStatus }),
-    });
-    if (!res.ok) {
-      // Rollback on failure
-      const j = await res.json().catch(() => ({})) as { error?: string };
-      console.error("KDS advance failed:", j.error);
-      setOrders((prev) =>
-        prev.map((o) => (o.id === order.id ? { ...o, status: order.status } : o))
-      );
+    try {
+      const res = await fetch(`/api/kds/orders/${order.id}/status`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      if (!res.ok) {
+        // Rollback on failure
+        const j = await res.json().catch(() => ({})) as { error?: string };
+        console.error("KDS advance failed:", j.error);
+        setOrders((prev) =>
+          prev.map((o) => (o.id === order.id ? { ...o, status: order.status } : o))
+        );
+      }
+    } finally {
+      advanceInFlight.current.delete(order.id);
     }
   }
 

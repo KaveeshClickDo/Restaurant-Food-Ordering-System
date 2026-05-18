@@ -99,9 +99,12 @@ function VerifyEmailContent() {
 
 function ResendButton({ email }: { email: string | null }) {
   const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const inFlight = useRef(false);
 
   async function handleResend() {
+    if (inFlight.current) return;
     if (!email) { setState("error"); return; }
+    inFlight.current = true;
     setState("sending");
     try {
       const res  = await fetch("/api/auth/resend-verification", {
@@ -113,6 +116,8 @@ function ResendButton({ email }: { email: string | null }) {
       setState(json.ok ? "sent" : "error");
     } catch {
       setState("error");
+    } finally {
+      inFlight.current = false;
     }
   }
 

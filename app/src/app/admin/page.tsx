@@ -224,8 +224,13 @@ function AdminPageContent() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const loginInFlight  = useRef(false);
+  const logoutInFlight = useRef(false);
+
   async function handleLogin(e: { preventDefault(): void }) {
     e.preventDefault();
+    if (loginInFlight.current) return;
+    loginInFlight.current = true;
     setLoginError("");
     setLoginLoading(true);
     try {
@@ -249,13 +254,20 @@ function AdminPageContent() {
     } catch {
       setLoginError("Connection error. Please try again.");
     } finally {
+      loginInFlight.current = false;
       setLoginLoading(false);
     }
   }
 
   async function handleLogout() {
-    await fetch("/api/admin/auth", { method: "DELETE" }).catch(() => {});
-    setAdminAuthed(false);
+    if (logoutInFlight.current) return;
+    logoutInFlight.current = true;
+    try {
+      await fetch("/api/admin/auth", { method: "DELETE" }).catch(() => {});
+      setAdminAuthed(false);
+    } finally {
+      logoutInFlight.current = false;
+    }
   }
 
   // ── Auth loading / login gate ─────────────────────────────────────────────

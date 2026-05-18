@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, User, Mail, Phone, Lock, Eye, EyeOff, AlertCircle, CheckCircle2 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
@@ -97,13 +97,21 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
 
   const inputCls = "w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition";
 
+  const resendInFlight = useRef(false);
+
   async function handleResendVerification() {
+    if (resendInFlight.current) return;
     if (!verificationEmail) return;
-    await fetch("/api/auth/resend-verification", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: verificationEmail }),
-    }).catch(() => {});
+    resendInFlight.current = true;
+    try {
+      await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: verificationEmail }),
+      }).catch(() => {});
+    } finally {
+      resendInFlight.current = false;
+    }
   }
 
   return (

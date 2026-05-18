@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   CalendarDays, Clock, Users, UtensilsCrossed, CheckCircle2,
   Loader2, AlertCircle, MapPin, ChevronLeft, ChevronRight,
@@ -107,14 +107,18 @@ export default function BookPage() {
 
   useEffect(() => { if (step === "table") fetchTables(); }, [step, fetchTables]);
 
+  const submitInFlight = useRef(false);
+
   async function handleSubmit(e: { preventDefault(): void }) {
     e.preventDefault();
+    if (submitInFlight.current) return;
     if (!selectedTable) return;
     setSubmitError("");
     const check = ReservationFormSchema.safeParse({
       customerName: name, customerEmail: email, customerPhone: phone, partySize, note,
     });
     if (!check.success) { setSubmitError(formErrorMessage(check.error)); return; }
+    submitInFlight.current = true;
     setSubmitting(true);
     try {
       const res  = await fetch("/api/reservations", {
@@ -125,7 +129,10 @@ export default function BookPage() {
       if (json.ok && json.reservationId) { setReservationId(json.reservationId); setStep("confirmed"); }
       else { setSubmitError(json.error ?? "Failed to create reservation."); }
     } catch { setSubmitError("Network error — please try again."); }
-    finally { setSubmitting(false); }
+    finally {
+      submitInFlight.current = false;
+      setSubmitting(false);
+    }
   }
 
   const tablesBySection = tables.reduce<Record<string, AvailableTable[]>>((acc, t) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import {
   X, CalendarDays, Clock, Users, ChevronRight, ChevronLeft,
@@ -171,8 +171,11 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
   }, [step, fetchTables]);
 
   // ── Submit reservation ────────────────────────────────────────────────────
+  const submitInFlight = useRef(false);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitInFlight.current) return;
     if (!selectedTable) return;
     setSubmitError("");
     const check = ReservationFormSchema.safeParse({
@@ -183,6 +186,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
       note,
     });
     if (!check.success) { setSubmitError(formErrorMessage(check.error)); return; }
+    submitInFlight.current = true;
     setSubmitting(true);
     try {
       const res  = await fetch("/api/reservations", {
@@ -205,6 +209,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
     } catch {
       setSubmitError("Network error — please try again.");
     } finally {
+      submitInFlight.current = false;
       setSubmitting(false);
     }
   }

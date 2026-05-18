@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import type { Reservation } from "@/types";
 import {
@@ -187,24 +187,39 @@ export default function TableStatusPanel() {
     return () => clearInterval(id);
   }, [fetchToday]);
 
+  // Per-row guards — a fast double-click on the same row's check-in/out only fires once.
+  const actionInFlight = useRef<Set<string>>(new Set());
+
   async function handleCheckIn(resId: string) {
-    await fetch(`/api/admin/reservations/${resId}`, {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "checked_in" }),
-    });
-    setReservations((prev) =>
-      prev.map((r) => r.id === resId ? { ...r, status: "checked_in", checkedInAt: new Date().toISOString() } : r)
-    );
+    if (actionInFlight.current.has(resId)) return;
+    actionInFlight.current.add(resId);
+    try {
+      await fetch(`/api/admin/reservations/${resId}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "checked_in" }),
+      });
+      setReservations((prev) =>
+        prev.map((r) => r.id === resId ? { ...r, status: "checked_in", checkedInAt: new Date().toISOString() } : r)
+      );
+    } finally {
+      actionInFlight.current.delete(resId);
+    }
   }
 
   async function handleCheckOut(resId: string) {
-    await fetch(`/api/admin/reservations/${resId}`, {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "checked_out" }),
-    });
-    setReservations((prev) =>
-      prev.map((r) => r.id === resId ? { ...r, status: "checked_out", checkedOutAt: new Date().toISOString() } : r)
-    );
+    if (actionInFlight.current.has(resId)) return;
+    actionInFlight.current.add(resId);
+    try {
+      await fetch(`/api/admin/reservations/${resId}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "checked_out" }),
+      });
+      setReservations((prev) =>
+        prev.map((r) => r.id === resId ? { ...r, status: "checked_out", checkedOutAt: new Date().toISOString() } : r)
+      );
+    } finally {
+      actionInFlight.current.delete(resId);
+    }
   }
 
   // Build table state from today's reservations

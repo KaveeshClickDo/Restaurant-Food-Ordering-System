@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   X, CreditCard, Banknote, CheckCircle,
@@ -395,8 +395,16 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     }
   }
 
+  // Synchronous double-submit guards. The `submitting` state already disables
+  // the buttons but a fast double-click can fire before React re-renders;
+  // these refs catch the second call before the fetch is issued.
+  const cashInFlight = useRef(false);
+  const cardInFlight = useRef(false);
+
   /** Cash / pay-on-delivery — order is inserted immediately. */
   async function placeCashOrder(method: PaymentMethod) {
+    if (cashInFlight.current) return;
+    cashInFlight.current = true;
     setSubmitting(true);
     setSubmitError("");
     const newOrder = buildOrder(method);
@@ -405,6 +413,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
       const result = await addOrder(currentUser.id, newOrder);
       if (!result.ok) {
         setSubmitError(result.error ?? "Failed to place order. Please try again.");
+        cashInFlight.current = false;
         setSubmitting(false);
         return;
       }
@@ -422,6 +431,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     setStep("success");
     clearCart();
     setScheduledTime(null);
+    cashInFlight.current = false;
     setSubmitting(false);
 
     printOrder(newOrder, settings);
@@ -447,6 +457,8 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
    * payment_intent.succeeded fires.
    */
   async function startCardPayment(method: PaymentMethod) {
+    if (cardInFlight.current) return;
+    cardInFlight.current = true;
     setSubmitting(true);
     setSubmitError("");
     const newOrder = buildOrder(method);
@@ -464,7 +476,6 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
       };
       if (!j.ok || !j.clientSecret) {
         setSubmitError(j.error ?? "Could not start payment. Please try again.");
-        setSubmitting(false);
         return;
       }
       setStripeClientSecret(j.clientSecret);
@@ -474,6 +485,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "Network error — please try again.");
     } finally {
+      cardInFlight.current = false;
       setSubmitting(false);
     }
   }
@@ -1040,6 +1052,7 @@ function CardPaymentForm({
   const elements = useElements();
   const [submitting, setSubmitting] = useState(false);
   const [error,      setError]      = useState<string | null>(null);
+  const submitInFlight              = useRef(false);
 
   // Stripe needs an absolute return_url for redirect-based methods (Klarna,
   // Bancontact, etc.). Even when we confirm in-place via redirect:'if_required',
@@ -1051,34 +1064,39 @@ function CardPaymentForm({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitInFlight.current) return;
     if (!stripe || !elements) return;
+    submitInFlight.current = true;
     setSubmitting(true);
     setError(null);
 
-    const { error: stripeError, paymentIntent } = await stripe.confirmPayment({
-      elements,
-      confirmParams: { return_url: returnUrl },
-      redirect: "if_required",
-    });
+    try {
+      const { error: stripeError, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        confirmParams: { return_url: returnUrl },
+        redirect: "if_required",
+      });
 
-    if (stripeError) {
-      // Card declined, validation error, or any other Stripe-side issue.
-      setError(stripeError.message ?? "Payment could not be processed.");
+      if (stripeError) {
+        // Card declined, validation error, or any other Stripe-side issue.
+        setError(stripeError.message ?? "Payment could not be processed.");
+        return;
+      }
+      if (paymentIntent && paymentIntent.status === "succeeded") {
+        onPaid();
+        return;
+      }
+      if (paymentIntent && paymentIntent.status === "processing") {
+        // Some payment methods (bank debits) confirm asynchronously. The webhook
+        // will eventually fire payment_intent.succeeded; treat as success here.
+        onPaid();
+        return;
+      }
+      setError(`Payment status: ${paymentIntent?.status ?? "unknown"}. Please try again.`);
+    } finally {
+      submitInFlight.current = false;
       setSubmitting(false);
-      return;
     }
-    if (paymentIntent && paymentIntent.status === "succeeded") {
-      onPaid();
-      return;
-    }
-    if (paymentIntent && paymentIntent.status === "processing") {
-      // Some payment methods (bank debits) confirm asynchronously. The webhook
-      // will eventually fire payment_intent.succeeded; treat as success here.
-      onPaid();
-      return;
-    }
-    setError(`Payment status: ${paymentIntent?.status ?? "unknown"}. Please try again.`);
-    setSubmitting(false);
   }
 
   return (

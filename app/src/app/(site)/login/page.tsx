@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useApp } from "@/context/AppContext";
@@ -108,19 +108,33 @@ function LoginContent() {
     }
   }
 
+  // Double-submit guards — synchronous ref-flag plus the `loading` state so
+  // both rapid clicks and slow-network repeat-clicks are dropped.
+  const resendInFlight = useRef(false);
+  const forgotInFlight = useRef(false);
+  const resetInFlight  = useRef(false);
+
   async function handleResendVerification() {
+    if (resendInFlight.current) return;
     if (!verificationEmail) return;
-    await fetch("/api/auth/resend-verification", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: verificationEmail }),
-    }).catch(() => {});
+    resendInFlight.current = true;
+    try {
+      await fetch("/api/auth/resend-verification", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: verificationEmail }),
+      }).catch(() => {});
+    } finally {
+      resendInFlight.current = false;
+    }
   }
 
   async function handleForgot(e: { preventDefault(): void }) {
     e.preventDefault();
+    if (forgotInFlight.current) return;
     setError("");
     const check = ResetPasswordRequestSchema.safeParse({ email: forgotEmail });
     if (!check.success) { setError(formErrorMessage(check.error)); return; }
+    forgotInFlight.current = true;
     setLoading(true);
     try {
       await fetch("/api/auth/reset-password", {
@@ -131,18 +145,21 @@ function LoginContent() {
     } catch {
       setError("Connection error. Please try again.");
     } finally {
+      forgotInFlight.current = false;
       setLoading(false);
     }
   }
 
   async function handleReset(e: { preventDefault(): void }) {
     e.preventDefault();
+    if (resetInFlight.current) return;
     setError("");
     if (resetForm.password !== resetForm.confirm) { setError("Passwords do not match."); return; }
     const check = ResetPasswordConfirmSchema.safeParse({
       email: resetForm.email, token: resetForm.token, password: resetForm.password,
     });
     if (!check.success) { setError(formErrorMessage(check.error)); return; }
+    resetInFlight.current = true;
     setLoading(true);
     try {
       const res  = await fetch("/api/auth/reset-password/confirm", {
@@ -154,6 +171,7 @@ function LoginContent() {
     } catch {
       setError("Connection error. Please try again.");
     } finally {
+      resetInFlight.current = false;
       setLoading(false);
     }
   }

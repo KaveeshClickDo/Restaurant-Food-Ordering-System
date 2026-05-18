@@ -866,6 +866,7 @@ function ChangePasswordCard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const submitInFlight = useRef(false);
 
   function reset() {
     setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
@@ -880,9 +881,11 @@ function ChangePasswordCard() {
 
   async function handleSubmit(e: { preventDefault(): void }) {
     e.preventDefault();
+    if (submitInFlight.current) return;
     setError("");
     if (newPassword.length < 6) { setError("New password must be at least 6 characters."); return; }
     if (newPassword !== confirmPassword) { setError("Passwords do not match."); return; }
+    submitInFlight.current = true;
     setLoading(true);
     try {
       const res = await fetch("/api/auth/change-password", {
@@ -901,6 +904,7 @@ function ChangePasswordCard() {
     } catch {
       setError("Connection error. Please try again.");
     } finally {
+      submitInFlight.current = false;
       setLoading(false);
     }
   }

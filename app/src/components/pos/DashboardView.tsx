@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
 import { POSSale } from "@/types/pos";
@@ -97,19 +97,27 @@ export default function DashboardView() {
     refreshDineInTab();
   }, [dashTab, refreshDineInTab]);
 
+  const emailInFlight = useRef<Set<string>>(new Set());
+
   async function sendDineInEmail(order: DineInOrder) {
+    if (emailInFlight.current.has(order.id)) return;
     const email = dineInEmail[order.id]?.trim();
     if (!email) return;
+    emailInFlight.current.add(order.id);
     setDineInEmailSt((p) => ({ ...p, [order.id]: "sending" }));
-    const effectiveName = appSettings.restaurant?.name || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant";
-    const html = buildDineInReceiptHtml(order, settings, effectiveName);
-    const res = await fetch("/api/email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to: email, subject: `Your receipt from ${effectiveName} — Table ${order.tableLabel}`, html }),
-    });
-    const d = await res.json().catch(() => ({})) as { ok?: boolean };
-    setDineInEmailSt((p) => ({ ...p, [order.id]: d.ok ? "sent" : "error" }));
+    try {
+      const effectiveName = appSettings.restaurant?.name || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant";
+      const html = buildDineInReceiptHtml(order, settings, effectiveName);
+      const res = await fetch("/api/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: email, subject: `Your receipt from ${effectiveName} — Table ${order.tableLabel}`, html }),
+      });
+      const d = await res.json().catch(() => ({})) as { ok?: boolean };
+      setDineInEmailSt((p) => ({ ...p, [order.id]: d.ok ? "sent" : "error" }));
+    } finally {
+      emailInFlight.current.delete(order.id);
+    }
   }
 
   function printDineInReceipt(order: DineInOrder) {

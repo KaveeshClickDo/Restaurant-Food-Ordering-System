@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { useApp } from "@/context/AppContext";
 import {
   AlertTriangle, Calendar, CalendarDays, CheckCircle2, Clock, Loader2,
@@ -222,19 +223,30 @@ export default function ReservationsView() {
     return () => clearInterval(id);
   }, [fetchRows]);
 
+  // Per-row guard prevents rapid double-clicks on the same row's status button.
+  const statusInFlight = useRef<Set<string>>(new Set());
+  // Pending cancel confirmation — set to a reservation id to open the dialog.
+  const [cancelConfirm, setCancelConfirm] = useState<string | null>(null);
+
   async function doStatus(resId: string, status: string) {
+    if (statusInFlight.current.has(resId)) return;
+    statusInFlight.current.add(resId);
     setActioning(resId);
-    await fetch(`/api/pos/reservations/${resId}`, {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    const now = new Date().toISOString();
-    setRows((prev) => prev.map((r) => r.id !== resId ? r : {
-      ...r, status,
-      ...(status === "checked_in"  ? { checked_in_at:  now } : {}),
-      ...(status === "checked_out" ? { checked_out_at: now } : {}),
-    }));
-    setActioning(null);
+    try {
+      await fetch(`/api/pos/reservations/${resId}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      const now = new Date().toISOString();
+      setRows((prev) => prev.map((r) => r.id !== resId ? r : {
+        ...r, status,
+        ...(status === "checked_in"  ? { checked_in_at:  now } : {}),
+        ...(status === "checked_out" ? { checked_out_at: now } : {}),
+      }));
+    } finally {
+      statusInFlight.current.delete(resId);
+      setActioning(null);
+    }
   }
 
   const filtered = rows.filter((r) => {
@@ -477,7 +489,7 @@ export default function ReservationsView() {
                         )}
                         {(r.status === "pending" || r.status === "confirmed" || r.status === "checked_in") && (
                           <button
-                            onClick={() => doStatus(r.id, "cancelled")}
+                            onClick={() => setCancelConfirm(r.id)}
                             className="flex items-center gap-1.5 bg-slate-700 hover:bg-red-900/60 border border-slate-600 hover:border-red-700/60 active:scale-95 text-slate-400 hover:text-red-400 text-xs font-semibold px-3 py-2 rounded-xl transition-all"
                           >
                             <X size={13} /> Cancel
@@ -716,6 +728,24 @@ export default function ReservationsView() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={cancelConfirm !== null}
+        title="Cancel this reservation?"
+        message="The table will be freed up and the guest's booking will be marked cancelled."
+        confirmLabel="Cancel reservation"
+        cancelLabel="Keep booking"
+        tone="danger"
+        busy={cancelConfirm !== null && statusInFlight.current.has(cancelConfirm)}
+        onConfirm={() => {
+          if (cancelConfirm) {
+            const id = cancelConfirm;
+            setCancelConfirm(null);
+            void doStatus(id, "cancelled");
+          }
+        }}
+        onCancel={() => setCancelConfirm(null)}
+      />
     </div>
   );
 }

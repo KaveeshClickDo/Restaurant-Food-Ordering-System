@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import type { ReservationCustomer } from "@/types";
 import {
@@ -141,12 +141,20 @@ function CustomerCard({ customer, onSave, sym }: { sym: string;
     if (!expanded) loadHistory();
   }
 
+  const saveInFlight = useRef(false);
+
   async function save() {
+    if (saveInFlight.current) return;
+    saveInFlight.current = true;
     setSaving(true);
-    await onSave(customer.id, { notes, tags, marketingOptIn: optIn });
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    try {
+      await onSave(customer.id, { notes, tags, marketingOptIn: optIn });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } finally {
+      saveInFlight.current = false;
+      setSaving(false);
+    }
   }
 
   function addTag(tag: string) {

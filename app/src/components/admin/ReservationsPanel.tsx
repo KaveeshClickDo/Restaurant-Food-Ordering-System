@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp }   from "@/context/AppContext";
 import type { Reservation, ReservationStatus } from "@/types";
 import {
@@ -543,40 +543,57 @@ export default function ReservationsPanel() {
     setTogglingEnabled(false);
   }
 
+  // Per-row guards so a double-click on the same row's status/delete only fires once.
+  const statusInFlight = useRef<Set<string>>(new Set());
+  const deleteInFlight = useRef<Set<string>>(new Set());
+  const addInFlight    = useRef(false);
+
   async function handleStatusChange(id: string, status: ReservationStatus) {
-    const res = await fetch(`/api/admin/reservations/${id}`, {
-      method:  "PUT",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ status }),
-    });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({})) as { error?: string };
-      console.error("ReservationsPanel status change:", j.error);
+    if (statusInFlight.current.has(id)) return;
+    statusInFlight.current.add(id);
+    try {
+      const res = await fetch(`/api/admin/reservations/${id}`, {
+        method:  "PUT",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ status }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({})) as { error?: string };
+        console.error("ReservationsPanel status change:", j.error);
+      }
+      // Optimistic update — includes timestamp approximation
+      setReservations((prev) =>
+        prev.map((r) => {
+          if (r.id !== id) return r;
+          const now = new Date().toISOString();
+          return {
+            ...r,
+            status,
+            ...(status === "checked_in"  ? { checkedInAt:  now } : {}),
+            ...(status === "checked_out" ? { checkedOutAt: now } : {}),
+          };
+        })
+      );
+    } finally {
+      statusInFlight.current.delete(id);
     }
-    // Optimistic update — includes timestamp approximation
-    setReservations((prev) =>
-      prev.map((r) => {
-        if (r.id !== id) return r;
-        const now = new Date().toISOString();
-        return {
-          ...r,
-          status,
-          ...(status === "checked_in"  ? { checkedInAt:  now } : {}),
-          ...(status === "checked_out" ? { checkedOutAt: now } : {}),
-        };
-      })
-    );
   }
 
   async function handleDelete(id: string) {
+    if (deleteInFlight.current.has(id)) return;
     if (!confirm("Delete this reservation? This cannot be undone.")) return;
-    const res = await fetch(`/api/admin/reservations/${id}`, { method: "DELETE" });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({})) as { error?: string };
-      console.error("ReservationsPanel delete:", j.error);
-      return;
+    deleteInFlight.current.add(id);
+    try {
+      const res = await fetch(`/api/admin/reservations/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({})) as { error?: string };
+        console.error("ReservationsPanel delete:", j.error);
+        return;
+      }
+      setReservations((prev) => prev.filter((r) => r.id !== id));
+    } finally {
+      deleteInFlight.current.delete(id);
     }
-    setReservations((prev) => prev.filter((r) => r.id !== id));
   }
 
   async function handleAddBooking(e: React.FormEvent) {
@@ -603,6 +620,8 @@ export default function ReservationsPanel() {
       if (!ok) return;
     }
 
+    if (addInFlight.current) return;
+    addInFlight.current = true;
     setAddSaving(true); setAddError("");
     try {
       const res = await fetch("/api/admin/reservations", {
@@ -625,6 +644,7 @@ export default function ReservationsPanel() {
     } catch {
       setAddError("Network error — please try again.");
     } finally {
+      addInFlight.current = false;
       setAddSaving(false);
     }
   }

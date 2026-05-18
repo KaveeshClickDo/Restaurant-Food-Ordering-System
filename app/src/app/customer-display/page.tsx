@@ -114,6 +114,7 @@ function OrderCard({
   const [confirming, setConfirming] = useState(false);
   const [marking,    setMarking]    = useState(false);
   const confirmTimer                = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const markInFlight                = useRef(false);
 
   useEffect(() => {
     if (!prevReady.current && isReady) {
@@ -130,11 +131,17 @@ function OrderCard({
   }
 
   async function handleConfirm() {
+    if (markInFlight.current) return;
     if (confirmTimer.current) clearTimeout(confirmTimer.current);
+    markInFlight.current = true;
     setConfirming(false);
     setMarking(true);
     try { await fetch(`/api/pos/orders/${order.id}/collected`, { method: "PUT" }); }
-    catch { setMarking(false); }
+    catch { /* swallow — the realtime feed will reconcile */ }
+    finally {
+      markInFlight.current = false;
+      setMarking(false);
+    }
   }
 
   function handleCancel() {

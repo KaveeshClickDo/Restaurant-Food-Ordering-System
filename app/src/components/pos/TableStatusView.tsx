@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import {
   RefreshCw, UtensilsCrossed, Loader2, Clock, Users, Phone, LogIn, LogOut, CheckCircle2,
@@ -62,21 +62,29 @@ export default function TableStatusView() {
     return () => clearInterval(id);
   }, [fetchToday]);
 
+  const actionInFlight = useRef<Set<string>>(new Set());
+
   async function doAction(resId: string, status: "checked_in" | "checked_out") {
+    if (actionInFlight.current.has(resId)) return;
+    actionInFlight.current.add(resId);
     setActioning(resId);
-    const now = new Date().toISOString();
-    await fetch(`/api/pos/reservations/${resId}`, {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    setReservations((prev) =>
-      prev.map((r) => r.id !== resId ? r : {
-        ...r, status,
-        ...(status === "checked_in"  ? { checked_in_at:  now } : {}),
-        ...(status === "checked_out" ? { checked_out_at: now } : {}),
-      })
-    );
-    setActioning(null);
+    try {
+      const now = new Date().toISOString();
+      await fetch(`/api/pos/reservations/${resId}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      setReservations((prev) =>
+        prev.map((r) => r.id !== resId ? r : {
+          ...r, status,
+          ...(status === "checked_in"  ? { checked_in_at:  now } : {}),
+          ...(status === "checked_out" ? { checked_out_at: now } : {}),
+        })
+      );
+    } finally {
+      actionInFlight.current.delete(resId);
+      setActioning(null);
+    }
   }
 
   function resolveState(tableId: string): { state: TableState; res?: ResRow } {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { usePOS } from "@/context/POSContext";
 import { X, AlertTriangle, RotateCcw, Banknote, CreditCard, Loader2 } from "lucide-react";
 import { fmt } from "../_utils";
@@ -26,36 +26,49 @@ export default function DineInActionModal({
   const [refundMethod, setRefundMethod] = useState<"cash" | "card">("cash");
   const [loading,      setLoading]      = useState(false);
   const [error,        setError]        = useState<string | null>(null);
+  const inFlight = useRef(false);
 
   async function submitVoid() {
+    if (inFlight.current) return;
     if (!reason.trim()) { setError("Please enter a reason."); return; }
+    inFlight.current = true;
     setLoading(true); setError(null);
-    const res = await fetch("/api/waiter/void", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderIds: [action.order.id], reason: reason.trim(), voidedBy: currentStaff?.name ?? "POS Admin" }),
-    });
-    const d = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
-    setLoading(false);
-    if (d.ok) { onComplete(); onClose(); }
-    else setError(d.error ?? "Failed to void order.");
+    try {
+      const res = await fetch("/api/waiter/void", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds: [action.order.id], reason: reason.trim(), voidedBy: currentStaff?.name ?? "POS Admin" }),
+      });
+      const d = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (d.ok) { onComplete(); onClose(); }
+      else setError(d.error ?? "Failed to void order.");
+    } finally {
+      inFlight.current = false;
+      setLoading(false);
+    }
   }
 
   async function submitRefund() {
+    if (inFlight.current) return;
     if (!reason.trim()) { setError("Please enter a reason."); return; }
     const amt = refundType === "full" ? action.order.total : parseFloat(refundAmtStr);
     if (isNaN(amt) || amt <= 0) { setError("Enter a valid refund amount."); return; }
     if (amt > action.order.total + 0.001) { setError(`Cannot exceed ${fmt(action.order.total, sym)}.`); return; }
+    inFlight.current = true;
     setLoading(true); setError(null);
-    const res = await fetch("/api/waiter/refund", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderIds: [action.order.id], refundAmount: amt, refundMethod, reason: reason.trim(), refundedBy: currentStaff?.name ?? "POS Admin" }),
-    });
-    const d = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
-    setLoading(false);
-    if (d.ok) { onComplete(); onClose(); }
-    else setError(d.error ?? "Failed to process refund.");
+    try {
+      const res = await fetch("/api/waiter/refund", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds: [action.order.id], refundAmount: amt, refundMethod, reason: reason.trim(), refundedBy: currentStaff?.name ?? "POS Admin" }),
+      });
+      const d = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (d.ok) { onComplete(); onClose(); }
+      else setError(d.error ?? "Failed to process refund.");
+    } finally {
+      inFlight.current = false;
+      setLoading(false);
+    }
   }
 
   return (
