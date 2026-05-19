@@ -506,7 +506,7 @@ function OrderCard({
 function mapServerOrder(r: any): Order {
   return {
     id:              r.id,
-    customerId:      r.customer_id,
+    customerId:      r.customer_id ?? null,
     date:            typeof r.date === "string" ? r.date : new Date(r.date).toISOString(),
     status:          r.status,
     fulfillment:     r.fulfillment,
@@ -515,6 +515,11 @@ function mapServerOrder(r: any): Order {
     address:         r.address         || undefined,
     note:            r.note            || undefined,
     paymentMethod:   r.payment_method  || undefined,
+    // delivery_code MUST be mapped — the OrderCard reads order.deliveryCode
+    // to decide whether to show the PIN field on confirm-delivered. Without
+    // it the client sends no code and the server rejects with "Delivery code
+    // is required" since orderValidation always sets one for delivery orders.
+    deliveryCode:    r.delivery_code   || undefined,
     deliveryFee:     r.delivery_fee    ? Number(r.delivery_fee)    : undefined,
     serviceFee:      r.service_fee     ? Number(r.service_fee)     : undefined,
     scheduledTime:   r.scheduled_time  || undefined,
@@ -548,6 +553,13 @@ export default function DriverDashboardPage() {
   const [authTimedOut, setAuthTimedOut]   = useState(false);
   const [mine,      setMine]      = useState<DriverOrder[]>([]);
   const [available, setAvailable] = useState<AvailableOrder[]>([]);
+
+  // Per-order in-flight guards. Declared up here (before the !currentDriver
+  // early return below) so hook count is stable across renders. Otherwise
+  // React throws "Rendered more hooks than during the previous render" the
+  // first time the driver session resolves.
+  const advanceInFlight = useRef<Set<string>>(new Set());
+  const acceptInFlight  = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (currentDriver) return;
@@ -622,12 +634,6 @@ export default function DriverDashboardPage() {
   const availableOrders = available;
 
   // ── Handlers ───────────────────────────────────────────────────────────────
-
-  // Per-order in-flight guards. The OrderCard's "delivered" button has its
-  // own local `submitting` flag, but the intermediate advance buttons and the
-  // accept button were unguarded — a rapid double-click could fire twice.
-  const advanceInFlight = useRef<Set<string>>(new Set());
-  const acceptInFlight  = useRef<Set<string>>(new Set());
 
   async function handleAdvance(
     driverOrder: DriverOrder,

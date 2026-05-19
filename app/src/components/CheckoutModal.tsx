@@ -17,15 +17,6 @@ import { computeTax, taxSurcharge } from "@/lib/taxUtils";
 import { checkoutFormSchema } from "@/lib/schemas/order";
 import { cleanPhone } from "@/lib/inputUtils";
 
-// Stripe's per-currency minimum charge — kept in sync with the server-side
-// table in /api/payments/intent. Anything below this is rejected by Stripe.
-const STRIPE_MIN_CHARGE_BY_CURRENCY: Record<string, number> = {
-  GBP: 0.30,
-  USD: 0.50,
-  EUR: 0.30,
-};
-const STRIPE_MIN_CHARGE_FALLBACK = 0.50;
-
 // PayPal's per-currency minimum — mirrors the server-side guard in
 // /api/payments/paypal. PayPal doesn't publish a strict floor but very low
 // totals are rejected as AMOUNT_NOT_SUPPORTED by some funding sources.
@@ -303,8 +294,10 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   const storeCreditApplied = useCredit ? Math.min(availableCredit, adjustedTotal) : 0;
   const orderTotal         = Math.max(0, adjustedTotal - storeCreditApplied);
 
-  const stripeMin       = STRIPE_MIN_CHARGE_BY_CURRENCY[(settings.currency?.code ?? "GBP").toUpperCase()] ?? STRIPE_MIN_CHARGE_FALLBACK;
-  const belowStripeMin  = orderTotal > 0 && orderTotal < stripeMin;
+  // Card minimum is enforced server-side via Stripe's own rejection (see
+  // /api/payments/intent catch block). We don't pre-check on the client
+  // because per-currency minimums shift with FX rates and hardcoded tables
+  // go stale.
   const paypalMin       = PAYPAL_MIN_CHARGE_BY_CURRENCY[(settings.currency?.code ?? "GBP").toUpperCase()] ?? PAYPAL_MIN_CHARGE_FALLBACK;
   const belowPaypalMin  = orderTotal > 0 && orderTotal < paypalMin;
 
@@ -502,10 +495,6 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
    */
   async function startCardPayment(method: PaymentMethod) {
     if (cardInFlight.current) return;
-    if (belowStripeMin) {
-      setSubmitError(`Card payments require a minimum of ${sym}${stripeMin.toFixed(2)}. Please pay by cash or add more to your order.`);
-      return;
-    }
     cardInFlight.current = true;
     setSubmitting(true);
     setSubmitError("");
@@ -1169,10 +1158,11 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
             )}
 
             {locState !== "outside" && availableMethods.map((method) => {
-              const disabledByStripeMin = method.id === "stripe" && belowStripeMin;
-              const disabledByPaypalMin = method.id === "paypal" && belowPaypalMin;
-              const disabledByMin       = disabledByStripeMin || disabledByPaypalMin;
-              const methodMin           = disabledByPaypalMin ? paypalMin : stripeMin;
+              // Stripe minimum is enforced server-side via Stripe's own
+              // rejection (and translated to a friendly message). PayPal
+              // we still pre-check because its rejections are less clean.
+              const disabledByMin = method.id === "paypal" && belowPaypalMin;
+              const methodMin     = paypalMin;
               return (
                 <button
                   key={method.id}
