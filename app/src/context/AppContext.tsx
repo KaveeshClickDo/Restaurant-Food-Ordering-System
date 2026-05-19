@@ -781,31 +781,33 @@ export function AppProvider({
   // ─── Categories ───────────────────────────────────────────────────────────
   // All writes go through admin API routes (require admin session cookie).
 
+  // The fetch is intentionally OUTSIDE the setState updater. React StrictMode
+  // (default in Next dev) invokes setState updaters twice to surface impurity
+  // — when the fetch lived inside the updater that meant two POSTs with the
+  // same id, and the second one failed with "duplicate key value violates
+  // unique constraint". Mirror addMenuItem's pattern: optimistic update first,
+  // single fire-and-forget fetch second.
   const addCategory = (cat: Category) => {
-    setCategories((prev) => {
-      const row = categoryToRow(cat, prev.length);
-      fetch("/api/admin/categories", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(row),
-      }).then(async (r) => {
-        if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("addCategory:", j.error); }
-      }).catch((e) => console.error("addCategory:", e));
-      return [...prev, cat];
-    });
+    const row = categoryToRow(cat, categories.length);
+    setCategories((prev) => [...prev, cat]);
+    fetch("/api/admin/categories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(row),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("addCategory:", j.error); }
+    }).catch((e) => console.error("addCategory:", e));
   };
 
   const updateCategory = (cat: Category) => {
-    setCategories((prev) => {
-      fetch(`/api/admin/categories/${cat.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: cat.name, emoji: cat.emoji }),
-      }).then(async (r) => {
-        if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateCategory:", j.error); }
-      }).catch((e) => console.error("updateCategory:", e));
-      return prev.map((c) => (c.id === cat.id ? cat : c));
-    });
+    setCategories((prev) => prev.map((c) => (c.id === cat.id ? cat : c)));
+    fetch(`/api/admin/categories/${cat.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: cat.name, emoji: cat.emoji }),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateCategory:", j.error); }
+    }).catch((e) => console.error("updateCategory:", e));
   };
 
   const deleteCategory = (id: string) => {

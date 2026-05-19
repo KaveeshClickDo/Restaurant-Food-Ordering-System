@@ -11,6 +11,15 @@ import { useApp } from "@/context/AppContext";
 // Module-scope so the value is stable across renders (used by the idle-logout effect).
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
+/**
+ * Round a money value to 2 decimal places, eliminating IEEE-754 float garbage
+ * like 15.000000000000002 or 13.043478260869563. The server's Money zod
+ * primitive (lib/schemas/primitives.ts) rejects anything that doesn't round
+ * trip through `n * 100 === Math.round(n * 100)`, so every money field in
+ * the sale payload MUST go through this before being sent.
+ */
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 // ─── Seed data ───────────────────────────────────────────────────────────────
 
 // Staff is loaded from app_settings.data.pos_staff on mount (see useEffect
@@ -698,20 +707,24 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ── Computed totals ───────────────────────────────────────────────────────
-  const subtotal = cart.reduce((sum, l) => sum + cartLineTotal(l), 0);
-  const discountAmount = subtotal * (discount.pct / 100);
-  const afterDiscount = subtotal - discountAmount;
+  // Each exported value is rounded to 2dp so receipts / UI never show
+  // 15.000000000000002, and so the same rounded numbers reach the server.
+  const subtotalRaw = cart.reduce((sum, l) => sum + cartLineTotal(l), 0);
+  const discountAmountRaw = subtotalRaw * (discount.pct / 100);
+  const afterDiscount = subtotalRaw - discountAmountRaw;
 
-  let taxAmount = 0;
-  if (settings.taxInclusive) {
-    // VAT is already included — extract it
-    taxAmount = afterDiscount - afterDiscount / (1 + settings.taxRate / 100);
-  } else {
-    taxAmount = afterDiscount * (settings.taxRate / 100);
-  }
-  const grandTotal = settings.taxInclusive
+  const taxAmountRaw = settings.taxInclusive
+    ? afterDiscount - afterDiscount / (1 + settings.taxRate / 100)
+    : afterDiscount * (settings.taxRate / 100);
+
+  const grandTotalRaw = settings.taxInclusive
     ? afterDiscount + tipAmount
-    : afterDiscount + taxAmount + tipAmount;
+    : afterDiscount + taxAmountRaw + tipAmount;
+
+  const subtotal       = round2(subtotalRaw);
+  const discountAmount = round2(discountAmountRaw);
+  const taxAmount      = round2(taxAmountRaw);
+  const grandTotal     = round2(grandTotalRaw);
 
   // ── Complete sale ─────────────────────────────────────────────────────────
   const completeSale = useCallback(async (
@@ -719,6 +732,10 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     payments: { method: "cash" | "card"; amount: number }[],
     cashTendered?: number
   ): Promise<POSSale | null> => {
+    // Compute totals at full precision, then round each money field to 2dp
+    // before sending. The server's Money primitive rejects float garbage
+    // (15.000000000000002, 13.043478260869563, etc.) — round at the producer
+    // so the wire payload is always clean.
     const sub = cart.reduce((s, l) => s + cartLineTotal(l), 0);
     const disc = sub * (discount.pct / 100);
     const after = sub - disc;
@@ -737,20 +754,20 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     const payload = {
       id: uuid(),
       items: [...cart],
-      subtotal: sub,
-      discountAmount: disc,
+      subtotal: round2(sub),
+      discountAmount: round2(disc),
       discountNote: discount.note,
-      taxAmount: tax,
+      taxAmount: round2(tax),
       // Snapshot the VAT mode + rate at time of sale so receipts always show
       // the correct label, even if the settings change later.
       taxRate: settings.taxRate,
       taxInclusive: settings.taxInclusive,
-      tipAmount,
-      total,
+      tipAmount: round2(tipAmount),
+      total: round2(total),
       paymentMethod,
-      payments,
-      cashTendered,
-      changeGiven: change,
+      payments: payments.map((p) => ({ ...p, amount: round2(p.amount) })),
+      cashTendered: cashTendered !== undefined ? round2(cashTendered) : undefined,
+      changeGiven: change !== undefined ? round2(change) : undefined,
       staffId: currentStaff?.id ?? "",
       staffName: currentStaff?.name ?? "",
       customerId: assignedCustomer?.id,
