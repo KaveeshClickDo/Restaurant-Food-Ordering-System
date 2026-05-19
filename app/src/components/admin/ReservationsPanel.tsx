@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp }   from "@/context/AppContext";
 import type { Reservation, ReservationStatus } from "@/types";
 import {
@@ -10,6 +9,7 @@ import {
   ToggleLeft, ToggleRight, Settings2, Search, Mail, Phone,
   LogIn, LogOut, UserPlus, Ban, Star, Link, ExternalLink,
 } from "lucide-react";
+import { cleanPhone } from "@/lib/inputUtils";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -530,14 +530,10 @@ export default function ReservationsPanel() {
 
   useEffect(() => { fetchReservations(); }, [fetchReservations]);
 
+  // Poll every 8 s — anon supabase realtime no longer fires after RLS revoke.
   useEffect(() => {
-    const channel = supabase
-      .channel("reservations-admin")
-      .on("postgres_changes", { event: "*", schema: "public", table: "reservations" }, () => {
-        fetchReservations();
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    const id = setInterval(fetchReservations, 8_000);
+    return () => clearInterval(id);
   }, [fetchReservations]);
 
   async function toggleEnabled() {
@@ -547,40 +543,57 @@ export default function ReservationsPanel() {
     setTogglingEnabled(false);
   }
 
+  // Per-row guards so a double-click on the same row's status/delete only fires once.
+  const statusInFlight = useRef<Set<string>>(new Set());
+  const deleteInFlight = useRef<Set<string>>(new Set());
+  const addInFlight    = useRef(false);
+
   async function handleStatusChange(id: string, status: ReservationStatus) {
-    const res = await fetch(`/api/admin/reservations/${id}`, {
-      method:  "PUT",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ status }),
-    });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({})) as { error?: string };
-      console.error("ReservationsPanel status change:", j.error);
+    if (statusInFlight.current.has(id)) return;
+    statusInFlight.current.add(id);
+    try {
+      const res = await fetch(`/api/admin/reservations/${id}`, {
+        method:  "PUT",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ status }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({})) as { error?: string };
+        console.error("ReservationsPanel status change:", j.error);
+      }
+      // Optimistic update — includes timestamp approximation
+      setReservations((prev) =>
+        prev.map((r) => {
+          if (r.id !== id) return r;
+          const now = new Date().toISOString();
+          return {
+            ...r,
+            status,
+            ...(status === "checked_in"  ? { checkedInAt:  now } : {}),
+            ...(status === "checked_out" ? { checkedOutAt: now } : {}),
+          };
+        })
+      );
+    } finally {
+      statusInFlight.current.delete(id);
     }
-    // Optimistic update — includes timestamp approximation
-    setReservations((prev) =>
-      prev.map((r) => {
-        if (r.id !== id) return r;
-        const now = new Date().toISOString();
-        return {
-          ...r,
-          status,
-          ...(status === "checked_in"  ? { checkedInAt:  now } : {}),
-          ...(status === "checked_out" ? { checkedOutAt: now } : {}),
-        };
-      })
-    );
   }
 
   async function handleDelete(id: string) {
+    if (deleteInFlight.current.has(id)) return;
     if (!confirm("Delete this reservation? This cannot be undone.")) return;
-    const res = await fetch(`/api/admin/reservations/${id}`, { method: "DELETE" });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({})) as { error?: string };
-      console.error("ReservationsPanel delete:", j.error);
-      return;
+    deleteInFlight.current.add(id);
+    try {
+      const res = await fetch(`/api/admin/reservations/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({})) as { error?: string };
+        console.error("ReservationsPanel delete:", j.error);
+        return;
+      }
+      setReservations((prev) => prev.filter((r) => r.id !== id));
+    } finally {
+      deleteInFlight.current.delete(id);
     }
-    setReservations((prev) => prev.filter((r) => r.id !== id));
   }
 
   async function handleAddBooking(e: React.FormEvent) {
@@ -607,6 +620,8 @@ export default function ReservationsPanel() {
       if (!ok) return;
     }
 
+    if (addInFlight.current) return;
+    addInFlight.current = true;
     setAddSaving(true); setAddError("");
     try {
       const res = await fetch("/api/admin/reservations", {
@@ -629,6 +644,7 @@ export default function ReservationsPanel() {
     } catch {
       setAddError("Network error — please try again.");
     } finally {
+      addInFlight.current = false;
       setAddSaving(false);
     }
   }
@@ -992,9 +1008,9 @@ export default function ReservationsPanel() {
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Guest details</p>
                   <input type="text" required value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="Full name *"
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
-                  <input type="email" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} placeholder="Email (optional)"
+                  <input type="email" autoComplete="off" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} placeholder="Email (optional)"
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
-                  <input type="tel" required={addSource === "phone"} value={addPhone} onChange={(e) => setAddPhone(e.target.value)}
+                  <input type="tel" inputMode="tel" autoComplete="off" required={addSource === "phone"} value={addPhone} onChange={(e) => setAddPhone(cleanPhone(e.target.value))}
                     placeholder={addSource === "phone" ? "Phone *" : "Phone (optional)"}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
                   <textarea rows={2} value={addNote} onChange={(e) => setAddNote(e.target.value)} placeholder="Notes (allergies, special requests…)"

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useApp } from "@/context/AppContext";
@@ -8,6 +8,10 @@ import {
   User, Mail, Phone, Lock, Eye, EyeOff, ChevronLeft,
   AlertCircle, CheckCircle, Loader2, KeyRound,
 } from "lucide-react";
+import {
+  LoginSchema, RegisterSchema, ResetPasswordRequestSchema, ResetPasswordConfirmSchema,
+} from "@/lib/schemas/auth";
+import { cleanPhone, formErrorMessage } from "@/lib/inputUtils";
 
 type Tab = "login" | "register" | "forgot" | "reset";
 
@@ -55,9 +59,12 @@ function LoginContent() {
 
   async function handleLogin(e: { preventDefault(): void }) {
     e.preventDefault();
-    setError(""); setIsAuthError(false); setLoading(true);
+    setError(""); setIsAuthError(false);
+    const check = LoginSchema.safeParse(loginForm);
+    if (!check.success) { setError(formErrorMessage(check.error)); return; }
+    setLoading(true);
     try {
-      const result = await login(loginForm.email, loginForm.password);
+      const result = await login(check.data.email, check.data.password);
       if (!result.ok) {
         if (result.needsVerification) {
           setVerificationEmail(result.email ?? loginForm.email);
@@ -77,11 +84,17 @@ function LoginContent() {
     e.preventDefault();
     setError("");
     if (registerForm.password !== registerForm.confirm) { setError("Passwords do not match."); return; }
-    if (registerForm.password.length < 6) { setError("Password must be at least 6 characters."); return; }
+    const check = RegisterSchema.omit({ id: true, createdAt: true }).safeParse({
+      name:     registerForm.name,
+      email:    registerForm.email,
+      phone:    registerForm.phone || undefined,
+      password: registerForm.password,
+    });
+    if (!check.success) { setError(formErrorMessage(check.error)); return; }
     setLoading(true);
     try {
       const result = await register(
-        registerForm.name, registerForm.email, registerForm.phone, registerForm.password,
+        check.data.name, check.data.email, check.data.phone ?? "", check.data.password,
       );
       if (!result.success) {
         setError(result.error ?? "Registration failed.");
@@ -95,46 +108,70 @@ function LoginContent() {
     }
   }
 
+  // Double-submit guards — synchronous ref-flag plus the `loading` state so
+  // both rapid clicks and slow-network repeat-clicks are dropped.
+  const resendInFlight = useRef(false);
+  const forgotInFlight = useRef(false);
+  const resetInFlight  = useRef(false);
+
   async function handleResendVerification() {
+    if (resendInFlight.current) return;
     if (!verificationEmail) return;
-    await fetch("/api/auth/resend-verification", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: verificationEmail }),
-    }).catch(() => {});
+    resendInFlight.current = true;
+    try {
+      await fetch("/api/auth/resend-verification", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: verificationEmail }),
+      }).catch(() => {});
+    } finally {
+      resendInFlight.current = false;
+    }
   }
 
   async function handleForgot(e: { preventDefault(): void }) {
     e.preventDefault();
-    setError(""); setLoading(true);
+    if (forgotInFlight.current) return;
+    setError("");
+    const check = ResetPasswordRequestSchema.safeParse({ email: forgotEmail });
+    if (!check.success) { setError(formErrorMessage(check.error)); return; }
+    forgotInFlight.current = true;
+    setLoading(true);
     try {
       await fetch("/api/auth/reset-password", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: forgotEmail.trim() }),
+        body: JSON.stringify({ email: check.data.email }),
       });
       setSuccess("sent");
     } catch {
       setError("Connection error. Please try again.");
     } finally {
+      forgotInFlight.current = false;
       setLoading(false);
     }
   }
 
   async function handleReset(e: { preventDefault(): void }) {
     e.preventDefault();
+    if (resetInFlight.current) return;
     setError("");
     if (resetForm.password !== resetForm.confirm) { setError("Passwords do not match."); return; }
-    if (resetForm.password.length < 6) { setError("Password must be at least 6 characters."); return; }
+    const check = ResetPasswordConfirmSchema.safeParse({
+      email: resetForm.email, token: resetForm.token, password: resetForm.password,
+    });
+    if (!check.success) { setError(formErrorMessage(check.error)); return; }
+    resetInFlight.current = true;
     setLoading(true);
     try {
       const res  = await fetch("/api/auth/reset-password/confirm", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: resetForm.email, token: resetForm.token, password: resetForm.password }),
+        body: JSON.stringify(check.data),
       });
       const json = await res.json() as { ok: boolean; error?: string };
       if (json.ok) { setSuccess("done"); } else { setError(json.error ?? "Invalid or expired reset link."); }
     } catch {
       setError("Connection error. Please try again.");
     } finally {
+      resetInFlight.current = false;
       setLoading(false);
     }
   }
@@ -276,8 +313,8 @@ function LoginContent() {
                   placeholder="jane@example.com" className={inputCls} />
               </Field>
               <Field label="Phone (optional)" icon={<Phone size={15} />}>
-                <input type="tel" value={registerForm.phone}
-                  onChange={(e) => setRegisterForm((f) => ({ ...f, phone: e.target.value }))}
+                <input type="tel" inputMode="tel" autoComplete="tel" value={registerForm.phone}
+                  onChange={(e) => setRegisterForm((f) => ({ ...f, phone: cleanPhone(e.target.value) }))}
                   placeholder="+44 7700 900000" className={inputCls} />
               </Field>
               <Field label="Password" icon={<Lock size={15} />}>

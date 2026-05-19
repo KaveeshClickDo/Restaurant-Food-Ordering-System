@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import { usePOS } from "@/context/POSContext";
 import { POSStaff } from "@/types/pos";
 import {
@@ -25,19 +25,41 @@ export default function StaffView() {
   // Delete state
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
+  // Inline two-stage confirm for deactivation — toggleActive turns
+  // destructive when the operator is disabling someone (especially admin),
+  // so we require an explicit second click before sending the PATCH.
+  const [deactivateConfirm, setDeactivateConfirm] = useState<string | null>(null);
+
+  // In-flight guards — save/add are global, toggle/delete are per-row so two
+  // different rows can mutate in parallel.
+  const addInFlight     = useRef(false);
+  const saveInFlight    = useRef(false);
+  const deleteInFlight  = useRef<Set<string>>(new Set());
+  const toggleInFlight  = useRef<Set<string>>(new Set());
+  const [addBusy,  setAddBusy]  = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
+
   async function addStaff() {
+    if (addInFlight.current) return;
     if (!newStaff.name.trim() || newStaff.pin.length !== 4) return;
-    const result = await addPosStaff({
-      name:        newStaff.name.trim(),
-      email:       newStaff.email,
-      role:        newStaff.role,
-      pin:         newStaff.pin,
-      hourlyRate:  parseFloat(newStaff.hourlyRate) || undefined,
-      avatarColor: COLORS[Math.floor(Math.random() * COLORS.length)],
-    });
-    if (!result.ok) return;
-    setNewStaff({ name: "", email: "", role: "cashier", pin: "", hourlyRate: "" });
-    setShowAdd(false);
+    addInFlight.current = true;
+    setAddBusy(true);
+    try {
+      const result = await addPosStaff({
+        name:        newStaff.name.trim(),
+        email:       newStaff.email,
+        role:        newStaff.role,
+        pin:         newStaff.pin,
+        hourlyRate:  parseFloat(newStaff.hourlyRate) || undefined,
+        avatarColor: COLORS[Math.floor(Math.random() * COLORS.length)],
+      });
+      if (!result.ok) return;
+      setNewStaff({ name: "", email: "", role: "cashier", pin: "", hourlyRate: "" });
+      setShowAdd(false);
+    } finally {
+      addInFlight.current = false;
+      setAddBusy(false);
+    }
   }
 
   function openEdit(member: POSStaff) {
@@ -48,29 +70,56 @@ export default function StaffView() {
   }
 
   async function saveEdit() {
+    if (saveInFlight.current) return;
     if (!editingStaff || !editDraft.name.trim()) return;
     if (editDraft.pin && editDraft.pin.length !== 4) return;
-    const result = await updatePosStaff(editingStaff.id, {
-      name:       editDraft.name.trim(),
-      email:      editDraft.email,
-      role:       editDraft.role,
-      pin:        editDraft.pin || undefined, // "" → omit, server keeps existing
-      hourlyRate: parseFloat(editDraft.hourlyRate) || undefined,
-    });
-    if (!result.ok) return;
-    setEditingStaff(null);
+    saveInFlight.current = true;
+    setSaveBusy(true);
+    try {
+      const result = await updatePosStaff(editingStaff.id, {
+        name:       editDraft.name.trim(),
+        email:      editDraft.email,
+        role:       editDraft.role,
+        pin:        editDraft.pin || undefined, // "" → omit, server keeps existing
+        hourlyRate: parseFloat(editDraft.hourlyRate) || undefined,
+      });
+      if (!result.ok) return;
+      setEditingStaff(null);
+    } finally {
+      saveInFlight.current = false;
+      setSaveBusy(false);
+    }
   }
 
   async function deleteStaff(staffId: string) {
-    const result = await deletePosStaff(staffId);
-    if (!result.ok) return;
-    setDeleteConfirm(null);
+    if (deleteInFlight.current.has(staffId)) return;
+    deleteInFlight.current.add(staffId);
+    try {
+      const result = await deletePosStaff(staffId);
+      if (!result.ok) return;
+      setDeleteConfirm(null);
+    } finally {
+      deleteInFlight.current.delete(staffId);
+    }
   }
 
-  function toggleActive(staffId: string) {
+  async function toggleActive(staffId: string) {
+    if (toggleInFlight.current.has(staffId)) return;
     const member = staff.find((s) => s.id === staffId);
     if (!member) return;
-    void updatePosStaff(staffId, { active: !member.active });
+    // Deactivation requires an explicit confirm (matches the inline pattern
+    // used for delete) — activating an inactive member is fine immediately.
+    if (member.active && deactivateConfirm !== staffId) {
+      setDeactivateConfirm(staffId);
+      return;
+    }
+    setDeactivateConfirm(null);
+    toggleInFlight.current.add(staffId);
+    try {
+      await updatePosStaff(staffId, { active: !member.active });
+    } finally {
+      toggleInFlight.current.delete(staffId);
+    }
   }
 
   // Today's clock entries
@@ -161,16 +210,35 @@ export default function StaffView() {
                       <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" /> Clocked in
                     </span>
                   )}
-                  <button
-                    onClick={() => toggleActive(member.id)}
-                    disabled={member.id === currentStaff?.id}
-                    title={member.id === currentStaff?.id ? "Cannot deactivate yourself" : ""}
-                    className={`transition-colors ${member.id === currentStaff?.id ? "opacity-30 cursor-not-allowed" : "hover:text-orange-400"}`}
-                  >
-                    {member.active
-                      ? <ToggleRight size={24} className="text-green-400" />
-                      : <ToggleLeft size={24} className="text-slate-500" />}
-                  </button>
+                  {deactivateConfirm === member.id ? (
+                    <span className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2 py-1">
+                      <span className="text-amber-300 text-[11px] font-semibold">Deactivate?</span>
+                      <button
+                        onClick={() => toggleActive(member.id)}
+                        className="text-[11px] font-bold bg-amber-500 hover:bg-amber-400 text-slate-900 px-2 py-0.5 rounded"
+                      >
+                        Yes
+                      </button>
+                      <button
+                        onClick={() => setDeactivateConfirm(null)}
+                        className="text-slate-400 hover:text-white"
+                        aria-label="Cancel deactivate"
+                      >
+                        <X size={13} />
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => toggleActive(member.id)}
+                      disabled={member.id === currentStaff?.id}
+                      title={member.id === currentStaff?.id ? "Cannot deactivate yourself" : ""}
+                      className={`transition-colors ${member.id === currentStaff?.id ? "opacity-30 cursor-not-allowed" : "hover:text-orange-400"}`}
+                    >
+                      {member.active
+                        ? <ToggleRight size={24} className="text-green-400" />
+                        : <ToggleLeft size={24} className="text-slate-500" />}
+                    </button>
+                  )}
                   <button
                     onClick={() => openEdit(member)}
                     title="Edit staff member"
@@ -257,8 +325,8 @@ export default function StaffView() {
             </div>
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => setShowAdd(false)} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">Cancel</button>
-              <button onClick={addStaff} disabled={!newStaff.name.trim() || newStaff.pin.length !== 4}
-                className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Add</button>
+              <button onClick={addStaff} disabled={addBusy || !newStaff.name.trim() || newStaff.pin.length !== 4}
+                className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{addBusy ? "Saving…" : "Add"}</button>
             </div>
           </div>
         </div>
@@ -305,8 +373,8 @@ export default function StaffView() {
             </div>
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => setEditingStaff(null)} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">Cancel</button>
-              <button onClick={saveEdit} disabled={!editDraft.name.trim() || (editDraft.pin.length > 0 && editDraft.pin.length !== 4)}
-                className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Save</button>
+              <button onClick={saveEdit} disabled={saveBusy || !editDraft.name.trim() || (editDraft.pin.length > 0 && editDraft.pin.length !== 4)}
+                className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{saveBusy ? "Saving…" : "Save"}</button>
             </div>
           </div>
         </div>

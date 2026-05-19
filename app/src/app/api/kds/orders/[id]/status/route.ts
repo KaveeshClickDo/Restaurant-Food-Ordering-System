@@ -10,8 +10,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import { getKitchenSession }         from "@/lib/auth";
 import { isAdminAuthenticated }      from "@/lib/adminAuth";
-
-const KITCHEN_STATUSES = new Set(["pending", "confirmed", "preparing", "ready"]);
+import { parseBody }                 from "@/lib/apiValidation";
+import { KdsOrderStatusSchema }      from "@/lib/schemas/pos";
 
 export async function PUT(
   req: NextRequest,
@@ -28,17 +28,9 @@ export async function PUT(
 
   const { id } = await params;
 
-  let body: { status?: string };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  const { status } = body;
-  if (!status || !KITCHEN_STATUSES.has(status)) {
-    return NextResponse.json(
-      { ok: false, error: `status must be one of: ${[...KITCHEN_STATUSES].join(", ")}.` },
-      { status: 400 },
-    );
-  }
+  const parsed = await parseBody(req, KdsOrderStatusSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { status } = parsed.data;
 
   const { error } = await supabaseAdmin
     .from("orders")

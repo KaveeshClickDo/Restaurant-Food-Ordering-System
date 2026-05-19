@@ -8,6 +8,7 @@ import {
 import AuthModal from "@/components/AuthModal";
 import CheckoutModal from "@/components/CheckoutModal";
 import ScheduleOrderModal from "@/components/ScheduleOrderModal";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { computeTax, taxSurcharge } from "@/lib/taxUtils";
 import { isMealPeriodActive } from "@/lib/scheduleUtils";
 
@@ -21,6 +22,7 @@ export default function CartPanel({ onMobileClose, onOrderPlaced }: CartPanelPro
   const [showCheckout, setShowCheckout] = useState(false);
   const [showAuth,     setShowAuth]     = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   // Tick every 30s so meal-period orderability re-evaluates as windows roll over.
   const [, setNowTick] = useState(0);
@@ -68,7 +70,7 @@ export default function CartPanel({ onMobileClose, onOrderPlaced }: CartPanelPro
           </div>
           <div className="flex items-center gap-1">
             {cart.length > 0 && (
-              <button onClick={clearCart} className="p-1.5 rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Clear cart">
+              <button onClick={() => setShowClearConfirm(true)} className="p-1.5 rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Clear cart">
                 <Trash2 className="w-3.5 h-3.5" strokeWidth={1.8} />
               </button>
             )}
@@ -264,6 +266,16 @@ export default function CartPanel({ onMobileClose, onOrderPlaced }: CartPanelPro
         />
       )}
       {showSchedule && <ScheduleOrderModal onClose={() => setShowSchedule(false)} />}
+
+      <ConfirmDialog
+        open={showClearConfirm}
+        title="Clear your basket?"
+        message="All items will be removed. This cannot be undone."
+        confirmLabel="Clear basket"
+        tone="danger"
+        onConfirm={() => { clearCart(); setShowClearConfirm(false); }}
+        onCancel={() => setShowClearConfirm(false)}
+      />
     </>
   );
 }

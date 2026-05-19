@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import {
   Users, Plus, Search, Pencil, Key, Mail, Trash2,
@@ -8,6 +8,7 @@ import {
   Truck, UtensilsCrossed, UserCircle2, ChevronDown,
   ChefHat, Tablet,
 } from "lucide-react";
+import { cleanPhone } from "@/lib/inputUtils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -166,9 +167,17 @@ export default function UserManagementPanel() {
     return true;
   });
 
+  // Per-row in-flight guards — block rapid double-clicks before the disabled
+  // state lands on the affected row's buttons.
+  const toggleInFlight = useRef<Set<string>>(new Set());
+  const resetInFlight  = useRef<Set<string>>(new Set());
+  const deleteInFlight = useRef(false);
+
   // ── Toggle active status ──────────────────────────────────────────────────
   async function toggleActive(user: ManagedUser) {
     if (user.type === "admin") return;
+    if (toggleInFlight.current.has(user.id)) return;
+    toggleInFlight.current.add(user.id);
 
     // Optimistic update
     setUsers((prev) =>
@@ -194,12 +203,16 @@ export default function UserManagementPanel() {
         prev.map((u) => u.id === user.id ? { ...u, active: user.active } : u),
       );
       addToast("Connection error.", false);
+    } finally {
+      toggleInFlight.current.delete(user.id);
     }
   }
 
   // ── Delete ────────────────────────────────────────────────────────────────
   async function confirmDelete() {
     if (!deleteUser) return;
+    if (deleteInFlight.current) return;
+    deleteInFlight.current = true;
     setDeleteConfirming(true);
     try {
       const res = await fetch(`/api/admin/users/${deleteUser.id}`, {
@@ -218,6 +231,7 @@ export default function UserManagementPanel() {
     } catch {
       addToast("Connection error.", false);
     } finally {
+      deleteInFlight.current = false;
       setDeleteConfirming(false);
     }
   }
@@ -225,6 +239,8 @@ export default function UserManagementPanel() {
   // ── Send reset email ──────────────────────────────────────────────────────
   async function sendReset(user: ManagedUser) {
     if (!user.email) { addToast("No email address on file.", false); return; }
+    if (resetInFlight.current.has(user.id)) return;
+    resetInFlight.current.add(user.id);
     setResetSending(user.id);
     try {
       const res = await fetch(`/api/admin/users/${user.id}/send-reset`, {
@@ -241,6 +257,7 @@ export default function UserManagementPanel() {
     } catch {
       addToast("Connection error.", false);
     } finally {
+      resetInFlight.current.delete(user.id);
       setResetSending(null);
     }
   }
@@ -586,6 +603,7 @@ function CreateUserModal({
   const [active,      setActive]      = useState(true);
   const [loading,     setLoading]     = useState(false);
   const [errors,      setErrors]      = useState<Record<string, string>>({});
+  const submitInFlight = useRef(false);
 
   // The five types fall into two groups:
   //   • Account types (customer / driver) use email + password.
@@ -615,7 +633,9 @@ function CreateUserModal({
 
   async function handleSubmit(e: { preventDefault(): void }) {
     e.preventDefault();
+    if (submitInFlight.current) return;
     if (!validate()) return;
+    submitInFlight.current = true;
     setLoading(true);
     try {
       const body: Record<string, unknown> = { type, name, active };
@@ -651,6 +671,7 @@ function CreateUserModal({
     } catch {
       addToast("Connection error.", false);
     } finally {
+      submitInFlight.current = false;
       setLoading(false);
     }
   }
@@ -711,7 +732,7 @@ function CreateUserModal({
         {/* Phone — required for drivers, optional for customers, hidden for staff */}
         {!isStaffPin && (
           <FormField label="Phone" error={errors.phone} required={type === "driver"}>
-            <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+44 7700 900000" className={inputCls(!!errors.phone)} />
+            <input type="tel" inputMode="tel" autoComplete="off" value={phone} onChange={(e) => setPhone(cleanPhone(e.target.value))} placeholder="+44 7700 900000" className={inputCls(!!errors.phone)} />
           </FormField>
         )}
 
@@ -861,6 +882,7 @@ function EditUserModal({
   const [notes,       setNotes]       = useState(user.notes ?? "");
   const [loading,     setLoading]     = useState(false);
   const [errors,      setErrors]      = useState<Record<string, string>>({});
+  const submitInFlight = useRef(false);
 
   function validate(): boolean {
     const e: Record<string, string> = {};
@@ -873,7 +895,9 @@ function EditUserModal({
 
   async function handleSubmit(e: { preventDefault(): void }) {
     e.preventDefault();
+    if (submitInFlight.current) return;
     if (!validate()) return;
+    submitInFlight.current = true;
     setLoading(true);
     try {
       const body: Record<string, unknown> = { type: user.type, name, active };
@@ -897,6 +921,7 @@ function EditUserModal({
     } catch {
       addToast("Connection error.", false);
     } finally {
+      submitInFlight.current = false;
       setLoading(false);
     }
   }
@@ -915,7 +940,7 @@ function EditUserModal({
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@example.com" className={inputCls(!!errors.email)} />
             </FormField>
             <FormField label="Phone">
-              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+44 7700 900000" className={inputCls(false)} />
+              <input type="tel" inputMode="tel" autoComplete="off" value={phone} onChange={(e) => setPhone(cleanPhone(e.target.value))} placeholder="+44 7700 900000" className={inputCls(false)} />
             </FormField>
           </>
         )}
@@ -1000,9 +1025,11 @@ function ChangePasswordModal({
   const [confirm, setConfirm] = useState("");
   const [error,   setError]   = useState("");
   const [loading, setLoading] = useState(false);
+  const submitInFlight = useRef(false);
 
   async function handleSubmit(e: { preventDefault(): void }) {
     e.preventDefault();
+    if (submitInFlight.current) return;
     setError("");
 
     if (isWaiter) {
@@ -1012,6 +1039,7 @@ function ChangePasswordModal({
       if (value !== confirm) { setError("Passwords do not match."); return; }
     }
 
+    submitInFlight.current = true;
     setLoading(true);
     try {
       const body = isWaiter
@@ -1033,6 +1061,7 @@ function ChangePasswordModal({
     } catch {
       setError("Connection error.");
     } finally {
+      submitInFlight.current = false;
       setLoading(false);
     }
   }

@@ -12,6 +12,8 @@ import { supabaseAdmin }                               from "@/lib/supabaseAdmin
 import { isAdminAuthenticated, unauthorizedResponse }  from "@/lib/adminAuth";
 import { sendEmailDirect, fetchBrandPrimaryColor }     from "@/lib/emailServer";
 import { RESET_TOKEN_TTL_MS }                          from "@/lib/auth";
+import { parseBody }                                   from "@/lib/apiValidation";
+import { SendResetSchema }                             from "@/lib/schemas/staff";
 
 function hashToken(rawToken: string): string {
   const secret = (process.env.AUTH_JWT_SECRET ?? process.env.ADMIN_JWT_SECRET ?? "").trim();
@@ -39,11 +41,6 @@ function buildResetEmail(name: string, resetUrl: string, brandColor: string): st
     </div>`;
 }
 
-interface SendResetBody {
-  type?: string;
-  email?: string;
-}
-
 export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -53,23 +50,10 @@ export async function POST(
   // id is not used for lookup (we use email), but keep for route param resolution
   await context.params;
 
-  let body: SendResetBody;
-  try {
-    body = await req.json() as SendResetBody;
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 });
-  }
-
-  const { type, email } = body;
-
-  if (!type) {
-    return NextResponse.json({ ok: false, error: "type is required." }, { status: 400 });
-  }
-  if (!email?.trim()) {
-    return NextResponse.json({ ok: false, error: "email is required." }, { status: 400 });
-  }
-
-  const normalizedEmail = email.trim().toLowerCase();
+  const parsed = await parseBody(req, SendResetSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { type, email } = parsed.data;
+  const normalizedEmail = email.toLowerCase();
   const siteUrl         = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
   const brandColor      = await fetchBrandPrimaryColor();
 

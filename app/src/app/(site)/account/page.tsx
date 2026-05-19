@@ -17,12 +17,14 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { Order, OrderLine, OrderStatus, DeliveryStatus, MenuItem, SavedAddress, AddOn, CartItem } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
 import AuthModal from "@/components/AuthModal";
 import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import { resolveStock } from "@/lib/stockUtils";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import CartPanel from "@/components/CartPanel";
 import { geocode } from "@/lib/useGeocode";
+import { cleanPhone } from "@/lib/inputUtils";
 
 const LocationMap = dynamic(() => import("@/components/maps/LocationMap"), {
   ssr: false,
@@ -331,7 +333,7 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-gray-800 text-sm">#{order.id.slice(0, 8).toUpperCase()}</span>
+            <span title={fullOrderNumber(order.id)} className="font-semibold text-gray-800 text-sm truncate max-w-[180px]">{fullOrderNumber(order.id)}</span>
             <StatusBadge order={order} />
             {isActive && (
               <span className="text-[10px] font-semibold bg-zinc-50 text-zinc-700 border border-zinc-200 rounded-full px-2 py-0.5">
@@ -612,13 +614,20 @@ function AddressesTab() {
   }
 
   function field(key: keyof typeof EMPTY_FORM, label: string, opts?: { type?: string; placeholder?: string }) {
+    const isPhone = key === "phone";
     return (
       <div>
         <label className="block text-xs font-medium text-zinc-500 mb-1">{label}</label>
         <input
           type={opts?.type ?? "text"}
+          inputMode={isPhone ? "tel" : undefined}
+          autoComplete={isPhone ? "tel" : undefined}
           value={form[key]}
-          onChange={(e) => { setForm((f) => ({ ...f, [key]: e.target.value })); setErrors((er) => ({ ...er, [key]: undefined })); }}
+          onChange={(e) => {
+            const v = isPhone ? cleanPhone(e.target.value) : e.target.value;
+            setForm((f) => ({ ...f, [key]: v }));
+            setErrors((er) => ({ ...er, [key]: undefined }));
+          }}
           placeholder={opts?.placeholder}
           className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition ${errors[key] ? "border-red-400" : "border-zinc-200"}`}
         />
@@ -858,6 +867,7 @@ function ChangePasswordCard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const submitInFlight = useRef(false);
 
   function reset() {
     setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
@@ -872,9 +882,11 @@ function ChangePasswordCard() {
 
   async function handleSubmit(e: { preventDefault(): void }) {
     e.preventDefault();
+    if (submitInFlight.current) return;
     setError("");
     if (newPassword.length < 6) { setError("New password must be at least 6 characters."); return; }
     if (newPassword !== confirmPassword) { setError("Passwords do not match."); return; }
+    submitInFlight.current = true;
     setLoading(true);
     try {
       const res = await fetch("/api/auth/change-password", {
@@ -893,6 +905,7 @@ function ChangePasswordCard() {
     } catch {
       setError("Connection error. Please try again.");
     } finally {
+      submitInFlight.current = false;
       setLoading(false);
     }
   }
@@ -1116,8 +1129,10 @@ function ProfileTab() {
             {editing ? (
               <input
                 type="tel"
+                inputMode="tel"
+                autoComplete="tel"
                 value={form.phone}
-                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                onChange={(e) => setForm((f) => ({ ...f, phone: cleanPhone(e.target.value) }))}
                 className="w-full border border-zinc-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition"
               />
             ) : (

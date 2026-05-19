@@ -13,6 +13,9 @@ import {
   COOKIE_ADMIN,
   misconfiguredResponse,
 } from "@/lib/adminAuth";
+import { parseBody }       from "@/lib/apiValidation";
+import { rateLimit }        from "@/lib/rateLimit";
+import { AdminLoginSchema } from "@/lib/schemas/auth";
 
 export async function GET() {
   const ok = await isAdminAuthenticated();
@@ -25,14 +28,15 @@ export async function POST(req: NextRequest) {
     return misconfiguredResponse("ADMIN_PASSWORD env var is not set.");
   }
 
-  let body: { password?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 });
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const { limited } = rateLimit(`admin-login:${ip}`, 5, 60_000);
+  if (limited) {
+    return NextResponse.json({ ok: false, error: "Too many attempts. Please wait a minute." }, { status: 429 });
   }
 
-  const candidate = body.password ?? "";
+  const parsed = await parseBody(req, AdminLoginSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const candidate = parsed.data.password;
 
   // Timing-safe comparison via fixed-length sha256 hashes. Hashing both sides
   // first means the comparison buffer is always 32 bytes regardless of the

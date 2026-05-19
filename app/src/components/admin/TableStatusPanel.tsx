@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
-import type { Reservation, ReservationStatus } from "@/types";
+import type { Reservation } from "@/types";
 import {
   UtensilsCrossed, Users, Clock, LogIn, LogOut,
   Loader2, RefreshCw, CheckCircle2, CalendarDays,
@@ -182,32 +181,45 @@ export default function TableStatusPanel() {
 
   useEffect(() => { fetchToday(); }, [fetchToday]);
 
+  // Poll every 8 s — anon supabase realtime no longer fires after RLS revoke.
   useEffect(() => {
-    const ch = supabase
-      .channel("table-status-panel")
-      .on("postgres_changes", { event: "*", schema: "public", table: "reservations" }, fetchToday)
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
+    const id = setInterval(fetchToday, 8_000);
+    return () => clearInterval(id);
   }, [fetchToday]);
 
+  // Per-row guards — a fast double-click on the same row's check-in/out only fires once.
+  const actionInFlight = useRef<Set<string>>(new Set());
+
   async function handleCheckIn(resId: string) {
-    await fetch(`/api/admin/reservations/${resId}`, {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "checked_in" }),
-    });
-    setReservations((prev) =>
-      prev.map((r) => r.id === resId ? { ...r, status: "checked_in", checkedInAt: new Date().toISOString() } : r)
-    );
+    if (actionInFlight.current.has(resId)) return;
+    actionInFlight.current.add(resId);
+    try {
+      await fetch(`/api/admin/reservations/${resId}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "checked_in" }),
+      });
+      setReservations((prev) =>
+        prev.map((r) => r.id === resId ? { ...r, status: "checked_in", checkedInAt: new Date().toISOString() } : r)
+      );
+    } finally {
+      actionInFlight.current.delete(resId);
+    }
   }
 
   async function handleCheckOut(resId: string) {
-    await fetch(`/api/admin/reservations/${resId}`, {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "checked_out" }),
-    });
-    setReservations((prev) =>
-      prev.map((r) => r.id === resId ? { ...r, status: "checked_out", checkedOutAt: new Date().toISOString() } : r)
-    );
+    if (actionInFlight.current.has(resId)) return;
+    actionInFlight.current.add(resId);
+    try {
+      await fetch(`/api/admin/reservations/${resId}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "checked_out" }),
+      });
+      setReservations((prev) =>
+        prev.map((r) => r.id === resId ? { ...r, status: "checked_out", checkedOutAt: new Date().toISOString() } : r)
+      );
+    } finally {
+      actionInFlight.current.delete(resId);
+    }
   }
 
   // Build table state from today's reservations

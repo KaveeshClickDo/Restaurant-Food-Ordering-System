@@ -15,6 +15,8 @@ import {
   unauthorizedJson,
 } from "@/lib/auth";
 import { rateLimit } from "@/lib/rateLimit";
+import { parseBody } from "@/lib/apiValidation";
+import { LoginSchema } from "@/lib/schemas/auth";
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
@@ -23,20 +25,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Too many login attempts. Please wait a minute." }, { status: 429 });
   }
 
-  let body: { email?: string; password?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 });
-  }
-
-  const { email, password } = body;
-  if (!email?.trim() || !password) {
-    return NextResponse.json(
-      { ok: false, error: "Email and password are required." },
-      { status: 400 },
-    );
-  }
+  const parsed = await parseBody(req, LoginSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { email, password } = parsed.data;
 
   const { data, error: fetchErr } = await supabaseAdmin
     .from("customers")

@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { getPosSession } from "@/lib/auth";
+import { requirePosPermission } from "@/lib/posPermissions";
 
 // ─── GET ──────────────────────────────────────────────────────────────────────
 
@@ -34,16 +34,37 @@ export async function GET() {
 
 // ─── POST ─────────────────────────────────────────────────────────────────────
 
-export async function POST(req: NextRequest) {
-  // Auth guard: require a valid POS session. Same graceful fallback as pos/orders.
-  const session = await getPosSession();
-  if (!session) {
-    const { count } = await supabaseAdmin
-      .from("pos_staff").select("id", { count: "exact", head: true }).eq("active", true);
-    if ((count ?? 0) > 0) {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-    }
+// Whitelisted columns — the POS UI is allowed to write these, nothing else.
+// Anything outside the whitelist (active flags, audit fields, server-managed
+// timestamps, etc.) is silently dropped before the upsert.
+const CATEGORY_COLS = new Set([
+  "id", "name", "emoji", "sort_order",
+]);
+const MENU_ITEM_COLS = new Set([
+  "id", "category_id", "name", "description", "price", "image",
+  "dietary", "popular", "variations", "add_ons", "stock_qty",
+  "stock_status", "sort_order",
+  // Bug #2 — POS / admin field parity. These mirror the new MenuItem fields
+  // so a POS upsert preserves cost/sku/branding/offer state in menu_items.
+  "cost", "sku", "emoji", "color", "active", "track_stock", "offer",
+]);
+
+function pick(row: Record<string, unknown>, allowed: Set<string>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(row)) {
+    if (allowed.has(key)) out[key] = row[key];
   }
+  return out;
+}
+
+export async function POST(req: NextRequest) {
+  // F-INS-4 fix: require `canManageMenu` (admin or POS-admin/manager with
+  // the explicit flag) — was previously open to any POS session and the
+  // "no active staff yet" bypass was wide open on a fresh install. The
+  // bootstrap bypass is gone; a fresh install seeds menu via the admin panel
+  // or seed script, not via this route.
+  const gate = await requirePosPermission("canManageMenu");
+  if (!gate.ok) return gate.response;
 
   let body: {
     categories?: Record<string, unknown>[];
@@ -52,7 +73,10 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); }
   catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
 
-  const { categories = [], products = [] } = body;
+  const rawCategories = Array.isArray(body.categories) ? body.categories : [];
+  const rawProducts   = Array.isArray(body.products)   ? body.products   : [];
+  const categories = rawCategories.map((c) => pick(c, CATEGORY_COLS));
+  const products   = rawProducts.map((p) => pick(p, MENU_ITEM_COLS));
 
   // Upsert categories
   if (categories.length > 0) {

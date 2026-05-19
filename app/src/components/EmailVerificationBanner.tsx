@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Customer } from "@/types";
 
 /**
@@ -13,15 +13,19 @@ import type { Customer } from "@/types";
 export default function EmailVerificationBanner({ currentUser }: { currentUser: Customer | null }) {
   const [sending, setSending] = useState(false);
   const [sent,    setSent]    = useState(false);
+  const inFlight              = useRef(false);
 
   if (!currentUser || currentUser.emailVerified !== false) return null;
 
   async function handleResend() {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setSending(true);
     try {
       await fetch("/api/auth/resend-verification", { method: "POST" });
       setSent(true);
     } finally {
+      inFlight.current = false;
       setSending(false);
     }
   }

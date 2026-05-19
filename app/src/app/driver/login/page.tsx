@@ -5,6 +5,10 @@ import { useRouter, useSearchParams }    from "next/navigation";
 import Link                              from "next/link";
 import { useApp }                        from "@/context/AppContext";
 import { Truck, Eye, EyeOff, AlertCircle, CheckCircle, Loader2 } from "lucide-react";
+import {
+  DriverLoginSchema, ResetPasswordRequestSchema, ResetPasswordConfirmSchema,
+} from "@/lib/schemas/auth";
+import { formErrorMessage } from "@/lib/inputUtils";
 
 // ── Inner component (uses useSearchParams — must be inside Suspense) ──────────
 
@@ -51,9 +55,11 @@ function DriverLoginInner() {
   async function handleLogin(e: { preventDefault(): void }) {
     e.preventDefault();
     setLoginError("");
+    const check = DriverLoginSchema.safeParse({ email: loginEmail, password: loginPassword });
+    if (!check.success) { setLoginError(formErrorMessage(check.error)); return; }
     setLoginLoading(true);
     try {
-      const ok = await driverLogin(loginEmail.trim(), loginPassword);
+      const ok = await driverLogin(check.data.email, check.data.password);
       if (ok) {
         router.replace("/driver");
       } else {
@@ -70,12 +76,14 @@ function DriverLoginInner() {
   async function handleForgot(e: { preventDefault(): void }) {
     e.preventDefault();
     setForgotError("");
+    const check = ResetPasswordRequestSchema.safeParse({ email: forgotEmail });
+    if (!check.success) { setForgotError(formErrorMessage(check.error)); return; }
     setForgotLoading(true);
     try {
       await fetch("/api/auth/driver/reset-password", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ email: forgotEmail.trim() }),
+        body:    JSON.stringify({ email: check.data.email }),
       });
       // Always show success — endpoint never reveals whether email exists
       setForgotSent(true);
@@ -91,25 +99,21 @@ function DriverLoginInner() {
     e.preventDefault();
     setResetError("");
 
-    if (resetPassword.length < 6) {
-      setResetError("Password must be at least 6 characters.");
-      return;
-    }
     if (resetPassword !== resetConfirm) {
       setResetError("Passwords do not match.");
       return;
     }
+    const check = ResetPasswordConfirmSchema.safeParse({
+      email: urlEmail ?? "", token: urlToken ?? "", password: resetPassword,
+    });
+    if (!check.success) { setResetError(formErrorMessage(check.error)); return; }
 
     setResetLoading(true);
     try {
       const res  = await fetch("/api/auth/driver/reset-password/confirm", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({
-          email:    urlEmail ?? "",
-          token:    urlToken ?? "",
-          password: resetPassword,
-        }),
+        body:    JSON.stringify(check.data),
       });
       const json = await res.json() as { ok: boolean; error?: string };
       if (json.ok) {

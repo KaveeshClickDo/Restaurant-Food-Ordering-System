@@ -1,9 +1,9 @@
 /**
- * POST /api/pos/reservations
- * Creates a walk-in or phone reservation from the POS terminal.
- * Hard-blocks double-booking (table conflict at same time); allows capacity
- * overrides since staff can pull extra chairs or merge tables.
- * Requires a POS or admin session.
+ * GET  /api/pos/reservations — list reservations (with optional date filter).
+ * POST /api/pos/reservations — create a walk-in or phone reservation.
+ *
+ * Both require a POS or admin session. The GET replaces the direct
+ * `supabase.from("reservations")` reads in POS components.
  */
 
 import { NextRequest, NextResponse }  from "next/server";
@@ -11,45 +11,54 @@ import { supabaseAdmin }              from "@/lib/supabaseAdmin";
 import { sendReservationEmailServer } from "@/lib/emailServer";
 import { isAdminAuthenticated }       from "@/lib/adminAuth";
 import { getPosSession, unauthorizedJson } from "@/lib/auth";
+import { parseBody }                  from "@/lib/apiValidation";
+import { ReservationPosSchema }       from "@/lib/schemas/reservation";
 
 function toMins(time: string): number {
   const [h, m] = time.split(":").map(Number);
   return h * 60 + m;
 }
 
+export async function GET(req: NextRequest) {
+  const [pos, admin] = await Promise.all([getPosSession(), isAdminAuthenticated()]);
+  if (!pos && !admin) return unauthorizedJson();
+
+  const { searchParams } = new URL(req.url);
+  const date  = searchParams.get("date");
+  const from  = searchParams.get("from");
+  const to    = searchParams.get("to");
+  const limit = Math.min(Number(searchParams.get("limit") ?? 500), 2000);
+
+  let q = supabaseAdmin
+    .from("reservations")
+    .select("*")
+    .order("date", { ascending: true })
+    .order("time", { ascending: true })
+    .limit(limit);
+
+  if (date) q = q.eq("date", date);
+  if (from) q = q.gte("date", from);
+  if (to)   q = q.lte("date", to);
+
+  const { data, error } = await q;
+  if (error) {
+    console.error("pos/reservations GET:", error.message);
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
+  return NextResponse.json({ ok: true, reservations: data ?? [] });
+}
+
 export async function POST(req: NextRequest) {
   const [pos, admin] = await Promise.all([getPosSession(), isAdminAuthenticated()]);
   if (!pos && !admin) return unauthorizedJson();
 
-  let body: {
-    tableId?: string; tableLabel?: string; tableSeats?: number; section?: string;
-    date?: string; time?: string; partySize?: number;
-    customerName?: string; customerEmail?: string; customerPhone?: string;
-    note?: string; source?: string;
-  };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
+  const parsed = await parseBody(req, ReservationPosSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const {
     tableId, tableLabel, tableSeats, section,
     date, time, partySize, customerName, customerEmail, customerPhone,
-    note, source = "walk-in",
-  } = body;
-
-  if (!tableId || !tableLabel || !date || !time || !partySize || !customerName) {
-    return NextResponse.json(
-      { ok: false, error: "tableId, tableLabel, date, time, partySize and customerName are required." },
-      { status: 400 },
-    );
-  }
-  // Phone bookings always need a callback number — staff must be able to
-  // reach the guest. UI also enforces this; this is the server-side gate.
-  if (source === "phone" && !customerPhone?.trim()) {
-    return NextResponse.json(
-      { ok: false, error: "Phone number is required for phone bookings." },
-      { status: 400 },
-    );
-  }
+    note, source,
+  } = parsed.data;
 
   // Load settings once — used for both conflict detection (slot duration) and
   // the phone-booking confirmation email further down.

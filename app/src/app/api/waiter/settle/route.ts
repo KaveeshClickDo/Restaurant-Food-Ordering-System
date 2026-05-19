@@ -7,27 +7,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireWaiterAuth } from "@/lib/waiterAuth";
+import { parseBody } from "@/lib/apiValidation";
+import { WaiterSettleSchema } from "@/lib/schemas/waiter";
 
 export async function POST(req: NextRequest) {
   const unauth = await requireWaiterAuth();
   if (unauth) return unauth;
 
-  let body: {
-    orderIds?: string[];
-    tableLabel?: string;
-    paymentMethod?: "cash" | "card";
-  };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  const { orderIds, tableLabel, paymentMethod } = body;
-
-  if (!Array.isArray(orderIds) || orderIds.length === 0) {
-    return NextResponse.json({ ok: false, error: "orderIds is required." }, { status: 400 });
-  }
-  if (!tableLabel) {
-    return NextResponse.json({ ok: false, error: "tableLabel is required." }, { status: 400 });
-  }
+  const parsed = await parseBody(req, WaiterSettleSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { orderIds, tableLabel, paymentMethod } = parsed.data;
 
   try {
     const { error } = await supabaseAdmin

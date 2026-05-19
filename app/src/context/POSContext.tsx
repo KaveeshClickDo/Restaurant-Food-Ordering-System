@@ -8,6 +8,9 @@ import {
 } from "@/types/pos";
 import { useApp } from "@/context/AppContext";
 
+// Module-scope so the value is stable across renders (used by the idle-logout effect).
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+
 // ─── Seed data ───────────────────────────────────────────────────────────────
 
 // Staff is loaded from app_settings.data.pos_staff on mount (see useEffect
@@ -15,61 +18,16 @@ import { useApp } from "@/context/AppContext";
 // the only source of truth, so a fresh terminal renders the correct staff
 // list immediately and edits made on one terminal are visible everywhere.
 
-const SEED_CATEGORIES: POSCategory[] = [
-  { id: "starters",  name: "Starters",       emoji: "🥗", color: "#f97316", order: 0 },
-  { id: "mains",     name: "Mains",           emoji: "🍛", color: "#8b5cf6", order: 1 },
-  { id: "breads",    name: "Breads & Rice",   emoji: "🫓", color: "#f59e0b", order: 2 },
-  { id: "seafood",   name: "Seafood",         emoji: "🦐", color: "#06b6d4", order: 3 },
-  { id: "sides",     name: "Sides",           emoji: "🫙", color: "#10b981", order: 4 },
-  { id: "desserts",  name: "Desserts",        emoji: "🍮", color: "#ec4899", order: 5 },
-  { id: "drinks",    name: "Drinks",          emoji: "🥤", color: "#3b82f6", order: 6 },
-];
+// Intentionally empty. Demo categories/products must come from
+// `npm run db:seed-demo` (see app/seed-demo.ts). These constants are kept
+// only as typed fallbacks for the `load<…>("pos_categories", SEED_CATEGORIES)`
+// pattern below — they must NEVER carry data, otherwise localStorage becomes
+// a hidden seeding path that bypasses the migration script.
+const SEED_CATEGORIES: POSCategory[] = [];
 
-const SEED_PRODUCTS: POSProduct[] = [
-  // Starters
-  { id: "p-s1", categoryId: "starters", name: "Onion Bhaji", price: 5.50, emoji: "🧅", color: "#fed7aa", trackStock: false, active: true, popular: true, cost: 1.50,
-    modifiers: [{id: "m-portion", name: "Portion", required: true, multiSelect: false, options: [{id: "reg", label: "Regular (4 pcs)", priceAdjust: 0},{id: "lg", label: "Large (6 pcs)", priceAdjust: 2.00}]}]},
-  { id: "p-s2", categoryId: "starters", name: "Seekh Kebab", price: 7.95, emoji: "🍢", color: "#fecaca", trackStock: false, active: true, cost: 2.50,
-    modifiers: [{id: "m-spice", name: "Spice Level", required: true, multiSelect: false, options: [{id: "mild", label: "Mild", priceAdjust: 0},{id: "med", label: "Medium", priceAdjust: 0},{id: "hot", label: "Hot 🌶️", priceAdjust: 0}]}]},
-  { id: "p-s3", categoryId: "starters", name: "Samosa (2 pcs)", price: 4.50, emoji: "🥟", color: "#fef3c7", trackStock: false, active: true, cost: 1.00 },
-  { id: "p-s4", categoryId: "starters", name: "Chicken Tikka", price: 8.50, emoji: "🍗", color: "#fecdd3", trackStock: false, active: true, popular: true, cost: 2.80,
-    modifiers: [{id: "m-spice2", name: "Spice Level", required: false, multiSelect: false, options: [{id: "mild", label: "Mild", priceAdjust: 0},{id: "med", label: "Medium", priceAdjust: 0},{id: "hot", label: "Hot 🌶️", priceAdjust: 0}]}]},
-  { id: "p-s5", categoryId: "starters", name: "Veg Spring Rolls", price: 5.25, emoji: "🥚", color: "#d1fae5", trackStock: false, active: true, cost: 1.20 },
-  // Mains
-  { id: "p-m1", categoryId: "mains", name: "Chicken Tikka Masala", price: 12.95, emoji: "🍛", color: "#fed7aa", trackStock: false, active: true, popular: true, cost: 3.50,
-    modifiers: [{id: "m-spice3", name: "Spice Level", required: false, multiSelect: false, options: [{id: "mild", label: "Mild", priceAdjust: 0},{id: "med", label: "Medium", priceAdjust: 0},{id: "hot", label: "Hot 🌶️", priceAdjust: 0}]}]},
-  { id: "p-m2", categoryId: "mains", name: "Lamb Rogan Josh", price: 13.95, emoji: "🍖", color: "#fecaca", trackStock: false, active: true, popular: true, cost: 4.20,
-    modifiers: [{id: "m-spice4", name: "Spice Level", required: false, multiSelect: false, options: [{id: "mild", label: "Mild", priceAdjust: 0},{id: "med", label: "Medium", priceAdjust: 0},{id: "hot", label: "Hot 🌶️", priceAdjust: 0}]}]},
-  { id: "p-m3", categoryId: "mains", name: "Butter Chicken", price: 12.50, emoji: "🍛", color: "#fef3c7", trackStock: false, active: true, cost: 3.20 },
-  { id: "p-m4", categoryId: "mains", name: "Paneer Tikka Masala", price: 11.95, emoji: "🧀", color: "#ede9fe", trackStock: false, active: true, popular: true, cost: 2.80 },
-  { id: "p-m5", categoryId: "mains", name: "Chana Masala", price: 10.50, emoji: "🫘", color: "#d1fae5", trackStock: false, active: true, cost: 2.00 },
-  { id: "p-m6", categoryId: "mains", name: "Dal Makhani", price: 10.95, emoji: "🫙", color: "#dbeafe", trackStock: false, active: true, cost: 1.80 },
-  { id: "p-m7", categoryId: "mains", name: "King Prawn Balti", price: 15.95, emoji: "🦐", color: "#fce7f3", trackStock: false, active: true, popular: true, cost: 5.50 },
-  // Breads & Rice
-  { id: "p-b1", categoryId: "breads", name: "Plain Naan", price: 2.75, emoji: "🫓", color: "#fef3c7", trackStock: false, active: true, cost: 0.40 },
-  { id: "p-b2", categoryId: "breads", name: "Garlic Butter Naan", price: 3.25, emoji: "🧄", color: "#fef3c7", trackStock: false, active: true, popular: true, cost: 0.50 },
-  { id: "p-b3", categoryId: "breads", name: "Peshwari Naan", price: 3.50, emoji: "🥥", color: "#fef3c7", trackStock: false, active: true, cost: 0.60 },
-  { id: "p-b4", categoryId: "breads", name: "Basmati Rice", price: 3.00, emoji: "🍚", color: "#f0fdf4", trackStock: false, active: true, cost: 0.50 },
-  { id: "p-b5", categoryId: "breads", name: "Pilau Rice", price: 3.50, emoji: "🍚", color: "#fef3c7", trackStock: false, active: true, cost: 0.60 },
-  // Seafood
-  { id: "p-sf1", categoryId: "seafood", name: "King Prawn Curry", price: 14.95, emoji: "🦐", color: "#cffafe", trackStock: false, active: true, cost: 5.00 },
-  { id: "p-sf2", categoryId: "seafood", name: "Fish Tikka", price: 12.95, emoji: "🐟", color: "#e0f2fe", trackStock: false, active: true, cost: 3.80 },
-  // Sides
-  { id: "p-si1", categoryId: "sides", name: "Raita", price: 2.50, emoji: "🥛", color: "#ecfdf5", trackStock: false, active: true, cost: 0.50 },
-  { id: "p-si2", categoryId: "sides", name: "Mint Chutney", price: 1.50, emoji: "🌿", color: "#d1fae5", trackStock: false, active: true, cost: 0.30 },
-  { id: "p-si3", categoryId: "sides", name: "Poppadoms (4 pcs)", price: 3.00, emoji: "🥙", color: "#fef3c7", trackStock: false, active: true, popular: true, cost: 0.60 },
-  { id: "p-si4", categoryId: "sides", name: "Mixed Pickle", price: 1.75, emoji: "🫙", color: "#fef9c3", trackStock: false, active: true, cost: 0.40 },
-  // Desserts
-  { id: "p-d1", categoryId: "desserts", name: "Gulab Jamun", price: 4.50, emoji: "🍡", color: "#fce7f3", trackStock: false, active: true, cost: 1.00 },
-  { id: "p-d2", categoryId: "desserts", name: "Mango Kulfi", price: 4.95, emoji: "🍦", color: "#fef3c7", trackStock: false, active: true, popular: true, cost: 1.20 },
-  { id: "p-d3", categoryId: "desserts", name: "Kheer", price: 4.25, emoji: "🍮", color: "#f5f3ff", trackStock: false, active: true, cost: 0.90 },
-  // Drinks
-  { id: "p-dr1", categoryId: "drinks", name: "Mango Lassi", price: 3.95, emoji: "🥭", color: "#fef3c7", trackStock: false, active: true, popular: true, cost: 0.70 },
-  { id: "p-dr2", categoryId: "drinks", name: "Coca-Cola 330ml", price: 2.50, emoji: "🥤", color: "#fecaca", trackStock: true, stockQty: 24, active: true, cost: 0.60 },
-  { id: "p-dr3", categoryId: "drinks", name: "Still Water", price: 1.50, emoji: "💧", color: "#dbeafe", trackStock: true, stockQty: 30, active: true, cost: 0.20 },
-  { id: "p-dr4", categoryId: "drinks", name: "Sparkling Water", price: 1.75, emoji: "💦", color: "#e0f2fe", trackStock: true, stockQty: 20, active: true, cost: 0.25 },
-  { id: "p-dr5", categoryId: "drinks", name: "Chai Tea", price: 2.75, emoji: "☕", color: "#fef3c7", trackStock: false, active: true, cost: 0.40 },
-];
+// Intentionally empty. See note on SEED_CATEGORIES above — seeding is the
+// exclusive responsibility of `npm run db:seed-demo`.
+const SEED_PRODUCTS: POSProduct[] = [];
 
 const SEED_SETTINGS: POSSettings = {
   businessName: "",
@@ -99,20 +57,10 @@ const SEED_SETTINGS: POSSettings = {
   smtpFromName: "",
 };
 
-const SEED_CUSTOMERS: POSCustomer[] = [
-  { id: "pc-1", name: "Arjun Sharma", email: "arjun@example.com", phone: "07700 900123",
-    loyaltyPoints: 245, giftCardBalance: 0, totalSpend: 245.00, visitCount: 18,
-    lastVisit: "2024-04-13T10:00:00.000Z",
-    tags: ["VIP", "Regular"], notes: "Prefers mild dishes", createdAt: "2024-01-15T00:00:00.000Z" },
-  { id: "pc-2", name: "Emma Wilson", email: "emma@example.com", phone: "07700 900456",
-    loyaltyPoints: 80, giftCardBalance: 20.00, totalSpend: 80.00, visitCount: 6,
-    lastVisit: "2024-04-09T14:00:00.000Z",
-    tags: ["Regular"], notes: "", createdAt: "2024-02-10T00:00:00.000Z" },
-  { id: "pc-3", name: "Mohammed Khan", email: "mo@example.com", phone: "07700 900789",
-    loyaltyPoints: 512, giftCardBalance: 0, totalSpend: 512.00, visitCount: 34,
-    lastVisit: "2024-04-15T19:00:00.000Z",
-    tags: ["VIP", "Regular", "Halal"], notes: "Always orders Lamb Rogan Josh", createdAt: "2023-12-01T00:00:00.000Z" },
-];
+// Bug #11 — POS customers are no longer cached in localStorage. The
+// `customers` table is the single source of truth (shared with admin); the
+// initial value is always [] and `fetchCustomers` hydrates from
+// /api/pos/customers once the staff session resolves.
 
 // ─── Context ─────────────────────────────────────────────────────────────────
 
@@ -134,6 +82,21 @@ interface POSContextValue {
   sales: POSSale[];
   customers: POSCustomer[];
   setCustomers: React.Dispatch<React.SetStateAction<POSCustomer[]>>;
+  // Bug #11 — POS mutations are now DB-backed via /api/pos/customers. The
+  // returned promise resolves with { ok, error? } so the UI can surface
+  // server-side validation errors. After a successful mutation the customers
+  // state is refreshed so totalSpend/visitCount/lastVisit reflect any
+  // server-side recomputation.
+  addCustomer: (input: {
+    name: string; email?: string; phone?: string; notes?: string;
+    tags?: string[]; loyaltyPoints?: number; giftCardBalance?: number;
+  }) => Promise<{ ok: boolean; error?: string; customer?: POSCustomer }>;
+  updateCustomer: (id: string, patch: {
+    name?: string; email?: string; phone?: string; notes?: string;
+    tags?: string[]; loyaltyPoints?: number; giftCardBalance?: number;
+  }) => Promise<{ ok: boolean; error?: string }>;
+  deleteCustomer: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  refreshCustomers: () => Promise<void>;
   clockEntries: POSClockEntry[];
   settings: POSSettings;
   setSettings: React.Dispatch<React.SetStateAction<POSSettings>>;
@@ -219,27 +182,38 @@ function syncMenuToSupabase(products: POSProduct[], categories: POSCategory[]) {
     id: c.id, name: c.name, emoji: c.emoji, sort_order: c.order ?? i,
   }));
 
-  // Map POSProduct → menu_items row
-  const productRows = products
-    .filter((p) => p.active)
-    .map((p) => {
-      // online MenuItem.variations[].options[].price is a delta added on top of
-      // the item's base price. POS internally also uses priceAdjust (delta), so
-      // this is a 1:1 passthrough.
-      const variations = (p.modifiers ?? [])
-        .filter((m) => !m.multiSelect)
-        .map((m) => ({
-          id: m.id, name: m.name,
-          options: m.options.map((o) => ({
-            id: o.id, label: o.label,
-            price: parseFloat(o.priceAdjust.toFixed(2)),
-          })),
-        }));
+  // Map POSProduct → menu_items row. We now also write the parity columns
+  // (cost/sku/emoji/color/active/track_stock/offer) so admin sees what POS
+  // saved. The variations[] and addOns[] lists are written from the explicit
+  // admin-style fields when present; otherwise we fall back to converting
+  // legacy POS modifiers (radio groups → variations, multi-select → addOns).
+  // NOTE: we no longer drop inactive items — `active` lives in the row now,
+  // so admin can see + re-enable them.
+  const productRows = products.map((p) => {
+      // Prefer explicit admin-style data when set (since both editors now
+      // produce these directly). Otherwise convert legacy POS modifiers.
+      const variations = (p.variations && p.variations.length > 0)
+        ? p.variations
+        : (p.modifiers ?? [])
+            .filter((m) => !m.multiSelect)
+            .map((m) => ({
+              id: m.id, name: m.name,
+              required: m.required,
+              options: m.options.map((o) => ({
+                id: o.id, label: o.label,
+                price: parseFloat(o.priceAdjust.toFixed(2)),
+              })),
+            }));
 
-      const addOns: { id: string; name: string; price: number }[] = [];
-      for (const m of (p.modifiers ?? []).filter((m) => m.multiSelect)) {
-        for (const o of m.options) {
-          addOns.push({ id: o.id, name: o.label, price: Math.max(0, o.priceAdjust) });
+      let addOns: { id: string; name: string; price: number }[];
+      if (p.addOns && p.addOns.length > 0) {
+        addOns = p.addOns;
+      } else {
+        addOns = [];
+        for (const m of (p.modifiers ?? []).filter((m) => m.multiSelect)) {
+          for (const o of m.options) {
+            addOns.push({ id: o.id, name: o.label, price: Math.max(0, o.priceAdjust) });
+          }
         }
       }
 
@@ -253,12 +227,20 @@ function syncMenuToSupabase(products: POSProduct[], categories: POSCategory[]) {
         name:        p.name,
         description: p.description ?? "",
         price:       p.price,
+        cost:        p.cost ?? null,
+        sku:         p.sku ?? null,
         image:       p.imageUrl ?? null,
-        dietary:     [],
+        emoji:       p.emoji ?? null,
+        color:       p.color ?? null,
+        dietary:     p.dietary ?? [],
         popular:     p.popular ?? false,
+        active:      p.active ?? true,
+        track_stock: !!p.trackStock,
         variations:  variations.length > 0 ? variations : null,
         add_ons:     addOns.length > 0 ? addOns : null,
         stock_qty:   p.trackStock ? (p.stockQty ?? null) : null,
+        stock_status: p.stockStatus ?? null,
+        offer:       p.offer ?? null,
       };
     });
 
@@ -288,9 +270,12 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // They start empty and are hydrated from the API once the staff session
   // resolves below.
   const [sales, setSales] = useState<POSSale[]>([]);
-  const [customers, setCustomers] = useState<POSCustomer[]>(() =>
-    load<POSCustomer[]>("pos_customers", SEED_CUSTOMERS)
-  );
+  // Bug #11 — initial state is always empty; the customers list is hydrated
+  // from /api/pos/customers once the staff session resolves below. No
+  // localStorage cache: the DB is the single source of truth so a fresh
+  // terminal renders the correct list immediately and edits made on one
+  // terminal are visible everywhere.
+  const [customers, setCustomers] = useState<POSCustomer[]>([]);
   const [clockEntries, setClockEntries] = useState<POSClockEntry[]>([]);
   const [settings, setSettings] = useState<POSSettings>(() => {
     // Merge stored data with SEED_SETTINGS so any field added after the user's
@@ -375,14 +360,80 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     } catch { /* offline — keep current state */ }
   }, []);
 
-  // Hydrate from the API once the staff session resolves. Both endpoints
-  // require a valid pos_staff_session cookie, so calling them before login
-  // would just 401 — gating on currentStaff avoids that noise.
+  // ── Customers — DB-backed (customers table, shared with admin). Bug #11.
+  // Mutations go through /api/pos/customers; the optimistic state is
+  // refreshed after each successful write so totalSpend / visitCount /
+  // lastVisit (computed server-side from orders + pos_sales) stay accurate.
+  const fetchCustomers = useCallback(async () => {
+    try {
+      const res = await fetch("/api/pos/customers");
+      if (!res.ok) return;
+      const json = await res.json() as { ok: boolean; customers?: POSCustomer[] };
+      if (json.ok && Array.isArray(json.customers)) setCustomers(json.customers);
+    } catch { /* offline — keep current state */ }
+  }, []);
+
+  const addCustomer = useCallback(async (input: {
+    name: string; email?: string; phone?: string; notes?: string;
+    tags?: string[]; loyaltyPoints?: number; giftCardBalance?: number;
+  }) => {
+    try {
+      const res = await fetch("/api/pos/customers", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(input),
+      });
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string; customer?: POSCustomer };
+      if (!res.ok || !json.ok) return { ok: false, error: json.error ?? "Failed to add customer" };
+      await fetchCustomers();
+      return { ok: true, customer: json.customer };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+    }
+  }, [fetchCustomers]);
+
+  const updateCustomer = useCallback(async (id: string, patch: {
+    name?: string; email?: string; phone?: string; notes?: string;
+    tags?: string[]; loyaltyPoints?: number; giftCardBalance?: number;
+  }) => {
+    try {
+      const res = await fetch(`/api/pos/customers/${id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(patch),
+      });
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) return { ok: false, error: json.error ?? "Failed to update customer" };
+      await fetchCustomers();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+    }
+  }, [fetchCustomers]);
+
+  const deleteCustomer = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/pos/customers/${id}`, { method: "DELETE" });
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) return { ok: false, error: json.error ?? "Failed to delete customer" };
+      // Clear local optimistically; refetch will reconcile.
+      setCustomers((prev) => prev.filter((c) => c.id !== id));
+      await fetchCustomers();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+    }
+  }, [fetchCustomers]);
+
+  // Hydrate from the API once the staff session resolves. All three
+  // endpoints require a valid pos_staff_session cookie, so calling them
+  // before login would just 401 — gating on currentStaff avoids that noise.
   useEffect(() => {
     if (!currentStaff) return;
     fetchSales();
     fetchClockEntries();
-  }, [currentStaff, fetchSales, fetchClockEntries]);
+    fetchCustomers();
+  }, [currentStaff, fetchSales, fetchClockEntries, fetchCustomers]);
 
   // Mirror the admin-configured currency symbol into POSSettings so existing
   // POS components (which read settings.currencySymbol) stay correct without
@@ -397,7 +448,9 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { save("pos_products", products); }, [products]);
   useEffect(() => { save("pos_categories", categories); }, [categories]);
-  useEffect(() => { save("pos_customers", customers); }, [customers]);
+  // Bug #11 — pos_customers is no longer persisted to localStorage. The
+  // customers list lives in the customers table and is re-fetched from
+  // /api/pos/customers on every staff login.
   useEffect(() => { save("pos_settings", settings); }, [settings]);
 
   // ── Supabase menu sync ────────────────────────────────────────────────────
@@ -431,26 +484,34 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
               const existing = prev.find((p) => p.id === row.id);
               const basePrice = Number(row.price);
 
-              // Rebuild POS modifiers from online variations + add_ons.
-              // variations[].options[].price is stored as a delta on top of the
-              // item's base price, matching POS's internal priceAdjust model.
+              // Variations/add-ons come straight off the row now — they are
+              // the canonical model. We still build POS-style modifiers as a
+              // mirror so the existing cart / ItemCustomizationModal code
+              // keeps working without per-component changes.
+              const rawVariations = (row.variations as {id:string;name:string;required?:boolean;options:{id:string;label:string;price:number}[]}[] ?? []);
+              const rawAddOns = (row.add_ons as {id:string;name:string;price:number}[] ?? []);
+
               const modifiers: POSModifier[] = [];
-              for (const v of (row.variations as {id:string;name:string;options:{id:string;label:string;price:number}[]}[] ?? [])) {
+              for (const v of rawVariations) {
                 modifiers.push({
-                  id: v.id, name: v.name, required: false, multiSelect: false,
+                  id: v.id, name: v.name,
+                  required: v.required !== false,
+                  multiSelect: false,
                   options: v.options.map((o) => ({
                     id: o.id, label: o.label,
                     priceAdjust: parseFloat(Number(o.price).toFixed(2)),
                   })),
                 });
               }
-              const addOns = (row.add_ons as {id:string;name:string;price:number}[] ?? []);
-              if (addOns.length > 0) {
+              if (rawAddOns.length > 0) {
                 modifiers.push({
                   id: "add-ons", name: "Add-ons", required: false, multiSelect: true,
-                  options: addOns.map((a) => ({ id: a.id, label: a.name, priceAdjust: a.price })),
+                  options: rawAddOns.map((a) => ({ id: a.id, label: a.name, priceAdjust: a.price })),
                 });
               }
+
+              const trackStock = (row.track_stock as boolean | null | undefined)
+                ?? (row.stock_qty !== null && row.stock_qty !== undefined);
 
               return {
                 id:          row.id as string,
@@ -458,28 +519,33 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
                 name:        row.name as string,
                 description: (row.description as string) || undefined,
                 price:       basePrice,
+                cost:        row.cost !== null && row.cost !== undefined ? Number(row.cost) : (existing?.cost ?? undefined),
+                sku:         (row.sku as string) || existing?.sku || undefined,
                 imageUrl:    (row.image as string) || undefined,
-                emoji:       existing?.emoji  ?? "🍽️",
-                color:       existing?.color  ?? "#fed7aa",
+                emoji:       (row.emoji as string) || existing?.emoji  || "🍽️",
+                color:       (row.color as string) || existing?.color  || "#fed7aa",
+                dietary:     (row.dietary as string[]) ?? [],
+                variations:  rawVariations.length > 0 ? rawVariations : undefined,
+                addOns:      rawAddOns.length > 0 ? rawAddOns : undefined,
                 popular:     (row.popular as boolean) ?? false,
                 modifiers:   modifiers.length > 0 ? modifiers : undefined,
-                trackStock:  row.stock_qty !== null && row.stock_qty !== undefined,
-                stockQty:    row.stock_qty !== null ? Number(row.stock_qty) : undefined,
-                active:      true,
-                cost:        existing?.cost ?? 0,
+                trackStock,
+                stockQty:    row.stock_qty !== null && row.stock_qty !== undefined ? Number(row.stock_qty) : undefined,
+                stockStatus: (row.stock_status as POSProduct["stockStatus"]) || undefined,
+                active:      row.active === undefined || row.active === null ? true : !!row.active,
+                offer:       (row.offer as POSProduct["offer"]) || undefined,
               } satisfies POSProduct;
             })
           );
-        } else {
-          // Supabase is empty — seed it with the current POS data so the waiter has a menu
-          syncMenuToSupabase(
-            load<POSProduct[]>("pos_products", SEED_PRODUCTS),
-            load<POSCategory[]>("pos_categories", SEED_CATEGORIES),
-          );
         }
+        // If the menu is empty here, do NOT auto-seed. Seeding is the
+        // exclusive responsibility of `npm run db:seed-demo` (see
+        // app/seed-demo.ts). Auto-seeding from the client used to mask
+        // misconfigured installs and re-populated demo data into real
+        // tenants after admins had deleted it.
       })
       .catch(() => { /* network error — POS keeps working from localStorage */ });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, []);
 
   // Debounced push: whenever the POS menu changes, sync to Supabase so the
@@ -536,14 +602,23 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     setDiscount({ pct: 0, note: "" });
     setTipAmount(0);
     setAssignedCustomer(null);
+    // Bug #11 — clear in-memory customers so the next operator on this
+    // terminal starts with an empty list until they sign in. Customers are
+    // re-fetched from /api/pos/customers on the next login. We still purge
+    // any legacy pos_customers localStorage key written by older builds so
+    // stale PII can't be revived offline.
+    setCustomers([]);
+    try {
+      localStorage.removeItem("pos_customers");
+    } catch { /* ignore — quota / private browsing */ }
     // Clear the server-side session cookie.
     fetch("/api/pos/auth", { method: "DELETE" }).catch(() => {});
   }, []);
 
   // ── Idle-timeout auto-logout ──────────────────────────────────────────────
-  // Log the staff member out after 30 minutes of inactivity so unattended
-  // POS terminals cannot be accessed without re-authenticating.
-  const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+  // Log the staff member out after 30 minutes of inactivity (see IDLE_TIMEOUT_MS
+  // at module top) so unattended POS terminals cannot be accessed without
+  // re-authenticating.
   const lastActivity = useRef(Date.now());
 
   useEffect(() => {
@@ -711,20 +786,35 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     setSales((prev) => [sale!, ...prev]);
 
     if (assignedCustomer) {
+      // Bug #11 — loyalty points are now persisted on the customers row,
+      // shared with admin. Optimistically bump the in-memory value and
+      // PATCH the new total to /api/pos/customers/[id] so the row stays in
+      // sync across terminals. totalSpend/visitCount/lastVisit are computed
+      // server-side from pos_sales on the next fetch, so we no longer write
+      // them client-side.
       const pts = Math.floor(total * settings.loyaltyPointsPerPound);
+      const existingPts = assignedCustomer.loyaltyPoints ?? 0;
+      const newPts = existingPts + pts;
       setCustomers((prev) =>
         prev.map((c) =>
           c.id === assignedCustomer.id
             ? {
                 ...c,
-                loyaltyPoints: c.loyaltyPoints + pts,
-                totalSpend: c.totalSpend + total,
-                visitCount: c.visitCount + 1,
-                lastVisit: new Date().toISOString(),
+                loyaltyPoints: newPts,
+                totalSpend:    (c.totalSpend ?? 0) + total,
+                visitCount:    (c.visitCount ?? 0) + 1,
+                lastVisit:     new Date().toISOString(),
               }
             : c
         )
       );
+      // Fire-and-forget — the receipt has already printed; a stale loyalty
+      // total is benign and the next fetch will reconcile if this fails.
+      fetch(`/api/pos/customers/${assignedCustomer.id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ loyaltyPoints: newPts }),
+      }).catch(() => {});
     }
 
     setProducts((prev) =>
@@ -842,6 +932,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       categories, setCategories,
       sales,
       customers, setCustomers,
+      addCustomer, updateCustomer, deleteCustomer, refreshCustomers: fetchCustomers,
       clockEntries,
       settings, setSettings,
       cart, addToCart, updateCartQty, removeFromCart, clearCart, updateCartNote,

@@ -2,15 +2,24 @@
 
 import { useState } from "react";
 import { useApp } from "@/context/AppContext";
-import { Category, MealPeriod, MenuItem, Variation, AddOn } from "@/types";
+import { Category, MealPeriod, MenuItem, Variation, AddOn, MenuItemOffer } from "@/types";
 import {
   ChefHat, Plus, Pencil, Trash2, Search,
   GripVertical, X, Check, AlertTriangle, Flame, Tag,
   ArrowUp, ArrowDown, ImagePlus, Link, Upload,
   Package, PackageX, PackageMinus, Minus, Clock,
+  ToggleLeft, ToggleRight,
 } from "lucide-react";
 import { resolveStock, stockLabel, LOW_STOCK_THRESHOLD } from "@/lib/stockUtils";
 import type { StockStatus } from "@/types";
+
+// Bug #2 — POS / admin field parity. A small handful of preset accent
+// colours so admin can pick the same POS tile colour without reaching
+// for a colour picker. Mirrors PRESET_COLORS in pos/settings/_helpers.ts.
+const POS_PRESET_COLORS = [
+  "#f97316","#8b5cf6","#f59e0b","#06b6d4","#10b981","#ec4899","#3b82f6",
+  "#ef4444","#84cc16","#14b8a6","#a855f7","#f43f5e",
+];
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -34,6 +43,7 @@ function blankItem(categoryId: string): MenuItem {
     price: 0,
     dietary: [],
     popular: false,
+    active: true,                  // Bug #2 — defaults to visible on the menu
     variations: [],
     addOns: [],
   };
@@ -44,7 +54,7 @@ function blankCategory(): Category {
 }
 
 function blankVariation(): Variation {
-  return { id: crypto.randomUUID(), name: "", options: [{ id: crypto.randomUUID(), label: "", price: 0 }] };
+  return { id: crypto.randomUUID(), name: "", required: true, options: [{ id: crypto.randomUUID(), label: "", price: 0 }] };
 }
 
 function blankAddOn(): AddOn {
@@ -661,7 +671,7 @@ function ItemModal({
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
   const [form, setForm] = useState<MenuItem>({ ...item });
-  const [tab, setTab] = useState<"basic" | "variations" | "addons" | "stock">("basic");
+  const [tab, setTab] = useState<"basic" | "variations" | "addons" | "offer" | "stock">("basic");
 
   function toggleDietary(d: string) {
     setForm((f) => ({
@@ -729,7 +739,7 @@ function ItemModal({
     <ModalShell title={isNew ? "Add menu item" : "Edit menu item"} onClose={onClose} wide>
       {/* Tabs */}
       <div className="flex gap-1 mb-5 bg-gray-100 rounded-xl p-1">
-        {(["basic", "variations", "addons", "stock"] as const).map((t) => (
+        {(["basic", "variations", "addons", "offer", "stock"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -747,6 +757,9 @@ function ItemModal({
               <span className="ml-1 bg-violet-100 text-violet-600 rounded-full px-1.5 text-[10px]">
                 {form.addOns!.length}
               </span>
+            )}
+            {t === "offer" && form.offer?.active && (
+              <span className="ml-1 bg-amber-100 text-amber-700 rounded-full px-1.5 text-[10px]">ON</span>
             )}
             {t === "stock" && (() => {
               const s = resolveStock(form);
@@ -795,6 +808,44 @@ function ItemModal({
                 className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
               />
             </div>
+
+            {/* Bug #2 — POS / admin field parity. Cost + SKU live here so the
+                admin sees the same margin / inventory data the POS records.
+                Margin is computed live to mirror the POS edit modal. */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Cost ({sym})</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.cost ?? ""}
+                onChange={(e) => setForm((f) => ({ ...f, cost: e.target.value === "" ? undefined : parseFloat(e.target.value) || 0 }))}
+                placeholder="0.00"
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">SKU</label>
+              <input
+                value={form.sku ?? ""}
+                onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value || undefined }))}
+                placeholder="Optional"
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              />
+            </div>
+            {/* Live margin preview */}
+            {form.price > 0 && typeof form.cost === "number" && form.cost >= 0 && (
+              <div className="sm:col-span-2 bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5 flex items-center justify-between">
+                <span className="text-xs font-semibold text-gray-500">Margin</span>
+                <span className="text-sm font-bold text-green-600">
+                  {Math.round(((form.price - form.cost) / form.price) * 100)}%
+                  <span className="text-gray-400 font-normal ml-1.5 text-xs">
+                    ({sym}{(form.price - form.cost).toFixed(2)})
+                  </span>
+                </span>
+              </div>
+            )}
+
             <div className="sm:col-span-2">
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">Description</label>
               <textarea
@@ -861,6 +912,74 @@ function ItemModal({
               </div>
             </div>
           </div>
+
+          {/* Bug #2 — POS tile branding (emoji + accent colour). These are
+              used by the POS sale grid when no image is set, and never
+              displayed on the customer menu. Kept here so the admin can
+              configure them in one place. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">POS tile emoji</label>
+              <div className="flex items-center gap-2">
+                <input
+                  value={form.emoji ?? ""}
+                  maxLength={4}
+                  onChange={(e) => setForm((f) => ({ ...f, emoji: e.target.value || undefined }))}
+                  placeholder="🍽️"
+                  className="w-20 text-center text-xl border border-gray-200 rounded-xl px-2 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                />
+                <span className="text-xs text-gray-400">Shown on the POS tile when no image is set.</span>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">POS tile colour</label>
+              <div className="flex flex-wrap gap-1.5 items-center">
+                {POS_PRESET_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setForm((f) => ({ ...f, color: c }))}
+                    className="w-6 h-6 rounded-md transition-all"
+                    style={{
+                      backgroundColor: c,
+                      outline: form.color === c ? `2px solid #1f2937` : "none",
+                      outlineOffset: "2px",
+                    }}
+                    aria-label={`Pick colour ${c}`}
+                  />
+                ))}
+                <input
+                  type="color"
+                  value={form.color ?? "#fed7aa"}
+                  onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))}
+                  className="w-7 h-7 rounded cursor-pointer border border-gray-200"
+                  aria-label="Custom colour"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Active toggle — Bug #2. POS hides inactive items from the sale
+              grid; the customer menu also respects this. Defaults to true. */}
+          <label className="flex items-center gap-3 cursor-pointer">
+            <button
+              type="button"
+              onClick={() => setForm((f) => ({ ...f, active: !(f.active ?? true) }))}
+              className="transition-colors"
+              aria-label="Toggle active"
+            >
+              {(form.active ?? true)
+                ? <ToggleRight size={28} className="text-green-500" />
+                : <ToggleLeft  size={28} className="text-gray-400" />}
+            </button>
+            <div>
+              <span className="text-sm font-medium text-gray-700">
+                {(form.active ?? true) ? "Item is active" : "Item is hidden"}
+              </span>
+              <p className="text-xs text-gray-400">
+                When off, this item is hidden from the customer menu and the POS sale grid.
+              </p>
+            </div>
+          </label>
 
           {/* Dietary */}
           <div>
@@ -943,9 +1062,12 @@ function ItemModal({
       {tab === "variations" && (
         <div className="space-y-4">
           <p className="text-xs text-gray-500">
-            Variations let customers choose between options (e.g. spice level, size). Each variation shows as a required radio group.
+            Variations let customers choose between options (e.g. spice level, size). Variations can be marked required or optional.
           </p>
-          {(form.variations ?? []).map((v, vi) => (
+          {(form.variations ?? []).map((v, vi) => {
+            // Treat older variations that pre-date the `required` field as required (backward compat).
+            const isRequired = v.required !== false;
+            return (
             <div key={v.id} className="border border-gray-200 rounded-xl p-4 space-y-3">
               <div className="flex items-center gap-3">
                 <input
@@ -954,6 +1076,15 @@ function ItemModal({
                   className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                   placeholder="Variation name (e.g. Spice level)"
                 />
+                <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 cursor-pointer select-none whitespace-nowrap">
+                  <input
+                    type="checkbox"
+                    checked={isRequired}
+                    onChange={(e) => updateVariation(vi, { required: e.target.checked })}
+                    className="w-4 h-4 rounded border-gray-300 text-orange-500 focus:ring-orange-400"
+                  />
+                  Required
+                </label>
                 <button onClick={() => removeVariation(vi)} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition">
                   <Trash2 size={14} />
                 </button>
@@ -992,7 +1123,8 @@ function ItemModal({
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
           <button
             onClick={addVariation}
             className="w-full py-2.5 rounded-xl border-2 border-dashed border-gray-200 text-sm text-gray-500 hover:border-orange-300 hover:text-orange-500 transition flex items-center justify-center gap-2"
@@ -1040,6 +1172,18 @@ function ItemModal({
             <Plus size={14} /> Add-on
           </button>
         </div>
+      )}
+
+      {/* ── Offer tab — Bug #2 (admin / POS field parity) ─────────────────
+          Six offer types mirror the POS edit modal so a discount configured
+          in either editor is visible (and identically rendered) in both. */}
+      {tab === "offer" && (
+        <OfferEditor
+          offer={form.offer}
+          price={form.price}
+          currencySymbol={sym}
+          onChange={(o) => setForm((f) => ({ ...f, offer: o }))}
+        />
       )}
 
       {/* ── Stock tab ── */}
@@ -1367,6 +1511,265 @@ function MealPeriodModal({
         </button>
       </div>
     </ModalShell>
+  );
+}
+
+// ─── Offer editor (Bug #2 — admin / POS field parity) ────────────────────────
+// Mirrors the POS Offer UI in app/src/components/pos/settings/MenuTab.tsx
+// (lines ~612–776). Six offer types share the storage shape — what changes
+// is which inputs are surfaced and which preview string is rendered.
+
+function OfferEditor({
+  offer, price, currencySymbol, onChange,
+}: {
+  offer?: MenuItemOffer;
+  price: number;
+  currencySymbol: string;
+  onChange: (o: MenuItemOffer | undefined) => void;
+}) {
+  const o: MenuItemOffer = offer ?? {
+    type: "percent", value: 0, active: false,
+  };
+  const sym = currencySymbol;
+
+  function patch(p: Partial<MenuItemOffer>) {
+    onChange({ ...o, ...p });
+  }
+
+  // Live preview — matches the POS preview phrasing so the operator sees the
+  // exact same wording on both sides.
+  const previewString = (() => {
+    if (!price) return null;
+    switch (o.type) {
+      case "percent":
+        return o.value ? `${(price * (1 - o.value / 100)).toFixed(2)} per item (was ${price.toFixed(2)})` : null;
+      case "fixed":
+        return o.value ? `${Math.max(0, price - o.value).toFixed(2)} per item (was ${price.toFixed(2)})` : null;
+      case "price":
+        return o.value ? `${o.value.toFixed(2)} per item (was ${price.toFixed(2)})` : null;
+      case "bogo": {
+        if (!o.buyQty || !o.freeQty) return null;
+        return `Buy ${o.buyQty} get ${o.freeQty} free · pay for ${o.buyQty} of every ${o.buyQty + o.freeQty}`;
+      }
+      case "multibuy": {
+        if (!o.buyQty || !o.value) return null;
+        const saving = price * o.buyQty - o.value;
+        return `${o.buyQty} for ${sym}${o.value.toFixed(2)} · save ${sym}${(saving > 0 ? saving : 0).toFixed(2)}`;
+      }
+      case "qty_discount": {
+        if (!o.minQty || !o.value) return null;
+        const discounted = price * (1 - o.value / 100);
+        return `Buy ${o.minQty}+ · ${sym}${discounted.toFixed(2)} each (was ${sym}${price.toFixed(2)})`;
+      }
+      default:
+        return null;
+    }
+  })();
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-gray-500">
+        Configure a discount on this item. Same six offer types are surfaced
+        in the POS so the badge label and pricing math stay consistent
+        across the customer site and the till.
+      </p>
+
+      <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
+        <div>
+          <p className="text-sm font-medium text-gray-800">Offer enabled</p>
+          <p className="text-xs text-gray-500">
+            {o.active ? "Active — badge will show on the menu." : "Disabled — no badge."}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => patch({ active: !o.active })}
+          className="transition-colors"
+          aria-label="Toggle offer"
+        >
+          {o.active
+            ? <ToggleRight size={28} className="text-amber-500" />
+            : <ToggleLeft  size={28} className="text-gray-400" />}
+        </button>
+      </div>
+
+      {o.active && (
+        <>
+          {/* Offer type — six buttons mirror the POS grid */}
+          <div className="grid grid-cols-3 gap-1.5">
+            {([
+              ["percent",      "% Off"],
+              ["fixed",        `${sym} Off`],
+              ["price",        "Set Price"],
+              ["bogo",         "BOGO"],
+              ["multibuy",     "Multi-Buy"],
+              ["qty_discount", "Qty Deal"],
+            ] as [MenuItemOffer["type"], string][]).map(([t, label]) => (
+              <button
+                key={t}
+                onClick={() => patch({ type: t })}
+                className={`py-2 rounded-lg text-xs font-semibold transition-all ${
+                  o.type === t ? "bg-amber-400 text-gray-900" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Per-type inputs */}
+          {(o.type === "percent" || o.type === "fixed" || o.type === "price") && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">
+                  {o.type === "percent" ? "Discount %" : o.type === "fixed" ? `Amount off (${sym})` : `Special price (${sym})`}
+                </label>
+                <input
+                  type="number" min="0" step={o.type === "percent" ? "1" : "0.01"}
+                  value={Number.isFinite(o.value) ? o.value : 0}
+                  onChange={(e) => patch({ value: parseFloat(e.target.value) || 0 })}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Badge label</label>
+                <input
+                  value={o.label ?? ""}
+                  onChange={(e) => patch({ label: e.target.value || undefined })}
+                  placeholder="e.g. Happy Hour"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+            </div>
+          )}
+
+          {o.type === "bogo" && (
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Buy qty</label>
+                <input
+                  type="number" min="1" step="1"
+                  value={o.buyQty ?? ""}
+                  onChange={(e) => patch({ buyQty: e.target.value ? parseInt(e.target.value) : undefined })}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Get free</label>
+                <input
+                  type="number" min="1" step="1"
+                  value={o.freeQty ?? ""}
+                  onChange={(e) => patch({ freeQty: e.target.value ? parseInt(e.target.value) : undefined })}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Badge</label>
+                <input
+                  value={o.label ?? ""}
+                  onChange={(e) => patch({ label: e.target.value || undefined })}
+                  placeholder="BOGOF"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+            </div>
+          )}
+
+          {o.type === "multibuy" && (
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Buy qty</label>
+                <input
+                  type="number" min="2" step="1"
+                  value={o.buyQty ?? ""}
+                  onChange={(e) => patch({ buyQty: e.target.value ? parseInt(e.target.value) : undefined })}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Bundle price ({sym})</label>
+                <input
+                  type="number" min="0" step="0.01"
+                  value={Number.isFinite(o.value) ? o.value : 0}
+                  onChange={(e) => patch({ value: parseFloat(e.target.value) || 0 })}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Badge</label>
+                <input
+                  value={o.label ?? ""}
+                  onChange={(e) => patch({ label: e.target.value || undefined })}
+                  placeholder={`${o.buyQty || 3} for ${sym}${o.value || 10}`}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+            </div>
+          )}
+
+          {o.type === "qty_discount" && (
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Min qty</label>
+                <input
+                  type="number" min="2" step="1"
+                  value={o.minQty ?? ""}
+                  onChange={(e) => patch({ minQty: e.target.value ? parseInt(e.target.value) : undefined })}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Discount %</label>
+                <input
+                  type="number" min="1" max="100" step="1"
+                  value={Number.isFinite(o.value) ? o.value : 0}
+                  onChange={(e) => patch({ value: parseFloat(e.target.value) || 0 })}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Badge</label>
+                <input
+                  value={o.label ?? ""}
+                  onChange={(e) => patch({ label: e.target.value || undefined })}
+                  placeholder={`${o.minQty || 2}+ save ${o.value || 15}%`}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Date range */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Start date</label>
+              <input
+                type="date"
+                value={o.startDate ?? ""}
+                onChange={(e) => patch({ startDate: e.target.value || undefined })}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">End date</label>
+              <input
+                type="date"
+                value={o.endDate ?? ""}
+                onChange={(e) => patch({ endDate: e.target.value || undefined })}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+            </div>
+          </div>
+
+          {previewString && (
+            <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
+              <Tag size={14} className="text-amber-600 flex-shrink-0" />
+              <span className="text-amber-700 text-xs font-semibold">{previewString}</span>
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 

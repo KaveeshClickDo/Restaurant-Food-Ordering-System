@@ -6,28 +6,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { parseBody } from "@/lib/apiValidation";
+import { MealPeriodCreateSchema } from "@/lib/schemas/menu";
 
 export async function POST(req: NextRequest) {
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
 
-  let body: {
-    id?: string;
-    name?: string;
-    enabled?: boolean;
-    start_time?: string;
-    end_time?: string;
-    days_of_week?: number[];
-    sort_order?: number;
-  };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  if (!body.name || !body.start_time || !body.end_time) {
-    return NextResponse.json(
-      { ok: false, error: "name, start_time and end_time are required." },
-      { status: 400 },
-    );
-  }
+  const parsed = await parseBody(req, MealPeriodCreateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data;
 
   const row: Record<string, unknown> = {
     name:         body.name,

@@ -20,12 +20,42 @@
 
 import { randomInt } from "crypto";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { resolveDeliveryZoneFee, type DeliveryZoneShape } from "@/lib/geocode";
 
 interface DBMenuItem {
   id:         string;
   price:      number;
-  variations: Array<{ name: string; options: Array<{ name: string; delta: number }> }> | null;
-  add_ons:    Array<{ name: string; price: number }> | null;
+  // JSONB shape produced by the menu editor — see `Variation` in src/types.
+  // Older seeds used `{ name, delta }` on options; current data uses
+  // `{ id, label, price }`. Both forms are accepted by the matcher below.
+  variations: Array<{
+    id?:       string;
+    name:      string;
+    required?: boolean;
+    options:   Array<{ id?: string; label?: string; price?: number; name?: string; delta?: number }>;
+  }> | null;
+  add_ons:    Array<{ id?: string; name: string; price: number }> | null;
+}
+
+/**
+ * Find an option inside one variation group that matches the user's selection.
+ * Supports both the new id-based form ({ optionId }) used by the customer
+ * site and the legacy name/label form kept around for old persisted orders.
+ */
+function findVariationOption(
+  group: NonNullable<DBMenuItem["variations"]>[number],
+  sel:   { optionId?: string; label?: string; name?: string },
+): { price: number } | null {
+  for (const opt of group.options ?? []) {
+    const optLabel = opt.label ?? opt.name;
+    if (sel.optionId && opt.id && opt.id === sel.optionId) {
+      return { price: opt.price ?? opt.delta ?? 0 };
+    }
+    if (!sel.optionId && (sel.label || sel.name) && optLabel === (sel.label ?? sel.name)) {
+      return { price: opt.price ?? opt.delta ?? 0 };
+    }
+  }
+  return null;
 }
 
 export interface VerifiedCoupon {
@@ -127,39 +157,91 @@ export async function validateAndNormaliseOrder(
     );
   }
 
-  const verifiedItems = rawItems.map((item) => {
+  const verifiedItems: Array<Record<string, unknown>> = [];
+  for (const item of rawItems) {
     const mid = typeof item.menuItemId === "string" ? item.menuItemId : null;
-    if (!mid) return item;
+    if (!mid) { verifiedItems.push(item); continue; }
     const dbItem = menuMap.get(mid);
-    if (!dbItem) return item;
+    if (!dbItem) { verifiedItems.push(item); continue; }
 
-    let expectedPrice = Number(dbItem.price);
+    // Collect every variation selection the client sent — new `selectedVariations[]`
+    // form first, then fall back to the legacy singular field. We key by
+    // variationId where available so the server can verify each group.
+    const selVarSingular = item.selectedVariation as
+      { variationId?: string; optionId?: string; label?: string; name?: string } | undefined;
+    const selVarArray = item.selectedVariations as
+      Array<{ variationId?: string; optionId?: string; label?: string; name?: string }> | undefined;
 
-    const selVar = item.selectedVariation as { name?: string } | undefined;
-    if (selVar?.name && Array.isArray(dbItem.variations)) {
-      outer: for (const group of dbItem.variations) {
-        for (const opt of group.options ?? []) {
-          if (opt.name === selVar.name) {
-            expectedPrice += opt.delta ?? 0;
-            break outer;
-          }
+    const selections: Array<{ variationId?: string; optionId?: string; label?: string; name?: string }> = [];
+    if (Array.isArray(selVarArray)) selections.push(...selVarArray.filter((s) => s && typeof s === "object"));
+    if (selVarSingular && typeof selVarSingular === "object") selections.push(selVarSingular);
+
+    // Build a quick map of variationId -> selection for required-check below.
+    const selectionByVarId = new Map<string, { optionId?: string; label?: string; name?: string }>();
+    const selectionsWithoutVarId: typeof selections = [];
+    for (const s of selections) {
+      if (s.variationId) selectionByVarId.set(s.variationId, s);
+      else selectionsWithoutVarId.push(s);
+    }
+
+    // Enforce required variations. A variation group is required unless it
+    // is explicitly `required: false`. This matches the customer modal logic
+    // and protects against hand-crafted payloads that skip the UI.
+    if (Array.isArray(dbItem.variations)) {
+      for (const group of dbItem.variations) {
+        const isRequired = group.required !== false;
+        if (!isRequired) continue;
+        const hasSelection = (group.id && selectionByVarId.has(group.id))
+          || selectionsWithoutVarId.some((s) =>
+            findVariationOption(group, s) !== null,
+          );
+        if (!hasSelection) {
+          const itemName = typeof item.name === "string" ? item.name : "item";
+          return {
+            ok: false,
+            error: `Item '${itemName}' is missing a required selection (${group.name}).`,
+            status: 400,
+          };
         }
       }
     }
 
-    const selAddOns = item.selectedAddOns as Array<{ name?: string }> | undefined;
+    // Recompute the authoritative price: base price + every variation delta
+    // + every add-on price. We sum across ALL selected variation groups,
+    // not just the first one (the old code stopped after one match).
+    let expectedPrice = Number(dbItem.price);
+
+    if (Array.isArray(dbItem.variations)) {
+      for (const group of dbItem.variations) {
+        let sel: { optionId?: string; label?: string; name?: string } | undefined;
+        if (group.id) sel = selectionByVarId.get(group.id);
+        if (!sel) {
+          sel = selectionsWithoutVarId.find((s) => findVariationOption(group, s) !== null);
+        }
+        if (!sel) continue;
+        const match = findVariationOption(group, sel);
+        if (match) expectedPrice += match.price;
+      }
+    }
+
+    const selAddOns = item.selectedAddOns as Array<{ id?: string; name?: string }> | undefined;
     if (selAddOns?.length && Array.isArray(dbItem.add_ons)) {
       for (const sel of selAddOns) {
-        const dbAddon = dbItem.add_ons.find((a) => a.name === sel.name);
+        const dbAddon = dbItem.add_ons.find((a) =>
+          (sel.id && a.id && a.id === sel.id) || a.name === sel.name,
+        );
         if (dbAddon) expectedPrice += dbAddon.price ?? 0;
       }
     }
 
-    return { ...item, price: Math.round(expectedPrice * 100) / 100 };
-  });
+    verifiedItems.push({ ...item, price: Math.round(expectedPrice * 100) / 100 });
+  }
 
   // ── Fee normalisation ─────────────────────────────────────────────────────
-  const deliveryFee     = typeof body.delivery_fee    === "number" ? Math.max(0, body.delivery_fee)    : 0;
+  // `delivery_fee` from the client is treated as a hint only. For delivery
+  // orders with admin-configured zones, the authoritative fee is computed
+  // server-side from the address below (see "Delivery zone enforcement").
+  let   deliveryFee     = typeof body.delivery_fee    === "number" ? Math.max(0, body.delivery_fee)    : 0;
   const serviceFee      = typeof body.service_fee     === "number" ? Math.max(0, body.service_fee)     : 0;
   const vatAmount       = typeof body.vat_amount      === "number" ? Math.max(0, body.vat_amount)      : 0;
   const vatInclusive    = typeof body.vat_inclusive   === "boolean" ? body.vat_inclusive               : true;
@@ -179,6 +261,54 @@ export async function validateAndNormaliseOrder(
     code:   typeof settingsCurrency.code   === "string" && settingsCurrency.code   ? settingsCurrency.code   : "GBP",
     symbol: typeof settingsCurrency.symbol === "string" && settingsCurrency.symbol ? settingsCurrency.symbol : "£",
   };
+
+  // ── Delivery zone enforcement (authoritative fee) ─────────────────────────
+  // If admin configured zones and the order is for delivery, geocode the
+  // address server-side and override whatever delivery_fee the client sent.
+  // This stops a tampered client from paying a £0 fee for a £5 zone.
+  if (fulfillment === "delivery" && typeof body.address === "string" && body.address.trim()) {
+    const rawZones = (settingsRow?.data?.deliveryZones ?? []) as DeliveryZoneShape[];
+    const enabledZones = rawZones.filter((z) => z && z.enabled);
+
+    const settingsRestaurant = (settingsRow?.data?.restaurant ?? {}) as {
+      lat?: number; lng?: number; deliveryFee?: number;
+    };
+    const restaurantDefaultFee = typeof settingsRestaurant.deliveryFee === "number"
+      ? Math.max(0, settingsRestaurant.deliveryFee)
+      : 0;
+
+    if (enabledZones.length > 0
+        && typeof settingsRestaurant.lat === "number"
+        && typeof settingsRestaurant.lng === "number") {
+      const lookup = await resolveDeliveryZoneFee(
+        body.address.trim(),
+        settingsRestaurant.lat,
+        settingsRestaurant.lng,
+        enabledZones,
+      );
+      if (lookup.kind === "zone") {
+        deliveryFee = Math.max(0, lookup.fee);
+      } else if (lookup.kind === "outside") {
+        return {
+          ok: false,
+          error: "Your delivery address is outside our service area.",
+          status: 400,
+        };
+      } else {
+        // Geocoding failed (network error / address not found). Don't reject
+        // the order — fall back to the restaurant default fee so we don't
+        // lose the sale, and the admin can correct it manually if needed.
+        deliveryFee = restaurantDefaultFee;
+      }
+    } else {
+      // No zones configured (or restaurant lat/lng not set) — use the
+      // single global delivery fee from settings.
+      deliveryFee = restaurantDefaultFee;
+    }
+  } else if (fulfillment !== "delivery") {
+    // Non-delivery orders never carry a delivery fee.
+    deliveryFee = 0;
+  }
 
   if (couponCode) {
     const coupons: Array<{

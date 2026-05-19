@@ -6,11 +6,13 @@ import { computeTax, taxSurcharge } from "@/lib/taxUtils";
 import { useState } from "react";
 import CheckoutModal from "./CheckoutModal";
 import ScheduleOrderModal from "./ScheduleOrderModal";
+import ConfirmDialog from "./ConfirmDialog";
 
 export default function Cart() {
   const { cart, updateQty, clearCart, cartTotal, settings, fulfillment, isOpen, scheduledTime, setScheduledTime } = useApp();
   const [showCheckout, setShowCheckout] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   const { minOrder, deliveryFee, serviceFee } = settings.restaurant;
   const sym        = settings.currency?.symbol ?? "£";
@@ -33,7 +35,7 @@ export default function Cart() {
           </div>
           {cart.length > 0 && (
             <button
-              onClick={clearCart}
+              onClick={() => setShowClearConfirm(true)}
               className="text-xs text-gray-400 hover:text-red-500 transition flex items-center gap-1"
             >
               <Trash2 size={12} />
@@ -207,6 +209,16 @@ export default function Cart() {
       {showSchedule && (
         <ScheduleOrderModal onClose={() => setShowSchedule(false)} />
       )}
+
+      <ConfirmDialog
+        open={showClearConfirm}
+        title="Clear your basket?"
+        message="All items will be removed. This cannot be undone."
+        confirmLabel="Clear basket"
+        tone="danger"
+        onConfirm={() => { clearCart(); setShowClearConfirm(false); }}
+        onCancel={() => setShowClearConfirm(false)}
+      />
     </>
   );
 }

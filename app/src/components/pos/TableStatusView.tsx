@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
-import { supabase } from "@/lib/supabase";
 import {
   RefreshCw, UtensilsCrossed, Loader2, Clock, Users, Phone, LogIn, LogOut, CheckCircle2,
 } from "lucide-react";
@@ -21,79 +20,74 @@ export default function TableStatusView() {
   const { settings: appSettings } = useApp();
   const tables = (appSettings.diningTables ?? []).filter((t) => t.active);
 
-  const [reservations,  setReservations]  = useState<ResRow[]>([]);
-  const [loading,       setLoading]       = useState(true);
-  const [actioning,     setActioning]     = useState<string | null>(null);
-  const [filterSection, setFilterSection] = useState("");
+  const [reservations,   setReservations]   = useState<ResRow[]>([]);
+  // initialLoading drives the user-visible spinner — it flips to false after
+  // the first fetch resolves. Background 5 s polls do NOT toggle it, so the
+  // page never thrashes back to a spinner mid-shift.
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [actioning,      setActioning]      = useState<string | null>(null);
+  const [filterSection,  setFilterSection]  = useState("");
 
   const sections = [...new Set(tables.map((t) => t.section).filter(Boolean))];
 
-  // Local date string — toISOString() is UTC and can return yesterday east of UTC+0
-  const todayStr = () => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  };
-
-  const fetchToday = useCallback(async () => {
-    setLoading(true);
+  const fetchToday = useCallback(async (isInitial = false) => {
     try {
       const today = (() => {
         const d = new Date();
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       })();
 
-      const COLUMN_SETS = [
-        "id,table_id,customer_name,customer_phone,time,party_size,status,note,checked_in_at,checked_out_at",
-        "id,table_id,customer_name,customer_phone,time,party_size,status,note",
-      ];
-
-      let data = null;
-      for (const cols of COLUMN_SETS) {
-        const { data: d, error: e } = await supabase
-          .from("reservations")
-          .select(cols)
-          .eq("date", today)
-          .in("status", ["pending", "confirmed", "checked_in", "checked_out"]);
-        if (!e) { data = d; break; }
-        if (!e.message?.includes("does not exist") && !e.message?.includes("schema cache")) {
-          console.error("TableStatusView fetch:", e.message);
-          break;
-        }
+      const r = await fetch(`/api/pos/reservations?date=${encodeURIComponent(today)}`, { cache: "no-store" });
+      if (!r.ok) {
+        if (r.status !== 401) console.error("TableStatusView fetch:", r.status);
+        return;
       }
+      const json = await r.json() as { ok: boolean; reservations?: ResRow[] };
+      if (!json.ok || !json.reservations) return;
 
-      setReservations((data ?? []) as unknown as ResRow[]);
+      const active = json.reservations.filter((row) =>
+        ["pending", "confirmed", "checked_in", "checked_out"].includes(String(row.status)),
+      );
+      setReservations(active);
     } catch (err) {
       console.error("TableStatusView fetch:", err);
     } finally {
-      setLoading(false);
+      if (isInitial) setInitialLoading(false);
     }
   }, []);
 
-  useEffect(() => { fetchToday(); }, [fetchToday]);
+  useEffect(() => { fetchToday(true); }, [fetchToday]);
 
+  // Poll every 5 s — anon supabase realtime no longer fires after RLS revoke.
+  // Polls run silently (isInitial=false) so they don't toggle the spinner.
   useEffect(() => {
-    const ch = supabase
-      .channel("pos-table-status")
-      .on("postgres_changes", { event: "*", schema: "public", table: "reservations" }, fetchToday)
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
+    const id = setInterval(() => fetchToday(false), 5_000);
+    return () => clearInterval(id);
   }, [fetchToday]);
 
+  const actionInFlight = useRef<Set<string>>(new Set());
+
   async function doAction(resId: string, status: "checked_in" | "checked_out") {
+    if (actionInFlight.current.has(resId)) return;
+    actionInFlight.current.add(resId);
     setActioning(resId);
-    const now = new Date().toISOString();
-    await fetch(`/api/pos/reservations/${resId}`, {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    setReservations((prev) =>
-      prev.map((r) => r.id !== resId ? r : {
-        ...r, status,
-        ...(status === "checked_in"  ? { checked_in_at:  now } : {}),
-        ...(status === "checked_out" ? { checked_out_at: now } : {}),
-      })
-    );
-    setActioning(null);
+    try {
+      const now = new Date().toISOString();
+      await fetch(`/api/pos/reservations/${resId}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      setReservations((prev) =>
+        prev.map((r) => r.id !== resId ? r : {
+          ...r, status,
+          ...(status === "checked_in"  ? { checked_in_at:  now } : {}),
+          ...(status === "checked_out" ? { checked_out_at: now } : {}),
+        })
+      );
+    } finally {
+      actionInFlight.current.delete(resId);
+      setActioning(null);
+    }
   }
 
   function resolveState(tableId: string): { state: TableState; res?: ResRow } {
@@ -134,11 +128,11 @@ export default function TableStatusView() {
             </select>
           )}
           <button
-            onClick={fetchToday}
-            disabled={loading}
+            onClick={() => fetchToday(false)}
+            disabled={initialLoading}
             className="flex items-center gap-1.5 bg-slate-800 border border-slate-600 text-slate-300 hover:text-white text-sm px-3 py-1.5 rounded-xl transition"
           >
-            <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+            <RefreshCw size={13} className={initialLoading ? "animate-spin" : ""} />
             Refresh
           </button>
         </div>
@@ -163,7 +157,7 @@ export default function TableStatusView() {
       </div>
 
       {/* Table grid */}
-      {loading ? (
+      {initialLoading ? (
         <div className="flex justify-center py-20">
           <Loader2 size={28} className="animate-spin text-orange-500" />
         </div>
@@ -256,7 +250,7 @@ export default function TableStatusView() {
         </div>
       )}
 
-      {visibleTables.length === 0 && !loading && (
+      {visibleTables.length === 0 && !initialLoading && (
         <div className="flex flex-col items-center py-20 gap-3 text-center">
           <UtensilsCrossed size={32} className="text-slate-600" />
           <p className="text-slate-400 font-semibold">No active tables configured</p>

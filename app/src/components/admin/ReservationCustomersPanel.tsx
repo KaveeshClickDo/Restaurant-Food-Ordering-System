@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import type { ReservationCustomer } from "@/types";
 import {
@@ -142,12 +141,20 @@ function CustomerCard({ customer, onSave, sym }: { sym: string;
     if (!expanded) loadHistory();
   }
 
+  const saveInFlight = useRef(false);
+
   async function save() {
+    if (saveInFlight.current) return;
+    saveInFlight.current = true;
     setSaving(true);
-    await onSave(customer.id, { notes, tags, marketingOptIn: optIn });
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    try {
+      await onSave(customer.id, { notes, tags, marketingOptIn: optIn });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } finally {
+      saveInFlight.current = false;
+      setSaving(false);
+    }
   }
 
   function addTag(tag: string) {
@@ -381,12 +388,10 @@ export default function ReservationCustomersPanel() {
 
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
 
+  // Poll every 10 s — anon supabase realtime no longer fires after RLS revoke.
   useEffect(() => {
-    const ch = supabase
-      .channel("reservation-customers-admin")
-      .on("postgres_changes", { event: "*", schema: "public", table: "reservation_customers" }, fetchCustomers)
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
+    const id = setInterval(fetchCustomers, 10_000);
+    return () => clearInterval(id);
   }, [fetchCustomers]);
 
   async function handleSave(
@@ -446,6 +451,9 @@ export default function ReservationCustomersPanel() {
         </div>
         <div className="flex-1 min-w-0">
           <h2 className="font-bold text-gray-900">Guest Profiles</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Guest profiles from anonymous (no-account) checkouts and reservation check-ins.
+          </p>
           <p className="text-xs text-gray-400 mt-0.5">
             {customers.length} guests · {optInCount} opted in for marketing
           </p>

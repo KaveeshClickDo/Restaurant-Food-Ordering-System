@@ -7,6 +7,8 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
+import { parseBody } from "@/lib/apiValidation";
+import { WaiterUpdateSchema } from "@/lib/schemas/staff";
 
 const PUBLIC_COLUMNS = "id, name, email, active, hourly_rate, avatar_color, created_at";
 const HASH_ROUNDS = 10;
@@ -18,25 +20,19 @@ export async function PATCH(
   if (!await isAdminAuthenticated()) return unauthorizedResponse();
   const { id } = await params;
 
-  let body: {
-    name?: string; email?: string; pin?: string;
-    active?: boolean; hourlyRate?: number; avatarColor?: string;
-  };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 }); }
+  const parsed = await parseBody(req, WaiterUpdateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data;
 
   // Build patch — only include fields the caller sent.
   const patch: Record<string, unknown> = {};
-  if (body.name !== undefined)        patch.name         = body.name.trim();
-  if (body.email !== undefined)       patch.email        = body.email.trim().toLowerCase();
+  if (body.name !== undefined)        patch.name         = body.name;
+  if (body.email !== undefined)       patch.email        = body.email ? body.email.toLowerCase() : "";
   if (body.active !== undefined)      patch.active       = body.active;
   if (body.hourlyRate !== undefined)  patch.hourly_rate  = body.hourlyRate;
   if (body.avatarColor !== undefined) patch.avatar_color = body.avatarColor;
 
   if (body.pin) {
-    if (!/^\d{4,6}$/.test(body.pin)) {
-      return NextResponse.json({ ok: false, error: "PIN must be 4–6 digits" }, { status: 400 });
-    }
     patch.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
   }
 

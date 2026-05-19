@@ -12,6 +12,9 @@ export interface AddOn {
 export interface Variation {
   id: string;
   name: string;
+  /** When false the customer can skip this variation. Defaults to true for
+   *  backward-compat with existing data that pre-dates this field. */
+  required?: boolean;
   options: { id: string; label: string; price: number }[];
 }
 
@@ -29,23 +32,66 @@ export interface MealPeriod {
   sortOrder: number;
 }
 
+// ─── Menu item offers (POS + customer site) ─────────────────────────────────
+// Six offer types mirror the original POSOffer model so the offer system is
+// shared between admin and POS. Per-unit offers (percent/fixed/price) discount
+// each unit; cart-level offers (bogo/multibuy/qty_discount) discount based on
+// quantity. See `getOfferPrice` / `cartLineTotal` in src/types/pos.ts.
+export type MenuItemOfferType =
+  | "percent"       // % off per unit
+  | "fixed"         // fixed amount off per unit
+  | "price"         // override to a special price per unit
+  | "bogo"          // buy X get Y free
+  | "multibuy"      // buy X for a bundle price
+  | "qty_discount"; // buy ≥ minQty, get value% off each
+
+export interface MenuItemOffer {
+  type: MenuItemOfferType;
+  value: number;        // % for percent/qty_discount; £ for fixed/price/multibuy
+  label?: string;       // custom badge text, e.g. "Happy Hour"
+  active: boolean;
+  startDate?: string;   // YYYY-MM-DD (inclusive)
+  endDate?: string;     // YYYY-MM-DD (inclusive)
+  buyQty?: number;      // bogo, multibuy
+  freeQty?: number;     // bogo
+  minQty?: number;      // qty_discount
+}
+
 export interface MenuItem {
   id: string;
   categoryId: string;
   name: string;
   description: string;
   price: number;
+  /** POS-only cost price for margin tracking. Optional. */
+  cost?: number;
+  /** Stock keeping unit — surfaced in both admin + POS. Optional. */
+  sku?: string;
+  /** Image URL or data URI. Maps to `imageUrl` on the POS side. */
   image?: string;
+  /** POS tile fallback when no image is set. */
+  emoji?: string;
+  /** POS tile accent colour (hex). */
+  color?: string;
   dietary: string[];
   popular?: boolean;
+  /** When false the item is hidden from the menu (POS toggle). Defaults to
+   *  true if undefined so legacy rows without the column stay visible. */
+  active?: boolean;
   variations?: Variation[];
   addOns?: AddOn[];
   /** When set, stock is quantity-tracked. 0 = out of stock. */
   stockQty?: number;
   /** Manual status override — used when stockQty is not set. */
   stockStatus?: StockStatus;
+  /** Explicit POS "track stock" flag. When true, stockQty drives availability;
+   *  when false/undefined, stockStatus does. Defaults to false. */
+  trackStock?: boolean;
+  /** Optional product offer (shared between POS and customer site). */
+  offer?: MenuItemOffer;
   /** IDs of the meal periods this item appears in. Empty = "anytime" item,
-   *  shown in the main grid regardless of time of day. */
+   *  shown in the main grid regardless of time of day. Admin-only — POS
+   *  intentionally does not surface meal-period editing. */
   mealPeriodIds?: string[];
 }
 
@@ -61,7 +107,15 @@ export interface CartItem {
   name: string;
   price: number; // base + selected variation + add-ons
   quantity: number;
+  /**
+   * @deprecated Use `selectedVariations[]` for new data — a menu item can have
+   * multiple variation groups (e.g. Size + Spice level). Kept here so older
+   * persisted carts / orders that only ever recorded one selection still work.
+   */
   selectedVariation?: { variationId: string; optionId: string; label: string };
+  /** All variation-group selections for this cart line. New code should write
+   *  to this field; legacy `selectedVariation` is read as a fallback. */
+  selectedVariations?: { variationId: string; optionId: string; label: string }[];
   selectedAddOns?: { id: string; name: string; price: number }[];
   specialInstructions?: string;
 }
@@ -147,8 +201,16 @@ export interface SeoSettings {
   ogImage: string;          // absolute URL for og:image (social share preview)
   siteUrl: string;          // canonical base URL, e.g. https://demo.directdine.tech
   faviconUrl: string;       // custom favicon — data URL or absolute URL
+  faviconVersion?: string;  // cache-bust token for favicon (forces browser to re-read on change)
 }
 
+/**
+ * @deprecated Footer pages have been merged into `CustomPage`. New code should
+ * use `CustomPage` exclusively. This shape is kept for backward compatibility
+ * with old localStorage snapshots and the one-time migration in
+ * `buildSettingsFromData` (AppContext) that converts any remaining
+ * `footerPages` entries into `customPages`.
+ */
 export interface FooterPage {
   slug: string;         // URL segment: "about-us", "terms", etc.
   title: string;        // Displayed in footer nav and as page heading
@@ -204,12 +266,19 @@ export interface PrinterSettings {
   enabled: boolean;
   name: string;              // display label, e.g. "Kitchen Printer"
   connection: "network" | "usb" | "bluetooth" | "browser";
-  ip: string;                // printer IP (network mode)
+  ip: string;                // primary printer IP (network mode)
   port: number;              // TCP port — Epson/Star default: 9100
   bluetoothAddress: string;  // BT device MAC, e.g. "AA:BB:CC:DD:EE:FF"
   bluetoothName: string;     // BT device display name
   autoPrint: boolean;        // send receipt automatically on new order
   paperWidth: number;        // chars per line: 48 = 80 mm, 32 = 58 mm
+  /**
+   * Optional allowlist of IPs the /api/print server proxy is permitted to
+   * forward bytes to. When empty, /api/print falls back to allowing only
+   * the primary `ip` field. Set this to add extra printers (e.g. kitchen
+   * bar printer + counter receipt printer) without weakening the proxy.
+   */
+  allowedIps?: string[];
 }
 
 export interface FooterLogo {
@@ -391,6 +460,11 @@ export interface AdminSettings {
   customHeadCode: string;   // raw HTML injected into <head> (analytics, verification tags, etc.)
   printer: PrinterSettings;
   emailTemplates: EmailTemplate[];
+  /**
+   * @deprecated Merged into `customPages`. The AppContext migration converts
+   * any remaining entries into `customPages` and resets this to `[]` on load,
+   * so consumers should treat this as always empty in new code.
+   */
   footerPages: FooterPage[];
   footerCopyright: string;
   customPages: CustomPage[];
@@ -448,14 +522,19 @@ export interface OrderLine {
   qty: number;
   price: number;
   menuItemId?: string;
+  /** @deprecated Single-group form; new code writes `selectedVariations`. */
   selectedVariation?: { variationId: string; optionId: string; label: string };
+  /** All variation-group selections recorded for this order line. */
+  selectedVariations?: { variationId: string; optionId: string; label: string }[];
   selectedAddOns?: { id: string; name: string; price: number }[];
   specialInstructions?: string;
 }
 
 export interface Order {
   id: string;
-  customerId: string;
+  /** Null when the customer account has been deleted (FK set null). The order
+   *  row is preserved for financial audit; UI shows "Deleted customer". */
+  customerId: string | null;
   date: string;             // ISO string
   status: OrderStatus;
   fulfillment: "delivery" | "collection" | "dine-in";
@@ -520,4 +599,15 @@ export interface Customer {
   savedAddresses?: SavedAddress[];
   storeCredit?: number;   // £ store credit balance (from refunds)
   emailVerified?: boolean;
+  // ── POS-shared fields ───────────────────────────────────────────────────
+  // Persisted on the customers row so admin + POS share the same source of
+  // truth. totalSpend/visitCount/lastVisit are computed server-side by the
+  // /api/admin/customers/list and /api/pos/customers endpoints (joining
+  // orders + pos_sales) and are NOT stored.
+  loyaltyPoints?: number;
+  giftCardBalance?: number;
+  notes?: string;
+  totalSpend?: number;       // computed by API (orders + POS sales)
+  visitCount?: number;       // computed
+  lastVisit?: string;        // ISO, computed
 }

@@ -10,6 +10,8 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
+import { parseBody } from "@/lib/apiValidation";
+import { CouponCreateSchema } from "@/lib/schemas/coupon";
 
 const COLUMNS = "code, description, discount_type, discount_value, min_order_total, max_uses, usage_count, expires_at, active, created_at";
 
@@ -46,32 +48,15 @@ export async function GET() {
 export async function POST(request: Request) {
   if (!await isAdminAuthenticated()) return unauthorizedResponse();
 
-  let body: {
-    code?: string; description?: string;
-    discountType?: "percent" | "fixed"; discountValue?: number;
-    minOrderTotal?: number; maxUses?: number | null;
-    expiresAt?: string | null; active?: boolean;
-  };
-  try { body = await request.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 }); }
-
+  const parsed = await parseBody(request, CouponCreateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const { code, description = "", discountType, discountValue,
-          minOrderTotal = 0, maxUses = null, expiresAt = null, active = true } = body;
-
-  if (!code?.trim() || !discountType || typeof discountValue !== "number") {
-    return NextResponse.json(
-      { ok: false, error: "Required: code, discountType, discountValue" },
-      { status: 400 },
-    );
-  }
-  if (!["percent", "fixed"].includes(discountType)) {
-    return NextResponse.json({ ok: false, error: "discountType must be 'percent' or 'fixed'" }, { status: 400 });
-  }
+          minOrderTotal = 0, maxUses = null, expiresAt = null, active = true } = parsed.data;
 
   const { data, error } = await supabaseAdmin
     .from("coupons")
     .insert({
-      code:            code.trim().toUpperCase(),
+      code:            code.toUpperCase(),
       description,
       discount_type:   discountType,
       discount_value:  discountValue,

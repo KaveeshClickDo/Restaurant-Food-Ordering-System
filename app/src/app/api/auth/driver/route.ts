@@ -12,6 +12,9 @@ import {
   COOKIE_DRIVER,
   getDriverSession,
 } from "@/lib/auth";
+import { parseBody } from "@/lib/apiValidation";
+import { rateLimit } from "@/lib/rateLimit";
+import { DriverLoginSchema } from "@/lib/schemas/auth";
 
 export async function GET() {
   const session = await getDriverSession();
@@ -20,21 +23,14 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  let body: { email?: string; password?: string };
+  const parsed = await parseBody(request, DriverLoginSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { email, password } = parsed.data;
 
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
-  }
-
-  const { email, password } = body;
-
-  if (!email?.trim() || !password) {
-    return NextResponse.json(
-      { ok: false, error: "Email and password are required" },
-      { status: 400 },
-    );
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const { limited } = rateLimit(`driver-auth:${ip}:${email.toLowerCase()}`, 10, 60_000);
+  if (limited) {
+    return NextResponse.json({ ok: false, error: "Too many attempts. Please wait a minute." }, { status: 429 });
   }
 
   try {

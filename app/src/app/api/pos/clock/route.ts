@@ -13,8 +13,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
-import { getPosSession }             from "@/lib/auth";
 import type { POSClockEntry }        from "@/types/pos";
+import { parseBody }                 from "@/lib/apiValidation";
+import { PosClockSchema }            from "@/lib/schemas/pos";
+import { requirePosSession }         from "@/lib/posPermissions";
 
 // ── snake_case row → POSClockEntry ──────────────────────────────────────────
 type ClockRow = {
@@ -40,14 +42,15 @@ function rowToEntry(r: ClockRow): POSClockEntry {
 }
 
 // ── GET ─────────────────────────────────────────────────────────────────────
+// Always scoped to the caller's own staff_id. The body/query staffId from the
+// previous implementation is now ignored — a cashier cannot read another
+// cashier's clock history. Manager/admin reports go through the admin tree.
 export async function GET(req: NextRequest) {
-  const session = await getPosSession();
-  if (!session) {
-    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  }
+  const gate = await requirePosSession();
+  if (!gate.ok) return gate.response;
+  const session = gate.staff;
 
   const { searchParams } = new URL(req.url);
-  const staffId = searchParams.get("staffId");
   const from    = searchParams.get("from");
   const to      = searchParams.get("to");
   const limit   = Math.min(Number(searchParams.get("limit") ?? 500), 2000);
@@ -55,12 +58,12 @@ export async function GET(req: NextRequest) {
   let q = supabaseAdmin
     .from("pos_clock_entries")
     .select("*")
+    .eq("staff_id", session.id)
     .order("clock_in", { ascending: false })
     .limit(limit);
 
-  if (staffId) q = q.eq("staff_id", staffId);
-  if (from)    q = q.gte("clock_in", from);
-  if (to)      q = q.lte("clock_in", to);
+  if (from) q = q.gte("clock_in", from);
+  if (to)   q = q.lte("clock_in", to);
 
   const { data, error } = await q;
   if (error) {
@@ -72,33 +75,23 @@ export async function GET(req: NextRequest) {
 }
 
 // ── POST ────────────────────────────────────────────────────────────────────
-interface ClockBody {
-  action:    "in" | "out";
-  staffId:   string;
-  staffName: string;
-  notes?:    string;
-}
-
+// Clock-in/out is always for the calling session — body staffId/staffName are
+// ignored to prevent cross-staff payroll forgery.
 export async function POST(req: NextRequest) {
-  const session = await getPosSession();
-  if (!session) {
-    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  }
+  const gate = await requirePosSession();
+  if (!gate.ok) return gate.response;
+  const session = gate.staff;
 
-  let body: ClockBody;
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  if (!body.staffId || !body.staffName) {
-    return NextResponse.json({ ok: false, error: "staffId and staffName are required." }, { status: 400 });
-  }
+  const parsed = await parseBody(req, PosClockSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data;
 
   if (body.action === "in") {
     const { data, error } = await supabaseAdmin
       .from("pos_clock_entries")
       .insert({
-        staff_id:   body.staffId,
-        staff_name: body.staffName,
+        staff_id:   session.id,
+        staff_name: session.name,
         notes:      body.notes ?? null,
       })
       .select("*")
@@ -123,7 +116,7 @@ export async function POST(req: NextRequest) {
     const { data: open, error: lookupErr } = await supabaseAdmin
       .from("pos_clock_entries")
       .select("id, clock_in")
-      .eq("staff_id", body.staffId)
+      .eq("staff_id", session.id)
       .is("clock_out", null)
       .order("clock_in", { ascending: false })
       .limit(1)

@@ -10,8 +10,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import { getCustomerSession, unauthorizedJson } from "@/lib/auth";
-
-const ALLOWED_FIELDS = new Set(["favourites", "saved_addresses", "name", "phone"]);
+import { parseBody }                 from "@/lib/apiValidation";
+import { CustomerProfileUpdateSchema } from "@/lib/schemas/customer";
 
 export async function PATCH(
   req: NextRequest,
@@ -22,15 +22,11 @@ export async function PATCH(
   const session = await getCustomerSession();
   if (!session || session.id !== id) return unauthorizedJson();
 
-  let body: Record<string, unknown>;
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
+  const parsed = await parseBody(req, CustomerProfileUpdateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
 
-  // Strip any field not in the allowlist
-  const patch: Record<string, unknown> = {};
-  for (const key of Object.keys(body)) {
-    if (ALLOWED_FIELDS.has(key)) patch[key] = body[key];
-  }
+  // CustomerProfileUpdateSchema already restricts to allowed fields.
+  const patch: Record<string, unknown> = { ...parsed.data };
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ ok: false, error: "No allowed fields provided." }, { status: 400 });

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useApp } from "@/context/AppContext";
+import { useIdleLogout } from "@/lib/useIdleLogout";
 import OperationsPanel      from "@/components/admin/OperationsPanel";
 import SchedulePanel        from "@/components/admin/SchedulePanel";
 import IntegrationsPanel    from "@/components/admin/IntegrationsPanel";
@@ -12,7 +13,6 @@ import CustomersPanel       from "@/components/admin/CustomersPanel";
 import DeliveryPanel        from "@/components/admin/DeliveryPanel";
 import DeliveryZonesPanel   from "@/components/admin/DeliveryZonesPanel";
 import EmailTemplatesPanel  from "@/components/admin/EmailTemplatesPanel";
-import FooterPagesPanel     from "@/components/admin/FooterPagesPanel";
 import CustomPagesPanel     from "@/components/admin/CustomPagesPanel";
 import MenuLinksPanel       from "@/components/admin/MenuLinksPanel";
 import ColorSettingsPanel   from "@/components/admin/ColorSettingsPanel";
@@ -34,7 +34,7 @@ import TableStatusPanel          from "@/components/admin/TableStatusPanel";
 import ReservationCustomersPanel from "@/components/admin/ReservationCustomersPanel";
 import {
   LayoutDashboard, ExternalLink, ShieldCheck, Store, Calendar, Plug, ChefHat, Users, Truck,
-  MapPin, Bell, X, Mail, FileText, LayoutTemplate, Navigation, Palette, ImageIcon, Receipt,
+  MapPin, Bell, X, Mail, FileText, Navigation, Palette, ImageIcon, Receipt,
   Tag, Percent, Car, RotateCcw, BarChart3, LineChart, UtensilsCrossed, CalendarDays, BookUser,
   Menu as MenuIcon, ChevronDown, ChevronRight, ChevronLeft, PanelLeftClose, PanelLeftOpen, UserCog,
   Tablet, CreditCard,
@@ -101,8 +101,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     id: "content", label: "Content & SEO",
     items: [
-      { id: "pages",        label: "Footer Pages",   icon: FileText      },
-      { id: "custom-pages", label: "Custom Pages",   icon: LayoutTemplate},
+      { id: "custom-pages", label: "Pages",          icon: FileText      },
       { id: "nav-menus",    label: "Navigation",     icon: Navigation    },
       { id: "colors",       label: "Brand Colors",   icon: Palette       },
       { id: "footer-logos", label: "Footer Logos",   icon: ImageIcon     },
@@ -132,7 +131,6 @@ function bannerSubtitle(
     case "zones":         return "Define delivery zones, set per-zone fees, and control distance rules.";
     case "operations":    return "Update branding, fees, timings, and address. All changes apply instantly.";
     case "email":         return `${s.emailTemplates?.filter((t) => t.enabled).length ?? 0} active email templates · customise messages sent to customers.`;
-    case "pages":         return "Edit footer page content, toggle page visibility, and update copyright text.";
     case "custom-pages":  return `${(s.customPages ?? []).filter((p) => p.published).length} published · standalone pages with custom content and SEO.`;
     case "nav-menus":     return "Assign pages to header and footer menus, control ordering, and toggle visibility.";
     case "colors":        return "Customise brand colour and page background — changes apply live across the site.";
@@ -167,7 +165,7 @@ export default function AdminPage() {
 }
 
 function AdminPageContent() {
-  const { isOpen, settings, menuItems, categories, customers } = useApp();
+  const { isOpen, settings, menuItems, categories, customers, loadAllCustomers } = useApp();
   const router       = useRouter();
   const searchParams = useSearchParams();
 
@@ -199,6 +197,16 @@ function AdminPageContent() {
       .catch(() => setAdminAuthed(false));
   }, []);
 
+  // Once admin-authed, pull the full customers/orders list via the
+  // admin-gated API (replaces the prior AppContext anon supabase read)
+  // and refresh every 8 seconds to keep panels current.
+  useEffect(() => {
+    if (adminAuthed !== true) return;
+    loadAllCustomers();
+    const id = setInterval(() => { loadAllCustomers(); }, 8_000);
+    return () => clearInterval(id);
+  }, [adminAuthed, loadAllCustomers]);
+
   useEffect(() => {
     const prev = prevCountRef.current;
     if (activeOrderCount > prev) {
@@ -214,8 +222,13 @@ function AdminPageContent() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const loginInFlight  = useRef(false);
+  const logoutInFlight = useRef(false);
+
   async function handleLogin(e: { preventDefault(): void }) {
     e.preventDefault();
+    if (loginInFlight.current) return;
+    loginInFlight.current = true;
     setLoginError("");
     setLoginLoading(true);
     try {
@@ -239,14 +252,30 @@ function AdminPageContent() {
     } catch {
       setLoginError("Connection error. Please try again.");
     } finally {
+      loginInFlight.current = false;
       setLoginLoading(false);
     }
   }
 
   async function handleLogout() {
-    await fetch("/api/admin/auth", { method: "DELETE" }).catch(() => {});
-    setAdminAuthed(false);
+    if (logoutInFlight.current) return;
+    logoutInFlight.current = true;
+    try {
+      await fetch("/api/admin/auth", { method: "DELETE" }).catch(() => {});
+      setAdminAuthed(false);
+    } finally {
+      logoutInFlight.current = false;
+    }
   }
+
+  // Auto-logout after 15 minutes of inactivity. Admin sessions carry the most
+  // power in the system, so an unattended browser tab is the highest-risk
+  // session to leave alive.
+  useIdleLogout({
+    enabled:   adminAuthed === true,
+    timeoutMs: 15 * 60 * 1000,
+    onIdle:    handleLogout,
+  });
 
   // ── Auth loading / login gate ─────────────────────────────────────────────
   if (adminAuthed === null) {
@@ -309,7 +338,7 @@ function AdminPageContent() {
   function toggleGroup(groupId: string) {
     setCollapsedGroups((prev) => {
       const next = new Set(prev);
-      next.has(groupId) ? next.delete(groupId) : next.add(groupId);
+      if (next.has(groupId)) next.delete(groupId); else next.add(groupId);
       return next;
     });
   }
@@ -697,7 +726,6 @@ function AdminPageContent() {
             {activeTab === "schedule"      && <SchedulePanel />}
             {activeTab === "integrations"  && <IntegrationsPanel />}
             {activeTab === "email"         && <EmailTemplatesPanel />}
-            {activeTab === "pages"         && <FooterPagesPanel />}
             {activeTab === "custom-pages"  && <CustomPagesPanel />}
             {activeTab === "nav-menus"     && <MenuLinksPanel />}
             {activeTab === "colors"        && <ColorSettingsPanel />}

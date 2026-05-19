@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { useApp } from "@/context/AppContext";
 import { Customer, Order, OrderStatus } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
 import {
   sendEmailViaApi, buildVarMap, applyVars, buildEmailDocument,
 } from "@/lib/emailTemplates";
@@ -12,6 +13,7 @@ import {
   CheckCircle2, ChefHat, Package, Truck, Ban,
   Circle, RefreshCw, Receipt, Printer, Send,
   CheckCheck, AlertCircle, RotateCcw,
+  Gift, Award, FileText, Save,
 } from "lucide-react";
 
 // ─── Status config ────────────────────────────────────────────────────────────
@@ -45,6 +47,9 @@ function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 function totalSpent(c: Customer) {
+  // Bug #11 — prefer the API-computed totalSpend (covers POS sales too)
+  // when present; fall back to summing online orders for older snapshots.
+  if (typeof c.totalSpend === "number") return c.totalSpend;
   return c.orders.filter((o) => o.status !== "cancelled").reduce((s, o) => s + o.total, 0);
 }
 function daysSince(iso: string) {
@@ -300,7 +305,7 @@ function buildPrintHtml(
 <html>
 <head>
   <meta charset="utf-8"/>
-  <title>Receipt #${order.id.slice(-8).toUpperCase()}</title>
+  <title>Receipt ${fullOrderNumber(order.id)}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:'Courier New',monospace;font-size:12px;color:#111;background:#fff;padding:16px}
@@ -325,7 +330,7 @@ function buildPrintHtml(
   ${rs.vatNumber ? `<div class="c sm">VAT: ${rs.vatNumber}</div>`   : ""}
   <div class="d"></div>
   <div class="c b">RECEIPT</div>
-  <div class="c sm">#${order.id.slice(-8).toUpperCase()}</div>
+  <div class="c sm" style="word-break:break-all">${fullOrderNumber(order.id)}</div>
   <div class="c sm">${fmtDate(order.date)} at ${fmtTime(order.date)}</div>
   <div class="d"></div>
   <div class="row"><span>Customer:</span><span>${customer.name}</span></div>
@@ -394,7 +399,7 @@ function ReceiptModal({
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-center gap-2">
             <Receipt size={16} className="text-orange-500" />
-            <h2 className="font-bold text-gray-900 text-sm">Receipt #{order.id.slice(-8).toUpperCase()}</h2>
+            <h2 title={`Receipt ${fullOrderNumber(order.id)}`} className="font-bold text-gray-900 text-sm truncate">Receipt {fullOrderNumber(order.id)}</h2>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -429,7 +434,7 @@ function ReceiptModal({
 
           <div className="text-center space-y-0.5">
             <p className="font-bold text-sm">RECEIPT</p>
-            <p className="text-gray-500">#{order.id.slice(-8).toUpperCase()}</p>
+            <p title={fullOrderNumber(order.id)} className="text-gray-500 break-all">{fullOrderNumber(order.id)}</p>
             <p className="text-gray-500">{fmtDate(order.date)} at {fmtTime(order.date)}</p>
           </div>
 
@@ -553,11 +558,54 @@ function CustomerDrawer({
   onClose: () => void;
   onStatusChange: (cid: string, oid: string, status: OrderStatus) => void;
 }) {
-  const { settings } = useApp();
+  const { settings, loadAllCustomers } = useApp();
   const sym = settings.currency?.symbol ?? "£";
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
   const [emailToast, setEmailToast] = useState<{ orderId: string; state: "sending" | "sent" | "error" } | null>(null);
+
+  // ── Bug #11 — POS-shared editable fields. Initialise from the customer
+  // prop and re-sync whenever the parent rebuilds it (the parent's onStatusChange
+  // recreates customer to keep order rows fresh — POS fields are unaffected).
+  const [loyaltyPoints,   setLoyaltyPoints]   = useState<number>(customer.loyaltyPoints   ?? 0);
+  const [giftCardBalance, setGiftCardBalance] = useState<number>(customer.giftCardBalance ?? 0);
+  const [notes,           setNotes]           = useState<string>(customer.notes           ?? "");
+  const [posSaving,       setPosSaving]       = useState(false);
+  const [posMessage,      setPosMessage]      = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+
+  async function savePosFields() {
+    setPosSaving(true);
+    setPosMessage(null);
+    try {
+      // The admin user PATCH route doesn't accept POS fields yet — use the
+      // shared POS endpoint instead. Admin auth satisfies requirePosSession
+      // via the requirePosPermission admin-override fallback used elsewhere,
+      // but pos/customers uses requirePosSession directly so we go through
+      // the dedicated admin PATCH on /api/admin/users/[id] for consistency.
+      // BOTH paths write to the same customers row.
+      const res = await fetch(`/api/admin/users/${customer.id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({
+          type:            "customer",
+          loyaltyPoints:   Math.max(0, Math.floor(loyaltyPoints)),
+          giftCardBalance: Math.max(0, giftCardBalance),
+          notes,
+        }),
+      });
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        setPosMessage({ kind: "error", text: json.error ?? "Failed to save" });
+      } else {
+        setPosMessage({ kind: "ok", text: "Saved" });
+        await loadAllCustomers();
+      }
+    } catch (err) {
+      setPosMessage({ kind: "error", text: err instanceof Error ? err.message : "Network error" });
+    }
+    setPosSaving(false);
+    setTimeout(() => setPosMessage(null), 2500);
+  }
 
   const spent = totalSpent(customer);
   const sortedOrders = [...customer.orders].sort((a, b) => b.date.localeCompare(a.date));
@@ -645,6 +693,63 @@ function CustomerDrawer({
             </div>
           </div>
 
+          {/* ── POS-shared profile (Bug #11) ─────────────────────────────────
+              The customers row now carries loyalty points, gift card
+              balance and a notes field that the POS terminal reads/writes
+              too. Edits made here are visible at the till on the next
+              customer list refresh, and vice-versa. */}
+          <div className="px-6 py-4 border-b border-gray-100 space-y-3">
+            <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+              <Award size={15} className="text-orange-500" />
+              Loyalty &amp; Gift Card
+              <span className="text-[10px] font-normal text-gray-400 ml-auto">shared with POS</span>
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-500 mb-1 flex items-center gap-1"><Award size={11} /> Loyalty points</label>
+                <input
+                  type="number" min="0" step="1"
+                  value={loyaltyPoints}
+                  onChange={(e) => setLoyaltyPoints(parseInt(e.target.value) || 0)}
+                  className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-amber-600 font-bold text-sm outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 flex items-center gap-1"><Gift size={11} /> Gift card ({sym})</label>
+                <input
+                  type="number" min="0" step="0.01"
+                  value={giftCardBalance}
+                  onChange={(e) => setGiftCardBalance(parseFloat(e.target.value) || 0)}
+                  className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-purple-600 font-bold text-sm outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 flex items-center gap-1"><FileText size={11} /> Notes</label>
+              <textarea
+                rows={2}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Dietary requirements, preferences, allergies…"
+                className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent resize-none"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={savePosFields}
+                disabled={posSaving}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-orange-500 hover:bg-orange-600 text-white transition disabled:opacity-50"
+              >
+                <Save size={12} /> {posSaving ? "Saving…" : "Save loyalty/notes"}
+              </button>
+              {posMessage && (
+                <span className={`text-xs ${posMessage.kind === "ok" ? "text-green-600" : "text-red-600"}`}>
+                  {posMessage.text}
+                </span>
+              )}
+            </div>
+          </div>
+
           {/* Order history */}
           <div className="px-6 py-4">
             <h3 className="font-semibold text-gray-900 text-sm mb-4 flex items-center gap-2">
@@ -664,7 +769,7 @@ function CustomerDrawer({
                     >
                       <div className="flex-1 text-left">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-mono text-gray-400">#{order.id.slice(-6).toUpperCase()}</span>
+                          <span title={fullOrderNumber(order.id)} className="text-xs font-mono text-gray-400 truncate max-w-[140px]">{fullOrderNumber(order.id)}</span>
                           <span className={`flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${cfg.className}`}>
                             {cfg.icon} {cfg.label}
                           </span>

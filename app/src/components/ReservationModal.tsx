@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import {
   X, CalendarDays, Clock, Users, ChevronRight, ChevronLeft,
   CheckCircle2, Loader2, UtensilsCrossed, MapPin, AlertCircle,
 } from "lucide-react";
+import { ReservationFormSchema } from "@/lib/schemas/reservation";
+import { cleanPhone, formErrorMessage } from "@/lib/inputUtils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -169,24 +171,32 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
   }, [step, fetchTables]);
 
   // ── Submit reservation ────────────────────────────────────────────────────
+  const submitInFlight = useRef(false);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitInFlight.current) return;
     if (!selectedTable) return;
-    setSubmitting(true);
     setSubmitError("");
+    const check = ReservationFormSchema.safeParse({
+      customerName:  name,
+      customerEmail: email,
+      customerPhone: phone,
+      partySize,
+      note,
+    });
+    if (!check.success) { setSubmitError(formErrorMessage(check.error)); return; }
+    submitInFlight.current = true;
+    setSubmitting(true);
     try {
       const res  = await fetch("/api/reservations", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({
-          tableId:       selectedTable.id,
+          tableId: selectedTable.id,
           date,
           time,
-          partySize,
-          customerName:  name.trim(),
-          customerEmail: email.trim(),
-          customerPhone: phone.trim(),
-          note:          note.trim(),
+          ...check.data,
         }),
       });
       const json = await res.json() as { ok: boolean; reservationId?: string; error?: string };
@@ -199,6 +209,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
     } catch {
       setSubmitError("Network error — please try again.");
     } finally {
+      submitInFlight.current = false;
       setSubmitting(false);
     }
   }
@@ -475,9 +486,11 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                 </label>
                 <input
                   type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
                   required
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={(e) => setPhone(cleanPhone(e.target.value))}
                   placeholder="+44 7700 900123"
                   className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400 transition"
                 />

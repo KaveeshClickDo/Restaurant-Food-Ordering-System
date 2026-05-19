@@ -47,6 +47,7 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
       {/* Image */}
       <div className="relative h-[180px] bg-orange-50 overflow-hidden">
         {item.image ? (
+          // eslint-disable-next-line @next/next/no-img-element -- admin-uploaded URLs from arbitrary hosts; next/image can't pre-register remotePatterns
           <img
             src={item.image}
             alt={item.name}

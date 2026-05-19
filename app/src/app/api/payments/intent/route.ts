@@ -20,6 +20,15 @@ import { getCustomerSession, unauthorizedJson } from "@/lib/auth";
 import { validateAndNormaliseOrder } from "@/lib/orderValidation";
 import { getStripe, toStripeAmount } from "@/lib/stripeServer";
 
+// Stripe enforces a per-currency minimum charge; values below these are
+// rejected by the API. Keep this in sync with Stripe's published minimums.
+const STRIPE_MIN_CHARGE_BY_CURRENCY: Record<string, number> = {
+  GBP: 0.30,
+  USD: 0.50,
+  EUR: 0.30,
+};
+const STRIPE_MIN_CHARGE_FALLBACK = 0.50;
+
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -56,6 +65,14 @@ export async function POST(req: NextRequest) {
   if (row.total <= 0) {
     return NextResponse.json(
       { ok: false, error: "Order total is zero — nothing to charge. Place the order without payment." },
+      { status: 400 },
+    );
+  }
+
+  const min = STRIPE_MIN_CHARGE_BY_CURRENCY[currency.code.toUpperCase()] ?? STRIPE_MIN_CHARGE_FALLBACK;
+  if (row.total < min) {
+    return NextResponse.json(
+      { ok: false, error: `Order total must be at least ${currency.symbol}${min.toFixed(2)} to pay by card. Please pay by cash or increase your order.` },
       { status: 400 },
     );
   }

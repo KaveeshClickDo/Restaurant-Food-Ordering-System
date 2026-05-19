@@ -18,6 +18,8 @@ import {
   COOKIE_POS,
 } from "@/lib/auth";
 import { rateLimit } from "@/lib/rateLimit";
+import { parseBody } from "@/lib/apiValidation";
+import { StaffPinLoginSchema } from "@/lib/schemas/auth";
 
 const POS_SESSION_HOURS = 8; // typical shift length
 const PUBLIC_COLUMNS = "id, name, email, role, active, permissions, hourly_rate, avatar_color, created_at";
@@ -40,14 +42,9 @@ function mapStaff(row: any) {
 }
 
 export async function POST(req: NextRequest) {
-  let body: { staffId?: string; pin?: string };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  const { staffId, pin } = body;
-  if (!staffId || !pin) {
-    return NextResponse.json({ ok: false, error: "staffId and pin are required." }, { status: 400 });
-  }
+  const parsed = await parseBody(req, StaffPinLoginSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { staffId, pin } = parsed.data;
 
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
   const { limited } = rateLimit(`pos-auth:${ip}:${staffId}`, 10, 60_000);

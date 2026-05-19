@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import {
   CalendarDays, Clock, Users, UtensilsCrossed, CheckCircle2,
@@ -62,7 +62,11 @@ export default function ReservationTokenPage() {
       .finally(() => setLoading(false));
   }, [token]);
 
+  const cancelInFlight = useRef(false);
+
   async function handleCancel() {
+    if (cancelInFlight.current) return;
+    cancelInFlight.current = true;
     setCancelling(true);
     setError("");
     try {
@@ -77,6 +81,7 @@ export default function ReservationTokenPage() {
     } catch {
       setError("Network error. Please try again.");
     } finally {
+      cancelInFlight.current = false;
       setCancelling(false);
     }
   }

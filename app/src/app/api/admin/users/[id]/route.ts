@@ -17,33 +17,11 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt                         from "bcryptjs";
 import { supabaseAdmin }              from "@/lib/supabaseAdmin";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
-import { ROLE_PERMISSIONS, type POSRole } from "@/types/pos";
+import { ROLE_PERMISSIONS } from "@/types/pos";
+import { parseBody } from "@/lib/apiValidation";
+import { UserUpdateSchema, UserDeleteSchema } from "@/lib/schemas/staff";
 
 const HASH_ROUNDS = 10;
-
-interface PatchBody {
-  type?: string;
-  name?: string;
-  email?: string;
-  phone?: string;
-  active?: boolean;
-  waiterRole?: "senior" | "waiter";
-  kitchenRole?: "chef" | "head_chef" | "kitchen_manager";
-  posRole?: POSRole;
-  avatarColor?: string;
-  hourlyRate?: number;
-  vehicleInfo?: string;
-  notes?: string;
-  pin?: string;
-}
-
-async function hashPin(pin: string, allow6: boolean): Promise<string | { error: string }> {
-  const re = allow6 ? /^\d{4,6}$/ : /^\d{4}$/;
-  if (!re.test(pin)) {
-    return { error: allow6 ? "PIN must be 4–6 digits" : "PIN must be exactly 4 digits" };
-  }
-  return bcrypt.hash(pin, HASH_ROUNDS);
-}
 
 export async function PATCH(
   req: NextRequest,
@@ -52,19 +30,24 @@ export async function PATCH(
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
   const { id } = await context.params;
 
-  let body: PatchBody;
-  try { body = await req.json() as PatchBody; }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
+  const parsed = await parseBody(req, UserUpdateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data;
   const { type } = body;
-  if (!type) return NextResponse.json({ ok: false, error: "type is required." }, { status: 400 });
 
   // ── Customer ────────────────────────────────────────────────────────────────
   if (type === "customer") {
     const updates: Record<string, unknown> = {};
-    if (body.name  !== undefined) updates.name  = body.name.trim();
-    if (body.email !== undefined) updates.email = body.email.trim().toLowerCase();
+    if (body.name  !== undefined) updates.name  = body.name;
+    if (body.email !== undefined) updates.email = body.email.toLowerCase();
     if (body.phone !== undefined) updates.phone = body.phone.trim() || null;
+    // Bug #11 — POS-shared fields. Customers table is the single source of
+    // truth so both admin (this endpoint) and POS (/api/pos/customers/[id])
+    // write to the same columns.
+    if (body.notes           !== undefined) updates.notes             = body.notes;
+    if (body.tags            !== undefined) updates.tags              = body.tags;
+    if (body.loyaltyPoints   !== undefined) updates.loyalty_points    = body.loyaltyPoints;
+    if (body.giftCardBalance !== undefined) updates.gift_card_balance = body.giftCardBalance;
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ ok: false, error: "No fields to update." }, { status: 400 });
     }
@@ -76,9 +59,9 @@ export async function PATCH(
   // ── Driver ──────────────────────────────────────────────────────────────────
   if (type === "driver") {
     const updates: Record<string, unknown> = {};
-    if (body.name        !== undefined) updates.name         = body.name.trim();
-    if (body.email       !== undefined) updates.email        = body.email.trim().toLowerCase();
-    if (body.phone       !== undefined) updates.phone        = body.phone.trim() || null;
+    if (body.name        !== undefined) updates.name         = body.name;
+    if (body.email       !== undefined) updates.email        = body.email.toLowerCase();
+    if (body.phone       !== undefined) updates.phone        = body.phone || null;
     if (body.active      !== undefined) updates.active       = body.active;
     if (body.vehicleInfo !== undefined) updates.vehicle_info = body.vehicleInfo.trim() || null;
     if (body.notes       !== undefined) updates.notes        = body.notes.trim() || null;
@@ -93,16 +76,12 @@ export async function PATCH(
   // ── Waiter ──────────────────────────────────────────────────────────────────
   if (type === "waiter") {
     const updates: Record<string, unknown> = {};
-    if (body.name        !== undefined) updates.name         = body.name.trim();
-    if (body.email       !== undefined) updates.email        = body.email.trim().toLowerCase();
+    if (body.name        !== undefined) updates.name         = body.name;
+    if (body.email       !== undefined) updates.email        = body.email ? body.email.toLowerCase() : "";
     if (body.active      !== undefined) updates.active       = body.active;
     if (body.avatarColor !== undefined) updates.avatar_color = body.avatarColor;
     if (body.hourlyRate  !== undefined) updates.hourly_rate  = body.hourlyRate;
-    if (body.pin) {
-      const r = await hashPin(body.pin, true);
-      if (typeof r !== "string") return NextResponse.json({ ok: false, error: r.error }, { status: 400 });
-      updates.pin_hash = r;
-    }
+    if (body.pin) updates.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ ok: false, error: "No fields to update." }, { status: 400 });
     }
@@ -114,21 +93,12 @@ export async function PATCH(
   // ── Kitchen staff ───────────────────────────────────────────────────────────
   if (type === "kitchen") {
     const updates: Record<string, unknown> = {};
-    if (body.name        !== undefined) updates.name         = body.name.trim();
-    if (body.email       !== undefined) updates.email        = body.email.trim().toLowerCase();
+    if (body.name        !== undefined) updates.name         = body.name;
+    if (body.email       !== undefined) updates.email        = body.email ? body.email.toLowerCase() : "";
     if (body.active      !== undefined) updates.active       = body.active;
     if (body.avatarColor !== undefined) updates.avatar_color = body.avatarColor;
-    if (body.kitchenRole !== undefined) {
-      if (!["chef", "head_chef", "kitchen_manager"].includes(body.kitchenRole)) {
-        return NextResponse.json({ ok: false, error: "Invalid kitchen role." }, { status: 400 });
-      }
-      updates.role = body.kitchenRole;
-    }
-    if (body.pin) {
-      const r = await hashPin(body.pin, true);
-      if (typeof r !== "string") return NextResponse.json({ ok: false, error: r.error }, { status: 400 });
-      updates.pin_hash = r;
-    }
+    if (body.kitchenRole !== undefined) updates.role         = body.kitchenRole;
+    if (body.pin) updates.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ ok: false, error: "No fields to update." }, { status: 400 });
     }
@@ -140,37 +110,22 @@ export async function PATCH(
   // ── POS staff ───────────────────────────────────────────────────────────────
   if (type === "pos") {
     const updates: Record<string, unknown> = {};
-    if (body.name        !== undefined) updates.name         = body.name.trim();
-    if (body.email       !== undefined) updates.email        = body.email.trim().toLowerCase();
+    if (body.name        !== undefined) updates.name         = body.name;
+    if (body.email       !== undefined) updates.email        = body.email ? body.email.toLowerCase() : "";
     if (body.active      !== undefined) updates.active       = body.active;
     if (body.avatarColor !== undefined) updates.avatar_color = body.avatarColor;
     if (body.hourlyRate  !== undefined) updates.hourly_rate  = body.hourlyRate;
     if (body.posRole     !== undefined) {
-      if (!["admin", "manager", "cashier"].includes(body.posRole)) {
-        return NextResponse.json({ ok: false, error: "Invalid POS role." }, { status: 400 });
-      }
       updates.role        = body.posRole;
       updates.permissions = ROLE_PERMISSIONS[body.posRole];
     }
-    if (body.pin) {
-      const r = await hashPin(body.pin, false);
-      if (typeof r !== "string") return NextResponse.json({ ok: false, error: r.error }, { status: 400 });
-      updates.pin_hash = r;
-    }
+    if (body.pin) updates.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ ok: false, error: "No fields to update." }, { status: 400 });
     }
     const { error } = await supabaseAdmin.from("pos_staff").update(updates).eq("id", id);
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
-  }
-
-  // ── Admin ───────────────────────────────────────────────────────────────────
-  if (type === "admin") {
-    return NextResponse.json(
-      { ok: false, error: "Admin account cannot be modified via API." },
-      { status: 400 },
-    );
   }
 
   return NextResponse.json({ ok: false, error: `Unknown type: ${type}` }, { status: 400 });
@@ -183,12 +138,9 @@ export async function DELETE(
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
   const { id } = await context.params;
 
-  let body: { type?: string };
-  try { body = await req.json() as { type?: string }; }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  const { type } = body;
-  if (!type) return NextResponse.json({ ok: false, error: "type is required." }, { status: 400 });
+  const parsed = await parseBody(req, UserDeleteSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { type } = parsed.data;
 
   const tableForType: Record<string, string | undefined> = {
     customer: "customers",
@@ -209,7 +161,44 @@ export async function DELETE(
     return NextResponse.json({ ok: false, error: `Unknown type: ${type}` }, { status: 400 });
   }
 
+  // Reject the synthetic "__deleted__" id — that pseudo-row exists only in
+  // /api/admin/customers/list to surface orphan orders (customer_id set null
+  // after a real delete) in the admin UI. It is not backed by a DB row.
+  if (id === "__deleted__" || id === "pos-walk-in") {
+    return NextResponse.json(
+      { ok: false, error: "This is a system-managed row and cannot be deleted." },
+      { status: 400 },
+    );
+  }
+
+  // For customers, look up the email first so we can also purge any
+  // matching guest profile (reservation_customers row) after the delete.
+  // Without this cleanup the CRM guest-profile table is orphaned by the
+  // customers FK cascade (Bug #10).
+  let customerEmail: string | null = null;
+  if (type === "customer") {
+    const { data: existing } = await supabaseAdmin
+      .from("customers")
+      .select("email")
+      .eq("id", id)
+      .maybeSingle();
+    customerEmail = existing?.email?.toLowerCase()?.trim() || null;
+  }
+
   const { error } = await supabaseAdmin.from(table).delete().eq("id", id);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  if (type === "customer" && customerEmail) {
+    const { error: rcError } = await supabaseAdmin
+      .from("reservation_customers")
+      .delete()
+      .eq("email", customerEmail);
+    if (rcError) {
+      // Non-fatal — the customer row is already gone. Log so an admin can
+      // clean up manually if it ever fails.
+      console.error("admin/users DELETE reservation_customers cleanup:", rcError.message);
+    }
+  }
+
   return NextResponse.json({ ok: true });
 }

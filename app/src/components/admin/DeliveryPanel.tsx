@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { useApp } from "@/context/AppContext";
 import { Customer, DeliveryStatus, Order, OrderStatus } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
 import {
   Truck, Package, ChefHat, CheckCircle2, Circle, Ban,
   Clock, MapPin, Phone, ShoppingBag, TrendingUp,
@@ -204,7 +205,7 @@ function KanbanCard({
         <div className="flex items-start justify-between gap-2 mb-2">
           <div>
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-xs font-mono text-gray-400">#{order.id.slice(-6).toUpperCase()}</span>
+              <span title={fullOrderNumber(order.id)} className="text-xs font-mono text-gray-400 truncate max-w-[140px]">{fullOrderNumber(order.id)}</span>
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold border flex items-center gap-1 ${
                 order.fulfillment === "delivery"
                   ? "bg-blue-50 text-blue-600 border-blue-100"
@@ -305,7 +306,7 @@ function OrderModal({ order, onClose, onStatusChange }: {
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-mono text-gray-400">#{order.id.toUpperCase()}</span>
+              <span title={fullOrderNumber(order.id)} className="text-sm font-mono text-gray-400 break-all">{fullOrderNumber(order.id)}</span>
               <span className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${cfg.badge}`}>
                 {cfg.icon} {cfg.label}
               </span>
@@ -715,8 +716,8 @@ export default function DeliveryPanel() {
                       className="hover:bg-gray-50/50 transition-colors cursor-pointer"
                       onClick={() => setModalOrder(order)}
                     >
-                      <td className="px-4 py-3 text-xs font-mono text-gray-400">
-                        #{order.id.slice(-6).toUpperCase()}
+                      <td title={fullOrderNumber(order.id)} className="px-4 py-3 text-xs font-mono text-gray-400 truncate max-w-[120px]">
+                        {fullOrderNumber(order.id)}
                       </td>
                       <td className="px-4 py-3">
                         <p className="text-sm font-medium text-gray-900">{order.customerName}</p>

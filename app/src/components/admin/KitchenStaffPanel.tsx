@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { KitchenStaff, KitchenRole } from "@/types";
 import {
   UserPlus, Pencil, Trash2, ChefHat,
@@ -43,12 +43,14 @@ function StaffForm({
   onCancel,
 }: {
   initial?: Partial<typeof EMPTY> & { id?: string };
-  onSave: (data: typeof EMPTY) => void;
+  onSave: (data: typeof EMPTY) => Promise<void> | void;
   onCancel: () => void;
 }) {
   const [form,    setForm]    = useState({ ...EMPTY, ...initial });
   const [errors,  setErrors]  = useState<Record<string, string>>({});
   const [showPin, setShowPin] = useState(false);
+  const [saving,  setSaving]  = useState(false);
+  const inFlight = useRef(false);
 
   function set<K extends keyof typeof EMPTY>(k: K, v: (typeof EMPTY)[K]) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -68,10 +70,18 @@ function StaffForm({
     return true;
   }
 
-  function handleSubmit(ev: React.FormEvent) {
+  async function handleSubmit(ev: React.FormEvent) {
     ev.preventDefault();
+    if (inFlight.current) return;
     if (!validate()) return;
-    onSave(form);
+    inFlight.current = true;
+    setSaving(true);
+    try {
+      await onSave(form);
+    } finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
   }
 
   return (
@@ -161,14 +171,16 @@ function StaffForm({
       <div className="flex gap-2 pt-2">
         <button
           type="submit"
-          className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
+          disabled={saving}
+          className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
         >
-          <Save size={14} /> Save
+          <Save size={14} /> {saving ? "Saving…" : "Save"}
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
+          disabled={saving}
+          className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
         >
           <X size={14} /> Cancel
         </button>
@@ -199,6 +211,10 @@ export default function KitchenStaffPanel() {
   const [adding,   setAdding]   = useState(false);
   const [editing,  setEditing]  = useState<KitchenStaff | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  // Per-row guards so a rapid double-click on toggle/delete only fires once.
+  // The StaffForm already has its own internal guard.
+  const togglingIds = useRef<Set<string>>(new Set());
+  const deletingIds = useRef<Set<string>>(new Set());
 
   async function handleAdd(data: Omit<KitchenStaff, "id" | "createdAt">) {
     const res = await fetch("/api/admin/kitchen-staff", {
@@ -228,22 +244,34 @@ export default function KitchenStaffPanel() {
   }
 
   async function handleDelete(id: string) {
-    const res = await fetch(`/api/admin/kitchen-staff/${id}`, { method: "DELETE" });
-    if (res.ok) {
-      await refreshStaff();
-      setDeleting(null);
+    if (deletingIds.current.has(id)) return;
+    deletingIds.current.add(id);
+    try {
+      const res = await fetch(`/api/admin/kitchen-staff/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        await refreshStaff();
+        setDeleting(null);
+      }
+    } finally {
+      deletingIds.current.delete(id);
     }
   }
 
   async function toggleActive(id: string) {
+    if (togglingIds.current.has(id)) return;
     const member = staff.find((s) => s.id === id);
     if (!member) return;
-    const res = await fetch(`/api/admin/kitchen-staff/${id}`, {
-      method:  "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ active: !member.active }),
-    });
-    if (res.ok) await refreshStaff();
+    togglingIds.current.add(id);
+    try {
+      const res = await fetch(`/api/admin/kitchen-staff/${id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ active: !member.active }),
+      });
+      if (res.ok) await refreshStaff();
+    } finally {
+      togglingIds.current.delete(id);
+    }
   }
 
   return (

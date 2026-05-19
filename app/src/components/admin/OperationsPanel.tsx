@@ -17,8 +17,27 @@ const LocationMap = dynamic(() => import("@/components/maps/LocationMap"), {
   ),
 });
 
-// UK postcode validation (basic — covers the vast majority of valid formats)
-const UK_POSTCODE_RE = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i;
+// Country-aware postcode/ZIP validation
+function validatePostcode(code: string, country: string): boolean {
+  const c = code.trim();
+  if (!c) return false;
+  const re: Record<string, RegExp> = {
+    "United Kingdom": /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i,
+    "United States":  /^\d{5}(-\d{4})?$/,
+    "Canada":         /^[A-Z]\d[A-Z]\s?\d[A-Z]\d$/i,
+    "Australia":      /^\d{4}$/,
+    "Ireland":        /^(?:[A-Z]{1,2}\d{1,2}\s?[A-Z]{1,2}\d|D\d{1,2})$/i,
+    "Germany":        /^\d{5}$/,
+    "France":         /^\d{5}$/,
+    "Netherlands":    /^\d{4}\s?[A-Z]{2}$/i,
+    "India":          /^\d{6}$/,
+    "Sri Lanka":      /^\d{5}$/,
+  };
+  const r = re[country];
+  if (r) return r.test(c);
+  // Unknown country: accept any 3-12 char alphanumeric-with-space code
+  return /^[A-Za-z0-9\s-]{3,12}$/.test(c);
+}
 
 export default function OperationsPanel() {
   const { settings, updateSettings } = useApp();
@@ -219,7 +238,7 @@ function CurrencyCard() {
     setSymbol(current.symbol);
     const preset = CURRENCY_PRESETS.find((p) => p.code === current.code && p.symbol === current.symbol);
     setMode(preset ? "preset" : "custom");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [current.code, current.symbol]);
 
   function handleSelectPreset(presetCode: string) {
@@ -411,9 +430,10 @@ function BrandingCard() {
         metaTitle:       replace(settings.seo.metaTitle),
         metaDescription: replace(settings.seo.metaDescription),
         metaKeywords:    replace(settings.seo.metaKeywords),
-        ogImage:         settings.seo.ogImage      ?? "",
-        siteUrl:         settings.seo.siteUrl      ?? "",
-        faviconUrl:      settings.seo.faviconUrl   ?? "",
+        ogImage:         settings.seo.ogImage        ?? "",
+        siteUrl:         settings.seo.siteUrl        ?? "",
+        faviconUrl:      settings.seo.faviconUrl     ?? "",
+        faviconVersion:  settings.seo.faviconVersion ?? "",
       };
       if (settings.footerCopyright.includes(oldName)) {
         patch.footerCopyright = replace(settings.footerCopyright);
@@ -655,18 +675,28 @@ function SeoCard() {
   const [keywords,   setKeywords]   = useState(settings.seo.metaKeywords);
   const [ogImage,    setOgImage]    = useState(settings.seo.ogImage      ?? "");
   const [siteUrl,    setSiteUrl]    = useState(settings.seo.siteUrl      ?? "");
-  const [faviconUrl, setFaviconUrl] = useState(settings.seo.faviconUrl   ?? "");
+  const [faviconUrl,     setFaviconUrl]     = useState(settings.seo.faviconUrl     ?? "");
+  const [faviconVersion, setFaviconVersion] = useState(settings.seo.faviconVersion ?? "");
   const [saved,      setSaved]      = useState(false);
   const [errors,     setErrors]     = useState<{ title?: string; desc?: string }>({});
   const [favErr,     setFavErr]     = useState("");
   const faviconRef = useRef<HTMLInputElement>(null);
+
+  function computeFaviconVersion(url: string): string {
+    return url.length.toString(36) + Date.now().toString(36).slice(-6);
+  }
 
   function readFavicon(file: File) {
     setFavErr("");
     if (file.size > 512 * 1024) { setFavErr("Max 512 KB for favicons."); return; }
     const reader = new FileReader();
     reader.onload = (e) => {
-      if (e.target?.result) { setFaviconUrl(e.target.result as string); setSaved(false); }
+      if (e.target?.result) {
+        const url = e.target.result as string;
+        setFaviconUrl(url);
+        setFaviconVersion(computeFaviconVersion(url));
+        setSaved(false);
+      }
     };
     reader.readAsDataURL(file);
   }
@@ -681,14 +711,26 @@ function SeoCard() {
 
   function handleSave() {
     if (!validate()) return;
+    const trimmedFavicon = faviconUrl.trim();
+    // If favicon URL changed since the version was computed, recompute now.
+    // If favicon was cleared, drop the version too.
+    const currentSavedUrl = (settings.seo.faviconUrl ?? "").trim();
+    let nextVersion = faviconVersion;
+    if (!trimmedFavicon) {
+      nextVersion = "";
+    } else if (trimmedFavicon !== currentSavedUrl && !nextVersion) {
+      nextVersion = computeFaviconVersion(trimmedFavicon);
+    }
     updateSettings({ seo: {
       metaTitle:       title.trim(),
       metaDescription: desc.trim(),
       metaKeywords:    keywords.trim(),
       ogImage:         ogImage.trim(),
       siteUrl:         siteUrl.trim(),
-      faviconUrl:      faviconUrl.trim(),
+      faviconUrl:      trimmedFavicon,
+      faviconVersion:  nextVersion,
     }});
+    setFaviconVersion(nextVersion);
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   }
@@ -846,7 +888,7 @@ function SeoCard() {
                 {faviconUrl && (
                   <button
                     type="button"
-                    onClick={() => { setFaviconUrl(""); setSaved(false); setFavErr(""); }}
+                    onClick={() => { setFaviconUrl(""); setFaviconVersion(""); setSaved(false); setFavErr(""); }}
                     className="flex items-center gap-1.5 px-3 py-2 border border-red-200 text-red-500 text-xs font-semibold rounded-lg hover:bg-red-50 transition"
                   >
                     <X size={12} /> Remove
@@ -1062,7 +1104,7 @@ function LocationCard() {
     if (!draft.addressLine1.trim()) e.addressLine1 = "Address is required";
     if (!draft.city.trim())        e.city         = "City is required";
     if (!draft.postcode.trim())    e.postcode     = "Postcode is required";
-    else if (!UK_POSTCODE_RE.test(draft.postcode.trim())) e.postcode = "Enter a valid UK postcode";
+    else if (!validatePostcode(draft.postcode.trim(), draft.country.trim())) e.postcode = `Enter a valid ${draft.country.trim() || "country"} postcode/ZIP`;
     if (!draft.country.trim())     e.country      = "Country is required";
     setErrors(e);
     return Object.keys(e).length === 0;

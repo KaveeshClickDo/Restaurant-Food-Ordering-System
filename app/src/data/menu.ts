@@ -71,11 +71,17 @@ export const menuItems: MenuItem[] = [
   },
 
   /* ── STARTERS ─────────────────────────────────── */
+  // A handful of items below are decorated with the new POS-side fields
+  // (cost/sku/emoji/color/active/offer) so the demo seed shows what a
+  // fully-configured item looks like in both editors. Other items leave
+  // these undefined to confirm the defaults still work.
   {
     id: "s1", categoryId: "starters",
     name: "Onion Bhaji",
     description: "Crispy golden fritters made with sliced onions, chickpea batter and aromatic spices.",
     price: 5.50, dietary: ["vegan", "vegetarian", "gluten-free"], popular: true,
+    cost: 1.20, sku: "STR-001",
+    emoji: "🧅", color: "#f59e0b", active: true,
     variations: [
       { id: "v-size", name: "Portion size", options: [
         { id: "regular", label: "Regular (4 pcs)", price: 0 },
@@ -92,6 +98,9 @@ export const menuItems: MenuItem[] = [
     name: "Seekh Kebab",
     description: "Minced lamb skewers seasoned with fresh herbs, grilled over charcoal.",
     price: 7.95, dietary: ["halal"],
+    cost: 2.80, sku: "STR-002", emoji: "🍢", color: "#ef4444",
+    // Demo offer: 10% off — shows how percent offers render in both editors.
+    offer: { type: "percent", value: 10, label: "Happy Hour", active: true },
     variations: [
       { id: "v-spice", name: "Spice level", options: [
         { id: "mild",   label: "Mild",   price: 0 },
@@ -109,6 +118,9 @@ export const menuItems: MenuItem[] = [
     name: "Samosa (2 pcs)",
     description: "Hand-made pastry parcels filled with spiced potatoes and peas, served with chutney.",
     price: 4.50, dietary: ["vegetarian", "vegan"],
+    cost: 0.90, sku: "STR-003", emoji: "🥟", color: "#84cc16",
+    // Demo offer: BOGO — pay for 1 of every 2 ordered.
+    offer: { type: "bogo", value: 0, label: "BOGOF", active: true, buyQty: 1, freeQty: 1 },
     addOns: [
       { id: "ao-mint",     name: "Mint chutney",   price: 0.50 },
       { id: "ao-tamarind", name: "Tamarind dip",   price: 0.50 },
@@ -150,6 +162,9 @@ export const menuItems: MenuItem[] = [
     name: "Garlic Butter Naan",
     description: "Naan topped with roasted garlic and herb butter.",
     price: 3.25, dietary: ["vegetarian"], popular: true,
+    cost: 0.65, sku: "BRD-002", emoji: "🥖", color: "#f97316",
+    // Demo multi-buy offer: 3 naans for £8 (saves £1.75).
+    offer: { type: "multibuy", value: 8.00, label: "3 for £8", active: true, buyQty: 3 },
   },
   {
     id: "b3", categoryId: "breads",

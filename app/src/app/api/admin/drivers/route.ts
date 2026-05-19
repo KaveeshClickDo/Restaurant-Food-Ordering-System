@@ -12,6 +12,8 @@ import bcrypt from "bcryptjs";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import type { Driver } from "@/types";
+import { parseBody } from "@/lib/apiValidation";
+import { DriverCreateSchema } from "@/lib/schemas/staff";
 
 // Columns returned to the client — password_hash is never included.
 const PUBLIC_COLUMNS = "id, name, email, phone, active, vehicle_info, notes, created_at";
@@ -50,29 +52,9 @@ export async function GET() {
 export async function POST(request: Request) {
   if (!await isAdminAuthenticated()) return unauthorizedResponse();
 
-  let body: { name?: string; email?: string; phone?: string; password?: string; active?: boolean; vehicleInfo?: string; notes?: string };
-
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
-  }
-
-  const { name, email, phone, password, active = true, vehicleInfo, notes } = body;
-
-  if (!name?.trim() || !email?.trim() || !phone?.trim() || !password?.trim()) {
-    return NextResponse.json(
-      { ok: false, error: "Required: name, email, phone, password" },
-      { status: 400 },
-    );
-  }
-
-  if (password.length < 6) {
-    return NextResponse.json(
-      { ok: false, error: "Password must be at least 6 characters" },
-      { status: 400 },
-    );
-  }
+  const parsed = await parseBody(request, DriverCreateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { name, email, phone, password, active = true, vehicleInfo, notes } = parsed.data;
 
   const passwordHash = await bcrypt.hash(password, 12);
 

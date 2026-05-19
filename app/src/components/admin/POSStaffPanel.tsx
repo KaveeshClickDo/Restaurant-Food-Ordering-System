@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   UserPlus, Pencil, Trash2, Tablet,
   CheckCircle2, XCircle, Eye, EyeOff, Save, X,
@@ -58,6 +58,8 @@ function StaffForm({
   const [form,    setForm]    = useState<FormDraft>({ ...EMPTY, ...initial, pin: "" });
   const [errors,  setErrors]  = useState<Record<string, string>>({});
   const [showPin, setShowPin] = useState(false);
+  const [saving,  setSaving]  = useState(false);
+  const inFlight = useRef(false);
 
   function set<K extends keyof FormDraft>(k: K, v: FormDraft[K]) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -75,10 +77,18 @@ function StaffForm({
     return true;
   }
 
-  function handleSubmit(ev: React.FormEvent) {
+  async function handleSubmit(ev: React.FormEvent) {
     ev.preventDefault();
+    if (inFlight.current) return;
     if (!validate()) return;
-    void onSave(form);
+    inFlight.current = true;
+    setSaving(true);
+    try {
+      await onSave(form);
+    } finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
   }
 
   return (
@@ -185,10 +195,10 @@ function StaffForm({
       </label>
 
       <div className="flex gap-2 pt-2">
-        <button type="submit" className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition">
-          <Save size={14} /> Save
+        <button type="submit" disabled={saving} className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-4 py-2 rounded-lg transition">
+          <Save size={14} /> {saving ? "Saving…" : "Save"}
         </button>
-        <button type="button" onClick={onCancel} className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition">
+        <button type="button" onClick={onCancel} disabled={saving} className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition">
           <X size={14} /> Cancel
         </button>
       </div>
@@ -219,6 +229,9 @@ export default function POSStaffPanel() {
   const [adding,   setAdding]   = useState(false);
   const [editing,  setEditing]  = useState<POSStaff | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  // Per-row sync guards for toggle/delete double-clicks; StaffForm has its own.
+  const togglingIds = useRef<Set<string>>(new Set());
+  const deletingIds = useRef<Set<string>>(new Set());
 
   async function handleAdd(data: FormDraft) {
     const res = await fetch("/api/pos/staff", {
@@ -264,22 +277,34 @@ export default function POSStaffPanel() {
   }
 
   async function handleDelete(id: string) {
-    const res = await fetch(`/api/pos/staff/${id}`, { method: "DELETE" });
-    if (res.ok) {
-      await refresh();
-      setDeleting(null);
+    if (deletingIds.current.has(id)) return;
+    deletingIds.current.add(id);
+    try {
+      const res = await fetch(`/api/pos/staff/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        await refresh();
+        setDeleting(null);
+      }
+    } finally {
+      deletingIds.current.delete(id);
     }
   }
 
   async function toggleActive(id: string) {
+    if (togglingIds.current.has(id)) return;
     const member = staff.find((s) => s.id === id);
     if (!member) return;
-    const res = await fetch(`/api/pos/staff/${id}`, {
-      method:  "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ active: !member.active }),
-    });
-    if (res.ok) await refresh();
+    togglingIds.current.add(id);
+    try {
+      const res = await fetch(`/api/pos/staff/${id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ active: !member.active }),
+      });
+      if (res.ok) await refresh();
+    } finally {
+      togglingIds.current.delete(id);
+    }
   }
 
   return (

@@ -8,6 +8,7 @@
  */
 
 import type { AdminSettings, Customer, EmailTemplate, EmailTemplateEvent, Order } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
 
 // ─── Variable registry ────────────────────────────────────────────────────────
 
@@ -406,7 +407,7 @@ export function buildVarMap(
     delivery_address:   escHtml(order.address     ?? ""),
     payment_method:     escHtml(order.paymentMethod ?? ""),
     // System-generated or admin-supplied — safe as-is.
-    order_id:           order.id.toUpperCase(),
+    order_id:           fullOrderNumber(order.id),
     order_date:         new Date(order.date).toLocaleString("en-GB", {
       day: "2-digit", month: "short", year: "numeric",
       hour: "2-digit", minute: "2-digit",

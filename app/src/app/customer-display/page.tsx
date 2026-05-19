@@ -1,18 +1,31 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { supabase } from "@/lib/supabase";
 import { ChefHat, CheckCircle2, Clock, UtensilsCrossed, Wifi } from "lucide-react";
 import type { OrderLine } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ActiveStatus = "pending" | "confirmed" | "preparing" | "ready";
+type DeliveryStatus = "assigned" | "picked_up" | "on_the_way" | "delivered";
+
+/** Derived label used by the in-store display so a "ready" delivery order
+ *  doesn't get bucketed alongside "ready for customer pickup" — they're
+ *  visually identical states from the customer's POV but mean different
+ *  things and would confuse anyone waiting at the counter. */
+type ReadyLabel = "READY FOR COLLECTION" | "AWAITING DRIVER" | "OUT FOR DELIVERY";
 
 interface DisplayOrder {
   id: string;
   label: string;
+  fullLabel: string;
   status: ActiveStatus;
+  fulfillment: string;
+  deliveryStatus: DeliveryStatus | null;
+  /** Only set when status === "ready". Tells the UI which of the three
+   *  end-states to surface (collection / awaiting driver / out for delivery). */
+  readyLabel: ReadyLabel | null;
   items: OrderLine[];
   date: string;
 }
@@ -25,23 +38,41 @@ const PAGE_INTERVAL = 8_000;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function extractReceiptNo(note?: string | null): string | null {
-  if (!note) return null;
-  const m = note.match(/Receipt:\s*(R\d+)/);
-  return m ? m[1] : null;
-}
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function rowToDisplay(row: any): DisplayOrder | null {
   if (!ACTIVE_STATUSES.includes(row.status)) return null;
-  const receipt = extractReceiptNo(row.note);
-  const label   = receipt ?? "#" + String(row.id).slice(-6).toUpperCase();
+  // Server now extracts receiptNo from the order note (which we never receive
+  // on the client, so PII embedded in the note never leaves the server).
+  const fullLabel = (row.receiptNo as string | null) ?? fullOrderNumber(String(row.id));
+  const label = fullLabel;
+  const fulfillment    = String(row.fulfillment ?? "collection");
+  const deliveryStatus = (row.deliveryStatus as DeliveryStatus | null) ?? null;
+  const status         = row.status as ActiveStatus;
+
+  // Pick the right "ready" sub-label so a delivery order awaiting a driver
+  // isn't flashed as "READY — COLLECT NOW" to in-store customers who'd
+  // (wrongly) walk up to the counter expecting their food.
+  let readyLabel: ReadyLabel | null = null;
+  if (status === "ready") {
+    if (fulfillment === "delivery") {
+      readyLabel = (deliveryStatus === "picked_up" || deliveryStatus === "on_the_way")
+        ? "OUT FOR DELIVERY"
+        : "AWAITING DRIVER";
+    } else {
+      readyLabel = "READY FOR COLLECTION";
+    }
+  }
+
   return {
-    id:     row.id,
+    id:             row.id,
     label,
-    status: row.status as ActiveStatus,
-    items:  (row.items ?? []) as OrderLine[],
-    date:   typeof row.date === "string" ? row.date : new Date(row.date).toISOString(),
+    fullLabel,
+    status,
+    fulfillment,
+    deliveryStatus,
+    readyLabel,
+    items:          (row.items ?? []) as OrderLine[],
+    date:           typeof row.date === "string" ? row.date : new Date(row.date).toISOString(),
   };
 }
 
@@ -120,6 +151,7 @@ function OrderCard({
   const [confirming, setConfirming] = useState(false);
   const [marking,    setMarking]    = useState(false);
   const confirmTimer                = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const markInFlight                = useRef(false);
 
   useEffect(() => {
     if (!prevReady.current && isReady) {
@@ -136,11 +168,17 @@ function OrderCard({
   }
 
   async function handleConfirm() {
+    if (markInFlight.current) return;
     if (confirmTimer.current) clearTimeout(confirmTimer.current);
+    markInFlight.current = true;
     setConfirming(false);
     setMarking(true);
     try { await fetch(`/api/pos/orders/${order.id}/collected`, { method: "PUT" }); }
-    catch { setMarking(false); }
+    catch { /* swallow — the realtime feed will reconcile */ }
+    finally {
+      markInFlight.current = false;
+      setMarking(false);
+    }
   }
 
   function handleCancel() {
@@ -184,9 +222,12 @@ function OrderCard({
 
       <div className={`flex flex-col flex-1 min-h-0 ${pad} ${gap}`}>
         {/* Order number — primary visual */}
-        <p className={`font-black tracking-widest text-center leading-none flex-shrink-0 ${numCls} ${
-          isReady ? "text-emerald-300" : "text-orange-400"
-        }`}>
+        <p
+          title={order.fullLabel}
+          className={`font-black tracking-widest text-center leading-none flex-shrink-0 truncate ${numCls} ${
+            isReady ? "text-emerald-300" : "text-orange-400"
+          }`}
+        >
           {order.label}
         </p>
 
@@ -213,43 +254,64 @@ function OrderCard({
 
         {isReady && (
           <div className="flex-shrink-0 space-y-1.5 mt-auto pt-1">
-            <div className={`bg-emerald-400 rounded-lg sm:rounded-xl flex items-center justify-center gap-1 sm:gap-1.5 ${
+            {/* Badge text reflects WHICH ready-state this is — only true
+                "ready for collection" gets the green emerald "COLLECT NOW".
+                Delivery-bound orders (awaiting driver / out for delivery)
+                use an orange/indigo palette so a customer in-store doesn't
+                mistakenly walk up expecting their food. */}
+            <div className={`rounded-lg sm:rounded-xl flex items-center justify-center gap-1 sm:gap-1.5 ${
               cols >= 3 || maxRows >= 4 ? "py-1 sm:py-1.5" : "py-1.5 sm:py-2"
+            } ${
+              order.readyLabel === "READY FOR COLLECTION" ? "bg-emerald-400"
+              : order.readyLabel === "OUT FOR DELIVERY"   ? "bg-indigo-400"
+              :                                             "bg-orange-400"
             }`}>
-              <CheckCircle2 size={cols >= 3 ? 12 : 16} className="text-emerald-950" />
-              <span className={`text-emerald-950 font-black tracking-wide ${cols >= 3 ? "text-[10px] sm:text-xs" : "text-xs sm:text-sm"}`}>
-                COLLECT NOW
+              <CheckCircle2 size={cols >= 3 ? 12 : 16} className={
+                order.readyLabel === "READY FOR COLLECTION" ? "text-emerald-950"
+                : order.readyLabel === "OUT FOR DELIVERY"   ? "text-indigo-950"
+                :                                             "text-orange-950"
+              } />
+              <span className={`font-black tracking-wide ${cols >= 3 ? "text-[10px] sm:text-xs" : "text-xs sm:text-sm"} ${
+                order.readyLabel === "READY FOR COLLECTION" ? "text-emerald-950"
+                : order.readyLabel === "OUT FOR DELIVERY"   ? "text-indigo-950"
+                :                                             "text-orange-950"
+              }`}>
+                {order.readyLabel ?? "COLLECT NOW"}
               </span>
             </div>
 
-            {!confirming ? (
-              <button
-                onClick={handleCollectClick}
-                disabled={marking}
-                className={`w-full rounded-lg sm:rounded-xl flex items-center justify-center gap-1.5 font-bold text-emerald-600 border border-emerald-900 hover:bg-emerald-900/30 active:scale-[0.98] transition-all disabled:opacity-40 ${
-                  cols >= 3 || maxRows >= 4 ? "py-1 text-[10px]" : "py-1.5 text-xs"
-                }`}
-              >
-                {marking
-                  ? <span className="animate-spin">⟳</span>
-                  : <><CheckCircle2 size={12} /> Mark Collected</>
-                }
-              </button>
-            ) : (
-              <div className="flex gap-1 sm:gap-1.5">
+            {/* "Mark Collected" only makes sense for actual in-store collection
+                orders — never for deliveries (the driver handles those). */}
+            {order.readyLabel === "READY FOR COLLECTION" && (
+              !confirming ? (
                 <button
-                  onClick={handleConfirm}
-                  className={`flex-1 rounded-lg sm:rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-black transition-all ${btnTxt} ${cols >= 3 ? "py-1" : "py-1.5"}`}
+                  onClick={handleCollectClick}
+                  disabled={marking}
+                  className={`w-full rounded-lg sm:rounded-xl flex items-center justify-center gap-1.5 font-bold text-emerald-600 border border-emerald-900 hover:bg-emerald-900/30 active:scale-[0.98] transition-all disabled:opacity-40 ${
+                    cols >= 3 || maxRows >= 4 ? "py-1 text-[10px]" : "py-1.5 text-xs"
+                  }`}
                 >
-                  ✓ Confirm
+                  {marking
+                    ? <span className="animate-spin">⟳</span>
+                    : <><CheckCircle2 size={12} /> Mark Collected</>
+                  }
                 </button>
-                <button
-                  onClick={handleCancel}
-                  className={`flex-1 rounded-lg sm:rounded-xl bg-gray-700 hover:bg-gray-600 text-gray-300 font-semibold transition-all ${btnTxt} ${cols >= 3 ? "py-1" : "py-1.5"}`}
-                >
-                  Cancel
-                </button>
-              </div>
+              ) : (
+                <div className="flex gap-1 sm:gap-1.5">
+                  <button
+                    onClick={handleConfirm}
+                    className={`flex-1 rounded-lg sm:rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-black transition-all ${btnTxt} ${cols >= 3 ? "py-1" : "py-1.5"}`}
+                  >
+                    ✓ Confirm
+                  </button>
+                  <button
+                    onClick={handleCancel}
+                    className={`flex-1 rounded-lg sm:rounded-xl bg-gray-700 hover:bg-gray-600 text-gray-300 font-semibold transition-all ${btnTxt} ${cols >= 3 ? "py-1" : "py-1.5"}`}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )
             )}
           </div>
         )}
@@ -374,55 +436,42 @@ export default function CustomerDisplayPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase
-      .from("app_settings").select("data").limit(1).single()
-      .then(({ data }) => {
-        const name = data?.data?.restaurant?.name;
-        if (name) setRestaurantName(name);
-      });
+    fetch("/api/settings/public", { cache: "no-store" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((json: { restaurant?: { name?: string } } | null) => {
+        if (json?.restaurant?.name) setRestaurantName(json.restaurant.name);
+      })
+      .catch(() => {});
   },[]);
 
+  // Poll the public display endpoint every 4 s. Replaces the prior direct
+  // supabase read + realtime channel on the anon client (which would no
+  // longer deliver events after RLS revokes anon SELECT on orders).
   useEffect(() => {
-    supabase
-      .from("orders")
-      .select("*")
-      .in("status", ACTIVE_STATUSES)
-      .order("date", { ascending: true })
-      .then(({ data }) => {
-        setOrders((data ??[]).flatMap((r) => { const d = rowToDisplay(r); return d ? [d] :[]; }));
-        setLoading(false);
-      });
+    let active = true;
 
-    const channel = supabase
-      .channel("customer-display")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "orders" },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ({ eventType, new: newRow, old: oldRow }: any) => {
-          if (eventType === "DELETE") {
-            setOrders((prev) => prev.filter((o) => o.id !== oldRow.id));
-            return;
-          }
-          const display = rowToDisplay(newRow);
-          if (!display) {
-            setOrders((prev) => prev.filter((o) => o.id !== newRow.id));
-            return;
-          }
-          setOrders((prev) => {
-            const idx = prev.findIndex((o) => o.id === display.id);
-            if (idx >= 0) {
-              const next = [...prev]; next[idx] = display; return next;
-            }
-            return[...prev, display].sort(
-              (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-            );
-          });
-        },
-      )
-      .subscribe((status) => setConnected(status === "SUBSCRIBED"));
+    async function fetchOrders() {
+      try {
+        const r = await fetch("/api/customer-display/orders", { cache: "no-store" });
+        if (!r.ok) { setConnected(false); return; }
+        const json = await r.json() as { ok: boolean; orders?: Array<Record<string, unknown>> };
+        if (!active || !json.ok || !json.orders) return;
+        const mapped = json.orders.flatMap((r) => {
+          const d = rowToDisplay(r);
+          return d ? [d] : [];
+        });
+        setOrders(mapped);
+        setConnected(true);
+      } catch {
+        setConnected(false);
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
 
-    return () => { supabase.removeChannel(channel); };
+    fetchOrders();
+    const id = setInterval(fetchOrders, 4_000);
+    return () => { active = false; clearInterval(id); };
   }, []);
 
   const preparing = orders.filter((o) =>["pending", "confirmed", "preparing"].includes(o.status));

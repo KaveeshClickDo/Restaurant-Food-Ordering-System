@@ -19,26 +19,9 @@ import {
   getWaiterSession,
   unauthorizedJson,
 } from "@/lib/auth";
-
-interface PrintRequest {
-  ip:    string;
-  port:  number;
-  bytes: number[];
-}
-
-// Block loopback, link-local (cloud metadata at 169.254.169.254), and 0.0.0.0.
-// Printers live on private LANs (192.168/172.16/10.0), so those ranges stay
-// allowed — only the directly dangerous targets are blocked.
-const BLOCKED_IP_PREFIXES = [
-  /^127\./,        // loopback
-  /^169\.254\./,   // AWS/GCP/Azure metadata endpoint
-  /^0\.0\.0\.0$/,
-  /^::1$/,         // IPv6 loopback
-];
-
-function isBlockedIp(ip: string): boolean {
-  return BLOCKED_IP_PREFIXES.some((re) => re.test(ip));
-}
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { parseBody } from "@/lib/apiValidation";
+import { PrintSchema } from "@/lib/schemas/pos";
 
 async function isStaffAuthenticated(): Promise<boolean> {
   if (await isAdminAuthenticated()) return true;
@@ -50,59 +33,51 @@ async function isStaffAuthenticated(): Promise<boolean> {
   return Boolean(pos || kitchen || waiter);
 }
 
+/**
+ * F-PU-4: server-side allowlist of printer IPs.
+ *
+ * The list is sourced from app_settings.data.printer.allowedIps, with a
+ * fallback to the single `printer.ip` field for backward compatibility.
+ * If the resulting list is empty (no printer configured), every print
+ * request is rejected — failing closed.
+ */
+async function loadAllowedPrinterIps(): Promise<Set<string>> {
+  const { data } = await supabaseAdmin
+    .from("app_settings").select("data").eq("id", 1).single();
+  const printer = (data?.data as { printer?: { ip?: string; allowedIps?: string[] } } | undefined)?.printer;
+  const list: string[] = [];
+  if (Array.isArray(printer?.allowedIps)) {
+    for (const v of printer.allowedIps) if (typeof v === "string" && v.trim()) list.push(v.trim());
+  }
+  if (printer?.ip && typeof printer.ip === "string" && printer.ip.trim()) {
+    list.push(printer.ip.trim());
+  }
+  return new Set(list);
+}
+
 export async function POST(request: Request) {
   if (!await isStaffAuthenticated()) return unauthorizedJson();
 
-  let body: PrintRequest;
+  const parsed = await parseBody(request, PrintSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { ip, port, bytes } = parsed.data;
+  const targetIp = ip.trim();
 
-  try {
-    body = await request.json();
-  } catch {
+  const allowed = await loadAllowedPrinterIps();
+  if (allowed.size === 0) {
     return NextResponse.json(
-      { ok: false, error: "Invalid JSON body" },
+      { ok: false, error: "No printers configured. Add an IP under admin → settings → printer." },
+      { status: 503 },
+    );
+  }
+  if (!allowed.has(targetIp)) {
+    return NextResponse.json(
+      { ok: false, error: "Target IP is not an allowlisted printer." },
       { status: 400 },
     );
   }
 
-  const { ip, port, bytes } = body;
-
-  if (!ip || !port || !Array.isArray(bytes) || bytes.length === 0) {
-    return NextResponse.json(
-      { ok: false, error: "Required fields: ip (string), port (number), bytes (number[])" },
-      { status: 400 },
-    );
-  }
-
-  if (typeof ip !== "string" || ip.trim().length === 0) {
-    return NextResponse.json(
-      { ok: false, error: "Invalid printer IP address" },
-      { status: 400 },
-    );
-  }
-
-  if (isBlockedIp(ip.trim())) {
-    return NextResponse.json(
-      { ok: false, error: "Target IP is not allowed (loopback / metadata addresses are blocked)." },
-      { status: 400 },
-    );
-  }
-
-  const portNum = Number(port);
-  if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
-    return NextResponse.json(
-      { ok: false, error: "Port must be an integer between 1 and 65535" },
-      { status: 400 },
-    );
-  }
-
-  // Cap payload size to prevent abuse — 64 KB is plenty for any receipt
-  if (bytes.length > 65_536) {
-    return NextResponse.json(
-      { ok: false, error: "Print payload too large (max 64 KB)." },
-      { status: 413 },
-    );
-  }
-
+  const portNum = port;
   const buffer = Buffer.from(bytes);
 
   try {

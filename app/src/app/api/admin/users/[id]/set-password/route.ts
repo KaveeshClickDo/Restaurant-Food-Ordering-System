@@ -9,12 +9,8 @@ import { NextRequest, NextResponse }                   from "next/server";
 import bcrypt                                          from "bcryptjs";
 import { supabaseAdmin }                               from "@/lib/supabaseAdmin";
 import { isAdminAuthenticated, unauthorizedResponse }  from "@/lib/adminAuth";
-
-interface SetPasswordBody {
-  type?: string;
-  password?: string;
-  pin?: string;
-}
+import { parseBody }                                   from "@/lib/apiValidation";
+import { SetPasswordOrPinSchema }                      from "@/lib/schemas/staff";
 
 export async function POST(
   req: NextRequest,
@@ -24,26 +20,14 @@ export async function POST(
 
   const { id } = await context.params;
 
-  let body: SetPasswordBody;
-  try {
-    body = await req.json() as SetPasswordBody;
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 });
-  }
-
-  const { type, password, pin } = body;
-
-  if (!type) {
-    return NextResponse.json({ ok: false, error: "type is required." }, { status: 400 });
-  }
+  const parsed = await parseBody(req, SetPasswordOrPinSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { type, password, pin } = parsed.data;
 
   // ── Customer ──────────────────────────────────────────────────────────────
   if (type === "customer") {
-    if (!password || password.length < 6) {
-      return NextResponse.json(
-        { ok: false, error: "Password must be at least 6 characters." },
-        { status: 400 },
-      );
+    if (!password) {
+      return NextResponse.json({ ok: false, error: "Password is required for customer." }, { status: 400 });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -62,11 +46,8 @@ export async function POST(
 
   // ── Driver ────────────────────────────────────────────────────────────────
   if (type === "driver") {
-    if (!password || password.length < 6) {
-      return NextResponse.json(
-        { ok: false, error: "Password must be at least 6 characters." },
-        { status: 400 },
-      );
+    if (!password) {
+      return NextResponse.json({ ok: false, error: "Password is required for driver." }, { status: 400 });
     }
 
     const passwordHash = await bcrypt.hash(password, 12);

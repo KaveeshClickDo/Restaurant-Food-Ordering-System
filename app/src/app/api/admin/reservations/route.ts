@@ -13,6 +13,8 @@ import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
 import { sendReservationEmailServer }           from "@/lib/emailServer";
 import type { Reservation, DiningTable, ReservationSystem } from "@/types";
+import { parseBody }                            from "@/lib/apiValidation";
+import { ReservationAdminSchema }               from "@/lib/schemas/reservation";
 
 function toMins(time: string): number {
   const [h, m] = time.split(":").map(Number);
@@ -73,36 +75,12 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
 
-  let body: {
-    tableId?: string; date?: string; time?: string; partySize?: number;
-    customerName?: string; customerEmail?: string; customerPhone?: string;
-    note?: string; source?: string;
-  };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
+  const parsed = await parseBody(req, ReservationAdminSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const {
     tableId, date, time, partySize, customerName, customerEmail, customerPhone,
-    note, source = "walk-in",
-  } = body;
-
-  if (!tableId || !date || !time || !partySize || !customerName) {
-    return NextResponse.json(
-      { ok: false, error: "tableId, date, time, partySize and customerName are required." },
-      { status: 400 },
-    );
-  }
-  if (source !== "walk-in" && source !== "phone") {
-    return NextResponse.json({ ok: false, error: "source must be walk-in or phone." }, { status: 400 });
-  }
-  // Phone bookings always need a callback number — staff must be able to
-  // reach the guest. UI also enforces this; this is the server-side gate.
-  if (source === "phone" && !customerPhone?.trim()) {
-    return NextResponse.json(
-      { ok: false, error: "Phone number is required for phone bookings." },
-      { status: 400 },
-    );
-  }
+    note, source,
+  } = parsed.data;
 
   // Reject past slots — 5 min grace for slow submissions
   if (new Date(`${date}T${time}`).getTime() < Date.now() - 5 * 60 * 1000) {

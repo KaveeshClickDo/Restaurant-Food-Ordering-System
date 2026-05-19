@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import type { DeliveryStatus, Order } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
 import {
   Truck, LogOut, MapPin, Phone, Package,
   CheckCircle2, Navigation, ChefHat,
@@ -123,9 +124,9 @@ function AvailableOrderCard({
     }`}>
       {/* Header */}
       <div className="px-4 pt-4 pb-3 flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest">
-            #{order.id.slice(-8).toUpperCase()}
+        <div className="min-w-0">
+          <p title={fullOrderNumber(order.id)} className="text-[10px] text-gray-400 font-mono uppercase tracking-widest truncate">
+            {fullOrderNumber(order.id)}
           </p>
           <p className="text-gray-900 font-extrabold text-lg leading-tight">{customerName}</p>
         </div>
@@ -320,9 +321,9 @@ function OrderCard({
     }`}>
       {/* Card header */}
       <div className="px-4 pt-4 pb-3 flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest">
-            #{order.id.slice(-8).toUpperCase()}
+        <div className="min-w-0">
+          <p title={fullOrderNumber(order.id)} className="text-[10px] text-gray-400 font-mono uppercase tracking-widest truncate">
+            {fullOrderNumber(order.id)}
           </p>
           <p className="text-gray-900 font-extrabold text-lg leading-tight">{customerName}</p>
         </div>
@@ -501,24 +502,55 @@ function OrderCard({
 
 // ─── Main dashboard ───────────────────────────────────────────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapServerOrder(r: any): Order {
+  return {
+    id:              r.id,
+    customerId:      r.customer_id,
+    date:            typeof r.date === "string" ? r.date : new Date(r.date).toISOString(),
+    status:          r.status,
+    fulfillment:     r.fulfillment,
+    total:           Number(r.total),
+    items:           r.items ?? [],
+    address:         r.address         || undefined,
+    note:            r.note            || undefined,
+    paymentMethod:   r.payment_method  || undefined,
+    deliveryFee:     r.delivery_fee    ? Number(r.delivery_fee)    : undefined,
+    serviceFee:      r.service_fee     ? Number(r.service_fee)     : undefined,
+    scheduledTime:   r.scheduled_time  || undefined,
+    couponCode:      r.coupon_code     || undefined,
+    couponDiscount:  r.coupon_discount ? Number(r.coupon_discount) : undefined,
+    vatAmount:       r.vat_amount      ? Number(r.vat_amount)      : undefined,
+    vatInclusive:    r.vat_inclusive   ?? undefined,
+    driverId:        r.driver_id       || undefined,
+    driverName:      r.driver_name     || undefined,
+    deliveryStatus:  r.delivery_status || undefined,
+    refunds:         r.refunds         ?? [],
+    refundedAmount:  r.refunded_amount  ? Number(r.refunded_amount)  : undefined,
+    storeCreditUsed: r.store_credit_used ? Number(r.store_credit_used) : undefined,
+  };
+}
+
+interface ServerOrderRow {
+  id: string;
+  customer_id: string;
+  customer?: { id: string; name: string; phone: string } | null;
+  // ... other order columns spread via mapServerOrder
+}
+
 export default function DriverDashboardPage() {
-  const {
-    currentDriver, driverLogout, customers,
-    updateDeliveryStatus, assignDriverToOrder, settings,
-  } = useApp();
+  const { currentDriver, driverLogout, settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
   const router = useRouter();
   const [showDelivered, setShowDelivered] = useState(false);
   const [acceptedId,    setAcceptedId]    = useState<string | null>(null);
   const [showMap,       setShowMap]       = useState(true);
-  // How long (ms) to wait for AppContext to populate currentDriver before
-  // concluding the session is gone and redirecting to login.
-  // AppContext fetches from /api/auth/driver/me when localStorage is empty,
-  // so we give it enough time to resolve even on a slow connection.
-  const [authTimedOut, setAuthTimedOut] = useState(false);
+  const [authTimedOut, setAuthTimedOut]   = useState(false);
+  const [mine,      setMine]      = useState<DriverOrder[]>([]);
+  const [available, setAvailable] = useState<AvailableOrder[]>([]);
 
   useEffect(() => {
-    if (currentDriver) return; // already loaded — no timeout needed
+    if (currentDriver) return;
     const t = setTimeout(() => setAuthTimedOut(true), 4000);
     return () => clearTimeout(t);
   }, [currentDriver]);
@@ -526,6 +558,55 @@ export default function DriverDashboardPage() {
   useEffect(() => {
     if (authTimedOut && !currentDriver) router.replace("/driver/login");
   }, [authTimedOut, currentDriver, router]);
+
+  // ── Poll /api/driver/orders every 4 s — server filters to this driver ─────
+  // Replaces the prior pattern of reading every customer's orders from the
+  // anon supabase client and filtering by driverId on the client.
+  useEffect(() => {
+    if (!currentDriver) return;
+    let active = true;
+
+    async function refresh() {
+      try {
+        const r = await fetch("/api/driver/orders", { cache: "no-store" });
+        if (!r.ok) {
+          if (r.status === 401) router.replace("/driver/login");
+          return;
+        }
+        const json = await r.json() as {
+          ok: boolean;
+          mine?: ServerOrderRow[];
+          available?: ServerOrderRow[];
+        };
+        if (!active || !json.ok) return;
+
+        const toDriverOrder = (row: ServerOrderRow): DriverOrder => ({
+          order:         mapServerOrder(row),
+          customerId:    row.customer?.id ?? row.customer_id,
+          customerName:  row.customer?.name ?? "",
+          customerPhone: row.customer?.phone ?? "",
+        });
+
+        setMine(
+          (json.mine ?? [])
+            .map(toDriverOrder)
+            .sort((a, b) => new Date(a.order.date).getTime() - new Date(b.order.date).getTime()),
+        );
+        setAvailable(
+          (json.available ?? [])
+            .map(toDriverOrder)
+            .sort((a, b) => {
+              if (a.order.status !== b.order.status) return a.order.status === "ready" ? -1 : 1;
+              return new Date(a.order.date).getTime() - new Date(b.order.date).getTime();
+            }),
+        );
+      } catch { /* network blip — keep last-known */ }
+    }
+
+    refresh();
+    const id = setInterval(refresh, 4_000);
+    return () => { active = false; clearInterval(id); };
+  }, [currentDriver, router]);
 
   if (!currentDriver) {
     return (
@@ -536,62 +617,77 @@ export default function DriverDashboardPage() {
   }
   const driver = currentDriver; // narrowed — safe inside closures below
 
-  // ── Orders assigned to this driver ─────────────────────────────────────────
-  const myOrders: DriverOrder[] = customers.flatMap((c) =>
-    c.orders
-      .filter((o) => o.driverId === driver.id)
-      .map((o) => ({
-        order:         o,
-        customerId:    c.id,
-        customerName:  c.name,
-        customerPhone: c.phone,
-      }))
-  ).sort((a, b) => new Date(a.order.date).getTime() - new Date(b.order.date).getTime());
-
-  const active    = myOrders.filter((d) => d.order.deliveryStatus !== "delivered");
-  const delivered = myOrders.filter((d) => d.order.deliveryStatus === "delivered");
-
-  // ── Unassigned delivery orders available for self-assignment ───────────────
-  // Delivery orders that are "ready" (kitchen done) or "preparing" (coming soon)
-  // with no driver yet. Sorted oldest-first so most urgent shows at the top.
-  const availableOrders: AvailableOrder[] = customers.flatMap((c) =>
-    c.orders
-      .filter(
-        (o) =>
-          o.fulfillment === "delivery" &&
-          (o.status === "ready" || o.status === "preparing") &&
-          !o.driverId,
-      )
-      .map((o) => ({
-        order:         o,
-        customerId:    c.id,
-        customerName:  c.name,
-        customerPhone: c.phone,
-      }))
-  ).sort((a, b) => {
-    // "ready" before "preparing", then oldest first within each group
-    if (a.order.status !== b.order.status) {
-      return a.order.status === "ready" ? -1 : 1;
-    }
-    return new Date(a.order.date).getTime() - new Date(b.order.date).getTime();
-  });
+  const active    = mine.filter((d) => d.order.deliveryStatus !== "delivered");
+  const delivered = mine.filter((d) => d.order.deliveryStatus === "delivered");
+  const availableOrders = available;
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
-  function handleAdvance(driverOrder: DriverOrder, status: DeliveryStatus, code?: string) {
-    return updateDeliveryStatus(driverOrder.customerId, driverOrder.order.id, status, code);
+  // Per-order in-flight guards. The OrderCard's "delivered" button has its
+  // own local `submitting` flag, but the intermediate advance buttons and the
+  // accept button were unguarded — a rapid double-click could fire twice.
+  const advanceInFlight = useRef<Set<string>>(new Set());
+  const acceptInFlight  = useRef<Set<string>>(new Set());
+
+  async function handleAdvance(
+    driverOrder: DriverOrder,
+    status: DeliveryStatus,
+    code?: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    if (advanceInFlight.current.has(driverOrder.order.id)) {
+      return { ok: false, error: "Already updating this order." };
+    }
+    advanceInFlight.current.add(driverOrder.order.id);
+    const body: Record<string, string> = { delivery_status: status };
+    if (code) body.delivery_code = code;
+    try {
+      // Optimistic update for non-delivered transitions.
+      if (status !== "delivered") {
+        setMine((prev) => prev.map((o) =>
+          o.order.id !== driverOrder.order.id
+            ? o
+            : { ...o, order: { ...o.order, deliveryStatus: status } },
+        ));
+      }
+      const r = await fetch(`/api/driver/orders/${driverOrder.order.id}/status`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({})) as { error?: string };
+        return { ok: false, error: j.error ?? "Failed to update status." };
+      }
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "Network error — please try again." };
+    } finally {
+      advanceInFlight.current.delete(driverOrder.order.id);
+    }
   }
 
-  function handleAccept(av: AvailableOrder) {
-    // Guard: verify the order hasn't been taken since last render
-    const live = customers
-      .find((c) => c.id === av.customerId)
-      ?.orders.find((o) => o.id === av.order.id);
-    if (!live || live.driverId) return; // already claimed
-
-    assignDriverToOrder(av.customerId, av.order.id, driver.id);
+  async function handleAccept(av: AvailableOrder) {
+    if (acceptInFlight.current.has(av.order.id)) return;
+    acceptInFlight.current.add(av.order.id);
+    // Optimistic move from available → mine. Server is authoritative; the
+    // next poll will reconcile if the row was claimed by a peer.
+    setAvailable((prev) => prev.filter((a) => a.order.id !== av.order.id));
+    setMine((prev) => [
+      ...prev,
+      { ...av, order: { ...av.order, driverId: driver.id, driverName: driver.name, deliveryStatus: "assigned" as DeliveryStatus } },
+    ]);
     setAcceptedId(av.order.id);
     setTimeout(() => setAcceptedId(null), 3000);
+
+    try {
+      const r = await fetch(`/api/driver/orders/${av.order.id}/accept`, { method: "POST" });
+      if (!r.ok) {
+        // Roll back optimistic move on conflict.
+        setMine((prev) => prev.filter((m) => m.order.id !== av.order.id));
+      }
+    } finally {
+      acceptInFlight.current.delete(av.order.id);
+    }
   }
 
   function handleLogout() {
@@ -806,8 +902,8 @@ export default function DriverDashboardPage() {
                   <div key={d.order.id} className="px-4 py-3 flex items-center gap-3">
                     <CheckCircle2 size={14} className="text-green-500 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-700">
-                        #{d.order.id.slice(-8).toUpperCase()} — {d.customerName}
+                      <p title={fullOrderNumber(d.order.id)} className="text-sm font-semibold text-gray-700 truncate">
+                        {fullOrderNumber(d.order.id)} — {d.customerName}
                       </p>
                       {d.order.address && (
                         <p className="text-xs text-gray-400 flex items-center gap-1">

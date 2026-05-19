@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { supabase } from "@/lib/supabase";
 import { useApp } from "@/context/AppContext";
+import { useIdleLogout } from "@/lib/useIdleLogout";
 import type { MenuItem, WaiterStaff, DiningTable } from "@/types";
 import {
   ChefHat, ArrowLeft, Plus, Minus, Trash2, SendHorizonal,
@@ -333,6 +333,7 @@ function VoidRefundModal({
   const [refundMethod, setRefundMethod] = useState<"cash" | "card">("cash");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const inFlight = useRef(false);
 
   if (!isSenior) {
     return (
@@ -352,34 +353,46 @@ function VoidRefundModal({
   }
 
   async function handleVoid() {
+    if (inFlight.current) return;
     if (!reason.trim()) { setError("Please enter a reason."); return; }
+    inFlight.current = true;
     setLoading(true); setError(null);
-    const res = await fetch("/api/waiter/void", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderIds, reason: reason.trim(), voidedBy: waiterName }),
-    });
-    const d = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
-    setLoading(false);
-    if (d.ok) onSuccess();
-    else setError(d.error ?? "Failed to void orders.");
+    try {
+      const res = await fetch("/api/waiter/void", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds, reason: reason.trim(), voidedBy: waiterName }),
+      });
+      const d = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (d.ok) onSuccess();
+      else setError(d.error ?? "Failed to void orders.");
+    } finally {
+      inFlight.current = false;
+      setLoading(false);
+    }
   }
 
   async function handleRefund() {
+    if (inFlight.current) return;
     if (!reason.trim()) { setError("Please enter a reason."); return; }
     const amount = refundType === "full" ? total : parseFloat(refundAmountStr);
     if (isNaN(amount) || amount <= 0) { setError("Enter a valid refund amount."); return; }
     if (amount > total + 0.001) { setError(`Refund cannot exceed ${fmtCur(total, sym)}.`); return; }
+    inFlight.current = true;
     setLoading(true); setError(null);
-    const res = await fetch("/api/waiter/refund", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderIds, refundAmount: amount, refundMethod, reason: reason.trim(), refundedBy: waiterName }),
-    });
-    const d = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
-    setLoading(false);
-    if (d.ok) onSuccess();
-    else setError(d.error ?? "Failed to process refund.");
+    try {
+      const res = await fetch("/api/waiter/refund", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds, refundAmount: amount, refundMethod, reason: reason.trim(), refundedBy: waiterName }),
+      });
+      const d = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (d.ok) onSuccess();
+      else setError(d.error ?? "Failed to process refund.");
+    } finally {
+      inFlight.current = false;
+      setLoading(false);
+    }
   }
 
   const isVoid = mode === "void";
@@ -665,7 +678,7 @@ function ItemModal({
                       onClick={() => {
                         setAddOnIds((prev) => {
                           const next = new Set(prev);
-                          checked ? next.delete(addon.id) : next.add(addon.id);
+                          if (checked) next.delete(addon.id); else next.add(addon.id);
                           return next;
                         });
                       }}
@@ -741,6 +754,7 @@ export default function WaiterPage() {
 
   // ── Data ────────────────────────────────────────────────────────────────────
   const [allWaiters, setAllWaiters] = useState<Omit<WaiterStaff, "pin">[]>([]);
+  const [staffLoaded, setStaffLoaded] = useState(false);
   const [tables, setTables] = useState<DiningTable[]>([]);
   const [occupiedLabels, setOccupiedLabels] = useState<Set<string>>(new Set());
 
@@ -772,6 +786,8 @@ export default function WaiterPage() {
   const [billOrders, setBillOrders] = useState<BillOrder[]>([]);
   const [billLoading, setBillLoading] = useState(false);
   const [paying, setPaying] = useState(false);
+  // Pending settle confirmation (the chosen method) — null means no prompt visible.
+  const [settleConfirm, setSettleConfirm] = useState<"cash" | "card" | null>(null);
   // table action sheet: null = closed, DiningTable = which table was tapped
   const [tableAction, setTableAction] = useState<DiningTable | null>(null);
 
@@ -805,6 +821,10 @@ export default function WaiterPage() {
           setAllWaiters(d.waiters);
           setTables(d.tables);
         }
+        setStaffLoaded(true);
+      })
+      .catch(() => {
+        setStaffLoaded(true);
       });
   }, []);
 
@@ -816,19 +836,26 @@ export default function WaiterPage() {
   }, [categories, activeCatId]);
 
   // ── Occupied table detection ─────────────────────────────────────────────────
+  // Pulls all active dine-in orders via the authenticated /api/waiter/orders
+  // endpoint and scans for the [WAITER] note pattern. Replaces the prior anon
+  // supabase read.
   const refreshOccupied = useCallback(async () => {
-    const { data } = await supabase
-      .from("orders")
-      .select("note, status")
-      .like("note", "[WAITER]%")
-      .not("status", "in", '("delivered","cancelled")');
+    try {
+      const r = await fetch("/api/waiter/orders", { cache: "no-store" });
+      if (!r.ok) return;
+      const json = await r.json() as { ok: boolean; orders?: Array<{ note?: string | null; status?: string }> };
+      if (!json.ok || !json.orders) return;
 
-    const labels = new Set<string>();
-    for (const o of data ?? []) {
-      const m = String(o.note ?? "").match(/Table\s+(\S+)/);
-      if (m) labels.add(m[1]);
-    }
-    setOccupiedLabels(labels);
+      const labels = new Set<string>();
+      for (const o of json.orders) {
+        const note = String(o.note ?? "");
+        if (!note.startsWith("[WAITER]")) continue;
+        if (o.status === "delivered" || o.status === "cancelled") continue;
+        const m = note.match(/Table\s+(\S+)/);
+        if (m) labels.add(m[1]);
+      }
+      setOccupiedLabels(labels);
+    } catch { /* ignore — surface is non-critical */ }
   }, []);
 
   useEffect(() => {
@@ -869,7 +896,11 @@ export default function WaiterPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin]);
 
-  function logout() {
+  const logout = useCallback(() => {
+    // Tell the server to drop the cookie before we wipe the local mirror.
+    // Fire-and-forget — even if the request fails (network blip), wiping the
+    // client state still removes the visible session.
+    fetch("/api/waiter/logout", { method: "POST" }).catch(() => {});
     sessionStorage.removeItem("waiter_session");
     setWaiter(null);
     setLoginStep("staff");
@@ -878,7 +909,16 @@ export default function WaiterPage() {
     setCart([]);
     setActiveTable(null);
     setView("login");
-  }
+  }, []);
+
+  // Auto-logout after 15 minutes of inactivity. Tablets get passed around
+  // during a shift — without this, a forgotten tab keeps the waiter PIN
+  // valid for the full 30-day server cookie window.
+  useIdleLogout({
+    enabled:   Boolean(waiter),
+    timeoutMs: 15 * 60 * 1000,
+    onIdle:    logout,
+  });
 
   // ── Table selection ──────────────────────────────────────────────────────────
   function selectTable(table: DiningTable) {
@@ -969,21 +1009,37 @@ export default function WaiterPage() {
     setBillLoading(true);
     setView("bill");
 
-    const { data } = await supabase
-      .from("orders")
-      .select("id, items, total, note, status")
-      .like("note", `[WAITER]%Table ${table.label}%`)
-      .not("status", "in", '("delivered","cancelled")');
+    try {
+      const r = await fetch("/api/waiter/orders", { cache: "no-store" });
+      if (!r.ok) { setBillOrders([]); return; }
+      type BillLineItem = { name: string; qty: number; price: number };
+      const json = await r.json() as {
+        ok: boolean;
+        orders?: Array<{ id: string; items?: BillLineItem[]; total?: number; note?: string | null; status?: string }>;
+      };
+      if (!json.ok || !json.orders) { setBillOrders([]); return; }
 
-    setBillOrders(
-      (data ?? []).map((o) => ({
-        id: o.id,
-        items: o.items ?? [],
-        total: Number(o.total),
-        note: String(o.note ?? ""),
-      }))
-    );
-    setBillLoading(false);
+      const match = `[WAITER]`;
+      const tableTag = `Table ${table.label}`;
+      const filtered = json.orders.filter(
+        (o) =>
+          o.status !== "delivered" &&
+          o.status !== "cancelled" &&
+          String(o.note ?? "").startsWith(match) &&
+          String(o.note ?? "").includes(tableTag),
+      );
+
+      setBillOrders(
+        filtered.map((o) => ({
+          id:    o.id,
+          items: (o.items ?? []) as BillLineItem[],
+          total: Number(o.total ?? 0),
+          note:  String(o.note ?? ""),
+        }))
+      );
+    } finally {
+      setBillLoading(false);
+    }
   }
 
   async function payBill(method: "cash" | "card") {
@@ -1113,8 +1169,10 @@ export default function WaiterPage() {
         {loginStep === "staff" ? (
           /* Staff grid */
           <div className="w-full max-w-sm space-y-3">
-            {allWaiters.length === 0 ? (
+            {!staffLoaded ? (
               <p className="text-slate-500 text-center text-sm">Loading staff…</p>
+            ) : allWaiters.length === 0 ? (
+              <p className="text-slate-500 text-center text-sm">No staff configured. Ask an admin to add staff in the Admin → Staff panel.</p>
             ) : (
               allWaiters.map((w) => (
                 <button
@@ -1442,33 +1500,67 @@ export default function WaiterPage() {
             {/* Payment buttons */}
             {!billLoading && billOrders.length > 0 && (
               <div className="p-5 border-t border-slate-800 bg-slate-900 space-y-3 flex-shrink-0">
-                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest text-center mb-2">
-                  Select Payment Method
-                </p>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={() => payBill("cash")}
-                    disabled={paying}
-                    className="flex flex-col items-center gap-1 md:gap-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 active:scale-[0.97] text-white font-bold py-2 md:py-5 rounded-2xl transition-all"
-                  >
-                    {paying ? <Loader2 size={22} className="animate-spin" /> : <Banknote size={22} />}
-                    <span className="text-sm">Pay by Cash</span>
-                  </button>
-                  <button
-                    onClick={() => payBill("card")}
-                    disabled={paying}
-                    className="flex flex-col items-center gap-1 md:gap-2  bg-blue-600 hover:bg-blue-500 disabled:opacity-50 active:scale-[0.97] text-white font-bold py-2 md:py-5 rounded-2xl transition-all"
-                  >
-                    {paying ? <Loader2 size={22} className="animate-spin" /> : <CreditCard size={22} />}
-                    <span className="text-sm">Pay by Card</span>
-                  </button>
-                </div>
-                <button
-                  onClick={() => { setView("tables"); setActiveTable(null); setBillOrders([]); }}
-                  className="w-full pt-3 text-slate-500 hover:text-slate-300 text-sm font-medium transition"
-                >
-                  Back to Tables
-                </button>
+                {settleConfirm ? (
+                  // Inline confirm — settling is final (orders flip to delivered),
+                  // so we require an explicit second click before posting.
+                  <div className="space-y-3">
+                    <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2.5">
+                      <AlertTriangle size={14} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                      <p className="text-amber-300 text-xs">
+                        Settle {activeTable?.label ? `Table ${activeTable.label}` : "this bill"} as {settleConfirm === "cash" ? "Cash" : "Card"}? This marks all orders as delivered and cannot be undone.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={() => setSettleConfirm(null)}
+                        disabled={paying}
+                        className="py-3 rounded-2xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 disabled:opacity-50 transition"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => { const m = settleConfirm; setSettleConfirm(null); payBill(m); }}
+                        disabled={paying}
+                        className={`flex items-center justify-center gap-2 py-3 rounded-2xl text-white font-bold transition disabled:opacity-50 ${settleConfirm === "cash" ? "bg-emerald-700 hover:bg-emerald-600" : "bg-blue-600 hover:bg-blue-500"}`}
+                      >
+                        {paying
+                          ? <Loader2 size={18} className="animate-spin" />
+                          : settleConfirm === "cash" ? <Banknote size={18} /> : <CreditCard size={18} />}
+                        Confirm Settle
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-slate-400 text-xs font-bold uppercase tracking-widest text-center mb-2">
+                      Select Payment Method
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={() => setSettleConfirm("cash")}
+                        disabled={paying}
+                        className="flex flex-col items-center gap-1 md:gap-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 active:scale-[0.97] text-white font-bold py-2 md:py-5 rounded-2xl transition-all"
+                      >
+                        {paying ? <Loader2 size={22} className="animate-spin" /> : <Banknote size={22} />}
+                        <span className="text-sm">Pay by Cash</span>
+                      </button>
+                      <button
+                        onClick={() => setSettleConfirm("card")}
+                        disabled={paying}
+                        className="flex flex-col items-center gap-1 md:gap-2  bg-blue-600 hover:bg-blue-500 disabled:opacity-50 active:scale-[0.97] text-white font-bold py-2 md:py-5 rounded-2xl transition-all"
+                      >
+                        {paying ? <Loader2 size={22} className="animate-spin" /> : <CreditCard size={22} />}
+                        <span className="text-sm">Pay by Card</span>
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => { setView("tables"); setActiveTable(null); setBillOrders([]); }}
+                      className="w-full pt-3 text-slate-500 hover:text-slate-300 text-sm font-medium transition"
+                    >
+                      Back to Tables
+                    </button>
+                  </>
+                )}
               </div>
             )}
 

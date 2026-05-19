@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WaiterStaff, DiningTable } from "@/types";
+import { useApp } from "@/context/AppContext";
 import {
   UserPlus, Pencil, Trash2, Users, UtensilsCrossed,
   CheckCircle2, XCircle, Eye, EyeOff, Save, X, Plus,
@@ -339,6 +340,11 @@ export default function WaitersPanel() {
   const [waiters, setWaiters] = useState<WaiterStaff[]>([]);
   const [tables,  setTables]  = useState<DiningTable[]>([]);
 
+  // Sync freshly-fetched tables back into AppContext.settings.diningTables so
+  // other consumers (ReservationsPanel, TableStatusPanel, POS views) see the
+  // current set without needing a page refresh.
+  const { updateSettings } = useApp();
+
   const refreshWaiters = useCallback(async () => {
     try {
       const res = await fetch("/api/admin/waiters");
@@ -353,9 +359,14 @@ export default function WaitersPanel() {
       const res = await fetch("/api/admin/dining-tables");
       if (!res.ok) return;
       const json = await res.json() as { ok: boolean; tables?: DiningTable[] };
-      if (json.ok) setTables(json.tables ?? []);
+      if (json.ok) {
+        const fresh = json.tables ?? [];
+        setTables(fresh);
+        // Push the fresh list into context so other panels live-update.
+        updateSettings({ diningTables: fresh });
+      }
     } catch { /* ignore */ }
-  }, []);
+  }, [updateSettings]);
 
   useEffect(() => { refreshWaiters(); refreshTables(); }, [refreshWaiters, refreshTables]);
 
@@ -398,23 +409,40 @@ export default function WaitersPanel() {
     }
   }
 
+  // Per-row guards for toggle/delete double-clicks. Form submits already guard
+  // themselves via the canonical inFlight pattern inside WaiterForm/TableForm.
+  const waiterRowInFlight = useRef<Set<string>>(new Set());
+  const tableRowInFlight  = useRef<Set<string>>(new Set());
+
   async function handleDeleteWaiter(id: string) {
-    const res = await fetch(`/api/admin/waiters/${id}`, { method: "DELETE" });
-    if (res.ok) {
-      await refreshWaiters();
-      setDeletingWaiter(null);
+    if (waiterRowInFlight.current.has(id)) return;
+    waiterRowInFlight.current.add(id);
+    try {
+      const res = await fetch(`/api/admin/waiters/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        await refreshWaiters();
+        setDeletingWaiter(null);
+      }
+    } finally {
+      waiterRowInFlight.current.delete(id);
     }
   }
 
   async function toggleWaiterActive(id: string) {
+    if (waiterRowInFlight.current.has(id)) return;
     const member = waiters.find((w) => w.id === id);
     if (!member) return;
-    const res = await fetch(`/api/admin/waiters/${id}`, {
-      method:  "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ active: !member.active }),
-    });
-    if (res.ok) await refreshWaiters();
+    waiterRowInFlight.current.add(id);
+    try {
+      const res = await fetch(`/api/admin/waiters/${id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ active: !member.active }),
+      });
+      if (res.ok) await refreshWaiters();
+    } finally {
+      waiterRowInFlight.current.delete(id);
+    }
   }
 
   // ── Table CRUD ───────────────────────────────────────────────────────────────
@@ -455,28 +483,40 @@ export default function WaitersPanel() {
   }
 
   async function handleDeleteTable(id: string) {
+    if (tableRowInFlight.current.has(id)) return;
+    tableRowInFlight.current.add(id);
     setTableError("");
-    const res = await fetch(`/api/admin/dining-tables/${id}`, { method: "DELETE" });
-    const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
-    if (res.ok && json.ok) {
-      await refreshTables();
-      setDeletingTable(null);
-    } else {
-      // 409 surfaces here when the table has historical reservations
-      setTableError(json.error ?? "Failed to delete table.");
-      setDeletingTable(null);
+    try {
+      const res = await fetch(`/api/admin/dining-tables/${id}`, { method: "DELETE" });
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (res.ok && json.ok) {
+        await refreshTables();
+        setDeletingTable(null);
+      } else {
+        // 409 surfaces here when the table has historical reservations
+        setTableError(json.error ?? "Failed to delete table.");
+        setDeletingTable(null);
+      }
+    } finally {
+      tableRowInFlight.current.delete(id);
     }
   }
 
   async function toggleTableActive(id: string) {
+    if (tableRowInFlight.current.has(id)) return;
     const t = tables.find((x) => x.id === id);
     if (!t) return;
-    const res = await fetch(`/api/admin/dining-tables/${id}`, {
-      method:  "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ active: !t.active }),
-    });
-    if (res.ok) await refreshTables();
+    tableRowInFlight.current.add(id);
+    try {
+      const res = await fetch(`/api/admin/dining-tables/${id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ active: !t.active }),
+      });
+      if (res.ok) await refreshTables();
+    } finally {
+      tableRowInFlight.current.delete(id);
+    }
   }
 
   // ── Group tables by section ───────────────────────────────────────────────

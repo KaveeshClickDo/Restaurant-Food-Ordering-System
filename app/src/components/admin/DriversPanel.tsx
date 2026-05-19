@@ -3,11 +3,14 @@
 import { useState } from "react";
 import { useApp } from "@/context/AppContext";
 import type { Driver, Order } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
 import {
   UserPlus, Pencil, Trash2, Car, Phone, Mail,
   CheckCircle2, XCircle, Truck, Package, User,
   ChevronDown, ChevronUp, AlertCircle, X,
 } from "lucide-react";
+import { DriverCreateSchema } from "@/lib/schemas/staff";
+import { cleanPhone, formErrorMessage } from "@/lib/inputUtils";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -52,16 +55,23 @@ function DriverForm({
   }
 
   function validate(): boolean {
+    const result = DriverCreateSchema.safeParse({
+      name: form.name, email: form.email, phone: form.phone, password: form.password,
+      vehicleInfo: form.vehicleInfo || undefined, notes: form.notes || undefined,
+    });
     const e: Record<string, string> = {};
-    if (!form.name.trim())   e.name  = "Name is required.";
-    if (!form.email.trim())  e.email = "Email is required.";
-    else if (existingEmails.includes(form.email.toLowerCase()))
+    if (!result.success) {
+      for (const issue of result.error.issues) {
+        const key = issue.path[0];
+        if (typeof key === "string" && !e[key]) e[key] = issue.message;
+      }
+    }
+    if (form.email && existingEmails.includes(form.email.toLowerCase()))
       e.email = "A driver with this email already exists.";
-    if (!form.phone.trim())  e.phone = "Phone is required.";
-    if (!form.password.trim() || form.password.length < 6)
-      e.password = "Password must be at least 6 characters.";
     setErrors(e);
-    return Object.keys(e).length === 0;
+    if (Object.keys(e).length === 0) return true;
+    if (!result.success && Object.values(e).length === 0) setErrors({ form: formErrorMessage(result.error) });
+    return false;
   }
 
   function handleSave() {
@@ -79,8 +89,10 @@ function DriverForm({
       </label>
       <input
         type={opts?.type ?? "text"}
+        inputMode={key === "phone" ? "tel" : undefined}
+        autoComplete={key === "phone" ? "off" : key === "email" ? "off" : undefined}
         value={form[key] as string}
-        onChange={(e) => set(key, e.target.value)}
+        onChange={(e) => set(key, key === "phone" ? cleanPhone(e.target.value) : e.target.value)}
         placeholder={opts?.placeholder}
         className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 transition ${
           errors[key]
@@ -273,7 +285,7 @@ function UnassignedOrderCard({
     <div className="bg-white border border-orange-200 rounded-2xl px-4 py-3.5 flex flex-col sm:flex-row sm:items-center gap-3">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <p className="font-bold text-gray-900 text-sm">#{order.id.slice(-8).toUpperCase()}</p>
+          <p title={fullOrderNumber(order.id)} className="font-bold text-gray-900 text-sm truncate max-w-[180px]">{fullOrderNumber(order.id)}</p>
           <span className="text-xs text-gray-500">{customerName}</span>
         </div>
         {order.address && (
@@ -461,8 +473,8 @@ export default function DriversPanel() {
                       {cfg.label}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-900">
-                        #{o.id.slice(-8).toUpperCase()} — {o.customerName}
+                      <p title={fullOrderNumber(o.id)} className="text-sm font-semibold text-gray-900 truncate">
+                        {fullOrderNumber(o.id)} — {o.customerName}
                       </p>
                       {o.address && <p className="text-xs text-gray-400 truncate">{o.address}</p>}
                     </div>

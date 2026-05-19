@@ -16,10 +16,8 @@ import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
 import { sendReservationEmailServer }           from "@/lib/emailServer";
 import type { EmailTemplateEvent }              from "@/types";
-
-const VALID_STATUSES = new Set([
-  "pending", "confirmed", "checked_in", "checked_out", "cancelled", "no_show",
-]);
+import { parseBody }                            from "@/lib/apiValidation";
+import { ReservationStatusSchema }              from "@/lib/schemas/reservation";
 
 // Every status transition that should notify the guest. Keeping this in one
 // place is what lets the admin and POS PUT routes stay in lockstep — both
@@ -47,16 +45,9 @@ export async function PUT(
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
   const { id } = await params;
 
-  let body: { status?: string };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  if (!body.status || !VALID_STATUSES.has(body.status)) {
-    return NextResponse.json(
-      { ok: false, error: `status must be one of: ${[...VALID_STATUSES].join(", ")}.` },
-      { status: 400 },
-    );
-  }
+  const parsed = await parseBody(req, ReservationStatusSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data;
 
   const updatePayload = buildUpdatePayload(body.status);
 

@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   CalendarDays, Clock, Users, UtensilsCrossed, CheckCircle2,
   Loader2, AlertCircle, MapPin, ChevronLeft, ChevronRight,
 } from "lucide-react";
+import { ReservationFormSchema } from "@/lib/schemas/reservation";
+import { cleanPhone, formErrorMessage } from "@/lib/inputUtils";
 
 interface AvailableTable { id: string; label: string; seats: number; section: string; }
 type Step = "datetime" | "table" | "details" | "confirmed";
@@ -105,22 +107,32 @@ export default function BookPage() {
 
   useEffect(() => { if (step === "table") fetchTables(); }, [step, fetchTables]);
 
+  const submitInFlight = useRef(false);
+
   async function handleSubmit(e: { preventDefault(): void }) {
     e.preventDefault();
+    if (submitInFlight.current) return;
     if (!selectedTable) return;
-    setSubmitting(true); setSubmitError("");
+    setSubmitError("");
+    const check = ReservationFormSchema.safeParse({
+      customerName: name, customerEmail: email, customerPhone: phone, partySize, note,
+    });
+    if (!check.success) { setSubmitError(formErrorMessage(check.error)); return; }
+    submitInFlight.current = true;
+    setSubmitting(true);
     try {
       const res  = await fetch("/api/reservations", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tableId: selectedTable.id, date, time, partySize,
-          customerName: name.trim(), customerEmail: email.trim(), customerPhone: phone.trim(),
-          note: note.trim(), source: "online" }),
+        body: JSON.stringify({ tableId: selectedTable.id, date, time, ...check.data, source: "online" }),
       });
       const json = await res.json() as { ok: boolean; reservationId?: string; error?: string };
       if (json.ok && json.reservationId) { setReservationId(json.reservationId); setStep("confirmed"); }
       else { setSubmitError(json.error ?? "Failed to create reservation."); }
     } catch { setSubmitError("Network error — please try again."); }
-    finally { setSubmitting(false); }
+    finally {
+      submitInFlight.current = false;
+      setSubmitting(false);
+    }
   }
 
   const tablesBySection = tables.reduce<Record<string, AvailableTable[]>>((acc, t) => {
@@ -319,16 +331,16 @@ export default function BookPage() {
                 {selectedTable?.label} · {fmtDate(date)} · {fmt12(time)} · {partySize} guests
               </div>
               {[
-                { label: "Full name", type: "text",  value: name,  setter: setName,  ph: "Jane Smith",       req: true  },
-                { label: "Email",     type: "email", value: email, setter: setEmail, ph: "jane@example.com", req: true  },
-                { label: "Phone",     type: "tel",   value: phone, setter: setPhone, ph: "+44 7700 900123",  req: true  },
-              ].map(({ label, type, value, setter, ph, req }) => (
+                { label: "Full name", type: "text",  value: name,  setter: setName,  ph: "Jane Smith",       req: true,  isPhone: false },
+                { label: "Email",     type: "email", value: email, setter: setEmail, ph: "jane@example.com", req: true,  isPhone: false },
+                { label: "Phone",     type: "tel",   value: phone, setter: setPhone, ph: "+44 7700 900123",  req: true,  isPhone: true  },
+              ].map(({ label, type, value, setter, ph, req, isPhone }) => (
                 <div key={label}>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
                     {label} {req && <span className="text-red-400">*</span>}
                   </label>
-                  <input type={type} required={req} value={value} placeholder={ph}
-                    onChange={(e) => setter(e.target.value)}
+                  <input type={type} inputMode={isPhone ? "tel" : undefined} autoComplete={isPhone ? "tel" : undefined} required={req} value={value} placeholder={ph}
+                    onChange={(e) => setter(isPhone ? cleanPhone(e.target.value) : e.target.value)}
                     className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 transition" />
                 </div>
               ))}

@@ -99,14 +99,20 @@ async function main(): Promise<void> {
     }
 
     // ── Menu items ─────────────────────────────────────────────────────────
+    // Bug #2 — writes the unified POS / admin field set:
+    //   cost, sku, emoji, color, active, track_stock, offer
+    // All are nullable / defaulted, so the seed file still works against an
+    // older schema if the new columns are absent.
     if (await tableEmpty(client, "menu_items")) {
       let mimpCount = 0;
       for (const m of demoMenuItems) {
         await client.query(
           `insert into menu_items
              (id, category_id, name, description, price, image, dietary, popular,
-              variations, add_ons, stock_qty, stock_status, sort_order)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13)`,
+              variations, add_ons, stock_qty, stock_status, sort_order,
+              cost, sku, emoji, color, active, track_stock, offer)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13,
+                   $14,$15,$16,$17,$18,$19,$20::jsonb)`,
           [
             m.id, m.categoryId, m.name, m.description ?? "",
             m.price, m.image ?? "",
@@ -115,6 +121,10 @@ async function main(): Promise<void> {
             JSON.stringify(m.addOns ?? []),
             m.stockQty ?? null, m.stockStatus ?? "in_stock",
             0,
+            m.cost ?? null, m.sku ?? null,
+            m.emoji ?? null, m.color ?? null,
+            m.active ?? true, m.trackStock ?? false,
+            m.offer ? JSON.stringify(m.offer) : null,
           ],
         );
         for (const mpId of m.mealPeriodIds ?? []) {

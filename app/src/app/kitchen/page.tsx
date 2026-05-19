@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
 import { useApp } from "@/context/AppContext";
+import { useIdleLogout } from "@/lib/useIdleLogout";
 import type { KitchenStaff } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
 import {
   ChefHat, Clock, Truck, ShoppingBag, CheckCircle2,
   LayoutDashboard, Maximize2, Minimize2, UtensilsCrossed,
@@ -15,6 +16,7 @@ import {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type KDSStatus = "pending" | "confirmed" | "preparing" | "ready";
+type DeliveryStatus = "assigned" | "picked_up" | "on_the_way" | "delivered";
 
 interface KDSOrder {
   id: string;
@@ -23,6 +25,10 @@ interface KDSOrder {
   items: { name: string; qty: number; price: number }[];
   status: KDSStatus;
   fulfillment: string;
+  /** Driver-side state — only present for delivery orders. Used to distinguish
+   *  a "ready" delivery order that's still waiting for a driver pickup from
+   *  one that has already been collected and is en route. */
+  deliveryStatus: DeliveryStatus | null;
   date: string;
   address?: string;
   scheduledTime?: string;
@@ -161,6 +167,7 @@ function mapRow(row: Record<string, unknown>): KDSOrder {
     items:         (row.items as KDSOrder["items"]) ?? [],
     status:        row.status as KDSStatus,
     fulfillment,
+    deliveryStatus: (row.delivery_status as DeliveryStatus | null) ?? null,
     date:          String(row.date),
     address:       (row.address as string) || undefined,
     scheduledTime: (row.scheduled_time as string) || undefined,
@@ -221,6 +228,15 @@ function OrderCard({
   const isDelivery = order.fulfillment === "delivery";
   const isDineIn   = order.fulfillment === "dine-in";
 
+  // A delivery order that the kitchen has marked "ready" but where no driver
+  // has yet collected it (delivery_status null or still "assigned"). We keep
+  // these in the Ready column so kitchen staff can still see them — they're
+  // not "done" until a driver actually leaves with the food.
+  const awaitingDriver =
+    isDelivery &&
+    order.status === "ready" &&
+    (order.deliveryStatus === null || order.deliveryStatus === "assigned");
+
   const tableLabel = isDineIn
     ? (order.displayName.startsWith("Table ") ? order.displayName.slice(6) : null)
     : null;
@@ -260,8 +276,8 @@ function OrderCard({
       {/* Card header */}
       <div className="px-4 pt-3.5 pb-2 flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] text-gray-500 font-mono uppercase tracking-widest">
-            #{order.id.slice(-8).toUpperCase()}
+          <p title={fullOrderNumber(order.id)} className="text-[10px] text-gray-500 font-mono uppercase tracking-widest truncate">
+            {fullOrderNumber(order.id)}
           </p>
           <p className="text-white font-bold text-lg leading-tight truncate mt-0.5">
             {order.displayName}
@@ -343,20 +359,30 @@ function OrderCard({
         </div>
       ) : (
         <div className="px-4 pb-4 flex flex-col gap-2">
-          <div className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-semibold border ${
-            isDineIn
-              ? "bg-purple-900/20 border-purple-700/30 text-purple-300"
-              : isDelivery
-                ? "bg-indigo-900/20 border-indigo-700/30 text-indigo-300"
-                : "bg-emerald-900/20 border-emerald-700/30 text-emerald-300"
-          }`}>
-            {isDineIn
-              ? <>{`🍽️`} Serve at {tableLabel ? `Table ${tableLabel}` : "table"}</>
-              : isDelivery
-                ? <><Truck size={13} /> Awaiting driver pickup</>
-                : <><ShoppingBag size={13} /> Awaiting customer collection</>
-            }
-          </div>
+          {/* Awaiting-driver badge is a distinct state from "ready for
+              collection": the food is done but is not leaving the kitchen
+              until a driver shows up. Bright orange so it stands out against
+              the green "ready" column accents. */}
+          {awaitingDriver ? (
+            <div className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase tracking-widest border-2 bg-orange-500/15 border-orange-500/60 text-orange-300 animate-pulse">
+              <Truck size={14} /> Awaiting Driver Pickup
+            </div>
+          ) : (
+            <div className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-semibold border ${
+              isDineIn
+                ? "bg-purple-900/20 border-purple-700/30 text-purple-300"
+                : isDelivery
+                  ? "bg-indigo-900/20 border-indigo-700/30 text-indigo-300"
+                  : "bg-emerald-900/20 border-emerald-700/30 text-emerald-300"
+            }`}>
+              {isDineIn
+                ? <>{`🍽️`} Serve at {tableLabel ? `Table ${tableLabel}` : "table"}</>
+                : isDelivery
+                  ? <><Truck size={13} /> Out for delivery</>
+                  : <><ShoppingBag size={13} /> Awaiting customer collection</>
+              }
+            </div>
+          )}
           {!isDelivery && !isDineIn && (
             confirming ? (
               <div className="flex gap-2">
@@ -452,117 +478,74 @@ export default function KitchenPage() {
     router.replace("/kitchen/login");
   }
 
-  // ── Initial load — direct orders query, no customer-state dependency ─────────
-  useEffect(() => {
-    supabase
-      .from("orders")
-      .select("id, items, total, note, status, fulfillment, date, address, scheduled_time, customer:customers(name)")
-      .in("status", ACTIVE_STATUSES)
-      .order("date", { ascending: true })
-      .then(({ data, error }) => {
-        if (error) console.error("KDS initial load:", error.message);
-        setOrders((data ?? []).map((r) => mapRow(r as Record<string, unknown>)));
-        setLoading(false);
-      });
-  }, []);
+  // Auto-logout after 60 minutes of inactivity. Kitchen displays are usually
+  // always-on, so the timeout is longer than waiter/admin to avoid kicking
+  // staff out during a quiet hour. A locked-out kitchen on a busy night is
+  // worse than a forgotten one on a quiet night.
+  useIdleLogout({
+    enabled:   currentStaff !== null,
+    timeoutMs: 60 * 60 * 1000,
+    onIdle:    handleLogout,
+  });
 
-  // ── Realtime subscription — direct on orders table ────────────────────────
+  // ── Fetch via authenticated server endpoint + poll every 4 s ──────────────
+  // Replaces the prior direct supabase.from("orders") read + realtime channel.
+  // Anon role no longer has SELECT on orders, so the realtime channel would
+  // deliver no events anyway; polling is simpler and gates on the kitchen
+  // session cookie that the API route checks.
   useEffect(() => {
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let active = true;
 
-    // Remove any stale channel with this name before subscribing.
-    // Guards against the React Strict Mode double-mount race where the cleanup
-    // of the first mount hasn't completed before the second mount fires.
-    supabase.getChannels().forEach((ch) => {
-      if ((ch as { topic?: string }).topic === "realtime:kds-orders-live") {
-        supabase.removeChannel(ch);
+    async function fetchOrders() {
+      try {
+        const r = await fetch("/api/kds/orders", { cache: "no-store" });
+        if (!r.ok) {
+          if (r.status === 401) router.replace("/kitchen/login");
+          return;
+        }
+        const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
+        if (!active || !json.ok || !json.orders) return;
+        setOrders(json.orders.map((row) => mapRow(row)));
+      } catch {
+        // Network error — keep last-known orders, try again next tick.
+      } finally {
+        if (active) setLoading(false);
       }
-    });
-
-    function handlePayload(payload: Parameters<Parameters<ReturnType<typeof supabase.channel>["on"]>[2]>[0]) {
-      if (payload.eventType === "DELETE") {
-        setOrders((prev) => prev.filter((o) => o.id !== (payload.old as { id: string }).id));
-        return;
-      }
-
-      const newRow = payload.new as Record<string, unknown>;
-      const status = newRow.status as string;
-
-      // If status is not a kitchen-active status, remove from KDS
-      if (!ACTIVE_STATUSES.includes(status as KDSStatus)) {
-        setOrders((prev) => prev.filter((o) => o.id !== newRow.id));
-        return;
-      }
-
-      // Fetch the full row with the customer JOIN (Realtime payload doesn't carry join data)
-      supabase
-        .from("orders")
-        .select("id, items, total, note, status, fulfillment, date, address, scheduled_time, customer:customers(name)")
-        .eq("id", newRow.id as string)
-        .single()
-        .then(({ data }) => {
-          if (!data || !active) return;
-          const mapped = mapRow(data as Record<string, unknown>);
-          setOrders((prev) => {
-            const idx = prev.findIndex((o) => o.id === mapped.id);
-            if (idx >= 0) {
-              const next = [...prev];
-              next[idx] = mapped;
-              return next;
-            }
-            return [...prev, mapped].sort(
-              (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-            );
-          });
-        });
     }
 
-    let channel: ReturnType<typeof supabase.channel>;
-
-    function subscribe() {
-      channel = supabase
-        .channel("kds-orders-live")
-        .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, handlePayload)
-        .subscribe((status) => {
-          if (status === "SUBSCRIBED") {
-            console.log("KDS: Realtime connected");
-          } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-            console.error("KDS: Realtime error (%s) — retrying in 5 s", status);
-            supabase.removeChannel(channel);
-            if (active) retryTimer = setTimeout(subscribe, 5_000);
-          }
-        });
-    }
-
-    subscribe();
-
-    return () => {
-      active = false;
-      if (retryTimer) clearTimeout(retryTimer);
-      supabase.removeChannel(channel);
-    };
-  }, []);
+    fetchOrders();
+    const id = setInterval(fetchOrders, 4_000);
+    return () => { active = false; clearInterval(id); };
+  }, [router]);
 
   // ── Advance order to next kitchen status ──────────────────────────────────
+  // Per-order guard so a frantic double-click only fires one status PUT.
+  const advanceInFlight = useRef<Set<string>>(new Set());
+
   async function advanceOrder(order: KDSOrder, nextStatus: KDSStatus) {
+    if (advanceInFlight.current.has(order.id)) return;
+    advanceInFlight.current.add(order.id);
     // Optimistic update
     setOrders((prev) =>
       prev.map((o) => (o.id === order.id ? { ...o, status: nextStatus } : o))
     );
 
-    const res = await fetch(`/api/kds/orders/${order.id}/status`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: nextStatus }),
-    });
-    if (!res.ok) {
-      // Rollback on failure
-      const j = await res.json().catch(() => ({})) as { error?: string };
-      console.error("KDS advance failed:", j.error);
-      setOrders((prev) =>
-        prev.map((o) => (o.id === order.id ? { ...o, status: order.status } : o))
-      );
+    try {
+      const res = await fetch(`/api/kds/orders/${order.id}/status`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      if (!res.ok) {
+        // Rollback on failure
+        const j = await res.json().catch(() => ({})) as { error?: string };
+        console.error("KDS advance failed:", j.error);
+        setOrders((prev) =>
+          prev.map((o) => (o.id === order.id ? { ...o, status: order.status } : o))
+        );
+      }
+    } finally {
+      advanceInFlight.current.delete(order.id);
     }
   }
 

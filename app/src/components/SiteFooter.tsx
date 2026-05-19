@@ -11,8 +11,10 @@ export default function SiteFooter() {
     .filter((l) => l.location === "footer" && l.active)
     .sort((a, b) => a.order - b.order);
 
-  const legacyLinks = (settings.footerPages ?? [])
-    .filter((p) => p.enabled)
+  // Fall back to every published custom page when no menu links are configured
+  // via the Navigation tab — keeps the footer populated on a fresh install.
+  const legacyLinks = (settings.customPages ?? [])
+    .filter((p) => p.published)
     .map((p) => ({ id: p.slug, label: p.title, href: `/${p.slug}` }));
 
   const navLinks = managedLinks.length > 0 ? managedLinks : legacyLinks;

@@ -7,17 +7,15 @@
 import { NextRequest, NextResponse }            from "next/server";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
+import { parseBody }                            from "@/lib/apiValidation";
+import { CategoryCreateSchema, CategoryReorderSchema } from "@/lib/schemas/menu";
 
 export async function POST(req: NextRequest) {
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
 
-  let body: { id?: string; name?: string; emoji?: string; sort_order?: number };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  if (!body.id || !body.name) {
-    return NextResponse.json({ ok: false, error: "id and name are required." }, { status: 400 });
-  }
+  const parsed = await parseBody(req, CategoryCreateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data;
 
   const { error } = await supabaseAdmin.from("categories").insert({
     id: body.id, name: body.name, emoji: body.emoji ?? "",
@@ -34,15 +32,10 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
 
-  let body: { categories?: { id: string; name: string; emoji: string; sort_order: number }[] };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
+  const parsed = await parseBody(req, CategoryReorderSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
 
-  if (!Array.isArray(body.categories)) {
-    return NextResponse.json({ ok: false, error: "'categories' array is required." }, { status: 400 });
-  }
-
-  const { error } = await supabaseAdmin.from("categories").upsert(body.categories);
+  const { error } = await supabaseAdmin.from("categories").upsert(parsed.data.categories);
   if (error) {
     console.error("admin/categories PUT:", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });

@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { useApp } from "@/context/AppContext";
 import type { Order, Refund, RefundMethod } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
 import {
   RotateCcw, Search, ChevronDown, ChevronUp, X,
   AlertCircle, CheckCircle2, Clock, DollarSign,
@@ -158,8 +159,8 @@ function OrderRefundCard({
       <div className="px-5 py-4 flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-mono text-xs text-gray-400 font-semibold">
-              #{order.id.slice(0, 8).toUpperCase()}
+            <span title={fullOrderNumber(order.id)} className="font-mono text-xs text-gray-400 font-semibold truncate max-w-[180px]">
+              {fullOrderNumber(order.id)}
             </span>
             <StatusBadge status={order.status} />
             <PaymentStatusBadge status={order.paymentStatus} size="xs" />
@@ -293,8 +294,8 @@ function RefundModal({
               <RotateCcw size={18} className="text-white" />
               <h2 className="text-white font-bold text-lg">Process Refund</h2>
             </div>
-            <p className="text-teal-100 text-sm mt-0.5">
-              #{order.id.slice(0, 8).toUpperCase()} · {customerName}
+            <p title={fullOrderNumber(order.id)} className="text-teal-100 text-sm mt-0.5 truncate">
+              {fullOrderNumber(order.id)} · {customerName}
             </p>
           </div>
           <button onClick={onClose} className="text-teal-200 hover:text-white transition mt-0.5">
@@ -506,11 +507,18 @@ export default function RefundsPanel() {
 
   // Filtered + searched
   const displayed = allEligible.filter(({ order, customerName }) => {
+    // "in_progress" = any order that is still moving through the kitchen /
+    // delivery pipeline, regardless of payment_method. This keeps cash and
+    // Stripe orders consistent: cash starts as "unpaid" and only flips to
+    // "paid" on delivery, so a payment-status-based filter would hide all
+    // cash orders. A status-based definition is the consistent UX.
     const matchFilter =
       filter === "all"
         ? true
         : filter === "in_progress"
-          ? order.paymentStatus === "paid" && order.status !== "delivered"
+          ? order.status !== "delivered" &&
+            order.status !== "cancelled" &&
+            order.status !== "refunded"
           : order.status === filter;
     const q = search.toLowerCase();
     const matchSearch =
