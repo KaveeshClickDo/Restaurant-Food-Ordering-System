@@ -25,6 +25,21 @@ import { restaurantInfo, defaultSchedule } from "@/data/restaurant";
 import { DEFAULT_FOOTER_PAGES }              from "@/data/footerPages";
 import { DEFAULT_EMAIL_TEMPLATES }           from "@/lib/emailTemplates";
 
+// The legacy DEFAULT_FOOTER_PAGES seed is now expressed as `customPages`
+// (FooterPage and CustomPage have been merged into a single "Pages" concept).
+// We mint stable ids from the slug so seeds remain idempotent across reseeds.
+const DEFAULT_PAGES_AS_CUSTOM = DEFAULT_FOOTER_PAGES.map((p) => ({
+  id: `seed-${p.slug}`,
+  title: p.title,
+  slug: p.slug,
+  content: p.content,
+  seoTitle: "",
+  seoDescription: "",
+  published: p.enabled,
+  createdAt: p.lastModified,
+  updatedAt: p.lastModified,
+}));
+
 const NO_RESTRICTION = { restricted: false, minKm: 0, maxKm: 50 };
 
 export const DEFAULT_PAYMENT_METHODS: PaymentMethod[] = [
@@ -78,9 +93,11 @@ export const DEFAULT_SETTINGS: AdminSettings = {
   customHeadCode: "",
   printer: DEFAULT_PRINTER,
   emailTemplates: DEFAULT_EMAIL_TEMPLATES,
-  footerPages: DEFAULT_FOOTER_PAGES,
+  // Deprecated — kept as an empty array for back-compat with old snapshots.
+  // The unified "Pages" panel now manages everything via `customPages`.
+  footerPages: [],
   footerCopyright: `© ${new Date().getFullYear()} ${restaurantInfo.name}. All rights reserved.`,
-  customPages: [],
+  customPages: DEFAULT_PAGES_AS_CUSTOM,
   menuLinks: [],
   colors: DEFAULT_COLORS,
   footerLogos: [],

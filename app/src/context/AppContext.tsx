@@ -203,6 +203,15 @@ function mapMenuItem(row: any, mealPeriodIds: string[] = []): MenuItem {
     addOns: row.add_ons ?? [],
     stockQty: row.stock_qty ?? undefined,
     stockStatus: (row.stock_status as StockStatus) || undefined,
+    // Bug #2 — POS parity columns. Defaults match the schema (active=true,
+    // trackStock=false) so older snapshots without the columns still render.
+    cost:   row.cost  !== null && row.cost  !== undefined ? Number(row.cost) : undefined,
+    sku:    row.sku   ?? undefined,
+    emoji:  row.emoji ?? undefined,
+    color:  row.color ?? undefined,
+    active: row.active === undefined || row.active === null ? true : !!row.active,
+    trackStock: !!row.track_stock,
+    offer:  row.offer ?? undefined,
     mealPeriodIds,
   };
 }
@@ -224,7 +233,7 @@ function mapMealPeriod(row: any): MealPeriod {
 function mapOrder(row: any): Order {
   return {
     id: row.id,
-    customerId: row.customer_id,
+    customerId: row.customer_id ?? null,
     date: typeof row.date === "string" ? row.date : new Date(row.date).toISOString(),
     status: row.status as OrderStatus,
     fulfillment: row.fulfillment,
@@ -267,6 +276,9 @@ function categoryToRow(c: Category, order: number) {
 function menuItemToRow(m: MenuItem) {
   // mealPeriodIds is intentionally NOT included — those go to the
   // menu_item_meal_periods join table, handled separately by the admin API.
+  // Bug #2: admin now also writes the POS parity columns so both editors
+  // round-trip losslessly (cost / sku / emoji / color / active / offer /
+  // trackStock). All are optional in MenuItem, so nullable on the row.
   return {
     id: m.id, category_id: m.categoryId,
     name: m.name, description: m.description ?? "",
@@ -274,6 +286,13 @@ function menuItemToRow(m: MenuItem) {
     dietary: m.dietary, popular: m.popular ?? false,
     variations: m.variations ?? [], add_ons: m.addOns ?? [],
     stock_qty: m.stockQty ?? null, stock_status: m.stockStatus ?? "in_stock",
+    cost: m.cost ?? null,
+    sku:  m.sku  ?? null,
+    emoji: m.emoji ?? null,
+    color: m.color ?? null,
+    active: m.active ?? true,
+    track_stock: !!m.trackStock,
+    offer: m.offer ?? null,
   };
 }
 
@@ -326,6 +345,40 @@ function buildSettingsFromData(raw: Record<string, unknown> | null): AdminSettin
   if (!raw) return DEFAULT_SETTINGS;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d = raw as any;
+
+  // ── One-time footerPages → customPages migration ──────────────────────────
+  // Footer Pages and Custom Pages have been unified into a single "Pages"
+  // concept (CustomPage). Any installs that still carry legacy `footerPages`
+  // entries have them converted to `customPages` here (preserving slug/title/
+  // content, mapping `enabled` → `published`). Existing `customPages` win on
+  // slug collision, and `footerPages` is reset to `[]` so the migration is
+  // safe to re-run on every load.
+  const legacyFooterPages: import("@/types").FooterPage[] = Array.isArray(d.footerPages) ? d.footerPages : [];
+  const existingCustomPages: import("@/types").CustomPage[] = Array.isArray(d.customPages) ? d.customPages : [];
+  let mergedCustomPages = existingCustomPages;
+  if (legacyFooterPages.length > 0) {
+    const existingSlugs = new Set(existingCustomPages.map((p) => p.slug));
+    const nowIso = new Date().toISOString();
+    const converted: import("@/types").CustomPage[] = legacyFooterPages
+      .filter((fp) => fp && fp.slug && !existingSlugs.has(fp.slug))
+      .map((fp) => ({
+        id: (typeof crypto !== "undefined" && "randomUUID" in crypto) ? crypto.randomUUID() : `fp-${fp.slug}`,
+        title: fp.title ?? "",
+        slug: fp.slug,
+        content: fp.content ?? "",
+        seoTitle: "",
+        seoDescription: "",
+        published: !!fp.enabled,
+        createdAt: fp.lastModified && new Date(fp.lastModified).getTime() > 0
+          ? fp.lastModified
+          : nowIso,
+        updatedAt: fp.lastModified && new Date(fp.lastModified).getTime() > 0
+          ? fp.lastModified
+          : nowIso,
+      }));
+    mergedCustomPages = [...existingCustomPages, ...converted];
+  }
+
   return {
     ...DEFAULT_SETTINGS,
     ...d,
@@ -341,6 +394,10 @@ function buildSettingsFromData(raw: Record<string, unknown> | null): AdminSettin
     waiters:      [],   // managed via /api/admin/waiters; ignore JSONB copy
     kitchenStaff: [],   // managed via /api/admin/kitchen-staff
     diningTables: [],   // managed via /api/admin/dining-tables
+    // Footer Pages have been merged into Custom Pages — see migration above.
+    // We always reset footerPages to [] so a re-run is a no-op.
+    customPages: mergedCustomPages,
+    footerPages: [],
     // Sensitive fields are explicitly excluded — never reach client state:
     // drivers, stripeSecretKey, paypalClientId, smtpHost/Port/User/Password
   };

@@ -50,3 +50,27 @@ export const GuestProfileSchema = z.object({
   phone:      OptionalPhone,
   orderTotal: Money.optional(),
 });
+
+// ── POS customer mutations (Bug #11) ─────────────────────────────────────────
+// The POS terminal calls these. Email is optional because walk-in customers
+// might only provide a name. Loyalty + gift card adjustments are clamped
+// non-negative server-side. tags/notes are free-form.
+export const PosCustomerCreateSchema = z.object({
+  name:            NonEmptyString,
+  email:           z.string().trim().email().optional().or(z.literal("")),
+  phone:           z.string().optional(),
+  notes:           z.string().optional(),
+  tags:            z.array(z.string()).optional(),
+  loyaltyPoints:   z.number().int().nonnegative().optional(),
+  giftCardBalance: Money.optional(),
+});
+
+export const PosCustomerUpdateSchema = z.object({
+  name:            NonEmptyString.optional(),
+  email:           z.string().trim().email().optional().or(z.literal("")),
+  phone:           z.string().optional(),
+  notes:           z.string().optional(),
+  tags:            z.array(z.string()).optional(),
+  loyaltyPoints:   z.number().int().nonnegative().optional(),
+  giftCardBalance: Money.optional(),
+});

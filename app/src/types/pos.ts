@@ -84,28 +84,14 @@ export interface POSModifier {
 }
 
 // ─── Offers ──────────────────────────────────────────────────────────────────
+// The canonical offer types now live in src/types/index.ts as MenuItemOffer
+// (shared between admin and POS). POSOffer is kept as an alias so existing
+// POS-only imports continue to compile.
 
-export type POSOfferType =
-  | "percent"       // simple % off per unit
-  | "fixed"         // fixed £ off per unit
-  | "price"         // override to a special price per unit
-  | "bogo"          // buy X get Y free
-  | "multibuy"      // buy X for £Y (bundle price)
-  | "qty_discount"; // buy ≥ minQty, get value% off each
+import type { MenuItemOffer, MenuItemOfferType } from "@/types";
 
-export interface POSOffer {
-  type: POSOfferType;
-  value: number;        // % for percent/qty_discount; £ for fixed/price/multibuy
-  label?: string;       // custom badge text, e.g. "Happy Hour"
-  active: boolean;
-  startDate?: string;   // YYYY-MM-DD (inclusive)
-  endDate?: string;     // YYYY-MM-DD (inclusive)
-  // BOGO
-  buyQty?: number;      // items to buy (bogo, multibuy)
-  freeQty?: number;     // items free (bogo)
-  // Qty discount
-  minQty?: number;      // minimum quantity to trigger (qty_discount)
-}
+export type POSOfferType = MenuItemOfferType;
+export type POSOffer    = MenuItemOffer;
 
 /** Check if the offer's date window is currently active. */
 function offerDateOk(o: POSOffer): boolean {
@@ -181,6 +167,13 @@ export function cartLineSaving(item: POSCartItem): number {
   return parseFloat(Math.max(0, full - actual).toFixed(2));
 }
 
+// POSProduct stays a distinct interface (it carries POS-only display state
+// like `modifiers` and uses `imageUrl` instead of `image`) but now also
+// surfaces the shared admin fields so a POSProduct round-trips losslessly
+// when the same row is read/written by the admin Menu Management panel.
+// See `app/src/types/index.ts → MenuItem` for the canonical model.
+import type { Variation, AddOn, StockStatus } from "@/types";
+
 export interface POSProduct {
   id: string;
   categoryId: string;
@@ -191,8 +184,16 @@ export interface POSProduct {
   imageUrl?: string; // custom image (URL or base64 data URI)
   color: string; // tile accent color (hex)
   modifiers?: POSModifier[];
+  /** Admin-side variations[] — required radio groups. Mirror of MenuItem.variations. */
+  variations?: Variation[];
+  /** Admin-side add-ons[] — optional multi-select. Mirror of MenuItem.addOns. */
+  addOns?: AddOn[];
+  /** Dietary tags (e.g. "vegan", "gluten-free"). Mirror of MenuItem.dietary. */
+  dietary?: string[];
   sku?: string;
   stockQty?: number;
+  /** Manual status override — used when stockQty is not set. */
+  stockStatus?: StockStatus;
   trackStock: boolean;
   active: boolean;
   popular?: boolean;
@@ -263,20 +264,14 @@ export interface POSSale {
   refundAmount?: number;                   // amount refunded
 }
 
-export interface POSCustomer {
-  id: string;
-  name: string;
-  email?: string;
-  phone?: string;
-  loyaltyPoints: number;
-  giftCardBalance: number;
-  totalSpend: number;
-  visitCount: number;
-  lastVisit?: string; // ISO
-  tags: string[];
-  notes?: string;
-  createdAt: string;
-}
+// Bug #11 — POS customers are no longer a distinct local-only type. The
+// `customers` table is now the single source of truth for both admin and
+// POS, so POSCustomer is just an alias for the shared Customer interface.
+// All POS code that reads `c.loyaltyPoints`, `c.totalSpend` etc. should use
+// the `?? 0` fallback because computed fields can be undefined for rows
+// that pre-date the migration.
+import type { Customer } from "@/types";
+export type POSCustomer = Customer;
 
 export interface POSSettings {
   businessName: string;

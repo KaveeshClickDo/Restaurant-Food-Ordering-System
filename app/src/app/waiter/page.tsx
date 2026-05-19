@@ -754,6 +754,7 @@ export default function WaiterPage() {
 
   // ── Data ────────────────────────────────────────────────────────────────────
   const [allWaiters, setAllWaiters] = useState<Omit<WaiterStaff, "pin">[]>([]);
+  const [staffLoaded, setStaffLoaded] = useState(false);
   const [tables, setTables] = useState<DiningTable[]>([]);
   const [occupiedLabels, setOccupiedLabels] = useState<Set<string>>(new Set());
 
@@ -820,6 +821,10 @@ export default function WaiterPage() {
           setAllWaiters(d.waiters);
           setTables(d.tables);
         }
+        setStaffLoaded(true);
+      })
+      .catch(() => {
+        setStaffLoaded(true);
       });
   }, []);
 
@@ -1164,8 +1169,10 @@ export default function WaiterPage() {
         {loginStep === "staff" ? (
           /* Staff grid */
           <div className="w-full max-w-sm space-y-3">
-            {allWaiters.length === 0 ? (
+            {!staffLoaded ? (
               <p className="text-slate-500 text-center text-sm">Loading staff…</p>
+            ) : allWaiters.length === 0 ? (
+              <p className="text-slate-500 text-center text-sm">No staff configured. Ask an admin to add staff in the Admin → Staff panel.</p>
             ) : (
               allWaiters.map((w) => (
                 <button

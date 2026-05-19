@@ -56,7 +56,7 @@ export default function OrderPanel({
         </span>
         {assignedCustomer ? (
           <span className="text-xs text-amber-400 font-semibold flex items-center gap-1">
-            <Star size={10} /> {assignedCustomer.loyaltyPoints}pts
+            <Star size={10} /> {assignedCustomer.loyaltyPoints ?? 0}pts
           </span>
         ) : (
           <ChevronRight size={14} className="text-slate-500" />

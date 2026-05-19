@@ -11,11 +11,16 @@ import { fmt, fmtDate, fmtTime, getInitials } from "./_utils";
 const PRESET_TAGS = ["VIP", "Regular", "Halal", "Vegan", "Vegetarian", "Gluten-Free", "Allergy", "Staff"];
 
 export default function CustomersView() {
-  const { customers, setCustomers, sales, settings } = usePOS();
+  // Bug #11 — customers are now DB-backed (shared with admin). Mutations go
+  // through addCustomer / updateCustomer / deleteCustomer (POSContext), not
+  // setCustomers — the latter is left exposed only for read-state syncs.
+  const { customers, sales, settings, addCustomer: apiAddCustomer, updateCustomer, deleteCustomer: apiDeleteCustomer } = usePOS();
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<POSCustomer | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ name: "", email: "", phone: "", notes: "" });
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   // Edit state
   const [showEdit, setShowEdit] = useState(false);
@@ -30,40 +35,53 @@ export default function CustomersView() {
     c.phone?.includes(search) || c.email?.toLowerCase().includes(search.toLowerCase())
   );
 
+  // Keep `selected` in sync with the underlying list — when a mutation
+  // refreshes customers the panel needs the new computed fields.
+  const selectedLive = selected ? customers.find((c) => c.id === selected.id) ?? null : null;
+
   function openEdit(c: POSCustomer) {
     setEditDraft({
       name:           c.name,
       email:          c.email   ?? "",
       phone:          c.phone   ?? "",
       notes:          c.notes   ?? "",
-      loyaltyPoints:  c.loyaltyPoints,
-      giftCardBalance: c.giftCardBalance,
+      loyaltyPoints:  c.loyaltyPoints   ?? 0,
+      giftCardBalance: c.giftCardBalance ?? 0,
       tags:           [...c.tags],
       customTag:      "",
     });
+    setSaveError(null);
     setShowEdit(true);
   }
 
-  function saveEdit() {
-    if (!selected || !editDraft.name.trim()) return;
-    const updated: POSCustomer = {
-      ...selected,
+  async function saveEdit() {
+    if (!selectedLive || !editDraft.name.trim() || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    // Synthetic POS emails (pos-…@internal.local) are server-generated for
+    // no-email walk-ins; treat them as "no email" so re-saving doesn't
+    // surface them to the operator.
+    const cleanedEmail = editDraft.email.trim();
+    const result = await updateCustomer(selectedLive.id, {
       name:            editDraft.name.trim(),
-      email:           editDraft.email.trim()  || undefined,
-      phone:           editDraft.phone.trim()  || undefined,
-      notes:           editDraft.notes.trim()  || undefined,
-      loyaltyPoints:   Math.max(0, editDraft.loyaltyPoints),
+      email:           cleanedEmail || "",
+      phone:           editDraft.phone.trim(),
+      notes:           editDraft.notes.trim(),
+      loyaltyPoints:   Math.max(0, Math.floor(editDraft.loyaltyPoints)),
       giftCardBalance: Math.max(0, editDraft.giftCardBalance),
       tags:            editDraft.tags,
-    };
-    setCustomers((prev) => prev.map((c) => c.id === selected.id ? updated : c));
-    setSelected(updated);
+    });
+    setSaving(false);
+    if (!result.ok) { setSaveError(result.error ?? "Failed to save"); return; }
     setShowEdit(false);
   }
 
-  function deleteCustomer() {
-    if (!selected) return;
-    setCustomers((prev) => prev.filter((c) => c.id !== selected.id));
+  async function handleDelete() {
+    if (!selectedLive || saving) return;
+    setSaving(true);
+    const result = await apiDeleteCustomer(selectedLive.id);
+    setSaving(false);
+    if (!result.ok) { setSaveError(result.error ?? "Failed to delete"); return; }
     setSelected(null);
     setDeleteConfirm(false);
     setShowEdit(false);
@@ -82,19 +100,27 @@ export default function CustomersView() {
     setEditDraft((d) => ({ ...d, tags: [...d.tags, tag], customTag: "" }));
   }
 
-  function addCustomer() {
-    if (!newCustomer.name.trim()) return;
-    const c: POSCustomer = {
-      id: `pc-${Date.now()}`, name: newCustomer.name.trim(), email: newCustomer.email || undefined,
-      phone: newCustomer.phone || undefined, loyaltyPoints: 0, giftCardBalance: 0, totalSpend: 0,
-      visitCount: 0, tags: [], notes: newCustomer.notes || undefined, createdAt: new Date().toISOString(),
-    };
-    setCustomers((prev) => [...prev, c]);
+  async function handleAddCustomer() {
+    if (!newCustomer.name.trim() || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    const result = await apiAddCustomer({
+      name:  newCustomer.name.trim(),
+      email: newCustomer.email.trim() || undefined,
+      phone: newCustomer.phone.trim() || undefined,
+      notes: newCustomer.notes.trim() || undefined,
+    });
+    setSaving(false);
+    if (!result.ok) { setSaveError(result.error ?? "Failed to add customer"); return; }
     setNewCustomer({ name: "", email: "", phone: "", notes: "" });
     setShowAdd(false);
   }
 
-  const customerSales = selected ? sales.filter((s) => !s.voided && s.customerId === selected.id) : [];
+  const customerSales = selectedLive ? sales.filter((s) => !s.voided && s.customerId === selectedLive.id) : [];
+
+  // Hide synthetic walk-in emails (pos-…@internal.local) from the UI — they
+  // exist solely to satisfy the customers.email UNIQUE constraint.
+  const displayEmail = (e?: string) => (e && !e.endsWith("@internal.local") ? e : "");
 
   return (
     <div className="flex-1 overflow-hidden flex relative">
@@ -116,7 +142,7 @@ export default function CustomersView() {
         <div className="flex-1 overflow-y-auto">
           {filtered.map((c) => (
             <button key={c.id} onClick={() => setSelected(c)}
-              className={`w-full px-4 py-4 flex items-center gap-3 text-left transition-colors border-b border-slate-800 ${selected?.id === c.id ? "bg-orange-500/10 border-l-2 border-l-orange-500" : "hover:bg-slate-800/50"}`}>
+              className={`w-full px-4 py-4 flex items-center gap-3 text-left transition-colors border-b border-slate-800 ${selectedLive?.id === c.id ? "bg-orange-500/10 border-l-2 border-l-orange-500" : "hover:bg-slate-800/50"}`}>
               <div className="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center text-orange-400 font-bold text-sm flex-shrink-0">
                 {getInitials(c.name)}
               </div>
@@ -125,10 +151,10 @@ export default function CustomersView() {
                   <p className="text-white text-sm font-semibold truncate">{c.name}</p>
                   {c.tags.includes("VIP") && <Star size={10} className="text-amber-400 flex-shrink-0" />}
                 </div>
-                <p className="text-slate-400 text-xs mt-0.5">{c.visitCount} visits · {fmt(c.totalSpend, settings.currencySymbol)} spent</p>
+                <p className="text-slate-400 text-xs mt-0.5">{c.visitCount ?? 0} visits · {fmt(c.totalSpend ?? 0, settings.currencySymbol)} spent</p>
               </div>
               <div className="text-right flex-shrink-0">
-                <p className="text-amber-400 text-xs font-bold">{c.loyaltyPoints} pts</p>
+                <p className="text-amber-400 text-xs font-bold">{c.loyaltyPoints ?? 0} pts</p>
               </div>
             </button>
           ))}
@@ -136,8 +162,8 @@ export default function CustomersView() {
       </div>
 
       {/* Detail */}
-      <div className={`flex-1 overflow-y-auto w-full absolute inset-0 bg-slate-900 md:static md:bg-transparent md:block z-10 md:z-auto ${selected ? "block" : "hidden md:block"}`}>
-        {!selected ? (
+      <div className={`flex-1 overflow-y-auto w-full absolute inset-0 bg-slate-900 md:static md:bg-transparent md:block z-10 md:z-auto ${selectedLive ? "block" : "hidden md:block"}`}>
+        {!selectedLive ? (
           <div className="flex flex-col items-center justify-center h-full text-slate-600">
             <Users size={48} className="mb-3 text-slate-700" />
             <p className="text-sm">Select a customer to view details</p>
@@ -145,7 +171,7 @@ export default function CustomersView() {
         ) : (
           <div className="p-4 md:p-6 max-w-2xl mx-auto md:mx-0">
             {/* Back button (Mobile only) */}
-            <button 
+            <button
               onClick={() => setSelected(null)}
               className="md:hidden flex items-center gap-1.5 text-slate-400 font-medium mb-5 hover:text-white"
             >
@@ -155,36 +181,39 @@ export default function CustomersView() {
             {/* Profile header */}
             <div className="flex flex-col md:flex-row items-start gap-4 mb-6">
               <div className="w-16 h-16 rounded-2xl bg-orange-500/20 flex items-center justify-center text-orange-400 font-bold text-2xl flex-shrink-0">
-                {getInitials(selected.name)}
+                {getInitials(selectedLive.name)}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="text-white font-bold text-xl">{selected.name}</h3>
-                  {selected.tags.map((t) => (
+                  <h3 className="text-white font-bold text-xl">{selectedLive.name}</h3>
+                  {selectedLive.tags.map((t) => (
                     <span key={t} className="text-[10px] bg-orange-500/20 text-orange-400 px-2 py-0.5 rounded-full font-semibold">{t}</span>
                   ))}
                 </div>
                 <div className="flex flex-wrap gap-4 mt-2">
-                  {selected.phone && <span className="flex items-center gap-1 text-slate-400 text-sm"><Phone size={13} />{selected.phone}</span>}
-                  {selected.email && <span className="flex items-center gap-1 text-slate-400 text-sm"><Mail size={13} />{selected.email}</span>}
+                  {selectedLive.phone && <span className="flex items-center gap-1 text-slate-400 text-sm"><Phone size={13} />{selectedLive.phone}</span>}
+                  {displayEmail(selectedLive.email) && <span className="flex items-center gap-1 text-slate-400 text-sm"><Mail size={13} />{displayEmail(selectedLive.email)}</span>}
                 </div>
-                {selected.notes && <p className="text-slate-400 text-sm mt-2 italic">&quot;{selected.notes}&quot;</p>}
+                {selectedLive.notes && <p className="text-slate-400 text-sm mt-2 italic">&quot;{selectedLive.notes}&quot;</p>}
               </div>
               <button
-                onClick={() => openEdit(selected)}
+                onClick={() => openEdit(selectedLive)}
                 className="w-full md:w-auto flex items-center justify-center gap-2 px-3 py-2 mt-2 md:mt-0 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white text-sm font-semibold transition-all flex-shrink-0"
               >
                 <Pencil size={14} /> Edit
               </button>
             </div>
 
-            {/* Stats */}
+            {/* Stats — totalSpend / visitCount / lastVisit are computed
+                server-side from orders + pos_sales (Bug #11), so undefined
+                fallbacks render the same zero you'd see for a never-purchased
+                customer rather than crashing on .toFixed of null. */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
               {[
-                { label: "Total Spend", value: fmt(selected.totalSpend, settings.currencySymbol), color: "text-green-400" },
-                { label: "Visits", value: selected.visitCount.toString(), color: "text-blue-400" },
-                { label: "Loyalty Points", value: `${selected.loyaltyPoints}`, color: "text-amber-400" },
-                { label: "Gift Card", value: fmt(selected.giftCardBalance, settings.currencySymbol), color: "text-purple-400" },
+                { label: "Total Spend", value: fmt(selectedLive.totalSpend ?? 0, settings.currencySymbol), color: "text-green-400" },
+                { label: "Visits", value: (selectedLive.visitCount ?? 0).toString(), color: "text-blue-400" },
+                { label: "Loyalty Points", value: `${selectedLive.loyaltyPoints ?? 0}`, color: "text-amber-400" },
+                { label: "Gift Card", value: fmt(selectedLive.giftCardBalance ?? 0, settings.currencySymbol), color: "text-purple-400" },
               ].map((s) => (
                 <div key={s.label} className="bg-slate-800 border border-slate-700 rounded-xl p-4">
                   <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
@@ -218,14 +247,14 @@ export default function CustomersView() {
       </div>
 
       {/* ── Edit customer modal ─────────────────────────────────────────── */}
-      {showEdit && selected && (
+      {showEdit && selectedLive && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4">
           <div className="bg-slate-800 border border-slate-700 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700 flex-shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-orange-500/20 flex items-center justify-center text-orange-400 font-bold text-sm">
-                  {getInitials(editDraft.name || selected.name)}
+                  {getInitials(editDraft.name || selectedLive.name)}
                 </div>
                 <h3 className="text-white font-bold">Edit Customer</h3>
               </div>
@@ -344,19 +373,23 @@ export default function CustomersView() {
 
             {/* Footer */}
             <div className="px-5 py-4 border-t border-slate-700 space-y-2 flex-shrink-0">
+              {saveError && (
+                <p className="text-red-400 text-xs text-center">{saveError}</p>
+              )}
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => setDeleteConfirm(true)}
-                  className="py-3 rounded-xl border border-red-500/40 text-red-400 font-semibold text-sm hover:bg-red-500/10 transition-colors flex items-center justify-center gap-2"
+                  disabled={saving}
+                  className="py-3 rounded-xl border border-red-500/40 text-red-400 font-semibold text-sm hover:bg-red-500/10 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   <Trash2 size={14} /> Delete
                 </button>
                 <button
                   onClick={saveEdit}
-                  disabled={!editDraft.name.trim()}
+                  disabled={!editDraft.name.trim() || saving}
                   className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  <Save size={14} /> Save Changes
+                  <Save size={14} /> {saving ? "Saving…" : "Save Changes"}
                 </button>
               </div>
             </div>
@@ -365,7 +398,7 @@ export default function CustomersView() {
       )}
 
       {/* ── Delete customer confirm ──────────────────────────────────────── */}
-      {deleteConfirm && selected && (
+      {deleteConfirm && selectedLive && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-xs p-6 shadow-2xl text-center">
             <div className="w-12 h-12 bg-red-500/10 border border-red-500/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -373,17 +406,18 @@ export default function CustomersView() {
             </div>
             <h3 className="text-white font-bold mb-1">Delete customer?</h3>
             <p className="text-slate-400 text-sm mb-1">
-              <span className="text-white font-semibold">{selected.name}</span> will be permanently removed.
+              <span className="text-white font-semibold">{selectedLive.name}</span> will be permanently removed.
             </p>
             <p className="text-slate-500 text-xs mb-6">
               Their purchase history ({customerSales.length} sale{customerSales.length !== 1 ? "s" : ""}) will remain in the sales log.
             </p>
+            {saveError && <p className="text-red-400 text-xs mb-3">{saveError}</p>}
             <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => setDeleteConfirm(false)} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">
+              <button onClick={() => setDeleteConfirm(false)} disabled={saving} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors disabled:opacity-50">
                 Cancel
               </button>
-              <button onClick={deleteCustomer} className="py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold text-sm transition-colors">
-                Delete
+              <button onClick={handleDelete} disabled={saving} className="py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold text-sm transition-colors disabled:opacity-50">
+                {saving ? "Deleting…" : "Delete"}
               </button>
             </div>
           </div>
@@ -414,9 +448,10 @@ export default function CustomersView() {
                 </div>
               ))}
             </div>
+            {saveError && <p className="text-red-400 text-xs mb-3">{saveError}</p>}
             <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => setShowAdd(false)} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">Cancel</button>
-              <button onClick={addCustomer} disabled={!newCustomer.name.trim()} className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Save</button>
+              <button onClick={() => setShowAdd(false)} disabled={saving} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors disabled:opacity-50">Cancel</button>
+              <button onClick={handleAddCustomer} disabled={!newCustomer.name.trim() || saving} className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{saving ? "Saving…" : "Save"}</button>
             </div>
           </div>
         </div>

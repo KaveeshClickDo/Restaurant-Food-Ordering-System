@@ -142,10 +142,17 @@ export const UserCreateSchema = z.discriminatedUnion("type", [
 
 export const UserUpdateSchema = z.discriminatedUnion("type", [
   z.object({
-    type:  z.literal("customer"),
-    name:  NonEmptyString.optional(),
-    email: Email.optional(),
-    phone: z.string().optional(),
+    type:            z.literal("customer"),
+    name:            NonEmptyString.optional(),
+    email:           Email.optional(),
+    phone:           z.string().optional(),
+    // ── POS-shared fields (Bug #11) — admin can adjust these too. The
+    // customers table is the single source of truth shared between admin
+    // and POS, so the same columns surface here and in /api/pos/customers.
+    notes:           z.string().optional(),
+    tags:            z.array(z.string()).optional(),
+    loyaltyPoints:   z.number().int().nonnegative().optional(),
+    giftCardBalance: Money.optional(),
   }),
   z.object({
     type:        z.literal("driver"),

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useApp } from "@/context/AppContext";
+import { fullOrderNumber } from "@/lib/orderNumber";
 import {
   TrendingUp, ShoppingBag, RotateCcw, Percent, CreditCard,
   Download, Printer, RefreshCw, CalendarDays, ChevronDown,
@@ -358,9 +359,91 @@ export default function OnlineReportsPanel() {
   // ── Export CSV ─────────────────────────────────────────────────────────────
 
   function exportCSV() {
-    const rows = [
-      ["Date", "Order ID", "Status", "Source", "Fulfilment", `Total (${sym})`, `Refunded (${sym})`, `VAT (${sym})`, `Net (${sym})`, "Payment Method"],
-      ...filtered.map((o) => [
+    // Escape one CSV cell: wrap in quotes, double any inner quotes
+    const esc = (v: unknown): string => {
+      const s = v === null || v === undefined ? "" : String(v);
+      return `"${s.replace(/"/g, '""')}"`;
+    };
+    const row = (cells: unknown[]) => cells.map(esc).join(",");
+    const EOL = "\r\n";
+
+    const restaurantName = settings.restaurant?.name ?? "Restaurant";
+    const rangeLabel = `${startDate.toLocaleDateString("en-GB")} - ${endDate.toLocaleDateString("en-GB")}`;
+    const sourceLabel = source === "all" ? "All sources" : source === "online" ? "Online orders only" : "POS orders only";
+    const refundRate = pct(metrics.refunds, metrics.revenue);
+    const totalOrders = metrics.count + metrics.cancelledCount;
+
+    const lines: string[] = [];
+
+    // Header
+    lines.push(`# Finance Report - ${restaurantName} - ${rangeLabel}`);
+    lines.push(`# Source: ${sourceLabel}`);
+    lines.push("");
+
+    // Summary
+    lines.push("## Summary");
+    lines.push(row(["Gross Revenue", metrics.revenue.toFixed(2)]));
+    lines.push(row(["Net Revenue", metrics.netRev.toFixed(2)]));
+    lines.push(row(["Total Orders", totalOrders]));
+    lines.push(row(["Average Order Value", metrics.aov.toFixed(2)]));
+    lines.push(row(["Total Refunds", metrics.refunds.toFixed(2)]));
+    lines.push(row(["Refund Rate", refundRate]));
+    lines.push(row(["VAT Collected", metrics.vat.toFixed(2)]));
+    lines.push("");
+
+    // Payment methods
+    lines.push("## Payment Methods");
+    lines.push(row(["Method", "Order Count", `Amount (${sym})`, "Percentage"]));
+    for (const pm of metrics.payMethods) {
+      lines.push(row([pm.method, pm.count, pm.revenue.toFixed(2), pct(pm.revenue, metrics.revenue)]));
+    }
+    lines.push("");
+
+    // Order status breakdown
+    lines.push("## Order Status Breakdown");
+    lines.push(row(["Status", "Count", "Percentage"]));
+    for (const st of metrics.statuses) {
+      lines.push(row([st.status, st.count, pct(st.count, filtered.length)]));
+    }
+    lines.push("");
+
+    // Fulfillment split
+    lines.push("## Fulfillment Split");
+    lines.push(row(["Type", "Count", "Percentage"]));
+    lines.push(row(["delivery", metrics.delivery, pct(metrics.delivery, metrics.count)]));
+    lines.push(row(["collection", metrics.collection, pct(metrics.collection, metrics.count)]));
+    lines.push("");
+
+    // Revenue over time
+    lines.push("## Revenue Over Time");
+    lines.push(row(["Period", `Revenue (${sym})`, "Order Count"]));
+    for (const d of chartData) {
+      lines.push(row([d.label, d.revenue.toFixed(2), d.count]));
+    }
+    lines.push("");
+
+    // Refunds detail
+    const refundedOrders = filtered.filter((o) => (o.refunded_amount ?? 0) > 0);
+    if (refundedOrders.length > 0) {
+      lines.push("## Refunds Detail");
+      lines.push(row(["Date", "Order ID", "Status", `Order Total (${sym})`, `Refunded (${sym})`]));
+      for (const o of refundedOrders) {
+        lines.push(row([
+          new Date(o.date).toLocaleDateString("en-GB"),
+          o.id,
+          o.status,
+          o.total.toFixed(2),
+          (o.refunded_amount ?? 0).toFixed(2),
+        ]));
+      }
+      lines.push("");
+    }
+
+    // Orders
+    lines.push("## Orders");
+    lines.push(row(["Date", "Order ID", "Status", "Source", "Fulfillment", `Total (${sym})`, `Refunded (${sym})`, `VAT (${sym})`, `Net (${sym})`, "Payment Method"]));
+    for (const o of filtered) {
+      lines.push(row([
         new Date(o.date).toLocaleDateString("en-GB"),
         o.id,
         o.status,
@@ -371,9 +454,10 @@ export default function OnlineReportsPanel() {
         (o.vat_amount ?? 0).toFixed(2),
         (o.total - (o.refunded_amount ?? 0)).toFixed(2),
         o.payment_method ?? "",
-      ]),
-    ];
-    const csv  = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
+      ]));
+    }
+
+    const csv  = lines.join(EOL);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
@@ -390,8 +474,20 @@ export default function OnlineReportsPanel() {
   return (
     <div className="space-y-6">
 
+      {/* ── Print-only header ─────────────────────────────────────────────── */}
+      <div className="print-only">
+        <h1 style={{ fontSize: "20pt", fontWeight: 800, margin: 0 }}>
+          Finance Report — {settings.restaurant?.name ?? "Restaurant"}
+        </h1>
+        <p style={{ fontSize: "11pt", margin: "4pt 0 0", color: "#444" }}>
+          {fmtPresetLabel(preset)} · {startDate.toLocaleDateString("en-GB")} – {endDate.toLocaleDateString("en-GB")} ·{" "}
+          {source === "all" ? "All sources" : source === "online" ? "Online orders only" : "POS orders only"}
+        </p>
+        <hr style={{ margin: "10pt 0", border: "none", borderTop: "1px solid #999" }} />
+      </div>
+
       {/* ── Controls ──────────────────────────────────────────────────────── */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex flex-wrap items-center gap-3">
+      <div className="no-print bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex flex-wrap items-center gap-3">
 
         {/* Preset picker */}
         <div className="relative">
@@ -692,8 +788,8 @@ export default function OnlineReportsPanel() {
                       <td className="py-2.5 pr-4 text-gray-500">
                         {new Date(o.date).toLocaleDateString("en-GB")}
                       </td>
-                      <td className="py-2.5 pr-4 font-mono text-xs text-gray-500">
-                        #{o.id.slice(-8).toUpperCase()}
+                      <td title={fullOrderNumber(o.id)} className="py-2.5 pr-4 font-mono text-xs text-gray-500 truncate max-w-[160px]">
+                        {fullOrderNumber(o.id)}
                       </td>
                       <td className="py-2.5 pr-4">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold text-white ${STATUS_COLORS[o.status] ?? "bg-gray-400"}`}>

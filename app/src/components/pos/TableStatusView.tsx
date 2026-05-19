@@ -20,15 +20,17 @@ export default function TableStatusView() {
   const { settings: appSettings } = useApp();
   const tables = (appSettings.diningTables ?? []).filter((t) => t.active);
 
-  const [reservations,  setReservations]  = useState<ResRow[]>([]);
-  const [loading,       setLoading]       = useState(true);
-  const [actioning,     setActioning]     = useState<string | null>(null);
-  const [filterSection, setFilterSection] = useState("");
+  const [reservations,   setReservations]   = useState<ResRow[]>([]);
+  // initialLoading drives the user-visible spinner — it flips to false after
+  // the first fetch resolves. Background 5 s polls do NOT toggle it, so the
+  // page never thrashes back to a spinner mid-shift.
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [actioning,      setActioning]      = useState<string | null>(null);
+  const [filterSection,  setFilterSection]  = useState("");
 
   const sections = [...new Set(tables.map((t) => t.section).filter(Boolean))];
 
-  const fetchToday = useCallback(async () => {
-    setLoading(true);
+  const fetchToday = useCallback(async (isInitial = false) => {
     try {
       const today = (() => {
         const d = new Date();
@@ -50,15 +52,16 @@ export default function TableStatusView() {
     } catch (err) {
       console.error("TableStatusView fetch:", err);
     } finally {
-      setLoading(false);
+      if (isInitial) setInitialLoading(false);
     }
   }, []);
 
-  useEffect(() => { fetchToday(); }, [fetchToday]);
+  useEffect(() => { fetchToday(true); }, [fetchToday]);
 
   // Poll every 5 s — anon supabase realtime no longer fires after RLS revoke.
+  // Polls run silently (isInitial=false) so they don't toggle the spinner.
   useEffect(() => {
-    const id = setInterval(fetchToday, 5_000);
+    const id = setInterval(() => fetchToday(false), 5_000);
     return () => clearInterval(id);
   }, [fetchToday]);
 
@@ -125,11 +128,11 @@ export default function TableStatusView() {
             </select>
           )}
           <button
-            onClick={fetchToday}
-            disabled={loading}
+            onClick={() => fetchToday(false)}
+            disabled={initialLoading}
             className="flex items-center gap-1.5 bg-slate-800 border border-slate-600 text-slate-300 hover:text-white text-sm px-3 py-1.5 rounded-xl transition"
           >
-            <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+            <RefreshCw size={13} className={initialLoading ? "animate-spin" : ""} />
             Refresh
           </button>
         </div>
@@ -154,7 +157,7 @@ export default function TableStatusView() {
       </div>
 
       {/* Table grid */}
-      {loading ? (
+      {initialLoading ? (
         <div className="flex justify-center py-20">
           <Loader2 size={28} className="animate-spin text-orange-500" />
         </div>
@@ -247,7 +250,7 @@ export default function TableStatusView() {
         </div>
       )}
 
-      {visibleTables.length === 0 && !loading && (
+      {visibleTables.length === 0 && !initialLoading && (
         <div className="flex flex-col items-center py-20 gap-3 text-center">
           <UtensilsCrossed size={32} className="text-slate-600" />
           <p className="text-slate-400 font-semibold">No active tables configured</p>

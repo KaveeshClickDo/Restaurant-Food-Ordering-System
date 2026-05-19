@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { useIdleLogout } from "@/lib/useIdleLogout";
 import type { KitchenStaff } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
 import {
   ChefHat, Clock, Truck, ShoppingBag, CheckCircle2,
   LayoutDashboard, Maximize2, Minimize2, UtensilsCrossed,
@@ -15,6 +16,7 @@ import {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type KDSStatus = "pending" | "confirmed" | "preparing" | "ready";
+type DeliveryStatus = "assigned" | "picked_up" | "on_the_way" | "delivered";
 
 interface KDSOrder {
   id: string;
@@ -23,6 +25,10 @@ interface KDSOrder {
   items: { name: string; qty: number; price: number }[];
   status: KDSStatus;
   fulfillment: string;
+  /** Driver-side state — only present for delivery orders. Used to distinguish
+   *  a "ready" delivery order that's still waiting for a driver pickup from
+   *  one that has already been collected and is en route. */
+  deliveryStatus: DeliveryStatus | null;
   date: string;
   address?: string;
   scheduledTime?: string;
@@ -161,6 +167,7 @@ function mapRow(row: Record<string, unknown>): KDSOrder {
     items:         (row.items as KDSOrder["items"]) ?? [],
     status:        row.status as KDSStatus,
     fulfillment,
+    deliveryStatus: (row.delivery_status as DeliveryStatus | null) ?? null,
     date:          String(row.date),
     address:       (row.address as string) || undefined,
     scheduledTime: (row.scheduled_time as string) || undefined,
@@ -221,6 +228,15 @@ function OrderCard({
   const isDelivery = order.fulfillment === "delivery";
   const isDineIn   = order.fulfillment === "dine-in";
 
+  // A delivery order that the kitchen has marked "ready" but where no driver
+  // has yet collected it (delivery_status null or still "assigned"). We keep
+  // these in the Ready column so kitchen staff can still see them — they're
+  // not "done" until a driver actually leaves with the food.
+  const awaitingDriver =
+    isDelivery &&
+    order.status === "ready" &&
+    (order.deliveryStatus === null || order.deliveryStatus === "assigned");
+
   const tableLabel = isDineIn
     ? (order.displayName.startsWith("Table ") ? order.displayName.slice(6) : null)
     : null;
@@ -260,8 +276,8 @@ function OrderCard({
       {/* Card header */}
       <div className="px-4 pt-3.5 pb-2 flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] text-gray-500 font-mono uppercase tracking-widest">
-            #{order.id.slice(-8).toUpperCase()}
+          <p title={fullOrderNumber(order.id)} className="text-[10px] text-gray-500 font-mono uppercase tracking-widest truncate">
+            {fullOrderNumber(order.id)}
           </p>
           <p className="text-white font-bold text-lg leading-tight truncate mt-0.5">
             {order.displayName}
@@ -343,20 +359,30 @@ function OrderCard({
         </div>
       ) : (
         <div className="px-4 pb-4 flex flex-col gap-2">
-          <div className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-semibold border ${
-            isDineIn
-              ? "bg-purple-900/20 border-purple-700/30 text-purple-300"
-              : isDelivery
-                ? "bg-indigo-900/20 border-indigo-700/30 text-indigo-300"
-                : "bg-emerald-900/20 border-emerald-700/30 text-emerald-300"
-          }`}>
-            {isDineIn
-              ? <>{`🍽️`} Serve at {tableLabel ? `Table ${tableLabel}` : "table"}</>
-              : isDelivery
-                ? <><Truck size={13} /> Awaiting driver pickup</>
-                : <><ShoppingBag size={13} /> Awaiting customer collection</>
-            }
-          </div>
+          {/* Awaiting-driver badge is a distinct state from "ready for
+              collection": the food is done but is not leaving the kitchen
+              until a driver shows up. Bright orange so it stands out against
+              the green "ready" column accents. */}
+          {awaitingDriver ? (
+            <div className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase tracking-widest border-2 bg-orange-500/15 border-orange-500/60 text-orange-300 animate-pulse">
+              <Truck size={14} /> Awaiting Driver Pickup
+            </div>
+          ) : (
+            <div className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-semibold border ${
+              isDineIn
+                ? "bg-purple-900/20 border-purple-700/30 text-purple-300"
+                : isDelivery
+                  ? "bg-indigo-900/20 border-indigo-700/30 text-indigo-300"
+                  : "bg-emerald-900/20 border-emerald-700/30 text-emerald-300"
+            }`}>
+              {isDineIn
+                ? <>{`🍽️`} Serve at {tableLabel ? `Table ${tableLabel}` : "table"}</>
+                : isDelivery
+                  ? <><Truck size={13} /> Out for delivery</>
+                  : <><ShoppingBag size={13} /> Awaiting customer collection</>
+              }
+            </div>
+          )}
           {!isDelivery && !isDineIn && (
             confirming ? (
               <div className="flex gap-2">

@@ -66,11 +66,8 @@ export default function CustomPagesPanel() {
   const { settings, updateSettings } = useApp();
   const pages: CustomPage[] = settings.customPages ?? [];
 
-  // Reserved slugs (footer pages + admin routes)
-  const reservedSlugs = new Set([
-    ...(settings.footerPages ?? []).map((p) => p.slug),
-    "admin", "api",
-  ]);
+  // Reserved slugs (admin routes that must never collide with a public page)
+  const reservedSlugs = new Set(["admin", "api"]);
 
   const [selectedId, setSelectedId] = useState<string | null>(
     pages.length > 0 ? pages[0].id : null

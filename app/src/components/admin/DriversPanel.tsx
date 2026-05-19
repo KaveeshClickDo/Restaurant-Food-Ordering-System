@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useApp } from "@/context/AppContext";
 import type { Driver, Order } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
 import {
   UserPlus, Pencil, Trash2, Car, Phone, Mail,
   CheckCircle2, XCircle, Truck, Package, User,
@@ -284,7 +285,7 @@ function UnassignedOrderCard({
     <div className="bg-white border border-orange-200 rounded-2xl px-4 py-3.5 flex flex-col sm:flex-row sm:items-center gap-3">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <p className="font-bold text-gray-900 text-sm">#{order.id.slice(-8).toUpperCase()}</p>
+          <p title={fullOrderNumber(order.id)} className="font-bold text-gray-900 text-sm truncate max-w-[180px]">{fullOrderNumber(order.id)}</p>
           <span className="text-xs text-gray-500">{customerName}</span>
         </div>
         {order.address && (
@@ -472,8 +473,8 @@ export default function DriversPanel() {
                       {cfg.label}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-900">
-                        #{o.id.slice(-8).toUpperCase()} — {o.customerName}
+                      <p title={fullOrderNumber(o.id)} className="text-sm font-semibold text-gray-900 truncate">
+                        {fullOrderNumber(o.id)} — {o.customerName}
                       </p>
                       {o.address && <p className="text-xs text-gray-400 truncate">{o.address}</p>}
                     </div>

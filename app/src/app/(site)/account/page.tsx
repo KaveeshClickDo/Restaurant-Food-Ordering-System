@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { Order, OrderLine, OrderStatus, DeliveryStatus, MenuItem, SavedAddress, AddOn, CartItem } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
 import AuthModal from "@/components/AuthModal";
 import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import { resolveStock } from "@/lib/stockUtils";
@@ -332,7 +333,7 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-gray-800 text-sm">#{order.id.slice(0, 8).toUpperCase()}</span>
+            <span title={fullOrderNumber(order.id)} className="font-semibold text-gray-800 text-sm truncate max-w-[180px]">{fullOrderNumber(order.id)}</span>
             <StatusBadge order={order} />
             {isActive && (
               <span className="text-[10px] font-semibold bg-zinc-50 text-zinc-700 border border-zinc-200 rounded-full px-2 py-0.5">

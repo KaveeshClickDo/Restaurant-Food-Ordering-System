@@ -8,12 +8,13 @@ export default function DynamicPage() {
   const { footerPage: slug } = useParams<{ footerPage: string }>();
   const { settings } = useApp();
 
-  const footerPage = (settings.footerPages ?? []).find((p) => p.slug === slug);
-  const customPage  = (settings.customPages  ?? []).find((p) => p.slug === slug && p.published);
-  const page = footerPage ?? customPage ?? null;
+  // Footer Pages and Custom Pages have been unified — every published page now
+  // lives in `customPages`. The route segment is still named `footerPage` for
+  // URL stability.
+  const page = (settings.customPages ?? []).find((p) => p.slug === slug && p.published) ?? null;
 
-  const metaTitle       = customPage?.seoTitle || customPage?.title || footerPage?.title || null;
-  const metaDescription = customPage?.seoDescription || null;
+  const metaTitle       = page?.seoTitle || page?.title || null;
+  const metaDescription = page?.seoDescription || null;
 
   return (
     <div className="flex-1 max-w-3xl mx-auto w-full px-4 sm:px-6 py-8 sm:py-12">

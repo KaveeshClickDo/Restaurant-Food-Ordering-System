@@ -24,7 +24,7 @@ function extractReceiptNo(note: string | null | undefined): string | null {
 export async function GET() {
   const { data, error } = await supabaseAdmin
     .from("orders")
-    .select("id, status, fulfillment, date, scheduled_time, items, note")
+    .select("id, status, fulfillment, delivery_status, date, scheduled_time, items, note")
     .in("status", ACTIVE_STATUSES)
     .order("date", { ascending: true })
     .limit(50);
@@ -37,13 +37,17 @@ export async function GET() {
   // Strip note (may contain customer name / staff name / addresses) and return
   // only the public-safe fields the in-store screen actually needs.
   const sanitized = (data ?? []).map((o: Record<string, unknown>) => ({
-    id:            o.id,
-    status:        o.status,
-    fulfillment:   o.fulfillment,
-    date:          o.date,
-    scheduledTime: o.scheduled_time ?? null,
-    items:         o.items ?? [],
-    receiptNo:     extractReceiptNo(o.note as string | null | undefined),
+    id:              o.id,
+    status:          o.status,
+    fulfillment:     o.fulfillment,
+    // delivery_status is needed so the display can distinguish a delivery
+    // order that's "ready" but still awaiting driver pickup vs one already
+    // out for delivery vs a collection order ready for the customer.
+    deliveryStatus:  o.delivery_status ?? null,
+    date:            o.date,
+    scheduledTime:   o.scheduled_time ?? null,
+    items:           o.items ?? [],
+    receiptNo:       extractReceiptNo(o.note as string | null | undefined),
   }));
 
   return NextResponse.json({ ok: true, orders: sanitized });

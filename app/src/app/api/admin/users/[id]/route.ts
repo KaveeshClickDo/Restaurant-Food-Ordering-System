@@ -41,6 +41,13 @@ export async function PATCH(
     if (body.name  !== undefined) updates.name  = body.name;
     if (body.email !== undefined) updates.email = body.email.toLowerCase();
     if (body.phone !== undefined) updates.phone = body.phone.trim() || null;
+    // Bug #11 — POS-shared fields. Customers table is the single source of
+    // truth so both admin (this endpoint) and POS (/api/pos/customers/[id])
+    // write to the same columns.
+    if (body.notes           !== undefined) updates.notes             = body.notes;
+    if (body.tags            !== undefined) updates.tags              = body.tags;
+    if (body.loyaltyPoints   !== undefined) updates.loyalty_points    = body.loyaltyPoints;
+    if (body.giftCardBalance !== undefined) updates.gift_card_balance = body.giftCardBalance;
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ ok: false, error: "No fields to update." }, { status: 400 });
     }
@@ -154,7 +161,44 @@ export async function DELETE(
     return NextResponse.json({ ok: false, error: `Unknown type: ${type}` }, { status: 400 });
   }
 
+  // Reject the synthetic "__deleted__" id — that pseudo-row exists only in
+  // /api/admin/customers/list to surface orphan orders (customer_id set null
+  // after a real delete) in the admin UI. It is not backed by a DB row.
+  if (id === "__deleted__" || id === "pos-walk-in") {
+    return NextResponse.json(
+      { ok: false, error: "This is a system-managed row and cannot be deleted." },
+      { status: 400 },
+    );
+  }
+
+  // For customers, look up the email first so we can also purge any
+  // matching guest profile (reservation_customers row) after the delete.
+  // Without this cleanup the CRM guest-profile table is orphaned by the
+  // customers FK cascade (Bug #10).
+  let customerEmail: string | null = null;
+  if (type === "customer") {
+    const { data: existing } = await supabaseAdmin
+      .from("customers")
+      .select("email")
+      .eq("id", id)
+      .maybeSingle();
+    customerEmail = existing?.email?.toLowerCase()?.trim() || null;
+  }
+
   const { error } = await supabaseAdmin.from(table).delete().eq("id", id);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  if (type === "customer" && customerEmail) {
+    const { error: rcError } = await supabaseAdmin
+      .from("reservation_customers")
+      .delete()
+      .eq("email", customerEmail);
+    if (rcError) {
+      // Non-fatal — the customer row is already gone. Log so an admin can
+      // clean up manually if it ever fails.
+      console.error("admin/users DELETE reservation_customers cleanup:", rcError.message);
+    }
+  }
+
   return NextResponse.json({ ok: true });
 }

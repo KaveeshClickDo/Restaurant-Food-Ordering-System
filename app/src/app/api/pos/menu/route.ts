@@ -44,6 +44,9 @@ const MENU_ITEM_COLS = new Set([
   "id", "category_id", "name", "description", "price", "image",
   "dietary", "popular", "variations", "add_ons", "stock_qty",
   "stock_status", "sort_order",
+  // Bug #2 — POS / admin field parity. These mirror the new MenuItem fields
+  // so a POS upsert preserves cost/sku/branding/offer state in menu_items.
+  "cost", "sku", "emoji", "color", "active", "track_stock", "offer",
 ]);
 
 function pick(row: Record<string, unknown>, allowed: Set<string>): Record<string, unknown> {

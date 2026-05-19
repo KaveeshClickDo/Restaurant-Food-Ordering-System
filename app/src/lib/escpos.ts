@@ -8,6 +8,7 @@
  */
 
 import type { AdminSettings, Order } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
 
 // ─── ESC/POS byte constants ──────────────────────────────────────────────────
 
@@ -149,7 +150,7 @@ export function buildReceipt(order: Order, settings: AdminSettings): number[] {
 
   b.align("left")
    .bold(true)
-   .line(`ORDER ${order.id.toUpperCase()}`)
+   .line(`ORDER ${fullOrderNumber(order.id)}`)
    .bold(false)
    .line(`Date: ${new Date(order.date).toLocaleString("en-GB", {
      day: "2-digit", month: "short", year: "numeric",
@@ -514,7 +515,7 @@ export function printReceiptBrowser(
   if (rs?.vatNumber?.trim()) lines.push(center(`VAT: ${rs.vatNumber.trim()}`));
   lines.push(dbl);
 
-  lines.push(`ORDER ${order.id.toUpperCase()}`);
+  lines.push(`ORDER ${fullOrderNumber(order.id)}`);
   lines.push(`Date: ${new Date(order.date).toLocaleString("en-GB", {
     day: "2-digit", month: "short", year: "numeric",
     hour: "2-digit", minute: "2-digit",

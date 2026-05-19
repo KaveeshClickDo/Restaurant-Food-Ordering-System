@@ -22,7 +22,7 @@ export async function GET() {
 
   const { data, error } = await supabaseAdmin
     .from("orders")
-    .select("id, items, total, note, status, fulfillment, date, address, scheduled_time, customer:customers(name)")
+    .select("id, items, total, note, status, fulfillment, delivery_status, date, address, scheduled_time, customer:customers(name)")
     .in("status", ACTIVE_STATUSES)
     .order("date", { ascending: true });
 

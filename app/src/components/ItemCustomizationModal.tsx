@@ -26,6 +26,19 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
   const [selectedAddOns, setSelectedAddOns]   = useState<string[]>([]);
   const [instructions, setInstructions]       = useState("");
   const [imgError, setImgError]               = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  /**
+   * Return the display names of any required variation groups the user has not
+   * yet picked an option for. A variation is treated as required unless it is
+   * explicitly marked `required: false` — older menu data that pre-dates the
+   * field stays required, matching the previous behaviour.
+   */
+  function getRequiredMissing(): string[] {
+    return (item.variations ?? [])
+      .filter((v) => v.required !== false && !selectedVariations[v.id])
+      .map((v) => v.name);
+  }
 
   // Price calculation
   const variationExtra = Object.entries(selectedVariations).reduce((sum, [varId, optId]) => {
@@ -42,6 +55,29 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
 
   function handleAddToCart() {
     if (!isAvailable(item)) return;
+
+    const missing = getRequiredMissing();
+    if (missing.length > 0) {
+      setValidationError(
+        missing.length === 1
+          ? `Please choose an option for "${missing[0]}".`
+          : `Please choose an option for: ${missing.join(", ")}.`,
+      );
+      return;
+    }
+    setValidationError(null);
+
+    // Build the array form. Each entry pairs the variation group with its
+    // selected option so the server can re-verify and price-check both.
+    const selectedVariationsArr = Object.entries(selectedVariations).flatMap(
+      ([variationId, optionId]) => {
+        const variation = item.variations?.find((v) => v.id === variationId);
+        const option = variation?.options.find((o) => o.id === optionId);
+        if (!variation || !option) return [];
+        return [{ variationId, optionId, label: option.label }];
+      },
+    );
+
     const cartItem: CartItem = {
       id:           crypto.randomUUID(),
       menuItemId:   item.id,
@@ -50,6 +86,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
       quantity,
       specialInstructions: instructions || undefined,
       selectedAddOns: selectedAddOns.map((id) => item.addOns!.find((a) => a.id === id)!),
+      ...(selectedVariationsArr.length > 0 ? { selectedVariations: selectedVariationsArr } : {}),
     };
     addToCart(cartItem);
     onClose();
@@ -131,7 +168,11 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                     <span className="text-[11px] font-bold uppercase tracking-widest text-gray-500">
                       {variation.name}
                     </span>
-                    <span className="text-[10px] text-gray-400 font-medium ml-0.5">· Required</span>
+                    {variation.required !== false ? (
+                      <span className="text-[10px] text-gray-400 font-medium ml-0.5">· Required</span>
+                    ) : (
+                      <span className="text-[10px] text-gray-400 font-medium ml-0.5">· Optional</span>
+                    )}
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     {variation.options.map((opt) => {
@@ -260,6 +301,11 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                   <span className="tabular-nums">{sym}{total.toFixed(2)}</span>
                 </button>
               </div>
+              {validationError && (
+                <p className="text-xs text-red-600 font-medium mt-2 text-center" role="alert">
+                  {validationError}
+                </p>
+              )}
             </div>
 
           </div>

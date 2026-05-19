@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WaiterStaff, DiningTable } from "@/types";
+import { useApp } from "@/context/AppContext";
 import {
   UserPlus, Pencil, Trash2, Users, UtensilsCrossed,
   CheckCircle2, XCircle, Eye, EyeOff, Save, X, Plus,
@@ -339,6 +340,11 @@ export default function WaitersPanel() {
   const [waiters, setWaiters] = useState<WaiterStaff[]>([]);
   const [tables,  setTables]  = useState<DiningTable[]>([]);
 
+  // Sync freshly-fetched tables back into AppContext.settings.diningTables so
+  // other consumers (ReservationsPanel, TableStatusPanel, POS views) see the
+  // current set without needing a page refresh.
+  const { updateSettings } = useApp();
+
   const refreshWaiters = useCallback(async () => {
     try {
       const res = await fetch("/api/admin/waiters");
@@ -353,9 +359,14 @@ export default function WaitersPanel() {
       const res = await fetch("/api/admin/dining-tables");
       if (!res.ok) return;
       const json = await res.json() as { ok: boolean; tables?: DiningTable[] };
-      if (json.ok) setTables(json.tables ?? []);
+      if (json.ok) {
+        const fresh = json.tables ?? [];
+        setTables(fresh);
+        // Push the fresh list into context so other panels live-update.
+        updateSettings({ diningTables: fresh });
+      }
     } catch { /* ignore */ }
-  }, []);
+  }, [updateSettings]);
 
   useEffect(() => { refreshWaiters(); refreshTables(); }, [refreshWaiters, refreshTables]);
 

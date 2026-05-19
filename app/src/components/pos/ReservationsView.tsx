@@ -62,11 +62,13 @@ export default function ReservationsView() {
   const { settings: appSettings } = useApp();
   const rs = appSettings.reservationSystem ?? {};
   const allSlots = generateSlotsRes(rs.openTime ?? "12:00", rs.closeTime ?? "22:00", rs.slotIntervalMinutes ?? 30);
-  const activeTables = (appSettings.diningTables ?? []).filter((t) => t.active);
 
-  const [rows,         setRows]         = useState<ResRowEx[]>([]);
-  const [loading,      setLoading]      = useState(true);
-  const [actioning,    setActioning]    = useState<string | null>(null);
+  const [rows,           setRows]           = useState<ResRowEx[]>([]);
+  // initialLoading drives the user-visible spinner — only the first fetch
+  // toggles it. Background 5 s polls run silently so the page doesn't thrash
+  // back to a spinner every tick.
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [actioning,      setActioning]      = useState<string | null>(null);
   const [filterDate,   setFilterDate]   = useState(localTodayStrRes);
   const [filterStatus, setFilterStatus] = useState("");
   const [filterSource, setFilterSource] = useState("");
@@ -85,7 +87,6 @@ export default function ReservationsView() {
   const [addTableId,     setAddTableId]     = useState("");
   const [addTableMeta,   setAddTableMeta]   = useState<AvailTablePos | null>(null);
   const [addAvailTables, setAddAvailTables] = useState<AvailTablePos[]>([]);
-  const [addBookedIds,   setAddBookedIds]   = useState<Set<string>>(new Set());
   const [addLoadingTbl,  setAddLoadingTbl]  = useState(false);
   const [addName,        setAddName]        = useState("");
   const [addEmail,       setAddEmail]       = useState("");
@@ -94,20 +95,18 @@ export default function ReservationsView() {
   const [addSaving,      setAddSaving]      = useState(false);
   const [addError,       setAddError]       = useState("");
 
-  // Fetch available tables + currently-booked table IDs for the add modal.
-  // Phone bookings only see availableTables; walk-ins use bookedTableIds to
-  // grey out occupied tables while still showing every active table.
+  // Fetch available tables for the add modal. Both walk-in and phone bookings
+  // use the same availability check so staff can't accidentally double-book a
+  // table that's reserved for the same slot.
   const fetchAddTables = useCallback(async (date: string, time: string, party: number) => {
     if (!date || !time || !party) return;
     setAddLoadingTbl(true);
     try {
       const res  = await fetch(`/api/reservations/availability?date=${date}&time=${time}&partySize=${party}`);
-      const json = await res.json() as { ok: boolean; availableTables?: AvailTablePos[]; bookedTableIds?: string[] };
+      const json = await res.json() as { ok: boolean; availableTables?: AvailTablePos[] };
       setAddAvailTables(json.ok ? (json.availableTables ?? []) : []);
-      setAddBookedIds(new Set(json.ok ? (json.bookedTableIds ?? []) : []));
     } catch {
       setAddAvailTables([]);
-      setAddBookedIds(new Set());
     } finally { setAddLoadingTbl(false); }
   }, []);
 
@@ -115,7 +114,6 @@ export default function ReservationsView() {
   useEffect(() => {
     if (!showAdd) return;
     setAddTableId(""); setAddTableMeta(null);
-    setAddBookedIds(new Set());
     if (addTime && !isSlotPastRes(addTime, addDate)) fetchAddTables(addDate, addTime, addParty);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addDate, addTime, addParty, showAdd]);
@@ -145,7 +143,6 @@ export default function ReservationsView() {
     const firstSlot = allSlots.find((s) => !isSlotPastRes(s, today)) ?? allSlots[0] ?? "";
     setAddSource("walk-in"); setAddDate(today); setAddTime(firstSlot);
     setAddParty(2); setAddTableId(""); setAddTableMeta(null); setAddAvailTables([]);
-    setAddBookedIds(new Set());
     setAddName(""); setAddEmail(""); setAddPhone(""); setAddNote("");
     setAddError(""); setAddSaving(false); setShowAdd(true);
   }
@@ -180,7 +177,7 @@ export default function ReservationsView() {
         }),
       });
       const json = await res.json() as { ok: boolean; error?: string };
-      if (json.ok) { setShowAdd(false); fetchRows(); }
+      if (json.ok) { setShowAdd(false); fetchRows(false); }
       else setAddError(json.error ?? "Failed to create booking.");
     } catch { setAddError("Network error — please try again."); }
     finally { setAddSaving(false); }
@@ -189,8 +186,7 @@ export default function ReservationsView() {
   // ── Main list ──────────────────────────────────────────────────────────────
   // Fetch via the authenticated /api/pos/reservations endpoint and filter
   // client-side. Replaces the prior anon supabase read.
-  const fetchRows = useCallback(async () => {
-    setLoading(true);
+  const fetchRows = useCallback(async (isInitial = false) => {
     try {
       const params = new URLSearchParams({ date: filterDate });
       const r = await fetch(`/api/pos/reservations?${params}`, { cache: "no-store" });
@@ -210,16 +206,23 @@ export default function ReservationsView() {
     } catch (err) {
       console.error("ReservationsView fetch:", err);
     } finally {
-      setLoading(false);
+      if (isInitial) setInitialLoading(false);
     }
   }, [filterDate, filterStatus, filterSource]);
 
-  useEffect(() => { fetchRows(); }, [fetchRows]);
+  // Whenever filters change we want to re-run the fetch but keep showing the
+  // previous list (no flicker) — so this counts as a non-initial fetch unless
+  // it's truly the first one. We track that via the initialLoading flag itself.
+  const hasLoadedRef = useRef(false);
+  useEffect(() => {
+    fetchRows(!hasLoadedRef.current);
+    hasLoadedRef.current = true;
+  }, [fetchRows]);
 
   // Poll every 5 s — Supabase Realtime on the anon client no longer fires for
-  // reservations after RLS is tightened.
+  // reservations after RLS is tightened. Polls run silently.
   useEffect(() => {
-    const id = setInterval(fetchRows, 5_000);
+    const id = setInterval(() => fetchRows(false), 5_000);
     return () => clearInterval(id);
   }, [fetchRows]);
 
@@ -271,11 +274,6 @@ export default function ReservationsView() {
     return new Date(y, mo - 1, day).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
   };
 
-  // Tables grouped by section for the add modal selector
-  const tablesBySection = activeTables.reduce<Record<string, typeof activeTables>>((acc, t) => {
-    (acc[t.section || "Other"] = acc[t.section || "Other"] ?? []).push(t); return acc;
-  }, {});
-
   const addSlotsForDate = allSlots; // full list; UI disables past ones
 
   return (
@@ -295,11 +293,11 @@ export default function ReservationsView() {
             <UserPlus size={13} /> Add Walk-in
           </button>
           <button
-            onClick={fetchRows}
-            disabled={loading}
+            onClick={() => fetchRows(false)}
+            disabled={initialLoading}
             className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl px-3 py-2 text-slate-300 text-xs font-medium transition"
           >
-            <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+            <RefreshCw size={13} className={initialLoading ? "animate-spin" : ""} />
             Refresh
           </button>
         </div>
@@ -370,7 +368,7 @@ export default function ReservationsView() {
       </div>
 
       {/* List */}
-      {loading ? (
+      {initialLoading ? (
         <div className="flex justify-center py-16">
           <Loader2 size={28} className="animate-spin text-orange-500" />
         </div>
@@ -541,17 +539,17 @@ export default function ReservationsView() {
                 </div>
               </div>
 
-              {/* Date + party. Date column is hidden for walk-ins — they're
-                  seated now, so a "Seating now" pill replaces it. */}
-              <div className={`grid gap-3 ${addSource === "phone" ? "grid-cols-2" : "grid-cols-1"}`}>
-                {addSource === "phone" && (
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Date</label>
-                    <input type="date" value={addDate} min={localTodayStrRes()} max={localMaxDateStrRes(rs.maxAdvanceDays ?? 30)}
-                      onChange={(e) => setAddDate(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-600 rounded-xl px-3 py-2.5 text-slate-200 text-sm focus:outline-none focus:border-orange-500 transition" />
-                  </div>
-                )}
+              {/* Date + party. Both walk-in and phone get a date picker now
+                  (walk-ins default to today + the current slot but staff can
+                  forward-book a walk-in arrival if needed — matches the phone
+                  flow). */}
+              <div className="grid gap-3 grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Date</label>
+                  <input type="date" value={addDate} min={localTodayStrRes()} max={localMaxDateStrRes(rs.maxAdvanceDays ?? 30)}
+                    onChange={(e) => setAddDate(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-600 rounded-xl px-3 py-2.5 text-slate-200 text-sm focus:outline-none focus:border-orange-500 transition" />
+                </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Guests</label>
                   <div className="flex items-center gap-2">
@@ -564,113 +562,41 @@ export default function ReservationsView() {
                 </div>
               </div>
 
-              {addSource === "walk-in" && (
-                <div className="flex items-center gap-2 bg-orange-500/15 border border-orange-500/40 rounded-xl px-3 py-2.5 text-sm text-orange-200">
-                  <Clock size={14} className="flex-shrink-0" />
-                  Seating now · <strong>{fmt12Pos(addTime)}</strong>
+              {/* Time slots — shown for BOTH walk-in and phone. Walk-in opens
+                  pre-selected on the current slot; staff can pick later. */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Time</label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {addSlotsForDate.map((slot) => {
+                    const past     = isSlotPastRes(slot, addDate);
+                    const selected = addTime === slot;
+                    return (
+                      <button key={slot} type="button" disabled={past}
+                        onClick={() => !past && setAddTime(slot)}
+                        title={past ? "Time has passed" : undefined}
+                        className={`py-2 rounded-lg text-xs font-semibold border transition-all ${
+                          past
+                            ? "bg-slate-900 text-slate-700 border-slate-800 cursor-not-allowed line-through"
+                            : selected
+                              ? "bg-orange-500 text-white border-orange-500"
+                              : "bg-slate-800 text-slate-300 border-slate-700 hover:border-orange-500 hover:text-orange-300"
+                        }`}>{fmt12Pos(slot)}</button>
+                    );
+                  })}
                 </div>
-              )}
+                {addSlotsForDate.every((s) => isSlotPastRes(s, addDate)) && (
+                  <p className="text-xs text-amber-400 mt-2">All slots for today have passed — select a future date.</p>
+                )}
+              </div>
 
-              {/* Time slots — only shown for phone bookings */}
-              {addSource === "phone" && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Time</label>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {addSlotsForDate.map((slot) => {
-                      const past     = isSlotPastRes(slot, addDate);
-                      const selected = addTime === slot;
-                      return (
-                        <button key={slot} type="button" disabled={past}
-                          onClick={() => !past && setAddTime(slot)}
-                          title={past ? "Time has passed" : undefined}
-                          className={`py-2 rounded-lg text-xs font-semibold border transition-all ${
-                            past
-                              ? "bg-slate-900 text-slate-700 border-slate-800 cursor-not-allowed line-through"
-                              : selected
-                                ? "bg-orange-500 text-white border-orange-500"
-                                : "bg-slate-800 text-slate-300 border-slate-700 hover:border-orange-500 hover:text-orange-300"
-                          }`}>{fmt12Pos(slot)}</button>
-                      );
-                    })}
-                  </div>
-                  {addSlotsForDate.every((s) => isSlotPastRes(s, addDate)) && (
-                    <p className="text-xs text-amber-400 mt-2">All slots for today have passed — select a future date.</p>
-                  )}
-                </div>
-              )}
-
-              {/* Table selector */}
+              {/* Table selector — unified for walk-in and phone. Both show
+                  only AVAILABLE tables for the chosen slot so staff can't
+                  accidentally double-book. */}
               <div>
                 <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                   Table
-                  {addSource === "walk-in" && <span className="text-slate-500 font-normal normal-case ml-1">(select from all active tables)</span>}
                 </label>
-                {addSource === "walk-in" ? (
-                  /* Walk-ins: pick any active table, but disable already-reserved
-                     ones (hard block) and warn on undersized ones (soft block —
-                     staff can still pick if they're combining tables / adding chairs). */
-                  addLoadingTbl ? (
-                    <div className="flex items-center gap-2 text-slate-400 text-sm py-2">
-                      <Loader2 size={14} className="animate-spin text-orange-500" /> Checking table status…
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {Object.entries(tablesBySection).map(([sec, tbls]) => (
-                        <div key={sec}>
-                          {sec && <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">{sec}</p>}
-                          <div className="grid grid-cols-4 gap-1.5">
-                            {tbls.map((t) => {
-                              const sel          = addTableId === t.id;
-                              const isBooked     = addBookedIds.has(t.id);
-                              const isUndersized = t.seats < addParty;
-                              const baseCls      = "py-2 rounded-lg text-[11px] font-semibold border transition-all flex flex-col items-center leading-tight";
-                              const cls = isBooked
-                                ? `${baseCls} bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed line-through`
-                                : sel
-                                  ? isUndersized
-                                    ? `${baseCls} bg-amber-500 text-white border-amber-400`
-                                    : `${baseCls} bg-orange-500 text-white border-orange-500`
-                                  : isUndersized
-                                    ? `${baseCls} bg-amber-900/30 text-amber-300 border-amber-700/50 hover:border-amber-500`
-                                    : `${baseCls} bg-slate-800 text-slate-300 border-slate-700 hover:border-orange-500 hover:text-orange-300`;
-                              return (
-                                <button
-                                  key={t.id}
-                                  type="button"
-                                  disabled={isBooked}
-                                  title={
-                                    isBooked     ? "Already reserved at this time" :
-                                    isUndersized ? `Seats ${t.seats} — party of ${addParty} (will need extra chairs)` :
-                                    `Seats ${t.seats}`
-                                  }
-                                  onClick={() => { setAddTableId(t.id); setAddTableMeta({ id: t.id, label: t.label, seats: t.seats, section: t.section }); }}
-                                  className={cls}
-                                >
-                                  <span>{t.label}</span>
-                                  <span className="text-[9px] font-normal opacity-75">
-                                    {isBooked ? "reserved" : `seats ${t.seats}`}
-                                  </span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
-                      {/* Legend */}
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-[10px] text-slate-500">
-                        <span className="flex items-center gap-1">
-                          <span className="w-2.5 h-2.5 rounded-sm bg-slate-800 border border-slate-700" /> free
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <span className="w-2.5 h-2.5 rounded-sm bg-amber-900/40 border border-amber-700/50" /> too small (warn)
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <span className="w-2.5 h-2.5 rounded-sm bg-slate-900 border border-slate-800" /> reserved (blocked)
-                        </span>
-                      </div>
-                    </div>
-                  )
-                ) : addLoadingTbl ? (
+                {addLoadingTbl ? (
                   <div className="flex items-center gap-2 text-slate-400 text-sm py-2">
                     <Loader2 size={14} className="animate-spin text-orange-500" /> Checking availability…
                   </div>
@@ -679,13 +605,30 @@ export default function ReservationsView() {
                 ) : (
                   <div className="grid grid-cols-4 gap-1.5">
                     {addAvailTables.map((t) => {
-                      const sel = addTableId === t.id;
+                      const sel          = addTableId === t.id;
+                      const isUndersized = t.seats < addParty;
+                      const baseCls      = "py-2 rounded-lg text-[11px] font-semibold border transition-all flex flex-col items-center leading-tight";
+                      const cls = sel
+                        ? isUndersized
+                          ? `${baseCls} bg-amber-500 text-white border-amber-400`
+                          : `${baseCls} bg-orange-500 text-white border-orange-500`
+                        : isUndersized
+                          ? `${baseCls} bg-amber-900/30 text-amber-300 border-amber-700/50 hover:border-amber-500`
+                          : `${baseCls} bg-slate-800 text-slate-300 border-slate-700 hover:border-orange-500 hover:text-orange-300`;
                       return (
-                        <button key={t.id} type="button"
+                        <button
+                          key={t.id}
+                          type="button"
+                          title={
+                            isUndersized ? `Seats ${t.seats} — party of ${addParty} (will need extra chairs)` :
+                            `Seats ${t.seats}`
+                          }
                           onClick={() => { setAddTableId(t.id); setAddTableMeta(t); }}
-                          className={`py-2 rounded-lg text-xs font-semibold border transition-all ${
-                            sel ? "bg-orange-500 text-white border-orange-500" : "bg-slate-800 text-slate-300 border-slate-700 hover:border-orange-500 hover:text-orange-300"
-                          }`}>{t.label}</button>
+                          className={cls}
+                        >
+                          <span>{t.label}</span>
+                          <span className="text-[9px] font-normal opacity-75">seats {t.seats}</span>
+                        </button>
                       );
                     })}
                   </div>

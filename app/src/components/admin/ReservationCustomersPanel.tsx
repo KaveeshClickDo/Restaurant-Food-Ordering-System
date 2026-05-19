@@ -451,6 +451,9 @@ export default function ReservationCustomersPanel() {
         </div>
         <div className="flex-1 min-w-0">
           <h2 className="font-bold text-gray-900">Guest Profiles</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Guest profiles from anonymous (no-account) checkouts and reservation check-ins.
+          </p>
           <p className="text-xs text-gray-400 mt-0.5">
             {customers.length} guests · {optInCount} opted in for marketing
           </p>

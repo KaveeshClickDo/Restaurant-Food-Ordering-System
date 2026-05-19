@@ -185,7 +185,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-white text-sm font-semibold truncate">{c.name}</p>
-                    <p className="text-slate-400 text-xs">{c.phone ?? c.email ?? "No contact"} · {c.loyaltyPoints}pts</p>
+                    <p className="text-slate-400 text-xs">{c.phone ?? c.email ?? "No contact"} · {c.loyaltyPoints ?? 0}pts</p>
                   </div>
                   {c.tags.includes("VIP") && <Star size={12} className="text-amber-400 flex-shrink-0" />}
                 </button>

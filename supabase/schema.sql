@@ -2,28 +2,21 @@
 -- Single-Restaurant Food Ordering System — canonical database schema
 -- ═══════════════════════════════════════════════════════════════════════════════
 --
--- One file, one truth. Replaces all the earlier `*_migration.sql` files.
+-- Canonical schema for first deploy. Run via `npm run db:migrate` on a fresh
+-- Supabase project.
 --
 -- How to apply:
 --   • Local script:   cd app && npm run db:migrate
 --   • Supabase UI:    Dashboard → SQL Editor → New query → Paste this file → Run
 --
--- Safety:
---   • Every statement is idempotent (IF NOT EXISTS / DROP IF EXISTS / DO $$).
---   • Safe to re-run any number of times. Fresh installs and existing DBs both
---     converge to the same end state.
---   • No data is dropped, mutated, or back-filled. New columns get defaults;
---     existing rows keep their values.
---
 -- Layout:
 --    1. Extensions
 --    2. Tables (in dependency order)
---    3. Column additions on existing tables + meal-period tables, links
---    4. Indexes
---    5. RLS — enable + policies
---    6. Grants (base table grants + column-level revokes)
---    7. Sentinel rows (app_settings, pos-walk-in)
---    8. Realtime publications
+--    3. Indexes
+--    4. RLS — enable + policies
+--    5. Grants (base table grants + column-level revokes)
+--    6. Sentinel rows (app_settings, pos-walk-in)
+--    7. Realtime publications
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 
@@ -48,6 +41,10 @@ create table if not exists categories (
   sort_order integer not null default 0
 );
 
+-- menu_items — admin/POS unified item catalog.
+-- POS-side fields (cost, sku, emoji, color, active, offer, track_stock) are
+-- included so both the admin and POS editors round-trip losslessly. See the
+-- Bug #2 refactor for the unified MenuItem type that drives this.
 create table if not exists menu_items (
   id           text primary key,
   category_id  text not null references categories(id) on delete cascade,
@@ -61,59 +58,108 @@ create table if not exists menu_items (
   add_ons      jsonb,
   stock_qty    integer,
   stock_status text,
-  sort_order   integer not null default 0
+  sort_order   integer not null default 0,
+  cost         numeric,
+  sku          text,
+  emoji        text,
+  color        text,
+  active       boolean not null default true,
+  track_stock  boolean not null default false,
+  offer        jsonb
 );
 
+-- customers — registered + sentinel walk-in.
+-- Auth columns (password_hash, reset_token, email_verified, email_verification_*)
+-- support self-serve login, password reset, and email verification.
+-- POS-shared fields (loyalty_points, gift_card_balance, notes) let POS and admin
+-- share the customers table as the single source of truth (Bug #11). totalSpend
+-- / visitCount / lastVisit are NOT stored — they're computed server-side by the
+-- list endpoints by joining orders + pos_sales.
 create table if not exists customers (
-  id              text        primary key,
-  name            text        not null,
-  email           text        not null unique,
-  phone           text        not null default '',
-  password        text,                              -- legacy plaintext; new accounts use password_hash
-  created_at      timestamptz not null default now(),
-  tags            text[]      not null default '{}',
-  favourites      text[]      not null default '{}',
-  saved_addresses jsonb       not null default '[]',
-  store_credit    numeric     not null default 0
+  id                         text          primary key,
+  name                       text          not null,
+  email                      text          not null unique,
+  phone                      text          not null default '',
+  password_hash              text,
+  reset_token                text,
+  reset_token_expires        timestamptz,
+  email_verified             boolean       not null default false,
+  email_verification_token   text,
+  email_verification_expires timestamptz,
+  created_at                 timestamptz   not null default now(),
+  tags                       text[]        not null default '{}',
+  favourites                 text[]        not null default '{}',
+  saved_addresses            jsonb         not null default '[]',
+  store_credit               numeric       not null default 0,
+  loyalty_points             integer       default 0,
+  gift_card_balance          numeric(10,2) default 0,
+  notes                      text          default ''
 );
 
+-- Note on customer_id: nullable + ON DELETE SET NULL. When admin deletes a
+-- customer we must preserve the order row (totals, payment_method, refunds,
+-- VAT, fees, dates) for financial audit. The customer link is severed; admin
+-- UI shows "Deleted customer" for these rows. POS sales follow the same
+-- pattern (no FK at all).
+--
+-- delivery_code: 4-digit PIN the customer reads to the driver to confirm
+-- hand-off, preventing misdelivery. Populated only for delivery fulfillment at
+-- order-creation time; null for collection / dine-in.
+--
+-- payment_status distinguishes "money collected" from order fulfillment status:
+--   • 'unpaid'   — cash / pay-on-delivery; expect to collect at hand-off.
+--   • 'paid'     — Stripe (or future PayPal) authorised + captured.
+--   • 'refunded' — full refund processed through the gateway.
+--   • 'partially_refunded' — at least one partial refund processed.
+-- The `status` column continues to track fulfillment (pending → preparing →
+-- delivered). The two move independently: a 'paid' order can still be 'pending'
+-- (just placed), and a 'delivered' order can be 'unpaid' (cash).
 create table if not exists orders (
-  id                text        primary key,
-  customer_id       text        not null references customers(id) on delete cascade,
-  date              timestamptz not null default now(),
-  status            text        not null default 'pending',
-  fulfillment       text        not null default 'delivery',
-  total             numeric     not null,
-  items             jsonb       not null default '[]',
-  address           text,
-  note              text,
-  payment_method    text,
-  delivery_fee      numeric,
-  service_fee       numeric,
-  scheduled_time    text,
-  coupon_code       text,
-  coupon_discount   numeric,
-  vat_amount        numeric,
-  vat_inclusive     boolean,
-  driver_id         text,
-  driver_name       text,
-  delivery_status   text,
-  delivery_code     text,
-  refunds           jsonb       not null default '[]',
-  refunded_amount   numeric     not null default 0,
-  store_credit_used numeric     not null default 0
+  id                       text        primary key,
+  customer_id              text        references customers(id) on delete set null,
+  date                     timestamptz not null default now(),
+  status                   text        not null default 'pending',
+  fulfillment              text        not null default 'delivery',
+  total                    numeric     not null,
+  items                    jsonb       not null default '[]',
+  address                  text,
+  note                     text,
+  payment_method           text,
+  delivery_fee             numeric,
+  service_fee              numeric,
+  scheduled_time           text,
+  coupon_code              text,
+  coupon_discount          numeric,
+  vat_amount               numeric,
+  vat_inclusive            boolean,
+  driver_id                text,
+  driver_name              text,
+  delivery_status          text,
+  delivery_code            text,
+  refunds                  jsonb       not null default '[]',
+  refunded_amount          numeric     not null default 0,
+  store_credit_used        numeric     not null default 0,
+  voided_by                text,
+  void_reason              text,
+  voided_at                timestamptz,
+  payment_status           text        not null default 'unpaid'
+                           check (payment_status in ('unpaid','paid','refunded','partially_refunded','failed')),
+  stripe_payment_intent_id text,
+  stripe_charge_id         text
 );
 
 create table if not exists drivers (
-  id            text        primary key,
-  name          text        not null,
-  email         text        not null unique,
-  phone         text        not null default '',
-  password_hash text        not null,
-  active        boolean     not null default true,
-  vehicle_info  text,
-  notes         text,
-  created_at    timestamptz not null default now()
+  id                  text        primary key,
+  name                text        not null,
+  email               text        not null unique,
+  phone               text        not null default '',
+  password_hash       text        not null,
+  reset_token         text,
+  reset_token_expires timestamptz,
+  active              boolean     not null default true,
+  vehicle_info        text,
+  notes               text,
+  created_at          timestamptz not null default now()
 );
 
 create table if not exists reservations (
@@ -130,9 +176,16 @@ create table if not exists reservations (
   party_size     integer     not null,
   status         text        not null default 'pending',
   note           text,
+  checked_in_at  timestamptz,
+  checked_out_at timestamptz,
+  source         text        not null default 'online',
+  cancel_token   text        not null default gen_random_uuid()::text unique,
   created_at     timestamptz not null default now()
 );
 
+-- reservation_customers.customer_id is nullable: not every reservation guest is
+-- (or becomes) a registered customer. ON DELETE SET NULL so deleting a customer
+-- record doesn't cascade-wipe their reservation history.
 create table if not exists reservation_customers (
   id               text          primary key default gen_random_uuid()::text,
   email            text          not null unique,
@@ -147,6 +200,7 @@ create table if not exists reservation_customers (
   order_count      integer       not null default 0,
   total_spend      numeric(10,2) not null default 0,
   last_order_at    timestamptz,
+  customer_id      text          references customers(id) on delete set null,
   created_at       timestamptz   not null default now(),
   updated_at       timestamptz   not null default now()
 );
@@ -346,107 +400,14 @@ create unique index if not exists dining_tables_label_unique
   on dining_tables (lower(label));
 
 
--- ── 3. Column additions on existing tables ───────────────────────────────────
--- Added separately as ALTERs so existing DBs created before these columns
--- existed pick them up on first re-run.
-
--- 3a. customers — auth + email verification ----------------------------------
-alter table customers add column if not exists password_hash               text;
-alter table customers add column if not exists reset_token                 text;
-alter table customers add column if not exists reset_token_expires         timestamptz;
-alter table customers add column if not exists email_verified              boolean     not null default false;
-alter table customers add column if not exists email_verification_token    text;
-alter table customers add column if not exists email_verification_expires  timestamptz;
-
--- Legacy plaintext `password` column — all accounts use password_hash now.
--- Drop is gated on the column actually existing so a fresh install is a no-op.
-alter table customers drop column if exists password;
-
--- 3b. drivers — password reset -----------------------------------------------
-alter table drivers add column if not exists reset_token         text;
-alter table drivers add column if not exists reset_token_expires timestamptz;
-
--- 3c. orders — void/refund audit --------------------------------------------
-alter table orders add column if not exists voided_by   text;
-alter table orders add column if not exists void_reason text;
-alter table orders add column if not exists voided_at   timestamptz;
-
--- 3c-ii. orders — delivery_code (4-digit PIN the customer reads to the driver
--- to confirm hand-off, preventing misdelivery). Populated only for delivery
--- fulfillment at order-creation time; null for collection / dine-in.
-alter table orders add column if not exists delivery_code text;
-
--- 3c-iii. orders — Stripe payment tracking.
--- payment_status distinguishes "money collected" from order fulfillment status:
---   • 'unpaid'   — cash / pay-on-delivery; expect to collect at hand-off.
---   • 'paid'     — Stripe (or future PayPal) authorised + captured.
---   • 'refunded' — full refund processed through the gateway.
---   • 'partially_refunded' — at least one partial refund processed.
--- The original `status` column continues to track fulfillment (pending →
--- preparing → delivered). The two move independently: a 'paid' order can still
--- be 'pending' (just placed), and a 'delivered' order can be 'unpaid' (cash).
-alter table orders add column if not exists payment_status text not null default 'unpaid'
-  check (payment_status in ('unpaid','paid','refunded','partially_refunded','failed'));
-alter table orders add column if not exists stripe_payment_intent_id text;
-alter table orders add column if not exists stripe_charge_id         text;
-
--- 3c-iv. orders — refund tracking on the refunds JSONB.
--- The refunds array entries gain optional stripe_refund_id / processor fields
--- when the refund was processed through Stripe. No schema change needed —
--- JSONB shape lives in @/types Refund interface.
-
--- 3c-v. payment_sessions — back-fill index for webhook lookups.
-create index if not exists idx_payment_sessions_pi    on payment_sessions(stripe_payment_intent_id);
-create index if not exists idx_payment_sessions_exp   on payment_sessions(expires_at);
-create index if not exists idx_orders_payment_status  on orders(payment_status);
-create index if not exists idx_orders_stripe_pi       on orders(stripe_payment_intent_id) where stripe_payment_intent_id is not null;
-
--- 3d. reservations — check-in/out + source + cancel_token -------------------
-alter table reservations add column if not exists checked_in_at  timestamptz;
-alter table reservations add column if not exists checked_out_at timestamptz;
-alter table reservations add column if not exists source         text;
-alter table reservations add column if not exists cancel_token   text;
-
--- Backfill source/cancel_token BEFORE adding constraints (safe on empty DBs).
-update reservations set source       = 'online'                where source is null;
-update reservations set cancel_token = gen_random_uuid()::text where cancel_token is null or cancel_token = 'online';
-
--- Re-roll any duplicate cancel_tokens that survived the backfill.
-update reservations r
-set cancel_token = gen_random_uuid()::text
-where exists (
-  select 1 from reservations r2
-  where r2.cancel_token = r.cancel_token and r2.id < r.id
-);
-
--- Drop any stale unique constraint on source (an old migration mistakenly added one).
-alter table reservations drop constraint if exists reservations_source_key;
-
-alter table reservations alter column source       set default 'online';
-alter table reservations alter column source       set not null;
-alter table reservations alter column cancel_token set default gen_random_uuid()::text;
-alter table reservations alter column cancel_token set not null;
-
-do $$
-begin
-  if not exists (
-    select 1 from pg_constraint
-    where conname = 'reservations_cancel_token_key' and conrelid = 'reservations'::regclass
-  ) then
-    alter table reservations add constraint reservations_cancel_token_key unique (cancel_token);
-  end if;
-end $$;
-
--- 3e. Meal periods — time-bounded sections on the customer menu --------------
--- Replaces the earlier single-enum `meal_period` column and the legacy
--- `settings.breakfastMenu` JSONB blob with a proper many-to-many model:
+-- Meal periods — time-bounded sections on the customer menu.
+-- Many-to-many model:
 --   * `meal_periods` row per period (Breakfast, Lunch, Dinner, Sunday Brunch…)
 --     with schedule (enabled, time window, days of week, sort_order).
 --   * `menu_item_meal_periods` join row per (item × period) pair.
 -- Items with zero join rows are "anytime" items shown on the customer menu
 -- regardless of time. Cascade deletes both ways so removing either side is
 -- self-cleaning.
-
 create table if not exists meal_periods (
   id            text        primary key default gen_random_uuid()::text,
   name          text        not null,
@@ -464,70 +425,39 @@ create table if not exists menu_item_meal_periods (
   primary key (menu_item_id, meal_period_id)
 );
 
--- Convert the early-version `uuid` columns to `text` on already-migrated DBs.
--- Matches the rest of the schema's id convention and lets the demo seed and
--- admin UI use human-readable IDs ("mp-breakfast") alongside auto-generated ones.
-do $$
-begin
-  if exists (
-    select 1 from information_schema.columns
-    where table_schema = 'public'
-      and table_name   = 'meal_periods'
-      and column_name  = 'id'
-      and data_type    = 'uuid'
-  ) then
-    alter table menu_item_meal_periods drop constraint if exists menu_item_meal_periods_meal_period_id_fkey;
-    alter table menu_item_meal_periods alter column meal_period_id type text using meal_period_id::text;
-    alter table meal_periods alter column id drop default;
-    alter table meal_periods alter column id type text using id::text;
-    alter table meal_periods alter column id set default gen_random_uuid()::text;
-    alter table menu_item_meal_periods
-      add constraint menu_item_meal_periods_meal_period_id_fkey
-      foreign key (meal_period_id) references meal_periods(id) on delete cascade;
-  end if;
-end $$;
 
--- Drop the now-obsolete column (and its index) so the runtime can't
--- accidentally read stale data after the refactor.
-alter table menu_items drop column if exists meal_period;
-
--- 3f. reservation_customers ↔ customers link --------------------------------
--- Nullable: not every reservation guest is (or becomes) a registered customer.
--- Set null on delete so deleting a customer record doesn't cascade-wipe their
--- reservation history.
-alter table reservation_customers
-  add column if not exists customer_id text references customers(id) on delete set null;
-
-
--- ── 4. Indexes ───────────────────────────────────────────────────────────────
+-- ── 3. Indexes ───────────────────────────────────────────────────────────────
 -- Speeds up the queries the app actually runs (admin reports, KDS filters,
 -- reservations lookup, driver dashboards).
 
-create index if not exists idx_orders_customer_id   on orders(customer_id);
-create index if not exists idx_orders_date          on orders(date desc);
-create index if not exists idx_orders_status        on orders(status);
-create index if not exists idx_orders_driver_id     on orders(driver_id) where driver_id is not null;
-create index if not exists idx_menu_items_category  on menu_items(category_id);
-drop index if exists idx_menu_items_meal;
+create index if not exists idx_orders_customer_id    on orders(customer_id);
+create index if not exists idx_orders_date           on orders(date desc);
+create index if not exists idx_orders_status         on orders(status);
+create index if not exists idx_orders_driver_id      on orders(driver_id) where driver_id is not null;
+create index if not exists idx_orders_payment_status on orders(payment_status);
+create index if not exists idx_orders_stripe_pi      on orders(stripe_payment_intent_id) where stripe_payment_intent_id is not null;
+create index if not exists idx_menu_items_category   on menu_items(category_id);
 create index if not exists idx_mimp_item             on menu_item_meal_periods(menu_item_id);
 create index if not exists idx_mimp_period           on menu_item_meal_periods(meal_period_id);
 create index if not exists idx_meal_periods_order    on meal_periods(sort_order);
-create index if not exists idx_reservations_slot    on reservations(date, time);
-create index if not exists idx_reservations_status  on reservations(status);
-create index if not exists idx_pos_staff_active     on pos_staff(active) where active = true;
+create index if not exists idx_reservations_slot     on reservations(date, time);
+create index if not exists idx_reservations_status   on reservations(status);
+create index if not exists idx_pos_staff_active      on pos_staff(active) where active = true;
 create index if not exists idx_pos_sales_date        on pos_sales(date desc);
 create index if not exists idx_pos_sales_staff       on pos_sales(staff_id) where staff_id is not null;
 create index if not exists idx_pos_sales_voided      on pos_sales(voided) where voided = true;
 create index if not exists idx_pos_clock_staff_in    on pos_clock_entries(staff_id, clock_in desc);
-create index if not exists idx_waiters_active       on waiters(active)   where active = true;
-create index if not exists idx_kitchen_staff_active on kitchen_staff(active) where active = true;
-create index if not exists idx_coupons_active       on coupons(active)   where active = true;
-create index if not exists idx_payment_audit_time   on payment_audit_log(timestamp desc);
+create index if not exists idx_waiters_active        on waiters(active)   where active = true;
+create index if not exists idx_kitchen_staff_active  on kitchen_staff(active) where active = true;
+create index if not exists idx_coupons_active        on coupons(active)   where active = true;
+create index if not exists idx_payment_audit_time    on payment_audit_log(timestamp desc);
+create index if not exists idx_payment_sessions_pi   on payment_sessions(stripe_payment_intent_id);
+create index if not exists idx_payment_sessions_exp  on payment_sessions(expires_at);
 
 
--- ── 5. RLS — enable + policies ───────────────────────────────────────────────
+-- ── 4. RLS — enable + policies ───────────────────────────────────────────────
 
--- 5a. Enable RLS on every table.
+-- 4a. Enable RLS on every table.
 alter table app_settings           enable row level security;
 alter table categories             enable row level security;
 alter table menu_items             enable row level security;
@@ -549,7 +479,7 @@ alter table dining_tables          enable row level security;
 alter table meal_periods           enable row level security;
 alter table menu_item_meal_periods enable row level security;
 
--- 5b. Read policies for anon. Public catalog tables are readable so the
+-- 4b. Read policies for anon. Public catalog tables are readable so the
 -- storefront can render without a session; everything that holds customer
 -- PII or operational records is locked behind the service-role API layer.
 drop policy if exists "anon_select_settings"       on app_settings;
@@ -576,7 +506,7 @@ drop policy if exists "anon_select_mimp"           on menu_item_meal_periods;
 create policy "anon_select_mimp"
   on menu_item_meal_periods for select to anon using (true);
 
--- 5b-i. Deny anon select on PII-carrying tables (F-DATA-1 fix).
+-- 4b-i. Deny anon select on PII-carrying tables (F-DATA-1 fix).
 -- Replaces the prior `using (true)` policies which let any anon caller read
 -- every customer's name/email/phone/address and every order. All reads now
 -- go through service-role API routes (lib/supabaseAdmin) that enforce
@@ -588,7 +518,7 @@ create policy "deny_anon_select" on customers     for select to anon using (fals
 create policy "deny_anon_select" on orders        for select to anon using (false);
 create policy "deny_anon_select" on reservations  for select to anon using (false);
 
--- 5c. Write policies for anon — none, except waitlist signup.
+-- 4c. Write policies for anon — none, except waitlist signup.
 -- Belt-and-suspenders drops for any DB that picked up stray policies from
 -- earlier migrations.
 drop policy if exists "anon_insert_orders"    on orders;
@@ -603,7 +533,7 @@ drop policy if exists "deny_anon_select_waitlist" on reservation_waitlist;
 create policy "deny_anon_select_waitlist"
   on reservation_waitlist for select to anon using (false);
 
--- 5d. Deny-anon policies on the staff/auth/audit tables.
+-- 4d. Deny-anon policies on the staff/auth/audit tables.
 -- service_role bypasses RLS, so this only locks out the browser-facing client.
 drop policy if exists "deny_anon_all" on drivers;
 create policy "deny_anon_all" on drivers
@@ -642,7 +572,7 @@ create policy "deny_anon_all" on payment_sessions
   for all to anon using (false) with check (false);
 
 
--- ── 6. Grants ────────────────────────────────────────────────────────────────
+-- ── 5. Grants ────────────────────────────────────────────────────────────────
 -- Supabase applies the base grants below automatically at project creation,
 -- but a full DB reset (e.g. dropping the public schema) wipes them and leaves
 -- every role with "permission denied for table X". Re-applying here keeps
@@ -682,7 +612,7 @@ revoke select (reset_token)         on drivers from anon, authenticated;
 revoke select (reset_token_expires) on drivers from anon, authenticated;
 
 
--- ── 7. Sentinel rows ─────────────────────────────────────────────────────────
+-- ── 6. Sentinel rows ─────────────────────────────────────────────────────────
 -- app_settings row id=1 must exist for the UPSERT pattern in /api/admin/settings
 -- to behave correctly on a fresh install. Populated with an empty data blob
 -- here; the settings seed script fills in defaults (theme, restaurant info,
@@ -690,14 +620,25 @@ revoke select (reset_token_expires) on drivers from anon, authenticated;
 insert into app_settings (id, data) values (1, '{}'::jsonb)
 on conflict (id) do nothing;
 
--- The pos-walk-in synthetic customer is referenced by POS-placed orders so
--- they satisfy the orders.customer_id FK. Must exist before any POS order.
+-- The 'pos-walk-in' synthetic customer is an FK-only sentinel row. POS-placed
+-- orders (and waiter / dine-in orders) write customer_id = 'pos-walk-in' so
+-- they satisfy the orders.customer_id foreign key — these orders have no real
+-- registered customer behind them. This row MUST exist before any POS or
+-- waiter order is inserted.
+--
+-- IMPORTANT: this sentinel is internal plumbing only. It must NEVER appear
+-- in the admin "Customers" list, in customer-search results, in marketing
+-- exports, in loyalty reports, etc. The admin customer-list endpoint
+-- (app/src/app/api/admin/customers/list/route.ts) filters out id = 'pos-walk-in'
+-- before returning rows; any new code that lists customers must do the same.
+-- The email is a non-routable internal address (no MX); login as this row
+-- is also blocked because password_hash is null.
 insert into customers (id, name, email, phone, tags, favourites, saved_addresses, store_credit)
 values ('pos-walk-in', 'POS Walk-in', 'pos-walkin@internal', '', '{}', '{}', '[]', 0)
 on conflict (id) do nothing;
 
 
--- ── 8. Realtime publications ─────────────────────────────────────────────────
+-- ── 7. Realtime publications ─────────────────────────────────────────────────
 -- Tables that drive live subscriptions (postgres_changes) in the client.
 -- Staff / coupon / audit tables are intentionally NOT in the publication —
 -- they hold secrets (pin_hash) or admin-only data, and Realtime broadcasts
@@ -741,7 +682,8 @@ begin
     end if;
     alter publication supabase_realtime add table customers
       (id, name, email, phone, created_at, tags, favourites,
-       saved_addresses, store_credit, email_verified);
+       saved_addresses, store_credit, email_verified,
+       loyalty_points, gift_card_balance, notes);
   end if;
 end $$;
 

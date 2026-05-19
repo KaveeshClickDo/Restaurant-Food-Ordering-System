@@ -3,17 +3,38 @@
 import { useState } from "react";
 import { usePOS } from "@/context/POSContext";
 import { POSProduct, POSCategory, POSOffer, getOfferPrice } from "@/types/pos";
-import { Plus, Pencil, Trash2, ToggleLeft, ToggleRight, ChevronDown, X, Save, Tag, Package } from "lucide-react";
+import type { Variation, AddOn } from "@/types";
+import { Plus, Pencil, Trash2, ToggleLeft, ToggleRight, ChevronDown, X, Save, Tag, Package, Check } from "lucide-react";
 import { fmt } from "../_utils";
 import { PRESET_COLORS, buildOffer, handleImageFile } from "./_helpers";
+
+// Dietary options — kept in sync with admin's MenuManagementPanel so both
+// editors offer the same set of tags. Bug #2 (admin / POS field parity).
+const DIETARY_OPTIONS = ["vegetarian", "vegan", "halal", "gluten-free"] as const;
+
+function blankVariation(): Variation {
+  return {
+    id: crypto.randomUUID(), name: "", required: true,
+    options: [{ id: crypto.randomUUID(), label: "", price: 0 }],
+  };
+}
+function blankAddOn(): AddOn {
+  return { id: crypto.randomUUID(), name: "", price: 0 };
+}
 
 export default function MenuTab() {
   const { products, setProducts, categories, setCategories, settings } = usePOS();
 
   // Item state
   const [editProduct, setEditProduct] = useState<POSProduct | null>(null);
+  // Bug #2 — POS draft now also carries dietary[], variations[], addOns[],
+  // sku, and a description so both editors can save the same item shape.
   const [editDraft, setEditDraft] = useState({
     name: "", categoryId: "", price: "", cost: "", emoji: "", imageUrl: "", popular: false,
+    description: "", sku: "",
+    dietary: [] as string[],
+    variations: [] as Variation[],
+    addOns: [] as AddOn[],
     offerActive: false, offerType: "percent" as POSOffer["type"],
     offerValue: "", offerLabel: "", offerStart: "", offerEnd: "",
     offerBuyQty: "", offerFreeQty: "", offerMinQty: "",
@@ -21,6 +42,10 @@ export default function MenuTab() {
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [newProduct, setNewProduct] = useState({
     name: "", categoryId: "", price: "", cost: "", emoji: "🍽️", imageUrl: "",
+    description: "", sku: "",
+    dietary: [] as string[],
+    variations: [] as Variation[],
+    addOns: [] as AddOn[],
     offerActive: false, offerType: "percent" as POSOffer["type"],
     offerValue: "", offerLabel: "", offerStart: "", offerEnd: "",
     offerBuyQty: "", offerFreeQty: "", offerMinQty: "",
@@ -116,6 +141,11 @@ export default function MenuTab() {
       emoji:        product.emoji ?? "🍽️",
       imageUrl:     product.imageUrl ?? "",
       popular:      product.popular ?? false,
+      description:  product.description ?? "",
+      sku:          product.sku ?? "",
+      dietary:      product.dietary ?? [],
+      variations:   product.variations ?? [],
+      addOns:       product.addOns ?? [],
       offerActive:  o?.active    ?? false,
       offerType:    o?.type      ?? "percent",
       offerValue:   o?.value?.toString()   ?? "",
@@ -134,14 +164,23 @@ export default function MenuTab() {
       p.id === editProduct.id
         ? {
             ...p,
-            name:       editDraft.name.trim(),
-            categoryId: editDraft.categoryId,
-            price:      parseFloat(editDraft.price),
-            cost:       editDraft.cost ? parseFloat(editDraft.cost) : undefined,
-            emoji:      editDraft.imageUrl ? undefined : (editDraft.emoji || "🍽️"),
-            imageUrl:   editDraft.imageUrl || undefined,
-            popular:    editDraft.popular,
-            offer:      buildOffer(editDraft),
+            name:        editDraft.name.trim(),
+            categoryId:  editDraft.categoryId,
+            price:       parseFloat(editDraft.price),
+            cost:        editDraft.cost ? parseFloat(editDraft.cost) : undefined,
+            emoji:       editDraft.imageUrl ? undefined : (editDraft.emoji || "🍽️"),
+            imageUrl:    editDraft.imageUrl || undefined,
+            popular:     editDraft.popular,
+            description: editDraft.description || undefined,
+            sku:         editDraft.sku || undefined,
+            dietary:     editDraft.dietary,
+            // Strip empty/invalid rows before persisting so admin doesn't
+            // render blank variation groups.
+            variations:  editDraft.variations
+                          .map((v) => ({ ...v, options: v.options.filter((o) => o.label.trim()) }))
+                          .filter((v) => v.name.trim() && v.options.length > 0),
+            addOns:      editDraft.addOns.filter((a) => a.name.trim()),
+            offer:       buildOffer(editDraft),
           }
         : p
     ));
@@ -162,12 +201,23 @@ export default function MenuTab() {
       emoji: newProduct.imageUrl ? undefined : (newProduct.emoji || "🍽️"),
       imageUrl: newProduct.imageUrl || undefined,
       color: "#e2e8f0", trackStock: false, active: true,
+      description: newProduct.description || undefined,
+      sku: newProduct.sku || undefined,
+      dietary: newProduct.dietary,
+      variations: newProduct.variations
+        .map((v) => ({ ...v, options: v.options.filter((o) => o.label.trim()) }))
+        .filter((v) => v.name.trim() && v.options.length > 0),
+      addOns: newProduct.addOns.filter((a) => a.name.trim()),
       offer: buildOffer(newProduct),
     };
     setProducts((prev) => [...prev, p]);
-    setNewProduct({ name: "", categoryId: "", price: "", cost: "", emoji: "🍽️", imageUrl: "",
+    setNewProduct({
+      name: "", categoryId: "", price: "", cost: "", emoji: "🍽️", imageUrl: "",
+      description: "", sku: "",
+      dietary: [], variations: [], addOns: [],
       offerActive: false, offerType: "percent", offerValue: "", offerLabel: "", offerStart: "", offerEnd: "",
-      offerBuyQty: "", offerFreeQty: "", offerMinQty: "" });
+      offerBuyQty: "", offerFreeQty: "", offerMinQty: "",
+    });
     setShowAddProduct(false);
   }
 
@@ -609,6 +659,47 @@ export default function MenuTab() {
                 </div>
               )}
 
+              {/* SKU + description (Bug #2 — POS / admin parity) */}
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">SKU</label>
+                <input
+                  value={editDraft.sku}
+                  onChange={(e) => setEditDraft((d) => ({ ...d, sku: e.target.value }))}
+                  placeholder="Optional"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Description</label>
+                <textarea
+                  value={editDraft.description}
+                  rows={2}
+                  onChange={(e) => setEditDraft((d) => ({ ...d, description: e.target.value }))}
+                  placeholder="Brief description"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500 resize-none"
+                />
+              </div>
+
+              {/* Dietary tags — Bug #2 (admin / POS parity). */}
+              <DietaryPicker
+                value={editDraft.dietary}
+                onChange={(next) => setEditDraft((d) => ({ ...d, dietary: next }))}
+              />
+
+              {/* Variations + add-ons (Bug #2). The canonical model lives on
+                  MenuItem; POS reads/writes both lists directly so admin and
+                  POS see the same data without any conversion step. */}
+              <VariationsEditor
+                value={editDraft.variations}
+                currencySymbol={settings.currencySymbol}
+                onChange={(next) => setEditDraft((d) => ({ ...d, variations: next }))}
+              />
+              <AddOnsEditor
+                value={editDraft.addOns}
+                currencySymbol={settings.currencySymbol}
+                onChange={(next) => setEditDraft((d) => ({ ...d, addOns: next }))}
+              />
+
               {/* Offer section */}
               <div className="border border-slate-700 rounded-xl overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-3 bg-slate-900/60">
@@ -922,6 +1013,45 @@ export default function MenuTab() {
                 </div>
               </div>
 
+              {/* SKU + description (Bug #2 — POS / admin parity) */}
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">SKU</label>
+                <input
+                  value={newProduct.sku}
+                  onChange={(e) => setNewProduct((p) => ({ ...p, sku: e.target.value }))}
+                  placeholder="Optional"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Description</label>
+                <textarea
+                  value={newProduct.description}
+                  rows={2}
+                  onChange={(e) => setNewProduct((p) => ({ ...p, description: e.target.value }))}
+                  placeholder="Brief description"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500 resize-none"
+                />
+              </div>
+
+              {/* Dietary tags — Bug #2 (admin / POS parity). */}
+              <DietaryPicker
+                value={newProduct.dietary}
+                onChange={(next) => setNewProduct((p) => ({ ...p, dietary: next }))}
+              />
+
+              {/* Variations + add-ons (Bug #2). */}
+              <VariationsEditor
+                value={newProduct.variations}
+                currencySymbol={settings.currencySymbol}
+                onChange={(next) => setNewProduct((p) => ({ ...p, variations: next }))}
+              />
+              <AddOnsEditor
+                value={newProduct.addOns}
+                currencySymbol={settings.currencySymbol}
+                onChange={(next) => setNewProduct((p) => ({ ...p, addOns: next }))}
+              />
+
               {/* Offer section */}
               <div className="border border-slate-700 rounded-xl overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-3 bg-slate-900/60">
@@ -1093,5 +1223,205 @@ export default function MenuTab() {
         </div>
       )}
     </>
+  );
+}
+
+// ─── Shared sub-editors (Bug #2 — admin / POS field parity) ──────────────────
+// These mirror the admin MenuManagementPanel UI for dietary tags, variations,
+// and add-ons so an item edited in the POS produces the same data shape an
+// admin edit would. The wording on labels and helper copy is intentionally
+// kept identical so the operator gets a consistent experience.
+
+function DietaryPicker({
+  value, onChange,
+}: { value: string[]; onChange: (next: string[]) => void }) {
+  function toggle(tag: string) {
+    onChange(value.includes(tag) ? value.filter((x) => x !== tag) : [...value, tag]);
+  }
+  return (
+    <div>
+      <label className="text-xs text-slate-400 mb-2 block">Dietary tags</label>
+      <div className="flex flex-wrap gap-2">
+        {DIETARY_OPTIONS.map((d) => {
+          const active = value.includes(d);
+          return (
+            <button
+              key={d}
+              onClick={() => toggle(d)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium border-2 transition-all capitalize ${
+                active
+                  ? "border-orange-400 bg-orange-500/10 text-orange-300"
+                  : "border-slate-600 text-slate-400 hover:border-slate-500"
+              }`}
+            >
+              {active && <Check size={10} className="inline mr-1" />}
+              {d}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function VariationsEditor({
+  value, currencySymbol, onChange,
+}: { value: Variation[]; currencySymbol: string; onChange: (next: Variation[]) => void }) {
+  const sym = currencySymbol;
+
+  function update(idx: number, patch: Partial<Variation>) {
+    onChange(value.map((v, i) => (i === idx ? { ...v, ...patch } : v)));
+  }
+  function remove(idx: number) {
+    onChange(value.filter((_, i) => i !== idx));
+  }
+  function add() {
+    onChange([...value, blankVariation()]);
+  }
+  function addOption(idx: number) {
+    const v = value[idx];
+    update(idx, { options: [...v.options, { id: crypto.randomUUID(), label: "", price: 0 }] });
+  }
+  function updateOption(vIdx: number, oIdx: number, patch: { label?: string; price?: number }) {
+    const v = value[vIdx];
+    update(vIdx, { options: v.options.map((o, i) => (i === oIdx ? { ...o, ...patch } : o)) });
+  }
+  function removeOption(vIdx: number, oIdx: number) {
+    const v = value[vIdx];
+    update(vIdx, { options: v.options.filter((_, i) => i !== oIdx) });
+  }
+
+  return (
+    <div>
+      <label className="text-xs text-slate-400 mb-2 block">Variations</label>
+      <p className="text-[11px] text-slate-500 mb-2">
+        Required choice groups (e.g. spice level, size). Customer must pick one option.
+      </p>
+      <div className="space-y-3">
+        {value.map((v, vi) => {
+          const isRequired = v.required !== false;
+          return (
+            <div key={v.id} className="border border-slate-700 rounded-xl p-3 space-y-2 bg-slate-900/40">
+              <div className="flex items-center gap-2">
+                <input
+                  value={v.name}
+                  onChange={(e) => update(vi, { name: e.target.value })}
+                  placeholder="Variation name (e.g. Size)"
+                  className="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
+                />
+                <label className="flex items-center gap-1 text-xs text-slate-300 cursor-pointer whitespace-nowrap">
+                  <input
+                    type="checkbox"
+                    checked={isRequired}
+                    onChange={(e) => update(vi, { required: e.target.checked })}
+                  />
+                  Required
+                </label>
+                <button
+                  onClick={() => remove(vi)}
+                  className="text-slate-400 hover:text-red-400 transition-colors"
+                  aria-label="Remove variation"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+              <div className="space-y-1.5 pl-2">
+                {v.options.map((opt, oi) => (
+                  <div key={opt.id} className="flex items-center gap-2">
+                    <span className="text-slate-500">›</span>
+                    <input
+                      value={opt.label}
+                      onChange={(e) => updateOption(vi, oi, { label: e.target.value })}
+                      placeholder="Option label"
+                      className="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 py-1 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
+                    />
+                    <div className="relative w-24">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 text-xs">+{sym}</span>
+                      <input
+                        type="number" min="0" step="0.25"
+                        value={opt.price}
+                        onChange={(e) => updateOption(vi, oi, { price: parseFloat(e.target.value) || 0 })}
+                        className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-6 pr-2 py-1 text-white text-sm outline-none focus:border-orange-500"
+                      />
+                    </div>
+                    <button onClick={() => removeOption(vi, oi)} className="text-slate-500 hover:text-red-400">
+                      <X size={13} />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => addOption(vi)}
+                  className="text-xs text-orange-400 hover:text-orange-300 font-medium flex items-center gap-1 ml-3 mt-1"
+                >
+                  <Plus size={11} /> Add option
+                </button>
+              </div>
+            </div>
+          );
+        })}
+        <button
+          onClick={add}
+          className="w-full py-2 rounded-xl border-2 border-dashed border-slate-600 text-sm text-slate-400 hover:border-orange-500 hover:text-orange-400 transition flex items-center justify-center gap-2"
+        >
+          <Plus size={14} /> Add variation group
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AddOnsEditor({
+  value, currencySymbol, onChange,
+}: { value: AddOn[]; currencySymbol: string; onChange: (next: AddOn[]) => void }) {
+  const sym = currencySymbol;
+
+  function update(idx: number, patch: Partial<AddOn>) {
+    onChange(value.map((a, i) => (i === idx ? { ...a, ...patch } : a)));
+  }
+  function remove(idx: number) {
+    onChange(value.filter((_, i) => i !== idx));
+  }
+  function add() {
+    onChange([...value, blankAddOn()]);
+  }
+
+  return (
+    <div>
+      <label className="text-xs text-slate-400 mb-2 block">Add-ons</label>
+      <p className="text-[11px] text-slate-500 mb-2">
+        Optional extras the customer can multi-select (e.g. extra toppings).
+      </p>
+      <div className="space-y-2">
+        {value.map((a, ai) => (
+          <div key={a.id} className="flex items-center gap-2">
+            <Tag size={13} className="text-violet-400 flex-shrink-0" />
+            <input
+              value={a.name}
+              onChange={(e) => update(ai, { name: e.target.value })}
+              placeholder="Add-on name"
+              className="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
+            />
+            <div className="relative w-24">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 text-xs">+{sym}</span>
+              <input
+                type="number" min="0" step="0.25"
+                value={a.price}
+                onChange={(e) => update(ai, { price: parseFloat(e.target.value) || 0 })}
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-6 pr-2 py-1.5 text-white text-sm outline-none focus:border-orange-500"
+              />
+            </div>
+            <button onClick={() => remove(ai)} className="text-slate-500 hover:text-red-400">
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+        <button
+          onClick={add}
+          className="w-full py-2 rounded-xl border-2 border-dashed border-slate-600 text-sm text-slate-400 hover:border-violet-500 hover:text-violet-400 transition flex items-center justify-center gap-2"
+        >
+          <Plus size={14} /> Add-on
+        </button>
+      </div>
+    </div>
   );
 }

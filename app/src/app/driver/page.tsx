@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import type { DeliveryStatus, Order } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
 import {
   Truck, LogOut, MapPin, Phone, Package,
   CheckCircle2, Navigation, ChefHat,
@@ -123,9 +124,9 @@ function AvailableOrderCard({
     }`}>
       {/* Header */}
       <div className="px-4 pt-4 pb-3 flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest">
-            #{order.id.slice(-8).toUpperCase()}
+        <div className="min-w-0">
+          <p title={fullOrderNumber(order.id)} className="text-[10px] text-gray-400 font-mono uppercase tracking-widest truncate">
+            {fullOrderNumber(order.id)}
           </p>
           <p className="text-gray-900 font-extrabold text-lg leading-tight">{customerName}</p>
         </div>
@@ -320,9 +321,9 @@ function OrderCard({
     }`}>
       {/* Card header */}
       <div className="px-4 pt-4 pb-3 flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest">
-            #{order.id.slice(-8).toUpperCase()}
+        <div className="min-w-0">
+          <p title={fullOrderNumber(order.id)} className="text-[10px] text-gray-400 font-mono uppercase tracking-widest truncate">
+            {fullOrderNumber(order.id)}
           </p>
           <p className="text-gray-900 font-extrabold text-lg leading-tight">{customerName}</p>
         </div>
@@ -901,8 +902,8 @@ export default function DriverDashboardPage() {
                   <div key={d.order.id} className="px-4 py-3 flex items-center gap-3">
                     <CheckCircle2 size={14} className="text-green-500 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-700">
-                        #{d.order.id.slice(-8).toUpperCase()} — {d.customerName}
+                      <p title={fullOrderNumber(d.order.id)} className="text-sm font-semibold text-gray-700 truncate">
+                        {fullOrderNumber(d.order.id)} — {d.customerName}
                       </p>
                       {d.order.address && (
                         <p className="text-xs text-gray-400 flex items-center gap-1">

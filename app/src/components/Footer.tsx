@@ -6,14 +6,15 @@ import { useApp } from "@/context/AppContext";
 export default function Footer() {
   const { settings } = useApp();
 
-  // Prefer managed menu links; fall back to the legacy enabled-footerPages list
-  // so the footer still works out-of-the-box before any links are configured.
+  // Prefer managed menu links; fall back to every published custom page so the
+  // footer still works out-of-the-box before any links are configured via the
+  // Navigation tab.
   const managedLinks = (settings.menuLinks ?? [])
     .filter((l) => l.location === "footer" && l.active)
     .sort((a, b) => a.order - b.order);
 
-  const legacyLinks = (settings.footerPages ?? [])
-    .filter((p) => p.enabled)
+  const legacyLinks = (settings.customPages ?? [])
+    .filter((p) => p.published)
     .map((p) => ({ id: p.slug, label: p.title, href: `/${p.slug}` }));
 
   const navLinks = managedLinks.length > 0 ? managedLinks : legacyLinks;

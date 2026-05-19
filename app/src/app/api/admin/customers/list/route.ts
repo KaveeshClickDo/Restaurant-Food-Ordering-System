@@ -4,14 +4,27 @@
  * Replaces the public `supabase.from("customers").select(...)` call that
  * AppContext used to make with the browser anon key (which leaked PII to
  * every visitor). Admin pages call this instead.
+ *
+ * Bug #11 — unifies POS + admin customer data. The response now includes the
+ * shared POS fields (loyalty_points, gift_card_balance, notes) and three
+ * computed aggregates (totalSpend, visitCount, lastVisit) built from BOTH
+ * `orders.total` (online orders) AND `pos_sales.total` (in-person sales),
+ * ignoring voided/cancelled rows. Aggregation runs in TS after a single
+ * batched fetch to avoid an N+1 query against every customer.
  */
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 
+interface AggregateBucket {
+  spend: number;
+  visits: number;
+  lastVisit: string | null;   // ISO
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapCustomer(row: any, orders: any[]) {
+function mapCustomer(row: any, orders: any[], agg: AggregateBucket) {
   return {
     id:             row.id,
     name:           row.name,
@@ -22,6 +35,14 @@ function mapCustomer(row: any, orders: any[]) {
     savedAddresses: row.saved_addresses ?? [],
     storeCredit:    row.store_credit != null ? Number(row.store_credit) : undefined,
     emailVerified:  row.email_verified ?? undefined,
+    // POS-shared fields — null/undefined-safe for legacy rows pre-dating Bug #11.
+    loyaltyPoints:   row.loyalty_points     != null ? Number(row.loyalty_points)     : 0,
+    giftCardBalance: row.gift_card_balance  != null ? Number(row.gift_card_balance)  : 0,
+    notes:           row.notes ?? "",
+    // Computed aggregates (orders + POS sales, excluding voided/cancelled).
+    totalSpend: parseFloat(agg.spend.toFixed(2)),
+    visitCount: agg.visits,
+    lastVisit:  agg.lastVisit ?? undefined,
     createdAt:      typeof row.created_at === "string"
                       ? row.created_at
                       : new Date(row.created_at).toISOString(),
@@ -58,23 +79,45 @@ function mapOrder(o: any) {
   };
 }
 
+// The 'pos-walk-in' row is an FK-only sentinel for POS / waiter orders
+// (see supabase/schema.sql section 7). It is NOT a real customer and must
+// never appear in the admin customer list / search / exports. Filtered at
+// the query level so it can't leak through any downstream rendering.
+const POS_WALK_IN_ID = "pos-walk-in";
+
 export async function GET() {
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
 
-  // Two queries — same pattern as /api/auth/me so we don't depend on a FK.
-  const [{ data: customers, error: errC }, { data: orders, error: errO }] = await Promise.all([
+  // Three queries in parallel — customers, online orders, and POS sales.
+  // Aggregation happens in TS after the fetch so we never run N queries per
+  // customer. The 'date' values on each are normalised to ISO strings before
+  // comparison.
+  const [
+    { data: customers, error: errC },
+    { data: orders,    error: errO },
+    { data: posSales,  error: errP },
+  ] = await Promise.all([
     supabaseAdmin
       .from("customers")
-      .select("id, name, email, phone, tags, favourites, saved_addresses, store_credit, created_at, email_verified"),
+      .select("id, name, email, phone, tags, favourites, saved_addresses, store_credit, created_at, email_verified, loyalty_points, gift_card_balance, notes")
+      .neq("id", POS_WALK_IN_ID),
     supabaseAdmin
       .from("orders")
       .select("*")
       .order("date", { ascending: false }),
+    supabaseAdmin
+      .from("pos_sales")
+      .select("customer_id, total, voided, date")
+      .eq("voided", false)
+      .not("customer_id", "is", null),
   ]);
 
   if (errC) return NextResponse.json({ ok: false, error: errC.message }, { status: 500 });
   if (errO) return NextResponse.json({ ok: false, error: errO.message }, { status: 500 });
+  if (errP) return NextResponse.json({ ok: false, error: errP.message }, { status: 500 });
 
+  // Group orders by customer so the map step is O(1) per customer instead of
+  // O(N) — same pattern the endpoint already used for orders.
   const ordersByCustomer = new Map<string, unknown[]>();
   for (const o of orders ?? []) {
     const arr = ordersByCustomer.get(o.customer_id) ?? [];
@@ -82,6 +125,80 @@ export async function GET() {
     ordersByCustomer.set(o.customer_id, arr);
   }
 
-  const result = (customers ?? []).map((c) => mapCustomer(c, ordersByCustomer.get(c.id) ?? []));
+  // Build the spend / visit / lastVisit aggregate. Online orders count when
+  // they're not cancelled (refunded/partially_refunded still represent real
+  // visits — only outright cancellation is excluded). POS sales contribute
+  // only when not voided (already filtered at the query above).
+  const agg = new Map<string, AggregateBucket>();
+  const bumpAgg = (cid: string, amount: number, when: string) => {
+    const bucket = agg.get(cid) ?? { spend: 0, visits: 0, lastVisit: null };
+    bucket.spend  += amount;
+    bucket.visits += 1;
+    const iso = typeof when === "string" ? when : new Date(when).toISOString();
+    if (!bucket.lastVisit || iso > bucket.lastVisit) bucket.lastVisit = iso;
+    agg.set(cid, bucket);
+  };
+
+  for (const o of orders ?? []) {
+    if (o.status === "cancelled") continue;
+    if (!o.customer_id) continue;
+    bumpAgg(o.customer_id, Number(o.total) || 0, o.date);
+  }
+  for (const s of posSales ?? []) {
+    if (!s.customer_id) continue;
+    bumpAgg(s.customer_id, Number(s.total) || 0, s.date);
+  }
+
+  // Belt-and-braces: also skip the sentinel during the map step in case any
+  // future query change drops the .neq filter. The sentinel must never reach
+  // CustomersPanel.tsx or any other admin renderer.
+  const result = (customers ?? [])
+    .filter((c) => c.id !== POS_WALK_IN_ID)
+    .map((c) =>
+      mapCustomer(
+        c,
+        ordersByCustomer.get(c.id) ?? [],
+        agg.get(c.id) ?? { spend: 0, visits: 0, lastVisit: null },
+      ),
+    );
+
+  // Orphan orders — customer_id was set null when admin deleted the account
+  // (FK on delete set null). The order rows themselves are preserved for
+  // financial audit; we surface them under a synthetic "Deleted customer"
+  // pseudo-row so admin reports / delivery / refunds keep showing them.
+  const orphanOrders = (orders ?? []).filter((o) => !o.customer_id);
+  if (orphanOrders.length > 0) {
+    const orphanSpend = orphanOrders
+      .filter((o) => o.status !== "cancelled")
+      .reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const orphanLastVisit = orphanOrders
+      .map((o) => (typeof o.date === "string" ? o.date : new Date(o.date).toISOString()))
+      .sort()
+      .pop() ?? null;
+    result.push({
+      id:              "__deleted__",
+      name:            "Deleted customer",
+      email:           "",
+      phone:           "",
+      tags:            ["deleted"],
+      favourites:      [],
+      savedAddresses: [],
+      storeCredit:    undefined,
+      emailVerified:  undefined,
+      loyaltyPoints:   0,
+      giftCardBalance: 0,
+      notes:           "Orders from accounts the admin has deleted. Preserved for audit.",
+      totalSpend:      parseFloat(orphanSpend.toFixed(2)),
+      visitCount:      orphanOrders.filter((o) => o.status !== "cancelled").length,
+      lastVisit:       orphanLastVisit ?? undefined,
+      createdAt:       orphanOrders[0]?.date
+                         ? (typeof orphanOrders[0].date === "string"
+                              ? orphanOrders[0].date
+                              : new Date(orphanOrders[0].date).toISOString())
+                         : new Date().toISOString(),
+      orders:          orphanOrders.map(mapOrder),
+    });
+  }
+
   return NextResponse.json({ ok: true, customers: result });
 }

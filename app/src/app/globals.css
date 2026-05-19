@@ -62,3 +62,73 @@
   .rich-content > :first-child { margin-top: 0; }
   .rich-content > :last-child  { margin-bottom: 0; }
 }
+
+/* ─── Print styles (Finance Reports + general admin print) ───────────────── */
+.print-only { display: none; }
+
+@media print {
+  /* Hide admin chrome and controls */
+  aside, header, nav, .admin-sidebar, .no-print, button {
+    display: none !important;
+  }
+
+  /* Reset page surface */
+  html, body {
+    background: white !important;
+    color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  body * {
+    color: black !important;
+  }
+
+  main {
+    margin: 0 !important;
+    padding: 1cm !important;
+    max-width: none !important;
+    width: 100% !important;
+  }
+
+  /* Neutralize dark/gradient surfaces so text remains legible */
+  .bg-gradient-to-br,
+  .bg-gradient-to-r,
+  .bg-gradient-to-l,
+  .bg-gray-800,
+  .bg-gray-900 {
+    background: white !important;
+  }
+
+  /* Tables can break across pages, rows should stay intact */
+  table {
+    page-break-inside: auto;
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+  tr, td, th {
+    page-break-inside: avoid;
+  }
+
+  /* Cards / panels: keep together where possible */
+  .card,
+  .rounded-2xl,
+  .rounded-xl {
+    page-break-inside: avoid;
+    box-shadow: none !important;
+    border: 1px solid #ddd !important;
+  }
+
+  /* Print-only title bar visible */
+  .print-only {
+    display: block !important;
+  }
+
+  /* Avoid orphaned headings */
+  h1, h2, h3 {
+    page-break-after: avoid;
+  }
+
+  /* Hide custom scrollbar artifacts */
+  ::-webkit-scrollbar { display: none !important; }
+}

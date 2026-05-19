@@ -68,6 +68,9 @@ export async function POST(req: NextRequest) {
   const { row, verifiedItems, coupon } = validation.data;
 
   // Cash orders are unpaid until staff collect on hand-off.
+  // Lifecycle: "unpaid" → "paid" (on delivery for cash) → optionally
+  // "partially_refunded" / "refunded". The unpaid → paid transition is
+  // handled in /api/admin/orders/[id]/status when status flips to "delivered".
   const insertRow = { ...row, payment_status: "unpaid" };
 
   const { error } = await supabaseAdmin.from("orders").insert(insertRow);

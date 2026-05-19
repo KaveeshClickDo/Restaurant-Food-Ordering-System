@@ -16,6 +16,15 @@ import { computeTax, taxSurcharge } from "@/lib/taxUtils";
 import { checkoutFormSchema } from "@/lib/schemas/order";
 import { cleanPhone } from "@/lib/inputUtils";
 
+// Stripe's per-currency minimum charge — kept in sync with the server-side
+// table in /api/payments/intent. Anything below this is rejected by Stripe.
+const STRIPE_MIN_CHARGE_BY_CURRENCY: Record<string, number> = {
+  GBP: 0.30,
+  USD: 0.50,
+  EUR: 0.30,
+};
+const STRIPE_MIN_CHARGE_FALLBACK = 0.50;
+
 // Stripe.js loader — singleton so we don't re-download Stripe.js on every
 // modal open. `loadStripe` returns null if the key is missing, which the
 // card payment step handles with a friendly error message.
@@ -268,6 +277,9 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   const storeCreditApplied = useCredit ? Math.min(availableCredit, adjustedTotal) : 0;
   const orderTotal         = Math.max(0, adjustedTotal - storeCreditApplied);
 
+  const stripeMin       = STRIPE_MIN_CHARGE_BY_CURRENCY[(settings.currency?.code ?? "GBP").toUpperCase()] ?? STRIPE_MIN_CHARGE_FALLBACK;
+  const belowStripeMin  = orderTotal > 0 && orderTotal < stripeMin;
+
   function applyCode() {
     setCouponError("");
     const result = applyCoupon(couponInput, baseCartTotal);
@@ -350,7 +362,9 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
         qty: i.quantity,
         price: i.price,
         menuItemId: i.menuItemId,
+        // Emit the deprecated singular field too so older consumers keep working.
         ...(i.selectedVariation   ? { selectedVariation:   i.selectedVariation }   : {}),
+        ...(i.selectedVariations?.length ? { selectedVariations: i.selectedVariations } : {}),
         ...(i.selectedAddOns?.length ? { selectedAddOns: i.selectedAddOns }        : {}),
         ...(i.specialInstructions ? { specialInstructions: i.specialInstructions } : {}),
       })),
@@ -436,7 +450,10 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
 
     printOrder(newOrder, settings);
 
-    if (form.email.trim()) {
+    // Guest profile is for anonymous (no-account) checkouts only.
+    // Signed-in users live in the canonical `customers` table — including them
+    // here would double-list them as "guest profiles" (Bug #9).
+    if (!currentUser && form.email.trim()) {
       fetch("/api/guest-profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -458,6 +475,10 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
    */
   async function startCardPayment(method: PaymentMethod) {
     if (cardInFlight.current) return;
+    if (belowStripeMin) {
+      setSubmitError(`Card payments require a minimum of ${sym}${stripeMin.toFixed(2)}. Please pay by cash or add more to your order.`);
+      return;
+    }
     cardInFlight.current = true;
     setSubmitting(true);
     setSubmitError("");
@@ -509,7 +530,10 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     // webhook inserts it; print the in-memory copy for an immediate receipt.
     if (pendingOrder) printOrder(pendingOrder, settings);
 
-    if (form.email.trim()) {
+    // Guest profile is for anonymous (no-account) checkouts only.
+    // Signed-in users live in the canonical `customers` table — including them
+    // here would double-list them as "guest profiles" (Bug #9).
+    if (!currentUser && form.email.trim()) {
       fetch("/api/guest-profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -996,24 +1020,34 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
               </div>
             )}
 
-            {locState !== "outside" && availableMethods.map((method) => (
-              <button
-                key={method.id}
-                onClick={() => handlePay(method)}
-                disabled={submitting}
-                className={`group w-full flex items-center gap-3 border-2 border-gray-200 rounded-xl px-4 py-3.5 transition disabled:opacity-60 disabled:cursor-not-allowed ${hoverColor(method.id)}`}
-              >
-                {submitting
-                  ? <div className="w-10 h-10 flex items-center justify-center flex-shrink-0"><Loader2 size={20} className="animate-spin text-gray-400" /></div>
-                  : <MethodIcon id={method.id} />
-                }
-                <div className="text-left flex-1">
-                  <p className="font-semibold text-sm text-gray-900">{method.name}</p>
-                  <p className="text-xs text-gray-400">{submitting ? "Placing order…" : method.description}</p>
-                </div>
-                <span className="ml-auto text-gray-300 group-hover:text-gray-500 transition text-lg">›</span>
-              </button>
-            ))}
+            {locState !== "outside" && availableMethods.map((method) => {
+              const disabledByMin = method.id === "stripe" && belowStripeMin;
+              return (
+                <button
+                  key={method.id}
+                  onClick={() => handlePay(method)}
+                  disabled={submitting || disabledByMin}
+                  title={disabledByMin ? `Card payments require a minimum of ${sym}${stripeMin.toFixed(2)}` : undefined}
+                  className={`group w-full flex items-center gap-3 border-2 border-gray-200 rounded-xl px-4 py-3.5 transition disabled:opacity-60 disabled:cursor-not-allowed ${hoverColor(method.id)}`}
+                >
+                  {submitting
+                    ? <div className="w-10 h-10 flex items-center justify-center flex-shrink-0"><Loader2 size={20} className="animate-spin text-gray-400" /></div>
+                    : <MethodIcon id={method.id} />
+                  }
+                  <div className="text-left flex-1">
+                    <p className="font-semibold text-sm text-gray-900">{method.name}</p>
+                    <p className="text-xs text-gray-400">
+                      {submitting
+                        ? "Placing order…"
+                        : disabledByMin
+                          ? `Minimum ${sym}${stripeMin.toFixed(2)} required for card`
+                          : method.description}
+                    </p>
+                  </div>
+                  <span className="ml-auto text-gray-300 group-hover:text-gray-500 transition text-lg">›</span>
+                </button>
+              );
+            })}
 
             {/* Methods hidden due to distance — shown as info only when location is detected */}
             {locState === "found" && restrictedMethods.length > 0 && (

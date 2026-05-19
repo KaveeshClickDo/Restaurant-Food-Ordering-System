@@ -1,6 +1,36 @@
 import { z } from "zod";
 import { NonEmptyString, Money, IsoTime } from "./primitives";
 
+// Variation groups: each has an id + display name, an optional `required`
+// flag (defaults to true when absent — see ItemCustomizationModal), and a
+// list of options the customer can pick. The `required` field is what the
+// customer site and orderValidation.ts both key off of, so the schema has
+// to admit it through unchanged.
+const variationSchema = z.object({
+  id:       z.string(),
+  name:     z.string(),
+  required: z.boolean().optional(),
+  options:  z.array(z.object({
+    id:    z.string(),
+    label: z.string(),
+    price: z.number(),
+  })),
+});
+
+// Offers (Bug #2 — POS / admin field parity). Shape mirrors MenuItemOffer
+// in src/types/index.ts; kept loose because it's stored as JSONB.
+const offerSchema = z.object({
+  type:      z.enum(["percent","fixed","price","bogo","multibuy","qty_discount"]),
+  value:     z.number(),
+  label:     z.string().optional(),
+  active:    z.boolean(),
+  startDate: z.string().optional(),
+  endDate:   z.string().optional(),
+  buyQty:    z.number().int().optional(),
+  freeQty:   z.number().int().optional(),
+  minQty:    z.number().int().optional(),
+}).passthrough();
+
 // Menu items are flexible — schema preserves the existing freeform shape but
 // guards the load-bearing fields. Unknown fields pass through (matches the
 // existing route which inserts `body` directly into menu_items).
@@ -13,9 +43,17 @@ export const MenuCreateSchema = z.object({
   image:       z.string().optional(),
   dietary:     z.array(z.string()).optional(),
   popular:     z.boolean().optional(),
-  variations:  z.array(z.unknown()).optional(),
+  variations:  z.array(variationSchema).optional(),
   add_ons:     z.array(z.unknown()).optional(),
   mealPeriodIds: z.array(z.string()).optional(),
+  // POS / admin parity fields.
+  cost:        z.number().nullable().optional(),
+  sku:         z.string().nullable().optional(),
+  emoji:       z.string().nullable().optional(),
+  color:       z.string().nullable().optional(),
+  active:      z.boolean().optional(),
+  track_stock: z.boolean().optional(),
+  offer:       offerSchema.nullable().optional(),
 }).passthrough();
 
 export const MenuUpdateSchema = z.object({
@@ -26,9 +64,17 @@ export const MenuUpdateSchema = z.object({
   image:       z.string().optional(),
   dietary:     z.array(z.string()).optional(),
   popular:     z.boolean().optional(),
-  variations:  z.array(z.unknown()).optional(),
+  variations:  z.array(variationSchema).optional(),
   add_ons:     z.array(z.unknown()).optional(),
   mealPeriodIds: z.array(z.string()).optional(),
+  // POS / admin parity fields.
+  cost:        z.number().nullable().optional(),
+  sku:         z.string().nullable().optional(),
+  emoji:       z.string().nullable().optional(),
+  color:       z.string().nullable().optional(),
+  active:      z.boolean().optional(),
+  track_stock: z.boolean().optional(),
+  offer:       offerSchema.nullable().optional(),
 }).passthrough();
 
 // ── Categories ───────────────────────────────────────────────────────────────
