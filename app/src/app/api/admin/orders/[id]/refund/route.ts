@@ -1,11 +1,13 @@
 /**
  * POST /api/admin/orders/[id]/refund — record a refund on an order.
  *
- * If the latest refund.method === "original_payment" AND the order has a
- * stripe_payment_intent_id, we call stripe.refunds.create() to actually
- * reverse the charge through the gateway before persisting. The Stripe
- * refund id is stored on the refund entry so we can reconcile with the
- * Stripe dashboard later.
+ * If the latest refund.method === "original_payment" we route to the
+ * matching gateway:
+ *   • Stripe: order has stripe_payment_intent_id → stripe.refunds.create()
+ *   • PayPal: order has paypal_capture_id        → /v2/payments/captures/{id}/refund
+ *
+ * The gateway refund id (stripeRefundId / paypalRefundId) is stored on the
+ * refund entry so we can reconcile with the dashboard later.
  *
  * For "store_credit" and "cash" refund methods, no gateway call is made —
  * the cash is handed back in person, or the customer's store_credit balance
@@ -18,6 +20,7 @@ import { NextRequest, NextResponse }            from "next/server";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
 import { getStripe, toStripeAmount }            from "@/lib/stripeServer";
+import { paypalFetch, paypalIsConfigured, toPaypalAmount } from "@/lib/paypalServer";
 import { parseBody }                            from "@/lib/apiValidation";
 import { AdminRefundSchema }                    from "@/lib/schemas/waiter";
 
@@ -39,7 +42,7 @@ export async function POST(
   //   - replacing body.refundedAmount with the sum of all refund entries
   const { data: orderRow, error: lookupErr } = await supabaseAdmin
     .from("orders")
-    .select("stripe_payment_intent_id, total, customer_id, refunds, refunded_amount")
+    .select("stripe_payment_intent_id, paypal_capture_id, total, customer_id, refunds, refunded_amount")
     .eq("id", id)
     .maybeSingle();
 
@@ -86,15 +89,15 @@ export async function POST(
     }
   }
 
-  // ── Stripe gateway refund (only when applicable) ─────────────────────────
+  // ── Gateway refund (only when applicable) ────────────────────────────────
+  // The refund is routed to whichever gateway captured the original payment.
+  // Cash and orders with no gateway id are record-only.
   if (newest && newest.method === "original_payment") {
-    if (!orderRow.stripe_payment_intent_id) {
-      // Cash / non-Stripe — record-only, no gateway call.
-    } else {
-      const { data: settingsRow } = await supabaseAdmin
-        .from("app_settings").select("data").eq("id", 1).single();
-      const currencyCode = (settingsRow?.data?.currency?.code as string | undefined) ?? "GBP";
+    const { data: settingsRow } = await supabaseAdmin
+      .from("app_settings").select("data").eq("id", 1).single();
+    const currencyCode = (settingsRow?.data?.currency?.code as string | undefined) ?? "GBP";
 
+    if (orderRow.stripe_payment_intent_id) {
       try {
         const stripeRefund = await getStripe().refunds.create({
           payment_intent: orderRow.stripe_payment_intent_id,
@@ -112,7 +115,54 @@ export async function POST(
         console.error("admin/orders/[id]/refund POST (stripe):", message);
         return NextResponse.json({ ok: false, error: message }, { status: 502 });
       }
+    } else if (orderRow.paypal_capture_id) {
+      if (!paypalIsConfigured()) {
+        return NextResponse.json(
+          { ok: false, error: "PayPal credentials are not configured on the server." },
+          { status: 500 },
+        );
+      }
+      try {
+        const { status, data } = await paypalFetch<{
+          id?:      string;
+          status?:  string;
+          details?: Array<{ description?: string; issue?: string }>;
+          message?: string;
+        }>(
+          `/v2/payments/captures/${encodeURIComponent(orderRow.paypal_capture_id)}/refund`,
+          {
+            method: "POST",
+            // PayPal-Request-Id keys idempotency on the refund record — a
+            // retry returns the same refund rather than reversing the
+            // capture twice.
+            headers: { "PayPal-Request-Id": newest.id },
+            body: {
+              amount: {
+                value:         toPaypalAmount(newest.amount, currencyCode),
+                currency_code: currencyCode.toUpperCase(),
+              },
+              note_to_payer: newest.reason,
+              custom_id:     id,
+            },
+          },
+        );
+        // 201 = freshly created. 200 + COMPLETED status also acceptable.
+        const refundOk = (status === 201 || status === 200) && Boolean(data?.id);
+        if (!refundOk) {
+          const message = data?.details?.[0]?.description
+            ?? data?.message
+            ?? `PayPal refund failed (HTTP ${status}).`;
+          console.error("admin/orders/[id]/refund POST (paypal):", message);
+          return NextResponse.json({ ok: false, error: message }, { status: 502 });
+        }
+        newest.paypalRefundId = data!.id!;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "PayPal refund failed.";
+        console.error("admin/orders/[id]/refund POST (paypal):", message);
+        return NextResponse.json({ ok: false, error: message }, { status: 502 });
+      }
     }
+    // Else: cash / no gateway — record-only, no API call.
   }
 
   // ── Derive payment_status server-side from refundedAmountServer ─────────
@@ -160,6 +210,7 @@ export async function POST(
   return NextResponse.json({
     ok: true,
     stripeRefundId:  newest?.stripeRefundId ?? null,
+    paypalRefundId:  newest?.paypalRefundId ?? null,
     refundedAmount:  refundedAmountServer,
   });
 }

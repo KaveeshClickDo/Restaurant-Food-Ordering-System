@@ -5,10 +5,11 @@ import dynamic from "next/dynamic";
 import {
   X, CreditCard, Banknote, CheckCircle,
   AlertCircle, MapPin, Navigation, Loader2, CalendarDays,
-  Tag, XCircle, Gift, Lock,
+  Tag, XCircle, Gift, Lock, Wallet,
 } from "lucide-react";
 import { loadStripe, type Stripe as StripeJs } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import { PayPalScriptProvider, PayPalButtons } from "@paypal/react-paypal-js";
 import { useApp } from "@/context/AppContext";
 import { DeliveryZone, Order, PaymentMethod, SavedAddress } from "@/types";
 import { printOrder } from "@/lib/escpos";
@@ -24,6 +25,20 @@ const STRIPE_MIN_CHARGE_BY_CURRENCY: Record<string, number> = {
   EUR: 0.30,
 };
 const STRIPE_MIN_CHARGE_FALLBACK = 0.50;
+
+// PayPal's per-currency minimum — mirrors the server-side guard in
+// /api/payments/paypal. PayPal doesn't publish a strict floor but very low
+// totals are rejected as AMOUNT_NOT_SUPPORTED by some funding sources.
+const PAYPAL_MIN_CHARGE_BY_CURRENCY: Record<string, number> = {
+  GBP: 1.00,
+  USD: 1.00,
+  EUR: 1.00,
+};
+const PAYPAL_MIN_CHARGE_FALLBACK = 1.00;
+
+// PayPal Smart Buttons need the public client id at script-load time. Empty
+// string disables the PayPal option entirely (the filter below hides it).
+const PAYPAL_CLIENT_ID = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID ?? "";
 
 // Stripe.js loader — singleton so we don't re-download Stripe.js on every
 // modal open. `loadStripe` returns null if the key is missing, which the
@@ -103,6 +118,11 @@ function MethodIcon({ id }: { id: string }) {
       <CreditCard size={18} className="text-white" />
     </div>
   );
+  if (id === "paypal") return (
+    <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-700 rounded-lg flex items-center justify-center flex-shrink-0">
+      <Wallet size={18} className="text-white" />
+    </div>
+  );
   if (id === "cash") return (
     <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center flex-shrink-0">
       <Banknote size={18} className="text-white" />
@@ -116,7 +136,8 @@ function MethodIcon({ id }: { id: string }) {
 }
 
 function hoverColor(id: string) {
-  if (id === "cash") return "hover:border-green-400";
+  if (id === "cash")   return "hover:border-green-400";
+  if (id === "paypal") return "hover:border-blue-400";
   return "hover:border-orange-400";
 }
 
@@ -222,7 +243,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   const savedAddresses: SavedAddress[] = currentUser?.savedAddresses ?? [];
   const defaultAddress = savedAddresses.find((a) => a.isDefault) ?? savedAddresses[0] ?? null;
 
-  const [step, setStep] = useState<"form" | "card_payment" | "success">("form");
+  const [step, setStep] = useState<"form" | "card_payment" | "paypal_payment" | "success">("form");
   const [chosenMethod, setChosenMethod] = useState<PaymentMethod | null>(null);
   const [placedScheduledTime, setPlacedScheduledTime] = useState<string | null>(null);
 
@@ -231,6 +252,11 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   // attaches to this secret and confirms the charge.
   const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
   const [pendingOrder, setPendingOrder] = useState<Order | null>(null);
+
+  // PayPal session state — populated when the user picks "PayPal" and
+  // /api/payments/paypal returns an order id. The PayPalButtons SDK reads
+  // it from createOrder() and the popup opens against that order.
+  const [paypalOrderId, setPaypalOrderId] = useState<string | null>(null);
   const [selectedAddressId, setSelectedAddressId] = useState<string | "manual">(
     defaultAddress ? defaultAddress.id : "manual"
   );
@@ -279,6 +305,8 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
 
   const stripeMin       = STRIPE_MIN_CHARGE_BY_CURRENCY[(settings.currency?.code ?? "GBP").toUpperCase()] ?? STRIPE_MIN_CHARGE_FALLBACK;
   const belowStripeMin  = orderTotal > 0 && orderTotal < stripeMin;
+  const paypalMin       = PAYPAL_MIN_CHARGE_BY_CURRENCY[(settings.currency?.code ?? "GBP").toUpperCase()] ?? PAYPAL_MIN_CHARGE_FALLBACK;
+  const belowPaypalMin  = orderTotal > 0 && orderTotal < paypalMin;
 
   function applyCode() {
     setCouponError("");
@@ -291,12 +319,12 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   }
 
   // Filter payment methods.
-  // PayPal is hidden from the customer-facing UI: the admin can still toggle
-  // it in Integrations, but no SDK is wired so we won't expose a button that
-  // would create an order with no real payment. Remove this filter once
-  // /api/payments/paypal exists.
+  // PayPal is hidden when NEXT_PUBLIC_PAYPAL_CLIENT_ID is not set — the admin
+  // can still toggle the method in Integrations, but a misconfigured deploy
+  // should not show a button that opens a broken popup.
   const activeMethods = [...(settings.paymentMethods ?? [])]
-    .filter((m) => m.enabled && m.id !== "paypal")
+    .filter((m) => m.enabled)
+    .filter((m) => m.id !== "paypal" || PAYPAL_CLIENT_ID !== "")
     .sort((a, b) => a.order - b.order);
 
   const availableMethods = activeMethods.filter((m) =>
@@ -402,18 +430,17 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
 
   async function handlePay(method: PaymentMethod) {
     if (!validate()) return;
-    if (method.id === "stripe") {
-      await startCardPayment(method);
-    } else {
-      await placeCashOrder(method);
-    }
+    if (method.id === "stripe")      await startCardPayment(method);
+    else if (method.id === "paypal") await startPaypalPayment(method);
+    else                             await placeCashOrder(method);
   }
 
   // Synchronous double-submit guards. The `submitting` state already disables
   // the buttons but a fast double-click can fire before React re-renders;
   // these refs catch the second call before the fetch is issued.
-  const cashInFlight = useRef(false);
-  const cardInFlight = useRef(false);
+  const cashInFlight   = useRef(false);
+  const cardInFlight   = useRef(false);
+  const paypalInFlight = useRef(false);
 
   /** Cash / pay-on-delivery — order is inserted immediately. */
   async function placeCashOrder(method: PaymentMethod) {
@@ -547,6 +574,83 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     }
   }
 
+  /**
+   * PayPal flow — call /api/payments/paypal to create the PayPal order,
+   * switch to the paypal_payment step where <PayPalButtons /> renders the
+   * Smart Buttons. The order is NOT created here; the webhook does that
+   * after PAYMENT.CAPTURE.COMPLETED fires.
+   */
+  async function startPaypalPayment(method: PaymentMethod) {
+    if (paypalInFlight.current) return;
+    if (belowPaypalMin) {
+      setSubmitError(`PayPal payments require a minimum of ${sym}${paypalMin.toFixed(2)}. Please pay by cash or add more to your order.`);
+      return;
+    }
+    paypalInFlight.current = true;
+    setSubmitting(true);
+    setSubmitError("");
+    const newOrder = buildOrder(method);
+
+    try {
+      const r = await fetch("/api/payments/paypal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildOrderPayload(newOrder)),
+      });
+      const j = await r.json() as {
+        ok: boolean;
+        error?: string;
+        paypalOrderId?: string;
+      };
+      if (!j.ok || !j.paypalOrderId) {
+        setSubmitError(j.error ?? "Could not start PayPal payment. Please try again.");
+        return;
+      }
+      setPaypalOrderId(j.paypalOrderId);
+      setPendingOrder(newOrder);
+      setChosenMethod(method);
+      setStep("paypal_payment");
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Network error — please try again.");
+    } finally {
+      paypalInFlight.current = false;
+      setSubmitting(false);
+    }
+  }
+
+  /** Called once /api/payments/paypal/capture confirms the capture. */
+  function handlePaypalPaid() {
+    if (appliedCoupon) {
+      incrementCouponUsage(appliedCoupon.couponId);
+      removeCoupon();
+    }
+    if (storeCreditApplied > 0 && currentUser && pendingOrder) {
+      spendStoreCredit(currentUser.id, storeCreditApplied, pendingOrder.id);
+    }
+    setPlacedScheduledTime(scheduledTime);
+    setStep("success");
+    clearCart();
+    setScheduledTime(null);
+    setPaypalOrderId(null);
+
+    // Receipt printing — the order itself will arrive via Realtime when the
+    // webhook inserts it; print the in-memory copy for an immediate receipt.
+    if (pendingOrder) printOrder(pendingOrder, settings);
+
+    if (!currentUser && form.email.trim()) {
+      fetch("/api/guest-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name:       form.name.trim(),
+          email:      form.email.trim(),
+          phone:      form.phone.trim(),
+          orderTotal: orderTotal,
+        }),
+      }).catch(() => {});
+    }
+  }
+
   // ── Card payment screen — Stripe PaymentElement ─────────────────────────────
   if (step === "card_payment" && stripeClientSecret) {
     return (
@@ -584,6 +688,50 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                 onPaid={handleCardPaid}
               />
             </Elements>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── PayPal payment screen — Smart Buttons ───────────────────────────────────
+  if (step === "paypal_payment" && paypalOrderId) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+        <div className="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+          <div className="flex items-center justify-between p-5 border-b border-gray-100">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Pay with PayPal</h2>
+              <p className="text-xs text-gray-500 mt-0.5">{sym}{orderTotal.toFixed(2)} · {chosenMethod?.name}</p>
+            </div>
+            <button
+              onClick={() => {
+                // Going back doesn't cancel the PayPal order — it expires on
+                // PayPal's side after a few hours of inactivity. We just hide
+                // the UI; if the customer retries with the same cart, a new
+                // PayPal order is created.
+                setStep("form");
+                setPaypalOrderId(null);
+                setPendingOrder(null);
+              }}
+              className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition"
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-5">
+            <PaypalPaymentForm
+              paypalOrderId={paypalOrderId}
+              amountLabel={`${sym}${orderTotal.toFixed(2)}`}
+              currencyCode={(settings.currency?.code ?? "GBP").toUpperCase()}
+              onPaid={handlePaypalPaid}
+              onCancel={() => {
+                setStep("form");
+                setPaypalOrderId(null);
+                setPendingOrder(null);
+              }}
+            />
           </div>
         </div>
       </div>
@@ -1021,13 +1169,16 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
             )}
 
             {locState !== "outside" && availableMethods.map((method) => {
-              const disabledByMin = method.id === "stripe" && belowStripeMin;
+              const disabledByStripeMin = method.id === "stripe" && belowStripeMin;
+              const disabledByPaypalMin = method.id === "paypal" && belowPaypalMin;
+              const disabledByMin       = disabledByStripeMin || disabledByPaypalMin;
+              const methodMin           = disabledByPaypalMin ? paypalMin : stripeMin;
               return (
                 <button
                   key={method.id}
                   onClick={() => handlePay(method)}
                   disabled={submitting || disabledByMin}
-                  title={disabledByMin ? `Card payments require a minimum of ${sym}${stripeMin.toFixed(2)}` : undefined}
+                  title={disabledByMin ? `${method.name} requires a minimum of ${sym}${methodMin.toFixed(2)}` : undefined}
                   className={`group w-full flex items-center gap-3 border-2 border-gray-200 rounded-xl px-4 py-3.5 transition disabled:opacity-60 disabled:cursor-not-allowed ${hoverColor(method.id)}`}
                 >
                   {submitting
@@ -1040,7 +1191,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                       {submitting
                         ? "Placing order…"
                         : disabledByMin
-                          ? `Minimum ${sym}${stripeMin.toFixed(2)} required for card`
+                          ? `Minimum ${sym}${methodMin.toFixed(2)} required for ${method.name}`
                           : method.description}
                     </p>
                   </div>
@@ -1156,5 +1307,97 @@ function CardPaymentForm({
         Payments are processed securely by Stripe. Your card details are never stored on our servers.
       </p>
     </form>
+  );
+}
+
+// ─── Inner PayPal payment form ────────────────────────────────────────────────
+// Wraps <PayPalButtons /> with the script provider configured for our public
+// client id + the order's currency. createOrder() returns the order id we
+// already minted via /api/payments/paypal, so the popup attaches to the
+// server-verified amount rather than anything supplied by the browser.
+
+function PaypalPaymentForm({
+  paypalOrderId,
+  amountLabel,
+  currencyCode,
+  onPaid,
+  onCancel,
+}: {
+  paypalOrderId: string;
+  amountLabel:   string;
+  currencyCode:  string;
+  onPaid:        () => void;
+  onCancel:      () => void;
+}) {
+  const [error,      setError]      = useState<string | null>(null);
+  const [capturing,  setCapturing]  = useState(false);
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 flex items-center justify-between">
+        <span className="text-sm font-medium text-gray-700">Amount to pay</span>
+        <span className="text-base font-bold text-gray-900">{amountLabel}</span>
+      </div>
+
+      <PayPalScriptProvider
+        options={{
+          clientId: PAYPAL_CLIENT_ID,
+          currency: currencyCode,
+          intent:   "capture",
+        }}
+      >
+        <PayPalButtons
+          style={{ layout: "vertical", shape: "rect", label: "paypal" }}
+          disabled={capturing}
+          // createOrder fires when the buyer clicks the PayPal button — we
+          // already have the server-minted order id, so just hand it over.
+          createOrder={() => Promise.resolve(paypalOrderId)}
+          onApprove={async (data) => {
+            setCapturing(true);
+            setError(null);
+            try {
+              const r = await fetch("/api/payments/paypal/capture", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ paypalOrderId: data.orderID }),
+              });
+              const j = await r.json() as { ok: boolean; error?: string };
+              if (!j.ok) {
+                setError(j.error ?? "PayPal could not complete the payment.");
+                return;
+              }
+              onPaid();
+            } catch (err) {
+              setError(err instanceof Error ? err.message : "Network error capturing PayPal payment.");
+            } finally {
+              setCapturing(false);
+            }
+          }}
+          onCancel={() => onCancel()}
+          onError={(err) => {
+            const message = err instanceof Error ? err.message : "PayPal encountered an error.";
+            setError(message);
+          }}
+        />
+      </PayPalScriptProvider>
+
+      {error && (
+        <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+          <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-red-700">{error}</p>
+        </div>
+      )}
+
+      {capturing && (
+        <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
+          <Loader2 size={14} className="animate-spin" />
+          Finalising your payment with PayPal…
+        </div>
+      )}
+
+      <p className="text-[10px] text-gray-400 text-center">
+        Payments are processed securely by PayPal. We never see your card or bank details.
+      </p>
+    </div>
   );
 }

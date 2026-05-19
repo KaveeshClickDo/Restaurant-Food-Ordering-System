@@ -2,7 +2,8 @@
  * GET /api/admin/payments — payment history for the admin Payments panel.
  *
  * Returns all online orders with money attached:
- *   • Stripe-paid orders (payment_status in 'paid'/'refunded'/'partially_refunded')
+ *   • Stripe-paid orders   (payment_status in 'paid'/'refunded'/'partially_refunded')
+ *   • PayPal-paid orders   (same payment_status set)
  *   • Cash orders that have been marked paid (rare today but supported)
  *
  * Query params:
@@ -35,6 +36,7 @@ export async function GET(req: NextRequest) {
     .select(`
       id, date, total, payment_method, payment_status,
       stripe_payment_intent_id, stripe_charge_id,
+      paypal_order_id, paypal_capture_id,
       refunded_amount, refunds, status, fulfillment,
       customer_id,
       customers ( name, email )

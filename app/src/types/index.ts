@@ -500,8 +500,10 @@ export interface Refund {
   note?: string;           // internal admin note
   processedAt: string;     // ISO
   processedBy: string;     // e.g. "Admin"
-  /** Stripe refund id when the refund was processed through the gateway. */
+  /** Stripe refund id when the refund was processed through Stripe. */
   stripeRefundId?: string | null;
+  /** PayPal refund id when the refund was processed through PayPal. */
+  paypalRefundId?: string | null;
 }
 
 export interface Driver {

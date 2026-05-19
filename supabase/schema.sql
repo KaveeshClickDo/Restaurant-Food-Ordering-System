@@ -108,12 +108,17 @@ create table if not exists customers (
 --
 -- payment_status distinguishes "money collected" from order fulfillment status:
 --   • 'unpaid'   — cash / pay-on-delivery; expect to collect at hand-off.
---   • 'paid'     — Stripe (or future PayPal) authorised + captured.
+--   • 'paid'     — Stripe or PayPal authorised + captured.
 --   • 'refunded' — full refund processed through the gateway.
 --   • 'partially_refunded' — at least one partial refund processed.
 -- The `status` column continues to track fulfillment (pending → preparing →
 -- delivered). The two move independently: a 'paid' order can still be 'pending'
 -- (just placed), and a 'delivered' order can be 'unpaid' (cash).
+--
+-- Gateway-specific columns:
+--   • stripe_payment_intent_id / stripe_charge_id — populated for Stripe orders.
+--   • paypal_order_id / paypal_capture_id         — populated for PayPal orders.
+-- Exactly one pair is set per paid order; cash orders leave both pairs null.
 create table if not exists orders (
   id                       text        primary key,
   customer_id              text        references customers(id) on delete set null,
@@ -145,7 +150,9 @@ create table if not exists orders (
   payment_status           text        not null default 'unpaid'
                            check (payment_status in ('unpaid','paid','refunded','partially_refunded','failed')),
   stripe_payment_intent_id text,
-  stripe_charge_id         text
+  stripe_charge_id         text,
+  paypal_order_id          text,
+  paypal_capture_id        text
 );
 
 create table if not exists drivers (
@@ -293,16 +300,25 @@ create table if not exists payment_audit_log (
   details    jsonb       not null default '{}'
 );
 
--- Stripe payment sessions — staging table for the "payment-first" checkout flow.
+-- Payment sessions — staging table for the "payment-first" checkout flow.
 -- A row is created when the customer clicks Pay; it holds the verified cart and
--- delivery details while Stripe authorises the card (including 3D Secure, which
--- can take 30+ seconds and runs in a popup). On webhook payment_intent.succeeded
--- the row is converted into a real `orders` row and deleted. On failure or
--- abandonment the row expires and is cleaned up. The kitchen / driver views
--- never see this table — only `orders`.
+-- delivery details while the gateway authorises the charge (Stripe 3D Secure
+-- can take 30+ seconds; PayPal approval runs in a popup). On the success
+-- webhook (Stripe payment_intent.succeeded / PayPal PAYMENT.CAPTURE.COMPLETED)
+-- the row is converted into a real `orders` row. On failure or abandonment
+-- the row expires and is cleaned up. The kitchen / driver views never see
+-- this table — only `orders`.
+--
+-- `gateway` discriminates between Stripe and PayPal sessions. Exactly one of
+-- stripe_payment_intent_id / paypal_order_id is populated per row; the other
+-- stays null. Both columns are unique-when-present so a single gateway id
+-- can never own two sessions.
 create table if not exists payment_sessions (
   id                       text        primary key default gen_random_uuid()::text,
-  stripe_payment_intent_id text        not null unique,
+  gateway                  text        not null default 'stripe'
+                           check (gateway in ('stripe','paypal')),
+  stripe_payment_intent_id text        unique,
+  paypal_order_id          text        unique,
   customer_id              text        not null,
   amount                   numeric     not null,
   currency                 text        not null,
@@ -312,7 +328,12 @@ create table if not exists payment_sessions (
   created_at               timestamptz not null default now(),
   expires_at               timestamptz not null default (now() + interval '1 hour'),
   completed_order_id       text,
-  last_error               text
+  last_error               text,
+  -- Exactly one gateway-id column must be populated, matching the `gateway` value.
+  constraint payment_sessions_gateway_id_check check (
+    (gateway = 'stripe' and stripe_payment_intent_id is not null and paypal_order_id is null)
+    or (gateway = 'paypal' and paypal_order_id is not null and stripe_payment_intent_id is null)
+  )
 );
 
 -- Dining tables (replaces app_settings.data.diningTables). Promoted to a
@@ -436,6 +457,8 @@ create index if not exists idx_orders_status         on orders(status);
 create index if not exists idx_orders_driver_id      on orders(driver_id) where driver_id is not null;
 create index if not exists idx_orders_payment_status on orders(payment_status);
 create index if not exists idx_orders_stripe_pi      on orders(stripe_payment_intent_id) where stripe_payment_intent_id is not null;
+create index if not exists idx_orders_paypal_order    on orders(paypal_order_id)          where paypal_order_id          is not null;
+create index if not exists idx_orders_paypal_capture  on orders(paypal_capture_id)        where paypal_capture_id        is not null;
 create index if not exists idx_menu_items_category   on menu_items(category_id);
 create index if not exists idx_mimp_item             on menu_item_meal_periods(menu_item_id);
 create index if not exists idx_mimp_period           on menu_item_meal_periods(meal_period_id);
@@ -451,8 +474,9 @@ create index if not exists idx_waiters_active        on waiters(active)   where 
 create index if not exists idx_kitchen_staff_active  on kitchen_staff(active) where active = true;
 create index if not exists idx_coupons_active        on coupons(active)   where active = true;
 create index if not exists idx_payment_audit_time    on payment_audit_log(timestamp desc);
-create index if not exists idx_payment_sessions_pi   on payment_sessions(stripe_payment_intent_id);
-create index if not exists idx_payment_sessions_exp  on payment_sessions(expires_at);
+create index if not exists idx_payment_sessions_pi      on payment_sessions(stripe_payment_intent_id) where stripe_payment_intent_id is not null;
+create index if not exists idx_payment_sessions_paypal  on payment_sessions(paypal_order_id)          where paypal_order_id          is not null;
+create index if not exists idx_payment_sessions_exp     on payment_sessions(expires_at);
 
 
 -- ── 4. RLS — enable + policies ───────────────────────────────────────────────
