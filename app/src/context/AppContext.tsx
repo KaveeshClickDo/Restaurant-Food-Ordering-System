@@ -302,6 +302,11 @@ function orderToRow(o: Order) {
     status: o.status, fulfillment: o.fulfillment, total: o.total,
     items: o.items,
     address: o.address ?? "", note: o.note ?? "",
+    // Customer pin coordinates captured at checkout — null when the customer
+    // didn't drop a pin. Server-side validateAndNormaliseOrder re-checks bounds
+    // and prefers these over re-geocoding the address when computing the fee.
+    customer_lat: o.customerLat ?? null,
+    customer_lng: o.customerLng ?? null,
     payment_method: o.paymentMethod ?? "",
     delivery_fee: o.deliveryFee ?? 0, service_fee: o.serviceFee ?? 0,
     scheduled_time: o.scheduledTime ?? "", coupon_code: o.couponCode ?? "",

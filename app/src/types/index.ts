@@ -544,6 +544,11 @@ export interface Order {
   items: OrderLine[];
   address?: string;
   note?: string;
+  /** Customer pin coordinates captured at checkout. Present only when the
+   *  customer placed a pin / used "Detect location" / picked a saved address
+   *  that already had coords. Driver UI prefers these over geocoding. */
+  customerLat?: number;
+  customerLng?: number;
   paymentMethod?: string;   // display name of payment method used
   /** Distinct from `status` (fulfillment). 'unpaid' = cash/COD; 'paid' = Stripe authorised+captured. */
   paymentStatus?: PaymentStatus;

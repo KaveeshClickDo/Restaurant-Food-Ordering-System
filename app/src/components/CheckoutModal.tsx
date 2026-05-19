@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   X, CreditCard, Banknote, CheckCircle,
@@ -16,6 +16,17 @@ import { printOrder } from "@/lib/escpos";
 import { computeTax, taxSurcharge } from "@/lib/taxUtils";
 import { checkoutFormSchema } from "@/lib/schemas/order";
 import { cleanPhone } from "@/lib/inputUtils";
+import { geocode } from "@/lib/useGeocode";
+
+/**
+ * How the current customer pin was set. Drives the pin-status badge above
+ * the delivery map so the customer knows whether to drag-refine.
+ *   - "user"       — clicked map, dragged, used "Detect location", or picked
+ *                    a saved address that already had pinned coords
+ *   - "estimated"  — geocoded from the typed address as the user wrote it
+ *   - null         — no pin yet (driver will rely on the address string)
+ */
+type PinSource = "user" | "estimated" | null;
 
 // PayPal's per-currency minimum — mirrors the server-side guard in
 // /api/payments/paypal. PayPal doesn't publish a strict floor but very low
@@ -248,6 +259,13 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   // /api/payments/paypal returns an order id. The PayPalButtons SDK reads
   // it from createOrder() and the popup opens against that order.
   const [paypalOrderId, setPaypalOrderId] = useState<string | null>(null);
+
+  // Server-authoritative total returned by /api/payments/intent or
+  // /api/payments/paypal. The client computes its own preview total, but the
+  // server may recompute the delivery fee (zone rules, address validation) and
+  // return a different number. We display this authoritative total on the
+  // payment step so the customer sees exactly what they'll be charged.
+  const [authoritativeTotal, setAuthoritativeTotal] = useState<number | null>(null);
   const [selectedAddressId, setSelectedAddressId] = useState<string | "manual">(
     defaultAddress ? defaultAddress.id : "manual"
   );
@@ -256,6 +274,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     email:   currentUser?.email ?? "",
     phone:   currentUser?.phone ?? (defaultAddress?.phone ?? ""),
     address: defaultAddress ? `${defaultAddress.address}, ${defaultAddress.postcode}` : "",
+    note:    defaultAddress?.note ?? "",
   });
 
   // Coupon input state
@@ -273,6 +292,16 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   const [zone,     setZone]       = useState<DeliveryZone | null>(null);
   const [custLat,  setCustLat]    = useState<number | null>(defaultAddress?.lat ?? null);
   const [custLng,  setCustLng]    = useState<number | null>(defaultAddress?.lng ?? null);
+  // A saved-address pin is treated as user-confirmed (the customer placed it
+  // when they saved the address). Manual entry starts with no pin → null.
+  const [pinSource, setPinSource] = useState<PinSource>(
+    defaultAddress?.lat != null && defaultAddress?.lng != null ? "user" : null,
+  );
+  // Live ref to pinSource so the debounced geocode effect can re-check the
+  // current value AFTER its await, not the closure-captured value from when
+  // the timeout was scheduled (the user may have placed a pin during the wait).
+  const pinSourceRef = useRef<PinSource>(pinSource);
+  useEffect(() => { pinSourceRef.current = pinSource; }, [pinSource]);
 
   // Validation
   const [fieldErrors, setFieldErrors]  = useState<Record<string, string>>({});
@@ -333,14 +362,14 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     setLocState("detecting");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        applyCustomerCoords(pos.coords.latitude, pos.coords.longitude);
+        applyCustomerCoords(pos.coords.latitude, pos.coords.longitude, "user");
       },
       () => setLocState("denied"),
       { timeout: 8000 }
     );
   }
 
-  function applyCustomerCoords(lat: number, lng: number) {
+  function applyCustomerCoords(lat: number, lng: number, source: PinSource = "user") {
     const km = haversineKm(restLat, restLng, lat, lng);
     const found = findZone(km, settings.deliveryZones);
     setCustLat(+lat.toFixed(6));
@@ -348,7 +377,35 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     setDistKm(km);
     setZone(found);
     setLocState(found ? "found" : "outside");
+    setPinSource(source);
   }
+
+  // ── Geocode-on-debounce ──────────────────────────────────────────────────
+  // When the customer types an address into the manual input and has not yet
+  // placed a pin themselves, run a debounced Nominatim lookup so a draft pin
+  // appears on the map and the fee preview becomes meaningful. Only fires for
+  // delivery orders + the manual-address branch, and never overwrites a
+  // user-placed pin (pinSource === "user").
+  useEffect(() => {
+    if (!isDelivery) return;
+    if (selectedAddressId !== "manual" && savedAddresses.length > 0) return;
+    if (pinSourceRef.current === "user") return;
+    const q = form.address.trim();
+    if (q.length < 6) return;
+    const timer = setTimeout(async () => {
+      const geo = await geocode(q);
+      if (!geo) return;
+      // Skip if the user placed a pin while we were geocoding (read the live
+      // value via ref — closure-captured pinSource is stale here).
+      if (pinSourceRef.current === "user") return;
+      applyCustomerCoords(geo.lat, geo.lng, "estimated");
+    }, 700);
+    return () => clearTimeout(timer);
+    // We deliberately exclude applyCustomerCoords/pinSource from deps: rerunning
+    // on every pin-source flip would cause an infinite loop (estimated → set →
+    // re-trigger). The address change is the only trigger we want.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.address, isDelivery, selectedAddressId, savedAddresses.length]);
 
   function validate(): boolean {
     const result = checkoutFormSchema({ isDelivery }).safeParse({
@@ -393,6 +450,10 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
       deliveryFee: isDelivery ? deliveryFee : 0,
       serviceFee,
       ...(isDelivery && form.address ? { address: form.address } : {}),
+      ...(isDelivery && form.note.trim() ? { note: form.note.trim() } : {}),
+      ...(isDelivery && custLat != null && custLng != null
+        ? { customerLat: custLat, customerLng: custLng }
+        : {}),
       ...(scheduledTime ? { scheduledTime } : {}),
       ...(appliedCoupon ? { couponCode: appliedCoupon.code, couponDiscount: appliedCoupon.discountAmount } : {}),
       ...(tax.enabled && tax.vatAmount > 0 ? { vatAmount: tax.vatAmount, vatInclusive: tax.inclusive } : {}),
@@ -410,6 +471,11 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
       items: order.items,
       payment_method: order.paymentMethod ?? "",
       address: order.address ?? "",
+      note: order.note ?? "",
+      // Persist the pin only when the customer actually has one. Server-side
+      // validation re-checks bounds, so a malformed pin is safe to send too.
+      customer_lat: order.customerLat ?? null,
+      customer_lng: order.customerLng ?? null,
       delivery_fee: order.deliveryFee ?? 0,
       service_fee: order.serviceFee ?? 0,
       scheduled_time: order.scheduledTime ?? "",
@@ -510,6 +576,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
         ok: boolean;
         error?: string;
         clientSecret?: string;
+        amount?: number;
       };
       if (!j.ok || !j.clientSecret) {
         setSubmitError(j.error ?? "Could not start payment. Please try again.");
@@ -518,6 +585,9 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
       setStripeClientSecret(j.clientSecret);
       setPendingOrder(newOrder);
       setChosenMethod(method);
+      // Capture the server-authoritative total so the payment screen shows the
+      // real charge amount, not the client-computed preview.
+      setAuthoritativeTotal(typeof j.amount === "number" ? j.amount : null);
       setStep("card_payment");
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "Network error — please try again.");
@@ -590,6 +660,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
         ok: boolean;
         error?: string;
         paypalOrderId?: string;
+        amount?: number;
       };
       if (!j.ok || !j.paypalOrderId) {
         setSubmitError(j.error ?? "Could not start PayPal payment. Please try again.");
@@ -598,6 +669,9 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
       setPaypalOrderId(j.paypalOrderId);
       setPendingOrder(newOrder);
       setChosenMethod(method);
+      // Capture the server-authoritative total so the payment screen shows the
+      // real charge amount, not the client-computed preview.
+      setAuthoritativeTotal(typeof j.amount === "number" ? j.amount : null);
       setStep("paypal_payment");
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "Network error — please try again.");
@@ -642,6 +716,11 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
 
   // ── Card payment screen — Stripe PaymentElement ─────────────────────────────
   if (step === "card_payment" && stripeClientSecret) {
+    // Prefer the server's authoritative number for what we display + send to
+    // <CardPaymentForm>. If it differs from the client preview by more than
+    // a rounding error, surface a notice so the customer isn't surprised.
+    const chargeTotal = authoritativeTotal ?? orderTotal;
+    const totalAdjusted = authoritativeTotal != null && Math.abs(authoritativeTotal - orderTotal) > 0.01;
     return (
       <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
@@ -649,7 +728,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
           <div className="flex items-center justify-between p-5 border-b border-gray-100">
             <div>
               <h2 className="text-xl font-bold text-gray-900">Complete payment</h2>
-              <p className="text-xs text-gray-500 mt-0.5">{sym}{orderTotal.toFixed(2)} · {chosenMethod?.name}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{sym}{chargeTotal.toFixed(2)} · {chosenMethod?.name}</p>
             </div>
             <button
               onClick={() => {
@@ -658,12 +737,23 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                 setStep("form");
                 setStripeClientSecret(null);
                 setPendingOrder(null);
+                setAuthoritativeTotal(null);
               }}
               className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition"
             >
               <X size={16} />
             </button>
           </div>
+          {totalAdjusted && (
+            <div className="px-5 pt-4">
+              <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+                <AlertCircle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-800">
+                  <span className="font-semibold">Total updated to {sym}{chargeTotal.toFixed(2)}.</span> Your delivery fee was recalculated based on your address. You&apos;ll be charged this amount.
+                </p>
+              </div>
+            </div>
+          )}
           <div className="flex-1 overflow-y-auto p-5">
             <Elements
               stripe={getStripePromise()}
@@ -673,7 +763,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
               }}
             >
               <CardPaymentForm
-                amountLabel={`${sym}${orderTotal.toFixed(2)}`}
+                amountLabel={`${sym}${chargeTotal.toFixed(2)}`}
                 onPaid={handleCardPaid}
               />
             </Elements>
@@ -685,6 +775,11 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
 
   // ── PayPal payment screen — Smart Buttons ───────────────────────────────────
   if (step === "paypal_payment" && paypalOrderId) {
+    // Same authoritative-total handling as the Stripe screen above. PayPal's
+    // own popup will display the captured amount (= the server total), so the
+    // notice keeps our own UI honest with that.
+    const chargeTotal = authoritativeTotal ?? orderTotal;
+    const totalAdjusted = authoritativeTotal != null && Math.abs(authoritativeTotal - orderTotal) > 0.01;
     return (
       <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
@@ -692,7 +787,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
           <div className="flex items-center justify-between p-5 border-b border-gray-100">
             <div>
               <h2 className="text-xl font-bold text-gray-900">Pay with PayPal</h2>
-              <p className="text-xs text-gray-500 mt-0.5">{sym}{orderTotal.toFixed(2)} · {chosenMethod?.name}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{sym}{chargeTotal.toFixed(2)} · {chosenMethod?.name}</p>
             </div>
             <button
               onClick={() => {
@@ -703,22 +798,34 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                 setStep("form");
                 setPaypalOrderId(null);
                 setPendingOrder(null);
+                setAuthoritativeTotal(null);
               }}
               className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition"
             >
               <X size={16} />
             </button>
           </div>
+          {totalAdjusted && (
+            <div className="px-5 pt-4">
+              <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+                <AlertCircle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-800">
+                  <span className="font-semibold">Total updated to {sym}{chargeTotal.toFixed(2)}.</span> Your delivery fee was recalculated based on your address. PayPal will charge this amount.
+                </p>
+              </div>
+            </div>
+          )}
           <div className="flex-1 overflow-y-auto p-5">
             <PaypalPaymentForm
               paypalOrderId={paypalOrderId}
-              amountLabel={`${sym}${orderTotal.toFixed(2)}`}
+              amountLabel={`${sym}${chargeTotal.toFixed(2)}`}
               currencyCode={(settings.currency?.code ?? "GBP").toUpperCase()}
               onPaid={handlePaypalPaid}
               onCancel={() => {
                 setStep("form");
                 setPaypalOrderId(null);
                 setPendingOrder(null);
+                setAuthoritativeTotal(null);
               }}
             />
           </div>
@@ -994,10 +1101,23 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                             ...f,
                             address: `${addr.address}, ${addr.postcode}`,
                             phone: f.phone || addr.phone || "",
+                            // Pre-fill the delivery note from the saved address so the
+                            // customer doesn't retype "Flat 3B, gate code 4321" every
+                            // time. They can still edit it for this order.
+                            note: addr.note ?? "",
                           }));
                           if (fieldErrors.address) setFieldErrors((p) => ({ ...p, address: "" }));
                           if (addr.lat != null && addr.lng != null) {
-                            applyCustomerCoords(addr.lat, addr.lng);
+                            applyCustomerCoords(addr.lat, addr.lng, "user");
+                          } else {
+                            // Saved address has no pin (legacy entries) — clear any
+                            // leftover coords so the geocode-on-debounce can run.
+                            setCustLat(null);
+                            setCustLng(null);
+                            setPinSource(null);
+                            setLocState("idle");
+                            setDistKm(null);
+                            setZone(null);
                           }
                         }}
                         className={`w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-xl border transition ${
@@ -1029,7 +1149,17 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                       type="button"
                       onClick={() => {
                         setSelectedAddressId("manual");
-                        setForm((f) => ({ ...f, address: "" }));
+                        // Switching to manual entry invalidates the previously
+                        // selected saved-address pin and note. Clear them so the
+                        // geocode-on-debounce can populate fresh values from the
+                        // new typed address.
+                        setForm((f) => ({ ...f, address: "", note: "" }));
+                        setCustLat(null);
+                        setCustLng(null);
+                        setPinSource(null);
+                        setLocState("idle");
+                        setDistKm(null);
+                        setZone(null);
                       }}
                       className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl border transition ${
                         selectedAddressId === "manual"
@@ -1058,6 +1188,10 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                       onChange={(e) => {
                         setForm((f) => ({ ...f, address: e.target.value }));
                         if (fieldErrors.address) setFieldErrors((p) => ({ ...p, address: "" }));
+                        // We don't clear an "estimated" pin per-keystroke — the
+                        // debounced effect will replace it 700ms after the last
+                        // edit. A "user" pin is left untouched (the effect's own
+                        // guard skips when pinSource === "user").
                       }}
                       placeholder="42 Example Street, London"
                       className={`w-full border rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 transition ${
@@ -1073,6 +1207,23 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                     )}
                   </>
                 )}
+
+                {/* Delivery note — for the last-mile bits an address can't express:
+                    flat/unit, gate code, "leave at door", etc. Optional but
+                    valuable in housing schemes / large complexes. */}
+                <div className="mt-3">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Delivery note <span className="text-gray-400">(optional — flat / unit / access instructions)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={form.note}
+                    onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
+                    placeholder="Flat 3B, gate code 1234, leave at door"
+                    maxLength={200}
+                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -1088,6 +1239,34 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                 onDetect={detectLocation}
                 currencySymbol={sym}
               />
+
+              {/* Pin-source indicator — tells the customer whether their visible
+                  pin is a confirmed location or just a guess from the address.
+                  Encourages drag-to-refine when the pin came from geocoding. */}
+              {custLat != null && custLng != null ? (
+                pinSource === "estimated" ? (
+                  <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    <MapPin size={12} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                    <p className="text-[11px] text-amber-700">
+                      <span className="font-semibold">Pin estimated from your address.</span> Drag the blue pin on the map to confirm the exact spot.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                    <MapPin size={12} className="text-green-600 flex-shrink-0 mt-0.5" />
+                    <p className="text-[11px] text-green-700">
+                      <span className="font-semibold">Exact pin set.</span> Drag it if you need to refine.
+                    </p>
+                  </div>
+                )
+              ) : (
+                <div className="flex items-start gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                  <MapPin size={12} className="text-gray-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-gray-500">
+                    <span className="font-semibold">No pin yet.</span> Type your address, tap &quot;Detect&quot;, or click the map.
+                  </p>
+                </div>
+              )}
 
               {/* Mini-map: restaurant + zone circles + customer pin (when detected) */}
               <div className="rounded-xl border border-gray-200 overflow-hidden">
@@ -1110,14 +1289,11 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                   ]}
                   draggable={custLat != null && custLng != null}
                   clickToMove
-                  onPrimaryMove={(lat, lng) => applyCustomerCoords(lat, lng)}
+                  // Map clicks / drags always count as a user-confirmed pin —
+                  // the customer is explicitly placing it.
+                  onPrimaryMove={(lat, lng) => applyCustomerCoords(lat, lng, "user")}
                 />
               </div>
-              {custLat != null && custLng != null && (
-                <p className="text-[11px] text-gray-400">
-                  Drag your blue pin to refine your exact spot — helps the driver find you.
-                </p>
-              )}
             </div>
           )}
 

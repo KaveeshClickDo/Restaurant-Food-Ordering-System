@@ -20,7 +20,7 @@
 
 import { randomInt } from "crypto";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { resolveDeliveryZoneFee, type DeliveryZoneShape } from "@/lib/geocode";
+import { resolveDeliveryZoneFee, findZoneForDistance, haversineKm, type DeliveryZoneShape } from "@/lib/geocode";
 
 interface DBMenuItem {
   id:         string;
@@ -85,6 +85,8 @@ export interface ValidatedOrder {
     coupon_discount:   number;
     store_credit_used: number;
     delivery_code:     string | null;
+    customer_lat:      number | null;
+    customer_lng:      number | null;
   };
   verifiedItems: Array<Record<string, unknown>>;
   coupon: VerifiedCoupon | null;
@@ -263,9 +265,26 @@ export async function validateAndNormaliseOrder(
   };
 
   // ── Delivery zone enforcement (authoritative fee) ─────────────────────────
-  // If admin configured zones and the order is for delivery, geocode the
-  // address server-side and override whatever delivery_fee the client sent.
-  // This stops a tampered client from paying a £0 fee for a £5 zone.
+  // If admin configured zones and the order is for delivery, compute the
+  // authoritative delivery_fee server-side and override whatever the client
+  // sent. This stops a tampered client from paying a £0 fee for a £5 zone.
+  //
+  // Preference order for distance:
+  //   1. Customer-supplied pin coords (customer_lat/customer_lng) — exact,
+  //      no Nominatim call, no rate limit.
+  //   2. Geocode of the address string — fallback for string-only orders.
+  //
+  // The pin is sanity-checked: only used if both lat/lng are finite numbers in
+  // valid ranges. A malformed pin falls through to geocoding (same path as
+  // before this column existed).
+  const rawCustLat = typeof body.customer_lat === "number" ? body.customer_lat : null;
+  const rawCustLng = typeof body.customer_lng === "number" ? body.customer_lng : null;
+  const pinIsValid = rawCustLat != null && rawCustLng != null
+    && Number.isFinite(rawCustLat) && Number.isFinite(rawCustLng)
+    && Math.abs(rawCustLat) <= 90 && Math.abs(rawCustLng) <= 180;
+  const custLat = pinIsValid ? rawCustLat : null;
+  const custLng = pinIsValid ? rawCustLng : null;
+
   if (fulfillment === "delivery" && typeof body.address === "string" && body.address.trim()) {
     const rawZones = (settingsRow?.data?.deliveryZones ?? []) as DeliveryZoneShape[];
     const enabledZones = rawZones.filter((z) => z && z.enabled);
@@ -277,32 +296,76 @@ export async function validateAndNormaliseOrder(
       ? Math.max(0, settingsRestaurant.deliveryFee)
       : 0;
 
-    if (enabledZones.length > 0
-        && typeof settingsRestaurant.lat === "number"
-        && typeof settingsRestaurant.lng === "number") {
-      const lookup = await resolveDeliveryZoneFee(
-        body.address.trim(),
-        settingsRestaurant.lat,
-        settingsRestaurant.lng,
-        enabledZones,
-      );
-      if (lookup.kind === "zone") {
-        deliveryFee = Math.max(0, lookup.fee);
-      } else if (lookup.kind === "outside") {
-        return {
-          ok: false,
-          error: "Your delivery address is outside our service area.",
-          status: 400,
-        };
-      } else {
-        // Geocoding failed (network error / address not found). Don't reject
-        // the order — fall back to the restaurant default fee so we don't
-        // lose the sale, and the admin can correct it manually if needed.
-        deliveryFee = restaurantDefaultFee;
+    const zonesActive = enabledZones.length > 0;
+    const haveRestaurantCoords =
+      typeof settingsRestaurant.lat === "number" && typeof settingsRestaurant.lng === "number";
+
+    if (zonesActive && !haveRestaurantCoords) {
+      // Misconfiguration: admin enabled zones but never pinned the restaurant.
+      // The client UI computes zone fees against a London fallback (51.515,
+      // -0.063), so without this guard we'd silently charge restaurantDefaultFee
+      // while the customer was shown a zone fee. Refuse rather than allow the
+      // mismatch — the admin must set the restaurant coords first.
+      return {
+        ok: false,
+        error: "Delivery is temporarily unavailable. Please contact the restaurant.",
+        status: 400,
+      };
+    }
+
+    if (zonesActive) {
+      // restaurantLat/restaurantLng are narrowed by the guard above.
+      const restLat = settingsRestaurant.lat as number;
+      const restLng = settingsRestaurant.lng as number;
+
+      let usedPin = false;
+      if (custLat != null && custLng != null) {
+        // Fast path: trust the customer-supplied pin.
+        const distKm = haversineKm(restLat, restLng, custLat, custLng);
+        const zone = findZoneForDistance(distKm, enabledZones);
+        if (zone) {
+          deliveryFee = Math.max(0, zone.fee);
+          usedPin = true;
+        } else {
+          return {
+            ok: false,
+            error: "Your delivery address is outside our service area.",
+            status: 400,
+          };
+        }
+      }
+      if (!usedPin) {
+        const lookup = await resolveDeliveryZoneFee(
+          body.address.trim(),
+          restLat,
+          restLng,
+          enabledZones,
+        );
+        if (lookup.kind === "zone") {
+          deliveryFee = Math.max(0, lookup.fee);
+        } else if (lookup.kind === "outside") {
+          return {
+            ok: false,
+            error: "Your delivery address is outside our service area.",
+            status: 400,
+          };
+        } else {
+          // Geocoding failed (network blip, address not found, etc.) AND the
+          // customer didn't drop a pin we could fall back to. Don't silently
+          // substitute restaurantDefaultFee — the customer was shown the zone
+          // fee on screen, charging anything different is a mismatch. Reject
+          // and prompt them to pin their location (the checkout map supports
+          // this and persists the pin on retry).
+          return {
+            ok: false,
+            error: "We couldn't verify your delivery distance from your address. Please drop a pin on the map to confirm your exact location, then try again.",
+            status: 400,
+          };
+        }
       }
     } else {
-      // No zones configured (or restaurant lat/lng not set) — use the
-      // single global delivery fee from settings.
+      // No zones configured at all — the single global restaurant delivery fee
+      // is the customer's expected fee, so this fallback is legitimate.
       deliveryFee = restaurantDefaultFee;
     }
   } else if (fulfillment !== "delivery") {
@@ -388,6 +451,8 @@ export async function validateAndNormaliseOrder(
     coupon_discount:   verifiedCoupon?.discount ?? 0,
     store_credit_used: storeCreditUsed,
     delivery_code:     deliveryCode,
+    customer_lat:      fulfillment === "delivery" ? custLat : null,
+    customer_lng:      fulfillment === "delivery" ? custLng : null,
   };
 
   return { ok: true, data: { row, verifiedItems, coupon: verifiedCoupon, currency } };

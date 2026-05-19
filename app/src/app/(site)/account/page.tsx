@@ -524,6 +524,15 @@ const EMPTY_FORM: AddressFormDraft = {
   label: "Home", address: "", postcode: "", phone: "", note: "",
 };
 
+/**
+ * How the pin in the address form was last set:
+ *   - "user"       — geolocation, clicked the map, dragged the pin, or loaded
+ *                    from a saved address that already had user-set coords
+ *   - "estimated"  — picked by the debounced geocode-on-type effect
+ *   - null         — no pin yet
+ */
+type AddressPinSource = "user" | "estimated" | null;
+
 function AddressesTab() {
   const { currentUser, settings, addSavedAddress, updateSavedAddress, deleteSavedAddress, setDefaultAddress } = useApp();
   const [editingId, setEditingId] = useState<string | null>(null); // null = adding new
@@ -533,6 +542,33 @@ function AddressesTab() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [locating, setLocating] = useState(false);
+  const [pinSource, setPinSource] = useState<AddressPinSource>(null);
+  // Live ref to pinSource — the debounced geocode effect re-checks this AFTER
+  // its await, when the closure-captured pinSource would be stale.
+  const pinSourceRef = useRef<AddressPinSource>(null);
+  useEffect(() => { pinSourceRef.current = pinSource; }, [pinSource]);
+
+  // ── Geocode-on-debounce ──────────────────────────────────────────────────
+  // After the user types an address and postcode, drop a draft pin on the map
+  // so they can sanity-check the location and refine it before saving. Skipped
+  // when the customer already placed a pin themselves (their work wins).
+  // NOTE: declared BEFORE the `if (!currentUser)` early return so the hook
+  // call order is stable across renders (rules-of-hooks).
+  useEffect(() => {
+    if (pinSourceRef.current === "user") return;
+    const q = `${form.address}, ${form.postcode}`.trim().replace(/^,\s*/, "").replace(/,\s*$/, "");
+    if (q.length < 6) return;
+    const timer = setTimeout(async () => {
+      const geo = await geocode(q);
+      if (!geo) return;
+      // Skip if the user moved the pin while we were geocoding (live ref —
+      // closure-captured pinSource is stale by this point).
+      if (pinSourceRef.current === "user") return;
+      setForm((f) => ({ ...f, lat: geo.lat, lng: geo.lng }));
+      setPinSource("estimated");
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [form.address, form.postcode]);
 
   if (!currentUser) return null;
   const user = currentUser; // narrowed — safe to use inside closures
@@ -552,6 +588,7 @@ function AddressesTab() {
     setEditingId(null);
     setForm(EMPTY_FORM);
     setErrors({});
+    setPinSource(null);
     setShowForm(true);
   }
 
@@ -563,6 +600,9 @@ function AddressesTab() {
       lat: addr.lat, lng: addr.lng,
     });
     setErrors({});
+    // A saved address's pin is treated as user-confirmed — the customer placed
+    // it when they originally saved this entry.
+    setPinSource(addr.lat != null && addr.lng != null ? "user" : null);
     setShowForm(true);
   }
 
@@ -576,6 +616,7 @@ function AddressesTab() {
           lat: +pos.coords.latitude.toFixed(6),
           lng: +pos.coords.longitude.toFixed(6),
         }));
+        setPinSource("user");
         setLocating(false);
       },
       () => setLocating(false),
@@ -728,13 +769,28 @@ function AddressesTab() {
               clickToMove
               draggable
               fitToContent={form.lat != null && form.lng != null}
-              onPrimaryMove={(lat, lng) => setForm((f) => ({ ...f, lat, lng }))}
+              onPrimaryMove={(lat, lng) => {
+                setForm((f) => ({ ...f, lat, lng }));
+                setPinSource("user");
+              }}
             />
-            <p className="mt-1.5 text-[11px] text-zinc-400">
-              {form.lat != null && form.lng != null
-                ? "Pin set. Drag it or click somewhere else to refine."
-                : "Click the map to drop a pin, or skip — we'll try to find it from your address when you save."}
-            </p>
+            {/* Pin-status badge — tells the user whether the visible pin is
+                confirmed or just an automated guess from the typed address. */}
+            {form.lat != null && form.lng != null ? (
+              pinSource === "estimated" ? (
+                <p className="mt-1.5 text-[11px] text-amber-600">
+                  <span className="font-semibold">Pin estimated from your address.</span> Drag to confirm the exact spot.
+                </p>
+              ) : (
+                <p className="mt-1.5 text-[11px] text-green-600">
+                  <span className="font-semibold">Pin set.</span> Drag or click elsewhere to refine.
+                </p>
+              )
+            ) : (
+              <p className="mt-1.5 text-[11px] text-zinc-400">
+                Click the map to drop a pin, or skip — we&apos;ll try to find it from your address when you save.
+              </p>
+            )}
           </div>
 
           <div className="flex gap-2 pt-1">

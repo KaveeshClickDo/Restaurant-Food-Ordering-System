@@ -156,8 +156,17 @@ create table if not exists orders (
   stripe_payment_intent_id text,
   stripe_charge_id         text,
   paypal_order_id          text,
-  paypal_capture_id        text
+  paypal_capture_id        text,
+  -- Customer-provided pin coordinates captured at checkout. Optional: only set
+  -- when the customer placed/dragged a pin or used "Detect location". The driver
+  -- map prefers these over re-geocoding the address string.
+  customer_lat             double precision,
+  customer_lng             double precision
 );
+
+-- Backfill for existing installs where the columns were not in the original CREATE.
+alter table orders add column if not exists customer_lat double precision;
+alter table orders add column if not exists customer_lng double precision;
 
 create table if not exists drivers (
   id                  text        primary key,
