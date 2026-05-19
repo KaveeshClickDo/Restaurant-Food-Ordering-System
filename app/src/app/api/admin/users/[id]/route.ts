@@ -38,9 +38,10 @@ export async function PATCH(
   // ── Customer ────────────────────────────────────────────────────────────────
   if (type === "customer") {
     const updates: Record<string, unknown> = {};
-    if (body.name  !== undefined) updates.name  = body.name;
-    if (body.email !== undefined) updates.email = body.email.toLowerCase();
-    if (body.phone !== undefined) updates.phone = body.phone.trim() || null;
+    if (body.name   !== undefined) updates.name   = body.name;
+    if (body.email  !== undefined) updates.email  = body.email.toLowerCase();
+    if (body.phone  !== undefined) updates.phone  = body.phone.trim() || null;
+    if (body.active !== undefined) updates.active = body.active;
     // Bug #11 — POS-shared fields. Customers table is the single source of
     // truth so both admin (this endpoint) and POS (/api/pos/customers/[id])
     // write to the same columns.

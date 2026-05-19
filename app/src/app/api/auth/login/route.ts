@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error: fetchErr } = await supabaseAdmin
     .from("customers")
-    .select("id, name, email, phone, password_hash, email_verified, tags, favourites, saved_addresses, store_credit, created_at")
+    .select("id, name, email, phone, password_hash, email_verified, active, tags, favourites, saved_addresses, store_credit, created_at")
     .eq("email", email.trim().toLowerCase())
     .maybeSingle();
 
@@ -40,6 +40,17 @@ export async function POST(req: NextRequest) {
 
   const valid = await bcrypt.compare(password, data.password_hash);
   if (!valid) return unauthorizedJson();
+
+  // ── Account disabled gate ─────────────────────────────────────────────────
+  // Admin can deactivate customer accounts from User Management. We still
+  // verify the password first so an attacker can't enumerate "is this email
+  // deactivated?" — the wrong-password path returns 401 the same as inactive.
+  if (data.active === false) {
+    return NextResponse.json({
+      ok: false,
+      error: "This account has been disabled. Please contact the restaurant if you believe this is a mistake.",
+    }, { status: 403 });
+  }
 
   // ── Email verification gate ───────────────────────────────────────────────
   // Only block when email_verified is explicitly false. Accounts created

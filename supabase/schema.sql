@@ -93,7 +93,11 @@ create table if not exists customers (
   store_credit               numeric       not null default 0,
   loyalty_points             integer       default 0,
   gift_card_balance          numeric(10,2) default 0,
-  notes                      text          default ''
+  notes                      text          default '',
+  -- Toggle from Admin → User Management. Inactive customers cannot log in
+  -- (auth/login rejects them with a clear message). Their order history is
+  -- preserved either way.
+  active                     boolean       not null default true
 );
 
 -- Note on customer_id: nullable + ON DELETE SET NULL. When admin deletes a

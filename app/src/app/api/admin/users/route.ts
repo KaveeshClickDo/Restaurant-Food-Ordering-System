@@ -69,30 +69,17 @@ export async function GET(): Promise<NextResponse> {
     );
   }
 
-  // Customers: try with email_verified; fall back if migration hasn't run yet.
-  // Note: customers do NOT have an `active` column — only drivers do.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let customerRows: any[] = [];
-  const { data: cusWithVerified, error: cusErr } = await supabaseAdmin
+  // Customers — fresh-deploy schema includes email_verified + active, so a
+  // single SELECT is enough. Sentinel "pos-walk-in" is filtered out so it
+  // doesn't show up in the admin user list (it's an FK target only).
+  const { data: customerData, error: cusErr } = await supabaseAdmin
     .from("customers")
-    .select("id, name, email, phone, created_at, email_verified")
+    .select("id, name, email, phone, created_at, email_verified, active")
+    .neq("id", "pos-walk-in")
     .order("created_at", { ascending: false });
-
-  if (cusErr?.code === "PGRST204" && cusErr.message.includes("email_verified")) {
-    // Migration not yet run — select without email_verified
-    const { data: cusBasic, error: cusErrBasic } = await supabaseAdmin
-      .from("customers")
-      .select("id, name, email, phone, created_at")
-      .order("created_at", { ascending: false });
-    if (cusErrBasic) {
-      return NextResponse.json({ ok: false, error: cusErrBasic.message }, { status: 500 });
-    }
-    customerRows = cusBasic ?? [];
-  } else if (cusErr) {
-    return NextResponse.json({ ok: false, error: cusErr.message }, { status: 500 });
-  } else {
-    customerRows = cusWithVerified ?? [];
-  }
+  if (cusErr) return NextResponse.json({ ok: false, error: cusErr.message }, { status: 500 });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const customerRows: any[] = customerData ?? [];
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const driverRows  = (driversResult.data ?? []) as any[];
@@ -116,7 +103,7 @@ export async function GET(): Promise<NextResponse> {
     name:          row.name,
     email:         row.email ?? undefined,
     phone:         row.phone ?? undefined,
-    active:        row.active ?? true,
+    active:        row.active ?? true,                // real value from DB now
     createdAt:     typeof row.created_at === "string"
                      ? row.created_at
                      : new Date(row.created_at).toISOString(),
@@ -208,7 +195,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const newCustomerId = crypto.randomUUID();
     const now           = new Date().toISOString();
 
-    // Try inserting with auth columns; fall back if migration hasn't run yet
     const { error: errFull } = await supabaseAdmin
       .from("customers")
       .insert({
@@ -218,6 +204,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         phone:           phone?.trim() || null,
         password_hash:   passwordHash,
         email_verified:  false,
+        active:          true,
         store_credit:    0,
         tags:            [],
         favourites:      [],

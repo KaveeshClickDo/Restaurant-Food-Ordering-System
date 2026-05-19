@@ -73,30 +73,20 @@ export async function GET() {
   const session = await getCustomerSession();
   if (!session) return unauthorizedJson();
 
-  // Fetch customer profile — try with email_verified, fall back if column missing
-  let customerRow: Record<string, unknown> | null = null;
-
-  const { data: withVerified, error: errWithVerified } = await supabaseAdmin
+  // Fetch customer profile. Fresh-deploy schema includes email_verified +
+  // active, so a single SELECT is enough.
+  const { data: customerRow, error: cusErr } = await supabaseAdmin
     .from("customers")
-    .select("id, name, email, phone, tags, favourites, saved_addresses, store_credit, created_at, email_verified")
+    .select("id, name, email, phone, tags, favourites, saved_addresses, store_credit, created_at, email_verified, active")
     .eq("id", session.id)
     .single();
 
-  if (!errWithVerified && withVerified) {
-    customerRow = withVerified;
-  } else if (errWithVerified?.code === "PGRST204" && errWithVerified.message.includes("email_verified")) {
-    // email_verified column not yet added — retry without it
-    const { data: basic, error: errBasic } = await supabaseAdmin
-      .from("customers")
-      .select("id, name, email, phone, tags, favourites, saved_addresses, store_credit, created_at")
-      .eq("id", session.id)
-      .single();
+  if (cusErr || !customerRow) return unauthorizedJson();
 
-    if (errBasic || !basic) return unauthorizedJson();
-    customerRow = basic;
-  } else {
-    return unauthorizedJson();
-  }
+  // Mid-session deactivation: admin flipped this customer to inactive after
+  // they signed in. Invalidate the session — they'll be sent back to login,
+  // which will reject them with the friendly "account disabled" message.
+  if (customerRow.active === false) return unauthorizedJson();
 
   // Fetch orders in a separate query — avoids dependency on FK constraint
   const { data: ordersData } = await supabaseAdmin
