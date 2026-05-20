@@ -859,7 +859,15 @@ export default function WaiterPage() {
   }, []);
 
   useEffect(() => {
-    if (view === "tables") refreshOccupied();
+    if (view !== "tables") return;
+    refreshOccupied();
+    // Unlike the kitchen/driver/POS surfaces, the waiter grid had no auto-
+    // refresh, so a tablet left on the tables view could show stale occupied/
+    // free state until its own waiter acted. Poll every 5 s while the grid is
+    // visible so changes from other devices (another waiter seating or
+    // settling a table) self-heal. Interval matches the 4–6 s used elsewhere.
+    const id = setInterval(refreshOccupied, 5_000);
+    return () => clearInterval(id);
   }, [view, refreshOccupied]);
 
   // ── Login flow ───────────────────────────────────────────────────────────────
