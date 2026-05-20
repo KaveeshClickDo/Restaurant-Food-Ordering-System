@@ -21,11 +21,27 @@ function extractReceiptNo(note: string | null | undefined): string | null {
   return m ? m[1] : null;
 }
 
+// Short, screen-friendly display code. POS sales already carry an "R…" receipt
+// number in the note; every other type gets a one-letter prefix (derived from
+// fulfillment) plus the last 6 chars of the id — short enough for a big-font
+// counter screen, unique enough across the handful of active orders shown.
+//   T-4C8A33  dine-in (table service)   C-B2C3D4  collection   R1024  POS sale
+function displayNumber(id: string, fulfillment: string | null | undefined, note: string | null | undefined): string {
+  const receiptNo = extractReceiptNo(note);
+  if (receiptNo) return receiptNo;
+  const prefix = fulfillment === "dine-in" ? "T" : "C";  // T = table, C = collection
+  return `${prefix}-${String(id).slice(-6).toUpperCase()}`;
+}
+
 export async function GET() {
+  // Delivery orders are intentionally excluded — the in-store collection screen
+  // only shows orders a customer can walk up and collect (collection, dine-in,
+  // POS). Delivery is the driver's concern, not the counter's.
   const { data, error } = await supabaseAdmin
     .from("orders")
-    .select("id, status, fulfillment, delivery_status, date, scheduled_time, items, note")
+    .select("id, status, fulfillment, date, items, note")
     .in("status", ACTIVE_STATUSES)
+    .neq("fulfillment", "delivery")
     .order("date", { ascending: true })
     .limit(50);
 
@@ -37,17 +53,12 @@ export async function GET() {
   // Strip note (may contain customer name / staff name / addresses) and return
   // only the public-safe fields the in-store screen actually needs.
   const sanitized = (data ?? []).map((o: Record<string, unknown>) => ({
-    id:              o.id,
-    status:          o.status,
-    fulfillment:     o.fulfillment,
-    // delivery_status is needed so the display can distinguish a delivery
-    // order that's "ready" but still awaiting driver pickup vs one already
-    // out for delivery vs a collection order ready for the customer.
-    deliveryStatus:  o.delivery_status ?? null,
-    date:            o.date,
-    scheduledTime:   o.scheduled_time ?? null,
-    items:           o.items ?? [],
-    receiptNo:       extractReceiptNo(o.note as string | null | undefined),
+    id:          o.id,
+    status:      o.status,
+    fulfillment: o.fulfillment,
+    date:        o.date,
+    items:       o.items ?? [],
+    displayNo:   displayNumber(String(o.id), o.fulfillment as string | null, o.note as string | null),
   }));
 
   return NextResponse.json({ ok: true, orders: sanitized });
