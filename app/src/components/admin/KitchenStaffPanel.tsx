@@ -389,7 +389,7 @@ export default function KitchenStaffPanel() {
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-1.5 flex-shrink-0">
+                <div className="flex items-center gap-0 sm:gap-1.5 flex-shrink-0">
                   <button
                     onClick={() => toggleActive(member.id)}
                     title={member.active ? "Deactivate" : "Activate"}
