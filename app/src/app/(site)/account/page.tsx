@@ -23,7 +23,7 @@ import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import { resolveStock } from "@/lib/stockUtils";
 import { isOnChannel, effectiveMenuPrice, getOfferUnitPrice } from "@/lib/menuOfferUtils";
 import MobileBottomNav from "@/components/MobileBottomNav";
-import CartPanel from "@/components/CartPanel";
+import Cart from "@/components/Cart";
 import { geocode } from "@/lib/useGeocode";
 import { cleanPhone } from "@/lib/inputUtils";
 
@@ -1765,7 +1765,7 @@ function AccountPageContent() {
           <div className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end">
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowMobileCart(false)} />
             <div className="relative bg-white rounded-t-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-xl">
-              <CartPanel
+              <Cart
                 onMobileClose={() => setShowMobileCart(false)}
                 onOrderPlaced={() => { setShowMobileCart(false); router.push('/my-orders'); }}
               />

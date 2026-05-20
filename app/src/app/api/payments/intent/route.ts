@@ -33,16 +33,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "'customer_id' is required." }, { status: 400 });
   }
 
-  // Same session check as /api/orders — POS sentinel never appears on the
-  // public endpoint; "guest" is the documented anonymous value; anything
-  // else must match the logged-in session.
-  if (customer_id === "pos-walk-in") return unauthorizedJson();
+  // Same session check as /api/orders — customer ordering requires a logged-in
+  // session and the order must belong to that customer. Rejects the "guest"
+  // and "pos-walk-in" sentinels (neither can equal a real session id); there
+  // is no anonymous card checkout.
   const session = await getCustomerSession();
-  if (session) {
-    if (session.id !== customer_id) return unauthorizedJson();
-  } else if (customer_id !== "guest") {
-    return unauthorizedJson();
-  }
+  if (!session || session.id !== customer_id) return unauthorizedJson();
 
   const validation = await validateAndNormaliseOrder(body, String(customer_id));
   if (!validation.ok) {

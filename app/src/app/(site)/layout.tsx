@@ -1,7 +1,7 @@
 "use client";
 
 import AuthModal from "@/components/AuthModal";
-import CartPanel from "@/components/CartPanel";
+import Cart from "@/components/Cart";
 import ReservationModal from "@/components/ReservationModal";
 import SiteFooter from "@/components/SiteFooter";
 import SiteMobileHeader from "@/components/SiteMobileHeader";
@@ -52,7 +52,7 @@ function SiteLayoutContent({ children }: { children: React.ReactNode }) {
 
       {/* ── Desktop Right Cart Panel ── */}
       <aside className="hidden lg:flex w-[300px] xl:w-[320px] flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
-        <CartPanel onOrderPlaced={() => router.push('/my-orders')} />
+        <Cart onOrderPlaced={() => router.push('/my-orders')} />
       </aside>
 
       {/* ── Global Modals triggered by Sidebar ── */}

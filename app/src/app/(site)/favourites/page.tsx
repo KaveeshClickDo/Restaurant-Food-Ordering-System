@@ -11,7 +11,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { MenuItem } from "@/types";
 import { useRouter } from "next/navigation";
-import CartPanel from "@/components/CartPanel";
+import Cart from "@/components/Cart";
 import MobileBottomNav from "@/components/MobileBottomNav";
 
 export default function FavouritesPage() {
@@ -261,7 +261,7 @@ export default function FavouritesPage() {
                 <div className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end">
                     <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowMobileCart(false)} />
                     <div className="relative bg-white rounded-t-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-xl">
-                        <CartPanel
+                        <Cart
                             onMobileClose={() => setShowMobileCart(false)}
                             onOrderPlaced={() => { setShowMobileCart(false); router.push('/my-orders'); }}
                         />

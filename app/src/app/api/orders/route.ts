@@ -49,17 +49,14 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Session ownership check ──────────────────────────────────────────────
-  // The "pos-walk-in" sentinel is for POS-placed orders and must never appear
-  // on the customer-facing endpoint (POS uses /api/pos/sales). The string
-  // "guest" is the documented unauthenticated checkout value — any other
-  // customer_id must match the logged-in session.
-  if (customer_id === "pos-walk-in") return unauthorizedJson();
+  // Customer ordering requires a logged-in session, and the order must belong
+  // to that customer. This also rejects the "guest" and "pos-walk-in"
+  // sentinels, since neither can equal a real session id — there is no
+  // anonymous checkout on this endpoint. POS / dine-in / waiter orders are
+  // placed through their own staff-gated endpoints (/api/pos/sales,
+  // /api/pos/orders/dine-in, /api/waiter/orders) and are unaffected.
   const session = await getCustomerSession();
-  if (session) {
-    if (session.id !== customer_id) return unauthorizedJson();
-  } else if (customer_id !== "guest") {
-    return unauthorizedJson();
-  }
+  if (!session || session.id !== customer_id) return unauthorizedJson();
 
   const validation = await validateAndNormaliseOrder(body, String(customer_id));
   if (!validation.ok) {

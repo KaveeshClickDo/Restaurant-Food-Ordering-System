@@ -22,7 +22,7 @@ import { resolveStock } from "@/lib/stockUtils";
 import { isOfferActive, getOfferUnitPrice, offerBadgeLabel, effectiveMenuPrice, isOnChannel } from "@/lib/menuOfferUtils";
 import { getNextOpenTime, formatNextOpen } from "@/lib/scheduleUtils";
 import MobileBottomNav from "@/components/MobileBottomNav";
-import CartPanel from "@/components/CartPanel";
+import Cart from "@/components/Cart";
 import SiteSidebar from "@/components/SiteSidebar";
 
 // ── Dietary badge map ───────────────────────────────────────────────────────
@@ -569,7 +569,7 @@ export default function HomePage() {
 
       {/* ── Right cart panel (desktop lg+) ───────────────────────────────── */}
       <aside className="hidden lg:flex w-[300px] xl:w-[320px] flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
-        <CartPanel onOrderPlaced={() => router.push('/my-orders')} />
+        <Cart onOrderPlaced={() => router.push('/my-orders')} />
       </aside>
 
       {/* ── Mobile bottom nav ─────────────────────────────────────────────── */}
@@ -583,7 +583,7 @@ export default function HomePage() {
         <div className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowMobileCart(false)} />
           <div className="relative bg-white rounded-t-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-xl">
-            <CartPanel
+            <Cart
               onMobileClose={() => setShowMobileCart(false)}
               onOrderPlaced={() => { setShowMobileCart(false); router.push('/my-orders'); }}
             />
