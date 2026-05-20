@@ -246,7 +246,18 @@ export async function validateAndNormaliseOrder(
     const mid = typeof item.menuItemId === "string" ? item.menuItemId : null;
     if (!mid) { verifiedItems.push(item); continue; }
     const dbItem = menuMap.get(mid);
-    if (!dbItem) { verifiedItems.push(item); continue; }
+    // Reject items whose menu row no longer exists. Admin's "Delete item"
+    // hard-deletes the row, so a cart built before the delete would otherwise
+    // slip through here at the client-supplied price (no DB row to verify
+    // against). Treat a missing row the same as a deactivated one.
+    if (!dbItem) {
+      const itemName = typeof item.name === "string" && item.name.trim() ? item.name : "item";
+      return {
+        ok: false,
+        error: `'${itemName}' is no longer available. Please remove it from your cart.`,
+        status: 400,
+      };
+    }
 
     // Reject items that admin has flipped off the menu since the cart was
     // built. Without this an open cart can place an order for an item that
