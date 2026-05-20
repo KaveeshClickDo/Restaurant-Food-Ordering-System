@@ -28,10 +28,10 @@ const ACTIVE_STATUSES: OrderStatus[] = ["pending", "confirmed", "preparing", "re
 // The driver then drives the order through to "delivered" via delivery status.
 // For collection orders: admin can advance all the way to "delivered".
 const STATUS_NEXT: Partial<Record<OrderStatus, OrderStatus>> = {
-  pending:   "confirmed",
+  pending: "confirmed",
   confirmed: "preparing",
   preparing: "ready",
-  ready:     "delivered", // only used for collection orders (guarded in advance())
+  ready: "delivered", // only used for collection orders (guarded in advance())
 };
 
 /** Whether the admin can advance this order to the next status */
@@ -119,10 +119,10 @@ const STATUS_CONFIG: Record<OrderStatus, {
 const DS_STEPS: DeliveryStatus[] = ["assigned", "picked_up", "on_the_way", "delivered"];
 
 const DS_CONFIG: Record<DeliveryStatus, { label: string; badge: string; dot: string; pulse?: boolean }> = {
-  assigned:   { label: "Driver assigned",   badge: "bg-amber-50 text-amber-700 border-amber-200",   dot: "bg-amber-500"  },
-  picked_up:  { label: "Picked up",         badge: "bg-blue-50 text-blue-700 border-blue-200",     dot: "bg-blue-500"   },
-  on_the_way: { label: "On the way",        badge: "bg-indigo-50 text-indigo-700 border-indigo-200", dot: "bg-indigo-500", pulse: true },
-  delivered:  { label: "Delivered",         badge: "bg-green-50 text-green-700 border-green-200",  dot: "bg-green-500"  },
+  assigned: { label: "Driver assigned", badge: "bg-amber-50 text-amber-700 border-amber-200", dot: "bg-amber-500" },
+  picked_up: { label: "Picked up", badge: "bg-blue-50 text-blue-700 border-blue-200", dot: "bg-blue-500" },
+  on_the_way: { label: "On the way", badge: "bg-indigo-50 text-indigo-700 border-indigo-200", dot: "bg-indigo-500", pulse: true },
+  delivered: { label: "Delivered", badge: "bg-green-50 text-green-700 border-green-200", dot: "bg-green-500" },
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -164,8 +164,8 @@ function StatCard({ label, value, sub, icon, accent = "orange" }: {
 }) {
   const colors = {
     orange: "bg-orange-50 text-orange-500",
-    green:  "bg-green-50 text-green-500",
-    blue:   "bg-blue-50 text-blue-500",
+    green: "bg-green-50 text-green-500",
+    blue: "bg-blue-50 text-blue-500",
     purple: "bg-purple-50 text-purple-500",
   };
   return (
@@ -206,11 +206,10 @@ function KanbanCard({
           <div>
             <div className="flex items-center gap-1.5 flex-wrap">
               <span title={fullOrderNumber(order.id)} className="text-xs font-mono text-gray-400 truncate max-w-[140px]">{fullOrderNumber(order.id)}</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold border flex items-center gap-1 ${
-                order.fulfillment === "delivery"
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold border flex items-center gap-1 ${order.fulfillment === "delivery"
                   ? "bg-blue-50 text-blue-600 border-blue-100"
                   : "bg-teal-50 text-teal-600 border-teal-100"
-              }`}>
+                }`}>
                 {order.fulfillment === "delivery" ? <Bike size={9} /> : <Store size={9} />}
                 {order.fulfillment === "delivery" ? "Delivery" : "Collection"}
               </span>
@@ -303,40 +302,42 @@ function OrderModal({ order, onClose, onStatusChange }: {
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-2">
+          <div className="flex flex-wrap gap-2 items-start">
+            <div className="flex flex-col items-start gap-1">
               <span title={fullOrderNumber(order.id)} className="text-sm font-mono text-gray-400 break-all">{fullOrderNumber(order.id)}</span>
-              <span className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${cfg.badge}`}>
-                {cfg.icon} {cfg.label}
-              </span>
+              <p className="text-xs text-gray-400">{fmtDate(order.date)} at {fmtTime(order.date)}</p>
             </div>
-            <p className="text-xs text-gray-400 mt-0.5">{fmtDate(order.date)} at {fmtTime(order.date)}</p>
+            <span className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${cfg.badge}`}>
+              {cfg.icon} {cfg.label}
+            </span>
           </div>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition">
             <X size={15} />
           </button>
         </div>
 
-        <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
+        <div className="p-5 sm:p-6 space-y-5 max-h-[75vh] overflow-y-auto">
           {/* Customer */}
-          <div className="flex items-center gap-3 bg-gray-50 rounded-xl p-4">
-            <div className="w-10 h-10 bg-gradient-to-br from-orange-400 to-orange-600 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
-              {order.customerName.charAt(0)}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-gray-900 text-sm">{order.customerName}</p>
-              <div className="flex flex-wrap gap-3 mt-0.5">
-                <span className="flex items-center gap-1 text-xs text-gray-500">
-                  <Phone size={10} /> {order.customerPhone || "—"}
-                </span>
+          <div className="flex flex-wrap items-center gap-3 bg-gray-50 rounded-xl p-4 justify-between">
+            <div className="flex gap-2 items-center">
+              <div className="w-10 h-10 bg-gradient-to-br from-orange-400 to-orange-600 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                {order.customerName.charAt(0)}
+              </div>
+              <div className="flex flex-col">
+                <p className="font-semibold text-gray-900 text-sm">{order.customerName}</p>
+                <div className="flex flex-wrap gap-3 mt-0.5">
+                  <span className="flex items-center gap-1 text-xs text-gray-500">
+                    <Phone size={10} /> {order.customerPhone || "—"}
+                  </span>
+                </div>
               </div>
             </div>
-            <div className={`text-[11px] px-2.5 py-1 rounded-full font-semibold border flex items-center gap-1 ${
-              order.fulfillment === "delivery"
+
+            <div className={`text-[11px] px-2.5 py-1 rounded-full font-semibold border flex items-center gap-1 ${order.fulfillment === "delivery"
                 ? "bg-blue-50 text-blue-600 border-blue-100"
                 : "bg-teal-50 text-teal-600 border-teal-100"
-            }`}>
+              }`}>
               {order.fulfillment === "delivery" ? <Bike size={11} /> : <Store size={11} />}
               {order.fulfillment === "delivery" ? "Delivery" : "Collection"}
             </div>
@@ -379,10 +380,9 @@ function OrderModal({ order, onClose, onStatusChange }: {
                   const active = step === order.deliveryStatus;
                   return (
                     <div key={step} className="flex items-center flex-1 last:flex-none">
-                      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ring-2 transition-all ${
-                        active ? "ring-indigo-300 bg-indigo-500 scale-125" :
-                        done   ? "ring-indigo-100 bg-indigo-400"           : "ring-gray-200 bg-gray-200"
-                      }`} />
+                      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ring-2 transition-all ${active ? "ring-indigo-300 bg-indigo-500 scale-125" :
+                          done ? "ring-indigo-100 bg-indigo-400" : "ring-gray-200 bg-gray-200"
+                        }`} />
                       {i < DS_STEPS.length - 1 && (
                         <div className={`h-0.5 flex-1 mx-0.5 ${i < currentIdx ? "bg-indigo-300" : "bg-gray-200"}`} />
                       )}
@@ -429,7 +429,7 @@ function OrderModal({ order, onClose, onStatusChange }: {
           )}
 
           {/* Status progress */}
-          <div>
+          <div className="pb-4">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Progress</p>
             <div className="flex items-center gap-1">
               {FLOW.map((s, i) => {
@@ -437,23 +437,20 @@ function OrderModal({ order, onClose, onStatusChange }: {
                 const current = order.status === s;
                 return (
                   <div key={s} className="flex items-center flex-1 last:flex-none">
-                    <div className={`w-3 h-3 rounded-full flex-shrink-0 ring-2 transition-all ${
-                      current ? "ring-orange-400 bg-orange-500 scale-125" :
-                      done ? "ring-orange-200 bg-orange-400" : "ring-gray-200 bg-gray-200"
-                    }`} />
+                    <div className="relative flex justify-center">
+                      <div className={`w-3 h-3 rounded-full flex-shrink-0 ring-2 transition-all ${current ? "ring-orange-400 bg-orange-500 scale-125" :
+                          done ? "ring-orange-200 bg-orange-400" : "ring-gray-200 bg-gray-200"
+                        }`} />
+                      <span className={`absolute top-6 whitespace-nowrap text-[8px] sm:text-[9px] font-medium ${order.status === s ? "text-orange-500" : "text-gray-300"}`}>
+                        {STATUS_CONFIG[s].label}
+                      </span>
+                    </div>
                     {i < FLOW.length - 1 && (
                       <div className={`h-0.5 flex-1 mx-0.5 ${done && !current ? "bg-orange-300" : "bg-gray-200"}`} />
                     )}
                   </div>
                 );
               })}
-            </div>
-            <div className="flex justify-between mt-1">
-              {FLOW.map((s) => (
-                <span key={s} className={`text-[9px] font-medium ${order.status === s ? "text-orange-500" : "text-gray-300"}`}>
-                  {STATUS_CONFIG[s].label}
-                </span>
-              ))}
             </div>
           </div>
 
@@ -463,7 +460,7 @@ function OrderModal({ order, onClose, onStatusChange }: {
               {next && (
                 <button
                   onClick={() => { onStatusChange(next); onClose(); }}
-                  className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
+                  className="w-full bg-orange-500 hover:bg-orange-600 text-white text-sm sm:text-base font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
                 >
                   <RefreshCw size={15} />
                   Mark as {STATUS_CONFIG[next].label}
@@ -471,8 +468,8 @@ function OrderModal({ order, onClose, onStatusChange }: {
               )}
               {/* Delivery orders at "ready" are handed off to the driver — admin cannot mark delivered */}
               {!adminCanAdvanceModal && order.status === "ready" && (
-                <div className="w-full flex items-center justify-center gap-2 bg-purple-50 border border-purple-200 text-purple-700 font-semibold py-3 rounded-xl text-sm">
-                  <Truck size={15} />
+                <div className="w-full flex items-center justify-center gap-2 bg-purple-50 border border-purple-200 text-purple-700 font-semibold px-2 py-3 rounded-xl text-xs sm:text-sm">
+                  <Truck size={15} className="flex-shrink-0"/>
                   Awaiting driver pickup — driver will mark as delivered
                 </div>
               )}
@@ -514,9 +511,9 @@ export default function DeliveryPanel() {
   );
 
   // Today's stats
-  const todayOrders   = allOrders.filter((o) => isToday(o.date));
-  const activeOrders  = allOrders.filter((o) => ACTIVE_STATUSES.includes(o.status));
-  const todayRevenue  = todayOrders.filter((o) => o.status === "delivered").reduce((s, o) => s + o.total, 0);
+  const todayOrders = allOrders.filter((o) => isToday(o.date));
+  const activeOrders = allOrders.filter((o) => ACTIVE_STATUSES.includes(o.status));
+  const todayRevenue = todayOrders.filter((o) => o.status === "delivered").reduce((s, o) => s + o.total, 0);
   const deliveryCount = activeOrders.filter((o) => o.fulfillment === "delivery").length;
   const todayDelivered = todayOrders.filter((o) => o.status === "delivered").length;
 
@@ -601,11 +598,10 @@ export default function DeliveryPanel() {
             <button
               key={f}
               onClick={() => setFulfillmentFilter(f)}
-              className={`flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition capitalize ${
-                fulfillmentFilter === f
+              className={`flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition capitalize ${fulfillmentFilter === f
                   ? "bg-orange-500 text-white shadow-sm"
                   : "text-gray-500 hover:text-gray-700"
-              }`}
+                }`}
             >
               {f === "delivery" && <Bike size={11} />}
               {f === "collection" && <Store size={11} />}
@@ -724,11 +720,10 @@ export default function DeliveryPanel() {
                         <p className="text-[11px] text-gray-400">{order.customerPhone}</p>
                       </td>
                       <td className="px-4 py-3 hidden sm:table-cell">
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border flex items-center gap-1 w-fit ${
-                          order.fulfillment === "delivery"
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border flex items-center gap-1 w-fit ${order.fulfillment === "delivery"
                             ? "bg-blue-50 text-blue-600 border-blue-100"
                             : "bg-teal-50 text-teal-600 border-teal-100"
-                        }`}>
+                          }`}>
                           {order.fulfillment === "delivery" ? <Bike size={9} /> : <Store size={9} />}
                           {order.fulfillment === "delivery" ? "Delivery" : "Collection"}
                         </span>
