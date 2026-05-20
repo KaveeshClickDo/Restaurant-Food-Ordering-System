@@ -24,6 +24,16 @@ interface RichOrder extends Order {
 
 const ACTIVE_STATUSES: OrderStatus[] = ["pending", "confirmed", "preparing", "ready"];
 
+// A refunded order (full or partial) has left the live delivery workflow and
+// is handled in the Refunds panel. Refund state lives in paymentStatus; older
+// rows may carry it on status. Used to keep refunded orders out of the active
+// kanban and the delivered-based stats, matching pre-fix behaviour (before the
+// refund flow stopped overwriting status with the refund state).
+function isRefundedOrder(o: { status: string; paymentStatus?: string | null }): boolean {
+  return o.paymentStatus === "refunded" || o.paymentStatus === "partially_refunded"
+      || o.status === "refunded" || o.status === "partially_refunded";
+}
+
 // For delivery orders: admin can only advance up to "ready".
 // The driver then drives the order through to "delivered" via delivery status.
 // For collection orders: admin can advance all the way to "delivered".
@@ -512,10 +522,10 @@ export default function DeliveryPanel() {
 
   // Today's stats
   const todayOrders = allOrders.filter((o) => isToday(o.date));
-  const activeOrders = allOrders.filter((o) => ACTIVE_STATUSES.includes(o.status));
-  const todayRevenue = todayOrders.filter((o) => o.status === "delivered").reduce((s, o) => s + o.total, 0);
+  const activeOrders = allOrders.filter((o) => ACTIVE_STATUSES.includes(o.status) && !isRefundedOrder(o));
+  const todayRevenue = todayOrders.filter((o) => o.status === "delivered" && !isRefundedOrder(o)).reduce((s, o) => s + o.total, 0);
   const deliveryCount = activeOrders.filter((o) => o.fulfillment === "delivery").length;
-  const todayDelivered = todayOrders.filter((o) => o.status === "delivered").length;
+  const todayDelivered = todayOrders.filter((o) => o.status === "delivered" && !isRefundedOrder(o)).length;
 
   // Helpers to mutate — emails are sent server-side by /api/admin/orders/[id]/status
   function advance(order: RichOrder) {
@@ -541,17 +551,19 @@ export default function DeliveryPanel() {
   const filteredActive = useMemo(() => {
     const q = search.toLowerCase();
     return allOrders.filter((o) => {
-      if (!ACTIVE_STATUSES.includes(o.status)) return false;
+      if (!ACTIVE_STATUSES.includes(o.status) || isRefundedOrder(o)) return false;
       if (fulfillmentFilter !== "all" && o.fulfillment !== fulfillmentFilter) return false;
       if (q && !o.customerName.toLowerCase().includes(q) && !o.id.toLowerCase().includes(q)) return false;
       return true;
     });
   }, [allOrders, fulfillmentFilter, search]);
 
-  // Completed today (delivered + cancelled)
+  // Completed today (delivered + cancelled). Refunded orders are handled in the
+  // Refunds panel and stay out of here, as they did before the refund flow
+  // stopped overwriting status.
   const completedToday = useMemo(() =>
     allOrders
-      .filter((o) => isToday(o.date) && (o.status === "delivered" || o.status === "cancelled"))
+      .filter((o) => isToday(o.date) && !isRefundedOrder(o) && (o.status === "delivered" || o.status === "cancelled"))
       .sort((a, b) => b.date.localeCompare(a.date)),
     [allOrders]
   );

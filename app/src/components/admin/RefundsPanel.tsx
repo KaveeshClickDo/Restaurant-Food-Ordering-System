@@ -83,6 +83,21 @@ function isRefundEligible(o: Order): boolean {
       || o.status === "refunded";
 }
 
+/**
+ * The refund state of an order, independent of fulfillment.
+ *
+ * Source of truth is `paymentStatus`, which the admin refund flow sets while
+ * leaving `status` to track fulfillment. We also honour a refund state stamped
+ * onto `status` so two other cases still read correctly here:
+ *   • legacy rows refunded before payment_status carried the refund state, and
+ *   • POS dine-in refunds, which write the refund state to `status`.
+ */
+function refundState(o: Order): "refunded" | "partially_refunded" | null {
+  if (o.paymentStatus === "refunded"           || o.status === "refunded")           return "refunded";
+  if (o.paymentStatus === "partially_refunded" || o.status === "partially_refunded") return "partially_refunded";
+  return null;
+}
+
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
@@ -151,7 +166,7 @@ function OrderRefundCard({
   const refunds = order.refunds ?? [];
   const refundedAmount = order.refundedAmount ?? 0;
   const refundable = Math.max(0, order.total - refundedAmount);
-  const isFullyRefunded = order.status === "refunded";
+  const isFullyRefunded = refundState(order) === "refunded";
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -500,26 +515,34 @@ export default function RefundsPanel() {
   }, [customers]);
 
   // Stats
+  // Refund state is read via refundState() — order.status is the fulfillment state.
   const totalRefunded     = allEligible.reduce((s, { order }) => s + (order.refundedAmount ?? 0), 0);
-  const fullRefundCount   = allEligible.filter(({ order }) => order.status === "refunded").length;
-  const partialCount      = allEligible.filter(({ order }) => order.status === "partially_refunded").length;
-  const refundableCount   = allEligible.filter(({ order }) => order.status !== "refunded").length;
+  const fullRefundCount   = allEligible.filter(({ order }) => refundState(order) === "refunded").length;
+  const partialCount      = allEligible.filter(({ order }) => refundState(order) === "partially_refunded").length;
+  const refundableCount   = allEligible.filter(({ order }) => refundState(order) !== "refunded").length;
 
   // Filtered + searched
   const displayed = allEligible.filter(({ order, customerName }) => {
-    // "in_progress" = any order that is still moving through the kitchen /
-    // delivery pipeline, regardless of payment_method. This keeps cash and
-    // Stripe orders consistent: cash starts as "unpaid" and only flips to
-    // "paid" on delivery, so a payment-status-based filter would hide all
-    // cash orders. A status-based definition is the consistent UX.
+    // Two independent axes:
+    //   • Fulfillment tabs ("in_progress" / "delivered") read order.status —
+    //     where the order is in the kitchen / delivery pipeline.
+    //   • Refund tabs ("partially_refunded" / "refunded") read refundState(),
+    //     which is independent of fulfillment.
+    // A delivered order that was later refunded therefore correctly appears in
+    // *both* "Delivered" and its refund tab. "in_progress" still excludes the
+    // refund states stamped onto status so legacy/POS rows (whose status was
+    // overwritten) don't leak into the pipeline view.
     const matchFilter =
       filter === "all"
         ? true
         : filter === "in_progress"
           ? order.status !== "delivered" &&
             order.status !== "cancelled" &&
-            order.status !== "refunded"
-          : order.status === filter;
+            order.status !== "refunded" &&
+            order.status !== "partially_refunded"
+          : filter === "delivered"
+            ? order.status === "delivered"
+            : refundState(order) === filter;
     const q = search.toLowerCase();
     const matchSearch =
       !q ||

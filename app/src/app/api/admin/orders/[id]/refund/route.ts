@@ -170,15 +170,15 @@ export async function POST(
   if (refundedAmountServer >= orderTotal - 0.001) newPaymentStatus = "refunded";
   else if (refundedAmountServer > 0)              newPaymentStatus = "partially_refunded";
 
-  const newOrderStatus =
-    newPaymentStatus === "refunded"           ? "refunded"
-    : newPaymentStatus === "partially_refunded" ? "partially_refunded"
-    : body.newStatus;
-
+  // A refund changes only the *payment* state — the order keeps its real
+  // fulfillment status (preparing / delivered / …). Overwriting `status` with
+  // the refund state used to destroy that fulfillment state, which made every
+  // refunded order look "in progress" and hid delivered-then-refunded orders
+  // from the Delivered tab. `payment_status` is the source of truth for refunds.
   const { error: orderErr } = await supabaseAdmin
     .from("orders")
     .update({
-      status:           newOrderStatus,
+      status:           body.newStatus,
       refunds:          submittedRefunds,
       refunded_amount:  refundedAmountServer,
       ...(newPaymentStatus ? { payment_status: newPaymentStatus } : {}),

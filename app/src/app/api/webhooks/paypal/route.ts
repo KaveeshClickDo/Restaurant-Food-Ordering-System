@@ -366,13 +366,16 @@ async function handleCaptureRefunded(resource: PaypalRefund): Promise<void> {
     ? "refunded"
     : "partially_refunded";
 
+  // A refund only changes payment state — the order keeps its fulfillment
+  // status. payment_status is the source of truth for refunds (see the admin
+  // refund route); overwriting status here would hide the order from the
+  // Delivered tab and mislabel its fulfillment.
   const { error: updateErr } = await supabaseAdmin
     .from("orders")
     .update({
       refunds:         [...existingRefunds, newRefund],
       refunded_amount: refundedFromPaypal,
       payment_status:  newPaymentStatus,
-      status:          newPaymentStatus === "refunded" ? "refunded" : "partially_refunded",
     })
     .eq("id", order.id);
 

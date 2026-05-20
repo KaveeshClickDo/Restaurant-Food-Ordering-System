@@ -107,7 +107,8 @@ function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void
                   && order.deliveryCode
                   && order.status !== "delivered"
                   && order.status !== "cancelled"
-                  && order.status !== "refunded" && (
+                  && order.status !== "refunded"
+                  && order.paymentStatus !== "refunded" && (
                     <div className="mx-5 mt-3 rounded-2xl p-4 text-center border-2 border-dashed border-orange-300 bg-orange-50">
                         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-orange-700 mb-1">
                             Delivery confirmation code
@@ -165,8 +166,14 @@ export default function MyOrdersPage() {
     const [showMobileCart, setShowMobileCart] = useState(false);
 
     const ACTIVE_STATUSES = new Set(["pending", "confirmed", "preparing", "ready"]);
+    // A refunded order (full or partial) is no longer "active", even when its
+    // fulfillment status is still mid-pipeline. Refund state lives in
+    // paymentStatus; older rows may still carry it on status.
+    const isRefunded = (o: Order) =>
+        o.paymentStatus === "refunded" || o.paymentStatus === "partially_refunded"
+        || o.status === "refunded" || o.status === "partially_refunded";
     const displayOrders = currentUser?.orders ?? [];
-    const hasActiveOrders = displayOrders.some((o) => ACTIVE_STATUSES.has(o.status));
+    const hasActiveOrders = displayOrders.some((o) => ACTIVE_STATUSES.has(o.status) && !isRefunded(o));
 
     // Refresh immediately on mount so switching to this screen always shows fresh data.
     useEffect(() => {
@@ -197,8 +204,8 @@ export default function MyOrdersPage() {
     const allOrders = [...displayOrders].sort(
         (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
-    const activeOrders = allOrders.filter((o) => ACTIVE_STATUSES.has(o.status));
-    const pastOrders = allOrders.filter((o) => !ACTIVE_STATUSES.has(o.status));
+    const activeOrders = allOrders.filter((o) => ACTIVE_STATUSES.has(o.status) && !isRefunded(o));
+    const pastOrders = allOrders.filter((o) => !ACTIVE_STATUSES.has(o.status) || isRefunded(o));
 
     const activeLabel: Record<string, string> = {
         pending: "Order received",
@@ -372,13 +379,21 @@ export default function MyOrdersPage() {
                                                 const dateStr = new Date(order.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
                                                 const itemSummary = order.items.slice(0, 2).map((i) => `${i.qty}× ${i.name}`).join(", ")
                                                     + (order.items.length > 2 ? ` +${order.items.length - 2} more` : "");
-                                                const isCancelled = order.status === "cancelled" || order.status === "refunded" || order.status === "partially_refunded";
+                                                // Refund state can sit on paymentStatus (current) or status (legacy).
+                                                const refundLabel =
+                                                    order.paymentStatus === "refunded" || order.status === "refunded"
+                                                        ? "refunded"
+                                                        : order.paymentStatus === "partially_refunded" || order.status === "partially_refunded"
+                                                            ? "partially refunded"
+                                                            : null;
+                                                const isCancelled = order.status === "cancelled" || refundLabel !== null;
+                                                const pastLabel = order.status === "cancelled" ? "cancelled" : refundLabel ?? "Delivered";
                                                 return (
                                                     <div key={order.id} className="bg-white rounded-3xl p-5 shadow-sm">
                                                         <div className="flex items-start justify-between gap-2 mb-2">
                                                             <p className="text-[12px] text-zinc-400">{dateStr}</p>
                                                             <span className={`text-[10.5px] font-bold uppercase tracking-wider ${isCancelled ? "text-red-400" : "text-zinc-400"}`}>
-                                                                {isCancelled ? order.status.replace("_", " ") : "Delivered"}
+                                                                {pastLabel}
                                                             </span>
                                                         </div>
                                                         <p className="text-[14px] font-semibold text-zinc-900 leading-snug mb-3 line-clamp-2">{itemSummary}</p>

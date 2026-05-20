@@ -12,7 +12,7 @@ import { supabase } from "@/lib/supabase";
 import {
   AdminSettings, AuditEntry, CartItem, Category, Coupon,
   DeliveryStatus, DeliveryZone, Driver, MealPeriod, MenuItem, Customer, Order, OrderStatus, PaymentMethod,
-  Refund, SavedAddress, StockStatus,
+  PaymentStatus, Refund, SavedAddress, StockStatus,
 } from "@/types";
 import { buildColorCss } from "@/lib/colorUtils";
 import { cartSubtotal } from "@/lib/menuOfferUtils";
@@ -972,13 +972,15 @@ export function AppProvider({
 
     const newRefunds = [...(currentOrder.refunds ?? []), refund];
     const newRefundedAmount = (currentOrder.refundedAmount ?? 0) + refund.amount;
-    const newStatus: OrderStatus =
+    // A refund updates payment state only — the order keeps its fulfillment
+    // status. `paymentStatus` is the source of truth for refunds.
+    const newPaymentStatus: PaymentStatus =
       newRefundedAmount >= currentOrder.total ? "refunded" : "partially_refunded";
 
     const patchOrder = (o: Order): Order =>
       o.id !== orderId
         ? o
-        : { ...o, refunds: newRefunds, refundedAmount: newRefundedAmount, status: newStatus };
+        : { ...o, refunds: newRefunds, refundedAmount: newRefundedAmount, paymentStatus: newPaymentStatus };
 
     setCustomers((prev) =>
       prev.map((c) => {
@@ -1013,7 +1015,8 @@ export function AppProvider({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        newStatus,
+        // Preserve fulfillment status — the refund is reflected in payment_status.
+        newStatus:       currentOrder.status,
         refunds:         newRefunds,
         refundedAmount:  newRefundedAmount,
         ...storeCreditPayload,

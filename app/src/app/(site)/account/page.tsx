@@ -68,6 +68,21 @@ const DELIVERY_STATUS_BADGE: Record<DeliveryStatus, { label: string; color: stri
 };
 
 function StatusBadge({ order }: { order: Order }) {
+  // Refund state takes precedence in the customer's history view. It lives in
+  // paymentStatus (current) but older rows may carry it on status.
+  const refund: OrderStatus | null =
+    order.paymentStatus === "refunded"           || order.status === "refunded"           ? "refunded"
+    : order.paymentStatus === "partially_refunded" || order.status === "partially_refunded" ? "partially_refunded"
+    : null;
+  if (refund) {
+    const cfg = STATUS_CONFIG[refund];
+    return (
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${cfg.color}`}>
+        <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+        {cfg.label}
+      </span>
+    );
+  }
   // Delivery orders with an active driver leg: show delivery status instead of
   // order status, because order.status stays "ready" until final delivery.
   if (
@@ -322,8 +337,12 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
   const [expanded, setExpanded] = useState(false);
-  const isActive = !["delivered", "cancelled", "refunded", "partially_refunded"].includes(order.status);
-  const canReorder = ["delivered", "refunded", "partially_refunded"].includes(order.status);
+  // Refund state lives in paymentStatus (current) or status (legacy rows).
+  const isRefunded =
+    order.paymentStatus === "refunded" || order.paymentStatus === "partially_refunded"
+    || order.status === "refunded" || order.status === "partially_refunded";
+  const isActive = !isRefunded && !["delivered", "cancelled"].includes(order.status);
+  const canReorder = isRefunded || order.status === "delivered";
 
   return (
     <div className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all ${isActive ? "border-zinc-200" : "border-zinc-100"}`}>
