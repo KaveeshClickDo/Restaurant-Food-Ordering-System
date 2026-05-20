@@ -430,16 +430,16 @@ export default function HomePage() {
           </div>
 
           {/* Search */}
-          <div className="flex-1 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-100 max-w-xl">
+          <div className="flex-1 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-100 max-w-xl min-w-0">
             <Search className="w-4 h-4 text-zinc-400 flex-shrink-0" strokeWidth={1.8} />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search dishes…"
-              className="flex-1 bg-transparent outline-none text-[13.5px] text-zinc-900 placeholder:text-zinc-400"
+              className="flex-1 min-w-0 bg-transparent outline-none text-[13.5px] text-zinc-900 placeholder:text-zinc-400"
             />
             {search && (
-              <button onClick={() => setSearch("")} className="text-[11px] font-medium text-zinc-400 hover:text-zinc-700 transition-colors">
+              <button onClick={() => setSearch("")} className="text-[11px] font-medium text-zinc-400 hover:text-zinc-700 transition-colors flex-shrink-0">
                 Clear
               </button>
             )}

@@ -607,7 +607,7 @@ function AdminPageContent() {
 
       {/* ── New-order toast ──────────────────────────────────────────────── */}
       {showAlert && (
-        <div className="fixed top-4 right-4 z-50 flex items-start gap-3 bg-gray-900 text-white rounded-2xl shadow-2xl px-5 py-4 max-w-xs w-full border border-gray-800">
+        <div className="fixed top-4 right-4 z-50 flex items-start gap-3 bg-gray-900 text-white rounded-2xl min-w-0 shadow-2xl px-5 py-4 max-w-[280px] sm:max-w-xs w-full border border-gray-800">
           <div className="w-8 h-8 bg-orange-500 rounded-xl flex items-center justify-center flex-shrink-0">
             <Bell size={15} className="text-white" />
           </div>

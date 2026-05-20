@@ -740,7 +740,7 @@ function AddressesTab() {
 
           {/* Pin on map (optional but helps the driver find you) */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="flex gap-3 items-center justify-between mb-1.5">
               <label className="text-xs font-medium text-zinc-500">
                 Pin on map <span className="text-zinc-300">(optional — helps the driver find you)</span>
               </label>
@@ -750,7 +750,7 @@ function AddressesTab() {
                 disabled={locating}
                 className="text-xs font-semibold text-orange-600 hover:text-orange-700 disabled:opacity-50 flex items-center gap-1"
               >
-                <Navigation size={11} className={locating ? "animate-spin" : ""} />
+                <Navigation size={11} className={locating ? "animate-spin" : " flex-shrink-0"} />
                 {locating ? "Locating…" : "Use my location"}
               </button>
             </div>

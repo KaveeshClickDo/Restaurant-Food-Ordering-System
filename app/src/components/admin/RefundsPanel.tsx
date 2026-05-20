@@ -112,7 +112,7 @@ function RefundHistoryRow({ refund }: { refund: Refund }) {
   return (
     <div className="flex items-start justify-between gap-4 py-2.5 border-t border-gray-50 first:border-t-0">
       <div className="flex items-start gap-2 min-w-0">
-        <div className="w-7 h-7 rounded-lg bg-teal-50 flex items-center justify-center flex-shrink-0 text-teal-600 mt-0.5">
+        <div className="w-7 h-7 hidden sm:inline rounded-lg bg-teal-50 flex items-center justify-center flex-shrink-0 text-teal-600 mt-0.5">
           <RotateCcw size={13} />
         </div>
         <div className="min-w-0">
@@ -123,7 +123,7 @@ function RefundHistoryRow({ refund }: { refund: Refund }) {
           {refund.note && (
             <p className="text-xs text-gray-400 mt-0.5 italic">{refund.note}</p>
           )}
-          <p className="text-[10px] text-gray-400 mt-1 flex items-center gap-1">
+          <p className="text-[10px] text-gray-400 mt-1 flex items-center gap-1 shrink-0">
             {method.icon}
             {method.label} · {fmtDate(refund.processedAt)} at {fmtTime(refund.processedAt)} · by {refund.processedBy}
           </p>
@@ -303,10 +303,10 @@ function RefundModal({
           </button>
         </div>
 
-        <div className="px-6 py-5 space-y-5 max-h-[70vh] overflow-y-auto">
+        <div className="px-6 py-5 space-y-5 max-h-[60vh] sm:max-h-[70vh] overflow-y-auto">
 
           {/* Order summary */}
-          <div className="bg-gray-50 rounded-xl px-4 py-3 grid grid-cols-3 gap-3 text-center">
+          <div className="bg-gray-50 rounded-xl sm:px-4 py-3 grid grid-cols-3 gap-3 text-center">
             <div>
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Order total</p>
               <p className="text-sm font-extrabold text-gray-900 mt-0.5">{fmtAmt(order.total, sym)}</p>
@@ -365,9 +365,9 @@ function RefundModal({
               onChange={(e) => { setReason(e.target.value); setErrors((prev) => ({ ...prev, reason: "" })); }}
               className={`w-full px-3 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 bg-white ${errors.reason ? "border-red-400" : "border-gray-200"}`}
             >
-              <option value="">Select a reason…</option>
+              <option className="text-sm sm:text-base" value="">Select a reason…</option>
               {REFUND_REASONS.map((r) => (
-                <option key={r} value={r}>{r}</option>
+                <option className="text-sm sm:text-base" key={r} value={r}>{r}</option>
               ))}
             </select>
             {errors.reason && (
@@ -443,12 +443,12 @@ function RefundModal({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex gap-3">
+        <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex flex-wrap gap-3">
           <button
             onClick={handleSubmit}
-            className="flex-1 bg-teal-500 hover:bg-teal-400 active:bg-teal-600 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
+            className="flex-1 px-3 bg-teal-500 hover:bg-teal-400 active:bg-teal-600 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
           >
-            <RotateCcw size={15} />
+            <RotateCcw size={15} className="flex-shrink-0" />
             Confirm refund {amountNum > 0 && amountNum <= maxRefundable ? `of ${fmtAmt(amountNum, sym)}` : ""}
           </button>
           <button
@@ -556,15 +556,15 @@ export default function RefundsPanel() {
     <div className="space-y-6">
 
       {/* ── Stats ──────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: "Total refunded",     value: fmtAmt(totalRefunded, sym), icon: <DollarSign size={18} />, color: "text-teal-600 bg-teal-50 border-teal-100" },
           { label: "Full refunds",        value: fullRefundCount,        icon: <RotateCcw size={18} />,  color: "text-blue-600 bg-blue-50 border-blue-100"  },
           { label: "Partial refunds",     value: partialCount,           icon: <Clock size={18} />,      color: "text-amber-600 bg-amber-50 border-amber-100"},
           { label: "Still refundable",    value: refundableCount,        icon: <FileText size={18} />,   color: "text-orange-600 bg-orange-50 border-orange-100" },
         ].map(({ label, value, icon, color }) => (
-          <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 flex items-center gap-4">
-            <div className={`w-10 h-10 rounded-xl border flex items-center justify-center flex-shrink-0 ${color}`}>
+          <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 sm:px-5 py-4 flex items-center gap-3 sm:gap-4">
+            <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl border flex items-center justify-center flex-shrink-0 ${color}`}>
               {icon}
             </div>
             <div>
@@ -576,8 +576,8 @@ export default function RefundsPanel() {
       </div>
 
       {/* ── Search + filter ────────────────────────────────────────────────── */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3 flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3 flex flex-wrap gap-3">
+        <div className="relative flex-1 sm:flex min-w-[200px]">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"

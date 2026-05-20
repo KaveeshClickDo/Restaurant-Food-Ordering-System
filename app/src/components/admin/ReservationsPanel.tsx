@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useApp }   from "@/context/AppContext";
+import { useApp } from "@/context/AppContext";
 import type { Reservation, ReservationStatus } from "@/types";
 import {
   CalendarDays, Clock, Users, UtensilsCrossed, CheckCircle2, XCircle,
@@ -54,12 +54,12 @@ function generateSlots(open: string, close: string, interval: number): string[] 
 }
 
 const STATUS_CONFIG: Record<ReservationStatus, { label: string; dotClass: string; badgeClass: string }> = {
-  pending:     { label: "Pending",    dotClass: "bg-amber-400",  badgeClass: "bg-amber-50   text-amber-700  border-amber-200"  },
-  confirmed:   { label: "Confirmed",  dotClass: "bg-green-500",  badgeClass: "bg-green-50   text-green-700  border-green-200"  },
-  checked_in:  { label: "Checked in", dotClass: "bg-blue-500",   badgeClass: "bg-blue-50    text-blue-700   border-blue-200"   },
-  checked_out: { label: "Checked out",dotClass: "bg-teal-500",   badgeClass: "bg-teal-50    text-teal-700   border-teal-200"   },
-  cancelled:   { label: "Cancelled",  dotClass: "bg-red-400",    badgeClass: "bg-red-50     text-red-700    border-red-200"    },
-  no_show:     { label: "No show",    dotClass: "bg-gray-400",   badgeClass: "bg-gray-100   text-gray-600   border-gray-300"   },
+  pending: { label: "Pending", dotClass: "bg-amber-400", badgeClass: "bg-amber-50   text-amber-700  border-amber-200" },
+  confirmed: { label: "Confirmed", dotClass: "bg-green-500", badgeClass: "bg-green-50   text-green-700  border-green-200" },
+  checked_in: { label: "Checked in", dotClass: "bg-blue-500", badgeClass: "bg-blue-50    text-blue-700   border-blue-200" },
+  checked_out: { label: "Checked out", dotClass: "bg-teal-500", badgeClass: "bg-teal-50    text-teal-700   border-teal-200" },
+  cancelled: { label: "Cancelled", dotClass: "bg-red-400", badgeClass: "bg-red-50     text-red-700    border-red-200" },
+  no_show: { label: "No show", dotClass: "bg-gray-400", badgeClass: "bg-gray-100   text-gray-600   border-gray-300" },
 };
 
 // ─── Settings form ────────────────────────────────────────────────────────────
@@ -68,18 +68,18 @@ function ReservationSettings() {
   const { settings, updateSettings } = useApp();
   const rs = settings.reservationSystem;
   const [saving, setSaving] = useState(false);
-  const [saved,  setSaved]  = useState(false);
+  const [saved, setSaved] = useState(false);
   const [newBlackout, setNewBlackout] = useState("");
   const [embedCopied, setEmbedCopied] = useState(false);
 
   const [form, setForm] = useState({
     slotDurationMinutes: rs.slotDurationMinutes,
-    maxAdvanceDays:      rs.maxAdvanceDays,
-    openTime:            rs.openTime,
-    closeTime:           rs.closeTime,
+    maxAdvanceDays: rs.maxAdvanceDays,
+    openTime: rs.openTime,
+    closeTime: rs.closeTime,
     slotIntervalMinutes: rs.slotIntervalMinutes,
-    maxPartySize:        rs.maxPartySize ?? 10,
-    reviewUrl:           rs.reviewUrl   ?? "",
+    maxPartySize: rs.maxPartySize ?? 10,
+    reviewUrl: rs.reviewUrl ?? "",
   });
 
   async function save() {
@@ -118,30 +118,30 @@ function ReservationSettings() {
   const numInput = (key: "slotDurationMinutes" | "maxAdvanceDays" | "slotIntervalMinutes" | "maxPartySize", min: number, max: number) => (
     <input type="number" min={min} max={max} value={form[key] as number}
       onChange={(e) => setForm((p) => ({ ...p, [key]: parseInt(e.target.value, 10) || min }))}
-      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400 transition" />
+      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-[13px] sm:text-sm focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400 transition" />
   );
 
   const timeInput = (key: "openTime" | "closeTime") => (
     <input type="time" value={form[key]}
       onChange={(e) => setForm((p) => ({ ...p, [key]: e.target.value }))}
-      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400 transition" />
+      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-[13px] sm:text-sm focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400 transition" />
   );
 
   return (
     <div className="space-y-4">
       {/* Booking config */}
       <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-4">
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-center gap-2 mb-2">
           <Settings2 size={15} className="text-orange-500" />
           <h3 className="text-sm font-bold text-gray-800">Booking Settings</h3>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          {field("Opening time",        timeInput("openTime"))}
-          {field("Closing time",        timeInput("closeTime"))}
+          {field("Opening time", timeInput("openTime"))}
+          {field("Closing time", timeInput("closeTime"))}
           {field("Slot interval (min)", numInput("slotIntervalMinutes", 15, 120))}
           {field("Slot duration (min)", numInput("slotDurationMinutes", 30, 360))}
-          {field("Max advance (days)",  numInput("maxAdvanceDays", 1, 365))}
-          {field("Max party size",      numInput("maxPartySize", 1, 50))}
+          {field("Max advance (days)", numInput("maxAdvanceDays", 1, 365))}
+          {field("Max party size", numInput("maxPartySize", 1, 50))}
         </div>
         {/* Review URL */}
         <div>
@@ -275,22 +275,32 @@ function ReservationCard({
           <AlertTriangle size={12} /> Possible no-show — booking time has passed
         </div>
       )}
-      <div className="flex items-start justify-between gap-3">
-
+      
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 sm:gap-3">
         {/* Left info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border ${cfg.badgeClass}`}>
+            <span
+              className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border ${cfg.badgeClass}`}
+            >
               <span className={`w-1.5 h-1.5 rounded-full ${cfg.dotClass}`} />
               {cfg.label}
             </span>
             {srcInfo && (
-              <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border ${srcInfo.cls}`}>
-                {res.source === "walk-in" ? <UserPlus size={10} /> : res.source === "phone" ? <Phone size={10} /> : null}
+              <span
+                className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border ${srcInfo.cls}`}
+              >
+                {res.source === "walk-in" ? (
+                  <UserPlus size={10} />
+                ) : res.source === "phone" ? (
+                  <Phone size={10} />
+                ) : null}
                 {srcInfo.label}
               </span>
             )}
-            <span className="text-xs text-gray-400 font-mono">{res.id.slice(0, 8).toUpperCase()}</span>
+            <span className="text-xs text-gray-400 font-mono">
+              {res.id.slice(0, 8).toUpperCase()}
+            </span>
             {res.checkedInAt && (
               <span className="text-xs text-blue-600 font-medium flex items-center gap-1">
                 <LogIn size={11} /> {fmtTs(res.checkedInAt)}
@@ -303,32 +313,43 @@ function ReservationCard({
             )}
           </div>
 
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-700">
-            <span className="flex items-center gap-1.5 font-semibold">
+          <div className="mt-3 sm:mt-2 flex flex-wrap gap-x-4 gap-y-2 text-sm text-gray-700">
+            <span className="flex items-center gap-1.5 font-semibold whitespace-nowrap">
               <CalendarDays size={13} className="text-orange-500" />
               {fmtDate(res.date)}
             </span>
-            <span className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1.5 whitespace-nowrap">
               <Clock size={13} className="text-orange-500" />
               {fmt12(res.time)}
             </span>
-            <span className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1.5 whitespace-nowrap">
               <Users size={13} className="text-orange-500" />
               {res.partySize} {res.partySize === 1 ? "guest" : "guests"}
             </span>
-            <span className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1.5 whitespace-nowrap">
               <UtensilsCrossed size={13} className="text-orange-500" />
               {res.tableLabel}
-              {res.section ? <span className="text-gray-400">· {res.section}</span> : null}
+              {res.section ? (
+                <span className="text-gray-400">· {res.section}</span>
+              ) : null}
             </span>
           </div>
 
-          <div className="mt-2 space-y-0.5 text-xs text-gray-500">
-            <div className="font-semibold text-gray-700 text-sm">{res.customerName}</div>
-            <div className="flex items-center gap-1.5">
-              <Mail size={11} />
-              <a href={`mailto:${res.customerEmail}`} className="hover:text-orange-600 transition">{res.customerEmail}</a>
+          <div className="mt-3 sm:mt-2 space-y-1 sm:space-y-0.5 text-xs text-gray-500">
+            <div className="font-semibold text-gray-700 text-sm">
+              {res.customerName}
             </div>
+            {res.customerEmail && (
+              <div className="flex items-center gap-1.5">
+                <Mail size={11} />
+                <a
+                  href={`mailto:${res.customerEmail}`}
+                  className="hover:text-orange-600 transition"
+                >
+                  {res.customerEmail}
+                </a>
+              </div>
+            )}
             {res.customerPhone && (
               <div className="flex items-center gap-1.5">
                 <Phone size={11} />
@@ -343,8 +364,7 @@ function ReservationCard({
           </div>
         </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:flex-shrink-0 mt-3 sm:mt-0 pt-3 sm:pt-0 border-t border-gray-100 sm:border-0">
           {actioning ? (
             <Loader2 size={16} className="animate-spin text-gray-400" />
           ) : (
@@ -379,8 +399,11 @@ function ReservationCard({
                 </button>
                 {menuOpen && (
                   <>
-                    <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-                    <div className="absolute right-0 top-8 z-20 bg-white border border-gray-200 rounded-xl shadow-lg py-1 min-w-[170px]">
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setMenuOpen(false)}
+                    />
+                    <div className="absolute left-0 sm:left-auto sm:right-0 top-10 z-20 bg-white border border-gray-200 rounded-xl shadow-lg py-1 min-w-[170px]">
                       {res.status === "pending" && (
                         <button
                           onClick={() => doAction(() => onStatusChange(res.id, "confirmed"))}
@@ -504,7 +527,7 @@ export default function ReservationsPanel() {
 
   function openAddModal() {
     const today = todayStr();
-    const slot  = allSlots.find((s) => !isSlotPast(s, today)) ?? allSlots[0] ?? "12:00";
+    const slot = allSlots.find((s) => !isSlotPast(s, today)) ?? allSlots[0] ?? "12:00";
     setAddSource("walk-in"); setAddDate(today); setAddTime(slot);
     setAddParty(2); setAddTableId("");
     setAddName(""); setAddEmail(""); setAddPhone(""); setAddNote("");
@@ -516,9 +539,9 @@ export default function ReservationsPanel() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (filterDate)   params.set("from", filterDate);
+      if (filterDate) params.set("from", filterDate);
       if (filterStatus) params.set("status", filterStatus);
-      const res  = await fetch(`/api/admin/reservations?${params}`);
+      const res = await fetch(`/api/admin/reservations?${params}`);
       const json = await res.json() as { ok: boolean; reservations?: Reservation[]; error?: string };
       if (json.ok) setReservations(json.reservations ?? []);
     } catch (err) {
@@ -546,16 +569,16 @@ export default function ReservationsPanel() {
   // Per-row guards so a double-click on the same row's status/delete only fires once.
   const statusInFlight = useRef<Set<string>>(new Set());
   const deleteInFlight = useRef<Set<string>>(new Set());
-  const addInFlight    = useRef(false);
+  const addInFlight = useRef(false);
 
   async function handleStatusChange(id: string, status: ReservationStatus) {
     if (statusInFlight.current.has(id)) return;
     statusInFlight.current.add(id);
     try {
       const res = await fetch(`/api/admin/reservations/${id}`, {
-        method:  "PUT",
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ status }),
+        body: JSON.stringify({ status }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({})) as { error?: string };
@@ -569,7 +592,7 @@ export default function ReservationsPanel() {
           return {
             ...r,
             status,
-            ...(status === "checked_in"  ? { checkedInAt:  now } : {}),
+            ...(status === "checked_in" ? { checkedInAt: now } : {}),
             ...(status === "checked_out" ? { checkedOutAt: now } : {}),
           };
         })
@@ -598,7 +621,7 @@ export default function ReservationsPanel() {
 
   async function handleAddBooking(e: React.FormEvent) {
     e.preventDefault();
-    if (!addTableId)     { setAddError("Please select a table."); return; }
+    if (!addTableId) { setAddError("Please select a table."); return; }
     if (!addName.trim()) { setAddError("Guest name is required."); return; }
     // Phone bookings always need a callback number — that's how staff reach
     // the guest if the booking needs to be confirmed or changed.
@@ -662,12 +685,12 @@ export default function ReservationsPanel() {
   });
 
   const stats = {
-    total:      reservations.length,
-    pending:    reservations.filter((r) => r.status === "pending").length,
-    confirmed:  reservations.filter((r) => r.status === "confirmed").length,
-    checkedIn:  reservations.filter((r) => r.status === "checked_in").length,
+    total: reservations.length,
+    pending: reservations.filter((r) => r.status === "pending").length,
+    confirmed: reservations.filter((r) => r.status === "confirmed").length,
+    checkedIn: reservations.filter((r) => r.status === "checked_in").length,
     checkedOut: reservations.filter((r) => r.status === "checked_out").length,
-    cancelled:  reservations.filter((r) => r.status === "cancelled" || r.status === "no_show").length,
+    cancelled: reservations.filter((r) => r.status === "cancelled" || r.status === "no_show").length,
   };
 
   return (
@@ -720,12 +743,12 @@ export default function ReservationsPanel() {
       {/* Stats row */}
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
         {[
-          { label: "Total",       value: stats.total,      bg: "bg-gray-50",   border: "border-gray-200",  text: "text-gray-800"  },
-          { label: "Pending",     value: stats.pending,    bg: "bg-amber-50",  border: "border-amber-200", text: "text-amber-700" },
-          { label: "Confirmed",   value: stats.confirmed,  bg: "bg-green-50",  border: "border-green-200", text: "text-green-700" },
-          { label: "Dining",      value: stats.checkedIn,  bg: "bg-blue-50",   border: "border-blue-200",  text: "text-blue-700"  },
-          { label: "Done",        value: stats.checkedOut, bg: "bg-teal-50",   border: "border-teal-200",  text: "text-teal-700"  },
-          { label: "Cancelled",   value: stats.cancelled,  bg: "bg-red-50",    border: "border-red-200",   text: "text-red-600"   },
+          { label: "Total", value: stats.total, bg: "bg-gray-50", border: "border-gray-200", text: "text-gray-800" },
+          { label: "Pending", value: stats.pending, bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-700" },
+          { label: "Confirmed", value: stats.confirmed, bg: "bg-green-50", border: "border-green-200", text: "text-green-700" },
+          { label: "Dining", value: stats.checkedIn, bg: "bg-blue-50", border: "border-blue-200", text: "text-blue-700" },
+          { label: "Done", value: stats.checkedOut, bg: "bg-teal-50", border: "border-teal-200", text: "text-teal-700" },
+          { label: "Cancelled", value: stats.cancelled, bg: "bg-red-50", border: "border-red-200", text: "text-red-600" },
         ].map((s) => (
           <div key={s.label} className={`${s.bg} border ${s.border} rounded-xl p-3`}>
             <div className={`text-xl font-bold ${s.text}`}>{s.value}</div>
@@ -819,17 +842,17 @@ export default function ReservationsPanel() {
 
       {showAddModal && (() => {
         // Derived per-render state for the modal
-        const activeTables   = (settings.diningTables ?? []).filter((t) => t.active);
+        const activeTables = (settings.diningTables ?? []).filter((t) => t.active);
         const tablesBySection: Record<string, typeof activeTables> = {};
         for (const t of activeTables) {
           (tablesBySection[t.section || "Other"] = tablesBySection[t.section || "Other"] ?? []).push(t);
         }
-        const slotPast      = isSlotPast(addTime, addDate);
-        const isBlackout    = (rs.blackoutDates ?? []).includes(addDate);
-        const maxParty      = rs.maxPartySize ?? 10;
+        const slotPast = isSlotPast(addTime, addDate);
+        const isBlackout = (rs.blackoutDates ?? []).includes(addDate);
+        const maxParty = rs.maxPartySize ?? 10;
         const partyTooLarge = addParty > maxParty;
-        const phoneMissing  = addSource === "phone" && !addPhone.trim();
-        const canSubmit     = !addSaving && !!addTableId && !!addName.trim() && !slotPast && !isBlackout && !partyTooLarge && !phoneMissing;
+        const phoneMissing = addSource === "phone" && !addPhone.trim();
+        const canSubmit = !addSaving && !!addTableId && !!addName.trim() && !slotPast && !isBlackout && !partyTooLarge && !phoneMissing;
 
         return (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -911,19 +934,18 @@ export default function ReservationsPanel() {
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Time <span className="text-red-400">*</span></label>
                     <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
                       {allSlots.map((slot) => {
-                        const past     = isSlotPast(slot, addDate);
+                        const past = isSlotPast(slot, addDate);
                         const selected = addTime === slot;
                         return (
                           <button key={slot} type="button" disabled={past}
                             onClick={() => !past && setAddTime(slot)}
                             title={past ? "Time has passed" : undefined}
-                            className={`py-2 rounded-lg text-xs font-semibold border transition ${
-                              past
+                            className={`py-2 rounded-lg text-xs font-semibold border transition ${past
                                 ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed line-through"
                                 : selected
                                   ? "bg-orange-500 text-white border-orange-500"
                                   : "bg-white text-gray-600 border-gray-200 hover:border-orange-300 hover:text-orange-600"
-                            }`}>{fmt12(slot)}</button>
+                              }`}>{fmt12(slot)}</button>
                         );
                       })}
                     </div>
@@ -951,8 +973,8 @@ export default function ReservationsPanel() {
                           {sec && <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">{sec}</p>}
                           <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
                             {tbls.map((t) => {
-                              const sel          = addTableId === t.id;
-                              const isBooked     = addBookedIds.has(t.id);
+                              const sel = addTableId === t.id;
+                              const isBooked = addBookedIds.has(t.id);
                               const isUndersized = t.seats < addParty;
                               const baseCls = "py-2 rounded-lg text-xs font-semibold border transition flex flex-col items-center leading-tight";
                               const cls = isBooked
@@ -970,9 +992,9 @@ export default function ReservationsPanel() {
                                   type="button"
                                   disabled={isBooked}
                                   title={
-                                    isBooked     ? "Already reserved at this time" :
-                                    isUndersized ? `Seats ${t.seats} — party of ${addParty} (will need extra chairs)` :
-                                    `Seats ${t.seats}`
+                                    isBooked ? "Already reserved at this time" :
+                                      isUndersized ? `Seats ${t.seats} — party of ${addParty} (will need extra chairs)` :
+                                        `Seats ${t.seats}`
                                   }
                                   onClick={() => setAddTableId(t.id)}
                                   className={cls}
@@ -1031,7 +1053,7 @@ export default function ReservationsPanel() {
                 <button type="button" onClick={(e) => handleAddBooking(e as unknown as React.FormEvent)} disabled={!canSubmit}
                   className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition">
                   {addSaving ? <><Loader2 size={14} className="animate-spin" /> Saving…</> :
-                   addSource === "walk-in" ? <><LogIn size={14} /> Check In Now</> : <><CheckCircle2 size={14} /> Create Booking</>}
+                    addSource === "walk-in" ? <><LogIn size={14} /> Check In Now</> : <><CheckCircle2 size={14} /> Create Booking</>}
                 </button>
               </div>
             </div>

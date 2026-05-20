@@ -144,10 +144,10 @@ export default function MenuManagementPanel() {
           to one or more periods in the item editor; customers see each section
           only during its window. */}
       <div className="px-6 py-3 border-b border-gray-100 bg-amber-50/40">
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex flex-wrap gap-2 items-center justify-between mb-3">
           <span className="text-sm font-medium text-amber-900 flex items-center gap-1.5">
             <Clock size={14} /> Meal periods
-            <span className="text-xs text-amber-700/70 font-normal">
+            <span className="text-xs text-amber-700/70 font-normal mt-1">
               ({mealPeriods.length})
             </span>
           </span>
@@ -395,7 +395,7 @@ export default function MenuManagementPanel() {
                   className="group flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 px-3 sm:px-4 py-3 rounded-xl border border-gray-100 hover:border-orange-200 hover:bg-orange-50/30 transition-all"
                 >
                   <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
-                    <div className="w-12 h-12 rounded-xl overflow-hidden border border-gray-100 flex-shrink-0">
+                    <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl overflow-hidden border border-gray-100 flex-shrink-0">
                       {item.image ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
@@ -455,7 +455,7 @@ export default function MenuManagementPanel() {
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between sm:justify-end gap-3 pl-[76px] sm:pl-0">
+                  <div className="flex flex-wrap items-center justify-between sm:justify-end gap-3 pl-[76px] sm:pl-0">
                     {/* Stock badge — click to cycle status quickly */}
                     {(() => {
                       const status = resolveStock(item);
@@ -752,12 +752,12 @@ function ItemModal({
   return (
     <ModalShell title={isNew ? "Add menu item" : "Edit menu item"} onClose={onClose} wide>
       {/* Tabs */}
-      <div className="flex gap-1 mb-5 bg-gray-100 rounded-xl p-1">
+      <div className="flex flex-wrap gap-1 mb-5 bg-gray-100 rounded-xl p-1">
         {(["basic", "channels", "variations", "addons", "offer", "stock"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`flex-1 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${
+            className={`flex sm:flex-1 min-w-[14vw] px-3 justify-center py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${
               tab === t ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
             }`}
           >

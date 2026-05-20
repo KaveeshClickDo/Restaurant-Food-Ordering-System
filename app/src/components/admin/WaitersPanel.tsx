@@ -646,7 +646,7 @@ export default function WaitersPanel() {
                     </div>
 
                     {/* Actions */}
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <div className="flex items-center gap-0 sm:gap-1.5 flex-shrink-0">
                       <button
                         onClick={() => toggleWaiterActive(waiter.id)}
                         title={waiter.active ? "Deactivate" : "Activate"}
@@ -735,7 +735,7 @@ export default function WaitersPanel() {
           ) : sections.map((section) => (
             <div key={section} className="space-y-2">
               <h3 className="text-gray-400 text-xs font-bold uppercase tracking-widest px-1">{section}</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-start">
                 {tables.filter((t) => t.section === section).map((table) => (
                   <div key={table.id} className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden">
                     {editingTable?.id === table.id ? (
