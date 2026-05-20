@@ -208,7 +208,7 @@ function DriverRow({
               </span>
             )}
           </div>
-          <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
             <span className="text-xs text-gray-500 flex items-center gap-1"><Phone size={10} />{driver.phone}</span>
             <span className="text-xs text-gray-500 flex items-center gap-1"><Mail size={10} />{driver.email}</span>
             {driver.vehicleInfo && (
@@ -468,19 +468,26 @@ export default function DriversPanel() {
                 const ds = o.deliveryStatus as keyof typeof DELIVERY_STATUS_CONFIG;
                 const cfg = DELIVERY_STATUS_CONFIG[ds];
                 return (
-                  <div key={o.id} className="px-5 py-3 flex items-center gap-3">
-                    <div className={`text-[11px] font-bold px-2.5 py-1 rounded-full flex-shrink-0 ${cfg.color}`}>
-                      {cfg.label}
+                  <div key={o.id} className="px-4 sm:px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                    <div className="flex items-center justify-between gap-3 sm:w-auto">
+                      <div className={`text-[11px] font-bold px-2.5 py-1 rounded-full flex-shrink-0 ${cfg.color}`}>
+                        {cfg.label}
+                      </div>
+                      <div className="sm:hidden text-[11px] text-gray-500 flex items-center gap-1 flex-shrink-0">
+                        <Car size={11} className="flex-shrink-0" />
+                        <span className="truncate max-w-[130px]">{o.driverName ?? "Unknown"}</span>
+                      </div>
                     </div>
                     <div className="flex-1 min-w-0">
                       <p title={fullOrderNumber(o.id)} className="text-sm font-semibold text-gray-900 truncate">
-                        {fullOrderNumber(o.id)} — {o.customerName}
+                        {fullOrderNumber(o.id)}
+                        {o.customerName && <span className="text-gray-500 font-normal"> — {o.customerName}</span>}
                       </p>
                       {o.address && <p className="text-xs text-gray-400 truncate">{o.address}</p>}
                     </div>
-                    <div className="text-xs text-gray-500 flex items-center gap-1 flex-shrink-0">
-                      <Car size={11} />
-                      {o.driverName ?? "Unknown"}
+                    <div className="hidden sm:flex text-xs text-gray-500 items-center gap-1 flex-shrink-0 max-w-[150px]">
+                      <Car size={11} className="flex-shrink-0" />
+                      <span className="truncate">{o.driverName ?? "Unknown"}</span>
                     </div>
                   </div>
                 );
