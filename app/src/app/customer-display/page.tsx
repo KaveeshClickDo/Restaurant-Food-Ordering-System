@@ -68,7 +68,7 @@ function useSmartLayout(orderCount: number) {
 
       // Minimum comfortably readable sizes for a card
       const minCardHeight = 180; 
-      const minCardWidth = 200;
+      const minCardWidth = 300;
 
       // Calculate max possible rows/cols that fit physically (capped to maintain aesthetics)
       const maxRows = Math.min(5, Math.max(1, Math.floor(height / minCardHeight)));
@@ -78,7 +78,7 @@ function useSmartLayout(orderCount: number) {
       let cols = maxPossibleCols;
       if (orderCount <= maxRows) cols = 1;
       else if (orderCount <= maxRows * 2) cols = Math.min(2, maxPossibleCols);
-      else cols = Math.min(4, maxPossibleCols); // Cap at 4 cols max for ultra-wides
+      else cols = Math.min(3, maxPossibleCols); // Cap at 4 cols max for ultra-wides
 
       setLayout({ cols, maxRows, pageSize: cols * maxRows });
     });
@@ -134,8 +134,8 @@ function OrderCard({
   }, [isReady]);
 
   // Highly responsive typography scaling based on grid density
-  const numCls = cols === 1 ? "text-5xl sm:text-6xl lg:text-7xl 2xl:text-7xl" 
-               : cols === 2 ? "text-[35px] sm:text-5xl lg:text-[41px] 2xl:text-[70px]" 
+  const numCls = cols === 1 ? "text-5xl sm:text-7xl lg:text-7xl xl:text-[78px] 2xl:text-[88px]" 
+               : cols === 2 ? "text-5xl sm:text-5xl lg:text-[41px] xl:text-[45px] 2xl:text-[54px]" 
                : cols === 3 ? "text-[32px] sm:text-4xl lg:text-4xl 2xl:text-[45px]"
                : "text-2xl md:text-[32px] lg:text-4xl 2xl:text-4xl";
                
