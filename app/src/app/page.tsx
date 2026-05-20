@@ -77,7 +77,7 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
               </span>
             )}
             {offerOn && offerLabel && (
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-amber-500/95 text-white backdrop-blur-sm shadow-sm">
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-orange-500/95 text-white backdrop-blur-sm shadow-sm">
                 {offerLabel}
               </span>
             )}
@@ -129,7 +129,7 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
         )}
         {discountedBase !== null ? (
           <span className="inline-flex items-baseline gap-1.5 tabular-nums">
-            <span className="font-semibold text-[17px] text-amber-600 tracking-tight">
+            <span className="font-semibold text-[17px] text-orange-600 tracking-tight">
               {sym}{discountedBase.toFixed(2)}
             </span>
             <span className="text-[12px] text-zinc-400 line-through">

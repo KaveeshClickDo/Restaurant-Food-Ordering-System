@@ -219,7 +219,7 @@ export default function FavouritesPage() {
                                                         <h3 className="font-medium text-[15px] leading-snug text-zinc-900">{item.name}</h3>
                                                         {getOfferUnitPrice(item) !== null ? (
                                                             <span className="flex-shrink-0 tabular-nums text-right">
-                                                                <span className="font-semibold text-[15px] text-amber-600">{sym}{getOfferUnitPrice(item)!.toFixed(2)}</span>
+                                                                <span className="font-semibold text-[15px] text-orange-600">{sym}{getOfferUnitPrice(item)!.toFixed(2)}</span>
                                                                 <span className="block text-[11px] text-zinc-400 line-through">{sym}{effectiveMenuPrice(item).toFixed(2)}</span>
                                                             </span>
                                                         ) : (

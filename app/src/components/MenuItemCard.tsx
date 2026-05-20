@@ -53,7 +53,7 @@ export default function MenuItemCard({ item }: { item: MenuItem }) {
               </span>
             )}
             {offerOn && !outOfStock && offerLabel && (
-              <span className="flex items-center gap-0.5 text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-200 whitespace-nowrap">
+              <span className="flex items-center gap-0.5 text-xs font-semibold text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full border border-orange-200 whitespace-nowrap">
                 {offerLabel}
               </span>
             )}
@@ -91,7 +91,7 @@ export default function MenuItemCard({ item }: { item: MenuItem }) {
 
           {discountedBase !== null && !outOfStock ? (
             <p className="font-bold text-sm mt-2 flex items-baseline gap-1.5">
-              <span className="text-amber-600">{sym}{discountedBase.toFixed(2)}</span>
+              <span className="text-orange-600">{sym}{discountedBase.toFixed(2)}</span>
               <span className="text-xs text-gray-400 line-through font-medium">{sym}{basePrice.toFixed(2)}</span>
             </p>
           ) : (

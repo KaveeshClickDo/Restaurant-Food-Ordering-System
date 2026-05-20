@@ -158,12 +158,12 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
               )}
               {offerOn && offerLabel && (
                 <div className="mt-2 inline-flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider bg-amber-500 text-white">
+                  <span className="px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider bg-orange-500 text-white">
                     {offerLabel}
                   </span>
                   {getOfferUnitPrice(item) !== null && (
                     <span className="text-xs text-gray-500">
-                      <span className="font-semibold text-amber-700">{sym}{discountedBase.toFixed(2)}</span>
+                      <span className="font-semibold text-orange-700">{sym}{discountedBase.toFixed(2)}</span>
                       <span className="ml-1.5 line-through">{sym}{basePrice.toFixed(2)}</span>
                     </span>
                   )}

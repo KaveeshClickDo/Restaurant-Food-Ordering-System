@@ -704,7 +704,7 @@ function AdminPageContent() {
           <div className="max-w-6xl mx-auto px-3 sm:px-6 py-5 sm:py-8 space-y-6">
 
             {/* Welcome banner */}
-            <div className="bg-gradient-to-br from-orange-500 via-orange-500 to-red-500 rounded-2xl p-5 sm:p-6 text-white flex items-start justify-between gap-4 shadow-lg shadow-orange-200/50">
+            <div className="bg-gradient-to-br from-orange-500 via-orange-500 to-orange-700 rounded-2xl p-5 sm:p-6 text-white flex items-start justify-between gap-4 shadow-lg shadow-orange-200/50">
               <div className="min-w-0">
                 <p className="text-xs font-bold text-orange-200 uppercase tracking-widest mb-1">
                   {NAV_GROUPS.find((g) => g.items.some((i) => i.id === activeTab))?.label}

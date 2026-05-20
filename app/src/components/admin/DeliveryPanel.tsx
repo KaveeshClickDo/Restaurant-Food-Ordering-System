@@ -321,7 +321,7 @@ function OrderModal({ order, onClose, onStatusChange }: {
         <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
           {/* Customer */}
           <div className="flex items-center gap-3 bg-gray-50 rounded-xl p-4">
-            <div className="w-10 h-10 bg-gradient-to-br from-orange-400 to-red-400 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+            <div className="w-10 h-10 bg-gradient-to-br from-orange-400 to-orange-600 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
               {order.customerName.charAt(0)}
             </div>
             <div className="flex-1 min-w-0">

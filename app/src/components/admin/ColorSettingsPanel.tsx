@@ -9,21 +9,22 @@ import { Palette, RotateCcw, Check, ShoppingBag, Star, Flame } from "lucide-reac
 // ─── Defaults ────────────────────────────────────────────────────────────────
 
 const DEFAULTS: ColorSettings = {
-  primaryColor:    "#f97316",
-  backgroundColor: "#f9fafb",
+  primaryColor:    "#18181B",
+  backgroundColor: "#FFFFFF",
 };
 
 // ─── Preset themes ────────────────────────────────────────────────────────────
 
 const PRESETS: { name: string; primary: string; bg: string }[] = [
-  { name: "Orange",  primary: "#f97316", bg: "#f9fafb" },
-  { name: "Red",     primary: "#ef4444", bg: "#fafafa" },
-  { name: "Rose",    primary: "#f43f5e", bg: "#fafafa" },
-  { name: "Violet",  primary: "#8b5cf6", bg: "#fafafa" },
-  { name: "Blue",    primary: "#3b82f6", bg: "#f8fafc" },
-  { name: "Teal",    primary: "#14b8a6", bg: "#f0fdfa" },
-  { name: "Emerald", primary: "#10b981", bg: "#f0fdf4" },
-  { name: "Slate",   primary: "#475569", bg: "#f8fafc" },
+  { name: "Orange",   primary: "#f97316", bg: "#f9fafb" },
+  { name: "Red",      primary: "#ef4444", bg: "#fafafa" },
+  { name: "Rose",     primary: "#f43f5e", bg: "#fafafa" },
+  { name: "Violet",   primary: "#8b5cf6", bg: "#fafafa" },
+  { name: "Blue",     primary: "#3b82f6", bg: "#f8fafc" },
+  { name: "Teal",     primary: "#14b8a6", bg: "#f0fdfa" },
+  { name: "Emerald",  primary: "#10b981", bg: "#f0fdf4" },
+  { name: "Slate",    primary: "#475569", bg: "#f8fafc" },
+  { name: "Obsidian", primary: "#18181B", bg: "#FFFFFF" },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

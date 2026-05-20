@@ -480,7 +480,7 @@ function FavouritesTab() {
                 <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-50">
                   {getOfferUnitPrice(item) !== null ? (
                     <span className="flex items-baseline gap-1.5">
-                      <span className="font-bold text-amber-600 text-sm">{sym}{getOfferUnitPrice(item)!.toFixed(2)}</span>
+                      <span className="font-bold text-orange-600 text-sm">{sym}{getOfferUnitPrice(item)!.toFixed(2)}</span>
                       <span className="text-xs text-zinc-400 line-through">{sym}{effectiveMenuPrice(item).toFixed(2)}</span>
                     </span>
                   ) : (
