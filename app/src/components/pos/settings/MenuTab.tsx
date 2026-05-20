@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { usePOS } from "@/context/POSContext";
-import { POSProduct, POSCategory, POSOffer, getOfferPrice } from "@/types/pos";
+import { POSProduct, POSCategory, POSOffer, getOfferPrice, isOfferActive } from "@/types/pos";
 import type { Variation, AddOn } from "@/types";
 import { Plus, Pencil, Trash2, ToggleLeft, ToggleRight, ChevronDown, X, Save, Tag, Package, Check } from "lucide-react";
 import { fmt } from "../_utils";
@@ -180,17 +180,41 @@ export default function MenuTab() {
                           .map((v) => ({ ...v, options: v.options.filter((o) => o.label.trim()) }))
                           .filter((v) => v.name.trim() && v.options.length > 0),
             addOns:      editDraft.addOns.filter((a) => a.name.trim()),
-            offer:       buildOffer(editDraft),
+            // Pass the pre-edit offer so its channel scope is preserved; a
+            // brand-new offer on this item defaults to in-store only.
+            offer:       buildOffer(editDraft, editProduct.offer),
           }
         : p
     ));
     setEditProduct(null);
   }
 
-  function deleteProduct(id: string) {
-    setProducts((prev) => prev.filter((p) => p.id !== id));
+  async function deleteProduct(id: string) {
+    // Close the confirm dialog FIRST, in its own render commit. Tearing down
+    // the modal and mutating the product grid in the same commit triggers a
+    // React DOM reconciliation race ("removeChild of null") under React 19 /
+    // Turbopack. Closing first, then awaiting, separates the two updates.
     setDeleteConfirm(null);
     setEditProduct(null);
+
+    // Channel-aware: the server decides whether to fully delete the row (an
+    // in-store-only item) or just drop it from the in_store channel (a both-
+    // channel item stays on the online menu). Either way it leaves the till.
+    try {
+      const res = await fetch(`/api/pos/menu/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        alert(j.error || "Couldn't remove the item. Please try again.");
+        return;
+      }
+    } catch {
+      alert("Network error — couldn't remove the item.");
+      return;
+    }
+    // Remove from the local grid. The realtime subscription also reconciles
+    // other terminals (DELETE event, or an UPDATE that flips the item to
+    // online-only so it filters out of the in_store views).
+    setProducts((prev) => prev.filter((p) => p.id !== id));
   }
 
   function addProduct() {
@@ -226,6 +250,14 @@ export default function MenuTab() {
     setShowAddProduct(false);
   }
 
+  // POS manages the in_store channel only. Online-only items (admin-created
+  // deals, or items a POS admin "deleted" which flipped to online-only) are
+  // hidden from the POS editor — they're the admin panel's domain.
+  const inStoreProducts = products.filter((p) => {
+    const ch = p.channels;
+    return !ch || ch.length === 0 || ch.includes("in_store");
+  });
+
   return (
     <>
           <div className="space-y-4">
@@ -237,7 +269,7 @@ export default function MenuTab() {
                   onClick={() => setMenuTab(t)}
                   className={`flex-1 py-2 rounded-lg text-sm font-semibold capitalize transition-all ${menuTab === t ? "bg-slate-700 text-white" : "text-slate-400 hover:text-white"}`}
                 >
-                  {t === "items" ? `Items (${products.length})` : `Categories (${categories.length})`}
+                  {t === "items" ? `Items (${inStoreProducts.length})` : `Categories (${categories.length})`}
                 </button>
               ))}
             </div>
@@ -251,7 +283,7 @@ export default function MenuTab() {
                   </button>
                 </div>
                 {categories.sort((a,b)=>a.order-b.order).map((cat) => {
-                  const catProducts = products.filter((p) => p.categoryId === cat.id);
+                  const catProducts = inStoreProducts.filter((p) => p.categoryId === cat.id);
                   if (catProducts.length === 0) return null;
                   return (
                     <div key={cat.id} className="bg-slate-800 border border-slate-700 rounded-2xl overflow-hidden">
@@ -274,7 +306,7 @@ export default function MenuTab() {
                               <div className="flex items-center gap-2 flex-wrap">
                                 <p className={`text-sm font-semibold ${product.active ? "text-white" : "text-slate-500"}`}>{product.name}</p>
                                 {product.popular && <span className="text-[10px] bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded-full font-medium">Popular</span>}
-                                {product.offer?.active && <span className="text-[10px] bg-amber-400/20 text-amber-400 px-1.5 py-0.5 rounded-full font-medium">{product.offer.label?.trim() || (product.offer.type === "percent" ? `${product.offer.value}% OFF` : product.offer.type === "fixed" ? `${settings.currencySymbol}${product.offer.value} OFF` : "SPECIAL")}</span>}
+                                {isOfferActive(product) && product.offer && <span className="text-[10px] bg-amber-400/20 text-amber-400 px-1.5 py-0.5 rounded-full font-medium">{product.offer.label?.trim() || (product.offer.type === "percent" ? `${product.offer.value}% OFF` : product.offer.type === "fixed" ? `${settings.currencySymbol}${product.offer.value} OFF` : "SPECIAL")}</span>}
                               </div>
                               <p className="text-slate-400 text-xs">
                                 {(() => { const op = getOfferPrice(product); return op !== null ? <><span className="text-amber-400 font-semibold">{fmt(op, settings.currencySymbol)}</span> <span className="line-through">{fmt(product.price, settings.currencySymbol)}</span></> : fmt(product.price, settings.currencySymbol); })()}
@@ -912,15 +944,25 @@ export default function MenuTab() {
 
       {/* ── Delete confirm ─────────────────────────────────────────────── */}
 
-      {deleteConfirm && (
+      {deleteConfirm && (() => {
+        const target = products.find((p) => p.id === deleteConfirm);
+        const ch = target?.channels;
+        const alsoOnline = !ch || ch.length === 0 || ch.includes("online");
+        return (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-xs p-6 shadow-2xl text-center">
             <div className="w-12 h-12 bg-red-500/10 border border-red-500/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <Trash2 size={20} className="text-red-400" />
             </div>
-            <h3 className="text-white font-bold mb-1">Delete item?</h3>
+            <h3 className="text-white font-bold mb-1">
+              {alsoOnline ? "Remove from till?" : "Delete item?"}
+            </h3>
             <p className="text-slate-400 text-sm mb-6">
-              {products.find((p) => p.id === deleteConfirm)?.name} will be removed from the POS menu. This cannot be undone.
+              {alsoOnline ? (
+                <><span className="text-white font-medium">{target?.name}</span> will be removed from the POS till but stays on the online menu. Manage online from the admin panel.</>
+              ) : (
+                <><span className="text-white font-medium">{target?.name}</span> will be permanently deleted. This cannot be undone.</>
+              )}
             </p>
             <div className="grid grid-cols-2 gap-2">
               <button
@@ -933,12 +975,13 @@ export default function MenuTab() {
                 onClick={() => deleteProduct(deleteConfirm)}
                 className="py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold text-sm transition-colors"
               >
-                Delete
+                {alsoOnline ? "Remove" : "Delete"}
               </button>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* ── Add product modal ──────────────────────────────────────────── */}
 

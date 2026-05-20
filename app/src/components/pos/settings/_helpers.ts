@@ -5,11 +5,19 @@ export const PRESET_COLORS = [
   "#ef4444","#84cc16","#14b8a6","#a855f7","#f43f5e",
 ];
 
-export function buildOffer(d: {
-  offerValue: string; offerType: POSOffer["type"]; offerLabel: string;
-  offerActive: boolean; offerStart: string; offerEnd: string;
-  offerBuyQty: string; offerFreeQty: string; offerMinQty: string;
-}): POSOffer | undefined {
+export function buildOffer(
+  d: {
+    offerValue: string; offerType: POSOffer["type"]; offerLabel: string;
+    offerActive: boolean; offerStart: string; offerEnd: string;
+    offerBuyQty: string; offerFreeQty: string; offerMinQty: string;
+  },
+  // The offer that already existed on the item before this edit (if any). Its
+  // channel scope is preserved so a POS edit never silently rewrites an
+  // admin-set scope (e.g. "both" or "online only"). When there is no existing
+  // offer, a freshly-created POS offer defaults to in-store only — POS admins
+  // own the till, not the online menu.
+  existingOffer?: POSOffer,
+): POSOffer | undefined {
   const needsValue = ["percent","fixed","price","multibuy","qty_discount"].includes(d.offerType);
   const needsBuy   = ["bogo","multibuy"].includes(d.offerType);
   if (needsValue && !d.offerValue) return undefined;
@@ -26,6 +34,9 @@ export function buildOffer(d: {
     buyQty:    d.offerBuyQty  ? parseInt(d.offerBuyQty)  : undefined,
     freeQty:   d.offerFreeQty ? parseInt(d.offerFreeQty) : undefined,
     minQty:    d.offerMinQty  ? parseInt(d.offerMinQty)  : undefined,
+    // Preserve the prior scope (including undefined = "both"); default new
+    // POS offers to in-store only.
+    channels:  existingOffer ? existingOffer.channels : ["in_store"],
   };
 }
 

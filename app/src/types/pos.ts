@@ -102,12 +102,22 @@ function offerDateOk(o: POSOffer): boolean {
 }
 
 /**
+ * The POS / waiter surface is always the `in_store` channel. An offer applies
+ * here only if it has no channel restriction (undefined / empty = everywhere)
+ * or explicitly includes `in_store`. This stops an online-only offer
+ * (channels: ['online']) from discounting a till sale.
+ */
+function offerAppliesInStore(o: POSOffer): boolean {
+  return !o.channels || o.channels.length === 0 || o.channels.includes("in_store");
+}
+
+/**
  * For simple per-unit offers (percent, fixed, price) returns the discounted unit price.
  * Returns null for cart-level offers (bogo, multibuy, qty_discount) — those are handled by cartLineTotal.
  */
 export function getOfferPrice(product: POSProduct): number | null {
   const o = product.offer;
-  if (!o?.active || !offerDateOk(o)) return null;
+  if (!o?.active || !offerDateOk(o) || !offerAppliesInStore(o)) return null;
   switch (o.type) {
     case "percent": return parseFloat(Math.max(0, product.price * (1 - o.value / 100)).toFixed(2));
     case "fixed":   return parseFloat(Math.max(0, product.price - o.value).toFixed(2));
@@ -117,12 +127,12 @@ export function getOfferPrice(product: POSProduct): number | null {
 }
 
 /**
- * Returns true if the product has an offer that is active today.
- * Works for ALL offer types (including cart-level ones).
+ * Returns true if the product has an offer that is active today AND applies on
+ * the in-store channel. Works for ALL offer types (including cart-level ones).
  */
 export function isOfferActive(product: POSProduct): boolean {
   const o = product.offer;
-  return !!(o?.active && offerDateOk(o));
+  return !!(o?.active && offerDateOk(o) && offerAppliesInStore(o));
 }
 
 /**
@@ -131,7 +141,7 @@ export function isOfferActive(product: POSProduct): boolean {
  */
 export function cartLineTotal(item: POSCartItem): number {
   const o = item.offer;
-  if (!o?.active || !offerDateOk(o)) return item.price * item.quantity;
+  if (!o?.active || !offerDateOk(o) || !offerAppliesInStore(o)) return item.price * item.quantity;
 
   switch (o.type) {
     case "bogo": {

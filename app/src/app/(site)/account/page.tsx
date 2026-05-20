@@ -21,7 +21,7 @@ import { fullOrderNumber } from "@/lib/orderNumber";
 import AuthModal from "@/components/AuthModal";
 import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import { resolveStock } from "@/lib/stockUtils";
-import { isOnChannel } from "@/lib/menuOfferUtils";
+import { isOnChannel, effectiveMenuPrice, getOfferUnitPrice } from "@/lib/menuOfferUtils";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import CartPanel from "@/components/CartPanel";
 import { geocode } from "@/lib/useGeocode";
@@ -478,7 +478,14 @@ function FavouritesTab() {
                 <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">{item.description}</p>
 
                 <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-50">
-                  <span className="font-bold text-zinc-900 text-sm">{sym}{item.price.toFixed(2)}</span>
+                  {getOfferUnitPrice(item) !== null ? (
+                    <span className="flex items-baseline gap-1.5">
+                      <span className="font-bold text-amber-600 text-sm">{sym}{getOfferUnitPrice(item)!.toFixed(2)}</span>
+                      <span className="text-xs text-zinc-400 line-through">{sym}{effectiveMenuPrice(item).toFixed(2)}</span>
+                    </span>
+                  ) : (
+                    <span className="font-bold text-zinc-900 text-sm">{sym}{effectiveMenuPrice(item).toFixed(2)}</span>
+                  )}
                   {outOfStock ? (
                     <span className="flex items-center gap-1 text-xs font-semibold text-red-500 bg-red-50 px-3 py-1.5 rounded-xl border border-red-100">
                       <PackageX size={12} /> Unavailable
@@ -1430,7 +1437,10 @@ function AccountPageContent() {
         }
       }
 
-      const currentPrice = menuItem.price + variationPrice + addOnsTotal;
+      // Online channel: discount the base with any live per-unit offer, and
+      // use the online price override when set. Mirrors ItemCustomizationModal.
+      const offerBase   = getOfferUnitPrice(menuItem) ?? effectiveMenuPrice(menuItem);
+      const currentPrice = offerBase + variationPrice + addOnsTotal;
       if (Math.abs(currentPrice - line.price) > 0.005) {
         priceChanged.push(line.name);
       }
@@ -1444,6 +1454,8 @@ function AccountPageContent() {
         selectedVariation,
         selectedAddOns,
         specialInstructions: line.specialInstructions,
+        // Snapshot the offer for cart-level math (bogo/multibuy/qty_discount).
+        ...(menuItem.offer?.active ? { offer: menuItem.offer } : {}),
       });
       added.push(line.name);
     });

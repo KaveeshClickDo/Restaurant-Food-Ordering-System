@@ -6,6 +6,7 @@ import { Plus, Flame, PackageX, PackageMinus, Heart } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import ItemCustomizationModal from "./ItemCustomizationModal";
 import { resolveStock } from "@/lib/stockUtils";
+import { isOfferActive, getOfferUnitPrice, offerBadgeLabel, effectiveMenuPrice } from "@/lib/menuOfferUtils";
 
 const DIETARY_BADGES: Record<string, { label: string; className: string }> = {
   vegetarian:    { label: "V",  className: "bg-green-100 text-green-700 border border-green-200"   },
@@ -23,6 +24,12 @@ export default function MenuItemCard({ item }: { item: MenuItem }) {
   const outOfStock  = stockStatus === "out_of_stock";
   const lowStock    = stockStatus === "low_stock";
   const canAdd      = (isOpen || !!scheduledTime) && !outOfStock;
+
+  // Online-channel pricing + offer display (mirrors the main FoodCard).
+  const basePrice      = effectiveMenuPrice(item);          // priceOnline ?? price
+  const discountedBase = getOfferUnitPrice(item);           // null unless per-unit offer
+  const offerOn        = isOfferActive(item);
+  const offerLabel     = offerBadgeLabel(item);
 
   return (
     <>
@@ -43,6 +50,11 @@ export default function MenuItemCard({ item }: { item: MenuItem }) {
               <span className="flex items-center gap-0.5 text-xs font-medium text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full border border-orange-200 whitespace-nowrap">
                 <Flame size={10} />
                 Popular
+              </span>
+            )}
+            {offerOn && !outOfStock && offerLabel && (
+              <span className="flex items-center gap-0.5 text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-200 whitespace-nowrap">
+                {offerLabel}
               </span>
             )}
             {outOfStock && (
@@ -77,9 +89,16 @@ export default function MenuItemCard({ item }: { item: MenuItem }) {
             {item.description}
           </p>
 
-          <p className={`font-bold text-sm mt-2 ${outOfStock ? "text-gray-400" : "text-gray-900"}`}>
-            {sym}{item.price.toFixed(2)}
-          </p>
+          {discountedBase !== null && !outOfStock ? (
+            <p className="font-bold text-sm mt-2 flex items-baseline gap-1.5">
+              <span className="text-amber-600">{sym}{discountedBase.toFixed(2)}</span>
+              <span className="text-xs text-gray-400 line-through font-medium">{sym}{basePrice.toFixed(2)}</span>
+            </p>
+          ) : (
+            <p className={`font-bold text-sm mt-2 ${outOfStock ? "text-gray-400" : "text-gray-900"}`}>
+              {sym}{basePrice.toFixed(2)}
+            </p>
+          )}
         </div>
 
         {/* Image + action column */}

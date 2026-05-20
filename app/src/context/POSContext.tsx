@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 const uuid = () => crypto.randomUUID();
 import {
   POSStaff, POSProduct, POSCategory, POSModifier, POSCartItem, POSSale, POSCustomer,
-  POSSettings, POSClockEntry, POSCartModifier, getOfferPrice, cartLineTotal,
+  POSSettings, POSClockEntry, POSCartModifier, getOfferPrice, cartLineTotal, isOfferActive,
 } from "@/types/pos";
 import { useApp } from "@/context/AppContext";
 import { supabase } from "@/lib/supabase";
@@ -775,8 +775,10 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     const offerPrice = getOfferPrice(product); // null for cart-level offer types
     const basePrice = offerPrice ?? product.price;
     const unitPrice = basePrice + modPrice;
-    // Snapshot offer for cart-level quantity-based types (bogo, multibuy, qty_discount)
-    const cartOffer = product.offer?.active ? product.offer : undefined;
+    // Snapshot offer for cart-level quantity-based types (bogo, multibuy, qty_discount).
+    // Only snapshot when the offer actually applies in-store — isOfferActive is
+    // channel-aware, so an online-only offer won't ride along on a till sale.
+    const cartOffer = isOfferActive(product) ? product.offer : undefined;
     setCart((prev) => {
       // Merge with existing identical line (same product + same modifiers, no custom note)
       const modKey = JSON.stringify(modifiers);

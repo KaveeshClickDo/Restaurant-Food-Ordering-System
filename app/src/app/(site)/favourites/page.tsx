@@ -2,7 +2,7 @@
 
 import { useApp } from "@/context/AppContext";
 import { resolveStock } from "@/lib/stockUtils";
-import { isOnChannel } from "@/lib/menuOfferUtils";
+import { isOnChannel, effectiveMenuPrice, getOfferUnitPrice } from "@/lib/menuOfferUtils";
 import { isMealPeriodActive, nextActivationLabel } from "@/lib/scheduleUtils";
 import { Heart, UtensilsCrossed, Plus, Search, LayoutDashboard, LogOut, Clock } from "lucide-react";
 import AuthModal from "@/components/AuthModal";
@@ -217,7 +217,14 @@ export default function FavouritesPage() {
                                                 <div className="flex flex-col flex-1">
                                                     <div className="flex items-start justify-between gap-2 mb-1">
                                                         <h3 className="font-medium text-[15px] leading-snug text-zinc-900">{item.name}</h3>
-                                                        <span className="font-semibold text-[15px] text-zinc-900 tabular-nums flex-shrink-0">{sym}{item.price.toFixed(2)}</span>
+                                                        {getOfferUnitPrice(item) !== null ? (
+                                                            <span className="flex-shrink-0 tabular-nums text-right">
+                                                                <span className="font-semibold text-[15px] text-amber-600">{sym}{getOfferUnitPrice(item)!.toFixed(2)}</span>
+                                                                <span className="block text-[11px] text-zinc-400 line-through">{sym}{effectiveMenuPrice(item).toFixed(2)}</span>
+                                                            </span>
+                                                        ) : (
+                                                            <span className="font-semibold text-[15px] text-zinc-900 tabular-nums flex-shrink-0">{sym}{effectiveMenuPrice(item).toFixed(2)}</span>
+                                                        )}
                                                     </div>
                                                     <p className="text-[12.5px] text-zinc-500 leading-snug line-clamp-2 mb-3">{item.description}</p>
                                                 </div>
