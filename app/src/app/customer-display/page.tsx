@@ -3,18 +3,14 @@
 import { useState, useEffect, useRef } from "react";
 import { ChefHat, CheckCircle2, Clock, UtensilsCrossed, Wifi } from "lucide-react";
 import type { OrderLine } from "@/types";
-import { fullOrderNumber } from "@/lib/orderNumber";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ActiveStatus = "pending" | "confirmed" | "preparing" | "ready";
-type DeliveryStatus = "assigned" | "picked_up" | "on_the_way" | "delivered";
 
-/** Derived label used by the in-store display so a "ready" delivery order
- *  doesn't get bucketed alongside "ready for customer pickup" — they're
- *  visually identical states from the customer's POV but mean different
- *  things and would confuse anyone waiting at the counter. */
-type ReadyLabel = "READY FOR COLLECTION" | "AWAITING DRIVER" | "OUT FOR DELIVERY";
+/** Label shown on a "ready" card. Delivery orders are excluded from this
+ *  screen entirely, so collection is the only ready-state we surface. */
+type ReadyLabel = "READY FOR COLLECTION";
 
 interface DisplayOrder {
   id: string;
@@ -22,9 +18,7 @@ interface DisplayOrder {
   fullLabel: string;
   status: ActiveStatus;
   fulfillment: string;
-  deliveryStatus: DeliveryStatus | null;
-  /** Only set when status === "ready". Tells the UI which of the three
-   *  end-states to surface (collection / awaiting driver / out for delivery). */
+  /** Set only when status === "ready". */
   readyLabel: ReadyLabel | null;
   items: OrderLine[];
   date: string;
@@ -41,38 +35,20 @@ const PAGE_INTERVAL = 8_000;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function rowToDisplay(row: any): DisplayOrder | null {
   if (!ACTIVE_STATUSES.includes(row.status)) return null;
-  // Server now extracts receiptNo from the order note (which we never receive
-  // on the client, so PII embedded in the note never leaves the server).
-  const fullLabel = (row.receiptNo as string | null) ?? fullOrderNumber(String(row.id));
-  const label = fullLabel;
-  const fulfillment    = String(row.fulfillment ?? "collection");
-  const deliveryStatus = (row.deliveryStatus as DeliveryStatus | null) ?? null;
-  const status         = row.status as ActiveStatus;
-
-  // Pick the right "ready" sub-label so a delivery order awaiting a driver
-  // isn't flashed as "READY — COLLECT NOW" to in-store customers who'd
-  // (wrongly) walk up to the counter expecting their food.
-  let readyLabel: ReadyLabel | null = null;
-  if (status === "ready") {
-    if (fulfillment === "delivery") {
-      readyLabel = (deliveryStatus === "picked_up" || deliveryStatus === "on_the_way")
-        ? "OUT FOR DELIVERY"
-        : "AWAITING DRIVER";
-    } else {
-      readyLabel = "READY FOR COLLECTION";
-    }
-  }
+  // Server computes the short, prefixed display code (R… for POS, C-/T- for
+  // collection/dine-in) so the client never has to touch the raw id.
+  const label  = String(row.displayNo ?? "");
+  const status = row.status as ActiveStatus;
 
   return {
-    id:             row.id,
+    id:          row.id,
     label,
-    fullLabel,
+    fullLabel:   label,
     status,
-    fulfillment,
-    deliveryStatus,
-    readyLabel,
-    items:          (row.items ?? []) as OrderLine[],
-    date:           typeof row.date === "string" ? row.date : new Date(row.date).toISOString(),
+    fulfillment: String(row.fulfillment ?? "collection"),
+    readyLabel:  status === "ready" ? "READY FOR COLLECTION" : null,
+    items:       (row.items ?? []) as OrderLine[],
+    date:        typeof row.date === "string" ? row.date : new Date(row.date).toISOString(),
   };
 }
 
@@ -146,12 +122,8 @@ function OrderCard({
   cols: number;
   maxRows: number;
 }) {
-  const prevReady    = useRef(isReady);
-  const [flash,      setFlash]      = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const [marking,    setMarking]    = useState(false);
-  const confirmTimer                = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const markInFlight                = useRef(false);
+  const prevReady = useRef(isReady);
+  const [flash, setFlash] = useState(false);
 
   useEffect(() => {
     if (!prevReady.current && isReady) {
@@ -160,33 +132,6 @@ function OrderCard({
     }
     prevReady.current = isReady;
   }, [isReady]);
-
-  function handleCollectClick() {
-    if (confirming) return;
-    setConfirming(true);
-    confirmTimer.current = setTimeout(() => setConfirming(false), 4_000);
-  }
-
-  async function handleConfirm() {
-    if (markInFlight.current) return;
-    if (confirmTimer.current) clearTimeout(confirmTimer.current);
-    markInFlight.current = true;
-    setConfirming(false);
-    setMarking(true);
-    try { await fetch(`/api/pos/orders/${order.id}/collected`, { method: "PUT" }); }
-    catch { /* swallow — the realtime feed will reconcile */ }
-    finally {
-      markInFlight.current = false;
-      setMarking(false);
-    }
-  }
-
-  function handleCancel() {
-    if (confirmTimer.current) clearTimeout(confirmTimer.current);
-    setConfirming(false);
-  }
-
-  useEffect(() => () => { if (confirmTimer.current) clearTimeout(confirmTimer.current); },[]);
 
   // Highly responsive typography scaling based on grid density
   const numCls = cols === 1 ? "text-5xl sm:text-6xl lg:text-7xl 2xl:text-7xl" 
@@ -198,8 +143,7 @@ function OrderCard({
   const itemTxt = cols >= 3 ? "text-[11px] sm:text-xs" : "text-xs sm:text-sm";
   const pad     = cols >= 3 || maxRows >= 4 ? "p-1.5 sm:p-2.5" : "p-3 sm:p-4";
   const gap     = cols >= 3 || maxRows >= 4 ? "gap-1 sm:gap-1.5" : "gap-1.5 sm:gap-2.5";
-  const btnTxt  = cols >= 3 ? "text-[9px] sm:text-[11px]" : "text-[11px] sm:text-xs";
-  
+
   // Smartly truncate lists if cards are physically constrained
   const maxItems = maxRows >= 4 ? 2 : cols >= 3 ? 3 : 5;
 
@@ -253,66 +197,17 @@ function OrderCard({
         </ul>
 
         {isReady && (
-          <div className="flex-shrink-0 space-y-1.5 mt-auto pt-1">
-            {/* Badge text reflects WHICH ready-state this is — only true
-                "ready for collection" gets the green emerald "COLLECT NOW".
-                Delivery-bound orders (awaiting driver / out for delivery)
-                use an orange/indigo palette so a customer in-store doesn't
-                mistakenly walk up expecting their food. */}
-            <div className={`rounded-lg sm:rounded-xl flex items-center justify-center gap-1 sm:gap-1.5 ${
+          <div className="flex-shrink-0 mt-auto pt-1">
+            {/* Display-only "ready" badge — no actions. Orders clear from the
+                board automatically once marked collected on another surface. */}
+            <div className={`rounded-lg sm:rounded-xl flex items-center justify-center gap-1 sm:gap-1.5 bg-emerald-400 ${
               cols >= 3 || maxRows >= 4 ? "py-1 sm:py-1.5" : "py-1.5 sm:py-2"
-            } ${
-              order.readyLabel === "READY FOR COLLECTION" ? "bg-emerald-400"
-              : order.readyLabel === "OUT FOR DELIVERY"   ? "bg-indigo-400"
-              :                                             "bg-orange-400"
             }`}>
-              <CheckCircle2 size={cols >= 3 ? 12 : 16} className={
-                order.readyLabel === "READY FOR COLLECTION" ? "text-emerald-950"
-                : order.readyLabel === "OUT FOR DELIVERY"   ? "text-indigo-950"
-                :                                             "text-orange-950"
-              } />
-              <span className={`font-black tracking-wide ${cols >= 3 ? "text-[10px] sm:text-xs" : "text-xs sm:text-sm"} ${
-                order.readyLabel === "READY FOR COLLECTION" ? "text-emerald-950"
-                : order.readyLabel === "OUT FOR DELIVERY"   ? "text-indigo-950"
-                :                                             "text-orange-950"
-              }`}>
+              <CheckCircle2 size={cols >= 3 ? 12 : 16} className="text-emerald-950" />
+              <span className={`font-black tracking-wide text-emerald-950 ${cols >= 3 ? "text-[10px] sm:text-xs" : "text-xs sm:text-sm"}`}>
                 {order.readyLabel ?? "COLLECT NOW"}
               </span>
             </div>
-
-            {/* "Mark Collected" only makes sense for actual in-store collection
-                orders — never for deliveries (the driver handles those). */}
-            {order.readyLabel === "READY FOR COLLECTION" && (
-              !confirming ? (
-                <button
-                  onClick={handleCollectClick}
-                  disabled={marking}
-                  className={`w-full rounded-lg sm:rounded-xl flex items-center justify-center gap-1.5 font-bold text-emerald-600 border border-emerald-900 hover:bg-emerald-900/30 active:scale-[0.98] transition-all disabled:opacity-40 ${
-                    cols >= 3 || maxRows >= 4 ? "py-1 text-[10px]" : "py-1.5 text-xs"
-                  }`}
-                >
-                  {marking
-                    ? <span className="animate-spin">⟳</span>
-                    : <><CheckCircle2 size={12} /> Mark Collected</>
-                  }
-                </button>
-              ) : (
-                <div className="flex gap-1 sm:gap-1.5">
-                  <button
-                    onClick={handleConfirm}
-                    className={`flex-1 rounded-lg sm:rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-black transition-all ${btnTxt} ${cols >= 3 ? "py-1" : "py-1.5"}`}
-                  >
-                    ✓ Confirm
-                  </button>
-                  <button
-                    onClick={handleCancel}
-                    className={`flex-1 rounded-lg sm:rounded-xl bg-gray-700 hover:bg-gray-600 text-gray-300 font-semibold transition-all ${btnTxt} ${cols >= 3 ? "py-1" : "py-1.5"}`}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              )
-            )}
           </div>
         )}
       </div>
