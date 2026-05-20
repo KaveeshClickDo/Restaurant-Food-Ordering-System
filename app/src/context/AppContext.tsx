@@ -15,6 +15,7 @@ import {
   Refund, SavedAddress, StockStatus,
 } from "@/types";
 import { buildColorCss } from "@/lib/colorUtils";
+import { cartSubtotal } from "@/lib/menuOfferUtils";
 import { DEFAULT_EMAIL_TEMPLATES } from "@/lib/emailTemplates";
 import { DEFAULT_SETTINGS, DEFAULT_COLORS } from "@/data/defaultSettings";
 import SeoHead from "@/components/SeoHead";
@@ -213,6 +214,15 @@ function mapMenuItem(row: any, mealPeriodIds: string[] = []): MenuItem {
     trackStock: !!row.track_stock,
     offer:  row.offer ?? undefined,
     mealPeriodIds,
+    // Channel split. Legacy rows that pre-date the column come back as
+    // null/undefined → fall back to both channels so they stay visible
+    // everywhere until admin curates them.
+    channels: Array.isArray(row.channels) && row.channels.length > 0
+      ? (row.channels as ("in_store" | "online")[])
+      : ["in_store", "online"],
+    priceOnline: row.price_online !== null && row.price_online !== undefined
+      ? Number(row.price_online)
+      : undefined,
   };
 }
 
@@ -293,6 +303,11 @@ function menuItemToRow(m: MenuItem) {
     active: m.active ?? true,
     track_stock: !!m.trackStock,
     offer: m.offer ?? null,
+    // Channel split + online price override. Omitting `channels` from the
+    // payload would let the DB default re-assert `{in_store, online}`; we
+    // pass the explicit value so admin can save in_store-only items.
+    channels: m.channels && m.channels.length > 0 ? m.channels : ["in_store", "online"],
+    price_online: m.priceOnline ?? null,
   };
 }
 
@@ -1561,7 +1576,10 @@ export function AppProvider({
 
   // ─── Derived values ────────────────────────────────────────────────────────
 
-  const cartTotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+  // Cart-level offers (bogo/multibuy/qty_discount) snapshotted on each line
+  // adjust the line total; per-unit offers are already in i.price. See
+  // src/lib/menuOfferUtils.ts. Falls back to plain qty*price when no offer.
+  const cartTotal = cartSubtotal(cart);
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0);
 
   return (

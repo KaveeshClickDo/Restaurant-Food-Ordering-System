@@ -21,10 +21,16 @@
 import { randomInt } from "crypto";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { resolveDeliveryZoneFee, findZoneForDistance, haversineKm, type DeliveryZoneShape } from "@/lib/geocode";
+import type { MenuItemOffer, MenuChannel } from "@/types";
 
 interface DBMenuItem {
-  id:         string;
-  price:      number;
+  id:           string;
+  name:         string;
+  price:        number;
+  price_online: number | null;
+  channels:     MenuChannel[] | null;
+  active:       boolean | null;
+  offer:        MenuItemOffer | null;
   // JSONB shape produced by the menu editor — see `Variation` in src/types.
   // Older seeds used `{ name, delta }` on options; current data uses
   // `{ id, label, price }`. Both forms are accepted by the matcher below.
@@ -35,6 +41,78 @@ interface DBMenuItem {
     options:   Array<{ id?: string; label?: string; price?: number; name?: string; delta?: number }>;
   }> | null;
   add_ons:    Array<{ id?: string; name: string; price: number }> | null;
+}
+
+/**
+ * True if `offer` is set, marked active, falls within its date window AND
+ * applies on `channel`. Mirrors `isOfferActive` in src/lib/menuOfferUtils.ts
+ * and `offerDateOk` in src/types/pos.ts so client and server agree on what
+ * "active" means.
+ */
+function isOfferLive(
+  offer: MenuItemOffer | null | undefined,
+  channel: MenuChannel,
+): offer is MenuItemOffer {
+  if (!offer?.active) return false;
+  const now = new Date();
+  if (offer.startDate && new Date(offer.startDate) > now) return false;
+  if (offer.endDate   && new Date(offer.endDate + "T23:59:59") < now) return false;
+  if (offer.channels && offer.channels.length > 0 && !offer.channels.includes(channel)) return false;
+  return true;
+}
+
+/**
+ * Server-authoritative per-unit base price after applying any per-unit offer
+ * (percent / fixed / price). Cart-level offers (bogo/multibuy/qty_discount)
+ * are handled in `serverLineTotal` instead — they leave the unit price alone.
+ */
+function applyPerUnitOffer(
+  basePrice: number,
+  offer: MenuItemOffer | null | undefined,
+  channel: MenuChannel,
+): number {
+  if (!isOfferLive(offer, channel)) return basePrice;
+  switch (offer.type) {
+    case "percent": return Math.max(0, parseFloat((basePrice * (1 - offer.value / 100)).toFixed(2)));
+    case "fixed":   return Math.max(0, parseFloat((basePrice - offer.value).toFixed(2)));
+    case "price":   return Math.max(0, parseFloat(offer.value.toFixed(2)));
+    default:        return basePrice;
+  }
+}
+
+/**
+ * Authoritative total for a single line, applying cart-level offers. Per-unit
+ * discounts must already be in `unitPrice` (see applyPerUnitOffer).
+ */
+function serverLineTotal(
+  qty: number,
+  unitPrice: number,
+  offer: MenuItemOffer | null | undefined,
+  channel: MenuChannel,
+): number {
+  if (!isOfferLive(offer, channel)) return parseFloat((unitPrice * qty).toFixed(2));
+  switch (offer.type) {
+    case "bogo": {
+      const buyN = Math.max(1, offer.buyQty  ?? 1);
+      const getN = Math.max(1, offer.freeQty ?? 1);
+      const groupSize = buyN + getN;
+      const paid = Math.floor(qty / groupSize) * buyN + Math.min(qty % groupSize, buyN);
+      return parseFloat((paid * unitPrice).toFixed(2));
+    }
+    case "multibuy": {
+      const need = Math.max(2, offer.buyQty ?? 2);
+      const groups = Math.floor(qty / need);
+      const rem    = qty % need;
+      return parseFloat((groups * offer.value + rem * unitPrice).toFixed(2));
+    }
+    case "qty_discount": {
+      const minQ = Math.max(2, offer.minQty ?? 2);
+      if (qty >= minQ) return parseFloat((unitPrice * qty * (1 - offer.value / 100)).toFixed(2));
+      return parseFloat((unitPrice * qty).toFixed(2));
+    }
+    default:
+      return parseFloat((unitPrice * qty).toFixed(2));
+  }
 }
 
 /**
@@ -148,11 +226,15 @@ export async function validateAndNormaliseOrder(
     .map((i) => i.menuItemId)
     .filter((mid): mid is string => typeof mid === "string" && mid.length > 0);
 
+  // Customer flow is always the `online` channel. Used to pick the right
+  // base price, filter inactive-channel items, and gate per-channel offers.
+  const orderChannel: MenuChannel = "online";
+
   let menuMap = new Map<string, DBMenuItem>();
   if (menuItemIds.length > 0) {
     const { data: menuRows } = await supabaseAdmin
       .from("menu_items")
-      .select("id, price, variations, add_ons")
+      .select("id, name, price, price_online, channels, active, offer, variations, add_ons")
       .in("id", menuItemIds);
     menuMap = new Map(
       (menuRows ?? []).map((r) => [r.id as string, r as unknown as DBMenuItem]),
@@ -165,6 +247,30 @@ export async function validateAndNormaliseOrder(
     if (!mid) { verifiedItems.push(item); continue; }
     const dbItem = menuMap.get(mid);
     if (!dbItem) { verifiedItems.push(item); continue; }
+
+    // Reject items that admin has flipped off the menu since the cart was
+    // built. Without this an open cart can place an order for an item that
+    // the kitchen no longer offers. A null active column (legacy rows that
+    // never had the column) is treated as available.
+    if (dbItem.active === false) {
+      const itemName = dbItem.name || (typeof item.name === "string" ? item.name : "item");
+      return {
+        ok: false,
+        error: `'${itemName}' is no longer available. Please remove it from your cart.`,
+        status: 400,
+      };
+    }
+    // Reject items that admin removed from the online channel since the cart
+    // was built. Legacy rows with null/empty channels still appear online.
+    const itemChannels = dbItem.channels;
+    if (Array.isArray(itemChannels) && itemChannels.length > 0 && !itemChannels.includes(orderChannel)) {
+      const itemName = dbItem.name || (typeof item.name === "string" ? item.name : "item");
+      return {
+        ok: false,
+        error: `'${itemName}' is no longer available for online orders. Please remove it from your cart.`,
+        status: 400,
+      };
+    }
 
     // Collect every variation selection the client sent — new `selectedVariations[]`
     // form first, then fall back to the legacy singular field. We key by
@@ -208,10 +314,22 @@ export async function validateAndNormaliseOrder(
       }
     }
 
-    // Recompute the authoritative price: base price + every variation delta
-    // + every add-on price. We sum across ALL selected variation groups,
-    // not just the first one (the old code stopped after one match).
-    let expectedPrice = Number(dbItem.price);
+    // Recompute the authoritative price: base price (with per-unit offer
+    // applied if active) + every variation delta + every add-on price. We
+    // sum across ALL selected variation groups, not just the first one (the
+    // old code stopped after one match).
+    //
+    // Per-unit offers (percent/fixed/price) discount the BASE only; cart-
+    // level offers (bogo/multibuy/qty_discount) leave the per-unit price
+    // alone and apply when the line total is summed below. Channel-aware:
+    // an offer marked online-only won't fire on a POS-flow path (none yet,
+    // but the helpers stay consistent).
+    const liveOffer = isOfferLive(dbItem.offer, orderChannel) ? dbItem.offer : null;
+    // Customer site uses price_online when set; falls back to base price.
+    const baseForChannel = dbItem.price_online !== null && dbItem.price_online !== undefined
+      ? Number(dbItem.price_online)
+      : Number(dbItem.price);
+    let expectedPrice = applyPerUnitOffer(baseForChannel, liveOffer, orderChannel);
 
     if (Array.isArray(dbItem.variations)) {
       for (const group of dbItem.variations) {
@@ -236,7 +354,17 @@ export async function validateAndNormaliseOrder(
       }
     }
 
-    verifiedItems.push({ ...item, price: Math.round(expectedPrice * 100) / 100 });
+    // Strip any client-sent offer first so a stale snapshot can't leak into
+    // orders.items when the server has decided the offer isn't live.
+    const { offer: _clientOffer, ...itemWithoutOffer } = item;
+    void _clientOffer;
+    verifiedItems.push({
+      ...itemWithoutOffer,
+      price: Math.round(expectedPrice * 100) / 100,
+      // Snapshot the server-verified offer onto the line so the orders.items
+      // jsonb is a faithful audit record. Refunds + reports key off this.
+      ...(liveOffer ? { offer: liveOffer } : {}),
+    });
   }
 
   // ── Fee normalisation ─────────────────────────────────────────────────────
@@ -393,7 +521,13 @@ export async function validateAndNormaliseOrder(
     }
 
     const verifiedSubtotal = verifiedItems.reduce(
-      (s, i) => s + (i.price as number) * (i.qty as number), 0,
+      (s, i) => s + serverLineTotal(
+        Number(i.qty),
+        Number(i.price),
+        (i.offer as MenuItemOffer | undefined) ?? null,
+        orderChannel,
+      ),
+      0,
     );
     if (coupon.minOrderAmount > 0 && verifiedSubtotal < coupon.minOrderAmount) {
       return {
@@ -411,8 +545,16 @@ export async function validateAndNormaliseOrder(
   }
 
   // ── Server-authoritative total ────────────────────────────────────────────
+  // serverLineTotal applies any cart-level offer snapshotted on the line
+  // (per-unit offer is already baked into i.price by applyPerUnitOffer above).
   const itemsSubtotal = verifiedItems.reduce(
-    (s, i) => s + (i.price as number) * (i.qty as number), 0,
+    (s, i) => s + serverLineTotal(
+      Number(i.qty),
+      Number(i.price),
+      (i.offer as MenuItemOffer | undefined) ?? null,
+      orderChannel,
+    ),
+    0,
   );
   const serverTotal = Math.max(
     0,

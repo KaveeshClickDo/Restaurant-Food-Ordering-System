@@ -981,7 +981,7 @@ export default function WaiterPage() {
         tableLabel: activeTable.label,
         covers,
         staffName: waiter?.name,
-        items: cart.map((l) => ({ name: l.name + (l.note ? ` [${l.note}]` : ""), qty: l.quantity, price: l.unitPrice })),
+        items: cart.map((l) => ({ menuItemId: l.menuItemId, name: l.name + (l.note ? ` [${l.note}]` : ""), qty: l.quantity, price: l.unitPrice })),
         total,
         kitchenNote: kitchenNote.trim() || undefined,
       }),
@@ -1084,9 +1084,14 @@ export default function WaiterPage() {
   const visibleTables = activeSection === "All"
     ? tables
     : tables.filter((t) => t.section === activeSection);
-  const visibleItems = menuItems.filter(
-    (m) => !activeCatId || m.categoryId === activeCatId
-  );
+  // Waiter = in_store channel (same as POS). Hide items admin tagged online-
+  // only. Legacy items without a channels value stay visible.
+  const visibleItems = menuItems.filter((m) => {
+    if (activeCatId && m.categoryId !== activeCatId) return false;
+    const ch = m.channels;
+    if (ch && ch.length > 0 && !ch.includes("in_store")) return false;
+    return true;
+  });
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Render

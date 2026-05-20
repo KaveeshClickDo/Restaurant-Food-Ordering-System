@@ -2,6 +2,7 @@
 
 import { useApp } from "@/context/AppContext";
 import { resolveStock } from "@/lib/stockUtils";
+import { isOnChannel } from "@/lib/menuOfferUtils";
 import { isMealPeriodActive, nextActivationLabel } from "@/lib/scheduleUtils";
 import { Heart, UtensilsCrossed, Plus, Search, LayoutDashboard, LogOut, Clock } from "lucide-react";
 import AuthModal from "@/components/AuthModal";
@@ -33,7 +34,9 @@ export default function FavouritesPage() {
     void nowTick;
 
     const favIds = new Set(currentUser?.favourites ?? []);
-    const favItems = menuItems.filter((m) => favIds.has(m.id));
+    // Customer site = online channel. A favourited item that's now in-store
+    // only just falls out of the list — orderable favourites only.
+    const favItems = menuItems.filter((m) => favIds.has(m.id) && isOnChannel(m, "online"));
 
     // For each favourited item, figure out if it's currently orderable based
     // on its meal-period tags. Items with no tags are always orderable.

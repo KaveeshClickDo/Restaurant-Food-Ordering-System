@@ -19,6 +19,7 @@ import SiteFooter from "@/components/SiteFooter";
 import MealPeriodSection from "@/components/MealPeriodSection";
 import { isMealPeriodActive } from "@/lib/scheduleUtils";
 import { resolveStock } from "@/lib/stockUtils";
+import { isOfferActive, getOfferUnitPrice, offerBadgeLabel, effectiveMenuPrice, isOnChannel } from "@/lib/menuOfferUtils";
 import { getNextOpenTime, formatNextOpen } from "@/lib/scheduleUtils";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import CartPanel from "@/components/CartPanel";
@@ -37,6 +38,14 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
   const outOfStock = stockStatus === "out_of_stock";
   const canAdd = (isOpen || !!scheduledTime) && !outOfStock;
   const faved = isFavourite(item.id);
+
+  // Offer pricing — per-unit discounted price for badge + strikethrough.
+  // Cart-level offers (bogo/multibuy/qty_discount) don't change the per-unit
+  // shelf price, but we still show the badge so customers know there's a
+  // deal in the cart.
+  const offerOn      = isOfferActive(item);
+  const discountedBase = getOfferUnitPrice(item);
+  const offerLabel   = offerBadgeLabel(item);
 
   return (
     <div
@@ -58,10 +67,21 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
             <UtensilsCrossed className="w-10 h-10 text-zinc-300" strokeWidth={1.2} />
           </div>
         )}
-        {item.popular && !outOfStock && (
-          <span className="absolute top-2.5 left-2.5 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-orange-500/90 text-white backdrop-blur-sm">
-            Popular
-          </span>
+        {/* Popular + offer badges sit side by side in a flex row so an item
+            that is both popular and on offer shows both, without overlapping. */}
+        {!outOfStock && (item.popular || (offerOn && offerLabel)) && (
+          <div className="absolute top-2.5 left-2.5 flex items-center gap-1">
+            {item.popular && (
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-orange-500/90 text-white backdrop-blur-sm">
+                Popular
+              </span>
+            )}
+            {offerOn && offerLabel && (
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-amber-500/95 text-white backdrop-blur-sm shadow-sm">
+                {offerLabel}
+              </span>
+            )}
+          </div>
         )}
         {outOfStock && (
           <span className="absolute top-2.5 left-2.5 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-zinc-100 text-zinc-500">
@@ -107,9 +127,20 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
             ))}
           </div>
         )}
-        <span className="font-semibold text-[17px] text-zinc-900 tracking-tight tabular-nums">
-          {sym}{item.price.toFixed(2)}
-        </span>
+        {discountedBase !== null ? (
+          <span className="inline-flex items-baseline gap-1.5 tabular-nums">
+            <span className="font-semibold text-[17px] text-amber-600 tracking-tight">
+              {sym}{discountedBase.toFixed(2)}
+            </span>
+            <span className="text-[12px] text-zinc-400 line-through">
+              {sym}{effectiveMenuPrice(item).toFixed(2)}
+            </span>
+          </span>
+        ) : (
+          <span className="font-semibold text-[17px] text-zinc-900 tracking-tight tabular-nums">
+            {sym}{effectiveMenuPrice(item).toFixed(2)}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -266,7 +297,7 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function HomePage() {
   const {
-    categories, menuItems, mealPeriods, settings,
+    categories, menuItems: allMenuItems, mealPeriods, settings,
     isOpen, currentUser, logout
   } = useApp();
 
@@ -296,6 +327,11 @@ export default function HomePage() {
     const t = setInterval(() => setNowTick((n) => n + 1), 30_000);
     return () => clearInterval(t);
   }, []);
+
+  // Customer site = `online` channel. Hide items admin marked in-store-only.
+  // Legacy items (no channels field set) default to both channels in the
+  // mapper, so they stay visible.
+  const menuItems = allMenuItems.filter((m) => isOnChannel(m, "online"));
 
   const activeMealPeriods = mealPeriods.filter((p) => isMealPeriodActive(p));
   const activeMealPeriodIds = new Set(activeMealPeriods.map((p) => p.id));

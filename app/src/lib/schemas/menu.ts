@@ -17,6 +17,10 @@ const variationSchema = z.object({
   })),
 });
 
+// Channels surface filter. POS+waiter both = 'in_store'; customer site = 'online'.
+// Defaults applied at the DB level (`{in_store,online}`) for legacy rows.
+const ChannelArray = z.array(z.enum(["in_store", "online"])).min(1, "At least one channel is required.").optional();
+
 // Offers (Bug #2 — POS / admin field parity). Shape mirrors MenuItemOffer
 // in src/types/index.ts; kept loose because it's stored as JSONB.
 const offerSchema = z.object({
@@ -29,6 +33,9 @@ const offerSchema = z.object({
   buyQty:    z.number().int().optional(),
   freeQty:   z.number().int().optional(),
   minQty:    z.number().int().optional(),
+  // Per-channel restriction for the offer itself. Undefined = applies on
+  // every channel the item is on (legacy / "global" offer).
+  channels:  ChannelArray,
 }).passthrough();
 
 // Menu items are flexible — schema preserves the existing freeform shape but
@@ -54,6 +61,9 @@ export const MenuCreateSchema = z.object({
   active:      z.boolean().optional(),
   track_stock: z.boolean().optional(),
   offer:       offerSchema.nullable().optional(),
+  // Channel split + online price override.
+  channels:     ChannelArray,
+  price_online: Money.nullable().optional(),
 }).passthrough();
 
 export const MenuUpdateSchema = z.object({
@@ -75,6 +85,9 @@ export const MenuUpdateSchema = z.object({
   active:      z.boolean().optional(),
   track_stock: z.boolean().optional(),
   offer:       offerSchema.nullable().optional(),
+  // Channel split + online price override.
+  channels:     ChannelArray,
+  price_online: Money.nullable().optional(),
 }).passthrough();
 
 // ── Categories ───────────────────────────────────────────────────────────────

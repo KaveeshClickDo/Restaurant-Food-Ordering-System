@@ -10,6 +10,7 @@ import CheckoutModal from "@/components/CheckoutModal";
 import ScheduleOrderModal from "@/components/ScheduleOrderModal";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { computeTax, taxSurcharge } from "@/lib/taxUtils";
+import { cartLineTotal } from "@/lib/menuOfferUtils";
 import { isMealPeriodActive } from "@/lib/scheduleUtils";
 
 interface CartPanelProps {
@@ -125,7 +126,7 @@ export default function CartPanel({ onMobileClose, onOrderPlaced }: CartPanelPro
                     </button>
                   </div>
                   <span className="text-[13px] font-bold text-zinc-900 flex-shrink-0 w-12 text-right tabular-nums">
-                    {sym}{(item.price * item.quantity).toFixed(2)}
+                    {sym}{cartLineTotal(item).toFixed(2)}
                   </span>
                 </li>
               ))}

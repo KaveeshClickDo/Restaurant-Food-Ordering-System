@@ -5,6 +5,7 @@ import { MenuItem, CartItem } from "@/types";
 import { X, Plus, Minus, UtensilsCrossed, ChevronRight, Check } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { isAvailable } from "@/lib/stockUtils";
+import { getOfferUnitPrice, isOfferActive, offerBadgeLabel, effectiveMenuPrice } from "@/lib/menuOfferUtils";
 
 const DIETARY_COLORS: Record<string, string> = {
   vegetarian:    "bg-green-100 text-green-700",
@@ -50,8 +51,17 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
     return sum + (item.addOns?.find((a) => a.id === id)?.price ?? 0);
   }, 0);
 
-  const unitPrice = item.price + variationExtra + addOnExtra;
-  const total     = unitPrice * quantity;
+  // Per-unit offers (percent / fixed / price) discount the BASE only; variation
+  // and add-on extras stay at full price. Cart-level offers (bogo/multibuy/
+  // qty_discount) leave the unit price alone and apply at cart math time.
+  // `effectiveMenuPrice` returns priceOnline when set so the customer-site
+  // base reflects the channel-specific price.
+  const basePrice      = effectiveMenuPrice(item);
+  const discountedBase = getOfferUnitPrice(item) ?? basePrice;
+  const offerOn        = isOfferActive(item);
+  const offerLabel     = offerBadgeLabel(item);
+  const unitPrice      = discountedBase + variationExtra + addOnExtra;
+  const total          = unitPrice * quantity;
 
   function handleAddToCart() {
     if (!isAvailable(item)) return;
@@ -87,6 +97,9 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
       specialInstructions: instructions || undefined,
       selectedAddOns: selectedAddOns.map((id) => item.addOns!.find((a) => a.id === id)!),
       ...(selectedVariationsArr.length > 0 ? { selectedVariations: selectedVariationsArr } : {}),
+      // Snapshot the offer for cart-level math (bogo/multibuy/qty_discount).
+      // Per-unit discount is already baked into `price` above.
+      ...(item.offer?.active ? { offer: item.offer } : {}),
     };
     addToCart(cartItem);
     onClose();
@@ -142,6 +155,19 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
               <h2 className="text-xl font-bold text-gray-900 leading-snug pr-6">{item.name}</h2>
               {item.description && (
                 <p className="text-gray-500 text-sm mt-1 leading-relaxed">{item.description}</p>
+              )}
+              {offerOn && offerLabel && (
+                <div className="mt-2 inline-flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider bg-amber-500 text-white">
+                    {offerLabel}
+                  </span>
+                  {getOfferUnitPrice(item) !== null && (
+                    <span className="text-xs text-gray-500">
+                      <span className="font-semibold text-amber-700">{sym}{discountedBase.toFixed(2)}</span>
+                      <span className="ml-1.5 line-through">{sym}{basePrice.toFixed(2)}</span>
+                    </span>
+                  )}
+                </div>
               )}
               {item.dietary.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
@@ -199,7 +225,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                             {opt.label}
                           </p>
                           <p className={`text-xs mt-0.5 ${active ? "text-orange-500" : "text-gray-500"}`}>
-                            {sym}{(item.price + (opt.price ?? 0)).toFixed(2)}
+                            {sym}{(discountedBase + (opt.price ?? 0)).toFixed(2)}
                           </p>
                         </button>
                       );

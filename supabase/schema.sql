@@ -65,8 +65,22 @@ create table if not exists menu_items (
   color        text,
   active       boolean not null default true,
   track_stock  boolean not null default false,
-  offer        jsonb
+  offer        jsonb,
+  -- ── Channel split (admin / POS / customer site) ────────────────────────────
+  -- `channels` controls which storefronts surface the item. Existing rows
+  -- default to both so a fresh install behaves the same as before. POS-only
+  -- items (alcohol, fries, anything unsuitable for delivery) carry
+  -- ['in_store']; online-exclusive deals carry ['online'].
+  -- `price_online` is an optional override used only by the customer site;
+  -- POS and waiter always use `price`. NULL means "use base price".
+  channels       text[]   not null default '{in_store,online}',
+  price_online   numeric
 );
+
+-- Backfill defaults on existing rows when the columns were added by a
+-- migration rather than CREATE TABLE. Idempotent: no-op if already populated.
+alter table menu_items add column if not exists channels     text[]  not null default '{in_store,online}';
+alter table menu_items add column if not exists price_online numeric;
 
 -- customers — registered + sentinel walk-in.
 -- Auth columns (password_hash, reset_token, email_verified, email_verification_*)
@@ -460,6 +474,87 @@ create table if not exists menu_item_meal_periods (
 );
 
 
+-- ── 2c. Functions ────────────────────────────────────────────────────────────
+-- Atomic stock mutations. The whole loop runs inside a single Postgres
+-- transaction so a multi-item order either decrements every tracked line or
+-- none — partial state is impossible. Items where track_stock = false are
+-- silently skipped (no inventory to deduct). Ad-hoc lines with no matching
+-- menu_items row (e.g. a manually-typed POS sale) are also skipped.
+--
+-- Called from app/src/lib/stockMutation.ts via supabase.rpc().
+
+create or replace function decrement_stock_atomic(p_items jsonb)
+returns void
+language plpgsql
+as $$
+declare
+  item     jsonb;
+  v_id     text;
+  v_qty    int;
+  v_avail  int;
+  v_tracks boolean;
+  v_name   text;
+begin
+  for item in select * from jsonb_array_elements(coalesce(p_items, '[]'::jsonb))
+  loop
+    v_id  := item->>'id';
+    v_qty := (item->>'qty')::int;
+    if v_id is null or v_qty is null or v_qty <= 0 then continue; end if;
+
+    select track_stock, stock_qty, name
+      into v_tracks, v_avail, v_name
+      from menu_items
+     where id = v_id
+       for update;
+    if not found then continue; end if;
+    if not coalesce(v_tracks, false) then continue; end if;
+
+    if coalesce(v_avail, 0) < v_qty then
+      raise exception 'INSUFFICIENT_STOCK %', v_id
+        using detail = jsonb_build_object(
+          'id',        v_id,
+          'name',      coalesce(v_name, ''),
+          'requested', v_qty,
+          'available', coalesce(v_avail, 0)
+        )::text;
+    end if;
+
+    update menu_items
+       set stock_qty = stock_qty - v_qty
+     where id = v_id;
+  end loop;
+end;
+$$;
+
+create or replace function restore_stock(p_items jsonb)
+returns void
+language plpgsql
+as $$
+declare
+  item  jsonb;
+  v_id  text;
+  v_qty int;
+begin
+  for item in select * from jsonb_array_elements(coalesce(p_items, '[]'::jsonb))
+  loop
+    v_id  := item->>'id';
+    v_qty := (item->>'qty')::int;
+    if v_id is null or v_qty is null or v_qty <= 0 then continue; end if;
+
+    update menu_items
+       set stock_qty = stock_qty + v_qty
+     where id = v_id
+       and track_stock = true;
+  end loop;
+end;
+$$;
+
+revoke all     on function decrement_stock_atomic(jsonb) from public, anon, authenticated;
+revoke all     on function restore_stock(jsonb)          from public, anon, authenticated;
+grant execute  on function decrement_stock_atomic(jsonb) to service_role;
+grant execute  on function restore_stock(jsonb)          to service_role;
+
+
 -- ── 3. Indexes ───────────────────────────────────────────────────────────────
 -- Speeds up the queries the app actually runs (admin reports, KDS filters,
 -- reservations lookup, driver dashboards).
@@ -473,6 +568,7 @@ create index if not exists idx_orders_stripe_pi      on orders(stripe_payment_in
 create index if not exists idx_orders_paypal_order    on orders(paypal_order_id)          where paypal_order_id          is not null;
 create index if not exists idx_orders_paypal_capture  on orders(paypal_capture_id)        where paypal_capture_id        is not null;
 create index if not exists idx_menu_items_category   on menu_items(category_id);
+create index if not exists idx_menu_items_channels   on menu_items using gin (channels);
 create index if not exists idx_mimp_item             on menu_item_meal_periods(menu_item_id);
 create index if not exists idx_mimp_period           on menu_item_meal_periods(meal_period_id);
 create index if not exists idx_meal_periods_order    on meal_periods(sort_order);

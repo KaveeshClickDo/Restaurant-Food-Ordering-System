@@ -7,6 +7,7 @@ import {
   POSSettings, POSClockEntry, POSCartModifier, getOfferPrice, cartLineTotal,
 } from "@/types/pos";
 import { useApp } from "@/context/AppContext";
+import { supabase } from "@/lib/supabase";
 
 // Module-scope so the value is stable across renders (used by the idle-logout effect).
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
@@ -250,6 +251,12 @@ function syncMenuToSupabase(products: POSProduct[], categories: POSCategory[]) {
         stock_qty:   p.trackStock ? (p.stockQty ?? null) : null,
         stock_status: p.stockStatus ?? null,
         offer:       p.offer ?? null,
+        // POS only ever ships items as in_store. If admin had the item on
+        // both channels we preserve that (channels[] arrives in p via the
+        // realtime load); only POS-created items lacking channels get the
+        // in_store-only default.
+        channels:    p.channels && p.channels.length > 0 ? p.channels : ["in_store"],
+        price_online: p.priceOnline ?? null,
       };
     });
 
@@ -258,6 +265,104 @@ function syncMenuToSupabase(products: POSProduct[], categories: POSCategory[]) {
     headers: { "Content-Type": "application/json" },
     body:    JSON.stringify({ categories: catRows, products: productRows }),
   }).catch(() => {});
+}
+
+/**
+ * Stable hash of the sync-relevant slice of the menu. Used by the debounced
+ * push to detect "nothing actually changed since the last push" and skip a
+ * redundant round-trip — important once the realtime subscription echoes
+ * server-side mutations back into local state.
+ *
+ * Stock fields are deliberately excluded — they're not in the sync whitelist
+ * either (server is authoritative for stock).
+ */
+export function menuHash(products: POSProduct[], categories: POSCategory[]): string {
+  const p = products
+    .map((x) => [x.id, x.categoryId, x.name, x.description ?? "", x.price, x.cost ?? null,
+                 x.sku ?? null, x.imageUrl ?? null, x.emoji ?? null, x.color, !!x.popular,
+                 !!x.active, x.variations ?? null, x.addOns ?? null, x.dietary ?? null,
+                 x.offer ?? null, x.channels ?? null, x.priceOnline ?? null])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  const c = categories
+    .map((x) => [x.id, x.name, x.emoji, x.order])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  return JSON.stringify([p, c]);
+}
+
+// ─── Row mappers ─────────────────────────────────────────────────────────────
+// Used by both the initial GET load and the realtime subscription so a row
+// always lands in local state with the same shape. The `existing` param lets
+// us preserve POS-only fields (color, emoji, cost, sku) for rows where the
+// DB column is null — matters mostly for legacy items pre-1fd4919.
+
+export function rowToPOSCategory(
+  row: Record<string, unknown>,
+  fallbackIndex: number,
+  existing?: POSCategory,
+): POSCategory {
+  return {
+    id:    row.id    as string,
+    name:  row.name  as string,
+    emoji: (row.emoji as string) ?? "🍽️",
+    color: existing?.color ?? "#f97316",
+    order: (row.sort_order as number) ?? fallbackIndex,
+  };
+}
+
+export function rowToPOSProduct(
+  row: Record<string, unknown>,
+  existing?: POSProduct,
+): POSProduct {
+  const rawVariations = (row.variations as {id:string;name:string;required?:boolean;options:{id:string;label:string;price:number}[]}[] ?? []);
+  const rawAddOns     = (row.add_ons    as {id:string;name:string;price:number}[] ?? []);
+
+  const modifiers: POSModifier[] = [];
+  for (const v of rawVariations) {
+    modifiers.push({
+      id: v.id, name: v.name,
+      required: v.required !== false,
+      multiSelect: false,
+      options: v.options.map((o) => ({
+        id: o.id, label: o.label,
+        priceAdjust: parseFloat(Number(o.price).toFixed(2)),
+      })),
+    });
+  }
+  if (rawAddOns.length > 0) {
+    modifiers.push({
+      id: "add-ons", name: "Add-ons", required: false, multiSelect: true,
+      options: rawAddOns.map((a) => ({ id: a.id, label: a.name, priceAdjust: a.price })),
+    });
+  }
+
+  const trackStock = (row.track_stock as boolean | null | undefined)
+    ?? (row.stock_qty !== null && row.stock_qty !== undefined);
+
+  const rawChannels = row.channels as ("in_store" | "online")[] | null | undefined;
+  return {
+    id:          row.id as string,
+    categoryId:  row.category_id as string,
+    name:        row.name as string,
+    description: (row.description as string) || undefined,
+    price:       Number(row.price),
+    cost:        row.cost !== null && row.cost !== undefined ? Number(row.cost) : (existing?.cost ?? undefined),
+    sku:         (row.sku as string) || existing?.sku || undefined,
+    imageUrl:    (row.image as string) || undefined,
+    emoji:       (row.emoji as string) || existing?.emoji  || "🍽️",
+    color:       (row.color as string) || existing?.color  || "#fed7aa",
+    dietary:     (row.dietary as string[]) ?? [],
+    variations:  rawVariations.length > 0 ? rawVariations : undefined,
+    addOns:      rawAddOns.length > 0 ? rawAddOns : undefined,
+    popular:     (row.popular as boolean) ?? false,
+    modifiers:   modifiers.length > 0 ? modifiers : undefined,
+    trackStock,
+    stockQty:    row.stock_qty !== null && row.stock_qty !== undefined ? Number(row.stock_qty) : undefined,
+    stockStatus: (row.stock_status as POSProduct["stockStatus"]) || undefined,
+    active:      row.active === undefined || row.active === null ? true : !!row.active,
+    offer:       (row.offer as POSProduct["offer"]) || undefined,
+    channels:    Array.isArray(rawChannels) && rawChannels.length > 0 ? rawChannels : ["in_store", "online"],
+    priceOnline: row.price_online !== null && row.price_online !== undefined ? Number(row.price_online) : undefined,
+  };
 }
 
 // ─── Provider ────────────────────────────────────────────────────────────────
@@ -474,77 +579,17 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
         if (d.categories.length > 0) {
           setCategories((prev) =>
-            d.categories.map((row, i) => {
-              const existing = prev.find((c) => c.id === row.id);
-              return {
-                id:    row.id    as string,
-                name:  row.name  as string,
-                emoji: (row.emoji as string) ?? "🍽️",
-                color: existing?.color ?? "#f97316",
-                order: (row.sort_order as number) ?? i,
-              } satisfies POSCategory;
-            })
+            d.categories.map((row, i) =>
+              rowToPOSCategory(row, i, prev.find((c) => c.id === row.id)),
+            ),
           );
         }
 
         if (d.items.length > 0) {
           setProducts((prev) =>
-            d.items.map((row) => {
-              const existing = prev.find((p) => p.id === row.id);
-              const basePrice = Number(row.price);
-
-              // Variations/add-ons come straight off the row now — they are
-              // the canonical model. We still build POS-style modifiers as a
-              // mirror so the existing cart / ItemCustomizationModal code
-              // keeps working without per-component changes.
-              const rawVariations = (row.variations as {id:string;name:string;required?:boolean;options:{id:string;label:string;price:number}[]}[] ?? []);
-              const rawAddOns = (row.add_ons as {id:string;name:string;price:number}[] ?? []);
-
-              const modifiers: POSModifier[] = [];
-              for (const v of rawVariations) {
-                modifiers.push({
-                  id: v.id, name: v.name,
-                  required: v.required !== false,
-                  multiSelect: false,
-                  options: v.options.map((o) => ({
-                    id: o.id, label: o.label,
-                    priceAdjust: parseFloat(Number(o.price).toFixed(2)),
-                  })),
-                });
-              }
-              if (rawAddOns.length > 0) {
-                modifiers.push({
-                  id: "add-ons", name: "Add-ons", required: false, multiSelect: true,
-                  options: rawAddOns.map((a) => ({ id: a.id, label: a.name, priceAdjust: a.price })),
-                });
-              }
-
-              const trackStock = (row.track_stock as boolean | null | undefined)
-                ?? (row.stock_qty !== null && row.stock_qty !== undefined);
-
-              return {
-                id:          row.id as string,
-                categoryId:  row.category_id as string,
-                name:        row.name as string,
-                description: (row.description as string) || undefined,
-                price:       basePrice,
-                cost:        row.cost !== null && row.cost !== undefined ? Number(row.cost) : (existing?.cost ?? undefined),
-                sku:         (row.sku as string) || existing?.sku || undefined,
-                imageUrl:    (row.image as string) || undefined,
-                emoji:       (row.emoji as string) || existing?.emoji  || "🍽️",
-                color:       (row.color as string) || existing?.color  || "#fed7aa",
-                dietary:     (row.dietary as string[]) ?? [],
-                variations:  rawVariations.length > 0 ? rawVariations : undefined,
-                addOns:      rawAddOns.length > 0 ? rawAddOns : undefined,
-                popular:     (row.popular as boolean) ?? false,
-                modifiers:   modifiers.length > 0 ? modifiers : undefined,
-                trackStock,
-                stockQty:    row.stock_qty !== null && row.stock_qty !== undefined ? Number(row.stock_qty) : undefined,
-                stockStatus: (row.stock_status as POSProduct["stockStatus"]) || undefined,
-                active:      row.active === undefined || row.active === null ? true : !!row.active,
-                offer:       (row.offer as POSProduct["offer"]) || undefined,
-              } satisfies POSProduct;
-            })
+            d.items.map((row) =>
+              rowToPOSProduct(row, prev.find((p) => p.id === row.id)),
+            ),
           );
         }
         // If the menu is empty here, do NOT auto-seed. Seeding is the
@@ -559,14 +604,87 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
   // Debounced push: whenever the POS menu changes, sync to Supabase so the
   // waiter app (via AppContext Realtime) sees the update immediately.
-  const menuSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const menuSyncReady = useRef(false); // skip first render (already loaded above)
+  //
+  // lastSyncedHash guards against a feedback loop with the realtime
+  // subscription below — when an UPDATE we just pushed (or a foreign change
+  // that we then re-pushed) echoes back, the local state ends up identical
+  // to what we last sent, so we skip a redundant POST instead of looping.
+  const menuSyncTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const menuSyncReady  = useRef(false); // skip first render (already loaded above)
+  const lastSyncedHash = useRef<string>("");
   useEffect(() => {
-    if (!menuSyncReady.current) { menuSyncReady.current = true; return; }
+    const hash = menuHash(products, categories);
+    if (!menuSyncReady.current) {
+      menuSyncReady.current = true;
+      lastSyncedHash.current = hash;
+      return;
+    }
+    if (hash === lastSyncedHash.current) return; // nothing actually changed
     if (menuSyncTimer.current) clearTimeout(menuSyncTimer.current);
-    menuSyncTimer.current = setTimeout(() => syncMenuToSupabase(products, categories), 1500);
+    menuSyncTimer.current = setTimeout(() => {
+      syncMenuToSupabase(products, categories);
+      lastSyncedHash.current = hash;
+    }, 1500);
     return () => { if (menuSyncTimer.current) clearTimeout(menuSyncTimer.current); };
   }, [products, categories]);
+
+  // ── Realtime: menu_items + categories ────────────────────────────────────
+  // Without this, POS only sees menu changes on next page-load. Stock
+  // decrements from /api/orders, /api/pos/sales, /api/waiter/orders all
+  // mutate menu_items server-side; admin edits via /api/admin/menu do the
+  // same. Subscribing here keeps the SaleView grid's stock counts and
+  // active-flag state in sync with what the kitchen and customer see.
+  useEffect(() => {
+    const channel = supabase
+      .channel("pos-menu-realtime")
+      .on("postgres_changes",
+        { event: "*", schema: "public", table: "menu_items" },
+        (payload) => {
+          const newRow = payload.new as Record<string, unknown> | null;
+          const oldRow = payload.old as Record<string, unknown> | null;
+          const id = String(newRow?.id ?? oldRow?.id ?? "");
+          if (!id) return;
+
+          if (payload.eventType === "DELETE") {
+            setProducts((prev) => prev.filter((p) => p.id !== id));
+            return;
+          }
+          if (!newRow) return;
+          setProducts((prev) => {
+            const existing = prev.find((p) => p.id === id);
+            const mapped = rowToPOSProduct(newRow, existing);
+            if (existing) {
+              return prev.map((p) => (p.id === id ? mapped : p));
+            }
+            return [...prev, mapped];
+          });
+        })
+      .on("postgres_changes",
+        { event: "*", schema: "public", table: "categories" },
+        (payload) => {
+          const newRow = payload.new as Record<string, unknown> | null;
+          const oldRow = payload.old as Record<string, unknown> | null;
+          const id = String(newRow?.id ?? oldRow?.id ?? "");
+          if (!id) return;
+
+          if (payload.eventType === "DELETE") {
+            setCategories((prev) => prev.filter((c) => c.id !== id));
+            return;
+          }
+          if (!newRow) return;
+          setCategories((prev) => {
+            const existing = prev.find((c) => c.id === id);
+            const mapped = rowToPOSCategory(newRow, prev.length, existing);
+            if (existing) {
+              return prev.map((c) => (c.id === id ? mapped : c));
+            }
+            return [...prev, mapped];
+          });
+        })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   // Server-authoritative login: the PIN is validated by /api/pos/auth, which
@@ -834,13 +952,12 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       }).catch(() => {});
     }
 
-    setProducts((prev) =>
-      prev.map((p) => {
-        const cartLine = cart.find((l) => l.productId === p.id);
-        if (!cartLine || !p.trackStock || p.stockQty === undefined) return p;
-        return { ...p, stockQty: Math.max(0, (p.stockQty ?? 0) - cartLine.quantity) };
-      })
-    );
+    // Stock decrement now happens server-side inside /api/pos/sales (atomic,
+    // race-free across terminals). A client-side decrement here would feed
+    // the debounced menu sync below, which would then overwrite the server's
+    // authoritative count with our stale local value. Local stock_qty in the
+    // SaleView grid stays at the pre-sale value until the next `/api/pos/menu`
+    // fetch — Block 3 (POSContext → Supabase realtime) will close that gap.
 
     clearCart();
     return sale;

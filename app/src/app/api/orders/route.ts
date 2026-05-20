@@ -27,6 +27,7 @@ import { sendOrderConfirmationEmail }   from "@/lib/emailServer";
 import { getCustomerSession, unauthorizedJson } from "@/lib/auth";
 import { rateLimit }                    from "@/lib/rateLimit";
 import { validateAndNormaliseOrder, incrementCouponUsage } from "@/lib/orderValidation";
+import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
@@ -67,6 +68,19 @@ export async function POST(req: NextRequest) {
 
   const { row, verifiedItems, coupon } = validation.data;
 
+  // Build the stock-decrement payload from verifiedItems. Lines without a
+  // menuItemId (legacy / hand-typed) are dropped by the helper.
+  const stockItems: StockItem[] = verifiedItems
+    .map((i) => ({ id: String(i.menuItemId ?? ""), qty: Number(i.qty ?? 0) }))
+    .filter((i) => i.id);
+
+  // Decrement stock BEFORE the order insert so an out-of-stock cart fails
+  // before we create an order row. All-or-nothing at the DB level.
+  const stock = await decrementStock(stockItems);
+  if (!stock.ok) {
+    return NextResponse.json({ ok: false, error: stock.message }, { status: 409 });
+  }
+
   // Cash orders are unpaid until staff collect on hand-off.
   // Lifecycle: "unpaid" → "paid" (on delivery for cash) → optionally
   // "partially_refunded" / "refunded". The unpaid → paid transition is
@@ -75,6 +89,12 @@ export async function POST(req: NextRequest) {
 
   const { error } = await supabaseAdmin.from("orders").insert(insertRow);
   if (error) {
+    // Insert failed after we already deducted stock — give the units back so
+    // the next customer can buy them. Best-effort: a failure here just leaves
+    // a small drift that admin can correct.
+    restoreStock(stockItems).catch((err) =>
+      console.error("[orders] stock restore after insert failure:", err instanceof Error ? err.message : err),
+    );
     console.error("orders POST:", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }

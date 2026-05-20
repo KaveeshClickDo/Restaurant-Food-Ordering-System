@@ -14,6 +14,7 @@ import { useApp } from "@/context/AppContext";
 import { DeliveryZone, Order, PaymentMethod, SavedAddress } from "@/types";
 import { printOrder } from "@/lib/escpos";
 import { computeTax, taxSurcharge } from "@/lib/taxUtils";
+import { cartSubtotal } from "@/lib/menuOfferUtils";
 import { checkoutFormSchema } from "@/lib/schemas/order";
 import { cleanPhone } from "@/lib/inputUtils";
 import { geocode } from "@/lib/useGeocode";
@@ -313,8 +314,10 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   const restLat = settings.restaurant.lat ?? 51.515;
   const restLng = settings.restaurant.lng ?? -0.063;
 
-  // Re-compute grand total using zone fee when detected
-  const baseCartTotal  = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+  // Re-compute grand total using zone fee when detected. cartSubtotal applies
+  // any cart-level offers (bogo/multibuy/qty_discount) snapshotted on each
+  // line; per-unit offers are already in i.price.
+  const baseCartTotal  = cartSubtotal(cart);
   const deliveryFee    = isDelivery ? (zone?.fee ?? settings.restaurant.deliveryFee) : 0;
   const serviceFee     = baseCartTotal * (settings.restaurant.serviceFee / 100);
   const couponDiscount = appliedCoupon?.discountAmount ?? 0;
@@ -445,6 +448,10 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
         ...(i.selectedVariations?.length ? { selectedVariations: i.selectedVariations } : {}),
         ...(i.selectedAddOns?.length ? { selectedAddOns: i.selectedAddOns }        : {}),
         ...(i.specialInstructions ? { specialInstructions: i.specialInstructions } : {}),
+        // Snapshot of the offer at add-to-cart time. Server re-verifies it
+        // against the current menu_items.offer and applies cart-level
+        // discounts authoritatively.
+        ...(i.offer ? { offer: i.offer } : {}),
       })),
       paymentMethod: method.name,
       deliveryFee: isDelivery ? deliveryFee : 0,

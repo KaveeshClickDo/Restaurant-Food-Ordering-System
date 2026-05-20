@@ -35,6 +35,7 @@ import {
   verifyPaypalWebhook,
 } from "@/lib/paypalServer";
 import { incrementCouponUsage } from "@/lib/orderValidation";
+import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -180,6 +181,33 @@ async function handleCaptureCompleted(resource: PaypalCapture): Promise<void> {
   }
 
   const orderRow = session.order_payload as Record<string, unknown>;
+
+  // Idempotency pre-check: same reasoning as the Stripe webhook — a previous
+  // retry might already have inserted the order. Probe first so we don't
+  // double-decrement stock.
+  const { data: existingOrder } = await supabaseAdmin
+    .from("orders").select("id").eq("id", orderRow.id as string).maybeSingle();
+  if (existingOrder) {
+    await supabaseAdmin
+      .from("payment_sessions")
+      .update({ status: "succeeded", completed_order_id: orderRow.id as string })
+      .eq("id", session.id);
+    return;
+  }
+
+  // Stock decrement. Oversold paid orders proceed (we keep the money, admin
+  // reconciles); other DB errors restore stock and re-raise so PayPal retries.
+  const orderItems = Array.isArray(orderRow.items) ? (orderRow.items as Array<Record<string, unknown>>) : [];
+  const stockItems: StockItem[] = orderItems
+    .map((i) => ({ id: String(i.menuItemId ?? ""), qty: Number(i.qty ?? 0) }))
+    .filter((i) => i.id);
+  const stock = await decrementStock(stockItems);
+  if (!stock.ok) {
+    console.error(
+      `[webhooks/paypal] OVERSOLD on paid order ${orderRow.id}: ${stock.message}. Inserting order anyway — admin must reconcile.`,
+    );
+  }
+
   const insertRow = {
     ...orderRow,
     payment_status:    "paid",
@@ -192,14 +220,24 @@ async function handleCaptureCompleted(resource: PaypalCapture): Promise<void> {
     .insert(insertRow);
 
   if (insertErr) {
-    // 23505 = duplicate primary key. That means a retry of this webhook
-    // already created the order; just mark the session and move on.
     if (insertErr.code === "23505") {
+      // Concurrent webhook delivery won the race — restore the duplicate
+      // decrement so the counter doesn't double-deduct.
+      if (stock.ok) {
+        restoreStock(stockItems).catch((err) =>
+          console.error("[webhooks/paypal] restore after dup-insert:", err instanceof Error ? err.message : err),
+        );
+      }
       await supabaseAdmin
         .from("payment_sessions")
         .update({ status: "succeeded", completed_order_id: orderRow.id as string })
         .eq("id", session.id);
       return;
+    }
+    if (stock.ok) {
+      restoreStock(stockItems).catch((err) =>
+        console.error("[webhooks/paypal] restore after insert error:", err instanceof Error ? err.message : err),
+      );
     }
     throw new Error(`orders insert: ${insertErr.message}`);
   }

@@ -21,6 +21,7 @@ import { fullOrderNumber } from "@/lib/orderNumber";
 import AuthModal from "@/components/AuthModal";
 import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import { resolveStock } from "@/lib/stockUtils";
+import { isOnChannel } from "@/lib/menuOfferUtils";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import CartPanel from "@/components/CartPanel";
 import { geocode } from "@/lib/useGeocode";
@@ -406,7 +407,9 @@ function FavouritesTab() {
   const favouriteIds = currentUser?.favourites ?? [];
   const favouriteItems = favouriteIds
     .map((id) => menuItems.find((m) => m.id === id))
-    .filter((m): m is MenuItem => m !== undefined);
+    .filter((m): m is MenuItem => m !== undefined)
+    // Customer site = online channel. Hide favourites admin marked in-store only.
+    .filter((m) => isOnChannel(m, "online"));
 
   const canOrder = isOpen || !!scheduledTime;
 
@@ -1381,6 +1384,13 @@ function AccountPageContent() {
         : menuItems.find((m) => m.name.toLowerCase() === line.name.toLowerCase());
 
       if (!menuItem) {
+        skipped.push(line.name);
+        return;
+      }
+
+      // Skip items that are no longer offered on the customer site (admin
+      // moved them to in-store-only since the original order was placed).
+      if (!isOnChannel(menuItem, "online")) {
         skipped.push(line.name);
         return;
       }

@@ -30,6 +30,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendOrderConfirmationEmail } from "@/lib/emailServer";
 import { getStripe, getWebhookSecret, fromStripeAmount } from "@/lib/stripeServer";
 import { incrementCouponUsage } from "@/lib/orderValidation";
+import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
 
 // Tell Next.js this route handler should NOT parse the body — Stripe needs
 // the raw bytes for signature verification.
@@ -105,6 +106,34 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
     ? intent.latest_charge
     : intent.latest_charge?.id ?? null;
 
+  // Idempotency pre-check: webhook delivery can retry, and if a previous
+  // attempt inserted the order but failed to mark the session 'succeeded'
+  // we'd otherwise double-decrement stock here. Probe orders first.
+  const { data: existingOrder } = await supabaseAdmin
+    .from("orders").select("id").eq("id", orderRow.id as string).maybeSingle();
+  if (existingOrder) {
+    await supabaseAdmin
+      .from("payment_sessions")
+      .update({ status: "succeeded", completed_order_id: orderRow.id as string })
+      .eq("id", session.id);
+    return;
+  }
+
+  // Decrement stock for this paid order. If the items are oversold (somebody
+  // else bought the last unit while this customer was paying) we still insert
+  // the order — Stripe already collected the money, refusing here would lose
+  // it. Admin reconciles via the kitchen / customer-service workflow.
+  const orderItems = Array.isArray(orderRow.items) ? (orderRow.items as Array<Record<string, unknown>>) : [];
+  const stockItems: StockItem[] = orderItems
+    .map((i) => ({ id: String(i.menuItemId ?? ""), qty: Number(i.qty ?? 0) }))
+    .filter((i) => i.id);
+  const stock = await decrementStock(stockItems);
+  if (!stock.ok) {
+    console.error(
+      `[webhooks/stripe] OVERSOLD on paid order ${orderRow.id}: ${stock.message}. Inserting order anyway — admin must reconcile.`,
+    );
+  }
+
   const insertRow = {
     ...orderRow,
     payment_status:           "paid",
@@ -117,14 +146,27 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
     .insert(insertRow);
 
   if (insertErr) {
-    // Check for duplicate (id conflict) — that means the order was already
-    // created in a previous webhook attempt and we're just on a retry.
+    // 23505 = a concurrent webhook attempt won the race to insert. Treat as
+    // idempotent success but undo this attempt's stock decrement so the
+    // counter doesn't double-deduct.
     if (insertErr.code === "23505") {
+      if (stock.ok) {
+        restoreStock(stockItems).catch((err) =>
+          console.error("[webhooks/stripe] restore after dup-insert:", err instanceof Error ? err.message : err),
+        );
+      }
       await supabaseAdmin
         .from("payment_sessions")
         .update({ status: "succeeded", completed_order_id: orderRow.id as string })
         .eq("id", session.id);
       return;
+    }
+    // Any other DB error: undo the decrement before bubbling so Stripe retries
+    // cleanly. The next retry will pre-check, find no order, decrement again.
+    if (stock.ok) {
+      restoreStock(stockItems).catch((err) =>
+        console.error("[webhooks/stripe] restore after insert error:", err instanceof Error ? err.message : err),
+      );
     }
     throw new Error(`orders insert: ${insertErr.message}`);
   }

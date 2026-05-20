@@ -11,6 +11,7 @@ import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import { requireWaiterAuth }         from "@/lib/waiterAuth";
 import { parseBody }                 from "@/lib/apiValidation";
 import { WaiterOrderCreateSchema }   from "@/lib/schemas/pos";
+import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
 
 const POS_CUSTOMER_ID = "pos-walk-in";
 const ACTIVE_DINE_IN_STATUSES = ["pending", "confirmed", "preparing", "ready", "delivered"];
@@ -53,6 +54,48 @@ export async function POST(req: NextRequest) {
   try {
     await ensureWalkInCustomer();
 
+    // ── Active-flag + channel check ─────────────────────────────────────────
+    // Reject lines for items admin has hidden from the menu (or moved to
+    // online-only) since the cart was built. Defence-in-depth; the waiter
+    // UI already filters them out.
+    const menuItemIds = items
+      .map((i) => i.menuItemId)
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
+    if (menuItemIds.length > 0) {
+      const { data: menuRows } = await supabaseAdmin
+        .from("menu_items")
+        .select("id, name, active, channels")
+        .in("id", menuItemIds);
+      const inactive = (menuRows ?? []).find((r) => r.active === false);
+      if (inactive) {
+        return NextResponse.json(
+          { ok: false, error: `'${inactive.name}' is no longer available on the menu.` },
+          { status: 400 },
+        );
+      }
+      const onlineOnly = (menuRows ?? []).find((r) => {
+        const ch = r.channels as string[] | null;
+        return Array.isArray(ch) && ch.length > 0 && !ch.includes("in_store");
+      });
+      if (onlineOnly) {
+        return NextResponse.json(
+          { ok: false, error: `'${onlineOnly.name}' is online-only and cannot be sold for dine-in.` },
+          { status: 400 },
+        );
+      }
+    }
+
+    // ── Stock decrement (reject on insufficient) ────────────────────────────
+    // Kitchen needs the ingredients to make the dish — unlike POS counter
+    // sales we can't "warn but allow" because the food doesn't exist yet.
+    const stockItems: StockItem[] = items
+      .map((i) => ({ id: i.menuItemId ?? "", qty: i.qty }))
+      .filter((i) => i.id);
+    const stock = await decrementStock(stockItems);
+    if (!stock.ok) {
+      return NextResponse.json({ ok: false, error: stock.message }, { status: 409 });
+    }
+
     // Build kitchen note — visible in the KDS "Special Note" amber box
     const noteParts = [`[WAITER] Table ${tableLabel}`];
     if (covers) noteParts.push(`${covers} cover${covers !== 1 ? "s" : ""}`);
@@ -74,6 +117,10 @@ export async function POST(req: NextRequest) {
 
     const { error } = await supabaseAdmin.from("orders").insert(row);
     if (error) {
+      // Insert failed after successful decrement — give the units back.
+      restoreStock(stockItems).catch((err) =>
+        console.error("[waiter/orders] restore after insert error:", err instanceof Error ? err.message : err),
+      );
       console.error("waiter/orders POST:", error.message);
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     }

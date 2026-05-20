@@ -199,6 +199,12 @@ export interface POSProduct {
   popular?: boolean;
   cost?: number; // cost price for margin tracking
   offer?: POSOffer;
+  /** Channel split — POS filters its sale grid by `in_store`. Defaults to
+   *  both channels for legacy rows so they stay visible. */
+  channels?: ("in_store" | "online")[];
+  /** Online-price override — POS never uses this directly (it always charges
+   *  `price`) but carries it through so bulk sync doesn't drop the value. */
+  priceOnline?: number;
 }
 
 export interface POSCategory {

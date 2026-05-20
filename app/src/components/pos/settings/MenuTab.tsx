@@ -200,7 +200,12 @@ export default function MenuTab() {
       price: parseFloat(newProduct.price), cost: parseFloat(newProduct.cost) || undefined,
       emoji: newProduct.imageUrl ? undefined : (newProduct.emoji || "🍽️"),
       imageUrl: newProduct.imageUrl || undefined,
-      color: "#e2e8f0", trackStock: false, active: true,
+      // Pick a pleasant preset tile colour instead of the old flat slate so
+      // new POS items aren't all the same grey. Admin can change it later.
+      color: PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)],
+      trackStock: false, active: true,
+      // POS only ever creates in-store items; admin manages online exposure.
+      channels: ["in_store"],
       description: newProduct.description || undefined,
       sku: newProduct.sku || undefined,
       dietary: newProduct.dietary,
