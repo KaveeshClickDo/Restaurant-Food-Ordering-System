@@ -215,7 +215,7 @@ export default function CustomersPanel() {
                   <tr key={c.id} className="hover:bg-orange-50/20 transition-colors group">
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-red-400 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
                           {c.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
                         </div>
                         <div>
@@ -647,7 +647,7 @@ function CustomerDrawer({
         {/* Header */}
         <div className="px-6 py-5 border-b border-gray-100 flex items-start justify-between">
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-400 to-red-400 flex items-center justify-center text-white text-xl font-bold shadow-lg">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white text-xl font-bold shadow-lg">
               {customer.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
             </div>
             <div>

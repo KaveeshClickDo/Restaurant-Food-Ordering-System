@@ -15,6 +15,7 @@ import {
   Refund, SavedAddress, StockStatus,
 } from "@/types";
 import { buildColorCss } from "@/lib/colorUtils";
+import { cartSubtotal } from "@/lib/menuOfferUtils";
 import { DEFAULT_EMAIL_TEMPLATES } from "@/lib/emailTemplates";
 import { DEFAULT_SETTINGS, DEFAULT_COLORS } from "@/data/defaultSettings";
 import SeoHead from "@/components/SeoHead";
@@ -213,6 +214,15 @@ function mapMenuItem(row: any, mealPeriodIds: string[] = []): MenuItem {
     trackStock: !!row.track_stock,
     offer:  row.offer ?? undefined,
     mealPeriodIds,
+    // Channel split. Legacy rows that pre-date the column come back as
+    // null/undefined → fall back to both channels so they stay visible
+    // everywhere until admin curates them.
+    channels: Array.isArray(row.channels) && row.channels.length > 0
+      ? (row.channels as ("in_store" | "online")[])
+      : ["in_store", "online"],
+    priceOnline: row.price_online !== null && row.price_online !== undefined
+      ? Number(row.price_online)
+      : undefined,
   };
 }
 
@@ -293,6 +303,11 @@ function menuItemToRow(m: MenuItem) {
     active: m.active ?? true,
     track_stock: !!m.trackStock,
     offer: m.offer ?? null,
+    // Channel split + online price override. Omitting `channels` from the
+    // payload would let the DB default re-assert `{in_store, online}`; we
+    // pass the explicit value so admin can save in_store-only items.
+    channels: m.channels && m.channels.length > 0 ? m.channels : ["in_store", "online"],
+    price_online: m.priceOnline ?? null,
   };
 }
 
@@ -302,6 +317,11 @@ function orderToRow(o: Order) {
     status: o.status, fulfillment: o.fulfillment, total: o.total,
     items: o.items,
     address: o.address ?? "", note: o.note ?? "",
+    // Customer pin coordinates captured at checkout — null when the customer
+    // didn't drop a pin. Server-side validateAndNormaliseOrder re-checks bounds
+    // and prefers these over re-geocoding the address when computing the fee.
+    customer_lat: o.customerLat ?? null,
+    customer_lng: o.customerLng ?? null,
     payment_method: o.paymentMethod ?? "",
     delivery_fee: o.deliveryFee ?? 0, service_fee: o.serviceFee ?? 0,
     scheduled_time: o.scheduledTime ?? "", coupon_code: o.couponCode ?? "",
@@ -781,31 +801,33 @@ export function AppProvider({
   // ─── Categories ───────────────────────────────────────────────────────────
   // All writes go through admin API routes (require admin session cookie).
 
+  // The fetch is intentionally OUTSIDE the setState updater. React StrictMode
+  // (default in Next dev) invokes setState updaters twice to surface impurity
+  // — when the fetch lived inside the updater that meant two POSTs with the
+  // same id, and the second one failed with "duplicate key value violates
+  // unique constraint". Mirror addMenuItem's pattern: optimistic update first,
+  // single fire-and-forget fetch second.
   const addCategory = (cat: Category) => {
-    setCategories((prev) => {
-      const row = categoryToRow(cat, prev.length);
-      fetch("/api/admin/categories", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(row),
-      }).then(async (r) => {
-        if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("addCategory:", j.error); }
-      }).catch((e) => console.error("addCategory:", e));
-      return [...prev, cat];
-    });
+    const row = categoryToRow(cat, categories.length);
+    setCategories((prev) => [...prev, cat]);
+    fetch("/api/admin/categories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(row),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("addCategory:", j.error); }
+    }).catch((e) => console.error("addCategory:", e));
   };
 
   const updateCategory = (cat: Category) => {
-    setCategories((prev) => {
-      fetch(`/api/admin/categories/${cat.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: cat.name, emoji: cat.emoji }),
-      }).then(async (r) => {
-        if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateCategory:", j.error); }
-      }).catch((e) => console.error("updateCategory:", e));
-      return prev.map((c) => (c.id === cat.id ? cat : c));
-    });
+    setCategories((prev) => prev.map((c) => (c.id === cat.id ? cat : c)));
+    fetch(`/api/admin/categories/${cat.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: cat.name, emoji: cat.emoji }),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateCategory:", j.error); }
+    }).catch((e) => console.error("updateCategory:", e));
   };
 
   const deleteCategory = (id: string) => {
@@ -1554,7 +1576,10 @@ export function AppProvider({
 
   // ─── Derived values ────────────────────────────────────────────────────────
 
-  const cartTotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+  // Cart-level offers (bogo/multibuy/qty_discount) snapshotted on each line
+  // adjust the line total; per-unit offers are already in i.price. See
+  // src/lib/menuOfferUtils.ts. Falls back to plain qty*price when no offer.
+  const cartTotal = cartSubtotal(cart);
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0);
 
   return (

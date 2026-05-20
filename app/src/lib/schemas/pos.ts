@@ -68,10 +68,14 @@ export const OrderDriverAssignSchema = z.object({
 });
 
 // ── Waiter dine-in order ─────────────────────────────────────────────────────
+// `menuItemId` ties the line back to menu_items so the server can decrement
+// stock atomically. Optional for backward-compat with ad-hoc / hand-typed
+// lines that aren't a catalogued menu item.
 const WaiterItem = z.object({
-  name:  NonEmptyString,
-  qty:   z.number().int().positive(),
-  price: Money,
+  menuItemId: z.string().optional(),
+  name:       NonEmptyString,
+  qty:        z.number().int().positive(),
+  price:      Money,
 }).passthrough();
 
 export const WaiterOrderCreateSchema = z.object({

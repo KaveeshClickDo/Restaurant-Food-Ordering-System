@@ -353,8 +353,31 @@ export default function DeliveryZonesPanel() {
   const activeCount = zones.filter((z) => z.enabled).length;
   const { restaurant } = settings;
 
+  // Misconfiguration guard: zones won't apply at checkout if the restaurant
+  // itself isn't pinned on the map. The server rejects orders in this state to
+  // avoid silently charging the default fee while the customer was shown a
+  // zone fee, so we surface it loudly here so the admin can fix it.
+  const restaurantCoordsMissing =
+    typeof restaurant.lat !== "number" || typeof restaurant.lng !== "number";
+  const showConfigWarning = activeCount > 0 && restaurantCoordsMissing;
+
   return (
     <div className="space-y-6">
+      {showConfigWarning && (
+        <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-2xl px-4 py-3 shadow-sm">
+          <AlertCircle size={18} className="text-red-600 flex-shrink-0 mt-0.5" />
+          <div className="text-sm text-red-800">
+            <p className="font-semibold mb-1">Delivery zones can&apos;t apply yet</p>
+            <p className="text-xs leading-relaxed">
+              You have {activeCount} active zone{activeCount !== 1 ? "s" : ""}, but the restaurant&apos;s own
+              location isn&apos;t pinned on the map. Until you set it below, the server can&apos;t compute
+              delivery distances — <span className="font-semibold">delivery orders will be rejected</span> at
+              checkout. Drop a pin on the map (or use &quot;Use my current location&quot;) to fix this.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">

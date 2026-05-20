@@ -17,6 +17,8 @@ import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import { parseBody }                 from "@/lib/apiValidation";
 import { PosSaleVoidSchema }         from "@/lib/schemas/pos";
 import { requirePosPermission }      from "@/lib/posPermissions";
+import { restoreStock, type StockItem } from "@/lib/stockMutation";
+import type { POSCartItem }          from "@/types/pos";
 
 export async function PATCH(
   req: NextRequest,
@@ -46,6 +48,10 @@ export async function PATCH(
     if (!refundGate.ok) return refundGate.response;
   }
 
+  // Conditionally void: `.eq("voided", false)` makes this a no-op idempotent
+  // operation if the sale has already been voided. Returning the items so we
+  // know what to restore — but only if this UPDATE was the one that actually
+  // changed the row (otherwise we'd double-restore on retries).
   const { data: updated, error } = await supabaseAdmin
     .from("pos_sales")
     .update({
@@ -56,16 +62,36 @@ export async function PATCH(
       refund_amount: refundAmount,
     })
     .eq("id", id)
-    .select("id")
-    .single();
+    .eq("voided", false)
+    .select("id, items")
+    .maybeSingle();
 
   if (error) {
-    if (error.code === "PGRST116") {
-      return NextResponse.json({ ok: false, error: "Sale not found." }, { status: 404 });
-    }
     console.error(`PATCH /api/pos/sales/${id}:`, error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
+
+  // No row matched: either the sale doesn't exist, or it was already voided.
+  // Disambiguate with a lookup so the caller gets a sensible status.
+  if (!updated) {
+    const { data: existing } = await supabaseAdmin
+      .from("pos_sales").select("id, voided").eq("id", id).maybeSingle();
+    if (!existing) {
+      return NextResponse.json({ ok: false, error: "Sale not found." }, { status: 404 });
+    }
+    // Already voided — idempotent success, no stock restore.
+    return NextResponse.json({ ok: true, id: existing.id, alreadyVoided: true });
+  }
+
+  // Restore stock for every catalogued line. Best-effort — a failure here just
+  // leaves a small under-count that admin can correct manually.
+  const items = Array.isArray(updated.items) ? (updated.items as POSCartItem[]) : [];
+  const stockItems: StockItem[] = items
+    .map((it) => ({ id: it.productId, qty: it.quantity }))
+    .filter((i) => i.id);
+  restoreStock(stockItems).catch((err) =>
+    console.error(`[pos/sales/${id}] stock restore on void:`, err instanceof Error ? err.message : err),
+  );
 
   // Also flip the KDS-side orders row so kitchen + admin see the void
   // immediately. Failure here is non-fatal — pos_sales is the audit truth.

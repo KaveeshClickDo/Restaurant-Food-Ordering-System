@@ -30,6 +30,11 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
   const sortedCats = [...categories].sort((a, b) => a.order - b.order);
   const filtered = products.filter((p) => {
     if (!p.active) return false;
+    // POS = in_store channel. Items admin marked online-only (e.g. an
+    // online-exclusive deal) shouldn't appear on the till. Legacy items
+    // without channels default to both in the loader, so they stay visible.
+    const ch = p.channels;
+    if (ch && ch.length > 0 && !ch.includes("in_store")) return false;
     if (activeCategory !== "all" && p.categoryId !== activeCategory) return false;
     if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false;
     return true;

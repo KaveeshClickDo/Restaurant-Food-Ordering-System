@@ -34,6 +34,7 @@ const RefundEntry = z.object({
   processedAt:  NonEmptyString,
   processedBy:  NonEmptyString,
   stripeRefundId: z.string().nullable().optional(),
+  paypalRefundId: z.string().nullable().optional(),
 });
 
 export const AdminRefundSchema = z.object({

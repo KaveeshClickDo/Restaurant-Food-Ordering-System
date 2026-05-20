@@ -46,6 +46,7 @@ function blankItem(categoryId: string): MenuItem {
     active: true,                  // Bug #2 — defaults to visible on the menu
     variations: [],
     addOns: [],
+    channels: ["in_store", "online"], // admin items default to both channels
   };
 }
 
@@ -671,7 +672,20 @@ function ItemModal({
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
   const [form, setForm] = useState<MenuItem>({ ...item });
-  const [tab, setTab] = useState<"basic" | "variations" | "addons" | "offer" | "stock">("basic");
+  const [tab, setTab] = useState<"basic" | "channels" | "variations" | "addons" | "offer" | "stock">("basic");
+
+  const channels = form.channels ?? ["in_store", "online"];
+  const onOnline   = channels.includes("online");
+  const onInStore  = channels.includes("in_store");
+  function toggleChannel(ch: "in_store" | "online") {
+    setForm((f) => {
+      const cur = f.channels ?? ["in_store", "online"];
+      const has = cur.includes(ch);
+      // Keep at least one channel selected.
+      const next = has ? cur.filter((c) => c !== ch) : [...cur, ch];
+      return { ...f, channels: next.length > 0 ? next : cur };
+    });
+  }
 
   function toggleDietary(d: string) {
     setForm((f) => ({
@@ -739,7 +753,7 @@ function ItemModal({
     <ModalShell title={isNew ? "Add menu item" : "Edit menu item"} onClose={onClose} wide>
       {/* Tabs */}
       <div className="flex gap-1 mb-5 bg-gray-100 rounded-xl p-1">
-        {(["basic", "variations", "addons", "offer", "stock"] as const).map((t) => (
+        {(["basic", "channels", "variations", "addons", "offer", "stock"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -747,7 +761,7 @@ function ItemModal({
               tab === t ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
             }`}
           >
-            {t === "addons" ? "Add-ons" : t.charAt(0).toUpperCase() + t.slice(1)}
+            {t === "addons" ? "Add-ons" : t === "channels" ? "Channels" : t.charAt(0).toUpperCase() + t.slice(1)}
             {t === "variations" && (form.variations?.length ?? 0) > 0 && (
               <span className="ml-1 bg-orange-100 text-orange-600 rounded-full px-1.5 text-[10px]">
                 {form.variations!.length}
@@ -1018,11 +1032,87 @@ function ItemModal({
             </div>
           </label>
 
-          {/* Availability — meal periods this item appears in. Empty = anytime. */}
+        </div>
+      )}
+
+      {/* ── Channels & Pricing tab ── */}
+      {tab === "channels" && (
+        <div className="space-y-6">
+          {/* Channel toggles */}
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Availability</label>
+            <label className="block text-xs font-semibold text-gray-600 mb-2">Where this item appears</label>
+            <p className="text-xs text-gray-400 mb-3">
+              At least one channel is required. Use this to keep delivery-unsuitable
+              items (fries, alcohol) in-store only, or run online-exclusive deals.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => toggleChannel("in_store")}
+                className={`flex items-start gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all ${
+                  onInStore ? "border-orange-400 bg-orange-50" : "border-gray-200 hover:border-gray-300"
+                }`}
+              >
+                <span className={`w-5 h-5 rounded-md border-2 flex-shrink-0 flex items-center justify-center mt-0.5 ${
+                  onInStore ? "bg-orange-500 border-orange-500" : "border-gray-300"
+                }`}>
+                  {onInStore && <Check size={11} className="text-white" strokeWidth={3} />}
+                </span>
+                <span>
+                  <span className={`block text-sm font-semibold ${onInStore ? "text-orange-700" : "text-gray-700"}`}>Show in store</span>
+                  <span className="block text-[11px] text-gray-400 leading-tight">POS counter + waiter (dine-in)</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleChannel("online")}
+                className={`flex items-start gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all ${
+                  onOnline ? "border-orange-400 bg-orange-50" : "border-gray-200 hover:border-gray-300"
+                }`}
+              >
+                <span className={`w-5 h-5 rounded-md border-2 flex-shrink-0 flex items-center justify-center mt-0.5 ${
+                  onOnline ? "bg-orange-500 border-orange-500" : "border-gray-300"
+                }`}>
+                  {onOnline && <Check size={11} className="text-white" strokeWidth={3} />}
+                </span>
+                <span>
+                  <span className={`block text-sm font-semibold ${onOnline ? "text-orange-700" : "text-gray-700"}`}>Show online</span>
+                  <span className="block text-[11px] text-gray-400 leading-tight">Customer delivery + collection site</span>
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* Online price override — only meaningful when the online channel is on */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+              Online price override ({sym})
+            </label>
             <p className="text-xs text-gray-400 mb-2">
-              Pick which meal periods this item shows up in on the customer site. Leave blank to show it anytime.
+              Leave blank to use the base price ({sym}{form.price.toFixed(2)}). Set a
+              higher value to absorb delivery commission, or a lower one for an online deal.
+            </p>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              disabled={!onOnline}
+              value={form.priceOnline ?? ""}
+              onChange={(e) => setForm((f) => ({
+                ...f,
+                priceOnline: e.target.value === "" ? undefined : (parseFloat(e.target.value) || 0),
+              }))}
+              placeholder={onOnline ? `${form.price.toFixed(2)} (base)` : "Enable 'Show online' first"}
+              className="w-full sm:w-48 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:bg-gray-50 disabled:text-gray-400"
+            />
+          </div>
+
+          {/* Meal periods — online-only concept, moved out of the Basic tab */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Availability (online menu)</label>
+            <p className="text-xs text-gray-400 mb-2">
+              Pick which meal periods this item shows up in on the customer site. Leave
+              blank to show it anytime. POS and waiter ignore meal periods.
             </p>
             {mealPeriods.length === 0 ? (
               <p className="text-xs text-gray-400 italic">
@@ -1758,6 +1848,43 @@ function OfferEditor({
                 onChange={(e) => patch({ endDate: e.target.value || undefined })}
                 className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
               />
+            </div>
+          </div>
+
+          {/* Offer channel restriction (model A — single offer, channel-gated) */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Applies to</label>
+            <p className="text-xs text-gray-400 mb-2">
+              Restrict this discount to one channel (e.g. a happy-hour in-store deal,
+              or an online-only promo). Leave both selected to apply everywhere the item appears.
+            </p>
+            <div className="flex gap-2">
+              {(["in_store", "online"] as const).map((ch) => {
+                // undefined / empty channels = "all", so treat as both selected.
+                const selected = !o.channels || o.channels.length === 0 || o.channels.includes(ch);
+                return (
+                  <button
+                    key={ch}
+                    type="button"
+                    onClick={() => {
+                      const cur = (!o.channels || o.channels.length === 0)
+                        ? (["in_store", "online"] as ("in_store" | "online")[])
+                        : [...o.channels];
+                      const has = cur.includes(ch);
+                      let next = has ? cur.filter((c) => c !== ch) : [...cur, ch];
+                      if (next.length === 0) next = cur; // keep at least one
+                      // Both selected → store undefined ("all") to keep data clean.
+                      patch({ channels: next.length === 2 ? undefined : next });
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border-2 transition-all ${
+                      selected ? "border-amber-400 bg-amber-50 text-amber-700" : "border-gray-200 text-gray-500 hover:border-gray-300"
+                    }`}
+                  >
+                    {selected && <Check size={10} />}
+                    {ch === "in_store" ? "In store" : "Online"}
+                  </button>
+                );
+              })}
             </div>
           </div>
 

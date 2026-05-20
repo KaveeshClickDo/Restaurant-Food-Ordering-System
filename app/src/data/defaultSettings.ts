@@ -54,7 +54,7 @@ export const DEFAULT_DELIVERY_ZONES: DeliveryZone[] = [
   { id: "zone-3", name: "Extended", minRadiusKm: 8, maxRadiusKm: 15, fee: 4.99, enabled: true, color: "#a855f7" },
 ];
 
-export const DEFAULT_COLORS: ColorSettings = { primaryColor: "#f97316", backgroundColor: "#f9fafb" };
+export const DEFAULT_COLORS: ColorSettings = { primaryColor: "#18181B", backgroundColor: "#FFFFFF" };
 
 export const DEFAULT_TAX: TaxSettings = { enabled: false, rate: 20, inclusive: true, showBreakdown: true };
 

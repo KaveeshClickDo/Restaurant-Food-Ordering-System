@@ -3,6 +3,7 @@
 import { useApp } from "@/context/AppContext";
 import { Trash2, Plus, Minus, ShoppingCart, ChevronRight, CalendarDays, X } from "lucide-react";
 import { computeTax, taxSurcharge } from "@/lib/taxUtils";
+import { cartLineTotal } from "@/lib/menuOfferUtils";
 import { useState } from "react";
 import CheckoutModal from "./CheckoutModal";
 import ScheduleOrderModal from "./ScheduleOrderModal";
@@ -91,7 +92,7 @@ export default function Cart() {
                   </div>
 
                   <span className="text-sm font-bold text-gray-900 flex-shrink-0 w-14 text-right">
-                    {sym}{(item.price * item.quantity).toFixed(2)}
+                    {sym}{cartLineTotal(item).toFixed(2)}
                   </span>
                 </li>
               ))}

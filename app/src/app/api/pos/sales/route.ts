@@ -21,6 +21,7 @@ import type { POSSale, POSCartItem } from "@/types/pos";
 import { parseBody }                 from "@/lib/apiValidation";
 import { PosSaleCreateSchema }       from "@/lib/schemas/pos";
 import { requirePosSession, requirePosPermission } from "@/lib/posPermissions";
+import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
 
 const POS_CUSTOMER_ID = "pos-walk-in";
 
@@ -123,6 +124,59 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // ── Idempotency pre-check ─────────────────────────────────────────────────
+  // The POS outbox replays sales after transient failures. If a previous
+  // attempt successfully inserted the sale, returning early here avoids a
+  // double stock decrement (the old duplicate-id branch still handles the
+  // race where two concurrent attempts run interleaved).
+  if (body.id) {
+    const { data: existing } = await supabaseAdmin
+      .from("pos_sales").select("*").eq("id", body.id).maybeSingle();
+    if (existing) {
+      return NextResponse.json({ ok: true, duplicate: true, sale: rowToSale(existing) }, { status: 200 });
+    }
+  }
+
+  // ── Active-flag + channel check ───────────────────────────────────────────
+  // Defence-in-depth: the SaleView grid already hides inactive / online-only
+  // items, but a stale tab could still submit one. Reject before commit.
+  const productIds = items.map((it) => it.productId).filter((id): id is string => !!id);
+  if (productIds.length > 0) {
+    const { data: menuRows } = await supabaseAdmin
+      .from("menu_items")
+      .select("id, name, active, channels")
+      .in("id", productIds);
+    const inactive = (menuRows ?? []).find((r) => r.active === false);
+    if (inactive) {
+      return NextResponse.json(
+        { ok: false, error: `'${inactive.name}' is no longer available on the menu.` },
+        { status: 400 },
+      );
+    }
+    const onlineOnly = (menuRows ?? []).find((r) => {
+      const ch = r.channels as string[] | null;
+      return Array.isArray(ch) && ch.length > 0 && !ch.includes("in_store");
+    });
+    if (onlineOnly) {
+      return NextResponse.json(
+        { ok: false, error: `'${onlineOnly.name}' is online-only and cannot be sold at the till.` },
+        { status: 400 },
+      );
+    }
+  }
+
+  // ── Stock decrement (warn-but-allow) ──────────────────────────────────────
+  // POS staff has the goods in front of them — if the counter says zero but
+  // the shelf says otherwise, the sale still completes and we just log so
+  // admin can reconcile. Stock counter is left untouched in that case.
+  const stockItems: StockItem[] = items
+    .map((it) => ({ id: it.productId, qty: it.quantity }))
+    .filter((i) => i.id);
+  const stock = await decrementStock(stockItems);
+  if (!stock.ok) {
+    console.warn(`[pos/sales] OVERSOLD on POS sale ${body.id}: ${stock.message}. Continuing — admin to reconcile.`);
+  }
+
   // Insert into pos_sales. receipt_no is filled by the DB default expression
   // ('R' || nextval('pos_receipt_seq')) so neither client nor server has to
   // touch the counter. staff_id and staff_name are SET FROM SESSION — body
@@ -158,14 +212,26 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (error) {
-    // Duplicate id means the outbox re-sent a sale we already persisted —
-    // return 409 so the client can treat it as success and dequeue.
+    // Duplicate id means another request raced us between the pre-check above
+    // and this insert. The other path won — restore our (now-extra) decrement
+    // and return success so the outbox dequeues.
     if (error.code === "23505") {
+      if (stock.ok) {
+        restoreStock(stockItems).catch((err) =>
+          console.error("[pos/sales] restore after dup-insert:", err instanceof Error ? err.message : err),
+        );
+      }
       const { data: existing } = await supabaseAdmin
         .from("pos_sales").select("*").eq("id", body.id).single();
       if (existing) {
         return NextResponse.json({ ok: true, duplicate: true, sale: rowToSale(existing) }, { status: 409 });
       }
+    }
+    // Any other error: undo the decrement before bubbling.
+    if (stock.ok) {
+      restoreStock(stockItems).catch((err) =>
+        console.error("[pos/sales] restore after insert error:", err instanceof Error ? err.message : err),
+      );
     }
     console.error("POST /api/pos/sales (pos_sales insert):", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });

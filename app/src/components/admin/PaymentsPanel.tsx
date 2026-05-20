@@ -29,6 +29,8 @@ interface PaymentRow {
   payment_status: PaymentStatus;
   stripe_payment_intent_id: string | null;
   stripe_charge_id: string | null;
+  paypal_order_id: string | null;
+  paypal_capture_id: string | null;
   refunded_amount: number | null;
   refunds: unknown[];
   status: string;
@@ -99,7 +101,8 @@ export default function PaymentsPanel() {
         (r.customers?.name?.toLowerCase().includes(q) ?? false) ||
         (r.customers?.email?.toLowerCase().includes(q) ?? false) ||
         (r.payment_method ?? "").toLowerCase().includes(q) ||
-        (r.stripe_payment_intent_id ?? "").toLowerCase().includes(q)
+        (r.stripe_payment_intent_id ?? "").toLowerCase().includes(q) ||
+        (r.paypal_order_id ?? "").toLowerCase().includes(q)
       );
     });
   }, [rows, search, filter]);

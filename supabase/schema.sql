@@ -65,8 +65,22 @@ create table if not exists menu_items (
   color        text,
   active       boolean not null default true,
   track_stock  boolean not null default false,
-  offer        jsonb
+  offer        jsonb,
+  -- ── Channel split (admin / POS / customer site) ────────────────────────────
+  -- `channels` controls which storefronts surface the item. Existing rows
+  -- default to both so a fresh install behaves the same as before. POS-only
+  -- items (alcohol, fries, anything unsuitable for delivery) carry
+  -- ['in_store']; online-exclusive deals carry ['online'].
+  -- `price_online` is an optional override used only by the customer site;
+  -- POS and waiter always use `price`. NULL means "use base price".
+  channels       text[]   not null default '{in_store,online}',
+  price_online   numeric
 );
+
+-- Backfill defaults on existing rows when the columns were added by a
+-- migration rather than CREATE TABLE. Idempotent: no-op if already populated.
+alter table menu_items add column if not exists channels     text[]  not null default '{in_store,online}';
+alter table menu_items add column if not exists price_online numeric;
 
 -- customers — registered + sentinel walk-in.
 -- Auth columns (password_hash, reset_token, email_verified, email_verification_*)
@@ -93,7 +107,11 @@ create table if not exists customers (
   store_credit               numeric       not null default 0,
   loyalty_points             integer       default 0,
   gift_card_balance          numeric(10,2) default 0,
-  notes                      text          default ''
+  notes                      text          default '',
+  -- Toggle from Admin → User Management. Inactive customers cannot log in
+  -- (auth/login rejects them with a clear message). Their order history is
+  -- preserved either way.
+  active                     boolean       not null default true
 );
 
 -- Note on customer_id: nullable + ON DELETE SET NULL. When admin deletes a
@@ -108,12 +126,17 @@ create table if not exists customers (
 --
 -- payment_status distinguishes "money collected" from order fulfillment status:
 --   • 'unpaid'   — cash / pay-on-delivery; expect to collect at hand-off.
---   • 'paid'     — Stripe (or future PayPal) authorised + captured.
+--   • 'paid'     — Stripe or PayPal authorised + captured.
 --   • 'refunded' — full refund processed through the gateway.
 --   • 'partially_refunded' — at least one partial refund processed.
 -- The `status` column continues to track fulfillment (pending → preparing →
 -- delivered). The two move independently: a 'paid' order can still be 'pending'
 -- (just placed), and a 'delivered' order can be 'unpaid' (cash).
+--
+-- Gateway-specific columns:
+--   • stripe_payment_intent_id / stripe_charge_id — populated for Stripe orders.
+--   • paypal_order_id / paypal_capture_id         — populated for PayPal orders.
+-- Exactly one pair is set per paid order; cash orders leave both pairs null.
 create table if not exists orders (
   id                       text        primary key,
   customer_id              text        references customers(id) on delete set null,
@@ -145,8 +168,19 @@ create table if not exists orders (
   payment_status           text        not null default 'unpaid'
                            check (payment_status in ('unpaid','paid','refunded','partially_refunded','failed')),
   stripe_payment_intent_id text,
-  stripe_charge_id         text
+  stripe_charge_id         text,
+  paypal_order_id          text,
+  paypal_capture_id        text,
+  -- Customer-provided pin coordinates captured at checkout. Optional: only set
+  -- when the customer placed/dragged a pin or used "Detect location". The driver
+  -- map prefers these over re-geocoding the address string.
+  customer_lat             double precision,
+  customer_lng             double precision
 );
+
+-- Backfill for existing installs where the columns were not in the original CREATE.
+alter table orders add column if not exists customer_lat double precision;
+alter table orders add column if not exists customer_lng double precision;
 
 create table if not exists drivers (
   id                  text        primary key,
@@ -293,16 +327,25 @@ create table if not exists payment_audit_log (
   details    jsonb       not null default '{}'
 );
 
--- Stripe payment sessions — staging table for the "payment-first" checkout flow.
+-- Payment sessions — staging table for the "payment-first" checkout flow.
 -- A row is created when the customer clicks Pay; it holds the verified cart and
--- delivery details while Stripe authorises the card (including 3D Secure, which
--- can take 30+ seconds and runs in a popup). On webhook payment_intent.succeeded
--- the row is converted into a real `orders` row and deleted. On failure or
--- abandonment the row expires and is cleaned up. The kitchen / driver views
--- never see this table — only `orders`.
+-- delivery details while the gateway authorises the charge (Stripe 3D Secure
+-- can take 30+ seconds; PayPal approval runs in a popup). On the success
+-- webhook (Stripe payment_intent.succeeded / PayPal PAYMENT.CAPTURE.COMPLETED)
+-- the row is converted into a real `orders` row. On failure or abandonment
+-- the row expires and is cleaned up. The kitchen / driver views never see
+-- this table — only `orders`.
+--
+-- `gateway` discriminates between Stripe and PayPal sessions. Exactly one of
+-- stripe_payment_intent_id / paypal_order_id is populated per row; the other
+-- stays null. Both columns are unique-when-present so a single gateway id
+-- can never own two sessions.
 create table if not exists payment_sessions (
   id                       text        primary key default gen_random_uuid()::text,
-  stripe_payment_intent_id text        not null unique,
+  gateway                  text        not null default 'stripe'
+                           check (gateway in ('stripe','paypal')),
+  stripe_payment_intent_id text        unique,
+  paypal_order_id          text        unique,
   customer_id              text        not null,
   amount                   numeric     not null,
   currency                 text        not null,
@@ -312,7 +355,12 @@ create table if not exists payment_sessions (
   created_at               timestamptz not null default now(),
   expires_at               timestamptz not null default (now() + interval '1 hour'),
   completed_order_id       text,
-  last_error               text
+  last_error               text,
+  -- Exactly one gateway-id column must be populated, matching the `gateway` value.
+  constraint payment_sessions_gateway_id_check check (
+    (gateway = 'stripe' and stripe_payment_intent_id is not null and paypal_order_id is null)
+    or (gateway = 'paypal' and paypal_order_id is not null and stripe_payment_intent_id is null)
+  )
 );
 
 -- Dining tables (replaces app_settings.data.diningTables). Promoted to a
@@ -426,6 +474,87 @@ create table if not exists menu_item_meal_periods (
 );
 
 
+-- ── 2c. Functions ────────────────────────────────────────────────────────────
+-- Atomic stock mutations. The whole loop runs inside a single Postgres
+-- transaction so a multi-item order either decrements every tracked line or
+-- none — partial state is impossible. Items where track_stock = false are
+-- silently skipped (no inventory to deduct). Ad-hoc lines with no matching
+-- menu_items row (e.g. a manually-typed POS sale) are also skipped.
+--
+-- Called from app/src/lib/stockMutation.ts via supabase.rpc().
+
+create or replace function decrement_stock_atomic(p_items jsonb)
+returns void
+language plpgsql
+as $$
+declare
+  item     jsonb;
+  v_id     text;
+  v_qty    int;
+  v_avail  int;
+  v_tracks boolean;
+  v_name   text;
+begin
+  for item in select * from jsonb_array_elements(coalesce(p_items, '[]'::jsonb))
+  loop
+    v_id  := item->>'id';
+    v_qty := (item->>'qty')::int;
+    if v_id is null or v_qty is null or v_qty <= 0 then continue; end if;
+
+    select track_stock, stock_qty, name
+      into v_tracks, v_avail, v_name
+      from menu_items
+     where id = v_id
+       for update;
+    if not found then continue; end if;
+    if not coalesce(v_tracks, false) then continue; end if;
+
+    if coalesce(v_avail, 0) < v_qty then
+      raise exception 'INSUFFICIENT_STOCK %', v_id
+        using detail = jsonb_build_object(
+          'id',        v_id,
+          'name',      coalesce(v_name, ''),
+          'requested', v_qty,
+          'available', coalesce(v_avail, 0)
+        )::text;
+    end if;
+
+    update menu_items
+       set stock_qty = stock_qty - v_qty
+     where id = v_id;
+  end loop;
+end;
+$$;
+
+create or replace function restore_stock(p_items jsonb)
+returns void
+language plpgsql
+as $$
+declare
+  item  jsonb;
+  v_id  text;
+  v_qty int;
+begin
+  for item in select * from jsonb_array_elements(coalesce(p_items, '[]'::jsonb))
+  loop
+    v_id  := item->>'id';
+    v_qty := (item->>'qty')::int;
+    if v_id is null or v_qty is null or v_qty <= 0 then continue; end if;
+
+    update menu_items
+       set stock_qty = stock_qty + v_qty
+     where id = v_id
+       and track_stock = true;
+  end loop;
+end;
+$$;
+
+revoke all     on function decrement_stock_atomic(jsonb) from public, anon, authenticated;
+revoke all     on function restore_stock(jsonb)          from public, anon, authenticated;
+grant execute  on function decrement_stock_atomic(jsonb) to service_role;
+grant execute  on function restore_stock(jsonb)          to service_role;
+
+
 -- ── 3. Indexes ───────────────────────────────────────────────────────────────
 -- Speeds up the queries the app actually runs (admin reports, KDS filters,
 -- reservations lookup, driver dashboards).
@@ -436,7 +565,10 @@ create index if not exists idx_orders_status         on orders(status);
 create index if not exists idx_orders_driver_id      on orders(driver_id) where driver_id is not null;
 create index if not exists idx_orders_payment_status on orders(payment_status);
 create index if not exists idx_orders_stripe_pi      on orders(stripe_payment_intent_id) where stripe_payment_intent_id is not null;
+create index if not exists idx_orders_paypal_order    on orders(paypal_order_id)          where paypal_order_id          is not null;
+create index if not exists idx_orders_paypal_capture  on orders(paypal_capture_id)        where paypal_capture_id        is not null;
 create index if not exists idx_menu_items_category   on menu_items(category_id);
+create index if not exists idx_menu_items_channels   on menu_items using gin (channels);
 create index if not exists idx_mimp_item             on menu_item_meal_periods(menu_item_id);
 create index if not exists idx_mimp_period           on menu_item_meal_periods(meal_period_id);
 create index if not exists idx_meal_periods_order    on meal_periods(sort_order);
@@ -451,8 +583,9 @@ create index if not exists idx_waiters_active        on waiters(active)   where 
 create index if not exists idx_kitchen_staff_active  on kitchen_staff(active) where active = true;
 create index if not exists idx_coupons_active        on coupons(active)   where active = true;
 create index if not exists idx_payment_audit_time    on payment_audit_log(timestamp desc);
-create index if not exists idx_payment_sessions_pi   on payment_sessions(stripe_payment_intent_id);
-create index if not exists idx_payment_sessions_exp  on payment_sessions(expires_at);
+create index if not exists idx_payment_sessions_pi      on payment_sessions(stripe_payment_intent_id) where stripe_payment_intent_id is not null;
+create index if not exists idx_payment_sessions_paypal  on payment_sessions(paypal_order_id)          where paypal_order_id          is not null;
+create index if not exists idx_payment_sessions_exp     on payment_sessions(expires_at);
 
 
 -- ── 4. RLS — enable + policies ───────────────────────────────────────────────

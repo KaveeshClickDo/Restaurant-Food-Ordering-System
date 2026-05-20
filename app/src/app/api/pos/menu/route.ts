@@ -42,11 +42,22 @@ const CATEGORY_COLS = new Set([
 ]);
 const MENU_ITEM_COLS = new Set([
   "id", "category_id", "name", "description", "price", "image",
-  "dietary", "popular", "variations", "add_ons", "stock_qty",
-  "stock_status", "sort_order",
+  "dietary", "popular", "variations", "add_ons", "sort_order",
   // Bug #2 — POS / admin field parity. These mirror the new MenuItem fields
   // so a POS upsert preserves cost/sku/branding/offer state in menu_items.
-  "cost", "sku", "emoji", "color", "active", "track_stock", "offer",
+  "cost", "sku", "emoji", "color", "active", "offer",
+  // Channel split. POS only ever writes `channels = ['in_store']`; online-
+  // channel toggling and price_online overrides are admin-panel only. We
+  // accept the columns here so an admin-edited row round-trips through POS
+  // without being silently dropped on the next bulk sync.
+  "channels", "price_online",
+  // NOTE: stock_qty / stock_status / track_stock are intentionally NOT in
+  // this whitelist. Stock is server-authoritative (decremented atomically
+  // by /api/orders, /api/pos/sales, /api/waiter/orders, /api/webhooks/*)
+  // and restored by void/refund. Letting POS push stock via this bulk
+  // sync would overwrite the server count with the client's stale value.
+  // Admin can still edit stock via /api/admin/menu/[id] which updates
+  // those fields directly.
 ]);
 
 function pick(row: Record<string, unknown>, allowed: Set<string>): Record<string, unknown> {

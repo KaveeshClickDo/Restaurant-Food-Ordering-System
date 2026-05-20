@@ -45,6 +45,9 @@ export type MenuItemOfferType =
   | "multibuy"      // buy X for a bundle price
   | "qty_discount"; // buy ≥ minQty, get value% off each
 
+/** Channel the item / offer applies to. POS + waiter both use 'in_store'. */
+export type MenuChannel = "in_store" | "online";
+
 export interface MenuItemOffer {
   type: MenuItemOfferType;
   value: number;        // % for percent/qty_discount; £ for fixed/price/multibuy
@@ -55,6 +58,10 @@ export interface MenuItemOffer {
   buyQty?: number;      // bogo, multibuy
   freeQty?: number;     // bogo
   minQty?: number;      // qty_discount
+  /** Channels the offer applies to. Undefined / empty = "wherever the item
+   *  appears" (i.e. inherits the item's own channels). Use this to run an
+   *  online-only promo on an item that's sold both online and in-store. */
+  channels?: MenuChannel[];
 }
 
 export interface MenuItem {
@@ -93,6 +100,12 @@ export interface MenuItem {
    *  shown in the main grid regardless of time of day. Admin-only — POS
    *  intentionally does not surface meal-period editing. */
   mealPeriodIds?: string[];
+  /** Which storefronts surface this item. POS + waiter share 'in_store';
+   *  the customer site is 'online'. Defaults to both for legacy rows. */
+  channels?: MenuChannel[];
+  /** Optional override for the customer site only. POS / waiter always use
+   *  `price`. Null / undefined → customer site falls back to `price` too. */
+  priceOnline?: number;
 }
 
 export interface Category {
@@ -105,7 +118,7 @@ export interface CartItem {
   id: string; // unique uuid per cart line
   menuItemId: string;
   name: string;
-  price: number; // base + selected variation + add-ons
+  price: number; // base + selected variation + add-ons (per-unit offer already applied)
   quantity: number;
   /**
    * @deprecated Use `selectedVariations[]` for new data — a menu item can have
@@ -118,6 +131,11 @@ export interface CartItem {
   selectedVariations?: { variationId: string; optionId: string; label: string }[];
   selectedAddOns?: { id: string; name: string; price: number }[];
   specialInstructions?: string;
+  /** Snapshot of the menu item's offer at add-to-cart time. Used for
+   *  cart-level offers (bogo/multibuy/qty_discount) so a mid-cart admin
+   *  change does not retroactively rewrite an existing line. Per-unit
+   *  offers are already baked into `price` and don't need the snapshot. */
+  offer?: MenuItemOffer;
 }
 
 export interface DaySchedule {
@@ -500,8 +518,10 @@ export interface Refund {
   note?: string;           // internal admin note
   processedAt: string;     // ISO
   processedBy: string;     // e.g. "Admin"
-  /** Stripe refund id when the refund was processed through the gateway. */
+  /** Stripe refund id when the refund was processed through Stripe. */
   stripeRefundId?: string | null;
+  /** PayPal refund id when the refund was processed through PayPal. */
+  paypalRefundId?: string | null;
 }
 
 export interface Driver {
@@ -542,6 +562,11 @@ export interface Order {
   items: OrderLine[];
   address?: string;
   note?: string;
+  /** Customer pin coordinates captured at checkout. Present only when the
+   *  customer placed a pin / used "Detect location" / picked a saved address
+   *  that already had coords. Driver UI prefers these over geocoding. */
+  customerLat?: number;
+  customerLng?: number;
   paymentMethod?: string;   // display name of payment method used
   /** Distinct from `status` (fulfillment). 'unpaid' = cash/COD; 'paid' = Stripe authorised+captured. */
   paymentStatus?: PaymentStatus;

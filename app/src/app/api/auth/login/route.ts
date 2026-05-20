@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error: fetchErr } = await supabaseAdmin
     .from("customers")
-    .select("id, name, email, phone, password_hash, email_verified, tags, favourites, saved_addresses, store_credit, created_at")
+    .select("id, name, email, phone, password_hash, email_verified, active, tags, favourites, saved_addresses, store_credit, created_at")
     .eq("email", email.trim().toLowerCase())
     .maybeSingle();
 
@@ -40,6 +40,17 @@ export async function POST(req: NextRequest) {
 
   const valid = await bcrypt.compare(password, data.password_hash);
   if (!valid) return unauthorizedJson();
+
+  // ── Account disabled gate ─────────────────────────────────────────────────
+  // Admin can deactivate customer accounts from User Management. We still
+  // verify the password first so an attacker can't enumerate "is this email
+  // deactivated?" — the wrong-password path returns 401 the same as inactive.
+  if (data.active === false) {
+    return NextResponse.json({
+      ok: false,
+      error: "This account has been disabled. Please contact the restaurant if you believe this is a mistake.",
+    }, { status: 403 });
+  }
 
   // ── Email verification gate ───────────────────────────────────────────────
   // Only block when email_verified is explicitly false. Accounts created
@@ -65,29 +76,33 @@ export async function POST(req: NextRequest) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapOrder = (o: any) => ({
-    id:              o.id,
-    customerId:      o.customer_id,
-    date:            typeof o.date === "string" ? o.date : new Date(o.date).toISOString(),
-    status:          o.status,
-    fulfillment:     o.fulfillment,
-    total:           Number(o.total),
-    items:           o.items ?? [],
-    address:         o.address         || undefined,
-    note:            o.note            || undefined,
-    paymentMethod:   o.payment_method  || undefined,
-    deliveryFee:     o.delivery_fee    ? Number(o.delivery_fee)    : undefined,
-    serviceFee:      o.service_fee     ? Number(o.service_fee)     : undefined,
-    scheduledTime:   o.scheduled_time  || undefined,
-    couponCode:      o.coupon_code     || undefined,
-    couponDiscount:  o.coupon_discount ? Number(o.coupon_discount) : undefined,
-    vatAmount:       o.vat_amount      ? Number(o.vat_amount)      : undefined,
-    vatInclusive:    o.vat_inclusive   ?? undefined,
-    driverId:        o.driver_id       || undefined,
-    driverName:      o.driver_name     || undefined,
-    deliveryStatus:  o.delivery_status || undefined,
-    refunds:         o.refunds         ?? [],
-    refundedAmount:  o.refunded_amount  ? Number(o.refunded_amount)  : undefined,
-    storeCreditUsed: o.store_credit_used ? Number(o.store_credit_used) : undefined,
+    id:                    o.id,
+    customerId:            o.customer_id ?? null,
+    date:                  typeof o.date === "string" ? o.date : new Date(o.date).toISOString(),
+    status:                o.status,
+    fulfillment:           o.fulfillment,
+    total:                 Number(o.total),
+    items:                 o.items ?? [],
+    address:               o.address         || undefined,
+    note:                  o.note            || undefined,
+    paymentMethod:         o.payment_method  || undefined,
+    deliveryCode:          o.delivery_code   || undefined,
+    paymentStatus:         o.payment_status  ?? undefined,
+    stripePaymentIntentId: o.stripe_payment_intent_id ?? null,
+    stripeChargeId:        o.stripe_charge_id ?? null,
+    deliveryFee:           o.delivery_fee    ? Number(o.delivery_fee)    : undefined,
+    serviceFee:            o.service_fee     ? Number(o.service_fee)     : undefined,
+    scheduledTime:         o.scheduled_time  || undefined,
+    couponCode:            o.coupon_code     || undefined,
+    couponDiscount:        o.coupon_discount ? Number(o.coupon_discount) : undefined,
+    vatAmount:             o.vat_amount      ? Number(o.vat_amount)      : undefined,
+    vatInclusive:          o.vat_inclusive   ?? undefined,
+    driverId:              o.driver_id       || undefined,
+    driverName:            o.driver_name     || undefined,
+    deliveryStatus:        o.delivery_status || undefined,
+    refunds:               o.refunds         ?? [],
+    refundedAmount:        o.refunded_amount  ? Number(o.refunded_amount)  : undefined,
+    storeCreditUsed:       o.store_credit_used ? Number(o.store_credit_used) : undefined,
   });
 
   const token = createSessionToken({ id: data.id, role: "customer" });

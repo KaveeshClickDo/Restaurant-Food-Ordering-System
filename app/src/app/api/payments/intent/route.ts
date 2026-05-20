@@ -20,15 +20,6 @@ import { getCustomerSession, unauthorizedJson } from "@/lib/auth";
 import { validateAndNormaliseOrder } from "@/lib/orderValidation";
 import { getStripe, toStripeAmount } from "@/lib/stripeServer";
 
-// Stripe enforces a per-currency minimum charge; values below these are
-// rejected by the API. Keep this in sync with Stripe's published minimums.
-const STRIPE_MIN_CHARGE_BY_CURRENCY: Record<string, number> = {
-  GBP: 0.30,
-  USD: 0.50,
-  EUR: 0.30,
-};
-const STRIPE_MIN_CHARGE_FALLBACK = 0.50;
-
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -69,13 +60,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const min = STRIPE_MIN_CHARGE_BY_CURRENCY[currency.code.toUpperCase()] ?? STRIPE_MIN_CHARGE_FALLBACK;
-  if (row.total < min) {
-    return NextResponse.json(
-      { ok: false, error: `Order total must be at least ${currency.symbol}${min.toFixed(2)} to pay by card. Please pay by cash or increase your order.` },
-      { status: 400 },
-    );
-  }
+  // We don't pre-check a per-currency Stripe minimum — FX rates shift and
+  // hardcoded tables go stale. Instead we let Stripe authoritatively reject
+  // amounts that are too small and translate the resulting error into a
+  // friendly "pay by cash" message in the catch block below.
 
   // Optional customer email — used for Stripe receipts. Falls back to the
   // session's email when the user is signed in. Stripe will send a receipt
@@ -104,9 +92,17 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to create payment.";
-    console.error("[payments/intent] Stripe error:", message);
-    return NextResponse.json({ ok: false, error: message }, { status: 502 });
+    const rawMessage = err instanceof Error ? err.message : "Failed to create payment.";
+    console.error("[payments/intent] Stripe error:", rawMessage);
+    // Common case: Stripe rejects because the converted amount is below the
+    // settlement-currency minimum (happens for non-presentment currencies
+    // where FX moved against us). Translate to a friendlier message and
+    // suggest cash. Detect by checking the error text — Stripe doesn't
+    // currently expose a stable error code for this case.
+    const friendly = /at least|minimum|too small|below/i.test(rawMessage)
+      ? `This order is too small for card payment. Please pay by cash or increase your order amount.`
+      : rawMessage;
+    return NextResponse.json({ ok: false, error: friendly }, { status: 502 });
   }
 
   // ── Stash the verified order payload ────────────────────────────────────

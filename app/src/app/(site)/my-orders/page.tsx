@@ -99,6 +99,28 @@ function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void
                     </div>
                 )}
 
+                {/* Delivery confirmation code. Only shown for delivery orders that
+                 *  haven't been delivered yet — once delivered the code has been
+                 *  used. Same value the customer received by email, mirrored here
+                 *  in case the email was missed or deleted. */}
+                {order.fulfillment === "delivery"
+                  && order.deliveryCode
+                  && order.status !== "delivered"
+                  && order.status !== "cancelled"
+                  && order.status !== "refunded" && (
+                    <div className="mx-5 mt-3 rounded-2xl p-4 text-center border-2 border-dashed border-orange-300 bg-orange-50">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-orange-700 mb-1">
+                            Delivery confirmation code
+                        </p>
+                        <p className="font-mono font-extrabold text-[28px] tracking-[0.4em] text-zinc-900 leading-none my-2">
+                            {order.deliveryCode}
+                        </p>
+                        <p className="text-[11.5px] text-zinc-600 leading-snug">
+                            Show or read this to your driver to confirm delivery.
+                        </p>
+                    </div>
+                )}
+
                 {/* Order details */}
                 <div className="px-5 py-4 space-y-3">
                     <div className="bg-zinc-50 rounded-2xl p-4">
@@ -307,6 +329,26 @@ export default function MyOrdersPage() {
                                                 <p className="text-[12.5px] text-zinc-400 leading-relaxed mb-5 line-clamp-2">
                                                     {activeOrder.items.map((i) => `${i.qty}× ${i.name}`).join(", ")}
                                                 </p>
+
+                                                {/* Compact delivery code pill — same value the customer got by
+                                                 *  email. Surfaced here so they don't need to dig for it when the
+                                                 *  driver arrives. Only for delivery orders that aren't completed. */}
+                                                {activeOrder.fulfillment === "delivery" && activeOrder.deliveryCode && (
+                                                    <div className="mb-4 rounded-2xl border border-orange-400/40 bg-orange-500/10 px-3.5 py-2.5 flex items-center gap-3">
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="text-[9.5px] font-bold uppercase tracking-[0.18em] text-orange-300 leading-none mb-1">
+                                                                Driver code
+                                                            </p>
+                                                            <p className="text-[11px] text-zinc-300 leading-snug">
+                                                                Tell this to your driver
+                                                            </p>
+                                                        </div>
+                                                        <p className="font-mono font-extrabold text-[20px] tracking-[0.3em] text-white leading-none">
+                                                            {activeOrder.deliveryCode}
+                                                        </p>
+                                                    </div>
+                                                )}
+
                                                 <div className="flex items-center justify-between">
                                                     <span className="text-[16px] font-bold text-white tabular-nums">{sym}{activeOrder.total.toFixed(2)}</span>
                                                     <button

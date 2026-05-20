@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { AppProvider } from "@/context/AppContext";
 import { restaurantInfo } from "@/data/restaurant";
+import { DEFAULT_COLORS } from "@/data/defaultSettings";
 import { buildColorCss } from "@/lib/colorUtils";
 import type { SeoSettings } from "@/types";
 
@@ -96,13 +97,10 @@ export async function generateMetadata(): Promise<Metadata> {
 
 async function getColorCss(data: Record<string, unknown> | null): Promise<string> {
   const colors = data?.colors as { primaryColor?: string; backgroundColor?: string } | undefined;
-  if (colors?.primaryColor) {
-    return buildColorCss(
-      colors.primaryColor.trim(),
-      (colors.backgroundColor ?? "#f9fafb").trim(),
-    );
-  }
-  return "";
+  return buildColorCss(
+    (colors?.primaryColor ?? DEFAULT_COLORS.primaryColor).trim(),
+    (colors?.backgroundColor ?? DEFAULT_COLORS.backgroundColor).trim(),
+  );
 }
 
 // ── Inline fallback script ────────────────────────────────────────────────────

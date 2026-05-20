@@ -22,6 +22,30 @@ const DriverDeliveriesMap = dynamic(() => import("@/components/maps/DriverDelive
   ),
 });
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Build a Google Maps deep link that opens turn-by-turn directions from the
+ * driver's current location.
+ *
+ * - When the order carries pin coords (customerLat/customerLng), the link
+ *   targets the exact lat/lng — driver navigates to the spot the customer
+ *   picked, not OSM's best guess.
+ *
+ * - Otherwise, falls back to the address string. Uses the `dir/?api=1` form
+ *   rather than the legacy `?q=` search, so the driver lands in navigation
+ *   mode instead of an unrelated search-results page.
+ */
+function buildNavigateUrl(order: Order): string {
+  if (
+    typeof order.customerLat === "number" && typeof order.customerLng === "number"
+    && Number.isFinite(order.customerLat) && Number.isFinite(order.customerLng)
+  ) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${order.customerLat},${order.customerLng}&travelmode=driving`;
+  }
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(order.address ?? "")}&travelmode=driving`;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface DriverOrder {
@@ -162,7 +186,7 @@ function AvailableOrderCard({
         )}
         {order.address && (
           <a
-            href={`https://maps.google.com/?q=${encodeURIComponent(order.address)}`}
+            href={buildNavigateUrl(order)}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 hover:bg-blue-100 transition"
@@ -171,8 +195,18 @@ function AvailableOrderCard({
               <Navigation size={13} className="text-white" />
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] text-blue-600 font-semibold uppercase tracking-wide">Delivery address</p>
+              <p className="text-[10px] text-blue-600 font-semibold uppercase tracking-wide flex items-center gap-1.5">
+                Delivery address
+                {order.customerLat != null && order.customerLng != null && (
+                  <span className="text-[8px] font-bold bg-green-100 text-green-700 rounded-full px-1.5 py-0.5">EXACT</span>
+                )}
+              </p>
               <p className="text-sm font-bold text-blue-800 leading-snug truncate">{order.address}</p>
+              {order.note && (
+                <p className="text-[11px] text-blue-700 italic mt-0.5 truncate">
+                  Note: {order.note}
+                </p>
+              )}
             </div>
           </a>
         )}
@@ -193,7 +227,8 @@ function AvailableOrderCard({
         ))}
       </div>
 
-      {/* Delivery note */}
+      {/* Delivery note — full banner stays for visibility; the address card
+          above shows the same note inline so it's visible at navigate-time. */}
       {order.note && (
         <div className="mx-4 mb-3 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
           <p className="text-amber-600 text-[10px] font-bold uppercase tracking-wide flex items-center gap-1 mb-1">
@@ -355,7 +390,7 @@ function OrderCard({
         )}
         {order.address && (
           <a
-            href={`https://maps.google.com/?q=${encodeURIComponent(order.address)}`}
+            href={buildNavigateUrl(order)}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2.5 hover:bg-blue-100 transition"
@@ -364,8 +399,18 @@ function OrderCard({
               <Navigation size={14} className="text-white" />
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] text-blue-600 font-semibold uppercase tracking-wide">Navigate</p>
+              <p className="text-[10px] text-blue-600 font-semibold uppercase tracking-wide flex items-center gap-1.5">
+                Navigate
+                {order.customerLat != null && order.customerLng != null && (
+                  <span className="text-[8px] font-bold bg-green-100 text-green-700 rounded-full px-1.5 py-0.5">EXACT</span>
+                )}
+              </p>
               <p className="text-sm font-bold text-blue-800 leading-snug truncate">{order.address}</p>
+              {order.note && (
+                <p className="text-[11px] text-blue-700 italic mt-0.5 truncate">
+                  Note: {order.note}
+                </p>
+              )}
             </div>
           </a>
         )}
@@ -506,7 +551,7 @@ function OrderCard({
 function mapServerOrder(r: any): Order {
   return {
     id:              r.id,
-    customerId:      r.customer_id,
+    customerId:      r.customer_id ?? null,
     date:            typeof r.date === "string" ? r.date : new Date(r.date).toISOString(),
     status:          r.status,
     fulfillment:     r.fulfillment,
@@ -515,6 +560,11 @@ function mapServerOrder(r: any): Order {
     address:         r.address         || undefined,
     note:            r.note            || undefined,
     paymentMethod:   r.payment_method  || undefined,
+    // delivery_code MUST be mapped — the OrderCard reads order.deliveryCode
+    // to decide whether to show the PIN field on confirm-delivered. Without
+    // it the client sends no code and the server rejects with "Delivery code
+    // is required" since orderValidation always sets one for delivery orders.
+    deliveryCode:    r.delivery_code   || undefined,
     deliveryFee:     r.delivery_fee    ? Number(r.delivery_fee)    : undefined,
     serviceFee:      r.service_fee     ? Number(r.service_fee)     : undefined,
     scheduledTime:   r.scheduled_time  || undefined,
@@ -528,6 +578,12 @@ function mapServerOrder(r: any): Order {
     refunds:         r.refunds         ?? [],
     refundedAmount:  r.refunded_amount  ? Number(r.refunded_amount)  : undefined,
     storeCreditUsed: r.store_credit_used ? Number(r.store_credit_used) : undefined,
+    // Customer pin coordinates captured at checkout. Optional — null for
+    // legacy orders placed before the column existed, and for orders where
+    // the customer didn't place a pin. DriverDeliveriesMap uses these directly
+    // when present; otherwise it falls back to geocoding `address`.
+    customerLat:     typeof r.customer_lat === "number" ? r.customer_lat : undefined,
+    customerLng:     typeof r.customer_lng === "number" ? r.customer_lng : undefined,
   };
 }
 
@@ -548,6 +604,13 @@ export default function DriverDashboardPage() {
   const [authTimedOut, setAuthTimedOut]   = useState(false);
   const [mine,      setMine]      = useState<DriverOrder[]>([]);
   const [available, setAvailable] = useState<AvailableOrder[]>([]);
+
+  // Per-order in-flight guards. Declared up here (before the !currentDriver
+  // early return below) so hook count is stable across renders. Otherwise
+  // React throws "Rendered more hooks than during the previous render" the
+  // first time the driver session resolves.
+  const advanceInFlight = useRef<Set<string>>(new Set());
+  const acceptInFlight  = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (currentDriver) return;
@@ -622,12 +685,6 @@ export default function DriverDashboardPage() {
   const availableOrders = available;
 
   // ── Handlers ───────────────────────────────────────────────────────────────
-
-  // Per-order in-flight guards. The OrderCard's "delivered" button has its
-  // own local `submitting` flag, but the intermediate advance buttons and the
-  // accept button were unguarded — a rapid double-click could fire twice.
-  const advanceInFlight = useRef<Set<string>>(new Set());
-  const acceptInFlight  = useRef<Set<string>>(new Set());
 
   async function handleAdvance(
     driverOrder: DriverOrder,
@@ -828,7 +885,9 @@ export default function DriverDashboardPage() {
                   id: d.order.id,
                   address: d.order.address ?? "",
                   customerName: d.customerName,
-                })).filter((s) => s.address)}
+                  lat: d.order.customerLat,
+                  lng: d.order.customerLng,
+                })).filter((s) => s.address || (s.lat != null && s.lng != null))}
               />
             )}
           </section>

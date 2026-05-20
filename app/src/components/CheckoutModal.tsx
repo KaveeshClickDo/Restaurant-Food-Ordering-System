@@ -1,29 +1,47 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   X, CreditCard, Banknote, CheckCircle,
   AlertCircle, MapPin, Navigation, Loader2, CalendarDays,
-  Tag, XCircle, Gift, Lock,
+  Tag, XCircle, Gift, Lock, Wallet,
 } from "lucide-react";
 import { loadStripe, type Stripe as StripeJs } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import { PayPalScriptProvider, PayPalButtons } from "@paypal/react-paypal-js";
 import { useApp } from "@/context/AppContext";
 import { DeliveryZone, Order, PaymentMethod, SavedAddress } from "@/types";
 import { printOrder } from "@/lib/escpos";
 import { computeTax, taxSurcharge } from "@/lib/taxUtils";
+import { cartSubtotal } from "@/lib/menuOfferUtils";
 import { checkoutFormSchema } from "@/lib/schemas/order";
 import { cleanPhone } from "@/lib/inputUtils";
+import { geocode } from "@/lib/useGeocode";
 
-// Stripe's per-currency minimum charge — kept in sync with the server-side
-// table in /api/payments/intent. Anything below this is rejected by Stripe.
-const STRIPE_MIN_CHARGE_BY_CURRENCY: Record<string, number> = {
-  GBP: 0.30,
-  USD: 0.50,
-  EUR: 0.30,
+/**
+ * How the current customer pin was set. Drives the pin-status badge above
+ * the delivery map so the customer knows whether to drag-refine.
+ *   - "user"       — clicked map, dragged, used "Detect location", or picked
+ *                    a saved address that already had pinned coords
+ *   - "estimated"  — geocoded from the typed address as the user wrote it
+ *   - null         — no pin yet (driver will rely on the address string)
+ */
+type PinSource = "user" | "estimated" | null;
+
+// PayPal's per-currency minimum — mirrors the server-side guard in
+// /api/payments/paypal. PayPal doesn't publish a strict floor but very low
+// totals are rejected as AMOUNT_NOT_SUPPORTED by some funding sources.
+const PAYPAL_MIN_CHARGE_BY_CURRENCY: Record<string, number> = {
+  GBP: 1.00,
+  USD: 1.00,
+  EUR: 1.00,
 };
-const STRIPE_MIN_CHARGE_FALLBACK = 0.50;
+const PAYPAL_MIN_CHARGE_FALLBACK = 1.00;
+
+// PayPal Smart Buttons need the public client id at script-load time. Empty
+// string disables the PayPal option entirely (the filter below hides it).
+const PAYPAL_CLIENT_ID = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID ?? "";
 
 // Stripe.js loader — singleton so we don't re-download Stripe.js on every
 // modal open. `loadStripe` returns null if the key is missing, which the
@@ -103,6 +121,11 @@ function MethodIcon({ id }: { id: string }) {
       <CreditCard size={18} className="text-white" />
     </div>
   );
+  if (id === "paypal") return (
+    <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-700 rounded-lg flex items-center justify-center flex-shrink-0">
+      <Wallet size={18} className="text-white" />
+    </div>
+  );
   if (id === "cash") return (
     <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center flex-shrink-0">
       <Banknote size={18} className="text-white" />
@@ -116,7 +139,8 @@ function MethodIcon({ id }: { id: string }) {
 }
 
 function hoverColor(id: string) {
-  if (id === "cash") return "hover:border-green-400";
+  if (id === "cash")   return "hover:border-green-400";
+  if (id === "paypal") return "hover:border-blue-400";
   return "hover:border-orange-400";
 }
 
@@ -222,7 +246,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   const savedAddresses: SavedAddress[] = currentUser?.savedAddresses ?? [];
   const defaultAddress = savedAddresses.find((a) => a.isDefault) ?? savedAddresses[0] ?? null;
 
-  const [step, setStep] = useState<"form" | "card_payment" | "success">("form");
+  const [step, setStep] = useState<"form" | "card_payment" | "paypal_payment" | "success">("form");
   const [chosenMethod, setChosenMethod] = useState<PaymentMethod | null>(null);
   const [placedScheduledTime, setPlacedScheduledTime] = useState<string | null>(null);
 
@@ -231,6 +255,18 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   // attaches to this secret and confirms the charge.
   const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
   const [pendingOrder, setPendingOrder] = useState<Order | null>(null);
+
+  // PayPal session state — populated when the user picks "PayPal" and
+  // /api/payments/paypal returns an order id. The PayPalButtons SDK reads
+  // it from createOrder() and the popup opens against that order.
+  const [paypalOrderId, setPaypalOrderId] = useState<string | null>(null);
+
+  // Server-authoritative total returned by /api/payments/intent or
+  // /api/payments/paypal. The client computes its own preview total, but the
+  // server may recompute the delivery fee (zone rules, address validation) and
+  // return a different number. We display this authoritative total on the
+  // payment step so the customer sees exactly what they'll be charged.
+  const [authoritativeTotal, setAuthoritativeTotal] = useState<number | null>(null);
   const [selectedAddressId, setSelectedAddressId] = useState<string | "manual">(
     defaultAddress ? defaultAddress.id : "manual"
   );
@@ -239,6 +275,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     email:   currentUser?.email ?? "",
     phone:   currentUser?.phone ?? (defaultAddress?.phone ?? ""),
     address: defaultAddress ? `${defaultAddress.address}, ${defaultAddress.postcode}` : "",
+    note:    defaultAddress?.note ?? "",
   });
 
   // Coupon input state
@@ -256,6 +293,16 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   const [zone,     setZone]       = useState<DeliveryZone | null>(null);
   const [custLat,  setCustLat]    = useState<number | null>(defaultAddress?.lat ?? null);
   const [custLng,  setCustLng]    = useState<number | null>(defaultAddress?.lng ?? null);
+  // A saved-address pin is treated as user-confirmed (the customer placed it
+  // when they saved the address). Manual entry starts with no pin → null.
+  const [pinSource, setPinSource] = useState<PinSource>(
+    defaultAddress?.lat != null && defaultAddress?.lng != null ? "user" : null,
+  );
+  // Live ref to pinSource so the debounced geocode effect can re-check the
+  // current value AFTER its await, not the closure-captured value from when
+  // the timeout was scheduled (the user may have placed a pin during the wait).
+  const pinSourceRef = useRef<PinSource>(pinSource);
+  useEffect(() => { pinSourceRef.current = pinSource; }, [pinSource]);
 
   // Validation
   const [fieldErrors, setFieldErrors]  = useState<Record<string, string>>({});
@@ -267,8 +314,10 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   const restLat = settings.restaurant.lat ?? 51.515;
   const restLng = settings.restaurant.lng ?? -0.063;
 
-  // Re-compute grand total using zone fee when detected
-  const baseCartTotal  = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+  // Re-compute grand total using zone fee when detected. cartSubtotal applies
+  // any cart-level offers (bogo/multibuy/qty_discount) snapshotted on each
+  // line; per-unit offers are already in i.price.
+  const baseCartTotal  = cartSubtotal(cart);
   const deliveryFee    = isDelivery ? (zone?.fee ?? settings.restaurant.deliveryFee) : 0;
   const serviceFee     = baseCartTotal * (settings.restaurant.serviceFee / 100);
   const couponDiscount = appliedCoupon?.discountAmount ?? 0;
@@ -277,8 +326,12 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   const storeCreditApplied = useCredit ? Math.min(availableCredit, adjustedTotal) : 0;
   const orderTotal         = Math.max(0, adjustedTotal - storeCreditApplied);
 
-  const stripeMin       = STRIPE_MIN_CHARGE_BY_CURRENCY[(settings.currency?.code ?? "GBP").toUpperCase()] ?? STRIPE_MIN_CHARGE_FALLBACK;
-  const belowStripeMin  = orderTotal > 0 && orderTotal < stripeMin;
+  // Card minimum is enforced server-side via Stripe's own rejection (see
+  // /api/payments/intent catch block). We don't pre-check on the client
+  // because per-currency minimums shift with FX rates and hardcoded tables
+  // go stale.
+  const paypalMin       = PAYPAL_MIN_CHARGE_BY_CURRENCY[(settings.currency?.code ?? "GBP").toUpperCase()] ?? PAYPAL_MIN_CHARGE_FALLBACK;
+  const belowPaypalMin  = orderTotal > 0 && orderTotal < paypalMin;
 
   function applyCode() {
     setCouponError("");
@@ -291,12 +344,12 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   }
 
   // Filter payment methods.
-  // PayPal is hidden from the customer-facing UI: the admin can still toggle
-  // it in Integrations, but no SDK is wired so we won't expose a button that
-  // would create an order with no real payment. Remove this filter once
-  // /api/payments/paypal exists.
+  // PayPal is hidden when NEXT_PUBLIC_PAYPAL_CLIENT_ID is not set — the admin
+  // can still toggle the method in Integrations, but a misconfigured deploy
+  // should not show a button that opens a broken popup.
   const activeMethods = [...(settings.paymentMethods ?? [])]
-    .filter((m) => m.enabled && m.id !== "paypal")
+    .filter((m) => m.enabled)
+    .filter((m) => m.id !== "paypal" || PAYPAL_CLIENT_ID !== "")
     .sort((a, b) => a.order - b.order);
 
   const availableMethods = activeMethods.filter((m) =>
@@ -312,14 +365,14 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     setLocState("detecting");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        applyCustomerCoords(pos.coords.latitude, pos.coords.longitude);
+        applyCustomerCoords(pos.coords.latitude, pos.coords.longitude, "user");
       },
       () => setLocState("denied"),
       { timeout: 8000 }
     );
   }
 
-  function applyCustomerCoords(lat: number, lng: number) {
+  function applyCustomerCoords(lat: number, lng: number, source: PinSource = "user") {
     const km = haversineKm(restLat, restLng, lat, lng);
     const found = findZone(km, settings.deliveryZones);
     setCustLat(+lat.toFixed(6));
@@ -327,7 +380,35 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     setDistKm(km);
     setZone(found);
     setLocState(found ? "found" : "outside");
+    setPinSource(source);
   }
+
+  // ── Geocode-on-debounce ──────────────────────────────────────────────────
+  // When the customer types an address into the manual input and has not yet
+  // placed a pin themselves, run a debounced Nominatim lookup so a draft pin
+  // appears on the map and the fee preview becomes meaningful. Only fires for
+  // delivery orders + the manual-address branch, and never overwrites a
+  // user-placed pin (pinSource === "user").
+  useEffect(() => {
+    if (!isDelivery) return;
+    if (selectedAddressId !== "manual" && savedAddresses.length > 0) return;
+    if (pinSourceRef.current === "user") return;
+    const q = form.address.trim();
+    if (q.length < 6) return;
+    const timer = setTimeout(async () => {
+      const geo = await geocode(q);
+      if (!geo) return;
+      // Skip if the user placed a pin while we were geocoding (read the live
+      // value via ref — closure-captured pinSource is stale here).
+      if (pinSourceRef.current === "user") return;
+      applyCustomerCoords(geo.lat, geo.lng, "estimated");
+    }, 700);
+    return () => clearTimeout(timer);
+    // We deliberately exclude applyCustomerCoords/pinSource from deps: rerunning
+    // on every pin-source flip would cause an infinite loop (estimated → set →
+    // re-trigger). The address change is the only trigger we want.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.address, isDelivery, selectedAddressId, savedAddresses.length]);
 
   function validate(): boolean {
     const result = checkoutFormSchema({ isDelivery }).safeParse({
@@ -367,11 +448,19 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
         ...(i.selectedVariations?.length ? { selectedVariations: i.selectedVariations } : {}),
         ...(i.selectedAddOns?.length ? { selectedAddOns: i.selectedAddOns }        : {}),
         ...(i.specialInstructions ? { specialInstructions: i.specialInstructions } : {}),
+        // Snapshot of the offer at add-to-cart time. Server re-verifies it
+        // against the current menu_items.offer and applies cart-level
+        // discounts authoritatively.
+        ...(i.offer ? { offer: i.offer } : {}),
       })),
       paymentMethod: method.name,
       deliveryFee: isDelivery ? deliveryFee : 0,
       serviceFee,
       ...(isDelivery && form.address ? { address: form.address } : {}),
+      ...(isDelivery && form.note.trim() ? { note: form.note.trim() } : {}),
+      ...(isDelivery && custLat != null && custLng != null
+        ? { customerLat: custLat, customerLng: custLng }
+        : {}),
       ...(scheduledTime ? { scheduledTime } : {}),
       ...(appliedCoupon ? { couponCode: appliedCoupon.code, couponDiscount: appliedCoupon.discountAmount } : {}),
       ...(tax.enabled && tax.vatAmount > 0 ? { vatAmount: tax.vatAmount, vatInclusive: tax.inclusive } : {}),
@@ -389,6 +478,11 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
       items: order.items,
       payment_method: order.paymentMethod ?? "",
       address: order.address ?? "",
+      note: order.note ?? "",
+      // Persist the pin only when the customer actually has one. Server-side
+      // validation re-checks bounds, so a malformed pin is safe to send too.
+      customer_lat: order.customerLat ?? null,
+      customer_lng: order.customerLng ?? null,
       delivery_fee: order.deliveryFee ?? 0,
       service_fee: order.serviceFee ?? 0,
       scheduled_time: order.scheduledTime ?? "",
@@ -402,18 +496,17 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
 
   async function handlePay(method: PaymentMethod) {
     if (!validate()) return;
-    if (method.id === "stripe") {
-      await startCardPayment(method);
-    } else {
-      await placeCashOrder(method);
-    }
+    if (method.id === "stripe")      await startCardPayment(method);
+    else if (method.id === "paypal") await startPaypalPayment(method);
+    else                             await placeCashOrder(method);
   }
 
   // Synchronous double-submit guards. The `submitting` state already disables
   // the buttons but a fast double-click can fire before React re-renders;
   // these refs catch the second call before the fetch is issued.
-  const cashInFlight = useRef(false);
-  const cardInFlight = useRef(false);
+  const cashInFlight   = useRef(false);
+  const cardInFlight   = useRef(false);
+  const paypalInFlight = useRef(false);
 
   /** Cash / pay-on-delivery — order is inserted immediately. */
   async function placeCashOrder(method: PaymentMethod) {
@@ -475,10 +568,6 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
    */
   async function startCardPayment(method: PaymentMethod) {
     if (cardInFlight.current) return;
-    if (belowStripeMin) {
-      setSubmitError(`Card payments require a minimum of ${sym}${stripeMin.toFixed(2)}. Please pay by cash or add more to your order.`);
-      return;
-    }
     cardInFlight.current = true;
     setSubmitting(true);
     setSubmitError("");
@@ -494,6 +583,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
         ok: boolean;
         error?: string;
         clientSecret?: string;
+        amount?: number;
       };
       if (!j.ok || !j.clientSecret) {
         setSubmitError(j.error ?? "Could not start payment. Please try again.");
@@ -502,6 +592,9 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
       setStripeClientSecret(j.clientSecret);
       setPendingOrder(newOrder);
       setChosenMethod(method);
+      // Capture the server-authoritative total so the payment screen shows the
+      // real charge amount, not the client-computed preview.
+      setAuthoritativeTotal(typeof j.amount === "number" ? j.amount : null);
       setStep("card_payment");
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "Network error — please try again.");
@@ -547,8 +640,94 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     }
   }
 
+  /**
+   * PayPal flow — call /api/payments/paypal to create the PayPal order,
+   * switch to the paypal_payment step where <PayPalButtons /> renders the
+   * Smart Buttons. The order is NOT created here; the webhook does that
+   * after PAYMENT.CAPTURE.COMPLETED fires.
+   */
+  async function startPaypalPayment(method: PaymentMethod) {
+    if (paypalInFlight.current) return;
+    if (belowPaypalMin) {
+      setSubmitError(`PayPal payments require a minimum of ${sym}${paypalMin.toFixed(2)}. Please pay by cash or add more to your order.`);
+      return;
+    }
+    paypalInFlight.current = true;
+    setSubmitting(true);
+    setSubmitError("");
+    const newOrder = buildOrder(method);
+
+    try {
+      const r = await fetch("/api/payments/paypal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildOrderPayload(newOrder)),
+      });
+      const j = await r.json() as {
+        ok: boolean;
+        error?: string;
+        paypalOrderId?: string;
+        amount?: number;
+      };
+      if (!j.ok || !j.paypalOrderId) {
+        setSubmitError(j.error ?? "Could not start PayPal payment. Please try again.");
+        return;
+      }
+      setPaypalOrderId(j.paypalOrderId);
+      setPendingOrder(newOrder);
+      setChosenMethod(method);
+      // Capture the server-authoritative total so the payment screen shows the
+      // real charge amount, not the client-computed preview.
+      setAuthoritativeTotal(typeof j.amount === "number" ? j.amount : null);
+      setStep("paypal_payment");
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Network error — please try again.");
+    } finally {
+      paypalInFlight.current = false;
+      setSubmitting(false);
+    }
+  }
+
+  /** Called once /api/payments/paypal/capture confirms the capture. */
+  function handlePaypalPaid() {
+    if (appliedCoupon) {
+      incrementCouponUsage(appliedCoupon.couponId);
+      removeCoupon();
+    }
+    if (storeCreditApplied > 0 && currentUser && pendingOrder) {
+      spendStoreCredit(currentUser.id, storeCreditApplied, pendingOrder.id);
+    }
+    setPlacedScheduledTime(scheduledTime);
+    setStep("success");
+    clearCart();
+    setScheduledTime(null);
+    setPaypalOrderId(null);
+
+    // Receipt printing — the order itself will arrive via Realtime when the
+    // webhook inserts it; print the in-memory copy for an immediate receipt.
+    if (pendingOrder) printOrder(pendingOrder, settings);
+
+    if (!currentUser && form.email.trim()) {
+      fetch("/api/guest-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name:       form.name.trim(),
+          email:      form.email.trim(),
+          phone:      form.phone.trim(),
+          orderTotal: orderTotal,
+        }),
+      }).catch(() => {});
+    }
+  }
+
   // ── Card payment screen — Stripe PaymentElement ─────────────────────────────
   if (step === "card_payment" && stripeClientSecret) {
+    // Prefer the server's authoritative number for what we display + send to
+    // <CardPaymentForm>. If it differs from the client preview by more than
+    // a rounding error, surface a notice so the customer isn't surprised.
+    const chargeTotal = authoritativeTotal ?? orderTotal;
+    const totalAdjusted = authoritativeTotal != null && Math.abs(authoritativeTotal - orderTotal) > 0.01;
     return (
       <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
@@ -556,7 +735,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
           <div className="flex items-center justify-between p-5 border-b border-gray-100">
             <div>
               <h2 className="text-xl font-bold text-gray-900">Complete payment</h2>
-              <p className="text-xs text-gray-500 mt-0.5">{sym}{orderTotal.toFixed(2)} · {chosenMethod?.name}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{sym}{chargeTotal.toFixed(2)} · {chosenMethod?.name}</p>
             </div>
             <button
               onClick={() => {
@@ -565,12 +744,23 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                 setStep("form");
                 setStripeClientSecret(null);
                 setPendingOrder(null);
+                setAuthoritativeTotal(null);
               }}
               className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition"
             >
               <X size={16} />
             </button>
           </div>
+          {totalAdjusted && (
+            <div className="px-5 pt-4">
+              <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+                <AlertCircle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-800">
+                  <span className="font-semibold">Total updated to {sym}{chargeTotal.toFixed(2)}.</span> Your delivery fee was recalculated based on your address. You&apos;ll be charged this amount.
+                </p>
+              </div>
+            </div>
+          )}
           <div className="flex-1 overflow-y-auto p-5">
             <Elements
               stripe={getStripePromise()}
@@ -580,10 +770,71 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
               }}
             >
               <CardPaymentForm
-                amountLabel={`${sym}${orderTotal.toFixed(2)}`}
+                amountLabel={`${sym}${chargeTotal.toFixed(2)}`}
                 onPaid={handleCardPaid}
               />
             </Elements>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── PayPal payment screen — Smart Buttons ───────────────────────────────────
+  if (step === "paypal_payment" && paypalOrderId) {
+    // Same authoritative-total handling as the Stripe screen above. PayPal's
+    // own popup will display the captured amount (= the server total), so the
+    // notice keeps our own UI honest with that.
+    const chargeTotal = authoritativeTotal ?? orderTotal;
+    const totalAdjusted = authoritativeTotal != null && Math.abs(authoritativeTotal - orderTotal) > 0.01;
+    return (
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+        <div className="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+          <div className="flex items-center justify-between p-5 border-b border-gray-100">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Pay with PayPal</h2>
+              <p className="text-xs text-gray-500 mt-0.5">{sym}{chargeTotal.toFixed(2)} · {chosenMethod?.name}</p>
+            </div>
+            <button
+              onClick={() => {
+                // Going back doesn't cancel the PayPal order — it expires on
+                // PayPal's side after a few hours of inactivity. We just hide
+                // the UI; if the customer retries with the same cart, a new
+                // PayPal order is created.
+                setStep("form");
+                setPaypalOrderId(null);
+                setPendingOrder(null);
+                setAuthoritativeTotal(null);
+              }}
+              className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition"
+            >
+              <X size={16} />
+            </button>
+          </div>
+          {totalAdjusted && (
+            <div className="px-5 pt-4">
+              <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+                <AlertCircle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-800">
+                  <span className="font-semibold">Total updated to {sym}{chargeTotal.toFixed(2)}.</span> Your delivery fee was recalculated based on your address. PayPal will charge this amount.
+                </p>
+              </div>
+            </div>
+          )}
+          <div className="flex-1 overflow-y-auto p-5">
+            <PaypalPaymentForm
+              paypalOrderId={paypalOrderId}
+              amountLabel={`${sym}${chargeTotal.toFixed(2)}`}
+              currencyCode={(settings.currency?.code ?? "GBP").toUpperCase()}
+              onPaid={handlePaypalPaid}
+              onCancel={() => {
+                setStep("form");
+                setPaypalOrderId(null);
+                setPendingOrder(null);
+                setAuthoritativeTotal(null);
+              }}
+            />
           </div>
         </div>
       </div>
@@ -857,10 +1108,23 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                             ...f,
                             address: `${addr.address}, ${addr.postcode}`,
                             phone: f.phone || addr.phone || "",
+                            // Pre-fill the delivery note from the saved address so the
+                            // customer doesn't retype "Flat 3B, gate code 4321" every
+                            // time. They can still edit it for this order.
+                            note: addr.note ?? "",
                           }));
                           if (fieldErrors.address) setFieldErrors((p) => ({ ...p, address: "" }));
                           if (addr.lat != null && addr.lng != null) {
-                            applyCustomerCoords(addr.lat, addr.lng);
+                            applyCustomerCoords(addr.lat, addr.lng, "user");
+                          } else {
+                            // Saved address has no pin (legacy entries) — clear any
+                            // leftover coords so the geocode-on-debounce can run.
+                            setCustLat(null);
+                            setCustLng(null);
+                            setPinSource(null);
+                            setLocState("idle");
+                            setDistKm(null);
+                            setZone(null);
                           }
                         }}
                         className={`w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-xl border transition ${
@@ -892,7 +1156,17 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                       type="button"
                       onClick={() => {
                         setSelectedAddressId("manual");
-                        setForm((f) => ({ ...f, address: "" }));
+                        // Switching to manual entry invalidates the previously
+                        // selected saved-address pin and note. Clear them so the
+                        // geocode-on-debounce can populate fresh values from the
+                        // new typed address.
+                        setForm((f) => ({ ...f, address: "", note: "" }));
+                        setCustLat(null);
+                        setCustLng(null);
+                        setPinSource(null);
+                        setLocState("idle");
+                        setDistKm(null);
+                        setZone(null);
                       }}
                       className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl border transition ${
                         selectedAddressId === "manual"
@@ -921,6 +1195,10 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                       onChange={(e) => {
                         setForm((f) => ({ ...f, address: e.target.value }));
                         if (fieldErrors.address) setFieldErrors((p) => ({ ...p, address: "" }));
+                        // We don't clear an "estimated" pin per-keystroke — the
+                        // debounced effect will replace it 700ms after the last
+                        // edit. A "user" pin is left untouched (the effect's own
+                        // guard skips when pinSource === "user").
                       }}
                       placeholder="42 Example Street, London"
                       className={`w-full border rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 transition ${
@@ -936,6 +1214,23 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                     )}
                   </>
                 )}
+
+                {/* Delivery note — for the last-mile bits an address can't express:
+                    flat/unit, gate code, "leave at door", etc. Optional but
+                    valuable in housing schemes / large complexes. */}
+                <div className="mt-3">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Delivery note <span className="text-gray-400">(optional — flat / unit / access instructions)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={form.note}
+                    onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
+                    placeholder="Flat 3B, gate code 1234, leave at door"
+                    maxLength={200}
+                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -951,6 +1246,34 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                 onDetect={detectLocation}
                 currencySymbol={sym}
               />
+
+              {/* Pin-source indicator — tells the customer whether their visible
+                  pin is a confirmed location or just a guess from the address.
+                  Encourages drag-to-refine when the pin came from geocoding. */}
+              {custLat != null && custLng != null ? (
+                pinSource === "estimated" ? (
+                  <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    <MapPin size={12} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                    <p className="text-[11px] text-amber-700">
+                      <span className="font-semibold">Pin estimated from your address.</span> Drag the blue pin on the map to confirm the exact spot.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                    <MapPin size={12} className="text-green-600 flex-shrink-0 mt-0.5" />
+                    <p className="text-[11px] text-green-700">
+                      <span className="font-semibold">Exact pin set.</span> Drag it if you need to refine.
+                    </p>
+                  </div>
+                )
+              ) : (
+                <div className="flex items-start gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                  <MapPin size={12} className="text-gray-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-gray-500">
+                    <span className="font-semibold">No pin yet.</span> Type your address, tap &quot;Detect&quot;, or click the map.
+                  </p>
+                </div>
+              )}
 
               {/* Mini-map: restaurant + zone circles + customer pin (when detected) */}
               <div className="rounded-xl border border-gray-200 overflow-hidden">
@@ -973,14 +1296,11 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                   ]}
                   draggable={custLat != null && custLng != null}
                   clickToMove
-                  onPrimaryMove={(lat, lng) => applyCustomerCoords(lat, lng)}
+                  // Map clicks / drags always count as a user-confirmed pin —
+                  // the customer is explicitly placing it.
+                  onPrimaryMove={(lat, lng) => applyCustomerCoords(lat, lng, "user")}
                 />
               </div>
-              {custLat != null && custLng != null && (
-                <p className="text-[11px] text-gray-400">
-                  Drag your blue pin to refine your exact spot — helps the driver find you.
-                </p>
-              )}
             </div>
           )}
 
@@ -1021,13 +1341,17 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
             )}
 
             {locState !== "outside" && availableMethods.map((method) => {
-              const disabledByMin = method.id === "stripe" && belowStripeMin;
+              // Stripe minimum is enforced server-side via Stripe's own
+              // rejection (and translated to a friendly message). PayPal
+              // we still pre-check because its rejections are less clean.
+              const disabledByMin = method.id === "paypal" && belowPaypalMin;
+              const methodMin     = paypalMin;
               return (
                 <button
                   key={method.id}
                   onClick={() => handlePay(method)}
                   disabled={submitting || disabledByMin}
-                  title={disabledByMin ? `Card payments require a minimum of ${sym}${stripeMin.toFixed(2)}` : undefined}
+                  title={disabledByMin ? `${method.name} requires a minimum of ${sym}${methodMin.toFixed(2)}` : undefined}
                   className={`group w-full flex items-center gap-3 border-2 border-gray-200 rounded-xl px-4 py-3.5 transition disabled:opacity-60 disabled:cursor-not-allowed ${hoverColor(method.id)}`}
                 >
                   {submitting
@@ -1040,7 +1364,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                       {submitting
                         ? "Placing order…"
                         : disabledByMin
-                          ? `Minimum ${sym}${stripeMin.toFixed(2)} required for card`
+                          ? `Minimum ${sym}${methodMin.toFixed(2)} required for ${method.name}`
                           : method.description}
                     </p>
                   </div>
@@ -1156,5 +1480,97 @@ function CardPaymentForm({
         Payments are processed securely by Stripe. Your card details are never stored on our servers.
       </p>
     </form>
+  );
+}
+
+// ─── Inner PayPal payment form ────────────────────────────────────────────────
+// Wraps <PayPalButtons /> with the script provider configured for our public
+// client id + the order's currency. createOrder() returns the order id we
+// already minted via /api/payments/paypal, so the popup attaches to the
+// server-verified amount rather than anything supplied by the browser.
+
+function PaypalPaymentForm({
+  paypalOrderId,
+  amountLabel,
+  currencyCode,
+  onPaid,
+  onCancel,
+}: {
+  paypalOrderId: string;
+  amountLabel:   string;
+  currencyCode:  string;
+  onPaid:        () => void;
+  onCancel:      () => void;
+}) {
+  const [error,      setError]      = useState<string | null>(null);
+  const [capturing,  setCapturing]  = useState(false);
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 flex items-center justify-between">
+        <span className="text-sm font-medium text-gray-700">Amount to pay</span>
+        <span className="text-base font-bold text-gray-900">{amountLabel}</span>
+      </div>
+
+      <PayPalScriptProvider
+        options={{
+          clientId: PAYPAL_CLIENT_ID,
+          currency: currencyCode,
+          intent:   "capture",
+        }}
+      >
+        <PayPalButtons
+          style={{ layout: "vertical", shape: "rect", label: "paypal" }}
+          disabled={capturing}
+          // createOrder fires when the buyer clicks the PayPal button — we
+          // already have the server-minted order id, so just hand it over.
+          createOrder={() => Promise.resolve(paypalOrderId)}
+          onApprove={async (data) => {
+            setCapturing(true);
+            setError(null);
+            try {
+              const r = await fetch("/api/payments/paypal/capture", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ paypalOrderId: data.orderID }),
+              });
+              const j = await r.json() as { ok: boolean; error?: string };
+              if (!j.ok) {
+                setError(j.error ?? "PayPal could not complete the payment.");
+                return;
+              }
+              onPaid();
+            } catch (err) {
+              setError(err instanceof Error ? err.message : "Network error capturing PayPal payment.");
+            } finally {
+              setCapturing(false);
+            }
+          }}
+          onCancel={() => onCancel()}
+          onError={(err) => {
+            const message = err instanceof Error ? err.message : "PayPal encountered an error.";
+            setError(message);
+          }}
+        />
+      </PayPalScriptProvider>
+
+      {error && (
+        <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+          <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-red-700">{error}</p>
+        </div>
+      )}
+
+      {capturing && (
+        <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
+          <Loader2 size={14} className="animate-spin" />
+          Finalising your payment with PayPal…
+        </div>
+      )}
+
+      <p className="text-[10px] text-gray-400 text-center">
+        Payments are processed securely by PayPal. We never see your card or bank details.
+      </p>
+    </div>
   );
 }
