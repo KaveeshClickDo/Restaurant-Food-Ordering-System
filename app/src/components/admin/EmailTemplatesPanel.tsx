@@ -369,7 +369,7 @@ function TestSendWidget({
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="test@example.com"
-          className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+          className="flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
         />
         <button
           onClick={handleSend}
@@ -516,7 +516,7 @@ export default function EmailTemplatesPanel() {
         </div>
 
         {/* ── Editor / Preview ── */}
-        <div className="flex-1 md:min-w-0 space-y-4">
+        <div className="w-full flex-1 md:min-w-0 space-y-4">
           {/* Panel header */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">

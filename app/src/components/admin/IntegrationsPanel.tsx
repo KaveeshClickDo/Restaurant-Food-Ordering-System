@@ -348,7 +348,7 @@ function PaymentMethodsTab() {
 
 function EnvVarRow({ name, description }: { name: string; description: string }) {
   return (
-    <div className="flex items-start gap-3 py-3 border-b border-gray-50 last:border-0">
+    <div className="flex flex-wrap items-start gap-3 py-3 border-b border-gray-50 last:border-0">
       <code className="text-xs font-mono font-semibold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-lg whitespace-nowrap flex-shrink-0 mt-0.5">
         {name}
       </code>
@@ -599,7 +599,7 @@ function PrinterTab() {
 
       {/* Configuration form */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-gray-100 flex gap-2 items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-orange-50 rounded-xl flex items-center justify-center">
               <Printer size={15} className="text-orange-500" />
@@ -610,7 +610,7 @@ function PrinterTab() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 font-medium">{draft.enabled ? "Enabled" : "Disabled"}</span>
+            <span className="hidden sm:flex text-xs text-gray-500 font-medium">{draft.enabled ? "Enabled" : "Disabled"}</span>
             <button
               onClick={() => setDraft((d) => ({ ...d, enabled: !d.enabled }))}
               className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors focus:outline-none ${
