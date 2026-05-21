@@ -119,13 +119,13 @@ export default function Cart({ onMobileClose, onOrderPlaced }: CartProps) {
                       className="w-7 h-7 rounded-full border border-zinc-200 flex items-center justify-center text-zinc-500 hover:border-zinc-400 hover:text-zinc-800 transition-colors">
                       <Minus className="w-3 h-3" strokeWidth={2} />
                     </button>
-                    <span className="text-[13px] font-bold text-zinc-900 w-4 text-center tabular-nums">{item.quantity}</span>
+                    <span className="text-[11px] font-bold text-zinc-900 w-6 text-center tabular-nums">{item.quantity}</span>
                     <button onClick={() => updateQty(item.id, item.quantity + 1)}
                       className="w-7 h-7 rounded-full border border-zinc-200 flex items-center justify-center text-zinc-500 hover:border-orange-500 hover:bg-orange-500 hover:text-white transition-colors">
                       <Plus className="w-3 h-3" strokeWidth={2} />
                     </button>
                   </div>
-                  <span className="text-[13px] font-bold text-zinc-900 flex-shrink-0 w-12 text-right tabular-nums">
+                  <span className="text-[13px] font-bold text-zinc-900 flex-shrink-0 whitespace-nowrap text-right tabular-nums">
                     {sym}{cartLineTotal(item).toFixed(2)}
                   </span>
                 </li>

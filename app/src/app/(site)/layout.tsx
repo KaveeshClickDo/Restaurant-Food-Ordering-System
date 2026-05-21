@@ -51,7 +51,7 @@ function SiteLayoutContent({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* ── Desktop Right Cart Panel ── */}
-      <aside className="hidden lg:flex w-[300px] xl:w-[320px] flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
+      <aside className="hidden lg:flex w-[310px] xl:w-[330px] flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
         <Cart onOrderPlaced={() => router.push('/my-orders')} />
       </aside>
 
