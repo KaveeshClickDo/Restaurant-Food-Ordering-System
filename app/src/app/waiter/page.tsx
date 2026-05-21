@@ -192,7 +192,7 @@ function ReceiptModal({ receipt, onClose, onRefund }: { receipt: WaiterReceipt; 
                 value={emailTo}
                 onChange={(e) => { setEmailTo(e.target.value); setEmailStatus("idle"); }}
                 placeholder="customer@email.com"
-                className="flex-1 bg-slate-700 text-white placeholder-slate-500 text-sm rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="flex-1 min-w-0 bg-slate-700 text-white placeholder-slate-500 text-sm rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-orange-500"
               />
               <button
                 onClick={handleEmail}
@@ -293,7 +293,7 @@ function BillEmailBar({ onPrint, tableLabel, waiterName, consolidatedLines, bill
           value={emailTo}
           onChange={e => { setEmailTo(e.target.value); setEmailStatus("idle"); }}
           placeholder="Send bill to email…"
-          className="flex-1 bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-sm rounded-xl px-3 py-2.5 outline-none focus:border-orange-500"
+          className="flex-1 min-w-0 bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-sm rounded-xl px-3 py-2.5 outline-none focus:border-orange-500"
         />
         <button
           onClick={handleEmail}
@@ -682,13 +682,13 @@ function ItemModal({
                           return next;
                         });
                       }}
-                      className={`flex items-center justify-between px-4 py-3 rounded-xl border text-sm font-medium transition-all ${checked
+                      className={`flex text-left items-center justify-between px-4 py-3 rounded-xl border text-sm font-medium transition-all ${checked
                         ? "bg-orange-500/20 border-orange-500 text-orange-300"
                         : "bg-slate-700/50 border-slate-600 text-slate-200 hover:border-orange-500/50"
                         }`}
                     >
                       <span>{addon.name}</span>
-                      <span className={checked ? "text-orange-300" : "text-slate-400"}>
+                      <span className={checked ? "text-orange-300 whitespace-nowrap" : "text-slate-400 whitespace-nowrap"}>
                         +{fmtCur(addon.price, sym)}
                       </span>
                     </button>
@@ -714,7 +714,7 @@ function ItemModal({
         </div>
 
         {/* Footer: qty + add */}
-        <div className="p-5 border-t border-slate-700 flex items-center gap-3">
+        <div className="p-5 border-t border-slate-700 flex flex-wrap items-center gap-3">
           {/* Qty stepper */}
           <div className="flex items-center gap-2 bg-slate-700 rounded-xl p-1">
             <button
@@ -723,7 +723,7 @@ function ItemModal({
             >
               <Minus size={14} />
             </button>
-            <span className="text-white font-bold w-5 text-center text-lg">{qty}</span>
+            <span className="text-white font-bold w-6 text-center text-sm sm:text-base">{qty}</span>
             <button
               onClick={() => setQty(qty + 1)}
               className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-300 hover:bg-slate-600 transition"
@@ -734,7 +734,7 @@ function ItemModal({
 
           <button
             onClick={handleAdd}
-            className="flex-1 bg-orange-500 hover:bg-orange-400 active:scale-[0.98] text-sm sm:text-base text-white font-bold rounded-xl py-3 flex items-center justify-center gap-2 transition-all"
+            className="flex-1 bg-orange-500 hover:bg-orange-400 active:scale-[0.98] text-sm sm:text-base text-white font-bold rounded-xl px-1 py-3 flex items-center justify-center gap-2 transition-all"
           >
             <Plus size={16} />
             Add · {fmtCur(unitPrice * qty, sym)}
@@ -1264,7 +1264,7 @@ export default function WaiterPage() {
               <div className="w-9 h-9 bg-orange-500 rounded-xl flex items-center justify-center">
                 <UtensilsCrossed size={17} className="text-white" />
               </div>
-              <h1 className="text-white font-black text-base">Table Selection</h1>
+              <h1 className="text-white font-black text-[15px] sm:text-base">Table Selection</h1>
             </div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
@@ -1278,7 +1278,7 @@ export default function WaiterPage() {
               </div>
               <button
                 onClick={logout}
-                className="flex items-center gap-1.5 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-xl text-xs font-medium transition"
+                className="flex whitespace-nowrap items-center gap-1.5 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-xl text-xs font-medium transition"
               >
                 <LogOut size={13} /> Sign out
               </button>
@@ -1332,9 +1332,9 @@ export default function WaiterPage() {
                       <span className={`text-xs mt-1 ${occupied ? "text-amber-400/70" : "text-slate-500"}`}>
                         <Users size={10} className="inline mr-0.5" />{table.seats}
                       </span>
-                      {occupied && (
-                        <span className="text-[10px] text-amber-500 font-semibold mt-0.5">Occupied</span>
-                      )}
+                      <span className={`text-[10px] font-semibold mt-0.5 ${occupied ? "text-amber-500" : "invisible"}`}>
+                        {occupied ? "Occupied" : "Available"}
+                      </span>
                     </button>
                   );
                 })}
@@ -1497,7 +1497,7 @@ export default function WaiterPage() {
                     {/* Total */}
                     <div className="px-5 py-4 border-t border-slate-700 bg-slate-800/50 flex items-center justify-between">
                       <span className="text-slate-300 text-sm font-semibold">Total</span>
-                      <span className="text-white text-2xl font-black">{fmtCur(billTotal, sym)}</span>
+                      <span className="text-white text-lg sm:text-xl md:text-2xl font-black">{fmtCur(billTotal, sym)}</span>
                     </div>
                   </div>
 
@@ -1534,11 +1534,11 @@ export default function WaiterPage() {
                       <button
                         onClick={() => { const m = settleConfirm; setSettleConfirm(null); payBill(m); }}
                         disabled={paying}
-                        className={`flex items-center justify-center gap-2 py-3 rounded-2xl text-white font-bold transition disabled:opacity-50 ${settleConfirm === "cash" ? "bg-emerald-700 hover:bg-emerald-600" : "bg-blue-600 hover:bg-blue-500"}`}
+                        className={`flex items-center text-sm sm:text-base justify-center gap-2 px-2 py-3 rounded-2xl text-white font-bold transition disabled:opacity-50 ${settleConfirm === "cash" ? "bg-emerald-700 hover:bg-emerald-600" : "bg-blue-600 hover:bg-blue-500"}`}
                       >
                         {paying
                           ? <Loader2 size={18} className="animate-spin" />
-                          : settleConfirm === "cash" ? <Banknote size={18} /> : <CreditCard size={18} />}
+                          : settleConfirm === "cash" ? <Banknote size={18} className="hidden sm:block"/> : <CreditCard size={18} className="hidden sm:block" />}
                         Confirm Settle
                       </button>
                     </div>
@@ -1699,7 +1699,7 @@ export default function WaiterPage() {
         {/* Mobile cart toggle */}
         <button
           onClick={() => setShowCart((v) => !v)}
-          className="sm:hidden relative flex items-center gap-1.5 bg-orange-500 text-white px-3 py-2 rounded-xl text-sm font-bold"
+          className="md:hidden relative flex items-center gap-1.5 bg-orange-500 text-white px-3 py-2 rounded-xl text-sm font-bold"
         >
           <ChefHat size={14} />
           {cartCount > 0 && (
@@ -1713,7 +1713,7 @@ export default function WaiterPage() {
         <button
           onClick={sendToKitchen}
           disabled={cart.length === 0 || sending}
-          className="hidden sm:flex items-center gap-2 bg-orange-500 hover:bg-orange-400 disabled:opacity-40 text-white font-bold px-4 py-2.5 rounded-xl transition-all text-sm"
+          className="hidden md:flex items-center gap-2 bg-orange-500 hover:bg-orange-400 disabled:opacity-40 text-white font-bold px-4 py-2.5 rounded-xl transition-all text-sm"
         >
           {sending ? <Loader2 size={15} className="animate-spin" /> : <SendHorizonal size={15} />}
           Send to Kitchen
@@ -1747,7 +1747,7 @@ export default function WaiterPage() {
 
           {/* Item grid */}
           <div className="flex-1 overflow-y-auto p-4">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-3">
               {visibleItems.map((item) => {
                 const oos = isOutOfStock(item);
                 const hasVar = (item.variations?.length ?? 0) > 0 || (item.addOns?.length ?? 0) > 0;
@@ -1762,7 +1762,7 @@ export default function WaiterPage() {
                       }`}
                   >
                     {/* Top image/placeholder */}
-                    <div className="relative w-full aspect-[5/2] bg-slate-800 flex items-center justify-start flex-shrink-0 px-4">
+                    <div className="relative w-full aspect-[5/3.5] max-h-[95px] bg-slate-800 flex items-center justify-start flex-shrink-0 px-4 pt-4">
                       {item.popular && !oos && (
                         <span className="absolute top-2 left-2 z-10 bg-orange-500 text-white text-[10px] font-black px-2 py-1 rounded-full uppercase tracking-wide">
                           POPULAR
@@ -1779,21 +1779,21 @@ export default function WaiterPage() {
                       )}
                     </div>
 
-                    <div className="p-4 flex flex-col flex-1 w-full">
+                    <div className="p-3 sm:p-4 flex flex-col flex-1 w-full">
                       <p className="text-white font-semibold text-sm leading-snug line-clamp-2">
                         {item.name}
                       </p>
                       {item.description && (
                         <p className="text-slate-500 text-[11px] mt-0.5 line-clamp-1">{item.description}</p>
                       )}
-                      <div className="mt-2 flex-1 flex items-end justify-between">
+                      <div className="mt-2 flex-1 flex flex-wrap gap-0.5 items-end justify-between">
                         <span className="text-orange-400 font-black text-base">{fmtCur(item.price, sym)}</span>
                         {hasVar ? (
-                          <span className="text-slate-500 text-[10px] font-semibold">options</span>
+                          <span className="ml-auto text-slate-500 text-[10px] font-semibold">options</span>
                         ) : oos ? (
                           <span className="text-red-400 text-[10px] font-semibold">Out of stock</span>
                         ) : (
-                          <span className="text-slate-500 hover:text-white transition">
+                          <span className="ml-auto text-slate-500 hover:text-white transition">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                               <path d="m9 18 6-6-6-6"/>
                             </svg>
@@ -1809,7 +1809,7 @@ export default function WaiterPage() {
         </div>
 
         {/* ── Right: Cart (desktop) ────────────────────────────────────────── */}
-        <div className="hidden sm:flex w-80 xl:w-96 flex-col border-l border-slate-800 bg-slate-900">
+        <div className="hidden md:flex w-80 xl:w-96 flex-col border-l border-slate-800 bg-slate-900">
           <div className="px-4 py-3 border-b border-slate-800 flex-shrink-0">
             <h2 className="text-white font-bold text-sm">
               Current Order · {activeTable?.label}
@@ -1842,7 +1842,7 @@ export default function WaiterPage() {
                     <button onClick={() => updateQty(line.lineId, -1)} className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition">
                       <Minus size={11} />
                     </button>
-                    <span className="text-white text-sm font-bold w-5 text-center">{line.quantity}</span>
+                    <span className="text-white text-[13px] font-bold w-6 text-center">{line.quantity}</span>
                     <button onClick={() => updateQty(line.lineId, +1)} className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition">
                       <Plus size={11} />
                     </button>
@@ -1889,7 +1889,7 @@ export default function WaiterPage() {
 
       {/* ── Mobile cart bottom sheet ─────────────────────────────────────── */}
       {showCart && (
-        <div className="sm:hidden fixed inset-0 z-40 flex flex-col justify-end">
+        <div className="md:hidden fixed inset-0 z-40 flex flex-col justify-end">
           <div className="absolute inset-0 bg-black/60" onClick={() => setShowCart(false)} />
           <div className="relative bg-slate-900 rounded-t-3xl max-h-[80vh] flex flex-col shadow-2xl">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">

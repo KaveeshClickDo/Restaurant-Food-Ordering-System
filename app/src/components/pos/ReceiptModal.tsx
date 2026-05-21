@@ -183,7 +183,7 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
                     onChange={(e) => { setEmailTo(e.target.value); setEmailStatus("idle"); }}
                     placeholder="customer@email.com"
                     type="email"
-                    className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-gray-900 text-xs outline-none focus:border-orange-400 placeholder-gray-400"
+                    className="flex-1 min-w-0 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-gray-900 text-xs outline-none focus:border-orange-400 placeholder-gray-400"
                   />
                   <button
                     onClick={sendEmail}
