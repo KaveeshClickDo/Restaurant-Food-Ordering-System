@@ -158,7 +158,7 @@ export default function MenuManagementPanel() {
               daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
               sortOrder: mealPeriods.length,
             })}
-            className="flex items-center gap-1 text-xs font-semibold text-amber-800 hover:text-amber-900 bg-white px-2.5 py-1 rounded-lg border border-amber-200"
+            className="flex items-center gap-1 text-xs font-semibold text-amber-800 hover:text-amber-900 bg-white px-2 py-1 rounded-lg border border-amber-200"
           >
             <Plus size={12} /> Add meal period
           </button>
@@ -757,18 +757,18 @@ function ItemModal({
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`flex sm:flex-1 min-w-[14vw] sm:min-w-0 px-3 justify-center py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${
+            className={`flex sm:flex-1 min-w-[13vw] sm:min-w-0 sm:items-center whitespace-nowrap px-3 justify-center py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${
               tab === t ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
             }`}
           >
             {t === "addons" ? "Add-ons" : t === "channels" ? "Channels" : t.charAt(0).toUpperCase() + t.slice(1)}
             {t === "variations" && (form.variations?.length ?? 0) > 0 && (
-              <span className="ml-1 bg-orange-100 text-orange-600 rounded-full px-1.5 text-[10px]">
+              <span className="ml-1 bg-orange-100 text-orange-600 rounded-full px-1.5 text-[10px] items-center justify-center flex">
                 {form.variations!.length}
               </span>
             )}
             {t === "addons" && (form.addOns?.length ?? 0) > 0 && (
-              <span className="ml-1 bg-violet-100 text-violet-600 rounded-full px-1.5 text-[10px]">
+              <span className="ml-1 bg-violet-100 text-violet-600 rounded-full px-1.5 text-[10px] items-center justify-center flex">
                 {form.addOns!.length}
               </span>
             )}
@@ -777,8 +777,8 @@ function ItemModal({
             )}
             {t === "stock" && (() => {
               const s = resolveStock(form);
-              if (s === "out_of_stock") return <span className="ml-1 bg-red-100 text-red-600 rounded-full px-1.5 text-[10px]">OOS</span>;
-              if (s === "low_stock") return <span className="ml-1 bg-amber-100 text-amber-600 rounded-full px-1.5 text-[10px]">Low</span>;
+              if (s === "out_of_stock") return <span className="ml-1 bg-red-100 text-red-600 rounded-full px-1.5 text-[10px] items-center justify-center flex">OOS</span>;
+              if (s === "low_stock") return <span className="ml-1 bg-amber-100 text-amber-600 rounded-full px-1.5 text-[10px] items-center justify-center flex">Low</span>;
               return null;
             })()}
           </button>
@@ -1159,11 +1159,11 @@ function ItemModal({
             const isRequired = v.required !== false;
             return (
             <div key={v.id} className="border border-gray-200 rounded-xl p-4 space-y-3">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3">
                 <input
                   value={v.name}
                   onChange={(e) => updateVariation(vi, { name: e.target.value })}
-                  className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                   placeholder="Variation name (e.g. Spice level)"
                 />
                 <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 cursor-pointer select-none whitespace-nowrap">
@@ -1186,7 +1186,7 @@ function ItemModal({
                     <input
                       value={opt.label}
                       onChange={(e) => updateVariationOption(vi, oi, { label: e.target.value })}
-                      className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                      className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                       placeholder="Option label"
                     />
                     <div className="relative w-24">
@@ -1236,7 +1236,7 @@ function ItemModal({
               <input
                 value={ao.name}
                 onChange={(e) => updateAddOn(ai, { name: e.target.value })}
-                className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                 placeholder="Add-on name"
               />
               <div className="relative w-24">
