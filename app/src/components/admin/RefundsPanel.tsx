@@ -475,7 +475,7 @@ export function RefundModal({
         <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex flex-wrap gap-3">
           <button
             onClick={handleSubmit}
-            className="flex-1 px-3 bg-teal-500 hover:bg-teal-400 active:bg-teal-600 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
+            className="flex-1 px-3 bg-teal-500 hover:bg-teal-400 active:bg-teal-600 text-sm sm:text-base text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
           >
             <RotateCcw size={15} className="flex-shrink-0" />
             {cancelAfter ? "Refund & cancel order" : `Confirm refund ${amountNum > 0 && amountNum <= maxRefundable ? `of ${fmtAmt(amountNum, sym)}` : ""}`}
@@ -600,12 +600,12 @@ export default function RefundsPanel() {
           { label: "Partial refunds",     value: partialCount,           icon: <Clock size={18} />,      color: "text-amber-600 bg-amber-50 border-amber-100"},
           { label: "Still refundable",    value: refundableCount,        icon: <FileText size={18} />,   color: "text-orange-600 bg-orange-50 border-orange-100" },
         ].map(({ label, value, icon, color }) => (
-          <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 sm:px-5 py-4 flex items-center gap-3 sm:gap-4">
+          <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 sm:px-5 py-4 flex flex-col sm:flex-row md:flex-col xl:flex-row items-start sm:items-center md:items-start xl:items-center gap-3 sm:gap-4">
             <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl border flex items-center justify-center flex-shrink-0 ${color}`}>
               {icon}
             </div>
             <div>
-              <p className="text-xl font-extrabold text-gray-900">{value}</p>
+              <p className="text-lg sm:text-xl font-extrabold text-gray-900">{value}</p>
               <p className="text-xs text-gray-400 font-medium mt-0.5">{label}</p>
             </div>
           </div>

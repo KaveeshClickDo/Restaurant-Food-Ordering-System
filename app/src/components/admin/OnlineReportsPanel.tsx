@@ -140,19 +140,19 @@ function StatCard({
   const TrendIcon = trend === "up" ? ArrowUpRight : trend === "down" ? ArrowDownRight : Minus;
   return (
     <div className="bg-white rounded-2xl border border-gray-100 p-3 sm:p-5 shadow-sm flex flex-col gap-3">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-1">
         <span className="text-sm font-medium text-gray-500">{label}</span>
         <div className={`w-7 h-7 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0 ${accent}`}>
           <Icon size={16} className="text-white flex-shrink-0" />
         </div>
       </div>
       <div>
-        <p className="text-2xl font-black text-gray-900 tracking-tight">{value}</p>
+        <p className="text-lg sm:text-xl md:text-2xl font-black text-gray-900 tracking-tight">{value}</p>
         {sub && (
           <p className={`text-xs font-medium mt-1 flex items-center gap-1 ${
             trend === "up" ? "text-emerald-600" : trend === "down" ? "text-red-500" : "text-gray-400"
           }`}>
-            {trend && <TrendIcon size={11} />}
+            {trend && <TrendIcon size={11} className="flex-shrink-0"/>}
             {sub}
           </p>
         )}
@@ -527,17 +527,17 @@ export default function OnlineReportsPanel() {
 
         {/* Custom date inputs */}
         {preset === "custom" && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-300" />
-            <span className="text-gray-400 text-sm">→</span>
+              className="px-3 py-2 rounded-xl border border-gray-200 text-xs sm:text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-300" />
+            <span className="text-gray-400 text-xs sm:text-sm">→</span>
             <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-300" />
+              className="px-3 py-2 rounded-xl border border-gray-200 text-xs sm:text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-300" />
           </div>
         )}
 
         {/* Source filter */}
-        <div className="flex rounded-xl border border-gray-200 overflow-hidden text-sm font-medium">
+        <div className="flex rounded-xl border border-gray-200 overflow-hidden text-[13px] sm:text-sm font-medium">
           {(["all", "online", "pos"] as Source[]).map((s) => (
             <button
               key={s}
@@ -563,21 +563,21 @@ export default function OnlineReportsPanel() {
           <button
             onClick={fetchOrders}
             disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-100 transition disabled:opacity-40"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-[13px] sm:text-sm font-medium text-gray-600 hover:bg-gray-100 transition disabled:opacity-40"
           >
             <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
             Refresh
           </button>
           <button
             onClick={exportCSV}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-orange-500 text-white text-sm font-semibold hover:bg-orange-600 transition"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-orange-500 text-white text-[13px] sm:text-sm font-semibold hover:bg-orange-600 transition"
           >
             <Download size={13} />
             CSV
           </button>
           <button
             onClick={() => window.print()}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-800 text-white text-sm font-semibold hover:bg-gray-700 transition"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-800 text-white text-[13px] sm:text-sm font-semibold hover:bg-gray-700 transition"
           >
             <Printer size={13} />
             Print
@@ -635,14 +635,14 @@ export default function OnlineReportsPanel() {
 
       {/* ── Revenue over time ──────────────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-start sm:items-center justify-between gap-1 mb-4">
           <div>
             <h3 className="font-bold text-gray-900">Revenue over time</h3>
-            <p className="text-xs text-gray-400 mt-0.5">
+            <p className="text-xs text-gray-400 mt-0.5 ">
               {days > 90 ? "Monthly" : "Daily"} totals · {days} day{days !== 1 ? "s" : ""}
             </p>
           </div>
-          <span className="text-xs font-semibold px-2.5 py-1 bg-orange-50 text-orange-600 rounded-lg">
+          <span className="text-xs font-semibold px-2.5 py-1 bg-orange-50 text-orange-600 rounded-lg whitespace-nowrap">
             {cur(metrics.revenue)} total
           </span>
         </div>
@@ -778,7 +778,7 @@ export default function OnlineReportsPanel() {
                     <th className="pb-2 pr-4 font-semibold">Date</th>
                     <th className="pb-2 pr-4 font-semibold">Order ID</th>
                     <th className="pb-2 pr-4 font-semibold">Status</th>
-                    <th className="pb-2 pr-4 font-semibold text-right">Order Total</th>
+                    <th className="pb-2 pr-4 font-semibold text-right whitespace-nowrap">Order Total</th>
                     <th className="pb-2 font-semibold text-right">Refunded</th>
                   </tr>
                 </thead>
@@ -792,11 +792,11 @@ export default function OnlineReportsPanel() {
                         {fullOrderNumber(o.id)}
                       </td>
                       <td className="py-2.5 pr-4">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold text-white ${STATUS_COLORS[o.status] ?? "bg-gray-400"}`}>
+                        <span className={`inline-flex whitespace-nowrap items-center px-2 py-0.5 rounded-full text-xs font-semibold text-white ${STATUS_COLORS[o.status] ?? "bg-gray-400"}`}>
                           {o.status.replace("_", " ")}
                         </span>
                       </td>
-                      <td className="py-2.5 pr-4 text-right font-semibold">{cur(o.total)}</td>
+                      <td className="py-2.5 pr-4 text-right font-semibold whitespace-nowrap">{cur(o.total)}</td>
                       <td className="py-2.5 text-right font-semibold text-red-600">
                         −{cur(o.refunded_amount ?? 0)}
                       </td>

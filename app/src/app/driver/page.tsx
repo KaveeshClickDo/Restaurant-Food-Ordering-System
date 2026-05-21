@@ -425,7 +425,7 @@ function OrderCard({
         </p>
         {order.items.map((item, i) => (
           <div key={i} className="flex items-center gap-2.5">
-            <span className="text-orange-500 font-extrabold text-base w-6 text-center flex-shrink-0">{item.qty}×</span>
+            <span className="text-orange-500 font-extrabold text-base min-w-[3rem] text-center flex-shrink-0">{item.qty}×</span>
             <span className="text-gray-800 font-semibold text-sm">{item.name}</span>
           </div>
         ))}

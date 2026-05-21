@@ -145,7 +145,7 @@ function KpiCard({ label, value, sub, icon: Icon, color, bg }: {
       <div className={`w-10 h-10 ${bg} rounded-xl flex items-center justify-center mb-3`}>
         <Icon size={20} className={color} />
       </div>
-      <p className={`text-2xl font-bold ${color}`}>{value}</p>
+      <p className={`text-lg sm:text-xl md:text-2xl font-bold ${color}`}>{value}</p>
       {sub && <p className="text-gray-400 text-xs mt-0.5">{sub}</p>}
       <p className="text-gray-500 text-xs mt-1">{label}</p>
     </div>
@@ -302,11 +302,11 @@ export default function POSReportsPanel() {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={refresh}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-colors">
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 text-gray-600 text-[13px] sm:text-sm font-medium hover:bg-gray-50 transition-colors">
             <RefreshCw size={14} /> Refresh
           </button>
           <button onClick={() => exportCSV(showVoided ? inRange : filtered, sym)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-sm font-semibold transition-colors">
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-[13px] sm:text-sm font-semibold transition-colors">
             <Download size={14} /> Export CSV
           </button>
         </div>
@@ -365,7 +365,7 @@ export default function POSReportsPanel() {
           <div className="flex gap-1.5 bg-gray-100 p-1 rounded-xl">
             {(["overview","items","staff","transactions"] as ReportTab[]).map((t) => (
               <button key={t} onClick={() => setTab(t)}
-                className={`flex-1 py-2 rounded-lg text-xs font-semibold capitalize transition-all ${
+                className={`flex-1 px-1 py-2 rounded-lg text-xs font-semibold capitalize transition-all ${
                   tab === t ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
                 }`}>
                 {t === "transactions" ? "Transactions" : t.charAt(0).toUpperCase() + t.slice(1)}
@@ -538,7 +538,7 @@ export default function POSReportsPanel() {
               ) : (
                 <div className="divide-y divide-gray-50">
                   {staffPerf.map((s, i) => (
-                    <div key={s.name} className="px-5 py-4 flex items-center gap-4">
+                    <div key={s.name} className="px-5 py-4 flex flex-wrap items-center gap-4">
                       <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
                         i === 0 ? "bg-amber-400 text-white" : "bg-gray-100 text-gray-500"
                       }`}>
@@ -612,9 +612,9 @@ export default function POSReportsPanel() {
                           {fmtDate(sale.date)}<br />
                           <span className="text-gray-400">{fmtTime(sale.date)}</span>
                         </td>
-                        <td className="px-5 py-3 text-gray-700">{sale.staffName}</td>
-                        <td className="px-5 py-3 text-gray-500 text-xs">{sale.customerName ?? "—"}</td>
-                        <td className="px-5 py-3 text-gray-500 text-xs">{sale.items.length} item{sale.items.length !== 1 ? "s" : ""}</td>
+                        <td className="px-5 py-3 text-gray-700 whitespace-nowrap">{sale.staffName}</td>
+                        <td className="px-5 py-3 text-gray-500 text-xs whitespace-nowrap">{sale.customerName ?? "—"}</td>
+                        <td className="px-5 py-3 text-gray-500 text-xs whitespace-nowrap">{sale.items.length} item{sale.items.length !== 1 ? "s" : ""}</td>
                         <td className="px-5 py-3">
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${
                             sale.paymentMethod === "cash" ? "bg-green-100 text-green-700" :

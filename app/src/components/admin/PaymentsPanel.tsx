@@ -117,19 +117,19 @@ export default function PaymentsPanel() {
   return (
     <div className="space-y-6">
       {/* ── Stats ─────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: "Gross collected",  value: fmt(stats.totalGross, sym),  icon: <DollarSign size={18} />,   color: "text-emerald-600 bg-emerald-50 border-emerald-100" },
           { label: "Net after refunds", value: fmt(stats.totalNet, sym),    icon: <ArrowDownCircle size={18} />, color: "text-blue-600 bg-blue-50 border-blue-100"  },
           { label: "Refunded",          value: fmt(stats.refundedSum, sym), icon: <RotateCcw size={18} />,    color: "text-teal-600 bg-teal-50 border-teal-100"   },
           { label: "Stripe charges",    value: stats.stripeCount,           icon: <CreditCard size={18} />,   color: "text-indigo-600 bg-indigo-50 border-indigo-100" },
         ].map(({ label, value, icon, color }) => (
-          <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 flex items-center gap-4">
-            <div className={`w-10 h-10 rounded-xl border flex items-center justify-center flex-shrink-0 ${color}`}>
+          <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 sm:px-5 py-4 flex flex-col sm:flex-row md:flex-col xl:flex-row items-start sm:items-center md:items-start xl:items-center gap-3 sm:gap-4">
+            <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl border flex items-center justify-center flex-shrink-0 ${color}`}>
               {icon}
             </div>
             <div>
-              <p className="text-xl font-extrabold text-gray-900">{value}</p>
+              <p className="text-lg sm:text-xl font-extrabold text-gray-900">{value}</p>
               <p className="text-xs text-gray-400 font-medium mt-0.5">{label}</p>
             </div>
           </div>
@@ -225,8 +225,8 @@ export default function PaymentsPanel() {
                       <td className="px-5 py-3 text-gray-600 text-xs whitespace-nowrap">
                         {fmtDateTime(r.date)}
                       </td>
-                      <td className="px-5 py-3 font-mono text-xs text-gray-500">
-                        #{r.id.slice(0, 8).toUpperCase()}
+                      <td className="px-5 py-3 font-mono text-xs text-gray-500 whitespace-nowrap">
+                        #{r.id.slice(4, 12).toUpperCase()}
                       </td>
                       <td className="px-5 py-3">
                         <p className="font-semibold text-gray-800 text-sm truncate max-w-[180px]">
@@ -249,13 +249,13 @@ export default function PaymentsPanel() {
                           <span className="text-gray-300 text-xs">—</span>
                         )}
                       </td>
-                      <td className="px-5 py-3">
+                      <td className="px-5 py-3 whitespace-nowrap">
                         <PaymentStatusBadge status={r.payment_status} />
                       </td>
-                      <td className="px-5 py-3 text-right font-bold text-gray-900">
+                      <td className="px-5 py-3 text-right font-bold text-gray-900 whitespace-nowrap">
                         {sym}{Number(r.total).toFixed(2)}
                       </td>
-                      <td className="px-5 py-3 text-right">
+                      <td className="px-5 py-3 text-right whitespace-nowrap">
                         <span className={`font-semibold ${refunded > 0 ? "text-teal-600" : "text-gray-700"}`}>
                           {sym}{net.toFixed(2)}
                         </span>
