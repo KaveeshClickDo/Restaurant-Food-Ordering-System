@@ -451,7 +451,7 @@ function AdminPageContent() {
                               </span>
                               {badge && (
                                 <span className={[
-                                  "text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none flex-shrink-0",
+                                  "text-[10px] font-bold rounded-full p-1.5 py-1 leading-none flex-shrink-0",
                                   badge.pulse
                                     ? "bg-orange-400 text-white animate-pulse"
                                     : isActive

@@ -13,7 +13,7 @@ import { cleanPhone } from "@/lib/inputUtils";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type UserType = "admin" | "customer" | "driver" | "waiter" | "kitchen" | "pos";
-type POSRole  = "admin" | "manager" | "cashier";
+type POSRole = "admin" | "manager" | "cashier";
 
 interface ManagedUser {
   id: string;
@@ -25,9 +25,9 @@ interface ManagedUser {
   createdAt?: string;
   emailVerified?: boolean;
   pin?: string;
-  waiterRole?:  "senior" | "waiter";
+  waiterRole?: "senior" | "waiter";
   kitchenRole?: "chef" | "head_chef" | "kitchen_manager";
-  posRole?:     POSRole;
+  posRole?: POSRole;
   avatarColor?: string;
   vehicleInfo?: string;
   notes?: string;
@@ -47,24 +47,24 @@ function getInitials(name: string): string {
 
 function roleColor(user: ManagedUser): string {
   switch (user.type) {
-    case "admin":    return "bg-purple-100 text-purple-700 border-purple-200";
+    case "admin": return "bg-purple-100 text-purple-700 border-purple-200";
     case "customer": return "bg-blue-100 text-blue-700 border-blue-200";
-    case "driver":   return "bg-orange-100 text-orange-700 border-orange-200";
+    case "driver": return "bg-orange-100 text-orange-700 border-orange-200";
     case "waiter":
       return user.waiterRole === "senior"
         ? "bg-indigo-100 text-indigo-700 border-indigo-200"
         : "bg-teal-100 text-teal-700 border-teal-200";
-    case "kitchen":  return "bg-red-100 text-red-700 border-red-200";
-    case "pos":      return "bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200";
+    case "kitchen": return "bg-red-100 text-red-700 border-red-200";
+    case "pos": return "bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200";
   }
 }
 
 function roleLabel(user: ManagedUser): string {
   switch (user.type) {
-    case "admin":    return "Admin";
+    case "admin": return "Admin";
     case "customer": return "Customer";
-    case "driver":   return "Driver";
-    case "waiter":   return user.waiterRole === "senior" ? "Senior Waiter" : "Waiter";
+    case "driver": return "Driver";
+    case "waiter": return user.waiterRole === "senior" ? "Senior Waiter" : "Waiter";
     case "kitchen": {
       const r = user.kitchenRole ?? "chef";
       return r === "head_chef" ? "Head Chef" : r === "kitchen_manager" ? "Kitchen Mgr" : "Chef";
@@ -79,23 +79,23 @@ function roleLabel(user: ManagedUser): string {
 function avatarBg(user: ManagedUser): string {
   if (user.avatarColor) return user.avatarColor;
   switch (user.type) {
-    case "admin":    return "#a855f7";
+    case "admin": return "#a855f7";
     case "customer": return "#3b82f6";
-    case "driver":   return "#f97316";
-    case "waiter":   return "#14b8a6";
-    case "kitchen":  return "#dc2626";
-    case "pos":      return "#7c3aed";
+    case "driver": return "#f97316";
+    case "waiter": return "#14b8a6";
+    case "kitchen": return "#dc2626";
+    case "pos": return "#7c3aed";
   }
 }
 
 const ROLE_FILTER_TABS: { id: FilterRole; label: string }[] = [
-  { id: "all",      label: "All"        },
-  { id: "admin",    label: "Admin"      },
-  { id: "customer", label: "Customers"  },
-  { id: "driver",   label: "Drivers"    },
-  { id: "waiter",   label: "Waiters"    },
-  { id: "kitchen",  label: "Kitchen"    },
-  { id: "pos",      label: "POS Staff"  },
+  { id: "all", label: "All" },
+  { id: "admin", label: "Admin" },
+  { id: "customer", label: "Customers" },
+  { id: "driver", label: "Drivers" },
+  { id: "waiter", label: "Waiters" },
+  { id: "kitchen", label: "Kitchen" },
+  { id: "pos", label: "POS Staff" },
 ];
 
 const AVATAR_COLOR_OPTIONS = [
@@ -116,19 +116,19 @@ let toastId = 0;
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function UserManagementPanel() {
-  const [users,       setUsers]       = useState<ManagedUser[]>([]);
-  const [loading,     setLoading]     = useState(true);
-  const [filterRole,  setFilterRole]  = useState<FilterRole>("all");
-  const [search,      setSearch]      = useState("");
-  const [toasts,      setToasts]      = useState<Toast[]>([]);
+  const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filterRole, setFilterRole] = useState<FilterRole>("all");
+  const [search, setSearch] = useState("");
+  const [toasts, setToasts] = useState<Toast[]>([]);
 
   // ── Modals ────────────────────────────────────────────────────────────────
-  const [createOpen,        setCreateOpen]        = useState(false);
-  const [editUser,          setEditUser]          = useState<ManagedUser | null>(null);
-  const [passwordUser,      setPasswordUser]      = useState<ManagedUser | null>(null);
-  const [deleteUser,        setDeleteUser]        = useState<ManagedUser | null>(null);
-  const [deleteConfirming,  setDeleteConfirming]  = useState(false);
-  const [resetSending,      setResetSending]      = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editUser, setEditUser] = useState<ManagedUser | null>(null);
+  const [passwordUser, setPasswordUser] = useState<ManagedUser | null>(null);
+  const [deleteUser, setDeleteUser] = useState<ManagedUser | null>(null);
+  const [deleteConfirming, setDeleteConfirming] = useState(false);
+  const [resetSending, setResetSending] = useState<string | null>(null);
 
   // ── Toast helpers ─────────────────────────────────────────────────────────
   function addToast(message: string, ok: boolean) {
@@ -170,7 +170,7 @@ export default function UserManagementPanel() {
   // Per-row in-flight guards — block rapid double-clicks before the disabled
   // state lands on the affected row's buttons.
   const toggleInFlight = useRef<Set<string>>(new Set());
-  const resetInFlight  = useRef<Set<string>>(new Set());
+  const resetInFlight = useRef<Set<string>>(new Set());
   const deleteInFlight = useRef(false);
 
   // ── Toggle active status ──────────────────────────────────────────────────
@@ -264,13 +264,13 @@ export default function UserManagementPanel() {
 
   // ── Counts ────────────────────────────────────────────────────────────────
   const counts: Record<FilterRole, number> = {
-    all:      users.length,
-    admin:    users.filter((u) => u.type === "admin").length,
+    all: users.length,
+    admin: users.filter((u) => u.type === "admin").length,
     customer: users.filter((u) => u.type === "customer").length,
-    driver:   users.filter((u) => u.type === "driver").length,
-    waiter:   users.filter((u) => u.type === "waiter").length,
-    kitchen:  users.filter((u) => u.type === "kitchen").length,
-    pos:      users.filter((u) => u.type === "pos").length,
+    driver: users.filter((u) => u.type === "driver").length,
+    waiter: users.filter((u) => u.type === "waiter").length,
+    kitchen: users.filter((u) => u.type === "kitchen").length,
+    pos: users.filter((u) => u.type === "pos").length,
   };
 
   // ─── Render ───────────────────────────────────────────────────────────────
@@ -472,7 +472,7 @@ function UserRow({
   resetSending: boolean;
 }) {
   const initials = getInitials(user.name);
-  const bg       = avatarBg(user);
+  const bg = avatarBg(user);
 
   return (
     <div className="flex flex-col sm:flex-row sm:items-center gap-3 px-5 py-4 hover:bg-gray-50/50 transition group">
@@ -503,6 +503,59 @@ function UserRow({
       </div>
 
       <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 mt-2 sm:mt-0">
+
+
+        {/* Actions */}
+        <div className="flex items-center gap-1 flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition">
+          {/* Edit */}
+          {user.type !== "admin" && (
+            <button
+              onClick={onEdit}
+              title="Edit user"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition"
+            >
+              <Pencil size={14} />
+            </button>
+          )}
+
+          {/* Change password */}
+          {user.type !== "admin" && (
+            <button
+              onClick={onPassword}
+              title={user.type === "waiter" ? "Change PIN" : "Change password"}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-orange-600 hover:bg-orange-50 transition"
+            >
+              <Key size={14} />
+            </button>
+          )}
+
+          {/* Send reset email */}
+          {(user.type === "customer" || user.type === "driver") && (
+            <button
+              onClick={onSendReset}
+              disabled={resetSending}
+              title="Send reset email"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition disabled:opacity-50"
+            >
+              {resetSending
+                ? <Loader2 size={14} className="animate-spin" />
+                : <Mail size={14} />
+              }
+            </button>
+          )}
+
+          {/* Delete */}
+          {user.type !== "admin" && (
+            <button
+              onClick={onDelete}
+              title="Delete user"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
+        </div>
+
         {/* Status badge — clickable for non-admin */}
         <button
           onClick={() => void onToggleActive(user)}
@@ -517,59 +570,8 @@ function UserRow({
           <span className={`w-1.5 h-1.5 rounded-full ${user.active ? "bg-green-500" : "bg-gray-400"}`} />
           {user.active ? "Active" : "Inactive"}
         </button>
-
-        {/* Actions */}
-        <div className="flex items-center gap-1 flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition">
-        {/* Edit */}
-        {user.type !== "admin" && (
-          <button
-            onClick={onEdit}
-            title="Edit user"
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition"
-          >
-            <Pencil size={14} />
-          </button>
-        )}
-
-        {/* Change password */}
-        {user.type !== "admin" && (
-          <button
-            onClick={onPassword}
-            title={user.type === "waiter" ? "Change PIN" : "Change password"}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-orange-600 hover:bg-orange-50 transition"
-          >
-            <Key size={14} />
-          </button>
-        )}
-
-        {/* Send reset email */}
-        {(user.type === "customer" || user.type === "driver") && (
-          <button
-            onClick={onSendReset}
-            disabled={resetSending}
-            title="Send reset email"
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition disabled:opacity-50"
-          >
-            {resetSending
-              ? <Loader2 size={14} className="animate-spin" />
-              : <Mail size={14} />
-            }
-          </button>
-        )}
-
-        {/* Delete */}
-        {user.type !== "admin" && (
-          <button
-            onClick={onDelete}
-            title="Delete user"
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition"
-          >
-            <Trash2 size={14} />
-          </button>
-        )}
       </div>
     </div>
-  </div>
   );
 }
 
@@ -587,22 +589,22 @@ function CreateUserModal({
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
   type CreateType = "customer" | "driver" | "waiter" | "kitchen" | "pos";
-  const [type,        setType]        = useState<CreateType>("customer");
-  const [name,        setName]        = useState("");
-  const [email,       setEmail]       = useState("");
-  const [phone,       setPhone]       = useState("");
-  const [password,    setPassword]    = useState("");
-  const [pin,         setPin]         = useState("");
-  const [waiterRole,  setWaiterRole]  = useState<"waiter" | "senior">("waiter");
+  const [type, setType] = useState<CreateType>("customer");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [pin, setPin] = useState("");
+  const [waiterRole, setWaiterRole] = useState<"waiter" | "senior">("waiter");
   const [kitchenRole, setKitchenRole] = useState<"chef" | "head_chef" | "kitchen_manager">("chef");
-  const [posRole,     setPosRole]     = useState<"admin" | "manager" | "cashier">("cashier");
+  const [posRole, setPosRole] = useState<"admin" | "manager" | "cashier">("cashier");
   const [avatarColor, setAvatarColor] = useState(AVATAR_COLOR_OPTIONS[0]);
-  const [hourlyRate,  setHourlyRate]  = useState("");
+  const [hourlyRate, setHourlyRate] = useState("");
   const [vehicleInfo, setVehicleInfo] = useState("");
-  const [notes,       setNotes]       = useState("");
-  const [active,      setActive]      = useState(true);
-  const [loading,     setLoading]     = useState(false);
-  const [errors,      setErrors]      = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState("");
+  const [active, setActive] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const submitInFlight = useRef(false);
 
   // The five types fall into two groups:
@@ -610,21 +612,21 @@ function CreateUserModal({
   //   • Staff PIN types (waiter / kitchen / pos) use a numeric PIN.
   // POS PINs are strictly 4 digits; waiter and kitchen accept 4–6.
   const isStaffPin = type === "waiter" || type === "kitchen" || type === "pos";
-  const pinRegex   = type === "pos" ? /^\d{4}$/ : /^\d{4,6}$/;
-  const pinHint    = type === "pos" ? "4 digits" : "4–6 digits";
+  const pinRegex = type === "pos" ? /^\d{4}$/ : /^\d{4,6}$/;
+  const pinHint = type === "pos" ? "4 digits" : "4–6 digits";
 
   function validate(): boolean {
     const e: Record<string, string> = {};
     if (!name.trim()) e.name = "Name is required.";
 
     if (!isStaffPin) {
-      if (!email.trim())              e.email    = "Email is required.";
-      if (!password)                  e.password = "Password is required.";
-      else if (password.length < 6)   e.password = "Min 6 characters.";
+      if (!email.trim()) e.email = "Email is required.";
+      if (!password) e.password = "Password is required.";
+      else if (password.length < 6) e.password = "Min 6 characters.";
       if (type === "driver" && !phone.trim()) e.phone = "Phone is required.";
     } else {
-      if (!pin)                       e.pin = "PIN is required.";
-      else if (!pinRegex.test(pin))   e.pin = `PIN must be ${pinHint}.`;
+      if (!pin) e.pin = "PIN is required.";
+      else if (!pinRegex.test(pin)) e.pin = `PIN must be ${pinHint}.`;
     }
 
     setErrors(e);
@@ -640,25 +642,25 @@ function CreateUserModal({
     try {
       const body: Record<string, unknown> = { type, name, active };
       if (!isStaffPin) {
-        body.email    = email;
+        body.email = email;
         body.password = password;
-        if (phone)       body.phone       = phone;
+        if (phone) body.phone = phone;
         if (vehicleInfo) body.vehicleInfo = vehicleInfo;
-        if (notes)       body.notes       = notes;
+        if (notes) body.notes = notes;
       } else {
-        body.pin         = pin;
+        body.pin = pin;
         body.avatarColor = avatarColor;
-        if (email)            body.email       = email;
-        if (hourlyRate)       body.hourlyRate  = parseFloat(hourlyRate);
-        if (type === "waiter")  body.waiterRole  = waiterRole;
+        if (email) body.email = email;
+        if (hourlyRate) body.hourlyRate = parseFloat(hourlyRate);
+        if (type === "waiter") body.waiterRole = waiterRole;
         if (type === "kitchen") body.kitchenRole = kitchenRole;
-        if (type === "pos")     body.posRole     = posRole;
+        if (type === "pos") body.posRole = posRole;
       }
 
-      const res  = await fetch("/api/admin/users", {
-        method:  "POST",
+      const res = await fetch("/api/admin/users", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify(body),
+        body: JSON.stringify(body),
       });
       const json = await res.json() as { ok: boolean; error?: string };
       if (json.ok) {
@@ -686,13 +688,13 @@ function CreateUserModal({
           <div className="grid grid-cols-2 sm:grid-cols-5 md:grid-cols-5 gap-2">
             {(["customer", "driver", "waiter", "kitchen", "pos"] as const).map((t) => {
               const Icon = t === "customer" ? UserCircle2 :
-                           t === "driver"   ? Truck :
-                           t === "waiter"   ? UtensilsCrossed :
-                           t === "kitchen"  ? ChefHat :
-                                              Tablet;
+                t === "driver" ? Truck :
+                  t === "waiter" ? UtensilsCrossed :
+                    t === "kitchen" ? ChefHat :
+                      Tablet;
               const label = t === "kitchen" ? "Kitchen"
-                          : t === "pos"     ? "POS Staff"
-                          : t.charAt(0).toUpperCase() + t.slice(1);
+                : t === "pos" ? "POS Staff"
+                  : t.charAt(0).toUpperCase() + t.slice(1);
               return (
                 <button
                   key={t}
@@ -871,17 +873,17 @@ function EditUserModal({
   onSaved: () => void;
   addToast: (msg: string, ok: boolean) => void;
 }) {
-  const [name,        setName]        = useState(user.name);
-  const [email,       setEmail]       = useState(user.email ?? "");
-  const [phone,       setPhone]       = useState(user.phone ?? "");
-  const [active,      setActive]      = useState(user.active);
-  const [waiterRole,  setWaiterRole]  = useState<"waiter" | "senior">(user.waiterRole ?? "waiter");
+  const [name, setName] = useState(user.name);
+  const [email, setEmail] = useState(user.email ?? "");
+  const [phone, setPhone] = useState(user.phone ?? "");
+  const [active, setActive] = useState(user.active);
+  const [waiterRole, setWaiterRole] = useState<"waiter" | "senior">(user.waiterRole ?? "waiter");
   const [avatarColor, setAvatarColor] = useState(user.avatarColor ?? AVATAR_COLOR_OPTIONS[0]);
-  const [pin,         setPin]         = useState("");
+  const [pin, setPin] = useState("");
   const [vehicleInfo, setVehicleInfo] = useState(user.vehicleInfo ?? "");
-  const [notes,       setNotes]       = useState(user.notes ?? "");
-  const [loading,     setLoading]     = useState(false);
-  const [errors,      setErrors]      = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState(user.notes ?? "");
+  const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const submitInFlight = useRef(false);
 
   function validate(): boolean {
@@ -902,13 +904,13 @@ function EditUserModal({
     try {
       const body: Record<string, unknown> = { type: user.type, name, active };
       if (user.type !== "waiter") { body.email = email; body.phone = phone; }
-      if (user.type === "waiter")  { body.waiterRole = waiterRole; body.avatarColor = avatarColor; if (pin) body.pin = pin; }
+      if (user.type === "waiter") { body.waiterRole = waiterRole; body.avatarColor = avatarColor; if (pin) body.pin = pin; }
       if (user.type === "driver") { body.vehicleInfo = vehicleInfo; body.notes = notes; }
 
-      const res  = await fetch(`/api/admin/users/${user.id}`, {
-        method:  "PATCH",
+      const res = await fetch(`/api/admin/users/${user.id}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify(body),
+        body: JSON.stringify(body),
       });
       const json = await res.json() as { ok: boolean; error?: string };
       if (json.ok) {
@@ -1020,10 +1022,10 @@ function ChangePasswordModal({
   onClose: () => void;
   addToast: (msg: string, ok: boolean) => void;
 }) {
-  const isWaiter  = user.type === "waiter";
-  const [value,   setValue]   = useState("");
+  const isWaiter = user.type === "waiter";
+  const [value, setValue] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [error,   setError]   = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const submitInFlight = useRef(false);
 
@@ -1046,10 +1048,10 @@ function ChangePasswordModal({
         ? { type: user.type, pin: value }
         : { type: user.type, password: value };
 
-      const res  = await fetch(`/api/admin/users/${user.id}/set-password`, {
-        method:  "POST",
+      const res = await fetch(`/api/admin/users/${user.id}/set-password`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify(body),
+        body: JSON.stringify(body),
       });
       const json = await res.json() as { ok: boolean; error?: string };
       if (json.ok) {
