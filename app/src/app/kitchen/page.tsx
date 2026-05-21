@@ -368,7 +368,7 @@ function OrderCard({
               <Truck size={14} /> Awaiting Driver Pickup
             </div>
           ) : (
-            <div className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-semibold border ${
+            <div className={`w-full flex items-center justify-center gap-2 py-3 px-2 rounded-xl text-xs font-semibold border ${
               isDineIn
                 ? "bg-purple-900/20 border-purple-700/30 text-purple-300"
                 : isDelivery
