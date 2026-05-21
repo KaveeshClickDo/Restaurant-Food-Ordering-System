@@ -757,7 +757,7 @@ function ItemModal({
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`flex sm:flex-1 min-w-[14vw] px-3 justify-center py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${
+            className={`flex sm:flex-1 min-w-[14vw] sm:min-w-0 px-3 justify-center py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${
               tab === t ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
             }`}
           >
