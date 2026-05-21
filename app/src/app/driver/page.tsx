@@ -921,7 +921,7 @@ export default function DriverDashboardPage() {
 
         {/* ── Stats bar ─────────────────────────────────────────────────────── */}
         {(delivered.length > 0 || active.length > 0) && (
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div className="bg-white rounded-xl border border-gray-100 px-3 py-3 text-center">
               <p className="text-lg font-extrabold text-gray-900">{active.length}</p>
               <p className="text-[10px] text-gray-400 font-medium mt-0.5">Active</p>
@@ -930,7 +930,7 @@ export default function DriverDashboardPage() {
               <p className="text-lg font-extrabold text-green-600">{delivered.length}</p>
               <p className="text-[10px] text-gray-400 font-medium mt-0.5">Delivered</p>
             </div>
-            <div className="bg-white rounded-xl border border-gray-100 px-3 py-3 text-center">
+            <div className="bg-white rounded-xl border border-gray-100 px-3 py-3 text-center col-span-2 sm:col-span-1">
               <p className="text-lg font-extrabold text-orange-500">
                 {sym}{delivered.reduce((s, d) => s + d.order.total, 0).toFixed(0)}
               </p>
