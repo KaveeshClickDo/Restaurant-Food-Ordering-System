@@ -123,7 +123,14 @@ interface AppContextValue {
     status: DeliveryStatus,
     code?: string,
   ) => Promise<{ ok: boolean; error?: string }>;
-  addRefund: (customerId: string, orderId: string, refund: Refund) => void;
+  /**
+   * Record a refund on an order. Pass `newStatus` to also flip the order's
+   * fulfillment status in the same atomic write — used by the Delivery panel's
+   * "refund + cancel" flow so the refund and the cancellation can't race each
+   * other on the `status` column. Omit it for a plain refund (the order keeps
+   * its current fulfillment status; only payment state changes).
+   */
+  addRefund: (customerId: string, orderId: string, refund: Refund, newStatus?: OrderStatus) => void;
   spendStoreCredit: (customerId: string, amount: number, orderId: string) => void;
   // ─── Meal periods ─────────────────────────────────────────────────────────
   // Time-bounded customer-menu sections (Breakfast, Lunch, Dinner…). Items
@@ -301,7 +308,10 @@ function menuItemToRow(m: MenuItem) {
     emoji: m.emoji ?? null,
     color: m.color ?? null,
     active: m.active ?? true,
-    track_stock: !!m.trackStock,
+    // A numeric stockQty *is* the "track quantity" mode (see admin Stock tab and
+    // resolveStock). Keep the DB flag in lockstep so decrement_stock_atomic /
+    // restore_stock actually fire — they skip rows where track_stock = false.
+    track_stock: typeof m.stockQty === "number",
     offer: m.offer ?? null,
     // Channel split + online price override. Omitting `channels` from the
     // payload would let the DB default re-assert `{in_store, online}`; we
@@ -964,7 +974,7 @@ export function AppProvider({
     }
   };
 
-  const addRefund = (customerId: string, orderId: string, refund: Refund) => {
+  const addRefund = (customerId: string, orderId: string, refund: Refund, newStatus?: OrderStatus) => {
     const currentOrder = customers
       .find((c) => c.id === customerId)
       ?.orders.find((o) => o.id === orderId);
@@ -976,11 +986,14 @@ export function AppProvider({
     // status. `paymentStatus` is the source of truth for refunds.
     const newPaymentStatus: PaymentStatus =
       newRefundedAmount >= currentOrder.total ? "refunded" : "partially_refunded";
+    // Callers can flip the fulfillment status in the same write (refund + cancel).
+    // Default: preserve the current status — a refund alone never moves it.
+    const nextStatus: OrderStatus = newStatus ?? currentOrder.status;
 
     const patchOrder = (o: Order): Order =>
       o.id !== orderId
         ? o
-        : { ...o, refunds: newRefunds, refundedAmount: newRefundedAmount, paymentStatus: newPaymentStatus };
+        : { ...o, status: nextStatus, refunds: newRefunds, refundedAmount: newRefundedAmount, paymentStatus: newPaymentStatus };
 
     setCustomers((prev) =>
       prev.map((c) => {
@@ -1015,8 +1028,10 @@ export function AppProvider({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        // Preserve fulfillment status — the refund is reflected in payment_status.
-        newStatus:       currentOrder.status,
+        // Usually preserves fulfillment status (the refund is reflected in
+        // payment_status); refund + cancel passes "cancelled" here so the two
+        // changes land in one atomic order update.
+        newStatus:       nextStatus,
         refunds:         newRefunds,
         refundedAmount:  newRefundedAmount,
         ...storeCreditPayload,

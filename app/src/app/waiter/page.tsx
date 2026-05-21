@@ -527,7 +527,7 @@ function VoidRefundModal({
 
 function isOutOfStock(item: MenuItem): boolean {
   if (item.stockQty !== undefined && item.stockQty <= 0) return true;
-  if (item.stockStatus === "out_of_stock") return false; // intentionally: only qty blocks
+  if (item.stockStatus === "out_of_stock") return true; // manual OOS blocks too — parity with customer/admin
   return false;
 }
 

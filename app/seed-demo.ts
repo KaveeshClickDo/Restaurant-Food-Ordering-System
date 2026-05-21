@@ -123,7 +123,7 @@ async function main(): Promise<void> {
             0,
             m.cost ?? null, m.sku ?? null,
             m.emoji ?? null, m.color ?? null,
-            m.active ?? true, m.trackStock ?? false,
+            m.active ?? true, typeof m.stockQty === "number",
             m.offer ? JSON.stringify(m.offer) : null,
           ],
         );

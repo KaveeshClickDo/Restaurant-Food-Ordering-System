@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { useApp } from "@/context/AppContext";
-import { Customer, DeliveryStatus, Order, OrderStatus } from "@/types";
+import { Customer, DeliveryStatus, Order, OrderStatus, Refund } from "@/types";
 import { fullOrderNumber } from "@/lib/orderNumber";
 import {
   Truck, Package, ChefHat, CheckCircle2, Circle, Ban,
@@ -11,6 +11,8 @@ import {
   AlertCircle, Search, Filter, Navigation, RotateCcw,
 } from "lucide-react";
 import { PaymentStatusBadge } from "@/components/admin/PaymentStatusBadge";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import { RefundModal } from "@/components/admin/RefundsPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -32,6 +34,15 @@ const ACTIVE_STATUSES: OrderStatus[] = ["pending", "confirmed", "preparing", "re
 function isRefundedOrder(o: { status: string; paymentStatus?: string | null }): boolean {
   return o.paymentStatus === "refunded" || o.paymentStatus === "partially_refunded"
       || o.status === "refunded" || o.status === "partially_refunded";
+}
+
+// When cancelling an active order, can the operator also issue a refund?
+// Only if money was actually collected (card / online "paid", or a partial
+// refund already happened) and something remains refundable. Unpaid
+// cash-on-delivery orders have nothing to return.
+function isCancelRefundEligible(o: Order): boolean {
+  if (o.paymentStatus !== "paid" && o.paymentStatus !== "partially_refunded") return false;
+  return (o.refundedAmount ?? 0) < o.total - 0.001;
 }
 
 // For delivery orders: admin can only advance up to "ready".
@@ -289,10 +300,11 @@ function KanbanCard({
 
 // ─── Order detail modal ───────────────────────────────────────────────────────
 
-function OrderModal({ order, onClose, onStatusChange }: {
+function OrderModal({ order, onClose, onStatusChange, onRequestCancel }: {
   order: RichOrder;
   onClose: () => void;
   onStatusChange: (status: OrderStatus) => void;
+  onRequestCancel: () => void;
 }) {
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
@@ -484,7 +496,7 @@ function OrderModal({ order, onClose, onStatusChange }: {
                 </div>
               )}
               <button
-                onClick={() => { onStatusChange("cancelled"); onClose(); }}
+                onClick={onRequestCancel}
                 className="w-full border-2 border-red-200 text-red-500 hover:bg-red-50 font-semibold py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-sm"
               >
                 <Ban size={14} /> Cancel order
@@ -500,10 +512,12 @@ function OrderModal({ order, onClose, onStatusChange }: {
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 
 export default function DeliveryPanel() {
-  const { customers, updateOrderStatus, settings } = useApp();
+  const { customers, updateOrderStatus, addRefund, settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
 
   const [modalOrder, setModalOrder] = useState<RichOrder | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<RichOrder | null>(null);
+  const [refundCancelTarget, setRefundCancelTarget] = useState<RichOrder | null>(null);
   const [fulfillmentFilter, setFulfillmentFilter] = useState<"all" | "delivery" | "collection">("all");
   const [search, setSearch] = useState("");
 
@@ -537,9 +551,30 @@ export default function DeliveryPanel() {
     }
   }
 
-  function cancel(order: RichOrder) {
+  // Actually performs the cancellation. Only called after the operator confirms
+  // in the dialog, which warns that a paid order is not auto-refunded.
+  function confirmCancel(order: RichOrder) {
     const cust = customers.find((c: Customer) => c.id === order.customerId);
     if (cust) updateOrderStatus(cust.id, order.id, "cancelled");
+    setCancelTarget(null);
+  }
+
+  // Refund + cancel: issue the refund (which sets status to "cancelled" in the
+  // same atomic write, so it can't race the cancel) then run the normal cancel
+  // so the customer still gets the cancellation email. Both write "cancelled",
+  // so the second call is idempotent.
+  function refundAndCancel(order: RichOrder, fields: Omit<Refund, "id" | "processedAt" | "processedBy">) {
+    const cust = customers.find((c: Customer) => c.id === order.customerId);
+    if (!cust) { setRefundCancelTarget(null); return; }
+    const refund: Refund = {
+      ...fields,
+      id: crypto.randomUUID(),
+      processedAt: new Date().toISOString(),
+      processedBy: "Admin",
+    };
+    addRefund(cust.id, order.id, refund, "cancelled");
+    updateOrderStatus(cust.id, order.id, "cancelled");
+    setRefundCancelTarget(null);
   }
 
   function changeStatus(order: RichOrder, status: OrderStatus) {
@@ -681,7 +716,7 @@ export default function DeliveryPanel() {
                         key={order.id}
                         order={order}
                         onAdvance={() => advance(order)}
-                        onCancel={() => cancel(order)}
+                        onCancel={() => setCancelTarget(order)}
                         onClick={() => setModalOrder(order)}
                       />
                     ))
@@ -769,6 +804,61 @@ export default function DeliveryPanel() {
           order={modalOrder}
           onClose={() => setModalOrder(null)}
           onStatusChange={(status) => changeStatus(modalOrder, status)}
+          onRequestCancel={() => { setCancelTarget(modalOrder); setModalOrder(null); }}
+        />
+      )}
+
+      {/* Cancel confirmation — when the order is paid it offers a one-step
+          "refund + cancel"; otherwise a plain cancel. */}
+      {(() => {
+        const eligible = !!cancelTarget && isCancelRefundEligible(cancelTarget);
+        return (
+          <ConfirmDialog
+            open={!!cancelTarget}
+            title={`Cancel order ${cancelTarget ? fullOrderNumber(cancelTarget.id) : ""}?`}
+            tone="danger"
+            confirmLabel={eligible ? "Cancel without refund" : "Cancel order"}
+            cancelLabel="Keep order"
+            message={
+              <div className="space-y-3">
+                <p>This marks the order as cancelled and notifies the customer.</p>
+                {eligible ? (
+                  <>
+                    <p className="text-red-300 font-medium">
+                      This order is paid ({sym}{cancelTarget!.total.toFixed(2)}). Cancelling on
+                      its own does <span className="font-bold">not</span> return the money.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => { const t = cancelTarget; setCancelTarget(null); setRefundCancelTarget(t); }}
+                      className="w-full flex items-center justify-center gap-2 bg-teal-500 hover:bg-teal-400 text-white text-sm font-bold py-2.5 rounded-lg transition"
+                    >
+                      <RotateCcw size={14} /> Refund + cancel order
+                    </button>
+                    <p className="text-xs text-gray-500">
+                      Or use “Cancel without refund” below to cancel and handle the refund later
+                      from the Refunds panel.
+                    </p>
+                  </>
+                ) : (
+                  <p>This action cannot be undone.</p>
+                )}
+              </div>
+            }
+            onConfirm={() => { if (cancelTarget) confirmCancel(cancelTarget); }}
+            onCancel={() => setCancelTarget(null)}
+          />
+        );
+      })()}
+
+      {/* Refund + cancel: reuses the Refunds panel modal, then cancels on submit */}
+      {refundCancelTarget && (
+        <RefundModal
+          order={refundCancelTarget}
+          customerName={refundCancelTarget.customerName}
+          cancelAfter
+          onClose={() => setRefundCancelTarget(null)}
+          onSubmit={(fields) => refundAndCancel(refundCancelTarget, fields)}
         />
       )}
     </div>

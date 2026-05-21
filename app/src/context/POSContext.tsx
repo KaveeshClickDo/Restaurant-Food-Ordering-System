@@ -245,10 +245,13 @@ function syncMenuToSupabase(products: POSProduct[], categories: POSCategory[]) {
         dietary:     p.dietary ?? [],
         popular:     p.popular ?? false,
         active:      p.active ?? true,
-        track_stock: !!p.trackStock,
+        // A numeric stockQty is the source of truth for "tracked" — keep the DB
+        // flag in lockstep so the atomic decrement actually runs (it skips rows
+        // where track_stock = false).
+        track_stock: typeof p.stockQty === "number",
         variations:  variations.length > 0 ? variations : null,
         add_ons:     addOns.length > 0 ? addOns : null,
-        stock_qty:   p.trackStock ? (p.stockQty ?? null) : null,
+        stock_qty:   typeof p.stockQty === "number" ? p.stockQty : null,
         stock_status: p.stockStatus ?? null,
         offer:       p.offer ?? null,
         // POS only ever ships items as in_store. If admin had the item on

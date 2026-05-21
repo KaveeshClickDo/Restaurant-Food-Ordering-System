@@ -36,6 +36,7 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
   const sym = settings.currency?.symbol ?? "£";
   const stockStatus = resolveStock(item);
   const outOfStock = stockStatus === "out_of_stock";
+  const lowStock = stockStatus === "low_stock";
   const canAdd = (isOpen || !!scheduledTime) && !outOfStock;
   const faved = isFavourite(item.id);
 
@@ -86,6 +87,13 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
         {outOfStock && (
           <span className="absolute top-2.5 left-2.5 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-zinc-100 text-zinc-500">
             Unavailable
+          </span>
+        )}
+        {/* Low-stock urgency — only when running low (qty ≤ threshold). Bottom-left
+            so it never collides with the popular/offer (top-left) or heart (top-right). */}
+        {lowStock && !outOfStock && (
+          <span className="absolute bottom-2.5 left-2.5 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-amber-500/95 text-white backdrop-blur-sm shadow-sm">
+            {typeof item.stockQty === "number" ? `Only ${item.stockQty} left` : "Low stock"}
           </span>
         )}
 

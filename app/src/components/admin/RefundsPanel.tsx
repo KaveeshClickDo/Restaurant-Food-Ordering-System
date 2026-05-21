@@ -252,16 +252,23 @@ function OrderRefundCard({
 
 // ─── Refund modal ─────────────────────────────────────────────────────────────
 
-function RefundModal({
+export function RefundModal({
   order,
   customerName,
   onClose,
   onSubmit,
+  cancelAfter = false,
 }: {
   order: Order;
   customerName: string;
   onClose: () => void;
   onSubmit: (refund: Omit<Refund, "id" | "processedAt" | "processedBy">) => void;
+  /**
+   * When true the modal is being used by the Delivery panel's "refund + cancel"
+   * flow: the order will be cancelled once the refund is confirmed. Only the
+   * labelling changes — the caller owns the actual cancel.
+   */
+  cancelAfter?: boolean;
 }) {
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
@@ -307,7 +314,7 @@ function RefundModal({
           <div>
             <div className="flex items-center gap-2">
               <RotateCcw size={18} className="text-white" />
-              <h2 className="text-white font-bold text-lg">Process Refund</h2>
+              <h2 className="text-white font-bold text-lg">{cancelAfter ? "Refund & Cancel Order" : "Process Refund"}</h2>
             </div>
             <p title={fullOrderNumber(order.id)} className="text-teal-100 text-sm mt-0.5 truncate">
               {fullOrderNumber(order.id)} · {customerName}
@@ -319,6 +326,13 @@ function RefundModal({
         </div>
 
         <div className="px-6 py-5 space-y-5 max-h-[60vh] sm:max-h-[70vh] overflow-y-auto">
+
+          {cancelAfter && (
+            <div className="flex items-start gap-2 bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-600">
+              <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />
+              <span>This order will be <span className="font-bold">cancelled</span> once the refund is confirmed.</span>
+            </div>
+          )}
 
           {/* Order summary */}
           <div className="bg-gray-50 rounded-xl sm:px-4 py-3 grid grid-cols-3 gap-3 text-center">
@@ -464,7 +478,7 @@ function RefundModal({
             className="flex-1 px-3 bg-teal-500 hover:bg-teal-400 active:bg-teal-600 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
           >
             <RotateCcw size={15} className="flex-shrink-0" />
-            Confirm refund {amountNum > 0 && amountNum <= maxRefundable ? `of ${fmtAmt(amountNum, sym)}` : ""}
+            {cancelAfter ? "Refund & cancel order" : `Confirm refund ${amountNum > 0 && amountNum <= maxRefundable ? `of ${fmtAmt(amountNum, sym)}` : ""}`}
           </button>
           <button
             onClick={onClose}
