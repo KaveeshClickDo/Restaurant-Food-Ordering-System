@@ -403,7 +403,7 @@ export default function CustomPagesPanel() {
               {/* Delete */}
               {pages.some((p) => p.id === draft.id) ? (
                 deleteConfirm ? (
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs text-red-600 font-medium">Delete this page?</span>
                     <button
                       onClick={deletePage}

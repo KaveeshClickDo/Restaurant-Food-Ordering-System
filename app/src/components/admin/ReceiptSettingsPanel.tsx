@@ -53,7 +53,7 @@ function TextareaField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        rows={2}
+        rows={3}
         className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition resize-none"
       />
       {hint && <p className="text-[11px] text-gray-400 mt-1">{hint}</p>}
@@ -147,7 +147,7 @@ function ReceiptPreview({ r, restaurantName }: { r: ReceiptSettings; restaurantN
   lines.push({ text: "" });
 
   return (
-    <div className="bg-gray-800 rounded-2xl p-4">
+    <div className="bg-gray-800 rounded-2xl p-4 min-w-0 max-w-full overflow-hidden">
       {/* Simulated printer paper */}
       <div className="bg-white rounded-xl overflow-hidden shadow-inner">
         {/* Sprocket holes strip */}
@@ -171,20 +171,22 @@ function ReceiptPreview({ r, restaurantName }: { r: ReceiptSettings; restaurantN
             </div>
           )}
           {/* Receipt lines */}
-          <div className="font-mono text-[11px] leading-[1.45] overflow-x-auto">
-            {lines.map((line, i) => (
-              <div
-                key={i}
-                className={[
-                  "whitespace-pre",
-                  line.bold ? "font-bold" : "font-normal",
-                  line.large ? "text-[13px]" : "",
-                  line.dim ? "text-gray-400" : "text-gray-800",
-                ].filter(Boolean).join(" ")}
-              >
-                {line.text || "\u00A0"}
-              </div>
-            ))}
+          <div className="font-mono text-[11px] leading-[1.45] w-full overflow-x-auto min-w-0">
+            <div className="min-w-max">
+              {lines.map((line, i) => (
+                <div
+                  key={i}
+                  className={[
+                    "whitespace-pre",
+                    line.bold ? "font-bold" : "font-normal",
+                    line.large ? "text-[13px]" : "",
+                    line.dim ? "text-gray-400" : "text-gray-800",
+                  ].filter(Boolean).join(" ")}
+                >
+                  {line.text || "\u00A0"}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -386,7 +388,7 @@ export default function ReceiptSettingsPanel() {
 
           {/* ── Preview pane ─────────────────────────────────────────────────── */}
           {showPreview && (
-            <div className="border-t lg:border-t-0 lg:border-l border-gray-100 p-6 bg-gray-50/70">
+            <div className="border-t lg:border-t-0 lg:border-l border-gray-100 p-6 bg-gray-50/70 min-w-0">
               <SectionHeading>Receipt Preview</SectionHeading>
               <ReceiptPreview r={draft} restaurantName={liveRestaurantName} />
             </div>
