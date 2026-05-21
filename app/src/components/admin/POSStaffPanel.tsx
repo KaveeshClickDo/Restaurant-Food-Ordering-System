@@ -209,15 +209,17 @@ function StaffForm({
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 
 export default function POSStaffPanel() {
-  // Backed by /api/pos/staff (table: pos_staff). The same endpoints are used
-  // by the in-POS Staff tab, so changes here surface there instantly.
+  // Backed by the admin-only /api/admin/pos routes (table: pos_staff), mirroring
+  // the waiters/kitchen-staff panels. The /api/pos/staff endpoints still drive
+  // the /pos login picker + in-POS Staff tab; both read the same table, so
+  // changes here surface there instantly.
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
   const [staff, setStaff] = useState<POSStaff[]>([]);
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch("/api/pos/staff");
+      const res = await fetch("/api/admin/pos");
       if (!res.ok) return;
       const json = await res.json() as { ok: boolean; staff?: POSStaff[] };
       if (json.ok) setStaff(json.staff ?? []);
@@ -234,7 +236,7 @@ export default function POSStaffPanel() {
   const deletingIds = useRef<Set<string>>(new Set());
 
   async function handleAdd(data: FormDraft) {
-    const res = await fetch("/api/pos/staff", {
+    const res = await fetch("/api/admin/pos", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({
@@ -256,7 +258,7 @@ export default function POSStaffPanel() {
 
   async function handleEdit(data: FormDraft) {
     if (!editing) return;
-    const res = await fetch(`/api/pos/staff/${editing.id}`, {
+    const res = await fetch(`/api/admin/pos/${editing.id}`, {
       method:  "PATCH",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({
@@ -280,7 +282,7 @@ export default function POSStaffPanel() {
     if (deletingIds.current.has(id)) return;
     deletingIds.current.add(id);
     try {
-      const res = await fetch(`/api/pos/staff/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/admin/pos/${id}`, { method: "DELETE" });
       if (res.ok) {
         await refresh();
         setDeleting(null);
@@ -296,7 +298,7 @@ export default function POSStaffPanel() {
     if (!member) return;
     togglingIds.current.add(id);
     try {
-      const res = await fetch(`/api/pos/staff/${id}`, {
+      const res = await fetch(`/api/admin/pos/${id}`, {
         method:  "PATCH",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ active: !member.active }),
