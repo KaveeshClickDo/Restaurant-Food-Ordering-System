@@ -43,7 +43,7 @@ export default function PaymentModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
       <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
         {/* Header */}
         <div className="px-5 py-4 border-b border-slate-700 flex items-center justify-between">
@@ -131,18 +131,18 @@ export default function PaymentModal({
                 onChange={(e) => setCashInput(e.target.value)}
                 placeholder={total.toFixed(2)}
                 autoFocus
-                className="flex-1 bg-transparent text-white text-2xl font-bold outline-none placeholder-slate-600"
+                className="flex-1 min-w-0 bg-transparent text-white text-lg sm:text-xl font-bold outline-none placeholder-slate-600"
               />
             </div>
-            <div className="flex gap-2 mb-5">
+            <div className="flex flex-wrap gap-2 mb-5">
               {QUICK_CASH.map((v) => (
                 <button key={v} onClick={() => setCashInput(v.toFixed(2))}
-                  className="flex-1 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm font-semibold transition-colors">
+                  className="flex-1 min-w-[110px] max-w-full px-2 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm font-semibold transition-colors">
                   {fmt(v, currencySymbol)}
                 </button>
               ))}
               <button onClick={() => setCashInput(total.toFixed(2))}
-                className="flex-1 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm font-semibold transition-colors">
+                className="flex-1 min-w-[80px] max-w-full px-2 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm font-semibold transition-colors">
                 Exact
               </button>
             </div>
@@ -155,7 +155,7 @@ export default function PaymentModal({
             <button
               disabled={cashTendered < total}
               onClick={completeCash}
-              className={`w-full py-3.5 rounded-xl font-bold text-sm transition-all ${cashTendered >= total ? "bg-green-500 hover:bg-green-400 text-white active:scale-[0.98]" : "bg-slate-700 text-slate-500 cursor-not-allowed"}`}
+              className={`w-full py-3.5 px-2 rounded-xl font-bold text-sm transition-all ${cashTendered >= total ? "bg-green-500 hover:bg-green-400 text-white active:scale-[0.98]" : "bg-slate-700 text-slate-500 cursor-not-allowed"}`}
             >
               {cashTendered >= total ? `Confirm Cash · Change ${fmt(change, currencySymbol)}` : "Enter amount"}
             </button>
@@ -171,11 +171,11 @@ export default function PaymentModal({
               </div>
               <p className="text-white font-bold text-lg mb-1">Present card to terminal</p>
               <p className="text-slate-400 text-sm">Tap, insert or swipe to collect</p>
-              <p className="text-2xl font-bold text-blue-400 mt-4">{fmt(total, currencySymbol)}</p>
+              <p className="text-lg sm:text-xl font-bold text-blue-400 mt-4">{fmt(total, currencySymbol)}</p>
             </div>
             <button
               onClick={completeCard}
-              className="w-full py-3.5 rounded-xl font-bold text-sm bg-blue-500 hover:bg-blue-400 text-white transition-all active:scale-[0.98]"
+              className="w-full px-2 py-3.5 rounded-xl font-bold text-sm bg-blue-500 hover:bg-blue-400 text-white transition-all active:scale-[0.98]"
             >
               Payment Received · {fmt(total, currencySymbol)}
             </button>
@@ -193,7 +193,7 @@ export default function PaymentModal({
                   <Banknote size={16} className="text-green-400" />
                   <input type="number" step="0.01" min={0} max={total}
                     value={splitCash} onChange={(e) => { setSplitCash(e.target.value); setSplitCard((total - (parseFloat(e.target.value) || 0)).toFixed(2)); }}
-                    placeholder="0.00" className="flex-1 bg-transparent text-white font-bold text-lg outline-none placeholder-slate-600" />
+                    placeholder="0.00" className="flex-1 min-w-0  bg-transparent text-white font-bold text-lg outline-none placeholder-slate-600" />
                 </div>
               </div>
               <div>
@@ -202,12 +202,12 @@ export default function PaymentModal({
                   <CreditCard size={16} className="text-blue-400" />
                   <input type="number" step="0.01" min={0} max={total}
                     value={splitCard} onChange={(e) => { setSplitCard(e.target.value); setSplitCash((total - (parseFloat(e.target.value) || 0)).toFixed(2)); }}
-                    placeholder="0.00" className="flex-1 bg-transparent text-white font-bold text-lg outline-none placeholder-slate-600" />
+                    placeholder="0.00" className="flex-1 min-w-0 bg-transparent text-white font-bold text-lg outline-none placeholder-slate-600" />
                 </div>
               </div>
             </div>
             {Math.abs((parseFloat(splitCash) || 0) + (parseFloat(splitCard) || 0) - total) < 0.01 && (
-              <button onClick={completeSplit} className="w-full py-3.5 rounded-xl font-bold text-sm bg-purple-500 hover:bg-purple-400 text-white transition-all active:scale-[0.98]">
+              <button onClick={completeSplit} className="w-full px-2 py-3.5 rounded-xl font-bold text-sm bg-purple-500 hover:bg-purple-400 text-white transition-all active:scale-[0.98]">
                 Confirm Split Payment
               </button>
             )}

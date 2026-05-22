@@ -33,7 +33,7 @@ export default function OrderPanel({
           <ShoppingCart size={16} className="text-orange-400" />
           <span className="text-white font-bold text-sm">Current Order</span>
           {cart.length > 0 && (
-            <span className="bg-orange-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
+            <span className="bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full text-center">
               {cart.reduce((s, l) => s + l.quantity, 0)}
             </span>
           )}
@@ -51,12 +51,12 @@ export default function OrderPanel({
         className="mx-3 mt-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors"
       >
         <Users size={14} className="text-slate-400" />
-        <span className={`text-sm flex-1 text-left ${assignedCustomer ? "text-white font-medium" : "text-slate-400"}`}>
+        <span className={`text-sm flex-1 text-left truncate ${assignedCustomer ? "text-white font-medium" : "text-slate-400"}`}>
           {assignedCustomer ? assignedCustomer.name : "Assign customer"}
         </span>
         {assignedCustomer ? (
           <span className="text-xs text-amber-400 font-semibold flex items-center gap-1">
-            <Star size={10} /> {assignedCustomer.loyaltyPoints ?? 0}pts
+            {assignedCustomer.tags.includes("VIP") && <Star size={10} />} {assignedCustomer.loyaltyPoints ?? 0}pts
           </span>
         ) : (
           <ChevronRight size={14} className="text-slate-500" />
@@ -113,7 +113,7 @@ export default function OrderPanel({
                     >
                       <Minus size={12} />
                     </button>
-                    <span className="text-white text-sm font-bold w-5 text-center">{item.quantity}</span>
+                    <span className="text-white text-sm font-bold w-7 text-center">{item.quantity}</span>
                     <button
                       onClick={() => updateCartQty(item.lineId, item.quantity + 1)}
                       className="w-7 h-7 rounded-lg bg-slate-700 hover:bg-orange-500/30 text-slate-300 hover:text-orange-400 flex items-center justify-center transition-all active:scale-95"
