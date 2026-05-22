@@ -90,6 +90,28 @@ export async function DELETE(
     );
   }
 
+  // Block deletion while the customer has any non-terminal order. The order
+  // row would survive via ON DELETE SET NULL, but kitchen/delivery flows
+  // still depend on the customer link being live.
+  const { data: activeOrders, error: activeErr } = await supabaseAdmin
+    .from("orders")
+    .select("id, status")
+    .eq("customer_id", id)
+    .in("status", ["pending", "confirmed", "preparing", "ready"]);
+  if (activeErr) {
+    return NextResponse.json({ ok: false, error: activeErr.message }, { status: 500 });
+  }
+  if (activeOrders && activeOrders.length > 0) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "This customer has active orders. Cancel or complete them before deleting.",
+        activeOrders,
+      },
+      { status: 409 },
+    );
+  }
+
   // Mirror the admin DELETE behaviour: also clean up the linked
   // reservation_customers profile so the CRM table isn't orphaned by the
   // customers FK cascade (Bug #10).

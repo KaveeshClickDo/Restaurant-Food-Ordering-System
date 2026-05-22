@@ -4,7 +4,7 @@ import { useState } from "react";
 import { usePOS } from "@/context/POSContext";
 import { POSCustomer } from "@/types/pos";
 import {
-  UserPlus, Search, Star, Users, Phone, Mail, Pencil, X, Trash2, Save, ArrowLeft,
+  UserPlus, Search, Star, Users, Phone, Mail, Pencil, X, Trash2, Save, ArrowLeft, AlertTriangle,
 } from "lucide-react";
 import { fmt, fmtDate, fmtTime, getInitials } from "./_utils";
 
@@ -29,6 +29,9 @@ export default function CustomersView() {
     loyaltyPoints: 0, giftCardBalance: 0, tags: [] as string[], customTag: "",
   });
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  // Set when the server rejects a delete because the customer has non-terminal
+  // orders; swaps the confirm dialog into a blocking "resolve orders first" view.
+  const [deleteBlocked, setDeleteBlocked] = useState<{ id: string; status: string }[] | null>(null);
 
   const filtered = customers.filter((c) =>
     !search || c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -79,12 +82,25 @@ export default function CustomersView() {
   async function handleDelete() {
     if (!selectedLive || saving) return;
     setSaving(true);
+    setDeleteBlocked(null);
     const result = await apiDeleteCustomer(selectedLive.id);
     setSaving(false);
-    if (!result.ok) { setSaveError(result.error ?? "Failed to delete"); return; }
+    if (!result.ok) {
+      if (result.activeOrders && result.activeOrders.length > 0) {
+        setDeleteBlocked(result.activeOrders);
+        return;
+      }
+      setSaveError(result.error ?? "Failed to delete");
+      return;
+    }
     setSelected(null);
     setDeleteConfirm(false);
     setShowEdit(false);
+  }
+
+  function closeDeleteConfirm() {
+    setDeleteConfirm(false);
+    setDeleteBlocked(null);
   }
 
   function toggleTag(tag: string) {
@@ -401,25 +417,53 @@ export default function CustomersView() {
       {deleteConfirm && selectedLive && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-xs p-6 shadow-2xl text-center">
-            <div className="w-12 h-12 bg-red-500/10 border border-red-500/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <Trash2 size={20} className="text-red-400" />
-            </div>
-            <h3 className="text-white font-bold mb-1">Delete customer?</h3>
-            <p className="text-slate-400 text-sm mb-1">
-              <span className="text-white font-semibold">{selectedLive.name}</span> will be permanently removed.
-            </p>
-            <p className="text-slate-500 text-xs mb-6">
-              Their purchase history ({customerSales.length} sale{customerSales.length !== 1 ? "s" : ""}) will remain in the sales log.
-            </p>
-            {saveError && <p className="text-red-400 text-xs mb-3">{saveError}</p>}
-            <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => setDeleteConfirm(false)} disabled={saving} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors disabled:opacity-50">
-                Cancel
-              </button>
-              <button onClick={handleDelete} disabled={saving} className="py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold text-sm transition-colors disabled:opacity-50">
-                {saving ? "Deleting…" : "Delete"}
-              </button>
-            </div>
+            {deleteBlocked ? (
+              <>
+                <div className="w-12 h-12 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <AlertTriangle size={20} className="text-amber-400" />
+                </div>
+                <h3 className="text-white font-bold mb-1">Cannot delete customer</h3>
+                <p className="text-slate-400 text-sm mb-3">
+                  <span className="text-white font-semibold">{selectedLive.name}</span> has {deleteBlocked.length} active order{deleteBlocked.length === 1 ? "" : "s"}.
+                  Cancel or complete {deleteBlocked.length === 1 ? "it" : "them"} from the admin Delivery panel before deleting.
+                </p>
+                <div className="bg-slate-900/60 border border-slate-700 rounded-xl divide-y divide-slate-700/60 mb-5 max-h-40 overflow-y-auto text-left">
+                  {deleteBlocked.map((o) => (
+                    <div key={o.id} className="flex items-center justify-between px-3 py-2 text-xs">
+                      <span className="font-mono text-slate-200 truncate">#{o.id}</span>
+                      <span className="inline-flex items-center font-bold uppercase tracking-wide text-amber-300 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                        {o.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={closeDeleteConfirm} className="w-full py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-100 font-semibold text-sm transition-colors">
+                  Close
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="w-12 h-12 bg-red-500/10 border border-red-500/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Trash2 size={20} className="text-red-400" />
+                </div>
+                <h3 className="text-white font-bold mb-1">Delete customer?</h3>
+                <p className="text-slate-400 text-sm mb-1">
+                  <span className="text-white font-semibold">{selectedLive.name}</span> will be permanently removed.
+                </p>
+                <p className="text-slate-500 text-xs mb-6">
+                  Their purchase history ({customerSales.length} sale{customerSales.length !== 1 ? "s" : ""}) will remain in the sales log.
+                </p>
+                {saveError && <p className="text-red-400 text-xs mb-3">{saveError}</p>}
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={closeDeleteConfirm} disabled={saving} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors disabled:opacity-50">
+                    Cancel
+                  </button>
+                  <button onClick={handleDelete} disabled={saving} className="py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold text-sm transition-colors disabled:opacity-50">
+                    {saving ? "Deleting…" : "Delete"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

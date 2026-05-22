@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import {
   Users, Plus, Search, Pencil, Key, Mail, Trash2,
-  X, CheckCircle, AlertCircle, Loader2,
+  X, CheckCircle, AlertCircle, Loader2, AlertTriangle, ExternalLink,
   Truck, UtensilsCrossed, UserCircle2, ChevronDown,
   ChefHat, Tablet,
 } from "lucide-react";
@@ -116,6 +117,7 @@ let toastId = 0;
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function UserManagementPanel() {
+  const router = useRouter();
   const [users,       setUsers]       = useState<ManagedUser[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [filterRole,  setFilterRole]  = useState<FilterRole>("all");
@@ -129,6 +131,10 @@ export default function UserManagementPanel() {
   const [deleteUser,        setDeleteUser]        = useState<ManagedUser | null>(null);
   const [deleteConfirming,  setDeleteConfirming]  = useState(false);
   const [resetSending,      setResetSending]      = useState<string | null>(null);
+  // Populated when the backend rejects a customer delete with 409 because
+  // the customer has non-terminal orders. The modal swaps to a blocking
+  // view that lists them and offers a redirect to the Delivery tab.
+  const [activeOrders,      setActiveOrders]      = useState<{ id: string; status: string }[] | null>(null);
 
   // ── Toast helpers ─────────────────────────────────────────────────────────
   function addToast(message: string, ok: boolean) {
@@ -214,17 +220,25 @@ export default function UserManagementPanel() {
     if (deleteInFlight.current) return;
     deleteInFlight.current = true;
     setDeleteConfirming(true);
+    setActiveOrders(null);
     try {
       const res = await fetch(`/api/admin/users/${deleteUser.id}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: deleteUser.type }),
       });
-      const json = await res.json() as { ok: boolean; error?: string };
+      const json = await res.json() as {
+        ok: boolean;
+        error?: string;
+        activeOrders?: { id: string; status: string }[];
+      };
       if (json.ok) {
         setUsers((prev) => prev.filter((u) => u.id !== deleteUser.id));
         addToast(`${deleteUser.name} deleted.`, true);
         setDeleteUser(null);
+      } else if (res.status === 409 && json.activeOrders?.length) {
+        // Don't dismiss the modal — swap it into the blocking active-orders view.
+        setActiveOrders(json.activeOrders);
       } else {
         addToast(json.error ?? "Failed to delete.", false);
       }
@@ -234,6 +248,16 @@ export default function UserManagementPanel() {
       deleteInFlight.current = false;
       setDeleteConfirming(false);
     }
+  }
+
+  function closeDeleteModal() {
+    setDeleteUser(null);
+    setActiveOrders(null);
+  }
+
+  function goToDelivery() {
+    closeDeleteModal();
+    router.push("/admin?tab=delivery");
   }
 
   // ── Send reset email ──────────────────────────────────────────────────────
@@ -418,33 +442,77 @@ export default function UserManagementPanel() {
       {deleteUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full border border-gray-100">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center">
-                <Trash2 size={18} className="text-red-500" />
-              </div>
-              <div>
-                <h3 className="font-bold text-gray-900">Delete user</h3>
-                <p className="text-xs text-gray-500">This action cannot be undone.</p>
-              </div>
-            </div>
-            <p className="text-sm text-gray-700 mb-5">
-              Are you sure you want to delete <strong>{deleteUser.name}</strong>?
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setDeleteUser(null)}
-                className="flex-1 px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => void confirmDelete()}
-                disabled={deleteConfirming}
-                className="flex-1 px-4 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition disabled:opacity-60"
-              >
-                {deleteConfirming ? <Loader2 size={15} className="animate-spin mx-auto" /> : "Delete"}
-              </button>
-            </div>
+            {activeOrders ? (
+              <>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
+                    <AlertTriangle size={18} className="text-amber-500" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900">Cannot delete customer</h3>
+                    <p className="text-xs text-gray-500">Active orders must be resolved first.</p>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-700 mb-3">
+                  <strong>{deleteUser.name}</strong> has {activeOrders.length} active order{activeOrders.length === 1 ? "" : "s"}.
+                  Cancel or complete {activeOrders.length === 1 ? "it" : "them"} before deleting.
+                </p>
+                <div className="bg-gray-50 border border-gray-100 rounded-xl divide-y divide-gray-100 mb-5 max-h-48 overflow-y-auto">
+                  {activeOrders.map((o) => (
+                    <div key={o.id} className="flex items-center justify-between px-3 py-2 text-xs">
+                      <span className="font-mono text-gray-800 truncate">#{o.id}</span>
+                      <span className="inline-flex items-center font-bold uppercase tracking-wide text-amber-700 bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-full">
+                        {o.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={closeDeleteModal}
+                    className="flex-1 px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition"
+                  >
+                    Close
+                  </button>
+                  <button
+                    onClick={goToDelivery}
+                    className="flex-1 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold transition flex items-center justify-center gap-1.5"
+                  >
+                    Go to Delivery <ExternalLink size={13} />
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center">
+                    <Trash2 size={18} className="text-red-500" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900">Delete user</h3>
+                    <p className="text-xs text-gray-500">This action cannot be undone.</p>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-700 mb-5">
+                  Are you sure you want to delete <strong>{deleteUser.name}</strong>?
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={closeDeleteModal}
+                    className="flex-1 px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => void confirmDelete()}
+                    disabled={deleteConfirming}
+                    className="flex-1 px-4 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition disabled:opacity-60"
+                  >
+                    {deleteConfirming ? <Loader2 size={15} className="animate-spin mx-auto" /> : "Delete"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

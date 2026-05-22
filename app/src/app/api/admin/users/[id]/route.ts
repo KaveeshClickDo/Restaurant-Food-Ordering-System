@@ -178,6 +178,28 @@ export async function DELETE(
   // customers FK cascade (Bug #10).
   let customerEmail: string | null = null;
   if (type === "customer") {
+    // Block deletion while the customer has any non-terminal order. The order
+    // row would survive via ON DELETE SET NULL, but kitchen/delivery flows
+    // still depend on the customer link being live.
+    const { data: activeOrders, error: activeErr } = await supabaseAdmin
+      .from("orders")
+      .select("id, status")
+      .eq("customer_id", id)
+      .in("status", ["pending", "confirmed", "preparing", "ready"]);
+    if (activeErr) {
+      return NextResponse.json({ ok: false, error: activeErr.message }, { status: 500 });
+    }
+    if (activeOrders && activeOrders.length > 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "This customer has active orders. Cancel or complete them before deleting.",
+          activeOrders,
+        },
+        { status: 409 },
+      );
+    }
+
     const { data: existing } = await supabaseAdmin
       .from("customers")
       .select("email")

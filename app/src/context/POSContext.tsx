@@ -105,7 +105,7 @@ interface POSContextValue {
     name?: string; email?: string; phone?: string; notes?: string;
     tags?: string[]; loyaltyPoints?: number; giftCardBalance?: number;
   }) => Promise<{ ok: boolean; error?: string }>;
-  deleteCustomer: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  deleteCustomer: (id: string) => Promise<{ ok: boolean; error?: string; activeOrders?: { id: string; status: string }[] }>;
   refreshCustomers: () => Promise<void>;
   clockEntries: POSClockEntry[];
   settings: POSSettings;
@@ -531,8 +531,18 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   const deleteCustomer = useCallback(async (id: string) => {
     try {
       const res = await fetch(`/api/pos/customers/${id}`, { method: "DELETE" });
-      const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
-      if (!res.ok || !json.ok) return { ok: false, error: json.error ?? "Failed to delete customer" };
+      const json = await res.json().catch(() => ({})) as {
+        ok?: boolean;
+        error?: string;
+        activeOrders?: { id: string; status: string }[];
+      };
+      if (!res.ok || !json.ok) {
+        return {
+          ok: false,
+          error: json.error ?? "Failed to delete customer",
+          activeOrders: json.activeOrders,
+        };
+      }
       // Clear local optimistically; refetch will reconcile.
       setCustomers((prev) => prev.filter((c) => c.id !== id));
       await fetchCustomers();

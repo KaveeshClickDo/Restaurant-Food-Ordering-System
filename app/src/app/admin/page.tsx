@@ -177,7 +177,10 @@ function AdminPageContent() {
   const [loginLoading,  setLoginLoading]  = useState(false);
 
   // ── All hooks must be declared before any early return (Rules of Hooks) ───
-  const [activeTab,          setActiveTab]          = useState<TabId>("delivery");
+  // Honor ?tab=<id> on first paint so deep-links (e.g. "Go to Delivery" from
+  // the user-management active-orders modal) land on the right panel.
+  const initialTab = (searchParams.get("tab") ?? "delivery") as TabId;
+  const [activeTab,          setActiveTab]          = useState<TabId>(initialTab);
   const [sidebarCollapsed,   setSidebarCollapsed]   = useState(false);
   const [mobileSidebarOpen,  setMobileSidebarOpen]  = useState(false);
   const [collapsedGroups,    setCollapsedGroups]    = useState<Set<string>>(new Set());
@@ -215,6 +218,13 @@ function AdminPageContent() {
     }
     prevCountRef.current = activeOrderCount;
   }, [activeOrderCount]);
+
+  // Sync activeTab when ?tab=<id> changes after mount (e.g. router.push from
+  // an in-page modal). Guard against unknown ids.
+  useEffect(() => {
+    const t = searchParams.get("tab");
+    if (t && ALL_TABS.some((x) => x.id === t)) setActiveTab(t);
+  }, [searchParams]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMobileSidebarOpen(false); };
