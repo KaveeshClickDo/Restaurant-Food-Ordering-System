@@ -168,7 +168,7 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
   const sym = settings.currency?.symbol ?? "£";
   const estTime = isDelivery ? restaurant.deliveryTime : restaurant.collectionTime;
   const feeLabel = isDelivery
-    ? (restaurant.deliveryFee > 0 ? `${sym}${restaurant.deliveryFee.toFixed(2)} fee` : "Free delivery")
+    ? (restaurant.deliveryFee > 0 ? `From ${sym}${restaurant.deliveryFee.toFixed(2)} fee` : "Free delivery")
     : "Free · no fee";
 
   return (
