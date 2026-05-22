@@ -8,9 +8,11 @@
  * Bug #11 — unifies POS + admin customer data. The response now includes the
  * shared POS fields (loyalty_points, gift_card_balance, notes) and three
  * computed aggregates (totalSpend, visitCount, lastVisit) built from BOTH
- * `orders.total` (online orders) AND `pos_sales.total` (in-person sales),
- * ignoring voided/cancelled rows. Aggregation runs in TS after a single
- * batched fetch to avoid an N+1 query against every customer.
+ * `orders.total` (online orders) AND `pos_sales.total` (in-person sales).
+ * Cancellations on which money actually flowed (paid then cancelled) still
+ * contribute to spend at net (total − refunded); unpaid cancellations and
+ * voided POS sales are ignored. See spendContribution() below. Aggregation
+ * runs in TS after a single batched fetch to avoid an N+1 query per customer.
  */
 
 import { NextResponse } from "next/server";
@@ -21,6 +23,26 @@ interface AggregateBucket {
   spend: number;
   visits: number;
   lastVisit: string | null;   // ISO
+}
+
+// What this order should contribute to lifetime spend.
+//   • Non-cancelled rows count at gross total (preserves prior behaviour —
+//     a delivered-then-refunded order still represents a real visit).
+//   • Cancelled rows only count if money actually flowed (payment_status
+//     paid / partially_refunded / refunded). The net = total - refunded,
+//     so a paid-then-fully-refunded cancellation is £0 but still a visit;
+//     a paid-without-refund cancellation is the full amount retained;
+//     an unpaid cash cancellation is excluded entirely.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function spendContribution(o: any): { amount: number; counts: boolean } {
+  const total = Number(o.total) || 0;
+  if (o.status !== "cancelled") return { amount: total, counts: true };
+  const moneyBearing = o.payment_status === "paid"
+                    || o.payment_status === "partially_refunded"
+                    || o.payment_status === "refunded";
+  if (!moneyBearing) return { amount: 0, counts: false };
+  const refunded = Number(o.refunded_amount) || 0;
+  return { amount: Math.max(0, total - refunded), counts: true };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -133,10 +155,11 @@ export async function GET() {
     ordersByCustomer.set(o.customer_id, arr);
   }
 
-  // Build the spend / visit / lastVisit aggregate. Online orders count when
-  // they're not cancelled (refunded/partially_refunded still represent real
-  // visits — only outright cancellation is excluded). POS sales contribute
-  // only when not voided (already filtered at the query above).
+  // Build the spend / visit / lastVisit aggregate. Online order rules are
+  // spelled out in spendContribution() above — non-cancelled at gross,
+  // cancelled-but-paid at net (so audit reflects real money flow instead of
+  // silently dropping it). POS sales contribute only when not voided
+  // (already filtered at the query above).
   const agg = new Map<string, AggregateBucket>();
   const bumpAgg = (cid: string, amount: number, when: string) => {
     const bucket = agg.get(cid) ?? { spend: 0, visits: 0, lastVisit: null };
@@ -148,9 +171,10 @@ export async function GET() {
   };
 
   for (const o of orders ?? []) {
-    if (o.status === "cancelled") continue;
     if (!o.customer_id) continue;
-    bumpAgg(o.customer_id, Number(o.total) || 0, o.date);
+    const { amount, counts } = spendContribution(o);
+    if (!counts) continue;
+    bumpAgg(o.customer_id, amount, o.date);
   }
   for (const s of posSales ?? []) {
     if (!s.customer_id) continue;
@@ -176,9 +200,9 @@ export async function GET() {
   // pseudo-row so admin reports / delivery / refunds keep showing them.
   const orphanOrders = (orders ?? []).filter((o) => !o.customer_id);
   if (orphanOrders.length > 0) {
-    const orphanSpend = orphanOrders
-      .filter((o) => o.status !== "cancelled")
-      .reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const orphanContribs = orphanOrders.map(spendContribution);
+    const orphanSpend = orphanContribs.reduce((sum, c) => sum + c.amount, 0);
+    const orphanVisits = orphanContribs.filter((c) => c.counts).length;
     const orphanLastVisit = orphanOrders
       .map((o) => (typeof o.date === "string" ? o.date : new Date(o.date).toISOString()))
       .sort()
@@ -197,7 +221,7 @@ export async function GET() {
       giftCardBalance: 0,
       notes:           "Orders from accounts the admin has deleted. Preserved for audit.",
       totalSpend:      parseFloat(orphanSpend.toFixed(2)),
-      visitCount:      orphanOrders.filter((o) => o.status !== "cancelled").length,
+      visitCount:      orphanVisits,
       lastVisit:       orphanLastVisit ?? undefined,
       createdAt:       orphanOrders[0]?.date
                          ? (typeof orphanOrders[0].date === "string"

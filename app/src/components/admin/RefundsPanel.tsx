@@ -56,27 +56,27 @@ function fmtAmt(n: number, sym = "£") {
   return `${sym}${n.toFixed(2)}`;
 }
 
-type EligibleFilter = "all" | "in_progress" | "delivered" | "partially_refunded" | "refunded";
+type EligibleFilter = "all" | "in_progress" | "delivered" | "cancelled" | "partially_refunded" | "refunded";
 
 /**
  * Is this order eligible to appear in the Refunds panel?
  *
- * Two distinct cases:
+ * Three distinct cases:
  *   1. Card-paid orders — refundable from the moment Stripe captured the
  *      charge, regardless of fulfillment status. The kitchen might reject it,
  *      the customer might cancel, the item might be out of stock. The money
  *      has been taken and the gateway lets us return it.
  *   2. Cash orders — only refundable after delivery (`status='delivered'`),
  *      because the cashier hasn't actually collected the money until then.
- *
- * Anything cancelled is excluded regardless of payment status — no money
- * was collected so there's nothing to refund.
+ *   3. Cancelled orders on which money already flowed — admin may still need
+ *      to issue (or top up) a refund. Unpaid cash cancellations are excluded:
+ *      no money was ever collected so there's nothing to return.
  */
 function isRefundEligible(o: Order): boolean {
-  if (o.status === "cancelled") return false;
   if (o.paymentStatus === "paid")               return true;
   if (o.paymentStatus === "partially_refunded") return true;
   if (o.paymentStatus === "refunded")           return true;
+  if (o.status === "cancelled") return false;
   // Pre-Stripe cash-only path — delivered orders remain refundable.
   return o.status === "delivered"
       || o.status === "partially_refunded"
@@ -103,11 +103,13 @@ function refundState(o: Order): "refunded" | "partially_refunded" | null {
 function StatusBadge({ status }: { status: string }) {
   const cfg: Record<string, string> = {
     delivered:           "bg-green-100 text-green-700",
+    cancelled:           "bg-red-100 text-red-700",
     partially_refunded:  "bg-amber-100 text-amber-700",
     refunded:            "bg-teal-100 text-teal-700",
   };
   const label: Record<string, string> = {
     delivered:           "Delivered",
+    cancelled:           "Cancelled",
     partially_refunded:  "Partially Refunded",
     refunded:            "Refunded",
   };
@@ -556,7 +558,9 @@ export default function RefundsPanel() {
             order.status !== "partially_refunded"
           : filter === "delivered"
             ? order.status === "delivered"
-            : refundState(order) === filter;
+            : filter === "cancelled"
+              ? order.status === "cancelled"
+              : refundState(order) === filter;
     const q = search.toLowerCase();
     const matchSearch =
       !q ||
@@ -585,6 +589,7 @@ export default function RefundsPanel() {
     { value: "all",                label: "All eligible" },
     { value: "in_progress",        label: "Paid (in progress)" },
     { value: "delivered",          label: "Delivered" },
+    { value: "cancelled",          label: "Cancelled" },
     { value: "partially_refunded", label: "Partially refunded" },
     { value: "refunded",           label: "Fully refunded" },
   ];
@@ -649,7 +654,7 @@ export default function RefundsPanel() {
           <p className="text-sm mt-1">
             {search || filter !== "all"
               ? "Try adjusting your search or filter."
-              : "Paid card orders show up here immediately. Cash orders appear once they're marked delivered."}
+              : "Paid card orders show up here immediately. Cash orders appear once they're marked delivered. Cancelled-but-paid orders remain visible so any outstanding refund can still be issued."}
           </p>
         </div>
       ) : (

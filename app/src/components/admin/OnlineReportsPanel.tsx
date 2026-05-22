@@ -21,6 +21,9 @@ interface RawOrder {
   vat_amount:       number | null;
   vat_inclusive:    boolean | null;
   payment_method:   string | null;
+  // Required so cancelled-but-paid orders still appear in the audit
+  // (otherwise their revenue and refunds silently disappear from finance).
+  payment_status:   string | null;
   customer_id:      string;
   items:            { name: string; qty: number; price: number }[];
 }
@@ -86,11 +89,22 @@ function isActive(o: RawOrder) {
   return o.status !== "cancelled";
 }
 
+// Did money actually move through this order? True for any non-cancelled
+// row, plus cancelled rows that were paid (so paid-then-cancelled appears
+// in revenue, and any refund on it appears in refunds — the audit shows
+// both legs of a real money movement instead of dropping them entirely).
+function isMoneyBearing(o: RawOrder) {
+  if (o.status !== "cancelled") return true;
+  return o.payment_status === "paid"
+      || o.payment_status === "partially_refunded"
+      || o.payment_status === "refunded";
+}
+
 // Group daily totals for the bar chart
 function groupByDay(orders: RawOrder[]): { label: string; revenue: number; count: number }[] {
   const map = new Map<string, { revenue: number; count: number }>();
   for (const o of orders) {
-    if (!isActive(o)) continue;
+    if (!isMoneyBearing(o)) continue;
     const key = o.date.slice(0, 10);
     const cur = map.get(key) ?? { revenue: 0, count: 0 };
     map.set(key, { revenue: cur.revenue + o.total, count: cur.count + 1 });
@@ -107,7 +121,7 @@ function groupByMonth(orders: RawOrder[]): { label: string; revenue: number; cou
   const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const map = new Map<string, { revenue: number; count: number }>();
   for (const o of orders) {
-    if (!isActive(o)) continue;
+    if (!isMoneyBearing(o)) continue;
     const d = new Date(o.date);
     const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2,"0")}`;
     const cur = map.get(key) ?? { revenue: 0, count: 0 };
@@ -312,18 +326,26 @@ export default function OnlineReportsPanel() {
   // ── Computed metrics ───────────────────────────────────────────────────────
 
   const metrics = useMemo(() => {
-    const active    = filtered.filter(isActive);
-    const cancelled = filtered.filter((o) => o.status === "cancelled");
-    const revenue   = active.reduce((s, o) => s + o.total, 0);
-    const refunds   = active.reduce((s, o) => s + (o.refunded_amount ?? 0), 0);
-    const vat       = active.reduce((s, o) => s + (o.vat_amount ?? 0), 0);
+    // active        = operational view (excludes all cancelled)
+    // moneyBearing  = audit view (excludes only unpaid cancellations).
+    // Revenue, refunds, vat, AOV and payment-method splits use the audit
+    // view so paid-then-cancelled orders aren't silently dropped from the
+    // financial picture. Order count, fulfilment split etc. keep the
+    // operational view — "completed orders" still means non-cancelled.
+    const active       = filtered.filter(isActive);
+    const moneyBearing = filtered.filter(isMoneyBearing);
+    const cancelled    = filtered.filter((o) => o.status === "cancelled");
+    const revenue   = moneyBearing.reduce((s, o) => s + o.total, 0);
+    const refunds   = moneyBearing.reduce((s, o) => s + (o.refunded_amount ?? 0), 0);
+    const vat       = moneyBearing.reduce((s, o) => s + (o.vat_amount ?? 0), 0);
     const netRev    = revenue - refunds;
     const count     = active.length;
-    const aov       = count === 0 ? 0 : revenue / count;
+    const aov       = moneyBearing.length === 0 ? 0 : revenue / moneyBearing.length;
 
-    // Payment methods
+    // Payment methods — audit view so a paid-then-cancelled card order
+    // still attributes its revenue to "card" rather than vanishing.
     const payMap = new Map<string, { revenue: number; count: number }>();
-    for (const o of active) {
+    for (const o of moneyBearing) {
       const key = o.payment_method || "Unknown";
       const cur = payMap.get(key) ?? { revenue: 0, count: 0 };
       payMap.set(key, { revenue: cur.revenue + o.total, count: cur.count + 1 });
