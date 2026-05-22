@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { Customer, Order, OrderStatus } from "@/types";
 import { fullOrderNumber } from "@/lib/orderNumber";
+import { cleanPhone } from "@/lib/inputUtils";
 import {
   sendEmailViaApi, buildVarMap, applyVars, buildEmailDocument,
 } from "@/lib/emailTemplates";
@@ -14,6 +16,7 @@ import {
   Circle, RefreshCw, Receipt, Printer, Send,
   CheckCheck, AlertCircle, RotateCcw,
   Gift, Award, FileText, Save,
+  Trash2, Key, Pencil, Loader2, ShieldCheck, ExternalLink, AlertTriangle, UserCog,
 } from "lucide-react";
 
 // ─── Status config ────────────────────────────────────────────────────────────
@@ -558,6 +561,7 @@ function CustomerDrawer({
   onClose: () => void;
   onStatusChange: (cid: string, oid: string, status: OrderStatus) => void;
 }) {
+  const router = useRouter();
   const { settings, loadAllCustomers } = useApp();
   const sym = settings.currency?.symbol ?? "£";
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
@@ -573,21 +577,40 @@ function CustomerDrawer({
   const [posSaving,       setPosSaving]       = useState(false);
   const [posMessage,      setPosMessage]      = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
+  // ── Account management state ─────────────────────────────────────────────
+  // The "Deleted customer" pseudo-row (id "__deleted__") surfaces orphan
+  // orders for audit only; none of these controls apply to it.
+  const isDeletedRow = customer.id === "__deleted__";
+  const [active,           setActive]           = useState<boolean>(customer.active ?? true);
+  const [savingActive,     setSavingActive]     = useState(false);
+  const [actionToast,      setActionToast]      = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [editProfileOpen,  setEditProfileOpen]  = useState(false);
+  const [passwordOpen,     setPasswordOpen]     = useState(false);
+  const [deleteOpen,       setDeleteOpen]       = useState(false);
+  const [deleteConfirming, setDeleteConfirming] = useState(false);
+  const [resetSending,     setResetSending]     = useState(false);
+  const [activeOrders,     setActiveOrders]     = useState<{ id: string; status: string }[] | null>(null);
+  const toggleInFlight = useRef(false);
+  const deleteInFlight = useRef(false);
+  const resetInFlight  = useRef(false);
+
+  function flashToast(kind: "ok" | "error", text: string) {
+    setActionToast({ kind, text });
+    setTimeout(() => setActionToast(null), 3000);
+  }
+
   async function savePosFields() {
     setPosSaving(true);
     setPosMessage(null);
     try {
-      // The admin user PATCH route doesn't accept POS fields yet — use the
-      // shared POS endpoint instead. Admin auth satisfies requirePosSession
-      // via the requirePosPermission admin-override fallback used elsewhere,
-      // but pos/customers uses requirePosSession directly so we go through
-      // the dedicated admin PATCH on /api/admin/users/[id] for consistency.
-      // BOTH paths write to the same customers row.
-      const res = await fetch(`/api/admin/users/${customer.id}`, {
-        method:  "PATCH",
+      // POS-shared columns (loyalty_points / gift_card_balance / notes) live on
+      // the customers row; the PUT below writes them through the canonical
+      // customer route. The POS terminal hits /api/pos/customers/[id] and ends
+      // up at the same columns.
+      const res = await fetch(`/api/admin/customers/${customer.id}`, {
+        method:  "PUT",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({
-          type:            "customer",
           loyaltyPoints:   Math.max(0, Math.floor(loyaltyPoints)),
           giftCardBalance: Math.max(0, giftCardBalance),
           notes,
@@ -605,6 +628,102 @@ function CustomerDrawer({
     }
     setPosSaving(false);
     setTimeout(() => setPosMessage(null), 2500);
+  }
+
+  // ── Toggle active ────────────────────────────────────────────────────────
+  async function toggleActive() {
+    if (toggleInFlight.current) return;
+    toggleInFlight.current = true;
+    setSavingActive(true);
+    // Optimistic update — revert on failure.
+    const next = !active;
+    setActive(next);
+    try {
+      const res = await fetch(`/api/admin/customers/${customer.id}`, {
+        method:  "PUT",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ active: next }),
+      });
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        setActive(!next);
+        flashToast("error", json.error ?? "Failed to update status.");
+      } else {
+        flashToast("ok", next ? "Account enabled." : "Account disabled.");
+        await loadAllCustomers();
+      }
+    } catch {
+      setActive(!next);
+      flashToast("error", "Connection error.");
+    } finally {
+      toggleInFlight.current = false;
+      setSavingActive(false);
+    }
+  }
+
+  // ── Send reset email ─────────────────────────────────────────────────────
+  async function sendResetEmail() {
+    if (resetInFlight.current) return;
+    if (!customer.email) { flashToast("error", "No email address on file."); return; }
+    resetInFlight.current = true;
+    setResetSending(true);
+    try {
+      const res = await fetch(`/api/admin/customers/${customer.id}/send-reset`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ email: customer.email }),
+      });
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        flashToast("error", json.error ?? "Failed to send reset email.");
+      } else {
+        flashToast("ok", `Reset link sent to ${customer.email}.`);
+      }
+    } catch {
+      flashToast("error", "Connection error.");
+    } finally {
+      resetInFlight.current = false;
+      setResetSending(false);
+    }
+  }
+
+  // ── Delete ───────────────────────────────────────────────────────────────
+  async function confirmDelete() {
+    if (deleteInFlight.current) return;
+    deleteInFlight.current = true;
+    setDeleteConfirming(true);
+    setActiveOrders(null);
+    try {
+      const res = await fetch(`/api/admin/customers/${customer.id}`, { method: "DELETE" });
+      const json = await res.json().catch(() => ({})) as {
+        ok?: boolean;
+        error?: string;
+        activeOrders?: { id: string; status: string }[];
+      };
+      if (json.ok) {
+        flashToast("ok", `${customer.name} deleted.`);
+        await loadAllCustomers();
+        setDeleteOpen(false);
+        onClose();
+      } else if (res.status === 409 && json.activeOrders?.length) {
+        // Swap the confirm dialog into the blocking active-orders view.
+        setActiveOrders(json.activeOrders);
+      } else {
+        flashToast("error", json.error ?? "Failed to delete.");
+      }
+    } catch {
+      flashToast("error", "Connection error.");
+    } finally {
+      deleteInFlight.current = false;
+      setDeleteConfirming(false);
+    }
+  }
+
+  function goToDelivery() {
+    setDeleteOpen(false);
+    setActiveOrders(null);
+    onClose();
+    router.push("/admin?tab=online-orders");
   }
 
   const spent = totalSpent(customer);
@@ -653,12 +772,17 @@ function CustomerDrawer({
             <div>
               <h2 className="font-bold text-gray-900 text-lg">{customer.name}</h2>
               <p className="text-sm text-gray-500">Customer since {fmtDate(customer.createdAt)}</p>
-              <div className="flex gap-1.5 mt-1">
+              <div className="flex gap-1.5 mt-1 flex-wrap">
                 {customer.tags.map((t) => (
                   <span key={t} className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${TAG_COLORS[t] ?? "bg-gray-100 text-gray-500"}`}>
                     {t}
                   </span>
                 ))}
+                {!isDeletedRow && !active && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full border font-medium bg-gray-100 text-gray-600 border-gray-200">
+                    Disabled
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -693,17 +817,109 @@ function CustomerDrawer({
             </div>
           </div>
 
+          {/* ── Account actions ──────────────────────────────────────────────
+              Suppressed for the synthetic "__deleted__" pseudo-row that the
+              list endpoint emits to keep orphan orders visible. */}
+          {!isDeletedRow && (
+            <div className="px-6 py-4 border-b border-gray-100 space-y-3">
+              <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+                <UserCog size={15} className="text-orange-500" />
+                Account
+                {actionToast && (
+                  <span className={`text-[11px] font-medium ml-auto px-2 py-0.5 rounded-full ${
+                    actionToast.kind === "ok"
+                      ? "bg-green-50 text-green-700 border border-green-200"
+                      : "bg-red-50 text-red-700 border border-red-200"
+                  }`}>
+                    {actionToast.text}
+                  </span>
+                )}
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {/* Edit profile */}
+                <button
+                  onClick={() => setEditProfileOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:text-blue-600 transition"
+                >
+                  <Pencil size={11} /> Edit Profile
+                </button>
+
+                {/* Active toggle */}
+                <button
+                  onClick={() => void toggleActive()}
+                  disabled={savingActive}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition disabled:opacity-60 ${
+                    active
+                      ? "bg-white text-gray-700 border-gray-200 hover:border-amber-300 hover:text-amber-600"
+                      : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
+                  }`}
+                  title={active ? "Disable login for this customer" : "Re-enable login"}
+                >
+                  {savingActive
+                    ? <Loader2 size={11} className="animate-spin" />
+                    : <ShieldCheck size={11} />}
+                  {active ? "Disable Account" : "Enable Account"}
+                </button>
+
+                {/* Change password */}
+                <button
+                  onClick={() => setPasswordOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-white text-gray-700 border-gray-200 hover:border-orange-300 hover:text-orange-600 transition"
+                >
+                  <Key size={11} /> Change Password
+                </button>
+
+                {/* Send reset email */}
+                <button
+                  onClick={() => void sendResetEmail()}
+                  disabled={resetSending || !customer.email}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-white text-gray-700 border-gray-200 hover:border-purple-300 hover:text-purple-600 transition disabled:opacity-50"
+                  title={customer.email ? "Email a one-time reset link" : "No email on file"}
+                >
+                  {resetSending
+                    ? <Loader2 size={11} className="animate-spin" />
+                    : <Send size={11} />}
+                  Send Reset Email
+                </button>
+
+                {/* Delete */}
+                <button
+                  onClick={() => setDeleteOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-white text-red-600 border-red-200 hover:bg-red-50 transition ml-auto"
+                >
+                  <Trash2 size={11} /> Delete
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* ── POS-shared profile (Bug #11) ─────────────────────────────────
               The customers row now carries loyalty points, gift card
               balance and a notes field that the POS terminal reads/writes
               too. Edits made here are visible at the till on the next
-              customer list refresh, and vice-versa. */}
+              customer list refresh, and vice-versa. Suppressed for the
+              "__deleted__" pseudo-row — there's no DB row to write to. */}
+          {!isDeletedRow && (
           <div className="px-6 py-4 border-b border-gray-100 space-y-3">
             <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
               <Award size={15} className="text-orange-500" />
               Loyalty &amp; Gift Card
               <span className="text-[10px] font-normal text-gray-400 ml-auto">shared with POS</span>
             </h3>
+            {/* Store credit — read-only here. Balance is incremented when admin
+                refunds with method="store_credit" and decremented when the
+                customer applies it at checkout. No manual edit field on purpose
+                so the audit trail (the refund history) stays the source of truth. */}
+            <div className="flex items-center justify-between bg-teal-50 border border-teal-100 rounded-lg px-3 py-2">
+              <div className="flex items-center gap-2 text-xs text-teal-700">
+                <Gift size={13} className="text-teal-500" />
+                <span className="font-semibold">Store credit</span>
+                <span className="text-teal-500/80">— auto-applied at checkout</span>
+              </div>
+              <span className="text-sm font-bold text-teal-700 tabular-nums">
+                {sym}{(customer.storeCredit ?? 0).toFixed(2)}
+              </span>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs text-gray-500 mb-1 flex items-center gap-1"><Award size={11} /> Loyalty points</label>
@@ -749,6 +965,7 @@ function CustomerDrawer({
               )}
             </div>
           </div>
+          )}
 
           {/* Order history */}
           <div className="px-6 py-4">
@@ -930,6 +1147,316 @@ function CustomerDrawer({
           onClose={() => setReceiptOrder(null)}
         />
       )}
+
+      {/* Edit profile modal */}
+      {editProfileOpen && (
+        <EditProfileModal
+          customer={customer}
+          onClose={() => setEditProfileOpen(false)}
+          onSaved={async () => {
+            await loadAllCustomers();
+            flashToast("ok", "Profile updated.");
+            setEditProfileOpen(false);
+            onClose();
+          }}
+          onError={(msg) => flashToast("error", msg)}
+        />
+      )}
+
+      {/* Change password modal */}
+      {passwordOpen && (
+        <ChangePasswordModal
+          customer={customer}
+          onClose={() => setPasswordOpen(false)}
+          onSaved={() => {
+            flashToast("ok", "Password updated.");
+            setPasswordOpen(false);
+          }}
+          onError={(msg) => flashToast("error", msg)}
+        />
+      )}
+
+      {/* Delete confirmation / active-orders block */}
+      {deleteOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full border border-gray-100">
+            {activeOrders ? (
+              <>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
+                    <AlertTriangle size={18} className="text-amber-500" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900">Cannot delete customer</h3>
+                    <p className="text-xs text-gray-500">Active orders must be resolved first.</p>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-700 mb-3">
+                  <strong>{customer.name}</strong> has {activeOrders.length} active order{activeOrders.length === 1 ? "" : "s"}.
+                  Cancel or complete {activeOrders.length === 1 ? "it" : "them"} before deleting.
+                </p>
+                <div className="bg-gray-50 border border-gray-100 rounded-xl divide-y divide-gray-100 mb-5 max-h-48 overflow-y-auto">
+                  {activeOrders.map((o) => (
+                    <div key={o.id} className="flex items-center justify-between px-3 py-2 text-xs">
+                      <span className="font-mono text-gray-800 truncate">#{o.id}</span>
+                      <span className="inline-flex items-center font-bold uppercase tracking-wide text-amber-700 bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-full">
+                        {o.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setDeleteOpen(false); setActiveOrders(null); }}
+                    className="flex-1 px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition"
+                  >
+                    Close
+                  </button>
+                  <button
+                    onClick={goToDelivery}
+                    className="flex-1 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold transition flex items-center justify-center gap-1.5"
+                  >
+                    Go to Online Orders <ExternalLink size={13} />
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center">
+                    <Trash2 size={18} className="text-red-500" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900">Delete customer</h3>
+                    <p className="text-xs text-gray-500">This action cannot be undone.</p>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-700 mb-5">
+                  Are you sure you want to delete <strong>{customer.name}</strong>?
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setDeleteOpen(false)}
+                    className="flex-1 px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => void confirmDelete()}
+                    disabled={deleteConfirming}
+                    className="flex-1 px-4 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition disabled:opacity-60"
+                  >
+                    {deleteConfirming ? <Loader2 size={15} className="animate-spin mx-auto" /> : "Delete"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── EditProfileModal ─────────────────────────────────────────────────────────
+
+function EditProfileModal({
+  customer, onClose, onSaved, onError,
+}: {
+  customer: Customer;
+  onClose: () => void;
+  onSaved: () => void | Promise<void>;
+  onError: (msg: string) => void;
+}) {
+  const [name,    setName]    = useState(customer.name);
+  const [email,   setEmail]   = useState(customer.email);
+  const [phone,   setPhone]   = useState(customer.phone ?? "");
+  const [errors,  setErrors]  = useState<Record<string, string>>({});
+  const [saving,  setSaving]  = useState(false);
+  const inFlight = useRef(false);
+
+  function validate(): boolean {
+    const e: Record<string, string> = {};
+    if (!name.trim())  e.name  = "Name is required.";
+    if (!email.trim()) e.email = "Email is required.";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  }
+
+  async function handleSubmit(ev: React.FormEvent) {
+    ev.preventDefault();
+    if (inFlight.current) return;
+    if (!validate()) return;
+    inFlight.current = true;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/customers/${customer.id}`, {
+        method:  "PUT",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ name, email, phone }),
+      });
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        onError(json.error ?? "Failed to update profile.");
+      } else {
+        await onSaved();
+      }
+    } catch {
+      onError("Connection error.");
+    } finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-100">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <h3 className="font-bold text-gray-900 text-base">Edit profile</h3>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
+            <X size={16} />
+          </button>
+        </div>
+        <form onSubmit={(e) => void handleSubmit(e)} className="px-6 py-5 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className={`w-full bg-gray-50 border rounded-xl px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition ${errors.name ? "border-red-300 bg-red-50" : "border-gray-200"}`}
+            />
+            {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className={`w-full bg-gray-50 border rounded-xl px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition ${errors.email ? "border-red-300 bg-red-50" : "border-gray-200"}`}
+            />
+            {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email}</p>}
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Phone</label>
+            <input
+              type="tel"
+              inputMode="tel"
+              autoComplete="off"
+              value={phone}
+              onChange={(e) => setPhone(cleanPhone(e.target.value))}
+              placeholder="+44 7700 900000"
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
+            />
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">
+              Cancel
+            </button>
+            <button type="submit" disabled={saving} className="flex-1 px-4 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold transition disabled:opacity-60 flex items-center justify-center gap-2">
+              {saving && <Loader2 size={14} className="animate-spin" />}
+              Save Changes
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── ChangePasswordModal ──────────────────────────────────────────────────────
+
+function ChangePasswordModal({
+  customer, onClose, onSaved, onError,
+}: {
+  customer: Customer;
+  onClose: () => void;
+  onSaved: () => void;
+  onError: (msg: string) => void;
+}) {
+  const [value,   setValue]   = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error,   setError]   = useState("");
+  const [saving,  setSaving]  = useState(false);
+  const inFlight = useRef(false);
+
+  async function handleSubmit(ev: React.FormEvent) {
+    ev.preventDefault();
+    if (inFlight.current) return;
+    setError("");
+    if (value.length < 6)  { setError("Password must be at least 6 characters."); return; }
+    if (value !== confirm) { setError("Passwords do not match."); return; }
+    inFlight.current = true;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/customers/${customer.id}/set-password`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ password: value }),
+      });
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        const msg = json.error ?? "Failed to update password.";
+        setError(msg);
+        onError(msg);
+      } else {
+        onSaved();
+      }
+    } catch {
+      setError("Connection error.");
+      onError("Connection error.");
+    } finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-100">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <h3 className="font-bold text-gray-900 text-base">Change password</h3>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
+            <X size={16} />
+          </button>
+        </div>
+        <form onSubmit={(e) => void handleSubmit(e)} className="px-6 py-5 space-y-4">
+          <p className="text-sm text-gray-600">Set a new password for {customer.name}.</p>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">New password</label>
+            <input
+              type="password"
+              autoFocus
+              value={value}
+              onChange={(e) => { setValue(e.target.value); setError(""); }}
+              placeholder="Min 6 characters"
+              className={`w-full bg-gray-50 border rounded-xl px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition ${error ? "border-red-300 bg-red-50" : "border-gray-200"}`}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Confirm password</label>
+            <input
+              type="password"
+              value={confirm}
+              onChange={(e) => { setConfirm(e.target.value); setError(""); }}
+              placeholder="Repeat new password"
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
+            />
+            {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">
+              Cancel
+            </button>
+            <button type="submit" disabled={saving} className="flex-1 px-4 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold transition disabled:opacity-60 flex items-center justify-center gap-2">
+              {saving && <Loader2 size={14} className="animate-spin" />}
+              Update Password
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

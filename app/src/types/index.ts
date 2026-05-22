@@ -624,6 +624,7 @@ export interface Customer {
   savedAddresses?: SavedAddress[];
   storeCredit?: number;   // £ store credit balance (from refunds)
   emailVerified?: boolean;
+  active?: boolean;       // false → login is blocked; admin-toggled
   // ── POS-shared fields ───────────────────────────────────────────────────
   // Persisted on the customers row so admin + POS share the same source of
   // truth. totalSpend/visitCount/lastVisit are computed server-side by the

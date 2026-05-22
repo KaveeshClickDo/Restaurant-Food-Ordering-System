@@ -792,12 +792,19 @@ export function AppProvider({
     }).catch((err) => console.error("settings persist:", err));
   }
 
-  const updateSettings = (patch: Partial<AdminSettings>) =>
+  // Memoized so consumers can safely list this in useEffect / useCallback
+  // dependency arrays without re-triggering on every AppContext render.
+  // The body only uses setSettings (stable) and persistSettings (no closure
+  // deps — its fetch body comes from the `next` argument), so freezing it to
+  // the first render is safe.
+  const updateSettings = useCallback((patch: Partial<AdminSettings>) =>
     setSettings((prev) => {
       const next = { ...prev, ...patch };
       persistSettings(next);
       return next;
-    });
+    }),
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- persistSettings has no closure deps; freezing is intentional.
+  []);
 
   // Internal helper: functional update + server-side persist.
   // Use this instead of setSettings directly for any mutation that must survive a refresh.

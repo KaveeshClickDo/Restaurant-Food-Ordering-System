@@ -60,6 +60,10 @@ function buildCustomer(row: any, orders: any[]) {
     savedAddresses: row.saved_addresses ?? [],
     storeCredit:    row.store_credit ? Number(row.store_credit) : undefined,
     emailVerified:  row.email_verified ?? undefined,
+    // POS-shared balances (Bug #11). Surfaced on the customer's /account
+    // Rewards tab and applied at checkout / at the till.
+    loyaltyPoints:   row.loyalty_points    != null ? Number(row.loyalty_points)    : 0,
+    giftCardBalance: row.gift_card_balance != null ? Number(row.gift_card_balance) : 0,
     createdAt:      typeof row.created_at === "string"
                       ? row.created_at
                       : new Date(row.created_at).toISOString(),
@@ -77,7 +81,7 @@ export async function GET() {
   // active, so a single SELECT is enough.
   const { data: customerRow, error: cusErr } = await supabaseAdmin
     .from("customers")
-    .select("id, name, email, phone, tags, favourites, saved_addresses, store_credit, created_at, email_verified, active")
+    .select("id, name, email, phone, tags, favourites, saved_addresses, store_credit, created_at, email_verified, active, loyalty_points, gift_card_balance")
     .eq("id", session.id)
     .single();
 

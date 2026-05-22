@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error: fetchErr } = await supabaseAdmin
     .from("customers")
-    .select("id, name, email, phone, password_hash, email_verified, active, tags, favourites, saved_addresses, store_credit, created_at")
+    .select("id, name, email, phone, password_hash, email_verified, active, tags, favourites, saved_addresses, store_credit, created_at, loyalty_points, gift_card_balance")
     .eq("email", email.trim().toLowerCase())
     .maybeSingle();
 
@@ -117,6 +117,9 @@ export async function POST(req: NextRequest) {
       favourites:     data.favourites ?? [],
       savedAddresses: data.saved_addresses ?? [],
       storeCredit:    data.store_credit ? Number(data.store_credit) : undefined,
+      // POS-shared balances surfaced on /account → Rewards.
+      loyaltyPoints:   data.loyalty_points    != null ? Number(data.loyalty_points)    : 0,
+      giftCardBalance: data.gift_card_balance != null ? Number(data.gift_card_balance) : 0,
       createdAt:      typeof data.created_at === "string"
                         ? data.created_at
                         : new Date(data.created_at).toISOString(),

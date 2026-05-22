@@ -25,6 +25,9 @@ export const AdminCustomerCreateSchema = z.object({
 });
 
 // Admin customer update — same allowlist minus the required id/email.
+// loyaltyPoints/giftCardBalance/notes are POS-shared fields (Bug #11) that the
+// customer drawer + POS terminal both write. `active` is the toggle exposed on
+// the customer drawer for disabling logins.
 export const AdminCustomerUpdateSchema = z.object({
   name:            NonEmptyString.optional(),
   email:           Email.optional(),
@@ -34,6 +37,10 @@ export const AdminCustomerUpdateSchema = z.object({
   saved_addresses: z.array(z.unknown()).optional(),
   store_credit:    Money.optional(),
   email_verified:  z.boolean().optional(),
+  active:          z.boolean().optional(),
+  notes:           z.string().optional(),
+  loyaltyPoints:   z.number().int().nonnegative().optional(),
+  giftCardBalance: Money.optional(),
 });
 
 // Admin updates on reservation_customers.

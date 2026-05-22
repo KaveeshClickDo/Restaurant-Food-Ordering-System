@@ -8,7 +8,7 @@ import {
   User, Mail, Phone, Calendar, ShoppingBag, TrendingUp, Clock,
   ChevronDown, ChevronUp, Star, Package,
   Edit2, Check, X, RotateCcw, ShoppingCart, AlertCircle, RefreshCw,
-  Heart, Plus, PackageX, MapPin, Home, Briefcase, Trash2, Star as StarIcon, Truck, Gift,
+  Heart, Plus, PackageX, MapPin, Home, Briefcase, Trash2, Star as StarIcon, Truck, Gift, Award, CreditCard,
   Lock, Eye, EyeOff, ShieldCheck,
   LayoutDashboard,
   LogOut,
@@ -1243,6 +1243,87 @@ function ProfileTab() {
   );
 }
 
+// ─── Rewards Tab ──────────────────────────────────────────────────────────────
+// Read-only view of the three balances that ride on the customers row:
+// store credit, loyalty points, gift card balance. Issued via admin refunds
+// (store credit), POS-shared sales (loyalty / gift card) and consumed at the
+// online or POS till on the next order.
+
+function RewardsTab() {
+  const { currentUser, settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
+
+  if (!currentUser) return null;
+
+  const storeCredit     = currentUser.storeCredit     ?? 0;
+  const loyaltyPoints   = currentUser.loyaltyPoints   ?? 0;
+  const giftCardBalance = currentUser.giftCardBalance ?? 0;
+
+  return (
+    <div className="space-y-4">
+      {/* Store credit */}
+      <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
+        <div className="flex items-start gap-4">
+          <div className="w-11 h-11 bg-teal-50 rounded-2xl flex items-center justify-center flex-shrink-0">
+            <Gift size={20} className="text-teal-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Store credit</p>
+            <p className="text-3xl font-bold text-zinc-900 tabular-nums mt-1">
+              {sym}{storeCredit.toFixed(2)}
+            </p>
+            <p className="text-xs text-zinc-500 mt-1">
+              {storeCredit > 0
+                ? "Automatically applied at checkout — you can toggle it off before paying."
+                : "Issued when an order is refunded as store credit instead of a card return."}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Loyalty points */}
+      <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
+        <div className="flex items-start gap-4">
+          <div className="w-11 h-11 bg-amber-50 rounded-2xl flex items-center justify-center flex-shrink-0">
+            <Award size={20} className="text-amber-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Loyalty points</p>
+            <p className="text-3xl font-bold text-zinc-900 tabular-nums mt-1">
+              {loyaltyPoints.toLocaleString()}
+            </p>
+            <p className="text-xs text-zinc-500 mt-1">
+              {loyaltyPoints > 0
+                ? "Earned on past orders. Ask staff in-store about redemption."
+                : "Earned on orders. Your balance shows here as it grows."}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Gift card balance */}
+      <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
+        <div className="flex items-start gap-4">
+          <div className="w-11 h-11 bg-purple-50 rounded-2xl flex items-center justify-center flex-shrink-0">
+            <CreditCard size={20} className="text-purple-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Gift card</p>
+            <p className="text-3xl font-bold text-zinc-900 tabular-nums mt-1">
+              {sym}{giftCardBalance.toFixed(2)}
+            </p>
+            <p className="text-xs text-zinc-500 mt-1">
+              {giftCardBalance > 0
+                ? "Available at the till for in-store purchases."
+                : "Top up a gift card in-store to start using it on future visits."}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AccountPage() {
@@ -1253,7 +1334,7 @@ export default function AccountPage() {
   );
 }
 
-const VALID_TABS = ["orders", "favourites", "addresses", "profile"] as const;
+const VALID_TABS = ["orders", "favourites", "addresses", "rewards", "profile"] as const;
 type TabId = typeof VALID_TABS[number];
 
 function AccountPageContent() {
@@ -1660,7 +1741,7 @@ function AccountPageContent() {
 
               {/* Tabs */}
               <div className="flex gap-1 bg-zinc-100 p-1 rounded-xl overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-                {(["profile", "orders", "favourites", "addresses"] as const).map((t) => (
+                {(["profile", "orders", "favourites", "addresses", "rewards"] as const).map((t) => (
                   <button
                     key={t}
                     onClick={() => handleTabChange(t)}
@@ -1670,10 +1751,12 @@ function AccountPageContent() {
                     {t === "orders" ? <Package size={14} /> :
                       t === "favourites" ? <Heart size={14} /> :
                         t === "addresses" ? <MapPin size={14} /> :
-                          <User size={14} />}
+                          t === "rewards" ? <Award size={14} /> :
+                            <User size={14} />}
                     {t === "orders" ? "Orders" :
                       t === "favourites" ? "Favourites" :
-                        t === "addresses" ? "Addresses" : "Profile"}
+                        t === "addresses" ? "Addresses" :
+                          t === "rewards" ? "Rewards" : "Profile"}
                     {t === "orders" && orders.length > 0 && (
                       <span className="ml-0.5 bg-orange-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
                         {orders.length > 99 ? "99+" : orders.length}
@@ -1737,6 +1820,7 @@ function AccountPageContent() {
 
               {tab === "favourites" && <FavouritesTab />}
               {tab === "addresses" && <AddressesTab />}
+              {tab === "rewards"   && <RewardsTab />}
               {tab === "profile" && <ProfileTab />}
             </div>
 

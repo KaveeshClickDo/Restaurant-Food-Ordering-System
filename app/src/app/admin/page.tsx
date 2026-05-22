@@ -28,7 +28,6 @@ import OnlineReportsPanel  from "@/components/admin/OnlineReportsPanel";
 import WaitersPanel         from "@/components/admin/WaitersPanel";
 import KitchenStaffPanel    from "@/components/admin/KitchenStaffPanel";
 import POSStaffPanel        from "@/components/admin/POSStaffPanel";
-import UserManagementPanel  from "@/components/admin/UserManagementPanel";
 import ReservationsPanel         from "@/components/admin/ReservationsPanel";
 import TableStatusPanel          from "@/components/admin/TableStatusPanel";
 import ReservationCustomersPanel from "@/components/admin/ReservationCustomersPanel";
@@ -36,8 +35,8 @@ import {
   LayoutDashboard, ExternalLink, ShieldCheck, Store, Calendar, Plug, ChefHat, Users, Truck,
   MapPin, Bell, X, Mail, FileText, Navigation, Palette, ImageIcon, Receipt,
   Tag, Percent, Car, RotateCcw, BarChart3, LineChart, UtensilsCrossed, CalendarDays, BookUser,
-  Menu as MenuIcon, ChevronDown, ChevronRight, ChevronLeft, PanelLeftClose, PanelLeftOpen, UserCog,
-  Tablet, CreditCard,
+  Menu as MenuIcon, ChevronDown, ChevronRight, ChevronLeft,
+  Tablet, CreditCard, Globe, Monitor, Compass,
 } from "lucide-react";
 
 // ─── Navigation structure ─────────────────────────────────────────────────────
@@ -49,7 +48,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     id: "orders", label: "Orders",
     items: [
-      { id: "delivery",  label: "Delivery",        icon: Truck     },
+      { id: "online-orders", label: "Online Orders", icon: Truck     },
       { id: "refunds",   label: "Refunds",          icon: RotateCcw },
     ],
   },
@@ -60,22 +59,21 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    id: "customers", label: "Customers",
+    id: "customers", label: "Customers & Services",
     items: [
-      { id: "customers", label: "Customers",        icon: Users    },
-      { id: "drivers",   label: "Drivers",          icon: Car      },
-      { id: "users",     label: "User Management",  icon: UserCog  },
+      { id: "customers",    label: "Customers",     icon: Users           },
+      { id: "drivers",      label: "Drivers",       icon: Car             },
+      { id: "reservations", label: "Reservations",  icon: CalendarDays    },
+      { id: "table-status", label: "Tables",        icon: UtensilsCrossed },
     ],
   },
   {
     id: "table-service", label: "Table Service",
     items: [
-      { id: "waiters",              label: "Staff & Tables",  icon: UtensilsCrossed },
-      { id: "kitchen-staff",        label: "Kitchen Staff",   icon: ChefHat         },
-      { id: "pos-staff",            label: "POS Staff",       icon: Tablet          },
-      { id: "reservations",         label: "Reservations",    icon: CalendarDays    },
-      { id: "table-status",         label: "Table Status",    icon: UtensilsCrossed },
-      { id: "reservation-customers",label: "Guest Profiles",  icon: BookUser        },
+      { id: "waiters",              label: "Waiter Staff",   icon: UtensilsCrossed },
+      { id: "kitchen-staff",        label: "Kitchen Staff",  icon: ChefHat         },
+      { id: "pos-staff",            label: "POS Staff",      icon: Tablet          },
+      { id: "reservation-customers",label: "Guest Profiles", icon: BookUser        },
     ],
   },
   {
@@ -95,7 +93,13 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "schedule",     label: "Schedule",         icon: Calendar },
       { id: "zones",        label: "Delivery Zones",  icon: MapPin   },
       { id: "integrations", label: "Integrations",    icon: Plug     },
+    ],
+  },
+  {
+    id: "templates", label: "Templates",
+    items: [
       { id: "email",        label: "Email Templates", icon: Mail     },
+      { id: "receipt",      label: "Receipt",         icon: Receipt  },
     ],
   },
   {
@@ -105,13 +109,33 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "nav-menus",    label: "Navigation",     icon: Navigation    },
       { id: "colors",       label: "Brand Colors",   icon: Palette       },
       { id: "footer-logos", label: "Footer Logos",   icon: ImageIcon     },
-      { id: "receipt",      label: "Receipt",        icon: Receipt       },
     ],
   },
 ];
 
 const ALL_TABS = NAV_GROUPS.flatMap((g) => g.items);
 type TabId = string;
+
+// ─── "Go To" sub-app links ────────────────────────────────────────────────────
+// Surfaced by the "Go To" popover in the sidebar bottom — lets admin hop to
+// any sub-app without leaving the admin session. Each link opens in a new tab
+// so this view stays put.
+
+interface SubAppLink {
+  href: string;
+  label: string;
+  description: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+}
+
+const SUB_APP_LINKS: SubAppLink[] = [
+  { href: "/",                  label: "Customer Site",     description: "Public ordering site",           icon: Globe            },
+  { href: "/pos",               label: "POS Terminal",      description: "Cashier checkout",               icon: Tablet           },
+  { href: "/kitchen",           label: "Kitchen Display",   description: "KDS order queue",                icon: ChefHat          },
+  { href: "/waiter",            label: "Waiter App",        description: "Table service / orders",         icon: UtensilsCrossed  },
+  { href: "/customer-display",  label: "Customer Display",  description: "Counter-facing screen",          icon: Monitor          },
+  { href: "/driver",            label: "Driver App",        description: "Delivery dispatch view",         icon: Truck            },
+];
 
 // ─── Welcome banner copy ──────────────────────────────────────────────────────
 
@@ -127,7 +151,7 @@ function bannerSubtitle(
   switch (tab) {
     case "menu":          return `Managing ${menuItemsLen} items across ${categoriesLen} categories.`;
     case "customers":     return `${customersLen} registered customers · manage orders & history.`;
-    case "delivery":      return `${activeOrderCount} active order${activeOrderCount !== 1 ? "s" : ""} in the queue · track and advance deliveries.`;
+    case "online-orders": return `${activeOrderCount} active order${activeOrderCount !== 1 ? "s" : ""} in the queue · online deliveries and collections.`;
     case "zones":         return "Define delivery zones, set per-zone fees, and control distance rules.";
     case "operations":    return "Update branding, fees, timings, and address. All changes apply instantly.";
     case "email":         return `${s.emailTemplates?.filter((t) => t.enabled).length ?? 0} active email templates · customise messages sent to customers.`;
@@ -139,16 +163,15 @@ function bannerSubtitle(
     case "coupons":       return `${(s.coupons ?? []).filter((c) => c.active).length} active coupon${(s.coupons ?? []).filter((c) => c.active).length !== 1 ? "s" : ""} · percentage and fixed-amount discount codes.`;
     case "tax":           return s.taxSettings?.enabled ? `VAT ${s.taxSettings.rate}% · ${s.taxSettings.inclusive ? "inclusive" : "exclusive"} mode.` : "VAT is currently disabled.";
     case "drivers":       return "Manage driver accounts and track deliveries.";
-    case "users":         return "Create, view, and manage all user accounts — customers, drivers, and staff.";
     case "refunds":       return "Process full or partial refunds, choose refund method, and view the full refund history.";
     case "payments":      return "Stripe and cash transactions with status, customer, and gateway links — every order where money actually moved.";
     case "online-reports": return "Revenue, orders, refunds, VAT, and payment breakdowns — filter by date range and export to CSV or PDF.";
     case "pos-reports":    return "View POS sales reports — revenue, profit, staff performance, and best-selling items.";
-    case "waiters":        return `${settings.diningTables?.length ?? 0} tables — manage waiter accounts, PINs, and the dining layout.`;
+    case "waiters":        return "Manage waiter accounts, PINs, and roles. Dining tables moved to the Tables tab.";
     case "kitchen-staff":  return "Manage KDS login accounts, PINs, and kitchen roles.";
     case "pos-staff":      return "Manage POS terminal accounts — PINs, roles (Admin / Manager / Cashier), and per-role permissions.";
     case "reservations":          return settings.reservationSystem?.enabled ? "Reservations are live — customers can book tables from the website." : "Reservations are currently disabled — enable them below.";
-    case "table-status":          return "Live table occupancy for today — check in arriving guests and free tables on checkout.";
+    case "table-status":          return "Live occupancy plus add / edit / delete dining tables — used by the host stand and reservations.";
     case "reservation-customers": return "Guest profiles built from reservation check-ins — add notes, tags, and manage marketing opt-ins.";
     default:              return "Manage your restaurant settings below.";
   }
@@ -179,11 +202,34 @@ function AdminPageContent() {
   // ── All hooks must be declared before any early return (Rules of Hooks) ───
   // Honor ?tab=<id> on first paint so deep-links (e.g. "Go to Delivery" from
   // the user-management active-orders modal) land on the right panel.
-  const initialTab = (searchParams.get("tab") ?? "delivery") as TabId;
+  // Accept "delivery" as a legacy alias so old bookmarks / external links
+  // (e.g. emails sent before the rename) still land on the right tab.
+  const rawTab = searchParams.get("tab");
+  const initialTab = (rawTab === "delivery" ? "online-orders" : rawTab ?? "online-orders") as TabId;
   const [activeTab,          setActiveTab]          = useState<TabId>(initialTab);
   const [sidebarCollapsed,   setSidebarCollapsed]   = useState(false);
   const [mobileSidebarOpen,  setMobileSidebarOpen]  = useState(false);
   const [collapsedGroups,    setCollapsedGroups]    = useState<Set<string>>(new Set());
+  const [goToOpen,           setGoToOpen]           = useState(false);
+  const goToWrapperRef = useRef<HTMLDivElement | null>(null);
+
+  // Close the "Go To" popover when the user clicks anywhere outside it.
+  useEffect(() => {
+    if (!goToOpen) return;
+    function onPointerDown(ev: PointerEvent) {
+      if (!goToWrapperRef.current) return;
+      if (!goToWrapperRef.current.contains(ev.target as Node)) setGoToOpen(false);
+    }
+    function onKeyDown(ev: KeyboardEvent) {
+      if (ev.key === "Escape") setGoToOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [goToOpen]);
 
   const activeOrderCount = customers.reduce(
     (n, c) => n + c.orders.filter((o) => ["pending", "confirmed", "preparing", "ready"].includes(o.status)).length,
@@ -220,9 +266,11 @@ function AdminPageContent() {
   }, [activeOrderCount]);
 
   // Sync activeTab when ?tab=<id> changes after mount (e.g. router.push from
-  // an in-page modal). Guard against unknown ids.
+  // an in-page modal). Guard against unknown ids and honour the "delivery"
+  // legacy alias the same way the initial-tab resolver above does.
   useEffect(() => {
-    const t = searchParams.get("tab");
+    const raw = searchParams.get("tab");
+    const t   = raw === "delivery" ? "online-orders" : raw;
     if (t && ALL_TABS.some((x) => x.id === t)) setActiveTab(t);
   }, [searchParams]);
 
@@ -356,6 +404,13 @@ function AdminPageContent() {
   function handleTabSelect(id: TabId) {
     setActiveTab(id);
     setMobileSidebarOpen(false);
+    // Reflect the selection in the URL so refresh / share / back-button keep
+    // the right tab open. `replace` keeps history flat — clicking through
+    // 10 tabs shouldn't drop 10 entries onto the back stack. `scroll: false`
+    // stops the page from jumping to the top on every switch.
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", id);
+    router.replace(`/admin?${params.toString()}`, { scroll: false });
   }
 
   const currentTab  = ALL_TABS.find((t) => t.id === activeTab);
@@ -363,7 +418,7 @@ function AdminPageContent() {
 
   // ── Badge helper ──────────────────────────────────────────────────────────
   function getBadge(id: string): { count: number; pulse: boolean } | null {
-    if (id === "delivery"  && activeOrderCount > 0) return { count: activeOrderCount, pulse: true };
+    if (id === "online-orders" && activeOrderCount > 0) return { count: activeOrderCount, pulse: true };
     if (id === "menu")      return { count: menuItems.length, pulse: false };
     if (id === "customers") return { count: customers.length, pulse: false };
     return null;
@@ -522,48 +577,64 @@ function AdminPageContent() {
           )}
         </div>
 
-        {/* Kitchen link */}
-        <div className="relative group/bottom">
-          <Link
-            href="/kitchen"
+        {/* Go To — jump to any sub-app (opens in a new tab so the admin
+            session stays put). The popover anchors to this button and closes
+            on outside click / Escape (wired up at component scope). */}
+        <div ref={goToWrapperRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setGoToOpen((v) => !v)}
             className={[
-              "flex items-center gap-2.5 px-3 py-2 rounded-xl text-gray-400 hover:bg-gray-800 hover:text-white transition",
+              "flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-gray-400 hover:bg-gray-800 hover:text-white transition",
               sidebarCollapsed ? "justify-center" : "",
+              goToOpen ? "bg-gray-800 text-white" : "",
             ].join(" ")}
+            aria-expanded={goToOpen}
+            aria-haspopup="menu"
+            title={sidebarCollapsed ? "Go To" : undefined}
           >
-            <ChefHat size={15} className="flex-shrink-0" />
-            {!sidebarCollapsed && <span className="text-xs font-medium">Kitchen view</span>}
-          </Link>
-          {sidebarCollapsed && (
-            <div className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 z-50
-              opacity-0 group-hover/bottom:opacity-100 transition-opacity duration-150">
-              <div className="bg-gray-800 text-white text-xs font-medium px-2.5 py-1.5 rounded-lg shadow-xl whitespace-nowrap border border-gray-700">
-                Kitchen view
-              </div>
-              <div className="absolute left-0 top-1/2 -translate-y-1/2 -ml-1.5 border-4 border-transparent border-r-gray-800" />
-            </div>
-          )}
-        </div>
+            <Compass size={15} className="flex-shrink-0" />
+            {!sidebarCollapsed && (
+              <>
+                <span className="text-xs font-medium">Go To</span>
+                <ChevronDown
+                  size={13}
+                  className={`ml-auto text-gray-500 transition-transform ${goToOpen ? "rotate-180" : ""}`}
+                />
+              </>
+            )}
+          </button>
 
-        {/* View site link */}
-        <div className="relative group/bottom2">
-          <Link
-            href="/"
-            className={[
-              "flex items-center gap-2.5 px-3 py-2 rounded-xl text-gray-400 hover:bg-gray-800 hover:text-white transition",
-              sidebarCollapsed ? "justify-center" : "",
-            ].join(" ")}
-          >
-            <ExternalLink size={15} className="flex-shrink-0" />
-            {!sidebarCollapsed && <span className="text-xs font-medium">View site</span>}
-          </Link>
-          {sidebarCollapsed && (
-            <div className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 z-50
-              opacity-0 group-hover/bottom2:opacity-100 transition-opacity duration-150">
-              <div className="bg-gray-800 text-white text-xs font-medium px-2.5 py-1.5 rounded-lg shadow-xl whitespace-nowrap border border-gray-700">
-                View site
-              </div>
-              <div className="absolute left-0 top-1/2 -translate-y-1/2 -ml-1.5 border-4 border-transparent border-r-gray-800" />
+          {goToOpen && (
+            <div
+              role="menu"
+              className={[
+                "absolute z-50 min-w-[200px] bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-1.5",
+                // Position: above the trigger in expanded mode, to the right in
+                // collapsed mode so it doesn't overlap the trigger column.
+                sidebarCollapsed
+                  ? "left-full ml-3 bottom-0"
+                  : "left-0 right-0 bottom-full mb-2",
+              ].join(" ")}
+            >
+              {SUB_APP_LINKS.map(({ href, label, icon: Icon, description }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  role="menuitem"
+                  onClick={() => setGoToOpen(false)}
+                  className="flex items-start gap-2.5 px-3 py-2 rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition group"
+                >
+                  <Icon size={15} className="flex-shrink-0 mt-0.5 text-gray-400 group-hover:text-orange-400" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-semibold">{label}</div>
+                    <div className="text-[10px] text-gray-500 truncate">{description}</div>
+                  </div>
+                  <ExternalLink size={11} className="flex-shrink-0 mt-0.5 text-gray-600 group-hover:text-gray-400" />
+                </Link>
+              ))}
             </div>
           )}
         </div>
@@ -591,21 +662,6 @@ function AdminPageContent() {
           )}
         </div>
 
-        {/* Collapse toggle (desktop only) */}
-        <button
-          onClick={() => setSidebarCollapsed((v) => !v)}
-          className={[
-            "hidden lg:flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-gray-500 hover:bg-gray-800 hover:text-gray-200 transition",
-            sidebarCollapsed ? "justify-center" : "",
-          ].join(" ")}
-          title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {sidebarCollapsed
-            ? <PanelLeftOpen  size={15} className="flex-shrink-0" />
-            : <PanelLeftClose size={15} className="flex-shrink-0" />
-          }
-          {!sidebarCollapsed && <span className="text-xs font-medium">Collapse</span>}
-        </button>
       </div>
     </aside>
   );
@@ -626,7 +682,7 @@ function AdminPageContent() {
               {newOrderCount === 1 ? "New order received!" : `${newOrderCount} new orders received!`}
             </p>
             <button
-              onClick={() => { handleTabSelect("delivery"); dismissAlert(); }}
+              onClick={() => { handleTabSelect("online-orders"); dismissAlert(); }}
               className="mt-1 text-xs text-orange-400 hover:text-orange-300 font-semibold transition"
             >
               View in Delivery →
@@ -690,7 +746,7 @@ function AdminPageContent() {
             {/* Active-orders pill */}
             {activeOrderCount > 0 && (
               <button
-                onClick={() => handleTabSelect("delivery")}
+                onClick={() => handleTabSelect("online-orders")}
                 className="flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-700 text-xs font-bold px-3 py-1.5 rounded-full hover:bg-orange-100 transition flex-shrink-0"
               >
                 <Bell size={12} className="animate-bounce" />
@@ -730,7 +786,7 @@ function AdminPageContent() {
             {/* Panel content */}
             {activeTab === "menu"          && <MenuManagementPanel />}
             {activeTab === "customers"     && <CustomersPanel />}
-            {activeTab === "delivery"      && <DeliveryPanel />}
+            {activeTab === "online-orders" && <DeliveryPanel />}
             {activeTab === "zones"         && <DeliveryZonesPanel />}
             {activeTab === "operations"    && <OperationsPanel />}
             {activeTab === "schedule"      && <SchedulePanel />}
@@ -744,7 +800,6 @@ function AdminPageContent() {
             {activeTab === "coupons"       && <CouponsPanel />}
             {activeTab === "tax"           && <TaxSettingsPanel />}
             {activeTab === "drivers"       && <DriversPanel />}
-            {activeTab === "users"         && <UserManagementPanel />}
             {activeTab === "refunds"       && <RefundsPanel />}
             {activeTab === "payments"      && <PaymentsPanel />}
             {activeTab === "online-reports" && <OnlineReportsPanel />}
