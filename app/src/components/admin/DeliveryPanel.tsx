@@ -140,8 +140,8 @@ const STATUS_CONFIG: Record<OrderStatus, {
 const DS_STEPS: DeliveryStatus[] = ["assigned", "picked_up", "on_the_way", "delivered"];
 
 const DS_CONFIG: Record<DeliveryStatus, { label: string; badge: string; dot: string; pulse?: boolean }> = {
-  assigned: { label: "Driver assigned", badge: "bg-amber-50 text-amber-700 border-amber-200", dot: "bg-amber-500" },
-  picked_up: { label: "Picked up", badge: "bg-blue-50 text-blue-700 border-blue-200", dot: "bg-blue-500" },
+  assigned: { label: "Driver", badge: "bg-amber-50 text-amber-700 border-amber-200", dot: "bg-amber-500" },
+  picked_up: { label: "Picked", badge: "bg-blue-50 text-blue-700 border-blue-200", dot: "bg-blue-500" },
   on_the_way: { label: "On the way", badge: "bg-indigo-50 text-indigo-700 border-indigo-200", dot: "bg-indigo-500", pulse: true },
   delivered: { label: "Delivered", badge: "bg-green-50 text-green-700 border-green-200", dot: "bg-green-500" },
 };
@@ -389,38 +389,37 @@ function OrderModal({ order, onClose, onStatusChange, onRequestCancel }: {
                   Driver: <span className="font-semibold text-gray-800">{order.driverName}</span>
                   {order.deliveryStatus === "on_the_way" && (
                     <span className="ml-1 flex items-center gap-1 text-indigo-600 font-bold">
-                      <Navigation size={10} className="animate-bounce" /> En route
+                      <Navigation size={10} className="animate-bounce" /> End route
                     </span>
                   )}
                 </p>
               )}
               {/* Step progress */}
-              <div className="flex items-center gap-1">
-                {DS_STEPS.map((step, i) => {
-                  const currentIdx = DS_STEPS.indexOf(order.deliveryStatus!);
-                  const done = i <= currentIdx;
-                  const active = step === order.deliveryStatus;
-                  return (
-                    <div key={step} className="flex items-center flex-1 last:flex-none">
-                      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ring-2 transition-all ${active ? "ring-indigo-300 bg-indigo-500 scale-125" :
-                          done ? "ring-indigo-100 bg-indigo-400" : "ring-gray-200 bg-gray-200"
-                        }`} />
-                      {i < DS_STEPS.length - 1 && (
-                        <div className={`h-0.5 flex-1 mx-0.5 ${i < currentIdx ? "bg-indigo-300" : "bg-gray-200"}`} />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="flex justify-between">
-                {DS_STEPS.map((step, i) => {
-                  const currentIdx = DS_STEPS.indexOf(order.deliveryStatus!);
-                  return (
-                    <span key={step} className={`text-[9px] font-medium ${i === currentIdx ? "text-indigo-600" : "text-gray-300"}`}>
-                      {DS_CONFIG[step].label.split(" ")[0]}
-                    </span>
-                  );
-                })}
+              <div className="pb-4">
+                <div className="flex items-center gap-1">
+                  {DS_STEPS.map((step, i) => {
+                    const currentIdx = DS_STEPS.indexOf(order.deliveryStatus!);
+                    const done = i <= currentIdx;
+                    const active = step === order.deliveryStatus;
+                    return (
+                      <div key={step} className="flex items-center flex-1 last:flex-none">
+                        <div className="relative flex justify-center">
+                          <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ring-2 transition-all ${active ? "ring-indigo-300 bg-indigo-500 scale-125" :
+                              done ? "ring-indigo-100 bg-indigo-400" : "ring-gray-200 bg-gray-200"
+                            }`} />
+                          <span className={`absolute top-5 whitespace-nowrap text-[8px] sm:text-[9px] font-medium ${active ? "text-indigo-600" : "text-gray-300"} ${
+                            i === 0 ? "left-0" : i === DS_STEPS.length - 1 ? "right-0" : "left-1/2 -translate-x-1/2"
+                          }`}>
+                            {DS_CONFIG[step].label.split(" ").slice(0, 3).join(" ")}
+                          </span>
+                        </div>
+                        {i < DS_STEPS.length - 1 && (
+                          <div className={`h-0.5 flex-1 mx-0.5 ${i < currentIdx ? "bg-indigo-300" : "bg-gray-200"}`} />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           )}
@@ -463,7 +462,9 @@ function OrderModal({ order, onClose, onStatusChange, onRequestCancel }: {
                       <div className={`w-3 h-3 rounded-full flex-shrink-0 ring-2 transition-all ${current ? "ring-orange-400 bg-orange-500 scale-125" :
                           done ? "ring-orange-200 bg-orange-400" : "ring-gray-200 bg-gray-200"
                         }`} />
-                      <span className={`absolute top-6 whitespace-nowrap text-[8px] sm:text-[9px] font-medium ${order.status === s ? "text-orange-500" : "text-gray-300"}`}>
+                      <span className={`absolute top-6 whitespace-nowrap text-[8px] sm:text-[9px] font-medium ${order.status === s ? "text-orange-500" : "text-gray-300"} ${
+                         i === FLOW.length - 1 ? "-right-3" : "left-1/2 -translate-x-1/2"
+                      }`}>
                         {STATUS_CONFIG[s].label}
                       </span>
                     </div>

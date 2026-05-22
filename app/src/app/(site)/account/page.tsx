@@ -173,28 +173,30 @@ function DeliveryTracker({ order }: { order: Order }) {
         </span>}
       </div>
       {/* Step dots */}
-      <div className="flex items-center gap-1">
-        {DS_STEPS.map((step, i) => {
-          const done = i <= currentIdx;
-          const active = step === ds;
-          return (
-            <div key={step} className="flex items-center flex-1 last:flex-none">
-              <div className={`w-2 h-2 rounded-full flex-shrink-0 transition-all ${active ? "bg-indigo-500 ring-2 ring-indigo-200 scale-125" :
-                done ? "bg-indigo-400" : "bg-gray-200"
-                }`} />
-              {i < DS_STEPS.length - 1 && (
-                <div className={`h-0.5 flex-1 mx-0.5 transition-colors ${i < currentIdx ? "bg-indigo-400" : "bg-gray-200"}`} />
-              )}
-            </div>
-          );
-        })}
-      </div>
-      <div className="flex justify-between mt-1">
-        {DS_STEPS.map((step, i) => (
-          <span key={step} className={`text-[9px] font-medium ${i === currentIdx ? "text-indigo-500" : "text-zinc-300"}`}>
-            {DS_CONFIG[step].label.split(" ")[0]}
-          </span>
-        ))}
+      <div className="pb-4 mt-1.5">
+        <div className="flex items-center gap-1">
+          {DS_STEPS.map((step, i) => {
+            const done = i <= currentIdx;
+            const active = step === ds;
+            return (
+              <div key={step} className="flex items-center flex-1 last:flex-none">
+                <div className="relative flex justify-center">
+                  <div className={`w-2 h-2 rounded-full flex-shrink-0 transition-all ${active ? "bg-indigo-500 ring-2 ring-indigo-200 scale-125" :
+                    done ? "bg-indigo-400" : "bg-gray-200"
+                    }`} />
+                  <span className={`absolute top-4 whitespace-nowrap text-[9px] font-medium ${i === currentIdx ? "text-indigo-500" : "text-zinc-300"} ${
+                    i === 0 ? "left-0" : i === DS_STEPS.length - 1 ? "right-0" : "left-1/2 -translate-x-1/2"
+                  }`}>
+                    {DS_CONFIG[step].label.split(" ")[0]}
+                  </span>
+                </div>
+                {i < DS_STEPS.length - 1 && (
+                  <div className={`h-0.5 flex-1 mx-0.5 transition-colors ${i < currentIdx ? "bg-indigo-400" : "bg-gray-200"}`} />
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
       {order.driverName && (
         <p className="text-[10px] text-zinc-500 mt-2 flex items-center gap-1">
@@ -349,28 +351,31 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
       {/* Header row */}
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-start justify-between p-4 sm:p-5 text-left hover:bg-zinc-50 transition"
+        className="w-full text-left hover:bg-zinc-50 transition block p-4 sm:p-5"
       >
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span title={fullOrderNumber(order.id)} className="font-semibold text-gray-800 text-sm truncate max-w-[180px]">{fullOrderNumber(order.id)}</span>
-            <StatusBadge order={order} />
-            {isActive && (
-              <span className="text-[10px] font-semibold bg-zinc-50 text-zinc-700 border border-zinc-200 rounded-full px-2 py-0.5">
-                Live
-              </span>
-            )}
+        <div className="flex items-start justify-between w-full">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span title={fullOrderNumber(order.id)} className="font-semibold text-gray-800 text-sm truncate max-w-[180px]">{fullOrderNumber(order.id)}</span>
+              <StatusBadge order={order} />
+              {isActive && (
+                <span className="text-[10px] font-semibold bg-zinc-50 text-zinc-700 border border-zinc-200 rounded-full px-2 py-0.5">
+                  Live
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-zinc-400 mt-1">
+              {formatDate(order.date)} at {formatTime(order.date)} · {order.fulfillment === "delivery" ? "Delivery" : "Collection"}
+            </p>
           </div>
-          <p className="text-xs text-zinc-400 mt-1">
-            {formatDate(order.date)} at {formatTime(order.date)} · {order.fulfillment === "delivery" ? "Delivery" : "Collection"}
-          </p>
-          {isActive && <OrderTracker order={order} />}
-          <DeliveryTracker order={order} />
+          <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+            <span className="font-bold text-zinc-900 tabular-nums">{sym}{order.total.toFixed(2)}</span>
+            {expanded ? <ChevronUp size={16} className="text-zinc-400" /> : <ChevronDown size={16} className="text-zinc-400" />}
+          </div>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-          <span className="font-bold text-zinc-900 tabular-nums">{sym}{order.total.toFixed(2)}</span>
-          {expanded ? <ChevronUp size={16} className="text-zinc-400" /> : <ChevronDown size={16} className="text-zinc-400" />}
-        </div>
+        
+        {isActive && <OrderTracker order={order} />}
+        <DeliveryTracker order={order} />
       </button>
 
       {/* Expanded detail */}
