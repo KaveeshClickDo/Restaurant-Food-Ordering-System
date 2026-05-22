@@ -100,7 +100,7 @@ export default function DineInActionModal({
                 <div className="grid grid-cols-2 gap-2 mb-2">
                   {(["full", "partial"] as const).map(t => (
                     <button key={t} onClick={() => setRefundType(t)}
-                      className={`py-2 rounded-xl text-sm font-semibold border transition ${refundType === t ? "bg-amber-500/20 border-amber-500 text-amber-300" : "bg-slate-700 border-slate-600 text-slate-300"}`}>
+                      className={`px-2 py-2 rounded-xl text-sm font-semibold border transition ${refundType === t ? "bg-amber-500/20 border-amber-500 text-amber-300" : "bg-slate-700 border-slate-600 text-slate-300"}`}>
                       {t === "full" ? `Full ${sym}${action.order.total.toFixed(2)}` : "Partial"}
                     </button>
                   ))}
@@ -157,9 +157,9 @@ export default function DineInActionModal({
           <button
             onClick={action.mode === "void" ? submitVoid : submitRefund}
             disabled={loading || !reason.trim()}
-            className={`flex-1 py-3 disabled:opacity-50 text-white rounded-xl font-bold text-sm transition flex items-center justify-center gap-2 ${action.mode === "void" ? "bg-red-600 hover:bg-red-500" : "bg-amber-600 hover:bg-amber-500"}`}>
+            className={`flex-1 px-2 py-3 disabled:opacity-50 text-white rounded-xl flex-shrink-0 font-bold text-sm transition flex items-center justify-center gap-2 ${action.mode === "void" ? "bg-red-600 hover:bg-red-500" : "bg-amber-600 hover:bg-amber-500"}`}>
             {loading
-              ? <><Loader2 size={15} className="animate-spin" /> Processing…</>
+              ? <><Loader2 size={15} className="animate-spin flex-shrink-0" /> Processing…</>
               : action.mode === "void"
                 ? <><AlertTriangle size={15} /> Void Order</>
                 : <><RotateCcw size={15} /> Confirm Refund</>}
