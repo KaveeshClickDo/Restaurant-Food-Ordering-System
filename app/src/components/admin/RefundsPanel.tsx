@@ -127,7 +127,7 @@ function RefundHistoryRow({ refund }: { refund: Refund }) {
   return (
     <div className="flex items-start justify-between gap-4 py-2.5 border-t border-gray-50 first:border-t-0">
       <div className="flex items-start gap-2 min-w-0">
-        <div className="w-7 h-7 hidden sm:inline rounded-lg bg-teal-50 flex items-center justify-center flex-shrink-0 text-teal-600 mt-0.5">
+        <div className="w-7 h-7 hidden sm:flex rounded-lg bg-teal-50 items-center justify-center flex-shrink-0 text-teal-600">
           <RotateCcw size={13} />
         </div>
         <div className="min-w-0">
