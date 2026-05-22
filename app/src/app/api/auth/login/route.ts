@@ -103,6 +103,7 @@ export async function POST(req: NextRequest) {
     refunds:               o.refunds         ?? [],
     refundedAmount:        o.refunded_amount  ? Number(o.refunded_amount)  : undefined,
     storeCreditUsed:       o.store_credit_used ? Number(o.store_credit_used) : undefined,
+    giftCardUsed:          o.gift_card_used ? Number(o.gift_card_used) : undefined,
   });
 
   const token = createSessionToken({ id: data.id, role: "customer" });

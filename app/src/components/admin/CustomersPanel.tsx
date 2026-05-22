@@ -41,6 +41,11 @@ const TAG_COLORS: Record<string, string> = {
   Inactive: "bg-gray-100 text-gray-500 border-gray-200",
 };
 
+// Preset tags one-tap-toggleable in both the admin Customers drawer and the
+// POS CustomersView. Stays in sync with the POS list so both surfaces present
+// the same vocabulary.
+const PRESET_TAGS = ["VIP", "Regular", "Halal", "Vegan", "Vegetarian", "Gluten-Free", "Allergy", "Staff"];
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string) {
@@ -568,14 +573,25 @@ function CustomerDrawer({
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
   const [emailToast, setEmailToast] = useState<{ orderId: string; state: "sending" | "sent" | "error" } | null>(null);
 
-  // ── Bug #11 — POS-shared editable fields. Initialise from the customer
-  // prop and re-sync whenever the parent rebuilds it (the parent's onStatusChange
-  // recreates customer to keep order rows fresh — POS fields are unaffected).
-  const [loyaltyPoints,   setLoyaltyPoints]   = useState<number>(customer.loyaltyPoints   ?? 0);
-  const [giftCardBalance, setGiftCardBalance] = useState<number>(customer.giftCardBalance ?? 0);
-  const [notes,           setNotes]           = useState<string>(customer.notes           ?? "");
-  const [posSaving,       setPosSaving]       = useState(false);
-  const [posMessage,      setPosMessage]      = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  // ── Bug #11 — POS-shared editable fields. Loyalty points + store credit
+  // are display-only (driven by the system); gift card balance is gone with
+  // the move to code-based gift cards. `tags` + `notes` are admin-editable
+  // and the values are visible at the till on the next customer-list refresh.
+  const [tags,       setTags]       = useState<string[]>(customer.tags ?? []);
+  const [customTag,  setCustomTag]  = useState("");
+  const [notes,      setNotes]      = useState<string>(customer.notes ?? "");
+  const [posSaving,  setPosSaving]  = useState(false);
+  const [posMessage, setPosMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+
+  function toggleTag(tag: string) {
+    setTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
+  }
+  function addCustomTag() {
+    const t = customTag.trim();
+    if (!t || tags.includes(t)) { setCustomTag(""); return; }
+    setTags((prev) => [...prev, t]);
+    setCustomTag("");
+  }
 
   // ── Account management state ─────────────────────────────────────────────
   // The "Deleted customer" pseudo-row (id "__deleted__") surfaces orphan
@@ -603,18 +619,13 @@ function CustomerDrawer({
     setPosSaving(true);
     setPosMessage(null);
     try {
-      // POS-shared columns (loyalty_points / gift_card_balance / notes) live on
-      // the customers row; the PUT below writes them through the canonical
-      // customer route. The POS terminal hits /api/pos/customers/[id] and ends
-      // up at the same columns.
+      // Tags + notes are the editable fields from this panel — loyalty +
+      // store credit are display-only, gift cards are code-based. Both
+      // columns live on the customers row and are visible at the POS too.
       const res = await fetch(`/api/admin/customers/${customer.id}`, {
         method:  "PUT",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({
-          loyaltyPoints:   Math.max(0, Math.floor(loyaltyPoints)),
-          giftCardBalance: Math.max(0, giftCardBalance),
-          notes,
-        }),
+        body:    JSON.stringify({ tags, notes }),
       });
       const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
       if (!res.ok || !json.ok) {
@@ -893,53 +904,103 @@ function CustomerDrawer({
             </div>
           )}
 
-          {/* ── POS-shared profile (Bug #11) ─────────────────────────────────
-              The customers row now carries loyalty points, gift card
-              balance and a notes field that the POS terminal reads/writes
-              too. Edits made here are visible at the till on the next
-              customer list refresh, and vice-versa. Suppressed for the
-              "__deleted__" pseudo-row — there's no DB row to write to. */}
+          {/* ── Balances + notes (Bug #11) ──────────────────────────────────
+              Store credit + loyalty points are read-only — their balances
+              are driven by the system (refunds for store credit, future
+              order-completion accrual for loyalty), so a manual editor would
+              just create drift from the audit trail. Gift cards are now
+              code-based (Admin > Gift Cards) — the old account-bound balance
+              field was unused by the new flow and has been dropped. Notes
+              stay editable for staff dietary / preference jotting. */}
           {!isDeletedRow && (
           <div className="px-6 py-4 border-b border-gray-100 space-y-3">
             <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
               <Award size={15} className="text-orange-500" />
-              Loyalty &amp; Gift Card
+              Balances &amp; Notes
               <span className="text-[10px] font-normal text-gray-400 ml-auto">shared with POS</span>
             </h3>
-            {/* Store credit — read-only here. Balance is incremented when admin
-                refunds with method="store_credit" and decremented when the
-                customer applies it at checkout. No manual edit field on purpose
-                so the audit trail (the refund history) stays the source of truth. */}
-            <div className="flex items-center justify-between bg-teal-50 border border-teal-100 rounded-lg px-3 py-2">
-              <div className="flex items-center gap-2 text-xs text-teal-700">
-                <Gift size={13} className="text-teal-500" />
-                <span className="font-semibold">Store credit</span>
-                <span className="text-teal-500/80">— auto-applied at checkout</span>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex items-center justify-between bg-teal-50 border border-teal-100 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2 text-xs text-teal-700 min-w-0">
+                  <Gift size={13} className="text-teal-500 flex-shrink-0" />
+                  <span className="font-semibold truncate">Store credit</span>
+                </div>
+                <span className="text-sm font-bold text-teal-700 tabular-nums flex-shrink-0">
+                  {sym}{(customer.storeCredit ?? 0).toFixed(2)}
+                </span>
               </div>
-              <span className="text-sm font-bold text-teal-700 tabular-nums">
-                {sym}{(customer.storeCredit ?? 0).toFixed(2)}
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-gray-500 mb-1 flex items-center gap-1"><Award size={11} /> Loyalty points</label>
-                <input
-                  type="number" min="0" step="1"
-                  value={loyaltyPoints}
-                  onChange={(e) => setLoyaltyPoints(parseInt(e.target.value) || 0)}
-                  className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-amber-600 font-bold text-sm outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 flex items-center gap-1"><Gift size={11} /> Gift card ({sym})</label>
-                <input
-                  type="number" min="0" step="0.01"
-                  value={giftCardBalance}
-                  onChange={(e) => setGiftCardBalance(parseFloat(e.target.value) || 0)}
-                  className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-purple-600 font-bold text-sm outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
-                />
+              <div className="flex items-center justify-between bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2 text-xs text-amber-700 min-w-0">
+                  <Award size={13} className="text-amber-500 flex-shrink-0" />
+                  <span className="font-semibold truncate">Loyalty points</span>
+                </div>
+                <span className="text-sm font-bold text-amber-700 tabular-nums flex-shrink-0">
+                  {(customer.loyaltyPoints ?? 0).toLocaleString()}
+                </span>
               </div>
             </div>
+
+            {/* Tags — preset toggles + custom add. Mirrors the POS CustomersView
+                vocabulary so a tag added at the till is recognised here, and
+                vice versa. */}
+            <div>
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide flex items-center gap-1">Tags</label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {PRESET_TAGS.map((t) => {
+                  const active = tags.includes(t);
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => toggleTag(t)}
+                      className={`text-[11px] px-2.5 py-1 rounded-full border font-medium transition ${
+                        active
+                          ? (TAG_COLORS[t] ?? "bg-orange-500 text-white border-orange-500")
+                          : "bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-300"
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Custom tag input */}
+              <div className="flex gap-2 mb-2">
+                <input
+                  type="text"
+                  value={customTag}
+                  onChange={(e) => setCustomTag(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustomTag(); } }}
+                  placeholder="Custom tag…"
+                  className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-800 placeholder-gray-400 outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition"
+                />
+                <button
+                  type="button"
+                  onClick={addCustomTag}
+                  disabled={!customTag.trim()}
+                  className="px-3 rounded-lg bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 text-white text-xs font-semibold transition"
+                >
+                  Add
+                </button>
+              </div>
+              {/* Active custom tags — non-preset chips with remove */}
+              {tags.filter((t) => !PRESET_TAGS.includes(t)).length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {tags.filter((t) => !PRESET_TAGS.includes(t)).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => toggleTag(t)}
+                      title="Remove tag"
+                      className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full border font-medium bg-gray-100 text-gray-700 border-gray-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition"
+                    >
+                      {t} <X size={10} />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div>
               <label className="text-xs text-gray-500 mb-1 flex items-center gap-1"><FileText size={11} /> Notes</label>
               <textarea
@@ -956,7 +1017,7 @@ function CustomerDrawer({
                 disabled={posSaving}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-orange-500 hover:bg-orange-600 text-white transition disabled:opacity-50"
               >
-                <Save size={12} /> {posSaving ? "Saving…" : "Save loyalty/notes"}
+                <Save size={12} /> {posSaving ? "Saving…" : "Save tags & notes"}
               </button>
               {posMessage && (
                 <span className={`text-xs ${posMessage.kind === "ok" ? "text-green-600" : "text-red-600"}`}>

@@ -373,8 +373,10 @@ export default function ReservationCustomersPanel() {
   const [filterOptIn,  setFilterOptIn]  = useState(false);
   const [filterOrders, setFilterOrders] = useState(false);
 
-  const fetchCustomers = useCallback(async () => {
-    setLoading(true);
+  // isInitial=true shows the spinner (mount, manual refresh). Default silent so
+  // background polls don't tear down the visible list.
+  const fetchCustomers = useCallback(async (isInitial = false) => {
+    if (isInitial) setLoading(true);
     try {
       const res  = await fetch("/api/admin/reservation-customers");
       const json = await res.json() as { ok: boolean; customers?: ReservationCustomer[] };
@@ -382,15 +384,16 @@ export default function ReservationCustomersPanel() {
     } catch (err) {
       console.error("ReservationCustomersPanel fetch:", err);
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   }, []);
 
-  useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
+  useEffect(() => { fetchCustomers(true); }, [fetchCustomers]);
 
   // Poll every 10 s — anon supabase realtime no longer fires after RLS revoke.
+  // Silent (default) so the list doesn't flicker on each tick.
   useEffect(() => {
-    const id = setInterval(fetchCustomers, 10_000);
+    const id = setInterval(() => fetchCustomers(), 10_000);
     return () => clearInterval(id);
   }, [fetchCustomers]);
 
@@ -468,7 +471,7 @@ export default function ReservationCustomersPanel() {
             <FileDown size={14} /> Export CSV
           </button>
           <button
-            onClick={fetchCustomers}
+            onClick={() => fetchCustomers(true)}
             disabled={loading}
             className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300 transition"
           >

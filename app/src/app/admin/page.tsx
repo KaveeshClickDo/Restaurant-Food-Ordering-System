@@ -28,6 +28,7 @@ import OnlineReportsPanel  from "@/components/admin/OnlineReportsPanel";
 import WaitersPanel         from "@/components/admin/WaitersPanel";
 import KitchenStaffPanel    from "@/components/admin/KitchenStaffPanel";
 import POSStaffPanel        from "@/components/admin/POSStaffPanel";
+import GiftCardsPanel       from "@/components/admin/GiftCardsPanel";
 import ReservationsPanel         from "@/components/admin/ReservationsPanel";
 import TableStatusPanel          from "@/components/admin/TableStatusPanel";
 import ReservationCustomersPanel from "@/components/admin/ReservationCustomersPanel";
@@ -36,7 +37,7 @@ import {
   MapPin, Bell, X, Mail, FileText, Navigation, Palette, ImageIcon, Receipt,
   Tag, Percent, Car, RotateCcw, BarChart3, LineChart, UtensilsCrossed, CalendarDays, BookUser,
   Menu as MenuIcon, ChevronDown, ChevronRight, ChevronLeft,
-  Tablet, CreditCard, Globe, Monitor, Compass,
+  Tablet, CreditCard, Globe, Monitor, Compass, Gift,
 } from "lucide-react";
 
 // ─── Navigation structure ─────────────────────────────────────────────────────
@@ -82,6 +83,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "payments",       label: "Payments",         icon: CreditCard },
       { id: "online-reports", label: "Finance Reports",  icon: LineChart },
       { id: "coupons",        label: "Coupons",          icon: Tag       },
+      { id: "gift-cards",     label: "Gift Cards",       icon: Gift      },
       { id: "tax",            label: "Tax & VAT",         icon: Percent   },
       { id: "pos-reports",    label: "POS Reports",       icon: BarChart3 },
     ],
@@ -161,6 +163,7 @@ function bannerSubtitle(
     case "footer-logos":  return `${(s.footerLogos ?? []).filter((l) => l.enabled).length} active logo${(s.footerLogos ?? []).filter((l) => l.enabled).length !== 1 ? "s" : ""} · upload payment icons, partner logos, and badges.`;
     case "receipt":       return "Configure what appears on printed and emailed receipts — name, phone, VAT number, and footer.";
     case "coupons":       return `${(s.coupons ?? []).filter((c) => c.active).length} active coupon${(s.coupons ?? []).filter((c) => c.active).length !== 1 ? "s" : ""} · percentage and fixed-amount discount codes.`;
+    case "gift-cards":    return "Prepaid gift card codes — issue manually, track balances, void, and view redemption history.";
     case "tax":           return s.taxSettings?.enabled ? `VAT ${s.taxSettings.rate}% · ${s.taxSettings.inclusive ? "inclusive" : "exclusive"} mode.` : "VAT is currently disabled.";
     case "drivers":       return "Manage driver accounts and track deliveries.";
     case "refunds":       return "Process full or partial refunds, choose refund method, and view the full refund history.";
@@ -798,6 +801,7 @@ function AdminPageContent() {
             {activeTab === "footer-logos"  && <FooterLogosPanel />}
             {activeTab === "receipt"       && <ReceiptSettingsPanel />}
             {activeTab === "coupons"       && <CouponsPanel />}
+            {activeTab === "gift-cards"    && <GiftCardsPanel />}
             {activeTab === "tax"           && <TaxSettingsPanel />}
             {activeTab === "drivers"       && <DriversPanel />}
             {activeTab === "refunds"       && <RefundsPanel />}

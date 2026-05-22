@@ -21,6 +21,7 @@
 import { randomInt } from "crypto";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { resolveDeliveryZoneFee, findZoneForDistance, haversineKm, type DeliveryZoneShape } from "@/lib/geocode";
+import { lookupActiveGiftCard, clampGiftCardAmount } from "@/lib/giftCardValidation";
 import type { MenuItemOffer, MenuChannel } from "@/types";
 
 interface DBMenuItem {
@@ -162,6 +163,8 @@ export interface ValidatedOrder {
     coupon_code:       string | null;
     coupon_discount:   number;
     store_credit_used: number;
+    gift_card_id:      string | null;
+    gift_card_used:    number;
     delivery_code:     string | null;
     customer_lat:      number | null;
     customer_lng:      number | null;
@@ -389,6 +392,16 @@ export async function validateAndNormaliseOrder(
   const storeCreditUsed = typeof body.store_credit_used === "number" && body.store_credit_used >= 0
                             ? body.store_credit_used : 0;
 
+  // Gift card claim — we accept the code + the amount the browser proposes
+  // to use, then server-side validate the card exists, isn't expired, and
+  // the claim is capped by the card's balance.
+  const giftCardCode = typeof body.gift_card_code === "string" && body.gift_card_code.trim()
+                         ? body.gift_card_code.trim()
+                         : null;
+  const giftCardClaim = typeof body.gift_card_used === "number" && body.gift_card_used >= 0
+                          ? body.gift_card_used
+                          : 0;
+
   // ── Coupon validation (no increment — caller's responsibility) ────────────
   const couponCode = typeof body.coupon_code === "string" ? body.coupon_code.trim().toUpperCase() : null;
   let verifiedCoupon: VerifiedCoupon | null = null;
@@ -567,7 +580,9 @@ export async function validateAndNormaliseOrder(
     ),
     0,
   );
-  const serverTotal = Math.max(
+  // Running total before gift card — coupon + store credit have already been
+  // applied. Gift card claim is capped by min(card.balance, runningTotal).
+  const runningTotal = Math.max(
     0,
     Math.round((
       itemsSubtotal +
@@ -577,6 +592,31 @@ export async function validateAndNormaliseOrder(
       (verifiedCoupon?.discount ?? 0) -
       storeCreditUsed
     ) * 100) / 100,
+  );
+
+  // ── Gift card validation + clamp ──────────────────────────────────────────
+  // We look up the card (if a code was supplied), verify it's redeemable
+  // right now, and clamp the claimed amount to min(balance, runningTotal).
+  // The clamp is what server-side total recomputation guarantees — the
+  // browser cannot inflate the amount beyond what's actually available.
+  let giftCardId: string | null = null;
+  let giftCardUsed = 0;
+  if (giftCardCode && giftCardClaim > 0) {
+    const result = await lookupActiveGiftCard(giftCardCode);
+    if (!result.ok) {
+      return { ok: false, error: result.message, status: 400 };
+    }
+    giftCardId   = result.card.id;
+    giftCardUsed = clampGiftCardAmount({
+      cardBalance:  result.card.balance,
+      runningTotal,
+      requested:    giftCardClaim,
+    });
+  }
+
+  const serverTotal = Math.max(
+    0,
+    Math.round((runningTotal - giftCardUsed) * 100) / 100,
   );
 
   // ── Delivery PIN (only for delivery fulfillment) ──────────────────────────
@@ -603,6 +643,8 @@ export async function validateAndNormaliseOrder(
     coupon_code:       verifiedCoupon?.code ?? null,
     coupon_discount:   verifiedCoupon?.discount ?? 0,
     store_credit_used: storeCreditUsed,
+    gift_card_id:      giftCardId,
+    gift_card_used:    giftCardUsed,
     delivery_code:     deliveryCode,
     customer_lat:      fulfillment === "delivery" ? custLat : null,
     customer_lng:      fulfillment === "delivery" ? custLng : null,

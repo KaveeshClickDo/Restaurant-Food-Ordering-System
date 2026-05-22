@@ -15,7 +15,7 @@ import { fullOrderNumber } from "@/lib/orderNumber";
 export interface VarDef {
   name: string;
   label: string;
-  group: "Customer" | "Order" | "Restaurant" | "Reservation" | "Branding";
+  group: "Customer" | "Order" | "Restaurant" | "Reservation" | "Branding" | "Gift Card";
   preview: string; // value used in the template preview
 }
 
@@ -50,6 +50,13 @@ export const TEMPLATE_VARS: VarDef[] = [
   { name: "reservation_note",    label: "Special note",        group: "Reservation", preview: "Window seat preferred" },
   { name: "cancel_link",         label: "Cancel booking link", group: "Reservation", preview: "https://yourdomain.com/reservation/token" },
   { name: "review_url",          label: "Review link (Google/TripAdvisor)", group: "Reservation", preview: "https://g.page/r/yourplaceid/review" },
+  // Gift card (only for gift_card_delivered event)
+  { name: "gift_code",            label: "Gift card code",        group: "Gift Card", preview: "GC-7K9X-LM3P-WT2Q" },
+  { name: "gift_amount",          label: "Gift card amount",      group: "Gift Card", preview: "£50.00" },
+  { name: "gift_recipient_name",  label: "Recipient name",        group: "Gift Card", preview: "Alex" },
+  { name: "gift_sender_name",     label: "Sender / buyer name",   group: "Gift Card", preview: "Jane Smith" },
+  { name: "personal_message",     label: "Personal message",      group: "Gift Card", preview: "Happy birthday — enjoy a nice meal on me!" },
+  { name: "gift_expires_at",      label: "Expiry date",           group: "Gift Card", preview: "11 Apr 2027" },
   // Branding
   { name: "brand_color",        label: "Brand primary color (hex)", group: "Branding", preview: "#f97316" },
   { name: "brand_color_light",  label: "Brand light tint (hex)",   group: "Branding", preview: "#fff7ed" },
@@ -78,6 +85,7 @@ export const EVENT_CONFIGS: EventConfig[] = [
   { event: "reservation_cancellation",   name: "Reservation Cancelled",    description: "Sent when a reservation is cancelled",           color: "bg-rose-100",    textColor: "text-rose-700",    emoji: "🚫" },
   { event: "reservation_check_in",       name: "Guest Checked In",         description: "Sent when staff check the guest in (welcome)",   color: "bg-sky-100",     textColor: "text-sky-700",     emoji: "🪑" },
   { event: "reservation_review_request", name: "Post-Visit Review Request",description: "Sent automatically when a guest checks out",     color: "bg-yellow-100",  textColor: "text-yellow-700",  emoji: "⭐" },
+  { event: "gift_card_delivered",        name: "Gift Card Delivered",      description: "Sent to the recipient when a gift card is purchased", color: "bg-purple-100", textColor: "text-purple-700", emoji: "🎁" },
 ];
 
 // ─── Default templates ────────────────────────────────────────────────────────
@@ -270,6 +278,33 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
     enabled: true,
     lastModified: new Date(0).toISOString(),
   },
+  {
+    event: "gift_card_delivered",
+    name: "Gift Card Delivered",
+    subject: "🎁 You've received a gift card from {{gift_sender_name}}",
+    body: `<h2 style="color:{{brand_color}};margin:0 0 16px 0">You've received a gift card! 🎁</h2>
+<p>Hi <strong>{{gift_recipient_name}}</strong>,</p>
+<p><strong>{{gift_sender_name}}</strong> has sent you a gift card to <strong>{{restaurant_name}}</strong>.</p>
+{{personal_message}}
+<div style="background:{{brand_color_light}};border:2px dashed {{brand_color}};border-radius:14px;padding:24px;text-align:center;margin:24px 0">
+  <p style="margin:0 0 6px 0;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:1px">Gift card value</p>
+  <p style="margin:0 0 18px 0;font-size:32px;font-weight:700;color:{{brand_color}};letter-spacing:1px">{{gift_amount}}</p>
+  <p style="margin:0 0 4px 0;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:1px">Your code</p>
+  <p style="margin:0;font-family:'Courier New',monospace;font-size:22px;font-weight:700;letter-spacing:2px;color:#111827">{{gift_code}}</p>
+</div>
+<h3 style="color:#374151;margin:20px 0 10px 0;font-size:15px">How to use it</h3>
+<ul style="color:#6b7280;font-size:14px;line-height:1.7;padding-left:20px;margin:0">
+  <li>Apply the code at checkout on our website — it works for delivery and collection orders.</li>
+  <li>Or quote the code in person at the till — it can be used at any of our payment surfaces.</li>
+  <li>Partial use is fine — any unused balance stays on the code for next time.</li>
+  <li>Expires on <strong>{{gift_expires_at}}</strong>.</li>
+</ul>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
+<p style="color:#6b7280;font-size:14px">Questions? Call us at <strong>{{restaurant_phone}}</strong> or reply to this email.</p>
+<p>Enjoy your meal at <strong>{{restaurant_name}}</strong>!</p>`,
+    enabled: true,
+    lastModified: new Date(0).toISOString(),
+  },
 ];
 
 // ─── Variable replacement ─────────────────────────────────────────────────────
@@ -364,9 +399,26 @@ export function buildVarMap(
       <td style="padding:4px 8px;text-align:right;color:${vatColor};font-weight:600">${vatPrefix}${sym}${order.vatAmount.toFixed(2)}</td>
     </tr>`;
   }
+  // Payment reductions — store credit + gift card lower the amount actually
+  // charged. Without these rows the breakdown shows an unexplained gap between
+  // the subtotal/fees and the (smaller) Total.
+  if (order.storeCreditUsed && order.storeCreditUsed > 0) {
+    totalsHtml += `
+    <tr>
+      <td style="padding:4px 8px;color:#0d9488;font-weight:600">Store credit applied</td>
+      <td style="padding:4px 8px;text-align:right;color:#0d9488;font-weight:600">−${sym}${order.storeCreditUsed.toFixed(2)}</td>
+    </tr>`;
+  }
+  if (order.giftCardUsed && order.giftCardUsed > 0) {
+    totalsHtml += `
+    <tr>
+      <td style="padding:4px 8px;color:#7c3aed;font-weight:600">Gift card applied</td>
+      <td style="padding:4px 8px;text-align:right;color:#7c3aed;font-weight:600">−${sym}${order.giftCardUsed.toFixed(2)}</td>
+    </tr>`;
+  }
   totalsHtml += `
     <tr style="background:#f9fafb">
-      <td style="padding:8px;font-weight:700;font-size:15px;color:#111827;border-top:2px solid #e5e7eb">Total</td>
+      <td style="padding:8px;font-weight:700;font-size:15px;color:#111827;border-top:2px solid #e5e7eb">${(order.giftCardUsed ?? 0) > 0 || (order.storeCreditUsed ?? 0) > 0 ? "Total paid" : "Total"}</td>
       <td style="padding:8px;text-align:right;font-weight:700;font-size:15px;color:#111827;border-top:2px solid #e5e7eb">${sym}${order.total.toFixed(2)}</td>
     </tr>`;
 

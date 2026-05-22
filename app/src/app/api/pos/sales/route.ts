@@ -22,6 +22,7 @@ import { parseBody }                 from "@/lib/apiValidation";
 import { PosSaleCreateSchema }       from "@/lib/schemas/pos";
 import { requirePosSession, requirePosPermission } from "@/lib/posPermissions";
 import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
+import { lookupActiveGiftCard, clampGiftCardAmount, redeemGiftCardForRow } from "@/lib/giftCardValidation";
 
 const POS_CUSTOMER_ID = "pos-walk-in";
 
@@ -181,6 +182,31 @@ export async function POST(req: NextRequest) {
   // ('R' || nextval('pos_receipt_seq')) so neither client nor server has to
   // touch the counter. staff_id and staff_name are SET FROM SESSION — body
   // attribution is intentionally discarded (F-INS-3).
+  // ── Gift card tender (optional) ───────────────────────────────────────────
+  // The gift card is a PAYMENT instrument, not a discount — it does NOT change
+  // the sale total (value of goods), it covers part/all of what's owed. We
+  // look up the card server-side, clamp the claimed amount to its balance AND
+  // the sale total, and stamp the row. Redemption (balance decrement) happens
+  // after the row is committed, via redeemGiftCardForRow.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const giftCardCode = typeof (body as any).giftCardCode === "string" ? (body as any).giftCardCode.trim() : "";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const giftCardClaim = typeof (body as any).giftCardUsed === "number" ? Number((body as any).giftCardUsed) : 0;
+  let giftCardId: string | null = null;
+  let giftCardUsed = 0;
+  if (giftCardCode && giftCardClaim > 0) {
+    const lookup = await lookupActiveGiftCard(giftCardCode);
+    if (!lookup.ok) {
+      return NextResponse.json({ ok: false, error: lookup.message }, { status: 400 });
+    }
+    giftCardId   = lookup.card.id;
+    giftCardUsed = clampGiftCardAmount({
+      cardBalance:  lookup.card.balance,
+      runningTotal: totalServer,
+      requested:    giftCardClaim,
+    });
+  }
+
   const row = {
     id:              body.id,
     date:            body.date ?? new Date().toISOString(),
@@ -203,6 +229,8 @@ export async function POST(req: NextRequest) {
     cash_tendered:   body.cashTendered   ?? null,
     change_given:    body.changeGiven    ?? null,
     voided:          false,
+    gift_card_id:    giftCardId,
+    gift_card_used:  giftCardUsed,
   };
 
   const { data: inserted, error } = await supabaseAdmin
@@ -238,6 +266,20 @@ export async function POST(req: NextRequest) {
   }
 
   const sale = rowToSale(inserted);
+
+  // Gift card redemption — sale row carries the gift_card_id + gift_card_used
+  // stamp. AWAITED so the balance is actually debited before we respond (a
+  // fire-and-forget promise can be killed when the route returns). Idempotent
+  // (keyed on the sale id) so the POS outbox replaying a sale won't double-debit.
+  if (giftCardId && giftCardUsed > 0) {
+    const redeem = await redeemGiftCardForRow({
+      giftCardId,
+      amount:      giftCardUsed,
+      posSaleId:   String(body.id),
+      performedBy: `pos:${session.id}`,
+    });
+    if (!redeem.ok) console.error("[pos/sales] gift card redeem:", redeem.error);
+  }
 
   // KDS sync — fire-and-await so the client knows whether the kitchen has
   // the ticket. Failure here doesn't roll back the sale.

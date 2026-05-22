@@ -27,6 +27,7 @@ import { sendOrderConfirmationEmail }   from "@/lib/emailServer";
 import { getCustomerSession, unauthorizedJson } from "@/lib/auth";
 import { rateLimit }                    from "@/lib/rateLimit";
 import { validateAndNormaliseOrder, incrementCouponUsage } from "@/lib/orderValidation";
+import { redeemGiftCardForRow } from "@/lib/giftCardValidation";
 import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
 
 export async function POST(req: NextRequest) {
@@ -82,7 +83,13 @@ export async function POST(req: NextRequest) {
   // Lifecycle: "unpaid" → "paid" (on delivery for cash) → optionally
   // "partially_refunded" / "refunded". The unpaid → paid transition is
   // handled in /api/admin/orders/[id]/status when status flips to "delivered".
-  const insertRow = { ...row, payment_status: "unpaid" };
+  //
+  // Exception: when a gift card / store credit fully covers the order (nothing
+  // left to charge), there's no cash to collect — mark it paid up front so it
+  // doesn't sit forever as "unpaid".
+  const fullyCoveredByCredit =
+    row.total <= 0.001 && ((row.gift_card_used ?? 0) > 0 || row.store_credit_used > 0);
+  const insertRow = { ...row, payment_status: fullyCoveredByCredit ? "paid" : "unpaid" };
 
   const { error } = await supabaseAdmin.from("orders").insert(insertRow);
   if (error) {
@@ -103,6 +110,20 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Apply the gift card redemption. Order row already carries the stamp
+  // (gift_card_id + gift_card_used) — the helper uses that as the idempotency
+  // key. AWAITED so the balance is debited before we respond (a dangling
+  // promise can be killed when the route returns).
+  if (row.gift_card_id && row.gift_card_used > 0) {
+    const redeem = await redeemGiftCardForRow({
+      giftCardId:  row.gift_card_id,
+      amount:      row.gift_card_used,
+      orderId:     row.id,
+      performedBy: `customer:${row.customer_id}`,
+    });
+    if (!redeem.ok) console.error("[orders] gift card redeem:", redeem.error);
+  }
+
   // Fire-and-forget — email failure must never fail the order response
   sendOrderConfirmationEmail({
     id:              row.id,
@@ -118,6 +139,8 @@ export async function POST(req: NextRequest) {
     vat_inclusive:   row.vat_inclusive ?? undefined,
     coupon_code:     row.coupon_code ?? undefined,
     coupon_discount: row.coupon_code ? row.coupon_discount : undefined,
+    store_credit_used: row.store_credit_used > 0 ? row.store_credit_used : undefined,
+    gift_card_used:    row.gift_card_used   > 0 ? row.gift_card_used   : undefined,
     delivery_code:   row.delivery_code ?? undefined,
     date:            row.date,
   }).catch((err: unknown) =>

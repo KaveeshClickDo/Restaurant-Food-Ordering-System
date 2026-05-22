@@ -107,6 +107,10 @@ function mapOrder(o: any) {
     refunds:               o.refunds         ?? [],
     refundedAmount:        o.refunded_amount   ? Number(o.refunded_amount)   : undefined,
     storeCreditUsed:       o.store_credit_used ? Number(o.store_credit_used) : undefined,
+    // Gift card stamp — without these the admin Refunds panel can't offer the
+    // "Gift card" refund method (it gates on order.giftCardUsed > 0).
+    giftCardId:            o.gift_card_id ?? undefined,
+    giftCardUsed:          o.gift_card_used ? Number(o.gift_card_used) : undefined,
   };
 }
 

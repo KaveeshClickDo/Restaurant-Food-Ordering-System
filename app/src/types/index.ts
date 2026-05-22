@@ -248,7 +248,8 @@ export type EmailTemplateEvent =
   | "reservation_update"
   | "reservation_cancellation"
   | "reservation_check_in"
-  | "reservation_review_request";
+  | "reservation_review_request"
+  | "gift_card_delivered";
 
 export interface EmailTemplate {
   event: EmailTemplateEvent;
@@ -495,6 +496,20 @@ export interface AdminSettings {
   diningTables: DiningTable[];
   reservationSystem: ReservationSystem;
   currency: CurrencySettings;
+  giftCardSettings: GiftCardSettings;
+}
+
+export interface GiftCardSettings {
+  /** Master switch — when false, the public purchase page + checkout option
+   *  are hidden and /api/gift-cards/intent rejects with 503. */
+  enabled: boolean;
+  /** Quick-pick amounts on the purchase page. */
+  presets: number[];
+  /** Min / max custom amount a customer can buy. */
+  minAmount: number;
+  maxAmount: number;
+  /** Months until a freshly-issued card expires. */
+  expiryMonths: number;
 }
 
 export type OrderStatus =
@@ -504,7 +519,7 @@ export type OrderStatus =
 
 export type DeliveryStatus = "assigned" | "picked_up" | "on_the_way" | "delivered";
 
-export type RefundMethod = "original_payment" | "store_credit" | "cash";
+export type RefundMethod = "original_payment" | "store_credit" | "cash" | "gift_card";
 
 export type PaymentStatus = "unpaid" | "paid" | "refunded" | "partially_refunded" | "failed";
 
@@ -592,6 +607,15 @@ export interface Order {
   refunds?: Refund[];
   refundedAmount?: number;  // cumulative £ refunded so far
   storeCreditUsed?: number; // £ of store credit applied at checkout
+  // Gift card redemption — stamped at order insert when the customer typed
+  // a code at checkout. The actual balance decrement on gift_cards happens
+  // server-side after the order commits.
+  giftCardId?: string;
+  giftCardUsed?: number;
+  /** Transient — set only at checkout so the order POST can forward the code
+   *  to the server for lookup. Never persisted/loaded (the server resolves it
+   *  to gift_card_id at insert time). */
+  giftCardCode?: string;
   // POS-only fields (not set on online orders)
   tipAmount?: number;      // tip collected at the POS terminal
   changeGiven?: number;    // cash change given back to the customer
@@ -636,4 +660,59 @@ export interface Customer {
   totalSpend?: number;       // computed by API (orders + POS sales)
   visitCount?: number;       // computed
   lastVisit?: string;        // ISO, computed
+}
+
+// ─── Gift cards (code-based / transferable) ──────────────────────────────────
+// Phase 1: anyone holding a code can redeem it at online checkout, POS, or
+// waiter settle. The balance lives on the `gift_cards` row (NOT on the
+// customer), so the same code can be redeemed across surfaces and over
+// multiple orders until depleted. See plan in plans/zesty-petting-pumpkin.md.
+
+export type GiftCardStatus = "active" | "redeemed" | "voided" | "expired";
+
+export interface GiftCard {
+  id: string;
+  code: string;
+  initialAmount: number;
+  balance: number;
+  status: GiftCardStatus;
+  /** Recipient details captured at purchase time. Email is used for the
+   *  delivery message; name is shown on the card display. */
+  issuedToEmail?: string;
+  issuedToName?: string;
+  /** Buyer's customer id — present only when the purchase was made by a
+   *  logged-in customer. Lets us show "cards I've bought" on /account. */
+  issuedByCustomerId?: string;
+  personalMessage?: string;
+  expiresAt?: string;        // ISO
+  stripePaymentIntentId?: string;
+  deliveredAt?: string;      // ISO — set when the delivery email was sent
+  createdAt: string;         // ISO
+}
+
+export type GiftCardTransactionType =
+  | "issue"
+  | "redeem"
+  | "refund"
+  | "void"
+  | "adjust";
+
+export interface GiftCardTransaction {
+  id: string;
+  giftCardId: string;
+  type: GiftCardTransactionType;
+  /** Positive = credit (issue, refund), negative = debit (redeem, void). */
+  amount: number;
+  /** Snapshot of the card's balance after this txn — kept for reconciliation
+   *  so an auditor never has to replay the entire ledger to verify history. */
+  balanceAfter: number;
+  /** Exactly one of these is set for redeem/refund rows; both null for
+   *  issue/void/adjust. Lets the audit view link straight to the source. */
+  orderId?: string;
+  posSaleId?: string;
+  /** Free-form actor label: "customer:<id>", "admin", "pos:<staff_id>",
+   *  "system" (for webhook-driven issuance). */
+  performedBy: string;
+  notes?: string;
+  createdAt: string;         // ISO
 }

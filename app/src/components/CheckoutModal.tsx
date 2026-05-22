@@ -43,6 +43,20 @@ const PAYPAL_MIN_CHARGE_FALLBACK = 1.00;
 // string disables the PayPal option entirely (the filter below hides it).
 const PAYPAL_CLIENT_ID = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID ?? "";
 
+// Synthetic payment method used when a gift card / store credit fully covers
+// the order (£0 to pay). Routed through the cash path; the server marks the
+// £0 order paid since there's nothing to collect.
+const COVERED_METHOD: PaymentMethod = {
+  id: "cash",
+  name: "Gift card / credit",
+  description: "Fully covered",
+  adminNote: "",
+  enabled: true,
+  builtIn: true,
+  order: 0,
+  deliveryRange: { restricted: false, minKm: 0, maxKm: 0 },
+};
+
 // Stripe.js loader — singleton so we don't re-download Stripe.js on every
 // modal open. `loadStripe` returns null if the key is missing, which the
 // card payment step handles with a friendly error message.
@@ -287,6 +301,14 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   // captures the correct value on first mount.
   const [useCredit, setUseCredit] = useState(() => availableCredit > 0);
 
+  // Gift card — bearer code. Customer types the code; we POST /api/gift-cards/lookup
+  // and stash the result so the order summary can show the balance. Unlike store
+  // credit there's no auto-apply: we don't know the code until the user types it.
+  const [giftCardInput, setGiftCardInput] = useState("");
+  const [giftCardError, setGiftCardError] = useState("");
+  const [appliedGiftCard, setAppliedGiftCard] = useState<{ code: string; balance: number } | null>(null);
+  const [giftCardLookingUp, setGiftCardLookingUp] = useState(false);
+
   // Location state
   const [locState, setLocState]   = useState<LocationState>("idle");
   const [distKm,   setDistKm]     = useState<number | null>(null);
@@ -324,7 +346,13 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   const tax            = computeTax(baseCartTotal, settings);
   const adjustedTotal     = Math.max(0, baseCartTotal + deliveryFee + serviceFee + taxSurcharge(tax) - couponDiscount);
   const storeCreditApplied = useCredit ? Math.min(availableCredit, adjustedTotal) : 0;
-  const orderTotal         = Math.max(0, adjustedTotal - storeCreditApplied);
+  // Gift card applies after coupon + store credit, capped by the remaining
+  // total. Order of operations matches the server (orderValidation.ts).
+  const totalBeforeGiftCard = Math.max(0, adjustedTotal - storeCreditApplied);
+  const giftCardApplied     = appliedGiftCard
+    ? Math.round(Math.min(appliedGiftCard.balance, totalBeforeGiftCard) * 100) / 100
+    : 0;
+  const orderTotal         = Math.max(0, totalBeforeGiftCard - giftCardApplied);
 
   // Card minimum is enforced server-side via Stripe's own rejection (see
   // /api/payments/intent catch block). We don't pre-check on the client
@@ -341,6 +369,38 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     } else {
       setCouponInput("");
     }
+  }
+
+  async function applyGiftCardCode() {
+    const code = giftCardInput.trim();
+    if (!code) return;
+    setGiftCardError("");
+    setGiftCardLookingUp(true);
+    try {
+      const res = await fetch("/api/gift-cards/lookup", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ code }),
+      });
+      const json = await res.json().catch(() => ({})) as {
+        ok?: boolean; error?: string; card?: { code: string; balance: number };
+      };
+      if (!res.ok || !json.ok || !json.card) {
+        setGiftCardError(json.error ?? "Could not apply that gift card.");
+        return;
+      }
+      setAppliedGiftCard({ code: json.card.code, balance: json.card.balance });
+      setGiftCardInput("");
+    } catch {
+      setGiftCardError("Connection error. Please try again.");
+    } finally {
+      setGiftCardLookingUp(false);
+    }
+  }
+
+  function removeGiftCard() {
+    setAppliedGiftCard(null);
+    setGiftCardError("");
   }
 
   // Filter payment methods.
@@ -465,6 +525,9 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
       ...(appliedCoupon ? { couponCode: appliedCoupon.code, couponDiscount: appliedCoupon.discountAmount } : {}),
       ...(tax.enabled && tax.vatAmount > 0 ? { vatAmount: tax.vatAmount, vatInclusive: tax.inclusive } : {}),
       ...(storeCreditApplied > 0 ? { storeCreditUsed: storeCreditApplied } : {}),
+      ...(appliedGiftCard && giftCardApplied > 0
+        ? { giftCardCode: appliedGiftCard.code, giftCardUsed: giftCardApplied }
+        : {}),
     };
   }
 
@@ -490,6 +553,11 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
       vat_amount: order.vatAmount ?? 0,
       vat_inclusive: order.vatInclusive ?? true,
       store_credit_used: order.storeCreditUsed ?? 0,
+      // Gift card code is held in component state, not on the Order object —
+      // the server looks it up + clamps the amount authoritatively.
+      ...(appliedGiftCard && giftCardApplied > 0
+        ? { gift_card_code: appliedGiftCard.code, gift_card_used: giftCardApplied }
+        : {}),
       customer_email: form.email.trim() || undefined,
     };
   }
@@ -957,6 +1025,14 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                   <span>−{sym}{storeCreditApplied.toFixed(2)}</span>
                 </div>
               )}
+              {giftCardApplied > 0 && (
+                <div className="flex justify-between text-xs text-orange-700 font-semibold">
+                  <span className="flex items-center gap-1">
+                    <Gift size={11} /> Gift card
+                  </span>
+                  <span>−{sym}{giftCardApplied.toFixed(2)}</span>
+                </div>
+              )}
               <div className="flex justify-between font-bold text-gray-900 pt-1 border-t border-gray-200 mt-1">
                 <span>Total</span>
                 <span>{sym}{orderTotal.toFixed(2)}</span>
@@ -1008,6 +1084,57 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                 {couponError && (
                   <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
                     <AlertCircle size={12} className="flex-shrink-0" /> {couponError}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Gift card code */}
+          <div>
+            <h3 className="font-semibold text-gray-900 text-sm mb-2">Gift card</h3>
+            {appliedGiftCard ? (
+              <div className="flex items-center justify-between gap-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Gift size={15} className="text-orange-600 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-orange-800 font-mono tracking-wider truncate">{appliedGiftCard.code}</p>
+                    <p className="text-xs text-orange-600">
+                      −{sym}{giftCardApplied.toFixed(2)} applied
+                      {appliedGiftCard.balance - giftCardApplied > 0.001 &&
+                        ` · ${sym}${(appliedGiftCard.balance - giftCardApplied).toFixed(2)} left after`}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={removeGiftCard}
+                  className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700 font-semibold flex-shrink-0 transition"
+                >
+                  <XCircle size={14} /> Remove
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={giftCardInput}
+                    onChange={(e) => { setGiftCardInput(e.target.value.toUpperCase()); setGiftCardError(""); }}
+                    onKeyDown={(e) => e.key === "Enter" && applyGiftCardCode()}
+                    placeholder="GC-XXXX-XXXX-XXXX"
+                    className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-mono tracking-widest uppercase placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                  />
+                  <button
+                    onClick={applyGiftCardCode}
+                    disabled={!giftCardInput.trim() || giftCardLookingUp}
+                    className="flex items-center gap-1.5 bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition"
+                  >
+                    <Gift size={14} /> {giftCardLookingUp ? "…" : "Apply"}
+                  </button>
+                </div>
+                {giftCardError && (
+                  <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                    <AlertCircle size={12} className="flex-shrink-0" /> {giftCardError}
                   </div>
                 )}
               </div>
@@ -1316,7 +1443,30 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
           <div className="space-y-3">
             <h3 className="font-semibold text-gray-900 text-sm">Payment</h3>
 
-            {availableMethods.length === 0 && locState !== "outside" && (
+            {/* Fully covered by gift card / store credit — nothing left to
+                charge, so skip the payment-method tiles and offer a single
+                "place order" action. The server marks the £0 order paid. */}
+            {orderTotal <= 0 && locState !== "outside" && (
+              <button
+                onClick={() => placeCashOrder(COVERED_METHOD)}
+                disabled={submitting}
+                className="group w-full flex items-center gap-3 border-2 border-green-200 bg-green-50 rounded-xl px-4 py-3.5 transition disabled:opacity-60"
+              >
+                {submitting
+                  ? <div className="w-10 h-10 flex items-center justify-center flex-shrink-0"><Loader2 size={20} className="animate-spin text-gray-400" /></div>
+                  : <div className="w-10 h-10 rounded-lg bg-green-500 flex items-center justify-center flex-shrink-0"><Gift size={18} className="text-white" /></div>
+                }
+                <div className="text-left flex-1">
+                  <p className="font-semibold text-sm text-gray-900">{submitting ? "Placing order…" : "Place order"}</p>
+                  <p className="text-xs text-gray-500">
+                    Fully covered by {appliedGiftCard ? "gift card" : "store credit"} — nothing to pay
+                  </p>
+                </div>
+                <span className="ml-auto text-gray-300 group-hover:text-gray-500 transition text-lg">›</span>
+              </button>
+            )}
+
+            {orderTotal > 0 && availableMethods.length === 0 && locState !== "outside" && (
               <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-4">
                 <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
                 <div>
@@ -1340,7 +1490,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
               </div>
             )}
 
-            {locState !== "outside" && availableMethods.map((method) => {
+            {orderTotal > 0 && locState !== "outside" && availableMethods.map((method) => {
               // Stripe minimum is enforced server-side via Stripe's own
               // rejection (and translated to a friendly message). PayPal
               // we still pre-check because its rejections are less clean.

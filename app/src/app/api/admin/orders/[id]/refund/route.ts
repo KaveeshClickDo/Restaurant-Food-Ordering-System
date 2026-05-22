@@ -23,6 +23,7 @@ import { getStripe, toStripeAmount }            from "@/lib/stripeServer";
 import { paypalFetch, paypalIsConfigured, toPaypalAmount } from "@/lib/paypalServer";
 import { parseBody }                            from "@/lib/apiValidation";
 import { AdminRefundSchema }                    from "@/lib/schemas/waiter";
+import { refundGiftCardForRow }                 from "@/lib/giftCardValidation";
 
 export async function POST(
   req: NextRequest,
@@ -42,7 +43,7 @@ export async function POST(
   //   - replacing body.refundedAmount with the sum of all refund entries
   const { data: orderRow, error: lookupErr } = await supabaseAdmin
     .from("orders")
-    .select("stripe_payment_intent_id, paypal_capture_id, total, customer_id, refunds, refunded_amount")
+    .select("stripe_payment_intent_id, paypal_capture_id, total, customer_id, refunds, refunded_amount, gift_card_id, gift_card_used")
     .eq("id", id)
     .maybeSingle();
 
@@ -53,7 +54,9 @@ export async function POST(
     );
   }
 
+  const round2 = (n: number) => parseFloat(n.toFixed(2));
   const orderTotal = Number(orderRow.total);
+  const giftCardUsedOnOrder = Number(orderRow.gift_card_used ?? 0);
   const priorRefunds = Array.isArray(orderRow.refunds) ? orderRow.refunds.length : 0;
   const submittedRefunds = body.refunds ?? [];
   if (submittedRefunds.length < priorRefunds) {
@@ -63,24 +66,46 @@ export async function POST(
     );
   }
 
-  // Sum up the submitted refunds — this is the new authoritative `refunded_amount`.
-  // The body's `refundedAmount` field is ignored.
-  const refundedAmountServer = parseFloat(
-    submittedRefunds.reduce((s, r) => s + Number(r.amount ?? 0), 0).toFixed(2),
+  // Two independent refund tracks:
+  //   • MONEY refunds (original_payment / cash / store_credit) return real money
+  //     to the customer. Capped at order.total — what was actually charged.
+  //     These drive `refunded_amount` and the payment_status.
+  //   • GIFT-CARD refunds credit the gift card balance back. Capped separately
+  //     at gift_card_used (the amount originally paid by gift card). They are
+  //     tracked in refunds[] for audit but do NOT count as money returned, so
+  //     they never block a money refund or skew the "fully refunded" status.
+  // This split is what makes "refund the £50 card → fully refunded" correct
+  // even when £100 of gift card was also used, and lets the gift card portion
+  // be refunded independently.
+  const isGift = (m: string | undefined) => m === "gift_card";
+  const moneyRefundedTotal = round2(
+    submittedRefunds.filter((r) => !isGift(r.method)).reduce((s, r) => s + Number(r.amount ?? 0), 0),
+  );
+  const giftRefundedTotal = round2(
+    submittedRefunds.filter((r) => isGift(r.method)).reduce((s, r) => s + Number(r.amount ?? 0), 0),
   );
 
-  if (refundedAmountServer > orderTotal + 0.001) {
+  if (moneyRefundedTotal > orderTotal + 0.001) {
     return NextResponse.json(
-      { ok: false, error: `Total refunded (${refundedAmountServer}) cannot exceed order total (${orderTotal}).` },
+      { ok: false, error: `Refunds to original payment / cash (${moneyRefundedTotal}) cannot exceed the order total (${orderTotal}).` },
+      { status: 400 },
+    );
+  }
+  if (giftRefundedTotal > giftCardUsedOnOrder + 0.001) {
+    return NextResponse.json(
+      { ok: false, error: `Gift card refunds (${giftRefundedTotal}) cannot exceed the amount paid by gift card (${giftCardUsedOnOrder}).` },
       { status: 400 },
     );
   }
 
-  // The "newest" refund is the only one we may call Stripe for. Its amount
-  // must fit within the remaining refundable budget.
+  // The "newest" refund is the only one we act on (gateway call / gift card
+  // credit). Validate its budget against the right track.
   const newest = submittedRefunds[submittedRefunds.length - 1];
-  if (newest) {
-    const remainingBudget = parseFloat((orderTotal - Number(orderRow.refunded_amount ?? 0)).toFixed(2));
+  if (newest && !isGift(newest.method)) {
+    // Money budget = order.total minus money already refunded. refunded_amount
+    // stores the money-only total (set below), so prior gift-card refunds don't
+    // shrink the card-refundable budget.
+    const remainingBudget = round2(orderTotal - Number(orderRow.refunded_amount ?? 0));
     if (Number(newest.amount) > remainingBudget + 0.001) {
       return NextResponse.json(
         { ok: false, error: `Refund (${newest.amount}) exceeds remaining refundable (${remainingBudget}).` },
@@ -165,22 +190,69 @@ export async function POST(
     // Else: cash / no gateway — record-only, no API call.
   }
 
-  // ── Derive payment_status server-side from refundedAmountServer ─────────
-  let newPaymentStatus: "refunded" | "partially_refunded" | undefined;
-  if (refundedAmountServer >= orderTotal - 0.001) newPaymentStatus = "refunded";
-  else if (refundedAmountServer > 0)              newPaymentStatus = "partially_refunded";
+  // ── Gift card refund — credit the balance back to the card ────────────────
+  // Prevents the double-dip (buy card → use on order → refund to bank → free
+  // money). The amount is capped at the order's recorded gift_card_used minus
+  // any prior gift_card-method refunds.
+  if (newest && newest.method === "gift_card") {
+    if (!orderRow.gift_card_id) {
+      return NextResponse.json(
+        { ok: false, error: "This order wasn't paid with a gift card." },
+        { status: 400 },
+      );
+    }
+    const giftCardUsed = Number(orderRow.gift_card_used ?? 0);
+    const priorGiftRefunds = (Array.isArray(orderRow.refunds) ? orderRow.refunds : [])
+      .filter((r: { method?: string }) => r.method === "gift_card")
+      .reduce((s: number, r: { amount?: number }) => s + Number(r.amount ?? 0), 0);
+    const refundableToCard = parseFloat((giftCardUsed - priorGiftRefunds).toFixed(2));
+    if (Number(newest.amount) > refundableToCard + 0.001) {
+      return NextResponse.json(
+        { ok: false, error: `Gift card refund (${newest.amount}) exceeds the amount paid by gift card (${refundableToCard}).` },
+        { status: 400 },
+      );
+    }
+    const result = await refundGiftCardForRow({
+      giftCardId:  orderRow.gift_card_id,
+      amount:      Number(newest.amount),
+      orderId:     id,
+      performedBy: `admin`,
+      notes:       `Refund for order ${id}: ${newest.reason}`,
+    });
+    if (!result.ok) {
+      return NextResponse.json({ ok: false, error: result.error ?? "Gift card refund failed." }, { status: 500 });
+    }
+  }
 
+  // ── Derive payment_status server-side ───────────────────────────────────
+  // "refunded" = everything the customer actually paid is back. For a normal
+  // order that's the money side reaching order.total. For an order fully paid
+  // by gift card (order.total === 0), it's the gift card portion being fully
+  // credited back.
+  const moneyFullyRefunded = orderTotal > 0.001 && moneyRefundedTotal >= orderTotal - 0.001;
+  const giftFullyRefunded  = giftCardUsedOnOrder > 0.001 && giftRefundedTotal >= giftCardUsedOnOrder - 0.001;
+  const noMoneyComponent   = orderTotal <= 0.001; // gift card covered the whole order
+
+  let newPaymentStatus: "refunded" | "partially_refunded" | undefined;
+  if (moneyFullyRefunded || (noMoneyComponent && giftFullyRefunded)) {
+    newPaymentStatus = "refunded";
+  } else if (moneyRefundedTotal > 0 || giftRefundedTotal > 0) {
+    newPaymentStatus = "partially_refunded";
+  }
+
+  // `refunded_amount` tracks MONEY returned to the customer (card / cash /
+  // store credit) — not gift-card credit, which lives in the gift_card ledger.
+  // Keeping it money-only means the Refunds panel's "remaining refundable"
+  // (total − refunded_amount) stays correct for the card side.
   // A refund changes only the *payment* state — the order keeps its real
-  // fulfillment status (preparing / delivered / …). Overwriting `status` with
-  // the refund state used to destroy that fulfillment state, which made every
-  // refunded order look "in progress" and hid delivered-then-refunded orders
-  // from the Delivered tab. `payment_status` is the source of truth for refunds.
+  // fulfillment status (preparing / delivered / …). `payment_status` is the
+  // source of truth for refunds.
   const { error: orderErr } = await supabaseAdmin
     .from("orders")
     .update({
       status:           body.newStatus,
       refunds:          submittedRefunds,
-      refunded_amount:  refundedAmountServer,
+      refunded_amount:  moneyRefundedTotal,
       ...(newPaymentStatus ? { payment_status: newPaymentStatus } : {}),
     })
     .eq("id", id);
@@ -211,7 +283,8 @@ export async function POST(
     ok: true,
     stripeRefundId:  newest?.stripeRefundId ?? null,
     paypalRefundId:  newest?.paypalRefundId ?? null,
-    refundedAmount:  refundedAmountServer,
+    refundedAmount:  moneyRefundedTotal,
+    giftRefundedAmount: giftRefundedTotal,
   });
 }
 

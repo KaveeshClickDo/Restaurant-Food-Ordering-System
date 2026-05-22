@@ -119,4 +119,11 @@ export const DEFAULT_SETTINGS: AdminSettings = {
     reviewUrl: "",
   },
   currency: DEFAULT_CURRENCY,
+  giftCardSettings: {
+    enabled: true,
+    presets: [10, 25, 50, 100],
+    minAmount: 5,
+    maxAmount: 500,
+    expiryMonths: 12,
+  },
 };

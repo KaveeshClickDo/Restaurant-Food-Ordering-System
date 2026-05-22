@@ -27,10 +27,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { sendOrderConfirmationEmail } from "@/lib/emailServer";
+import { sendOrderConfirmationEmail, sendGiftCardDeliveredEmail } from "@/lib/emailServer";
 import { getStripe, getWebhookSecret, fromStripeAmount } from "@/lib/stripeServer";
 import { incrementCouponUsage } from "@/lib/orderValidation";
+import { redeemGiftCardForRow } from "@/lib/giftCardValidation";
 import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
+import { generateGiftCardCode } from "@/lib/giftCardCode";
 
 // Tell Next.js this route handler should NOT parse the body — Stripe needs
 // the raw bytes for signature verification.
@@ -98,6 +100,14 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
   }
   if (session.status === "succeeded" && session.completed_order_id) {
     // Idempotent — order already created. Acknowledge silently.
+    return;
+  }
+
+  // Branch on session.kind — gift card purchases run through a separate path
+  // that mints a code instead of inserting an order row. metadata.kind is
+  // a backup discriminator in case session.kind is missing on legacy rows.
+  if (session.kind === "gift_card" || intent.metadata?.kind === "gift_card") {
+    await handleGiftCardPurchaseSucceeded(intent, session);
     return;
   }
 
@@ -190,6 +200,25 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
     }
   }
 
+  // Gift card redemption — order row carries gift_card_id + gift_card_used
+  // stamp from orderValidation. Fire-and-forget; helper is idempotent so a
+  // webhook retry won't double-spend.
+  const giftCardId   = orderRow.gift_card_id as string | null;
+  const giftCardUsed = Number(orderRow.gift_card_used ?? 0);
+  if (giftCardId && giftCardUsed > 0) {
+    try {
+      const redeem = await redeemGiftCardForRow({
+        giftCardId,
+        amount:      giftCardUsed,
+        orderId:     orderRow.id as string,
+        performedBy: `customer:${orderRow.customer_id}`,
+      });
+      if (!redeem.ok) console.error("[webhooks/stripe] gift card redeem:", redeem.error);
+    } catch (err) {
+      console.error("[webhooks/stripe] gift card redeem:", err instanceof Error ? err.message : err);
+    }
+  }
+
   // Confirmation email.
   sendOrderConfirmationEmail({
     id:              orderRow.id as string,
@@ -205,6 +234,8 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
     vat_inclusive:   (orderRow.vat_inclusive as boolean | null) ?? undefined,
     coupon_code:     (orderRow.coupon_code as string | null) ?? undefined,
     coupon_discount: orderRow.coupon_code ? (orderRow.coupon_discount as number) : undefined,
+    store_credit_used: (orderRow.store_credit_used as number ?? 0) > 0 ? (orderRow.store_credit_used as number) : undefined,
+    gift_card_used:    (orderRow.gift_card_used   as number ?? 0) > 0 ? (orderRow.gift_card_used   as number) : undefined,
     delivery_code:   (orderRow.delivery_code as string | null) ?? undefined,
     date:            orderRow.date as string,
   }).catch((err: unknown) =>
@@ -287,4 +318,158 @@ async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
     .eq("id", order.id);
 
   if (updateErr) throw new Error(`orders refund update: ${updateErr.message}`);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Gift card purchase — mint a fresh code, insert the gift_cards row, send the
+// delivery email. Mirrors the order-success idempotency pattern: probe by
+// stripe_payment_intent_id before inserting (handles webhook retries), and
+// fall back to 23505 unique-constraint detection if a concurrent attempt
+// inserts ahead of us.
+
+interface GiftCardPayload {
+  amount: number;
+  recipient_email: string;
+  recipient_name: string;
+  personal_message: string | null;
+  issued_by_customer_id: string | null;
+}
+
+interface PaymentSessionRow {
+  id: string;
+  stripe_payment_intent_id: string;
+  amount: number;
+  currency: string;
+  gift_card_payload: GiftCardPayload | null;
+  status: string;
+}
+
+const GIFT_CARD_EXPIRY_MONTHS = 12;
+
+async function handleGiftCardPurchaseSucceeded(
+  intent: Stripe.PaymentIntent,
+  session: PaymentSessionRow,
+): Promise<void> {
+  const payload = session.gift_card_payload;
+  if (!payload) {
+    console.error(`[webhooks/stripe] gift_card session ${session.id} missing gift_card_payload — cannot mint code`);
+    return;
+  }
+
+  // Idempotency probe — if a previous retry already inserted the card, just
+  // mark the session succeeded and stop.
+  const { data: existing } = await supabaseAdmin
+    .from("gift_cards")
+    .select("id, code")
+    .eq("stripe_payment_intent_id", intent.id)
+    .maybeSingle();
+
+  if (existing) {
+    await supabaseAdmin
+      .from("payment_sessions")
+      .update({ status: "succeeded", completed_order_id: existing.id })
+      .eq("id", session.id);
+    return;
+  }
+
+  // Build the row. expires_at is 12 months from now per the locked decision.
+  const expiresAt = new Date();
+  expiresAt.setMonth(expiresAt.getMonth() + GIFT_CARD_EXPIRY_MONTHS);
+
+  // Generate a code. The unique index on lower(code) means a collision (1-in-
+  // 10^17) bounces us into the 23505 retry branch; in practice we'd never see
+  // it, but the catch keeps the flow honest.
+  const code = generateGiftCardCode();
+  const id = crypto.randomUUID();
+
+  const { error: insertErr } = await supabaseAdmin
+    .from("gift_cards")
+    .insert({
+      id,
+      code,
+      initial_amount:           payload.amount,
+      balance:                  payload.amount,
+      status:                   "active",
+      issued_to_email:          payload.recipient_email,
+      issued_to_name:           payload.recipient_name,
+      issued_by_customer_id:    payload.issued_by_customer_id,
+      personal_message:         payload.personal_message,
+      expires_at:               expiresAt.toISOString(),
+      stripe_payment_intent_id: intent.id,
+    });
+
+  if (insertErr) {
+    // 23505 = concurrent webhook attempt won — treat as idempotent success.
+    if (insertErr.code === "23505") {
+      const { data: again } = await supabaseAdmin
+        .from("gift_cards")
+        .select("id")
+        .eq("stripe_payment_intent_id", intent.id)
+        .maybeSingle();
+      if (again) {
+        await supabaseAdmin
+          .from("payment_sessions")
+          .update({ status: "succeeded", completed_order_id: again.id })
+          .eq("id", session.id);
+        return;
+      }
+    }
+    throw new Error(`gift_cards insert: ${insertErr.message}`);
+  }
+
+  // Append the initial "issue" transaction row. Awaited — webhooks must
+  // complete all side effects before returning, otherwise the runtime can
+  // tear the request down with the promise still pending.
+  const { error: txnErr } = await supabaseAdmin
+    .from("gift_card_transactions")
+    .insert({
+      id:              crypto.randomUUID(),
+      gift_card_id:    id,
+      type:            "issue",
+      amount:          payload.amount,
+      balance_after:   payload.amount,
+      performed_by:    payload.issued_by_customer_id
+                         ? `customer:${payload.issued_by_customer_id}`
+                         : "system",
+      notes:           "Initial issue via Stripe purchase",
+    });
+  if (txnErr) console.error("[webhooks/stripe] gift_card_transactions issue:", txnErr.message);
+
+  await supabaseAdmin
+    .from("payment_sessions")
+    .update({ status: "succeeded", completed_order_id: id })
+    .eq("id", session.id);
+
+  // Look up sender name (the buyer's name when logged in) so the recipient
+  // email can say "from <name>" instead of "from Someone".
+  let senderName = "Someone";
+  if (payload.issued_by_customer_id) {
+    const { data: buyer } = await supabaseAdmin
+      .from("customers").select("name").eq("id", payload.issued_by_customer_id).maybeSingle();
+    if (buyer?.name) senderName = buyer.name;
+  }
+
+  // Deliver the email. AWAITED (not fire-and-forget) — a webhook that returns
+  // before the email promise resolves can have the promise killed by the
+  // serverless runtime, so the recipient never gets the code. Failure here is
+  // logged but doesn't throw: the card already exists and admin/buyer can
+  // resend from the panel / account page.
+  try {
+    const result = await sendGiftCardDeliveredEmail({
+      code,
+      amount:          payload.amount,
+      recipientEmail:  payload.recipient_email,
+      recipientName:   payload.recipient_name,
+      senderName,
+      personalMessage: payload.personal_message ?? undefined,
+      expiresAt:       expiresAt.toISOString(),
+    });
+    if (result.ok) {
+      await supabaseAdmin.from("gift_cards").update({ delivered_at: new Date().toISOString() }).eq("id", id);
+    } else {
+      console.error("[webhooks/stripe] gift card email not sent:", result.error);
+    }
+  } catch (err) {
+    console.error("[webhooks/stripe] gift card email:", err instanceof Error ? err.message : err);
+  }
 }

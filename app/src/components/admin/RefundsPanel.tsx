@@ -40,6 +40,11 @@ const METHOD_CONFIG: Record<RefundMethod, { label: string; icon: React.ReactNode
     icon: <Banknote size={14} />,
     desc: "Hand cash back in person",
   },
+  gift_card: {
+    label: "Gift card",
+    icon: <Gift size={14} />,
+    desc: "Return to the gift card balance used at checkout",
+  },
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -275,7 +280,17 @@ export function RefundModal({
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
   const refundedAmount = order.refundedAmount ?? 0;
+  // Money budget — what can go back to card / cash / store credit.
   const maxRefundable = Math.max(0, order.total - refundedAmount);
+  // Gift-card budget — capped at the amount paid by gift card minus any prior
+  // gift-card refunds. Independent of the money budget (separate track on the
+  // server), so a gift-card refund stays possible even after the card is fully
+  // refunded.
+  const giftCardUsed = order.giftCardUsed ?? 0;
+  const priorGiftRefunds = (order.refunds ?? [])
+    .filter((r) => r.method === "gift_card")
+    .reduce((s, r) => s + (r.amount ?? 0), 0);
+  const maxGiftRefundable = Math.max(0, giftCardUsed - priorGiftRefunds);
 
   const [amount, setAmount]     = useState(maxRefundable.toFixed(2));
   const [reason, setReason]     = useState("");
@@ -284,11 +299,22 @@ export function RefundModal({
   const [errors, setErrors]     = useState<Record<string, string>>({});
 
   const amountNum = parseFloat(amount) || 0;
+  // The cap depends on which track the chosen method belongs to.
+  const effectiveMax = method === "gift_card" ? maxGiftRefundable : maxRefundable;
+
+  function setMethodAndClamp(m: RefundMethod) {
+    setMethod(m);
+    const max = m === "gift_card" ? maxGiftRefundable : maxRefundable;
+    // Re-default the amount to the new track's max so the input isn't stuck on
+    // a value that's invalid for the newly-selected method.
+    setAmount(max.toFixed(2));
+    setErrors((prev) => { const n = { ...prev }; delete n.amount; return n; });
+  }
 
   function validate() {
     const e: Record<string, string> = {};
     if (!amount || amountNum <= 0) e.amount = `Enter a refund amount greater than ${sym}0.`;
-    if (amountNum > maxRefundable) e.amount = `Maximum refundable is ${fmtAmt(maxRefundable, sym)}.`;
+    if (amountNum > effectiveMax) e.amount = `Maximum refundable is ${fmtAmt(effectiveMax, sym)}.`;
     if (!reason) e.reason = "Select a reason for this refund.";
     return e;
   }
@@ -299,7 +325,7 @@ export function RefundModal({
     onSubmit({
       orderId:  order.id,
       amount:   amountNum,
-      type:     amountNum >= maxRefundable ? "full" : "partial",
+      type:     amountNum >= effectiveMax ? "full" : "partial",
       reason,
       method,
       note:     note.trim() || undefined,
@@ -347,8 +373,8 @@ export function RefundModal({
               <p className="text-sm font-extrabold text-teal-600 mt-0.5">{fmtAmt(refundedAmount, sym)}</p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Refundable</p>
-              <p className="text-sm font-extrabold text-gray-900 mt-0.5">{fmtAmt(maxRefundable, sym)}</p>
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{method === "gift_card" ? "Gift card" : "Refundable"}</p>
+              <p className="text-sm font-extrabold text-gray-900 mt-0.5">{fmtAmt(effectiveMax, sym)}</p>
             </div>
           </div>
 
@@ -357,10 +383,10 @@ export function RefundModal({
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-sm font-semibold text-gray-700">Refund amount</label>
               <button
-                onClick={() => { setAmount(maxRefundable.toFixed(2)); setErrors((e) => ({ ...e, amount: "" })); }}
+                onClick={() => { setAmount(effectiveMax.toFixed(2)); setErrors((e) => ({ ...e, amount: "" })); }}
                 className="text-xs text-teal-600 hover:text-teal-700 font-semibold"
               >
-                Full refund ({fmtAmt(maxRefundable, sym)})
+                Full refund ({fmtAmt(effectiveMax, sym)})
               </button>
             </div>
             <div className="relative">
@@ -368,7 +394,7 @@ export function RefundModal({
               <input
                 type="number"
                 min="0.01"
-                max={maxRefundable}
+                max={effectiveMax}
                 step="0.01"
                 value={amount}
                 onChange={(e) => { setAmount(e.target.value); setErrors((prev) => ({ ...prev, amount: "" })); }}
@@ -381,9 +407,9 @@ export function RefundModal({
                 <AlertCircle size={11} /> {errors.amount}
               </p>
             )}
-            {amountNum > 0 && amountNum <= maxRefundable && (
+            {amountNum > 0 && amountNum <= effectiveMax && (
               <p className="text-xs text-gray-400 mt-1">
-                {amountNum >= maxRefundable ? "Full refund" : `Partial refund — ${fmtAmt(maxRefundable - amountNum, sym)} remaining`}
+                {amountNum >= effectiveMax ? "Full refund" : `Partial refund — ${fmtAmt(effectiveMax - amountNum, sym)} remaining`}
               </p>
             )}
           </div>
@@ -412,7 +438,12 @@ export function RefundModal({
           <div>
             <label className="text-sm font-semibold text-gray-700 block mb-2">Refund method</label>
             <div className="space-y-2">
-              {(Object.entries(METHOD_CONFIG) as [RefundMethod, typeof METHOD_CONFIG[RefundMethod]][]).map(([key, cfg]) => {
+              {(Object.entries(METHOD_CONFIG) as [RefundMethod, typeof METHOD_CONFIG[RefundMethod]][])
+                // The "gift_card" method only makes sense when the order was
+                // actually paid (partly) with a gift card — otherwise there's
+                // no card balance to credit back.
+                .filter(([key]) => key !== "gift_card" || (order.giftCardUsed ?? 0) > 0)
+                .map(([key, cfg]) => {
                 // When the order was paid with a Stripe card, the "original
                 // payment" choice will actually call stripe.refunds.create()
                 // and reverse the charge. Surface that explicitly so the
@@ -438,7 +469,7 @@ export function RefundModal({
                       name="refund-method"
                       value={key}
                       checked={method === key}
-                      onChange={() => setMethod(key)}
+                      onChange={() => setMethodAndClamp(key)}
                       className="mt-0.5 accent-teal-500"
                     />
                     <div className="flex-1 min-w-0">
@@ -480,7 +511,7 @@ export function RefundModal({
             className="flex-1 px-3 bg-teal-500 hover:bg-teal-400 active:bg-teal-600 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
           >
             <RotateCcw size={15} className="flex-shrink-0" />
-            {cancelAfter ? "Refund & cancel order" : `Confirm refund ${amountNum > 0 && amountNum <= maxRefundable ? `of ${fmtAmt(amountNum, sym)}` : ""}`}
+            {cancelAfter ? "Refund & cancel order" : `Confirm refund ${amountNum > 0 && amountNum <= effectiveMax ? `of ${fmtAmt(amountNum, sym)}` : ""}`}
           </button>
           <button
             onClick={onClose}

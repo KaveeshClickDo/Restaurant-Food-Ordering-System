@@ -135,9 +135,10 @@ interface POSContextValue {
   // when the sale could not be persisted (network / server error); callers
   // must surface that to the cashier and not print a receipt.
   completeSale: (
-    paymentMethod: "cash" | "card" | "split",
+    paymentMethod: "cash" | "card" | "split" | "gift_card",
     payments: { method: "cash" | "card"; amount: number }[],
-    cashTendered?: number
+    cashTendered?: number,
+    giftCard?: { code: string; amount: number }
   ) => Promise<POSSale | null>;
   voidSale: (saleId: string, reason: string, refundMethod?: "cash" | "card" | "none", refundAmount?: number) => Promise<boolean>;
   clockIn: (staffId: string) => Promise<boolean>;
@@ -573,6 +574,21 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     }
   }, [appSettings.currency?.symbol, settings.currencySymbol]);
 
+  // Mirror the admin VAT config into POSSettings. Without this the POS used its
+  // seed defaults (20% inclusive) regardless of what admin configured — so an
+  // exclusive-VAT restaurant never saw VAT added on top of the POS total.
+  // When VAT is disabled admin-side, the POS rate is 0 (no tax line).
+  const adminTax = appSettings.taxSettings;
+  const adminTaxRate      = adminTax?.enabled ? (adminTax.rate ?? 0) : 0;
+  const adminTaxInclusive = adminTax?.inclusive ?? true;
+  useEffect(() => {
+    setSettings((p) =>
+      p.taxRate === adminTaxRate && p.taxInclusive === adminTaxInclusive
+        ? p
+        : { ...p, taxRate: adminTaxRate, taxInclusive: adminTaxInclusive },
+    );
+  }, [adminTaxRate, adminTaxInclusive]);
+
   useEffect(() => { save("pos_products", products); }, [products]);
   useEffect(() => { save("pos_categories", categories); }, [categories]);
   // Bug #11 — pos_customers is no longer persisted to localStorage. The
@@ -861,9 +877,10 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
   // ── Complete sale ─────────────────────────────────────────────────────────
   const completeSale = useCallback(async (
-    paymentMethod: "cash" | "card" | "split",
+    paymentMethod: "cash" | "card" | "split" | "gift_card",
     payments: { method: "cash" | "card"; amount: number }[],
-    cashTendered?: number
+    cashTendered?: number,
+    giftCard?: { code: string; amount: number }
   ): Promise<POSSale | null> => {
     // Compute totals at full precision, then round each money field to 2dp
     // before sending. The server's Money primitive rejects float garbage
@@ -901,6 +918,10 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       payments: payments.map((p) => ({ ...p, amount: round2(p.amount) })),
       cashTendered: cashTendered !== undefined ? round2(cashTendered) : undefined,
       changeGiven: change !== undefined ? round2(change) : undefined,
+      // Gift card tender — server clamps the amount to the card balance and
+      // the sale total, then stamps + redeems. total stays the full goods
+      // value; the gift card covers part/all of what's owed.
+      ...(giftCard ? { giftCardCode: giftCard.code, giftCardUsed: round2(giftCard.amount) } : {}),
       staffId: currentStaff?.id ?? "",
       staffName: currentStaff?.name ?? "",
       customerId: assignedCustomer?.id,

@@ -31,10 +31,17 @@ export const PosSaleCreateSchema = z.object({
   taxInclusive:   z.boolean().optional(),
   tipAmount:      Money.optional(),
   total:          Money.optional(),
-  paymentMethod:  z.enum(["cash", "card", "split"]).optional(),
+  // 'gift_card' is allowed for the case where a gift card fully covers the
+  // sale (no cash/card remainder). Partial coverage keeps cash/card/split and
+  // records the gift portion via giftCardUsed below.
+  paymentMethod:  z.enum(["cash", "card", "split", "gift_card"]).optional(),
   payments:       z.array(PaymentRecord).optional(),
   cashTendered:   Money.optional(),
   changeGiven:    Money.optional(),
+  // Gift card tender — code + amount the cashier applied. Server looks up the
+  // card, clamps the amount to its balance, stamps the sale row, and redeems.
+  giftCardCode:   z.string().optional(),
+  giftCardUsed:   Money.optional(),
 }).passthrough();
 
 export const PosSaleVoidSchema = z.object({

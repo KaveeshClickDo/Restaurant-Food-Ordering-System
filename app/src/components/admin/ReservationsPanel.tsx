@@ -535,8 +535,10 @@ export default function ReservationsPanel() {
     setShowAddModal(true);
   }
 
-  const fetchReservations = useCallback(async () => {
-    setLoading(true);
+  // isInitial=true shows the spinner (mount, filter change, manual refresh).
+  // Default silent so background polls don't tear down the visible list.
+  const fetchReservations = useCallback(async (isInitial = false) => {
+    if (isInitial) setLoading(true);
     try {
       const params = new URLSearchParams();
       if (filterDate) params.set("from", filterDate);
@@ -547,15 +549,16 @@ export default function ReservationsPanel() {
     } catch (err) {
       console.error("ReservationsPanel fetch:", err);
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   }, [filterDate, filterStatus]);
 
-  useEffect(() => { fetchReservations(); }, [fetchReservations]);
+  useEffect(() => { fetchReservations(true); }, [fetchReservations]);
 
   // Poll every 8 s — anon supabase realtime no longer fires after RLS revoke.
+  // Silent (default) so the list doesn't flicker on each tick.
   useEffect(() => {
-    const id = setInterval(fetchReservations, 8_000);
+    const id = setInterval(() => fetchReservations(), 8_000);
     return () => clearInterval(id);
   }, [fetchReservations]);
 
@@ -803,7 +806,7 @@ export default function ReservationsPanel() {
           />
         </div>
         <button
-          onClick={fetchReservations}
+          onClick={() => fetchReservations(true)}
           disabled={loading}
           className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300 transition"
         >

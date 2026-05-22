@@ -48,8 +48,13 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
     }
   }
 
-  async function handlePaymentComplete(method: "cash"|"card"|"split", payments: {method:"cash"|"card";amount:number}[], cashTendered?: number) {
-    const sale = await completeSale(method, payments, cashTendered);
+  async function handlePaymentComplete(
+    method: "cash" | "card" | "split" | "gift_card",
+    payments: { method: "cash" | "card"; amount: number }[],
+    cashTendered?: number,
+    giftCard?: { code: string; amount: number },
+  ) {
+    const sale = await completeSale(method, payments, cashTendered, giftCard);
     if (!sale) {
       alert("Couldn't save the sale to the server. Check your network and try again.");
       return;

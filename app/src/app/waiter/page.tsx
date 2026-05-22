@@ -9,7 +9,7 @@ import {
   LogOut, Users, UtensilsCrossed, CheckCircle2, Loader2,
   ChevronLeft, StickyNote, X, Receipt, CreditCard, Banknote,
   ClipboardList, Utensils, Printer, Mail, Eye, RefreshCw,
-  AlertTriangle, RotateCcw, ShieldAlert,
+  AlertTriangle, RotateCcw, ShieldAlert, Gift,
 } from "lucide-react";
 
 // ─── Internal types ───────────────────────────────────────────────────────────
@@ -39,6 +39,9 @@ interface WaiterReceipt {
   date: string;                // ISO
   items: { name: string; qty: number; price: number }[];
   total: number;
+  /** Amount paid by gift card. The cash/card amount collected is
+   *  total − giftCardUsed. */
+  giftCardUsed?: number;
   paymentMethod?: "cash" | "card" | "pending";
   orderIds: string[];
 }
@@ -63,6 +66,8 @@ function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string, receip
   ).join("");
 
   const payLabel = receipt.paymentMethod === "cash" ? "Cash" : receipt.paymentMethod === "card" ? "Card" : "Table Service";
+  const giftUsed = receipt.giftCardUsed ?? 0;
+  const amountPaid = Math.max(0, receipt.total - giftUsed);
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Receipt</title></head>
 <body style="margin:0;background:#f9fafb;font-family:monospace">
@@ -81,7 +86,8 @@ function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string, receip
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
   <table style="width:100%;border-collapse:collapse">
     <tr><td style="font-size:13px;font-weight:700">TOTAL</td><td style="font-size:13px;font-weight:700;text-align:right">${sym}${receipt.total.toFixed(2)}</td></tr>
-    <tr><td style="font-size:11px;color:#6b7280">Payment</td><td style="font-size:11px;color:#6b7280;text-align:right">${payLabel}</td></tr>
+    ${giftUsed > 0 ? `<tr><td style="font-size:11px;color:#7c3aed">Gift card</td><td style="font-size:11px;color:#7c3aed;text-align:right">−${sym}${giftUsed.toFixed(2)}</td></tr>
+    <tr><td style="font-size:12px;font-weight:700">PAID (${payLabel})</td><td style="font-size:12px;font-weight:700;text-align:right">${sym}${amountPaid.toFixed(2)}</td></tr>` : `<tr><td style="font-size:11px;color:#6b7280">Payment</td><td style="font-size:11px;color:#6b7280;text-align:right">${payLabel}</td></tr>`}
   </table>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
   ${thankYou ? `<div style="text-align:center;font-weight:600;color:#374151;font-size:12px">${thankYou}</div>` : ""}
@@ -172,10 +178,23 @@ function ReceiptModal({ receipt, onClose, onRefund }: { receipt: WaiterReceipt; 
               <span className="text-white font-black text-base">TOTAL</span>
               <span className="text-white font-black text-xl">{fmtCur(receipt.total, sym)}</span>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400 text-xs">Payment</span>
-              <span className="text-slate-300 text-xs">{payLabel}</span>
-            </div>
+            {(receipt.giftCardUsed ?? 0) > 0 ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-orange-300 text-xs">Gift card</span>
+                  <span className="text-orange-300 text-xs">−{fmtCur(receipt.giftCardUsed ?? 0, sym)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-white font-bold text-sm">Paid ({payLabel})</span>
+                  <span className="text-white font-bold text-sm">{fmtCur(Math.max(0, receipt.total - (receipt.giftCardUsed ?? 0)), sym)}</span>
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-xs">Payment</span>
+                <span className="text-slate-300 text-xs">{payLabel}</span>
+              </div>
+            )}
           </div>
 
           {rs?.thankYouMessage && (
@@ -788,6 +807,12 @@ export default function WaiterPage() {
   const [paying, setPaying] = useState(false);
   // Pending settle confirmation (the chosen method) — null means no prompt visible.
   const [settleConfirm, setSettleConfirm] = useState<"cash" | "card" | null>(null);
+  // Gift card applied to the bill (bearer code). Reduces the amount due; the
+  // remainder is settled by cash/card as normal.
+  const [billGiftCard, setBillGiftCard] = useState<{ code: string; balance: number } | null>(null);
+  const [gcInput, setGcInput] = useState("");
+  const [gcError, setGcError] = useState("");
+  const [gcLooking, setGcLooking] = useState(false);
   // table action sheet: null = closed, DiningTable = which table was tapped
   const [tableAction, setTableAction] = useState<DiningTable | null>(null);
 
@@ -1050,9 +1075,33 @@ export default function WaiterPage() {
     }
   }
 
+  async function applyBillGiftCard(code: string) {
+    const trimmed = code.trim();
+    if (!trimmed) return;
+    setGcError("");
+    setGcLooking(true);
+    try {
+      const res = await fetch("/api/gift-cards/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: trimmed }),
+      });
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string; card?: { code: string; balance: number } };
+      if (!res.ok || !json.ok || !json.card) { setGcError(json.error ?? "Could not apply that gift card."); return; }
+      setBillGiftCard({ code: json.card.code, balance: json.card.balance });
+      setGcInput("");
+    } catch {
+      setGcError("Connection error.");
+    } finally {
+      setGcLooking(false);
+    }
+  }
+
   async function payBill(method: "cash" | "card") {
     if (!activeTable || billOrders.length === 0 || paying) return;
     setPaying(true);
+    const total = billOrders.reduce((s, o) => s + o.total, 0);
+    const gcAmount = billGiftCard ? Math.round(Math.min(billGiftCard.balance, total) * 100) / 100 : 0;
     await fetch("/api/waiter/settle", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1060,8 +1109,10 @@ export default function WaiterPage() {
         orderIds: billOrders.map((o) => o.id),
         tableLabel: activeTable.label,
         paymentMethod: method,
+        ...(billGiftCard && gcAmount > 0 ? { giftCardCode: billGiftCard.code, giftCardUsed: gcAmount } : {}),
       }),
     });
+    setBillGiftCard(null);
     setPaying(false);
 
     // Consolidate items for receipt
@@ -1079,6 +1130,7 @@ export default function WaiterPage() {
       date: new Date().toISOString(),
       items: Array.from(lineMap.values()),
       total: billOrders.reduce((s, o) => s + o.total, 0),
+      giftCardUsed: gcAmount > 0 ? gcAmount : undefined,
       paymentMethod: method,
       orderIds: billOrders.map((o) => o.id),
     });
@@ -1405,6 +1457,8 @@ export default function WaiterPage() {
   // ── BILL ─────────────────────────────────────────────────────────────────────
   if (view === "bill") {
     const billTotal = billOrders.reduce((s, o) => s + o.total, 0);
+    const giftCardApplied = billGiftCard ? Math.round(Math.min(billGiftCard.balance, billTotal) * 100) / 100 : 0;
+    const dueAfterGiftCard = Math.max(0, Math.round((billTotal - giftCardApplied) * 100) / 100);
 
     // Consolidate all items across orders into a single list
     const lineMap = new Map<string, { name: string; qty: number; price: number }>();
@@ -1545,8 +1599,44 @@ export default function WaiterPage() {
                   </div>
                 ) : (
                   <>
+                    {/* Gift card tender */}
+                    {billGiftCard ? (
+                      <div className="flex items-center justify-between gap-2 bg-purple-500/10 border border-purple-500/40 rounded-xl px-3 py-2.5 mb-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Gift size={15} className="text-purple-400 flex-shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-purple-200 text-xs font-bold font-mono tracking-wider truncate">{billGiftCard.code}</p>
+                            <p className="text-purple-400 text-[11px]">
+                              −{fmtCur(giftCardApplied, sym)} · {fmtCur(dueAfterGiftCard, sym)} due
+                            </p>
+                          </div>
+                        </div>
+                        <button onClick={() => setBillGiftCard(null)} className="text-slate-400 hover:text-white text-xs flex-shrink-0">Remove</button>
+                      </div>
+                    ) : (
+                      <div className="mb-3 space-y-1.5">
+                        <div className="flex gap-2">
+                          <input
+                            value={gcInput}
+                            onChange={(e) => { setGcInput(e.target.value.toUpperCase()); setGcError(""); }}
+                            onKeyDown={(e) => e.key === "Enter" && applyBillGiftCard(gcInput)}
+                            placeholder="Gift card code"
+                            className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-sm font-mono tracking-wider outline-none focus:border-purple-500 placeholder-slate-600"
+                          />
+                          <button
+                            onClick={() => applyBillGiftCard(gcInput)}
+                            disabled={!gcInput.trim() || gcLooking}
+                            className="flex items-center gap-1.5 bg-purple-500/80 hover:bg-purple-500 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-semibold px-3 rounded-xl transition-colors"
+                          >
+                            {gcLooking ? <Loader2 size={14} className="animate-spin" /> : <Gift size={14} />}
+                          </button>
+                        </div>
+                        {gcError && <p className="text-red-400 text-xs px-1">{gcError}</p>}
+                      </div>
+                    )}
+
                     <p className="text-slate-400 text-xs font-bold uppercase tracking-widest text-center mb-2">
-                      Select Payment Method
+                      {dueAfterGiftCard <= 0 && billGiftCard ? "Fully covered by gift card" : "Select Payment Method"}
                     </p>
                     <div className="grid grid-cols-2 gap-3">
                       <button

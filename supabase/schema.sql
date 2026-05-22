@@ -409,7 +409,7 @@ create table if not exists pos_sales (
   tax_inclusive   boolean     not null default false,
   tip_amount      numeric     not null default 0,
   total           numeric     not null,
-  payment_method  text        not null check (payment_method in ('cash','card','split')),
+  payment_method  text        not null check (payment_method in ('cash','card','split','gift_card')),
   payments        jsonb       not null default '[]',
   cash_tendered   numeric,
   change_given    numeric,
@@ -555,6 +555,88 @@ grant execute  on function decrement_stock_atomic(jsonb) to service_role;
 grant execute  on function restore_stock(jsonb)          to service_role;
 
 
+-- Gift cards — code-based / transferable. Anyone holding the code can redeem,
+-- regardless of which surface they're ordering from (online, POS, waiter).
+-- See plan: code-based bearer model with gift_card_transactions ledger.
+--
+-- The buyer's account-bound `customers.gift_card_balance` column is left in
+-- place but unused by Phase 1; the new `gift_cards.balance` is the canonical
+-- per-code remaining amount. A future Phase 2 "claim to account" flow could
+-- transfer between the two.
+create table if not exists gift_cards (
+  id                       text        primary key default gen_random_uuid()::text,
+  code                     text        not null unique,
+  initial_amount           numeric(10,2) not null check (initial_amount > 0),
+  balance                  numeric(10,2) not null check (balance >= 0),
+  status                   text        not null default 'active'
+                                       check (status in ('active','redeemed','voided','expired')),
+  issued_to_email          text,
+  issued_to_name           text,
+  -- Buyer attribution — set when the purchase was made by a logged-in customer.
+  -- ON DELETE SET NULL so deleting a customer doesn't cascade-void their gifts.
+  issued_by_customer_id    text        references customers(id) on delete set null,
+  personal_message         text,
+  expires_at               timestamptz,
+  -- Links back to the payment_sessions row that created this card.
+  stripe_payment_intent_id text        unique,
+  delivered_at             timestamptz,
+  created_at               timestamptz not null default now()
+);
+
+-- Case-insensitive code lookup. The redeem path normalises user input
+-- (strip dashes, uppercase) before querying; this index lets the lookup
+-- hit indexes even when the stored code is mixed-case or the user typed it
+-- differently.
+create unique index if not exists gift_cards_code_lower_unique
+  on gift_cards (lower(code));
+
+-- Append-only audit log. Every state change on gift_cards (issue, redeem,
+-- refund, void, adjust) produces one row here. Never updated, never deleted.
+-- balance_after is a snapshot for reconciliation (without it you'd need to
+-- replay every prior transaction to verify history).
+create table if not exists gift_card_transactions (
+  id              text        primary key default gen_random_uuid()::text,
+  gift_card_id    text        not null references gift_cards(id) on delete cascade,
+  type            text        not null check (type in ('issue','redeem','refund','void','adjust')),
+  amount          numeric(10,2) not null,
+  balance_after   numeric(10,2) not null,
+  -- Exactly one of order_id / pos_sale_id is set for redeem/refund rows;
+  -- both null for issue/void/adjust.
+  order_id        text,
+  pos_sale_id     text,
+  performed_by    text        not null default 'system',
+  notes           text,
+  created_at      timestamptz not null default now()
+);
+
+-- ── Gift card columns on consuming tables ────────────────────────────────────
+-- Mirrors store_credit_used pattern. The stamp on the order/sale row is what
+-- makes the redemption idempotent — see /api/gift-cards/[code]/redeem.
+alter table orders     add column if not exists gift_card_id   text references gift_cards(id);
+alter table orders     add column if not exists gift_card_used numeric(10,2) not null default 0;
+alter table pos_sales  add column if not exists gift_card_id   text references gift_cards(id);
+alter table pos_sales  add column if not exists gift_card_used numeric(10,2) not null default 0;
+
+-- ── payment_sessions: discriminator for non-order purchases ──────────────────
+-- The same stash-then-webhook pattern now serves both order checkout AND gift
+-- card purchase. kind='order' (default) keeps existing behaviour; kind='gift_card'
+-- means the webhook should create a gift card instead of an order on success.
+-- gift_card_payload carries the recipient details captured at purchase time so
+-- the webhook can build the email without re-trusting the browser.
+alter table payment_sessions
+  add column if not exists kind text not null default 'order'
+    check (kind in ('order','gift_card'));
+alter table payment_sessions
+  add column if not exists gift_card_payload jsonb;
+-- Drop the legacy CHECK that required order_payload always be set. With the
+-- gift_card kind the order_payload is null and gift_card_payload is set.
+-- (Postgres lets us add a not-null column with a default, then relax the
+--  application-level requirement; we already allow order_payload nullable
+--  semantically since gift card kind doesn't populate it.)
+alter table payment_sessions
+  alter column order_payload drop not null;
+
+
 -- ── 3. Indexes ───────────────────────────────────────────────────────────────
 -- Speeds up the queries the app actually runs (admin reports, KDS filters,
 -- reservations lookup, driver dashboards).
@@ -586,6 +668,15 @@ create index if not exists idx_payment_audit_time    on payment_audit_log(timest
 create index if not exists idx_payment_sessions_pi      on payment_sessions(stripe_payment_intent_id) where stripe_payment_intent_id is not null;
 create index if not exists idx_payment_sessions_paypal  on payment_sessions(paypal_order_id)          where paypal_order_id          is not null;
 create index if not exists idx_payment_sessions_exp     on payment_sessions(expires_at);
+create index if not exists idx_payment_sessions_kind    on payment_sessions(kind);
+create index if not exists idx_gift_cards_status        on gift_cards(status);
+create index if not exists idx_gift_cards_issued_by     on gift_cards(issued_by_customer_id) where issued_by_customer_id is not null;
+create index if not exists idx_gift_cards_stripe_pi     on gift_cards(stripe_payment_intent_id) where stripe_payment_intent_id is not null;
+create index if not exists idx_gift_card_txns_card      on gift_card_transactions(gift_card_id);
+create index if not exists idx_gift_card_txns_order     on gift_card_transactions(order_id) where order_id is not null;
+create index if not exists idx_gift_card_txns_pos_sale  on gift_card_transactions(pos_sale_id) where pos_sale_id is not null;
+create index if not exists idx_orders_gift_card_id      on orders(gift_card_id) where gift_card_id is not null;
+create index if not exists idx_pos_sales_gift_card_id   on pos_sales(gift_card_id) where gift_card_id is not null;
 
 
 -- ── 4. RLS — enable + policies ───────────────────────────────────────────────
@@ -611,6 +702,8 @@ alter table payment_sessions       enable row level security;
 alter table dining_tables          enable row level security;
 alter table meal_periods           enable row level security;
 alter table menu_item_meal_periods enable row level security;
+alter table gift_cards             enable row level security;
+alter table gift_card_transactions enable row level security;
 
 -- 4b. Read policies for anon. Public catalog tables are readable so the
 -- storefront can render without a session; everything that holds customer
@@ -702,6 +795,14 @@ create policy "deny_anon_all" on payment_audit_log
 
 drop policy if exists "deny_anon_all" on payment_sessions;
 create policy "deny_anon_all" on payment_sessions
+  for all to anon using (false) with check (false);
+
+drop policy if exists "deny_anon_all" on gift_cards;
+create policy "deny_anon_all" on gift_cards
+  for all to anon using (false) with check (false);
+
+drop policy if exists "deny_anon_all" on gift_card_transactions;
+create policy "deny_anon_all" on gift_card_transactions
   for all to anon using (false) with check (false);
 
 

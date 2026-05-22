@@ -22,11 +22,13 @@ export default function CustomersView() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Edit state
+  // Edit state — loyalty points + gift card balance are no longer editable
+  // here. Loyalty is display-only on the detail card; gift cards moved to the
+  // code-based system (Admin > Gift Cards).
   const [showEdit, setShowEdit] = useState(false);
   const [editDraft, setEditDraft] = useState({
     name: "", email: "", phone: "", notes: "",
-    loyaltyPoints: 0, giftCardBalance: 0, tags: [] as string[], customTag: "",
+    tags: [] as string[], customTag: "",
   });
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   // Set when the server rejects a delete because the customer has non-terminal
@@ -44,14 +46,12 @@ export default function CustomersView() {
 
   function openEdit(c: POSCustomer) {
     setEditDraft({
-      name:           c.name,
-      email:          c.email   ?? "",
-      phone:          c.phone   ?? "",
-      notes:          c.notes   ?? "",
-      loyaltyPoints:  c.loyaltyPoints   ?? 0,
-      giftCardBalance: c.giftCardBalance ?? 0,
-      tags:           [...c.tags],
-      customTag:      "",
+      name:      c.name,
+      email:     c.email ?? "",
+      phone:     c.phone ?? "",
+      notes:     c.notes ?? "",
+      tags:      [...c.tags],
+      customTag: "",
     });
     setSaveError(null);
     setShowEdit(true);
@@ -66,13 +66,11 @@ export default function CustomersView() {
     // surface them to the operator.
     const cleanedEmail = editDraft.email.trim();
     const result = await updateCustomer(selectedLive.id, {
-      name:            editDraft.name.trim(),
-      email:           cleanedEmail || "",
-      phone:           editDraft.phone.trim(),
-      notes:           editDraft.notes.trim(),
-      loyaltyPoints:   Math.max(0, Math.floor(editDraft.loyaltyPoints)),
-      giftCardBalance: Math.max(0, editDraft.giftCardBalance),
-      tags:            editDraft.tags,
+      name:   editDraft.name.trim(),
+      email:  cleanedEmail || "",
+      phone:  editDraft.phone.trim(),
+      notes:  editDraft.notes.trim(),
+      tags:   editDraft.tags,
     });
     setSaving(false);
     if (!result.ok) { setSaveError(result.error ?? "Failed to save"); return; }
@@ -224,12 +222,11 @@ export default function CustomersView() {
                 server-side from orders + pos_sales (Bug #11), so undefined
                 fallbacks render the same zero you'd see for a never-purchased
                 customer rather than crashing on .toFixed of null. */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
               {[
                 { label: "Total Spend", value: fmt(selectedLive.totalSpend ?? 0, settings.currencySymbol), color: "text-green-400" },
                 { label: "Visits", value: (selectedLive.visitCount ?? 0).toString(), color: "text-blue-400" },
                 { label: "Loyalty Points", value: `${selectedLive.loyaltyPoints ?? 0}`, color: "text-amber-400" },
-                { label: "Gift Card", value: fmt(selectedLive.giftCardBalance ?? 0, settings.currencySymbol), color: "text-purple-400" },
               ].map((s) => (
                 <div key={s.label} className="bg-slate-800 border border-slate-700 rounded-xl p-4">
                   <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
@@ -361,30 +358,6 @@ export default function CustomersView() {
                 )}
               </div>
 
-              {/* Loyalty & Gift Card */}
-              <div className="space-y-3">
-                <h4 className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Loyalty & Gift Card</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-slate-400 mb-1 block">Loyalty Points</label>
-                    <input
-                      type="number" min="0" step="1"
-                      value={editDraft.loyaltyPoints}
-                      onChange={(e) => setEditDraft((d) => ({ ...d, loyaltyPoints: parseInt(e.target.value) || 0 }))}
-                      className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-amber-400 font-bold text-sm outline-none focus:border-orange-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-400 mb-1 block">Gift Card ({settings.currencySymbol})</label>
-                    <input
-                      type="number" min="0" step="0.01"
-                      value={editDraft.giftCardBalance}
-                      onChange={(e) => setEditDraft((d) => ({ ...d, giftCardBalance: parseFloat(e.target.value) || 0 }))}
-                      className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-purple-400 font-bold text-sm outline-none focus:border-orange-500"
-                    />
-                  </div>
-                </div>
-              </div>
             </div>
 
             {/* Footer */}

@@ -343,6 +343,11 @@ function orderToRow(o: Order) {
     refunds: o.refunds ?? [],
     refunded_amount: o.refundedAmount ?? 0,
     store_credit_used: o.storeCreditUsed ?? 0,
+    // Gift card — the server looks up the code, validates + clamps the amount,
+    // and stamps gift_card_id on the row. We forward the transient code +
+    // proposed amount; empty string when no card was applied.
+    gift_card_code: o.giftCardCode ?? "",
+    gift_card_used: o.giftCardUsed ?? 0,
   };
 }
 
@@ -803,7 +808,6 @@ export function AppProvider({
       persistSettings(next);
       return next;
     }),
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- persistSettings has no closure deps; freezing is intentional.
   []);
 
   // Internal helper: functional update + server-side persist.

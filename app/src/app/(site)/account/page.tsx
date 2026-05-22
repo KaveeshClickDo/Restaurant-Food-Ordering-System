@@ -1249,15 +1249,57 @@ function ProfileTab() {
 // (store credit), POS-shared sales (loyalty / gift card) and consumed at the
 // online or POS till on the next order.
 
+interface PurchasedGiftCard {
+  id: string;
+  code: string;
+  initialAmount: number;
+  balance: number;
+  status: "active" | "redeemed" | "voided" | "expired";
+  issuedToEmail?: string;
+  createdAt: string;
+}
+
 function RewardsTab() {
   const { currentUser, settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
 
+  const [myCards, setMyCards] = useState<PurchasedGiftCard[]>([]);
+  const [loadingCards, setLoadingCards] = useState(true);
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [cardToast, setCardToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!currentUser) { setLoadingCards(false); return; }
+    (async () => {
+      try {
+        const res = await fetch("/api/gift-cards/mine", { cache: "no-store" });
+        const json = await res.json() as { ok: boolean; giftCards?: PurchasedGiftCard[] };
+        if (json.ok) setMyCards(json.giftCards ?? []);
+      } finally {
+        setLoadingCards(false);
+      }
+    })();
+  }, [currentUser]);
+
+  async function resendCard(id: string) {
+    setResendingId(id);
+    setCardToast(null);
+    try {
+      const res = await fetch(`/api/gift-cards/mine/${id}/resend`, { method: "POST" });
+      const json = await res.json() as { ok: boolean; error?: string };
+      setCardToast(json.ok ? "Gift card email resent." : (json.error ?? "Could not resend."));
+    } catch {
+      setCardToast("Connection error.");
+    } finally {
+      setResendingId(null);
+      setTimeout(() => setCardToast(null), 3000);
+    }
+  }
+
   if (!currentUser) return null;
 
-  const storeCredit     = currentUser.storeCredit     ?? 0;
-  const loyaltyPoints   = currentUser.loyaltyPoints   ?? 0;
-  const giftCardBalance = currentUser.giftCardBalance ?? 0;
+  const storeCredit   = currentUser.storeCredit   ?? 0;
+  const loyaltyPoints = currentUser.loyaltyPoints ?? 0;
 
   return (
     <div className="space-y-4">
@@ -1274,7 +1316,7 @@ function RewardsTab() {
             </p>
             <p className="text-xs text-zinc-500 mt-1">
               {storeCredit > 0
-                ? "Automatically applied at checkout — you can toggle it off before paying."
+                ? "Automatically applied at online checkout — you can toggle it off before paying."
                 : "Issued when an order is refunded as store credit instead of a card return."}
             </p>
           </div>
@@ -1301,24 +1343,55 @@ function RewardsTab() {
         </div>
       </div>
 
-      {/* Gift card balance */}
+      {/* Gift cards I've bought */}
       <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
-        <div className="flex items-start gap-4">
-          <div className="w-11 h-11 bg-purple-50 rounded-2xl flex items-center justify-center flex-shrink-0">
-            <CreditCard size={20} className="text-purple-500" />
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <CreditCard size={18} className="text-orange-500" />
+            <h3 className="font-semibold text-zinc-900 text-sm">Gift cards I&apos;ve bought</h3>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Gift card</p>
-            <p className="text-3xl font-bold text-zinc-900 tabular-nums mt-1">
-              {sym}{giftCardBalance.toFixed(2)}
-            </p>
-            <p className="text-xs text-zinc-500 mt-1">
-              {giftCardBalance > 0
-                ? "Available at the till for in-store purchases."
-                : "Top up a gift card in-store to start using it on future visits."}
-            </p>
-          </div>
+          <Link href="/gift-cards" className="text-xs font-semibold text-orange-600 hover:text-orange-700">
+            Buy a gift card →
+          </Link>
         </div>
+
+        {cardToast && (
+          <div className="text-xs text-zinc-600 bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 mb-3">{cardToast}</div>
+        )}
+
+        {loadingCards ? (
+          <div className="flex items-center gap-2 text-sm text-zinc-400 py-4">
+            <RefreshCw size={14} className="animate-spin" /> Loading…
+          </div>
+        ) : myCards.length === 0 ? (
+          <p className="text-sm text-zinc-400 py-2">
+            You haven&apos;t bought any gift cards yet. <Link href="/gift-cards" className="text-orange-600 font-semibold">Send one to a friend →</Link>
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {myCards.map((c) => (
+              <div key={c.id} className="flex items-center justify-between gap-3 border border-zinc-100 rounded-xl px-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="text-sm font-bold font-mono tracking-wider text-zinc-900 truncate">{c.code}</p>
+                  <p className="text-[11px] text-zinc-400 truncate">
+                    {sym}{c.balance.toFixed(2)} of {sym}{c.initialAmount.toFixed(2)} · {c.issuedToEmail ?? "—"}
+                    {c.status !== "active" && ` · ${c.status}`}
+                  </p>
+                </div>
+                {c.issuedToEmail && c.status !== "voided" && (
+                  <button
+                    onClick={() => void resendCard(c.id)}
+                    disabled={resendingId === c.id}
+                    className="flex items-center gap-1 text-xs font-semibold text-orange-600 hover:text-orange-700 flex-shrink-0 disabled:opacity-50"
+                  >
+                    {resendingId === c.id ? <RefreshCw size={12} className="animate-spin" /> : <Mail size={12} />}
+                    Resend
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

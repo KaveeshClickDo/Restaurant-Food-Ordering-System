@@ -76,25 +76,31 @@ export default function DashboardView() {
     } catch { /* network blip — keep last-known */ }
   }, []);
 
-  // Fetch today's dine-in on mount
-  useEffect(() => { refreshTodayDineIn(); }, [refreshTodayDineIn]);
+  // Refresh today's dine-in whenever the Overview tab is (re)entered. It feeds
+  // the Overview KPIs only, so there's no reason to poll it from other tabs.
+  useEffect(() => {
+    if (dashTab === "overview") refreshTodayDineIn();
+  }, [dashTab, refreshTodayDineIn]);
 
-  const refreshDineInTab = useCallback(async () => {
-    setDineInLoading(true);
+  // isInitial=true shows the loading spinner (first open / tab switch). Background
+  // polls run silently and keep the last-known list on a network blip — no flicker.
+  const refreshDineInTab = useCallback(async (isInitial = false) => {
+    if (isInitial) setDineInLoading(true);
     try {
       const r = await fetch("/api/pos/orders/dine-in", { cache: "no-store" });
-      if (!r.ok) { setDineInOrders([]); return; }
+      if (!r.ok) { if (isInitial) setDineInOrders([]); return; }
       const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
-      if (!json.ok || !json.orders) { setDineInOrders([]); return; }
+      if (!json.ok || !json.orders) { if (isInitial) setDineInOrders([]); return; }
       setDineInOrders(json.orders.map(mapDineInRow));
-    } finally {
-      setDineInLoading(false);
+    } catch { /* network blip — keep last-known */ }
+    finally {
+      if (isInitial) setDineInLoading(false);
     }
-  }, []);  
+  }, []);
 
   useEffect(() => {
     if (dashTab !== "dine-in") return;
-    refreshDineInTab();
+    refreshDineInTab(true);
   }, [dashTab, refreshDineInTab]);
 
   const emailInFlight = useRef<Set<string>>(new Set());
@@ -194,8 +200,8 @@ export default function DashboardView() {
     [period, customStart, customEnd],
   );
 
-  const refreshReportsDineIn = useCallback(async () => {
-    setReportsDineInLoading(true);
+  const refreshReportsDineIn = useCallback(async (isInitial = false) => {
+    if (isInitial) setReportsDineInLoading(true);
     try {
       const params = new URLSearchParams({
         from:  startDate.toISOString(),
@@ -203,18 +209,19 @@ export default function DashboardView() {
         limit: "500",
       });
       const r = await fetch(`/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
-      if (!r.ok) { setReportsDineIn([]); return; }
+      if (!r.ok) { if (isInitial) setReportsDineIn([]); return; }
       const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
-      if (!json.ok || !json.orders) { setReportsDineIn([]); return; }
+      if (!json.ok || !json.orders) { if (isInitial) setReportsDineIn([]); return; }
       setReportsDineIn(json.orders.map(mapDineInRow));
-    } finally {
-      setReportsDineInLoading(false);
+    } catch { /* network blip — keep last-known */ }
+    finally {
+      if (isInitial) setReportsDineInLoading(false);
     }
   }, [startDate, endDate]);
 
   useEffect(() => {
     if (dashTab !== "reports") return;
-    refreshReportsDineIn();
+    refreshReportsDineIn(true);
   }, [dashTab, refreshReportsDineIn]);
 
   // ── Polling: every 6 s refresh the active tab's data ──────────────────────
@@ -222,9 +229,11 @@ export default function DashboardView() {
   // postgres_changes events after RLS revoke.
   useEffect(() => {
     const id = setInterval(() => {
-      refreshTodayDineIn();
-      if (dashTab === "dine-in") refreshDineInTab();
-      if (dashTab === "reports") refreshReportsDineIn();
+      // Poll only the active tab's data — and silently (default isInitial=false),
+      // so background refreshes never tear down the visible list/cards.
+      if (dashTab === "overview") refreshTodayDineIn();
+      if (dashTab === "dine-in")  refreshDineInTab();
+      if (dashTab === "reports")  refreshReportsDineIn();
     }, 6_000);
     return () => clearInterval(id);
   }, [dashTab, refreshTodayDineIn, refreshDineInTab, refreshReportsDineIn]);
