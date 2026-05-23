@@ -10,7 +10,7 @@ import { fmtTime, getInitials } from "./_utils";
 
 export default function StaffView() {
   const { staff, addPosStaff, updatePosStaff, deletePosStaff,
-          clockEntries, clockIn, clockOut, isClocked, currentStaff, settings } = usePOS();
+    clockEntries, clockIn, clockOut, isClocked, currentStaff, settings } = usePOS();
   const sym = settings.currencySymbol;
   const [showAdd, setShowAdd] = useState(false);
   const [newStaff, setNewStaff] = useState({ name: "", email: "", role: "cashier" as "admin" | "manager" | "cashier", pin: "", hourlyRate: "" });
@@ -32,11 +32,11 @@ export default function StaffView() {
 
   // In-flight guards — save/add are global, toggle/delete are per-row so two
   // different rows can mutate in parallel.
-  const addInFlight     = useRef(false);
-  const saveInFlight    = useRef(false);
-  const deleteInFlight  = useRef<Set<string>>(new Set());
-  const toggleInFlight  = useRef<Set<string>>(new Set());
-  const [addBusy,  setAddBusy]  = useState(false);
+  const addInFlight = useRef(false);
+  const saveInFlight = useRef(false);
+  const deleteInFlight = useRef<Set<string>>(new Set());
+  const toggleInFlight = useRef<Set<string>>(new Set());
+  const [addBusy, setAddBusy] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
 
   async function addStaff() {
@@ -46,11 +46,11 @@ export default function StaffView() {
     setAddBusy(true);
     try {
       const result = await addPosStaff({
-        name:        newStaff.name.trim(),
-        email:       newStaff.email,
-        role:        newStaff.role,
-        pin:         newStaff.pin,
-        hourlyRate:  parseFloat(newStaff.hourlyRate) || undefined,
+        name: newStaff.name.trim(),
+        email: newStaff.email,
+        role: newStaff.role,
+        pin: newStaff.pin,
+        hourlyRate: parseFloat(newStaff.hourlyRate) || undefined,
         avatarColor: COLORS[Math.floor(Math.random() * COLORS.length)],
       });
       if (!result.ok) return;
@@ -77,10 +77,10 @@ export default function StaffView() {
     setSaveBusy(true);
     try {
       const result = await updatePosStaff(editingStaff.id, {
-        name:       editDraft.name.trim(),
-        email:      editDraft.email,
-        role:       editDraft.role,
-        pin:        editDraft.pin || undefined, // "" → omit, server keeps existing
+        name: editDraft.name.trim(),
+        email: editDraft.email,
+        role: editDraft.role,
+        pin: editDraft.pin || undefined, // "" → omit, server keeps existing
         hourlyRate: parseFloat(editDraft.hourlyRate) || undefined,
       });
       if (!result.ok) return;
@@ -137,7 +137,7 @@ export default function StaffView() {
         </div>
 
         {/* Clock in/out panel */}
-        <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
+        <div className="bg-slate-800 border border-slate-700 rounded-2xl p-4 sm:p-5">
           <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2"><Clock size={16} className="text-orange-400" /> Today&apos;s Attendance</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {staff.filter((s) => s.active).map((member) => {
@@ -150,24 +150,27 @@ export default function StaffView() {
                 : null;
 
               return (
-                <div key={member.id} className="bg-slate-700/50 border border-slate-600 rounded-xl p-4 flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm text-white flex-shrink-0" style={{ backgroundColor: member.avatarColor }}>
-                    {getInitials(member.name)}
+                <div key={member.id} className="bg-slate-700/50 border border-slate-600 rounded-xl p-4 flex flex-wrap items-center gap-3">
+                  <div className="flex flex-row gap-3 items-center">
+                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center font-bold text-[13px] sm:text-sm text-white flex-shrink-0" style={{ backgroundColor: member.avatarColor }}>
+                      {getInitials(member.name)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm font-semibold">{member.name}</p>
+                      <p className="text-slate-400 text-xs capitalize">{member.role}</p>
+                      {minutesWorked !== null && (
+                        <p className="text-slate-400 text-xs mt-0.5 flex items-center gap-1 flex-shrink-0">
+                          <Timer size={10} /> {Math.floor(minutesWorked / 60)}h {minutesWorked % 60}m {clocked ? "(ongoing)" : ""}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white text-sm font-semibold">{member.name}</p>
-                    <p className="text-slate-400 text-xs capitalize">{member.role}</p>
-                    {minutesWorked !== null && (
-                      <p className="text-slate-400 text-xs mt-0.5 flex items-center gap-1">
-                        <Timer size={10} /> {Math.floor(minutesWorked / 60)}h {minutesWorked % 60}m {clocked ? "(ongoing)" : ""}
-                      </p>
-                    )}
-                  </div>
+
                   <button
                     onClick={() => { void (clocked ? clockOut(member.id) : clockIn(member.id)); }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 ${clocked
-                        ? "bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30"
-                        : "bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30"
+                    className={`ml-auto px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 ${clocked
+                      ? "bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30"
+                      : "bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30"
                       }`}
                   >
                     {clocked ? "Clock Out" : "Clock In"}
@@ -187,17 +190,16 @@ export default function StaffView() {
             {staff.map((member) => (
               <div key={member.id} className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
                 <div className="flex flex-row gap-4">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm text-white flex-shrink-0 opacity-100" style={{ backgroundColor: member.avatarColor, opacity: member.active ? 1 : 0.5 }}>
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center font-bold text-[13px] sm:text-sm text-white flex-shrink-0 opacity-100" style={{ backgroundColor: member.avatarColor, opacity: member.active ? 1 : 0.5 }}>
                     {getInitials(member.name)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <p className={`text-sm font-semibold ${member.active ? "text-white" : "text-slate-500"}`}>{member.name}</p>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold capitalize ${
-                        member.role === "admin" ? "bg-purple-500/20 text-purple-400" :
-                        member.role === "manager" ? "bg-blue-500/20 text-blue-400" :
-                        "bg-slate-600 text-slate-400"
-                      }`}>{member.role}</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold capitalize ${member.role === "admin" ? "bg-purple-500/20 text-purple-400" :
+                          member.role === "manager" ? "bg-blue-500/20 text-blue-400" :
+                            "bg-slate-600 text-slate-400"
+                        }`}>{member.role}</span>
                     </div>
                     <p className="text-slate-400 text-xs mt-0.5">{member.email} · PIN: ••••</p>
                     {member.hourlyRate && <p className="text-slate-500 text-xs">{sym}{member.hourlyRate}/hr</p>}
@@ -362,7 +364,7 @@ export default function StaffView() {
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">4-digit PIN</label>
-                <input type="password" maxLength={4} value={editDraft.pin} onChange={(e) => setEditDraft((p) => ({ ...p, pin: e.target.value.replace(/\D/g,"") }))} placeholder="Leave blank to keep current"
+                <input type="password" maxLength={4} value={editDraft.pin} onChange={(e) => setEditDraft((p) => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="Leave blank to keep current"
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
               </div>
               <div>
