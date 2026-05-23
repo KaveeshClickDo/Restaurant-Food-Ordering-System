@@ -149,7 +149,7 @@ export default function TableStatusView() {
           <div key={key} className="bg-slate-800/60 border border-slate-700 rounded-xl p-3 text-center">
             <div className="flex items-center justify-center gap-1.5 mb-1">
               <span className={`w-2 h-2 rounded-full ${dot}`} />
-              <span className="text-slate-400 text-[10px] font-semibold uppercase tracking-wide">{label}</span>
+              <span className="text-slate-400 text-[11px] font-semibold uppercase tracking-wide">{label}</span>
             </div>
             <span className="text-white font-bold text-xl">{counts[key]}</span>
           </div>
@@ -162,7 +162,7 @@ export default function TableStatusView() {
           <Loader2 size={28} className="animate-spin text-orange-500" />
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
           {visibleTables.map((t) => {
             const { state, res } = resolveState(t.id);
             const s = TABLE_STATE_STYLES[state];
@@ -217,33 +217,35 @@ export default function TableStatusView() {
                 )}
 
                 {/* Action button */}
-                {busy ? (
-                  <div className="flex justify-center py-1">
-                    <Loader2 size={16} className="animate-spin text-slate-400" />
-                  </div>
-                ) : state === "reserved" && res ? (
-                  <button
-                    onClick={() => doAction(res.id, "checked_in")}
-                    className="w-full flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-bold py-2.5 rounded-xl transition-all"
-                  >
-                    <LogIn size={13} /> Check In
-                  </button>
-                ) : state === "occupied" && res ? (
-                  <button
-                    onClick={() => doAction(res.id, "checked_out")}
-                    className="w-full flex items-center justify-center gap-1.5 bg-teal-600 hover:bg-teal-500 active:scale-95 text-white text-xs font-bold py-2.5 rounded-xl transition-all"
-                  >
-                    <LogOut size={13} /> Check Out
-                  </button>
-                ) : state === "free" ? (
-                  <div className="flex items-center justify-center gap-1 text-slate-500 text-xs py-2">
-                    <CheckCircle2 size={13} /> Available
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-center gap-1 text-teal-500 text-xs py-2">
-                    <CheckCircle2 size={13} /> Freed
-                  </div>
-                )}
+                <div className="mt-auto">
+                  {busy ? (
+                    <div className="flex justify-center py-1">
+                      <Loader2 size={16} className="animate-spin text-slate-400" />
+                    </div>
+                  ) : state === "reserved" && res ? (
+                    <button
+                      onClick={() => doAction(res.id, "checked_in")}
+                      className="w-full flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-bold py-2.5 rounded-xl transition-all"
+                    >
+                      <LogIn size={13} /> Check In
+                    </button>
+                  ) : state === "occupied" && res ? (
+                    <button
+                      onClick={() => doAction(res.id, "checked_out")}
+                      className="w-full flex items-center justify-center gap-1.5 bg-teal-600 hover:bg-teal-500 active:scale-95 text-white text-xs font-bold py-2.5 rounded-xl transition-all"
+                    >
+                      <LogOut size={13} /> Check Out
+                    </button>
+                  ) : state === "free" ? (
+                    <div className="flex items-center justify-center gap-1 text-slate-500 text-xs py-2">
+                      <CheckCircle2 size={13} /> Available
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center gap-1 text-teal-500 text-xs py-2">
+                      <CheckCircle2 size={13} /> Freed
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
