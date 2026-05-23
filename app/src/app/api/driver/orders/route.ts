@@ -18,13 +18,17 @@ export async function GET() {
   if (!session) return unauthorizedJson();
 
   // Two queries:
-  //  1. Orders assigned to this driver — any status (so completed deliveries show too).
+  //  1. Orders assigned to this driver — any status EXCEPT cancelled/refunded
+  //     (those were killed by admin/refund flow and the driver must drop them
+  //     from their queue; delivered ones still show so today's completions
+  //     remain visible).
   //  2. Unassigned delivery orders in preparing/ready — the available pool.
   const [mine, available] = await Promise.all([
     supabaseAdmin
       .from("orders")
       .select("*, customer:customers(id, name, phone)")
       .eq("driver_id", session.id)
+      .not("status", "in", "(cancelled,refunded)")
       .order("date", { ascending: false }),
     supabaseAdmin
       .from("orders")

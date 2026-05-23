@@ -6,6 +6,7 @@ import React, {
   useContext,
   useEffect,
   useReducer,
+  useRef,
   useState,
 } from "react";
 import { supabase } from "@/lib/supabase";
@@ -466,6 +467,11 @@ export function AppProvider({
   const [menuItems, setMenuItems]   = useState<MenuItem[]>([]);
   const [mealPeriods, setMealPeriods] = useState<MealPeriod[]>([]);
   const [customers, setCustomers]   = useState<Customer[]>([]);
+  // Tracks orders with an in-flight optimistic status change so the 8 s
+  // loadAllCustomers poll doesn't briefly flip cards back to their old column
+  // when a GET issued before the PUT committed returns stale data.
+  // Entry is cleared when the server view catches up or when TTL expires.
+  const pendingOrderStatusRef = useRef<Map<string, { status: OrderStatus; until: number }>>(new Map());
   // Mirror of customers state accessible from inside Realtime callbacks without
   // closure staleness — callbacks capture the ref value, not the state snapshot.
   // Drivers are fetched from the server-side /api/admin/drivers endpoint —
@@ -1116,13 +1122,26 @@ export function AppProvider({
     setCurrentUser((prev) =>
       prev && prev.id === customerId ? { ...prev, orders: prev.orders.map(patch) } : prev
     );
+    // Guard against the next poll(s) overwriting our optimistic value with a
+    // stale snapshot whose GET was issued before the PUT below commits. The
+    // entry stays until loadAllCustomers sees the server reflect this status,
+    // or the TTL expires (12 s — one full 8 s poll cycle plus margin).
+    pendingOrderStatusRef.current.set(orderId, { status, until: Date.now() + 12_000 });
     fetch(`/api/admin/orders/${orderId}/status`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     }).then(async (r) => {
-      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateOrderStatus:", j.error); }
-    }).catch((e) => console.error("updateOrderStatus:", e));
+      if (!r.ok) {
+        // Drop the guard so the next poll reconciles to the real server state.
+        pendingOrderStatusRef.current.delete(orderId);
+        const j = await r.json().catch(() => ({})) as { error?: string };
+        console.error("updateOrderStatus:", j.error);
+      }
+    }).catch((e) => {
+      pendingOrderStatusRef.current.delete(orderId);
+      console.error("updateOrderStatus:", e);
+    });
   };
 
   // ─── Refresh current user from server ────────────────────────────────────
@@ -1178,7 +1197,26 @@ export function AppProvider({
       }
       const json = await r.json() as { ok: boolean; customers?: Customer[]; error?: string };
       if (!json.ok || !json.customers) return { ok: false, error: json.error ?? "Bad response" };
-      setCustomers(json.customers);
+      // Preserve in-flight optimistic status changes when the server snapshot
+      // is still stale. Without this, the kanban card briefly jumps back to
+      // its previous column before the next poll arrives with fresh data.
+      const pending = pendingOrderStatusRef.current;
+      const now = Date.now();
+      const merged = pending.size === 0 ? json.customers : json.customers.map((c) => ({
+        ...c,
+        orders: c.orders.map((o) => {
+          const p = pending.get(o.id);
+          if (!p) return o;
+          if (p.until < now || o.status === p.status) {
+            // TTL elapsed, or server caught up — drop the guard and trust server.
+            pending.delete(o.id);
+            return o;
+          }
+          // Server is still serving pre-mutation data — keep optimistic status.
+          return { ...o, status: p.status };
+        }),
+      }));
+      setCustomers(merged);
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "Network error" };

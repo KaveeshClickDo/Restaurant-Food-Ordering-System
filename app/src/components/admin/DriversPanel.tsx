@@ -421,11 +421,17 @@ export default function DriversPanel() {
       !o.driverId,
   );
 
-  // Active deliveries: assigned / picked_up / on_the_way
+  // Active deliveries: assigned / picked_up / on_the_way — but only for
+  // orders still in flight. Admin cancel/refund flips `status` without
+  // touching `delivery_status`, so without the status guard a cancelled
+  // order would keep showing here (and inflate the "On delivery" stats
+  // and the per-driver "N on delivery" badge).
   const activeDeliveries = allOrders.filter(
     (o) =>
       o.deliveryStatus &&
-      ["assigned", "picked_up", "on_the_way"].includes(o.deliveryStatus),
+      ["assigned", "picked_up", "on_the_way"].includes(o.deliveryStatus) &&
+      o.status !== "cancelled" &&
+      o.status !== "refunded",
   );
 
   // Per-driver active order count
