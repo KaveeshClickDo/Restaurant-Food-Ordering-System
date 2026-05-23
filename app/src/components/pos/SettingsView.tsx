@@ -24,7 +24,7 @@ export default function SettingsView() {
         {/* Sub-tabs */}
         <div className="flex gap-1.5 bg-slate-800/50 p-1 rounded-xl border border-slate-700">
           {(["general","menu","receipt","hardware"] as const).map((t) => (
-            <button key={t} onClick={() => setTab(t)} className={`flex-1 py-2 rounded-lg text-xs font-semibold capitalize transition-all ${tab === t ? "bg-slate-700 text-white" : "text-slate-400 hover:text-white"}`}>
+            <button key={t} onClick={() => setTab(t)} className={`flex-1 px-1.5 py-2 rounded-lg text-xs font-semibold capitalize transition-all ${tab === t ? "bg-slate-700 text-white" : "text-slate-400 hover:text-white"}`}>
               {t}
             </button>
           ))}
@@ -141,7 +141,7 @@ export default function SettingsView() {
                 </div>
 
                 {/* Mode hint */}
-                <div className={`mt-3 text-center text-xs font-semibold py-2 rounded-xl ${
+                <div className={`mt-3 text-center text-xs font-semibold px-2 py-2 rounded-xl ${
                   local.taxInclusive
                     ? "bg-blue-900/30 text-blue-300"
                     : "bg-orange-900/30 text-orange-300"
@@ -197,7 +197,7 @@ export default function SettingsView() {
                   <p className="text-white text-sm font-medium">Show logo on receipt</p>
                   <p className="text-slate-400 text-xs">Displayed at the top of every printed receipt</p>
                 </div>
-                <button onClick={() => setLocal((p) => ({ ...p, receiptShowLogo: !p.receiptShowLogo }))} className="transition-colors">
+                <button onClick={() => setLocal((p) => ({ ...p, receiptShowLogo: !p.receiptShowLogo }))} className="transition-colors flex-shrink-0">
                   {local.receiptShowLogo
                     ? <ToggleRight size={28} className="text-green-400" />
                     : <ToggleLeft size={28} className="text-slate-500" />}
@@ -212,7 +212,7 @@ export default function SettingsView() {
                       value={local.receiptLogoUrl}
                       onChange={(e) => setLocal((p) => ({ ...p, receiptLogoUrl: e.target.value }))}
                       placeholder="https://example.com/logo.png"
-                      className="flex-1 bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
+                      className="flex-1 min-w-0 bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
                     />
                     {local.receiptLogoUrl && (
                       <div className="w-10 h-10 border border-slate-600 rounded-xl overflow-hidden flex-shrink-0 bg-slate-900">
@@ -278,7 +278,7 @@ export default function SettingsView() {
                 <div key={f.key}>
                   <label className="text-xs text-slate-400 mb-1 block">{f.label}</label>
                   <textarea
-                    rows={2}
+                    rows={3}
                     value={local[f.key as keyof POSSettings] as string}
                     onChange={(e) => setLocal((p) => ({ ...p, [f.key]: e.target.value }))}
                     placeholder={f.placeholder}
@@ -293,7 +293,7 @@ export default function SettingsView() {
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
               <h3 className="text-white font-semibold text-sm mb-4">Receipt Preview</h3>
               {(() => {
-                const W = 42;
+                const W = 31;
                 const center = (s: string) => {
                   const str = s.slice(0, W);
                   const pad = Math.max(0, Math.floor((W - str.length) / 2));
@@ -344,12 +344,12 @@ export default function SettingsView() {
                 lines.push({ text: "" });
 
                 return (
-                  <div className="bg-white rounded-xl overflow-hidden shadow-inner">
+                  <div className="bg-white rounded-xl overflow-hidden shadow-inner max-w-[280px] mx-auto">
                     {/* Sprocket strip top */}
-                    <div className="flex gap-1.5 px-3 py-1.5 bg-gray-50 border-b border-dashed border-gray-200">
-                      {Array.from({ length: 12 }).map((_, i) => <div key={i} className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" />)}
+                    <div className="flex justify-between px-3 py-1.5 bg-gray-50 border-b border-dashed border-gray-200">
+                      {Array.from({ length: 15 }).map((_, i) => <div key={i} className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" />)}
                     </div>
-                    <div className="px-4 py-4">
+                    <div className="px-4 py-4 w-full">
                       {local.receiptShowLogo && local.receiptLogoUrl && (
                         <div className="flex justify-center mb-3">
                           {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary URL or data: URI, needs onError fallback */}
@@ -357,22 +357,24 @@ export default function SettingsView() {
                             onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                         </div>
                       )}
-                      <div className="font-mono text-[11px] leading-[1.45] overflow-x-auto">
-                        {lines.map((line, i) => (
-                          <div key={i} className={[
-                            "whitespace-pre",
-                            line.bold ? "font-bold" : "font-normal",
-                            line.large ? "text-[13px]" : "",
-                            line.dim ? "text-gray-400" : "text-gray-800",
-                          ].filter(Boolean).join(" ")}>
-                            {line.text || "\u00A0"}
-                          </div>
-                        ))}
+                      <div className="font-mono text-[11px] leading-[1.45] w-full flex justify-center">
+                        <div>
+                          {lines.map((line, i) => (
+                            <div key={i} className={[
+                              "whitespace-pre",
+                              line.bold ? "font-bold" : "font-normal",
+                              line.large ? "text-[13px]" : "",
+                              line.dim ? "text-gray-400" : "text-gray-800",
+                            ].filter(Boolean).join(" ")}>
+                              {line.text || "\u00A0"}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </div>
                     {/* Sprocket strip bottom */}
-                    <div className="flex gap-1.5 px-3 py-1.5 bg-gray-50 border-t border-dashed border-gray-200">
-                      {Array.from({ length: 12 }).map((_, i) => <div key={i} className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" />)}
+                    <div className="flex justify-between px-3 py-1.5 bg-gray-50 border-t border-dashed border-gray-200">
+                      {Array.from({ length: 15 }).map((_, i) => <div key={i} className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" />)}
                     </div>
                   </div>
                 );
@@ -445,7 +447,7 @@ export default function SettingsView() {
                 onClick={exportSales}
                 className="w-full px-3 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
               >
-                <Receipt size={14} /> Export loaded sales as JSON
+                <Receipt size={14} className="flex-shrink-0"/> Export loaded sales as JSON
               </button>
             </div>
           </div>

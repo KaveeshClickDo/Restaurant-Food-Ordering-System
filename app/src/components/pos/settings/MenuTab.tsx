@@ -322,7 +322,7 @@ export default function MenuTab() {
                 <button
                   key={t}
                   onClick={() => setMenuTab(t)}
-                  className={`flex-1 py-2 rounded-lg text-sm font-semibold capitalize transition-all ${menuTab === t ? "bg-slate-700 text-white" : "text-slate-400 hover:text-white"}`}
+                  className={`flex-1 px-2 py-2 rounded-lg text-sm font-semibold capitalize transition-all ${menuTab === t ? "bg-slate-700 text-white" : "text-slate-400 hover:text-white"}`}
                 >
                   {t === "items" ? `Items (${inStoreProducts.length})` : `Categories (${categories.length})`}
                 </button>
@@ -349,7 +349,7 @@ export default function MenuTab() {
                       </div>
                       <div className="divide-y divide-slate-700/50">
                         {catProducts.map((product) => (
-                          <div key={product.id} className="px-5 py-3 flex items-center gap-3">
+                          <div key={product.id} className="px-5 py-3 flex items-center gap-2">
                             <div className="w-9 h-9 rounded-xl flex-shrink-0 overflow-hidden" style={{ backgroundColor: product.imageUrl ? undefined : product.color }}>
                               {product.imageUrl
                                 // eslint-disable-next-line @next/next/no-img-element
@@ -466,7 +466,7 @@ export default function MenuTab() {
                     value={catDraft.emoji}
                     onChange={(e) => setCatDraft((d) => ({ ...d, emoji: e.target.value }))}
                     placeholder="🍽️"
-                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2.5 text-white text-center text-xl outline-none focus:border-orange-500"
+                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-center text-base outline-none focus:border-orange-500"
                   />
                 </div>
                 <div className="flex-1">
@@ -586,7 +586,7 @@ export default function MenuTab() {
                     value={newCategory.emoji}
                     onChange={(e) => setNewCategory((d) => ({ ...d, emoji: e.target.value }))}
                     placeholder="🍽️"
-                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2.5 text-white text-center text-xl outline-none focus:border-orange-500"
+                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-center text-base outline-none focus:border-orange-500"
                   />
                 </div>
                 <div className="flex-1">
@@ -623,7 +623,7 @@ export default function MenuTab() {
               <button
                 onClick={addCategory}
                 disabled={!newCategory.name.trim()}
-                className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-1 py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Add Category
               </button>
@@ -765,7 +765,7 @@ export default function MenuTab() {
                 <label className="text-xs text-slate-400 mb-1 block">Description</label>
                 <textarea
                   value={editDraft.description}
-                  rows={2}
+                  rows={3}
                   onChange={(e) => setEditDraft((d) => ({ ...d, description: e.target.value }))}
                   placeholder="Brief description"
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500 resize-none"
@@ -1185,7 +1185,7 @@ export default function MenuTab() {
                     <p className="text-white text-sm font-medium">Product Offer</p>
                     <p className="text-slate-400 text-xs">Optional discount on this item</p>
                   </div>
-                  <button onClick={() => setNewProduct((p) => ({ ...p, offerActive: !p.offerActive }))} className="transition-colors">
+                  <button onClick={() => setNewProduct((p) => ({ ...p, offerActive: !p.offerActive }))} className="transition-colors flex-shrink-0">
                     {newProduct.offerActive ? <ToggleRight size={28} className="text-amber-400" /> : <ToggleLeft size={28} className="text-slate-500" />}
                   </button>
                 </div>
@@ -1201,14 +1201,14 @@ export default function MenuTab() {
                         ["qty_discount", "Qty Deal"],
                       ] as [POSOffer["type"], string][]).map(([t, label]) => (
                         <button key={t} onClick={() => setNewProduct((p) => ({ ...p, offerType: t }))}
-                          className={`py-2 rounded-lg text-xs font-semibold transition-all ${newProduct.offerType === t ? "bg-amber-400 text-slate-900" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}>
+                          className={`px-1 py-2 rounded-lg text-xs font-semibold transition-all ${newProduct.offerType === t ? "bg-amber-400 text-slate-900" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}>
                           {label}
                         </button>
                       ))}
                     </div>
 
                     {(newProduct.offerType === "percent" || newProduct.offerType === "fixed" || newProduct.offerType === "price") && (
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
                           <label className="text-xs text-slate-400 mb-1 block">
                             {newProduct.offerType === "percent" ? "Discount %" : newProduct.offerType === "fixed" ? `Amount Off (${settings.currencySymbol})` : `Special Price (${settings.currencySymbol})`}
@@ -1228,7 +1228,7 @@ export default function MenuTab() {
                     )}
 
                     {newProduct.offerType === "bogo" && (
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         <div>
                           <label className="text-xs text-slate-400 mb-1 block">Buy qty</label>
                           <input type="number" min="1" step="1" value={newProduct.offerBuyQty}
@@ -1241,8 +1241,8 @@ export default function MenuTab() {
                             onChange={(e) => setNewProduct((p) => ({ ...p, offerFreeQty: e.target.value }))} placeholder="1"
                             className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
                         </div>
-                        <div>
-                          <label className="text-xs text-slate-400 mb-1 block">Badge (optional)</label>
+                        <div className="col-span-2 sm:col-span-1">
+                          <label className="text-xs text-slate-400 mb-1 block ">Badge (optional)</label>
                           <input value={newProduct.offerLabel} onChange={(e) => setNewProduct((p) => ({ ...p, offerLabel: e.target.value }))}
                             placeholder="e.g. BOGOF"
                             className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
@@ -1251,7 +1251,7 @@ export default function MenuTab() {
                     )}
 
                     {newProduct.offerType === "multibuy" && (
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         <div>
                           <label className="text-xs text-slate-400 mb-1 block">Buy qty</label>
                           <input type="number" min="2" step="1" value={newProduct.offerBuyQty}
@@ -1274,7 +1274,7 @@ export default function MenuTab() {
                     )}
 
                     {newProduct.offerType === "qty_discount" && (
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         <div>
                           <label className="text-xs text-slate-400 mb-1 block">Min qty</label>
                           <input type="number" min="2" step="1" value={newProduct.offerMinQty}
@@ -1287,7 +1287,7 @@ export default function MenuTab() {
                             onChange={(e) => setNewProduct((p) => ({ ...p, offerValue: e.target.value }))} placeholder="15"
                             className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-amber-400 placeholder-slate-500" />
                         </div>
-                        <div>
+                        <div className="col-span-2 sm:col-span-1">
                           <label className="text-xs text-slate-400 mb-1 block">Badge (optional)</label>
                           <input value={newProduct.offerLabel} onChange={(e) => setNewProduct((p) => ({ ...p, offerLabel: e.target.value }))}
                             placeholder={`${newProduct.offerMinQty||"2"}+ save ${newProduct.offerValue||"15"}%`}
@@ -1296,7 +1296,7 @@ export default function MenuTab() {
                       </div>
                     )}
 
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
                         <label className="text-xs text-slate-400 mb-1 block">Start date (optional)</label>
                         <input type="date" value={newProduct.offerStart} onChange={(e) => setNewProduct((p) => ({ ...p, offerStart: e.target.value }))}
@@ -1523,7 +1523,7 @@ function VariationsEditor({
                   value={v.name}
                   onChange={(e) => update(vi, { name: e.target.value })}
                   placeholder="Variation name (e.g. Size)"
-                  className="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
+                  className="flex-1 min-w-0 bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
                 />
                 <label className="flex items-center gap-1 text-xs text-slate-300 cursor-pointer whitespace-nowrap">
                   <input
@@ -1549,7 +1549,7 @@ function VariationsEditor({
                       value={opt.label}
                       onChange={(e) => updateOption(vi, oi, { label: e.target.value })}
                       placeholder="Option label"
-                      className="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 py-1 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
+                      className="flex-1 min-w-0 bg-slate-900 border border-slate-600 rounded-lg px-3 py-1 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
                     />
                     <div className="relative w-24">
                       <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 text-xs">+{sym}</span>
@@ -1557,7 +1557,7 @@ function VariationsEditor({
                         type="number" min="0" step="0.25"
                         value={opt.price}
                         onChange={(e) => updateOption(vi, oi, { price: parseFloat(e.target.value) || 0 })}
-                        className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-6 pr-2 py-1 text-white text-sm outline-none focus:border-orange-500"
+                        className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-7 pr-2 py-1 text-white text-sm outline-none focus:border-orange-500"
                       />
                     </div>
                     <button onClick={() => removeOption(vi, oi)} className="text-slate-500 hover:text-red-400">
@@ -1615,7 +1615,7 @@ function AddOnsEditor({
               value={a.name}
               onChange={(e) => update(ai, { name: e.target.value })}
               placeholder="Add-on name"
-              className="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
+              className="flex-1 min-w-0 bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
             />
             <div className="relative w-24">
               <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 text-xs">+{sym}</span>
@@ -1623,7 +1623,7 @@ function AddOnsEditor({
                 type="number" min="0" step="0.25"
                 value={a.price}
                 onChange={(e) => update(ai, { price: parseFloat(e.target.value) || 0 })}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-6 pr-2 py-1.5 text-white text-sm outline-none focus:border-orange-500"
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-7 pr-2 py-1.5 text-white text-sm outline-none focus:border-orange-500"
               />
             </div>
             <button onClick={() => remove(ai)} className="text-slate-500 hover:text-red-400">
