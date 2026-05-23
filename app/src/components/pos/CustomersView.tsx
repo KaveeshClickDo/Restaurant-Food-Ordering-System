@@ -157,7 +157,7 @@ export default function CustomersView() {
           {filtered.map((c) => (
             <button key={c.id} onClick={() => setSelected(c)}
               className={`w-full px-4 py-4 flex items-center gap-3 text-left transition-colors border-b border-slate-800 ${selectedLive?.id === c.id ? "bg-orange-500/10 border-l-2 border-l-orange-500" : "hover:bg-slate-800/50"}`}>
-              <div className="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center text-orange-400 font-bold text-sm flex-shrink-0">
+              <div className="w-10 h-10 rounded-full bg-orange-500/30 flex items-center justify-center text-orange-400 font-bold text-sm flex-shrink-0">
                 {getInitials(c.name)}
               </div>
               <div className="flex-1 min-w-0">
@@ -183,7 +183,7 @@ export default function CustomersView() {
             <p className="text-sm">Select a customer to view details</p>
           </div>
         ) : (
-          <div className="p-4 md:p-6 max-w-2xl mx-auto md:mx-0">
+          <div className="p-4 md:p-6 max-w-3xl mx-auto md:mx-0">
             {/* Back button (Mobile only) */}
             <button
               onClick={() => setSelected(null)}
@@ -194,17 +194,17 @@ export default function CustomersView() {
 
             {/* Profile header */}
             <div className="flex flex-col md:flex-row items-start gap-4 mb-6">
-              <div className="w-16 h-16 rounded-2xl bg-orange-500/20 flex items-center justify-center text-orange-400 font-bold text-2xl flex-shrink-0">
+              <div className="w-16 h-16 rounded-2xl bg-orange-500/30 flex items-center justify-center text-orange-400 font-bold text-2xl flex-shrink-0">
                 {getInitials(selectedLive.name)}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="text-white font-bold text-xl">{selectedLive.name}</h3>
                   {selectedLive.tags.map((t) => (
-                    <span key={t} className="text-[10px] bg-orange-500/20 text-orange-400 px-2 py-0.5 rounded-full font-semibold">{t}</span>
+                    <span key={t} className="text-[10px] bg-orange-500/30 text-orange-400 px-2 py-0.5 rounded-full font-semibold">{t}</span>
                   ))}
                 </div>
-                <div className="flex flex-wrap gap-4 mt-2">
+                <div className="flex flex-wrap gap-4 mt-3">
                   {selectedLive.phone && <span className="flex items-center gap-1 text-slate-400 text-sm"><Phone size={13} />{selectedLive.phone}</span>}
                   {displayEmail(selectedLive.email) && <span className="flex items-center gap-1 text-slate-400 text-sm"><Mail size={13} />{displayEmail(selectedLive.email)}</span>}
                 </div>
@@ -212,7 +212,7 @@ export default function CustomersView() {
               </div>
               <button
                 onClick={() => openEdit(selectedLive)}
-                className="w-full md:w-auto flex items-center justify-center gap-2 px-3 py-2 mt-2 md:mt-0 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white text-sm font-semibold transition-all flex-shrink-0"
+                className="w-full md:w-auto flex items-center justify-center gap-2 px-4 py-2 mt-2 md:mt-0 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white text-sm font-semibold transition-all flex-shrink-0"
               >
                 <Pencil size={14} /> Edit
               </button>
@@ -222,13 +222,13 @@ export default function CustomersView() {
                 server-side from orders + pos_sales (Bug #11), so undefined
                 fallbacks render the same zero you'd see for a never-purchased
                 customer rather than crashing on .toFixed of null. */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
               {[
                 { label: "Total Spend", value: fmt(selectedLive.totalSpend ?? 0, settings.currencySymbol), color: "text-green-400" },
                 { label: "Visits", value: (selectedLive.visitCount ?? 0).toString(), color: "text-blue-400" },
                 { label: "Loyalty Points", value: `${selectedLive.loyaltyPoints ?? 0}`, color: "text-amber-400" },
               ].map((s) => (
-                <div key={s.label} className="bg-slate-800 border border-slate-700 rounded-xl p-4">
+                <div key={s.label} className="bg-slate-800 border border-slate-700 rounded-xl p-3 sm:p-4">
                   <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
                   <p className="text-slate-400 text-xs mt-1">{s.label}</p>
                 </div>
@@ -236,7 +236,7 @@ export default function CustomersView() {
             </div>
 
             {/* Purchase history */}
-            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
+            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-4 sm:p-5">
               <h4 className="text-white font-semibold text-sm mb-4">Purchase History</h4>
               {customerSales.length === 0 ? (
                 <p className="text-slate-500 text-sm">No purchases recorded for this customer</p>
@@ -332,7 +332,7 @@ export default function CustomersView() {
                     onChange={(e) => setEditDraft((d) => ({ ...d, customTag: e.target.value }))}
                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustomTag(); } }}
                     placeholder="Custom tag…"
-                    className="flex-1 bg-slate-900 border border-slate-600 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
+                    className="flex-1 min-w-0 bg-slate-900 border border-slate-600 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
                   />
                   <button
                     onClick={addCustomTag}
@@ -376,7 +376,7 @@ export default function CustomersView() {
                 <button
                   onClick={saveEdit}
                   disabled={!editDraft.name.trim() || saving}
-                  className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  className="px-2 py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   <Save size={14} /> {saving ? "Saving…" : "Save Changes"}
                 </button>
