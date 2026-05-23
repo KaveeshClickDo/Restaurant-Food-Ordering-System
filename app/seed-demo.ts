@@ -119,7 +119,11 @@ async function main(): Promise<void> {
             m.dietary ?? [], m.popular ?? false,
             JSON.stringify(m.variations ?? []),
             JSON.stringify(m.addOns ?? []),
-            m.stockQty ?? null, m.stockStatus ?? "in_stock",
+            m.stockQty ?? null,
+            // Tracked items leave stock_status NULL so a mode-switch later
+            // doesn't inherit a stale status. Untracked items default to
+            // "in_stock" unless the seed says otherwise.
+            typeof m.stockQty === "number" ? null : (m.stockStatus ?? "in_stock"),
             0,
             m.cost ?? null, m.sku ?? null,
             m.emoji ?? null, m.color ?? null,

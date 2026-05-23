@@ -85,8 +85,13 @@ class OutboxSyncWorker(
                 val payload = entry.optJSONObject("payload") ?: continue
 
                 val body = payload.toString().toRequestBody(JSON_TYPE)
+                // /api/pos/sales is the server-side source of truth for POS
+                // sales (atomic stock decrement + pos_sales row + KDS push).
+                // The older /api/pos/orders path the worker used to call no
+                // longer accepts POST — the outbox would silently 405 on
+                // every retry, draining nothing.
                 val req  = Request.Builder()
-                    .url("$serverUrl/api/pos/orders")
+                    .url("$serverUrl/api/pos/sales")
                     .post(body)
                     .build()
 

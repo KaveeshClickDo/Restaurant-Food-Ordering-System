@@ -54,18 +54,35 @@ export async function POST(req: NextRequest) {
   try {
     await ensureWalkInCustomer();
 
-    // ── Active-flag + channel check ─────────────────────────────────────────
+    // ── Missing-row + active-flag + channel + manual-OOS check ──────────────
     // Reject lines for items admin has hidden from the menu (or moved to
-    // online-only) since the cart was built. Defence-in-depth; the waiter
-    // UI already filters them out.
+    // online-only / out of stock) since the cart was built. Defence-in-depth;
+    // the waiter UI already filters them out.
+    //
+    // The missing-row check is the asymmetry fix with the online path: when
+    // admin hard-deletes a menu item, its row disappears from menu_items, the
+    // active/channel/OOS .find() calls below all miss, AND decrement_stock_atomic
+    // silently skips missing rows (schema.sql: "if not found then continue").
+    // Without an explicit reject, a stale waiter tab could fire a kitchen
+    // ticket for an item that no longer exists on the menu.
     const menuItemIds = items
       .map((i) => i.menuItemId)
       .filter((id): id is string => typeof id === "string" && id.length > 0);
     if (menuItemIds.length > 0) {
       const { data: menuRows } = await supabaseAdmin
         .from("menu_items")
-        .select("id, name, active, channels")
+        .select("id, name, active, channels, stock_status, track_stock")
         .in("id", menuItemIds);
+      const foundIds = new Set((menuRows ?? []).map((r) => r.id as string));
+      const missing = items.find(
+        (i) => typeof i.menuItemId === "string" && i.menuItemId.length > 0 && !foundIds.has(i.menuItemId),
+      );
+      if (missing) {
+        return NextResponse.json(
+          { ok: false, error: `'${missing.name || "An item"}' is no longer available on the menu.` },
+          { status: 400 },
+        );
+      }
       const inactive = (menuRows ?? []).find((r) => r.active === false);
       if (inactive) {
         return NextResponse.json(
@@ -80,6 +97,17 @@ export async function POST(req: NextRequest) {
       if (onlineOnly) {
         return NextResponse.json(
           { ok: false, error: `'${onlineOnly.name}' is online-only and cannot be sold for dine-in.` },
+          { status: 400 },
+        );
+      }
+      // Manual Status out_of_stock blocks dine-in too. Only applies to
+      // non-tracked items; tracked items are governed by stock_qty alone.
+      const manualOos = (menuRows ?? []).find(
+        (r) => r.track_stock !== true && r.stock_status === "out_of_stock",
+      );
+      if (manualOos) {
+        return NextResponse.json(
+          { ok: false, error: `'${manualOos.name}' is out of stock.` },
           { status: 400 },
         );
       }

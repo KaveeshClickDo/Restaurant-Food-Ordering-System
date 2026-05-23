@@ -18,10 +18,13 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
     if (!voidReason.trim() || submitting) return;
     const amt = parseFloat(refundAmount);
     setSubmitting(true);
-    const ok = await voidSale(sale.id, voidReason.trim(), refundMethod, isNaN(amt) ? 0 : amt);
+    const { ok, error } = await voidSale(sale.id, voidReason.trim(), refundMethod, isNaN(amt) ? 0 : amt);
     setSubmitting(false);
     if (!ok) {
-      alert("Couldn't void the sale on the server. Check your network and try again.");
+      // Surface the server's actual reason (no permission, already voided,
+      // refund > total, etc.) instead of a generic network message. Falls
+      // back to the network copy when the request never reached the server.
+      alert(error ?? "Couldn't void the sale on the server. Check your network and try again.");
       return;
     }
     onClose();

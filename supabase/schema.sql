@@ -193,6 +193,22 @@ alter table orders add column if not exists customer_lng double precision;
 alter table orders add column if not exists cash_reconciled_at timestamptz;
 alter table orders add column if not exists cash_reconciled_by text;
 
+-- Set when the webhook accepted a paid order that failed the stock check
+-- (we couldn't reject — customer's money was already captured). Admin sees
+-- the flag in the orders view for reconciliation, and void/refund flows use
+-- it to know that restore_stock would create false inventory because the
+-- original decrement never ran.
+alter table orders add column if not exists oversold boolean not null default false;
+
+-- Stock-status CHECK so a typo or bad client can't store an arbitrary string
+-- in stock_status (which resolveStock would silently treat as "in_stock"
+-- and let through). Allowed values match the enum used app-wide. Dropped
+-- first so re-runs after the enum changes still work. NULL is allowed and
+-- means "fall back to default" (in_stock).
+alter table menu_items drop constraint if exists menu_items_stock_status_check;
+alter table menu_items add constraint menu_items_stock_status_check
+  check (stock_status is null or stock_status in ('in_stock','low_stock','out_of_stock'));
+
 create table if not exists drivers (
   id                  text        primary key,
   name                text        not null,
@@ -488,9 +504,19 @@ create table if not exists menu_item_meal_periods (
 -- ── 2c. Functions ────────────────────────────────────────────────────────────
 -- Atomic stock mutations. The whole loop runs inside a single Postgres
 -- transaction so a multi-item order either decrements every tracked line or
--- none — partial state is impossible. Items where track_stock = false are
--- silently skipped (no inventory to deduct). Ad-hoc lines with no matching
--- menu_items row (e.g. a manually-typed POS sale) are also skipped.
+-- none — partial state is impossible.
+--
+-- Enforcement rules (must match the customer-facing rule):
+--   • track_stock = true              → stock_qty is the single source of
+--                                       truth. Hard reject when qty <
+--                                       requested; decrement on success. A
+--                                       stale stock_status from a previous
+--                                       mode is ignored — qty wins.
+--   • track_stock = false + stock_status = "out_of_stock"
+--                                     → hard reject. Admin's explicit
+--                                       "do not sell" signal in manual mode.
+--   • Otherwise (manual in_stock / low_stock, or missing row, or ad-hoc
+--     hand-typed POS line) → no quantity to deduct, skip silently.
 --
 -- Called from app/src/lib/stockMutation.ts via supabase.rpc().
 
@@ -504,6 +530,7 @@ declare
   v_qty    int;
   v_avail  int;
   v_tracks boolean;
+  v_status text;
   v_name   text;
 begin
   for item in select * from jsonb_array_elements(coalesce(p_items, '[]'::jsonb))
@@ -512,12 +539,27 @@ begin
     v_qty := (item->>'qty')::int;
     if v_id is null or v_qty is null or v_qty <= 0 then continue; end if;
 
-    select track_stock, stock_qty, name
-      into v_tracks, v_avail, v_name
+    select track_stock, stock_qty, stock_status, name
+      into v_tracks, v_avail, v_status, v_name
       from menu_items
      where id = v_id
        for update;
     if not found then continue; end if;
+
+    -- Manual Status override wins on every channel. We only honour it when
+    -- the row is NOT in track-quantity mode — once tracked, stock_qty is the
+    -- single source of truth (a stale stock_status carried over from the
+    -- previous mode must not block a sale).
+    if not coalesce(v_tracks, false) and v_status = 'out_of_stock' then
+      raise exception 'INSUFFICIENT_STOCK %', v_id
+        using detail = jsonb_build_object(
+          'id',        v_id,
+          'name',      coalesce(v_name, ''),
+          'requested', v_qty,
+          'available', 0
+        )::text;
+    end if;
+
     if not coalesce(v_tracks, false) then continue; end if;
 
     if coalesce(v_avail, 0) < v_qty then

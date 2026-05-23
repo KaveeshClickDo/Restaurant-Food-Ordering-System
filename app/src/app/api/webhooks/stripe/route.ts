@@ -132,15 +132,19 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
   // Decrement stock for this paid order. If the items are oversold (somebody
   // else bought the last unit while this customer was paying) we still insert
   // the order — Stripe already collected the money, refusing here would lose
-  // it. Admin reconciles via the kitchen / customer-service workflow.
+  // it. Admin reconciles via the kitchen / customer-service workflow. The
+  // order is stamped `oversold = true` so void/refund knows not to call
+  // restore_stock (the original decrement never ran, so restoring would
+  // create false positive inventory) and so admin sees it in the orders list.
   const orderItems = Array.isArray(orderRow.items) ? (orderRow.items as Array<Record<string, unknown>>) : [];
   const stockItems: StockItem[] = orderItems
     .map((i) => ({ id: String(i.menuItemId ?? ""), qty: Number(i.qty ?? 0) }))
     .filter((i) => i.id);
   const stock = await decrementStock(stockItems);
-  if (!stock.ok) {
+  const oversold = !stock.ok;
+  if (oversold) {
     console.error(
-      `[webhooks/stripe] OVERSOLD on paid order ${orderRow.id}: ${stock.message}. Inserting order anyway — admin must reconcile.`,
+      `[webhooks/stripe] OVERSOLD on paid order ${orderRow.id}: ${stock.message}. Inserting flagged order — admin must reconcile.`,
     );
   }
 
@@ -149,6 +153,7 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
     payment_status:           "paid",
     stripe_payment_intent_id: intent.id,
     stripe_charge_id:         chargeId,
+    oversold,
   };
 
   const { error: insertErr } = await supabaseAdmin

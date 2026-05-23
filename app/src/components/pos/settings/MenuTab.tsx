@@ -22,13 +22,18 @@ function blankAddOn(): AddOn {
   return { id: crypto.randomUUID(), name: "", price: 0 };
 }
 
+type StockMode = "qty" | "manual";
+type StockStatusValue = "in_stock" | "low_stock" | "out_of_stock";
+
 export default function MenuTab() {
-  const { products, setProducts, categories, setCategories, settings } = usePOS();
+  const { products, setProducts, categories, setCategories, settings, updateProductStock } = usePOS();
 
   // Item state
   const [editProduct, setEditProduct] = useState<POSProduct | null>(null);
   // Bug #2 — POS draft now also carries dietary[], variations[], addOns[],
   // sku, and a description so both editors can save the same item shape.
+  // Stock fields added so POS-admin/manager can mark items OOS / set qty
+  // without switching to the admin panel.
   const [editDraft, setEditDraft] = useState({
     name: "", categoryId: "", price: "", cost: "", emoji: "", imageUrl: "", popular: false,
     description: "", sku: "",
@@ -38,6 +43,9 @@ export default function MenuTab() {
     offerActive: false, offerType: "percent" as POSOffer["type"],
     offerValue: "", offerLabel: "", offerStart: "", offerEnd: "",
     offerBuyQty: "", offerFreeQty: "", offerMinQty: "",
+    stockMode:   "manual" as StockMode,
+    stockQty:    "",
+    stockStatus: "in_stock" as StockStatusValue,
   });
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [newProduct, setNewProduct] = useState({
@@ -49,6 +57,9 @@ export default function MenuTab() {
     offerActive: false, offerType: "percent" as POSOffer["type"],
     offerValue: "", offerLabel: "", offerStart: "", offerEnd: "",
     offerBuyQty: "", offerFreeQty: "", offerMinQty: "",
+    stockMode:   "manual" as StockMode,
+    stockQty:    "",
+    stockStatus: "in_stock" as StockStatusValue,
   });
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [menuTab, setMenuTab] = useState<"items"|"categories">("items");
@@ -133,6 +144,7 @@ export default function MenuTab() {
   function openEdit(product: POSProduct) {
     setEditProduct(product);
     const o = product.offer;
+    const tracked = typeof product.stockQty === "number";
     setEditDraft({
       name:         product.name,
       categoryId:   product.categoryId,
@@ -155,6 +167,9 @@ export default function MenuTab() {
       offerBuyQty:  o?.buyQty?.toString()  ?? "",
       offerFreeQty: o?.freeQty?.toString() ?? "",
       offerMinQty:  o?.minQty?.toString()  ?? "",
+      stockMode:    tracked ? "qty" : "manual",
+      stockQty:     tracked ? String(product.stockQty) : "",
+      stockStatus:  (product.stockStatus ?? "in_stock") as StockStatusValue,
     });
   }
 
@@ -186,6 +201,25 @@ export default function MenuTab() {
           }
         : p
     ));
+
+    // Stock writes go through the dedicated endpoint (NOT the bulk sync,
+    // which strips stock). Only fire when the admin actually changed
+    // something in the stock section so a name-only edit can't reset the
+    // live counter that sales are decrementing.
+    const wasTracked   = typeof editProduct.stockQty === "number";
+    const nowTracked   = editDraft.stockMode === "qty";
+    const draftQty     = parseInt(editDraft.stockQty, 10);
+    const draftQtyOk   = Number.isFinite(draftQty) && draftQty >= 0;
+    const qtyChanged   = wasTracked !== nowTracked
+      || (nowTracked && draftQtyOk && draftQty !== editProduct.stockQty);
+    const statusChanged = !nowTracked
+      && editDraft.stockStatus !== (editProduct.stockStatus ?? "in_stock");
+    if (nowTracked && qtyChanged && draftQtyOk) {
+      updateProductStock(editProduct.id, { mode: "qty", stockQty: draftQty });
+    } else if (!nowTracked && (qtyChanged || statusChanged)) {
+      updateProductStock(editProduct.id, { mode: "manual", stockStatus: editDraft.stockStatus });
+    }
+
     setEditProduct(null);
   }
 
@@ -219,15 +253,24 @@ export default function MenuTab() {
 
   function addProduct() {
     if (!newProduct.name.trim() || !newProduct.categoryId || !newProduct.price) return;
+    const id = `p-${Date.now()}`;
+    const tracked = newProduct.stockMode === "qty";
+    const initialQty = parseInt(newProduct.stockQty, 10);
+    const initialQtyOk = tracked && Number.isFinite(initialQty) && initialQty >= 0;
     const p: POSProduct = {
-      id: `p-${Date.now()}`, categoryId: newProduct.categoryId, name: newProduct.name.trim(),
+      id, categoryId: newProduct.categoryId, name: newProduct.name.trim(),
       price: parseFloat(newProduct.price), cost: parseFloat(newProduct.cost) || undefined,
       emoji: newProduct.imageUrl ? undefined : (newProduct.emoji || "🍽️"),
       imageUrl: newProduct.imageUrl || undefined,
       // Pick a pleasant preset tile colour instead of the old flat slate so
       // new POS items aren't all the same grey. Admin can change it later.
       color: PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)],
-      trackStock: false, active: true,
+      // Initial stock state mirrors the form. The bulk sync below still
+      // strips stock fields server-side; we set the durable value with a
+      // targeted updateProductStock call after the row exists.
+      trackStock: tracked, active: true,
+      stockQty: initialQtyOk ? initialQty : undefined,
+      stockStatus: tracked ? undefined : newProduct.stockStatus,
       // POS only ever creates in-store items; admin manages online exposure.
       channels: ["in_store"],
       description: newProduct.description || undefined,
@@ -240,12 +283,24 @@ export default function MenuTab() {
       offer: buildOffer(newProduct),
     };
     setProducts((prev) => [...prev, p]);
+
+    // The debounced bulk sync inserts the row but strips stock fields. Fire
+    // the dedicated stock endpoint so the chosen mode/value actually lands.
+    // Defer until after the bulk sync has had time to POST, so the stock
+    // PUT can't beat the INSERT to Supabase. 2s > the 1.5s sync debounce.
+    if (tracked && initialQtyOk) {
+      setTimeout(() => updateProductStock(id, { mode: "qty", stockQty: initialQty }), 2000);
+    } else if (!tracked && newProduct.stockStatus !== "in_stock") {
+      setTimeout(() => updateProductStock(id, { mode: "manual", stockStatus: newProduct.stockStatus }), 2000);
+    }
+
     setNewProduct({
       name: "", categoryId: "", price: "", cost: "", emoji: "🍽️", imageUrl: "",
       description: "", sku: "",
       dietary: [], variations: [], addOns: [],
       offerActive: false, offerType: "percent", offerValue: "", offerLabel: "", offerStart: "", offerEnd: "",
       offerBuyQty: "", offerFreeQty: "", offerMinQty: "",
+      stockMode: "manual", stockQty: "", stockStatus: "in_stock",
     });
     setShowAddProduct(false);
   }
@@ -723,6 +778,19 @@ export default function MenuTab() {
                 onChange={(next) => setEditDraft((d) => ({ ...d, dietary: next }))}
               />
 
+              {/* Stock — POS-admin / manager can set qty or manual status
+                  without switching to the admin panel. Writes go through the
+                  dedicated /api/admin/menu/[id]/stock endpoint (NOT the
+                  bulk sync that strips stock) to avoid stale-value clobber. */}
+              <StockEditor
+                mode={editDraft.stockMode}
+                qty={editDraft.stockQty}
+                status={editDraft.stockStatus}
+                onModeChange={(mode) => setEditDraft((d) => ({ ...d, stockMode: mode }))}
+                onQtyChange={(qty) => setEditDraft((d) => ({ ...d, stockQty: qty }))}
+                onStatusChange={(status) => setEditDraft((d) => ({ ...d, stockStatus: status }))}
+              />
+
               {/* Variations + add-ons (Bug #2). The canonical model lives on
                   MenuItem; POS reads/writes both lists directly so admin and
                   POS see the same data without any conversion step. */}
@@ -1088,6 +1156,16 @@ export default function MenuTab() {
                 onChange={(next) => setNewProduct((p) => ({ ...p, dietary: next }))}
               />
 
+              {/* Stock — see edit drawer for rationale. */}
+              <StockEditor
+                mode={newProduct.stockMode}
+                qty={newProduct.stockQty}
+                status={newProduct.stockStatus}
+                onModeChange={(mode) => setNewProduct((p) => ({ ...p, stockMode: mode }))}
+                onQtyChange={(qty) => setNewProduct((p) => ({ ...p, stockQty: qty }))}
+                onStatusChange={(status) => setNewProduct((p) => ({ ...p, stockStatus: status }))}
+              />
+
               {/* Variations + add-ons (Bug #2). */}
               <VariationsEditor
                 value={newProduct.variations}
@@ -1279,6 +1357,96 @@ export default function MenuTab() {
 // and add-ons so an item edited in the POS produces the same data shape an
 // admin edit would. The wording on labels and helper copy is intentionally
 // kept identical so the operator gets a consistent experience.
+
+function StockEditor({
+  mode, qty, status,
+  onModeChange, onQtyChange, onStatusChange,
+}: {
+  mode:   StockMode;
+  qty:    string;
+  status: StockStatusValue;
+  onModeChange:   (m: StockMode) => void;
+  onQtyChange:    (q: string) => void;
+  onStatusChange: (s: StockStatusValue) => void;
+}) {
+  const STATUSES: { value: StockStatusValue; label: string; cls: string; active: string }[] = [
+    { value: "in_stock",     label: "In stock",     cls: "border-slate-600 text-slate-300", active: "border-emerald-500 bg-emerald-500/20 text-emerald-300" },
+    { value: "low_stock",    label: "Low stock",    cls: "border-slate-600 text-slate-300", active: "border-amber-500 bg-amber-500/20 text-amber-300" },
+    { value: "out_of_stock", label: "Out of stock", cls: "border-slate-600 text-slate-300", active: "border-red-500 bg-red-500/20 text-red-300" },
+  ];
+  return (
+    <div className="border border-slate-700 rounded-xl overflow-hidden">
+      <div className="px-4 py-3 bg-slate-900/60 flex items-center gap-2">
+        <Package size={14} className="text-slate-400" />
+        <span className="text-sm font-semibold text-white">Stock</span>
+      </div>
+      <div className="p-4 space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => onModeChange("manual")}
+            className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${
+              mode === "manual"
+                ? "border-orange-500 bg-orange-500/20 text-orange-300"
+                : "border-slate-600 text-slate-300 hover:bg-slate-700"
+            }`}
+          >
+            Manual status
+          </button>
+          <button
+            type="button"
+            onClick={() => onModeChange("qty")}
+            className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${
+              mode === "qty"
+                ? "border-orange-500 bg-orange-500/20 text-orange-300"
+                : "border-slate-600 text-slate-300 hover:bg-slate-700"
+            }`}
+          >
+            Track quantity
+          </button>
+        </div>
+
+        {mode === "qty" ? (
+          <div>
+            <label className="text-xs text-slate-400 mb-1 block">Units in stock</label>
+            <input
+              type="number"
+              min={0}
+              value={qty}
+              onChange={(e) => onQtyChange(e.target.value)}
+              placeholder="0"
+              className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
+            />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Sales decrement this automatically. When it hits zero, the item is hard-blocked on POS, waiter and online.
+            </p>
+          </div>
+        ) : (
+          <div>
+            <label className="text-xs text-slate-400 mb-2 block">Availability</label>
+            <div className="grid grid-cols-3 gap-2">
+              {STATUSES.map((s) => (
+                <button
+                  key={s.value}
+                  type="button"
+                  onClick={() => onStatusChange(s.value)}
+                  className={`px-2 py-2 rounded-lg text-[11px] font-semibold border transition-colors ${
+                    status === s.value ? s.active : s.cls + " hover:bg-slate-700"
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-500 mt-2">
+              &quot;Out of stock&quot; hard-blocks the item on every channel. &quot;In stock&quot; / &quot;Low stock&quot; let it sell.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function DietaryPicker({
   value, onChange,

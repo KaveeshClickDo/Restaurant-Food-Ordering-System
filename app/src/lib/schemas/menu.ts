@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { NonEmptyString, Money, IsoTime } from "./primitives";
 
+// Stock state — must match the enum used by stockUtils.ts and the customer/
+// POS/waiter UIs. Anything else in the column is a data-quality bug.
+const StockStatusEnum = z.enum(["in_stock", "low_stock", "out_of_stock"]);
+const StockQtyValue = z.number().int().min(0, "Stock quantity cannot be negative.");
+
 // Variation groups: each has an id + display name, an optional `required`
 // flag (defaults to true when absent — see ItemCustomizationModal), and a
 // list of options the customer can pick. The `required` field is what the
@@ -59,6 +64,11 @@ export const MenuCreateSchema = z.object({
   emoji:       z.string().nullable().optional(),
   color:       z.string().nullable().optional(),
   active:      z.boolean().optional(),
+  // Stock fields — validated against the enum so admin can't accidentally
+  // store an arbitrary string (which would silently turn into "available" via
+  // the resolveStock fallback in stockUtils.ts).
+  stock_qty:   StockQtyValue.nullable().optional(),
+  stock_status: StockStatusEnum.nullable().optional(),
   track_stock: z.boolean().optional(),
   offer:       offerSchema.nullable().optional(),
   // Channel split + online price override.
@@ -83,6 +93,12 @@ export const MenuUpdateSchema = z.object({
   emoji:       z.string().nullable().optional(),
   color:       z.string().nullable().optional(),
   active:      z.boolean().optional(),
+  // Stock fields — validated but stripped server-side in
+  // /api/admin/menu/[id] (see STOCK_FIELDS there). Listed here so a bad value
+  // is rejected with a clear error rather than silently passed through to the
+  // strip step. Live stock writes must go through /api/admin/menu/[id]/stock.
+  stock_qty:   StockQtyValue.nullable().optional(),
+  stock_status: StockStatusEnum.nullable().optional(),
   track_stock: z.boolean().optional(),
   offer:       offerSchema.nullable().optional(),
   // Channel split + online price override.

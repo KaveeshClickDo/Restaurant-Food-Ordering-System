@@ -9,6 +9,7 @@ import ModifierModal from "./ModifierModal";
 import PaymentModal from "./PaymentModal";
 import ReceiptModal from "./ReceiptModal";
 import OrderPanel from "./OrderPanel";
+import { resolveStock, isAvailable, LOW_STOCK_THRESHOLD } from "@/lib/stockUtils";
 
 export default function SaleView({ isOffline = false }: { isOffline?: boolean }) {
   const { products, categories, addToCart, settings, cart } = usePOS();
@@ -54,9 +55,13 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
     cashTendered?: number,
     giftCard?: { code: string; amount: number },
   ) {
-    const sale = await completeSale(method, payments, cashTendered, giftCard);
+    const { sale, error } = await completeSale(method, payments, cashTendered, giftCard);
     if (!sale) {
-      alert("Couldn't save the sale to the server. Check your network and try again.");
+      // Surface the server's actual reason (e.g. "'Burger' is no longer
+      // available on the menu", "Insufficient stock") instead of a generic
+      // network message. Falls back to the network copy when the request
+      // never reached the server.
+      alert(error ?? "Couldn't save the sale to the server. Check your network and try again.");
       return;
     }
     setShowPayment(false);
@@ -249,7 +254,14 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
               {filtered.map((product) => {
-                const outOfStock = product.trackStock && (product.stockQty ?? 0) <= 0;
+                // Use the shared resolver so POS, customer site, waiter and admin
+                // agree on availability. `isAvailable` honours BOTH track-quantity
+                // (qty <= 0 → OOS) and manual status (stockStatus === "out_of_stock"
+                // → OOS), which the old inline check missed for manual mode.
+                const stockState  = resolveStock(product);
+                const outOfStock  = !isAvailable(product);
+                const lowStock    = stockState === "low_stock" && !outOfStock;
+                const isTrackedQty = typeof product.stockQty === "number";
                 const offerPrice = getOfferPrice(product);
                 const hasOffer = isOfferActive(product);
                 const offerBadgeText = (() => {
@@ -294,13 +306,18 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
                         )}
                       </div>
                     ) : (
-                      <div className="w-full p-4 pb-0">
+                      <div className="w-full p-4 pb-0 relative">
                         <div
                           className="w-15 h-15 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
                           style={{ backgroundColor: product.color }}
                         >
                           {product.emoji ?? "🍽️"}
                         </div>
+                        {outOfStock && (
+                          <span className="absolute top-2 right-2 text-[9px] bg-red-500/90 text-white px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wide">
+                            OOS
+                          </span>
+                        )}
                       </div>
                     )}
 
@@ -335,11 +352,17 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
                           <ChevronRight size={12} className="text-slate-500 flex-shrink-0" />
                         )}
                       </div>
-                      {product.trackStock && product.stockQty !== undefined && (
-                        <p className={`text-[10px] mt-0.5 ${product.stockQty <= 3 ? "text-red-400" : "text-slate-500"}`}>
+                      {/* Stock label. Tracked items always show the count; manual-
+                          mode items show OOS / Low when the admin has set it. */}
+                      {isTrackedQty && product.stockQty !== undefined ? (
+                        <p className={`text-[10px] mt-0.5 ${product.stockQty <= LOW_STOCK_THRESHOLD ? "text-red-400" : "text-slate-500"}`}>
                           {outOfStock ? "Out of stock" : `Stock: ${product.stockQty}`}
                         </p>
-                      )}
+                      ) : outOfStock ? (
+                        <p className="text-[10px] mt-0.5 text-red-400">Out of stock</p>
+                      ) : lowStock ? (
+                        <p className="text-[10px] mt-0.5 text-amber-400">Low stock</p>
+                      ) : null}
                     </div>
                   </button>
                 );

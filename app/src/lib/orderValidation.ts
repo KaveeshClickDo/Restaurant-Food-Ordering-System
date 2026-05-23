@@ -32,6 +32,14 @@ interface DBMenuItem {
   channels:     MenuChannel[] | null;
   active:       boolean | null;
   offer:        MenuItemOffer | null;
+  // Stock fields — used to reject orders for unavailable items before we
+  // create a PaymentIntent (card flow) or insert the order (cash flow). The
+  // authoritative server-side enforcement still happens in the atomic
+  // decrement, but a pre-check here gives the customer a clean error and
+  // prevents charging a card for something we can't supply.
+  track_stock:  boolean | null;
+  stock_qty:    number | null;
+  stock_status: string | null;
   // JSONB shape produced by the menu editor — see `Variation` in src/types.
   // Older seeds used `{ name, delta }` on options; current data uses
   // `{ id, label, price }`. Both forms are accepted by the matcher below.
@@ -237,11 +245,22 @@ export async function validateAndNormaliseOrder(
   if (menuItemIds.length > 0) {
     const { data: menuRows } = await supabaseAdmin
       .from("menu_items")
-      .select("id, name, price, price_online, channels, active, offer, variations, add_ons")
+      .select("id, name, price, price_online, channels, active, offer, variations, add_ons, track_stock, stock_qty, stock_status")
       .in("id", menuItemIds);
     menuMap = new Map(
       (menuRows ?? []).map((r) => [r.id as string, r as unknown as DBMenuItem]),
     );
+  }
+
+  // Aggregate requested qty per menu item id so the stock pre-check below
+  // catches "3 x burger + 2 x burger in two cart lines" as 5 against stock.
+  const requestedQtyByMenuId = new Map<string, number>();
+  for (const item of rawItems) {
+    const mid = typeof item.menuItemId === "string" ? item.menuItemId : null;
+    if (!mid) continue;
+    const qty = typeof item.qty === "number" ? Math.max(0, Math.floor(item.qty)) : 0;
+    if (qty <= 0) continue;
+    requestedQtyByMenuId.set(mid, (requestedQtyByMenuId.get(mid) ?? 0) + qty);
   }
 
   const verifiedItems: Array<Record<string, unknown>> = [];
@@ -284,6 +303,34 @@ export async function validateAndNormaliseOrder(
         error: `'${itemName}' is no longer available for online orders. Please remove it from your cart.`,
         status: 400,
       };
+    }
+
+    // Stock pre-check. The atomic decrement is still the source of truth at
+    // commit time, but pre-checking here gives the customer a clean 400
+    // BEFORE we create a PaymentIntent (card flow) or insert (cash flow).
+    // Manual "out_of_stock" wins on every channel; track-quantity rows are
+    // rejected when the aggregate cart qty exceeds stock_qty.
+    const itemName = dbItem.name || (typeof item.name === "string" ? item.name : "item");
+    const isTracked = dbItem.track_stock === true && typeof dbItem.stock_qty === "number";
+    if (!isTracked && dbItem.stock_status === "out_of_stock") {
+      return {
+        ok: false,
+        error: `'${itemName}' is out of stock. Please remove it from your cart.`,
+        status: 400,
+      };
+    }
+    if (isTracked) {
+      const requested = requestedQtyByMenuId.get(mid) ?? 0;
+      const available = Math.max(0, Number(dbItem.stock_qty));
+      if (requested > available) {
+        return {
+          ok: false,
+          error: available > 0
+            ? `'${itemName}' only has ${available} left in stock.`
+            : `'${itemName}' is out of stock. Please remove it from your cart.`,
+          status: 400,
+        };
+      }
     }
 
     // Collect every variation selection the client sent — new `selectedVariations[]`

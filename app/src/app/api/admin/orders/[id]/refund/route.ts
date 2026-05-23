@@ -24,6 +24,7 @@ import { paypalFetch, paypalIsConfigured, toPaypalAmount } from "@/lib/paypalSer
 import { parseBody }                            from "@/lib/apiValidation";
 import { AdminRefundSchema }                    from "@/lib/schemas/waiter";
 import { refundGiftCardForRow }                 from "@/lib/giftCardValidation";
+import { restoreStock, type StockItem }         from "@/lib/stockMutation";
 
 export async function POST(
   req: NextRequest,
@@ -43,7 +44,7 @@ export async function POST(
   //   - replacing body.refundedAmount with the sum of all refund entries
   const { data: orderRow, error: lookupErr } = await supabaseAdmin
     .from("orders")
-    .select("stripe_payment_intent_id, paypal_capture_id, total, customer_id, refunds, refunded_amount, gift_card_id, gift_card_used")
+    .select("stripe_payment_intent_id, paypal_capture_id, total, customer_id, refunds, refunded_amount, gift_card_id, gift_card_used, items, oversold, payment_status, status")
     .eq("id", id)
     .maybeSingle();
 
@@ -262,6 +263,40 @@ export async function POST(
     return NextResponse.json({ ok: false, error: orderErr.message }, { status: 500 });
   }
 
+  // Restore stock when a full refund covers an order whose food was never
+  // delivered to the customer. Skipped when:
+  //   • Partial refund — customer kept some of the goods.
+  //   • Already-refunded — idempotent (admin editing refunds array twice).
+  //   • Already-cancelled — POS void / waiter void / admin cancel already
+  //     restored at the moment of cancellation. Restoring again here would
+  //     double-credit inventory.
+  //   • Delivered / picked-up — food was made and consumed; money refund
+  //     doesn't put units back on the shelf.
+  //   • Oversold-flagged webhook orders — the decrement never ran, so
+  //     restoring would create false positive inventory.
+  const wasAlreadyRefunded = existingPaymentStatusIsTerminal(String(orderRow.payment_status ?? ""));
+  const tippingToRefunded = newPaymentStatus === "refunded" && !wasAlreadyRefunded;
+  const newStatus = String(body.newStatus ?? "");
+  const existingStatus = String(orderRow.status ?? "");
+  const foodWasDelivered = newStatus === "delivered" || existingStatus === "delivered";
+  const alreadyCancelled = existingStatus === "cancelled";
+  if (
+    tippingToRefunded
+    && !foodWasDelivered
+    && !alreadyCancelled
+    && orderRow.oversold !== true
+  ) {
+    const rawItems = Array.isArray(orderRow.items) ? (orderRow.items as Array<Record<string, unknown>>) : [];
+    const stockItems: StockItem[] = rawItems
+      .map((i) => ({ id: String(i.menuItemId ?? ""), qty: Number(i.qty ?? 0) }))
+      .filter((i) => i.id);
+    if (stockItems.length > 0) {
+      restoreStock(stockItems).catch((err) =>
+        console.error("[admin/orders refund] stock restore on full refund:", err instanceof Error ? err.message : err),
+      );
+    }
+  }
+
   // Store-credit mutation: only allowed for the order's own customer.
   if (body.customerId !== undefined && body.newStoreCredit !== undefined) {
     if (body.customerId !== orderRow.customer_id) {
@@ -286,6 +321,15 @@ export async function POST(
     refundedAmount:  moneyRefundedTotal,
     giftRefundedAmount: giftRefundedTotal,
   });
+}
+
+/**
+ * True when the order had already reached a terminal refund state before this
+ * call. Used to skip stock-restore on repeated refund edits — admin updating
+ * the refunds array for an already-refunded order must not re-restore.
+ */
+function existingPaymentStatusIsTerminal(status: string): boolean {
+  return status === "refunded" || status === "partially_refunded";
 }
 
 /**

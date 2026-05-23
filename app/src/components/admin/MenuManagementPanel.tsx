@@ -68,7 +68,7 @@ export default function MenuManagementPanel() {
   const {
     categories, menuItems,
     addCategory, updateCategory, deleteCategory, reorderCategories,
-    addMenuItem, updateMenuItem, deleteMenuItem,
+    addMenuItem, updateMenuItem, updateMenuItemStock, deleteMenuItem,
     mealPeriods, addMealPeriod, updateMealPeriod, deleteMealPeriod,
     settings,
   } = useApp();
@@ -467,7 +467,10 @@ export default function MenuManagementPanel() {
                           status === "in_stock"    ? "out_of_stock"
                           : status === "out_of_stock" ? "low_stock"
                           : "in_stock";
-                        updateMenuItem({ ...item, stockStatus: next });
+                        // Route through the dedicated stock endpoint so this
+                        // quick-toggle doesn't drag the rest of the item's
+                        // (possibly stale) form fields back into the DB.
+                        updateMenuItemStock(item.id, { mode: "manual", stockStatus: next });
                       };
                       return (
                         <button
@@ -539,9 +542,48 @@ export default function MenuManagementPanel() {
           mealPeriods={mealPeriods}
           isNew={!menuItems.find((i) => i.id === editingItem.id)}
           onSave={(item) => {
-            if (menuItems.find((i) => i.id === item.id)) {
+            // `editingItem` is the snapshot taken when the modal opened — we
+            // diff against THIS, not against `menuItems.find(...)`. Live
+            // realtime updates can drop the counter mid-edit (a customer's
+            // sale fires during the admin's session), and diffing against the
+            // moving target would re-write the form's stale value and undo
+            // the sale.
+            const snapshot = editingItem;
+            const isExistingItem = !!menuItems.find((i) => i.id === item.id);
+            if (isExistingItem) {
+              // General fields go through the standard PUT — the route strips
+              // stock fields, so the live counter is safe from a stale form.
               updateMenuItem(item);
+
+              // Stock writes go through the dedicated endpoint, but ONLY when
+              // the admin actually changed something in the stock tab. Without
+              // this guard, every menu edit (name, price, image) would
+              // re-write the counter and clobber any sales since the form
+              // was opened.
+              const wasTracked  = typeof snapshot.stockQty === "number";
+              const nowTracked  = typeof item.stockQty === "number";
+              const qtyChanged  = wasTracked !== nowTracked
+                || (nowTracked && item.stockQty !== snapshot.stockQty);
+              const statusChanged = !nowTracked
+                && (item.stockStatus ?? "in_stock") !== (snapshot.stockStatus ?? "in_stock");
+              if (qtyChanged && nowTracked) {
+                updateMenuItemStock(item.id, { mode: "qty", stockQty: Number(item.stockQty) });
+              } else if (qtyChanged && !nowTracked) {
+                // Switched off track-quantity → adopt whichever manual status the
+                // form shows (defaults to in_stock for a fresh switch).
+                updateMenuItemStock(item.id, {
+                  mode: "manual",
+                  stockStatus: (item.stockStatus ?? "in_stock") as "in_stock" | "low_stock" | "out_of_stock",
+                });
+              } else if (statusChanged) {
+                updateMenuItemStock(item.id, {
+                  mode: "manual",
+                  stockStatus: item.stockStatus as "in_stock" | "low_stock" | "out_of_stock",
+                });
+              }
             } else {
+              // New item — POST includes stock fields atomically. No separate
+              // stock PUT needed (and the PUT would race the insert).
               addMenuItem(item);
             }
             setEditingItem(null);

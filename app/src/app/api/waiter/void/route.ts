@@ -32,9 +32,10 @@ export async function POST(req: NextRequest) {
   try {
     // The .not(status, in, ...) predicate gives us idempotency for free:
     // an already-cancelled order is not updated and so not returned, so we
-    // won't double-restore its stock on a retry. .select("items") returns
-    // the rows that did transition into cancelled.
-    let voidedRows: Array<{ id: string; items: unknown }> = [];
+    // won't double-restore its stock on a retry. .select("items, oversold")
+    // returns the rows that did transition into cancelled, plus the flag so
+    // we know whether the original sale actually decremented stock.
+    let voidedRows: Array<{ id: string; items: unknown; oversold?: boolean | null }> = [];
 
     const { data: updatedRows, error } = await supabaseAdmin
       .from("orders")
@@ -47,7 +48,7 @@ export async function POST(req: NextRequest) {
       .in("id", orderIds)
       .eq("fulfillment", "dine-in")
       .not("status", "in", '("delivered","cancelled","refunded","partially_refunded")')
-      .select("id, items");
+      .select("id, items, oversold");
 
     if (error) {
       // If the void audit columns don't exist yet, retry with just the status change.
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest) {
           .in("id", orderIds)
           .eq("fulfillment", "dine-in")
           .not("status", "in", '("delivered","cancelled","refunded","partially_refunded")')
-          .select("id, items");
+          .select("id, items, oversold");
 
         if (fallbackError) {
           console.error("waiter/void fallback:", fallbackError.message);
@@ -75,10 +76,16 @@ export async function POST(req: NextRequest) {
 
     // Restore stock for every line across every freshly-cancelled order.
     // Items shape on dine-in orders: [{ menuItemId, name, qty, price }].
-    const stockItems: StockItem[] = voidedRows.flatMap((r) => {
-      const items = Array.isArray(r.items) ? (r.items as Array<Record<string, unknown>>) : [];
-      return items.map((i) => ({ id: String(i.menuItemId ?? ""), qty: Number(i.qty ?? 0) }));
-    }).filter((i) => i.id);
+    // Oversold orders are skipped: their original sale never decremented the
+    // counter (webhook accepted the paid order despite the stock check
+    // failing), so restoring would add units that were never subtracted.
+    const stockItems: StockItem[] = voidedRows
+      .filter((r) => r.oversold !== true)
+      .flatMap((r) => {
+        const items = Array.isArray(r.items) ? (r.items as Array<Record<string, unknown>>) : [];
+        return items.map((i) => ({ id: String(i.menuItemId ?? ""), qty: Number(i.qty ?? 0) }));
+      })
+      .filter((i) => i.id);
     if (stockItems.length > 0) {
       restoreStock(stockItems).catch((err) =>
         console.error("[waiter/void] stock restore:", err instanceof Error ? err.message : err),

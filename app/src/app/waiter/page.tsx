@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import { useIdleLogout } from "@/lib/useIdleLogout";
+import { resolveStock, isAvailable } from "@/lib/stockUtils";
 import type { MenuItem, WaiterStaff, DiningTable } from "@/types";
 import {
   ChefHat, ArrowLeft, Plus, Minus, Trash2, SendHorizonal,
@@ -544,10 +545,11 @@ function VoidRefundModal({
   );
 }
 
+// Use the shared resolver so waiter agrees with customer site / admin / POS.
+// Once an item is in track-quantity mode, stockStatus is ignored (so a stale
+// "out_of_stock" status carried over from manual mode can't block sales).
 function isOutOfStock(item: MenuItem): boolean {
-  if (item.stockQty !== undefined && item.stockQty <= 0) return true;
-  if (item.stockStatus === "out_of_stock") return true; // manual OOS blocks too — parity with customer/admin
-  return false;
+  return !isAvailable(item);
 }
 
 // ─── PIN pad ──────────────────────────────────────────────────────────────────
@@ -1007,18 +1009,26 @@ export default function WaiterPage() {
     if (!activeTable || cart.length === 0 || sending) return;
     setSending(true);
     const total = cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
-    const res = await fetch("/api/waiter/orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        tableLabel: activeTable.label,
-        covers,
-        staffName: waiter?.name,
-        items: cart.map((l) => ({ menuItemId: l.menuItemId, name: l.name + (l.note ? ` [${l.note}]` : ""), qty: l.quantity, price: l.unitPrice })),
-        total,
-        kitchenNote: kitchenNote.trim() || undefined,
-      }),
-    });
+    let res: Response;
+    try {
+      res = await fetch("/api/waiter/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tableLabel: activeTable.label,
+          covers,
+          staffName: waiter?.name,
+          items: cart.map((l) => ({ menuItemId: l.menuItemId, name: l.name + (l.note ? ` [${l.note}]` : ""), qty: l.quantity, price: l.unitPrice })),
+          total,
+          kitchenNote: kitchenNote.trim() || undefined,
+        }),
+      });
+    } catch (err) {
+      console.error("sendToKitchen network error:", err);
+      setSending(false);
+      alert("Couldn't send the order to the kitchen. Check your network and try again.");
+      return;
+    }
     setSending(false);
     if (res.ok) {
       setReceipt({
@@ -1032,7 +1042,16 @@ export default function WaiterPage() {
       });
       setView("success");
       refreshOccupied();
+      return;
     }
+    // Surface the server's actual reason — insufficient stock, item removed,
+    // online-only, manual OOS, permission denied — instead of silently
+    // failing. 4xx is expected user-input flow so log as warn; 5xx is a real
+    // backend problem worth flagging as an error.
+    const json = await res.json().catch(() => ({})) as { error?: string };
+    const log = res.status >= 500 ? console.error : console.warn;
+    log("sendToKitchen failed:", res.status, json.error ?? "(no details)");
+    alert(json.error ?? "Couldn't send the order to the kitchen. Check your network and try again.");
   }
 
   // ── Bill ─────────────────────────────────────────────────────────────────────
@@ -1102,18 +1121,37 @@ export default function WaiterPage() {
     setPaying(true);
     const total = billOrders.reduce((s, o) => s + o.total, 0);
     const gcAmount = billGiftCard ? Math.round(Math.min(billGiftCard.balance, total) * 100) / 100 : 0;
-    await fetch("/api/waiter/settle", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        orderIds: billOrders.map((o) => o.id),
-        tableLabel: activeTable.label,
-        paymentMethod: method,
-        ...(billGiftCard && gcAmount > 0 ? { giftCardCode: billGiftCard.code, giftCardUsed: gcAmount } : {}),
-      }),
-    });
-    setBillGiftCard(null);
+    let res: Response;
+    try {
+      res = await fetch("/api/waiter/settle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderIds: billOrders.map((o) => o.id),
+          tableLabel: activeTable.label,
+          paymentMethod: method,
+          ...(billGiftCard && gcAmount > 0 ? { giftCardCode: billGiftCard.code, giftCardUsed: gcAmount } : {}),
+        }),
+      });
+    } catch (err) {
+      console.error("payBill network error:", err);
+      setPaying(false);
+      alert("Couldn't settle the bill. Check your network and try again.");
+      return;
+    }
     setPaying(false);
+    if (!res.ok) {
+      // Surface the server's actual reason — gift card invalid/expired, no
+      // permission, orders not found — instead of silently flipping the
+      // table to settled in the UI when nothing was persisted. 4xx is
+      // expected user-input flow (warn), 5xx is a real backend problem.
+      const json = await res.json().catch(() => ({})) as { error?: string };
+      const log = res.status >= 500 ? console.error : console.warn;
+      log("payBill failed:", res.status, json.error ?? "(no details)");
+      alert(json.error ?? "Couldn't settle the bill. Please try again.");
+      return;
+    }
+    setBillGiftCard(null);
 
     // Consolidate items for receipt
     const lineMap = new Map<string, { name: string; qty: number; price: number }>();
@@ -1839,7 +1877,9 @@ export default function WaiterPage() {
           <div className="flex-1 overflow-y-auto p-4">
             <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-3">
               {visibleItems.map((item) => {
-                const oos = isOutOfStock(item);
+                const stockState = resolveStock(item);
+                const oos = stockState === "out_of_stock";
+                const lowStock = stockState === "low_stock";
                 const hasVar = (item.variations?.length ?? 0) > 0 || (item.addOns?.length ?? 0) > 0;
                 return (
                   <button
@@ -1858,7 +1898,12 @@ export default function WaiterPage() {
                           POPULAR
                         </span>
                       )}
-                      
+                      {lowStock && !oos && (
+                        <span className="absolute top-2 right-2 z-10 bg-amber-500 text-white text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wide">
+                          {typeof item.stockQty === "number" ? `${item.stockQty} left` : "Low"}
+                        </span>
+                      )}
+
                       {item.image ? (
                         /* eslint-disable-next-line @next/next/no-img-element */
                         <img src={item.image} alt={item.name} className="absolute inset-0 w-full h-full object-cover" />

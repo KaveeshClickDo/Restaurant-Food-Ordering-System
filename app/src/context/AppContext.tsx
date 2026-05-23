@@ -75,6 +75,13 @@ interface AppContextValue {
   deleteCategory: (id: string) => void;
   addMenuItem: (item: MenuItem) => void;
   updateMenuItem: (item: MenuItem) => void;
+  /** Dedicated stock-only update. Use this when the admin explicitly changes
+   *  stock fields (qty or status) — it routes to /api/admin/menu/[id]/stock
+   *  so the general menu PUT can keep its hands off the live counter. */
+  updateMenuItemStock: (
+    id: string,
+    payload: { mode: "qty"; stockQty: number } | { mode: "manual"; stockStatus: "in_stock" | "low_stock" | "out_of_stock" },
+  ) => void;
   deleteMenuItem: (id: string) => void;
   reorderCategories: (cats: Category[]) => void;
   customers: Customer[];
@@ -293,25 +300,27 @@ function categoryToRow(c: Category, order: number) {
 function menuItemToRow(m: MenuItem) {
   // mealPeriodIds is intentionally NOT included — those go to the
   // menu_item_meal_periods join table, handled separately by the admin API.
-  // Bug #2: admin now also writes the POS parity columns so both editors
-  // round-trip losslessly (cost / sku / emoji / color / active / offer /
-  // trackStock). All are optional in MenuItem, so nullable on the row.
+  //
+  // Stock fields ARE included here so a new-item POST sets the initial
+  // counter atomically (no separate stock PUT needed, no insert/update
+  // race). The general /api/admin/menu/[id] PUT route strips stock fields
+  // before update, so unrelated edits cannot clobber the live counter that
+  // sales are decrementing. Live stock changes go through
+  // updateMenuItemStock → /api/admin/menu/[id]/stock instead.
   return {
     id: m.id, category_id: m.categoryId,
     name: m.name, description: m.description ?? "",
     price: m.price, image: m.image ?? "",
     dietary: m.dietary, popular: m.popular ?? false,
     variations: m.variations ?? [], add_ons: m.addOns ?? [],
-    stock_qty: m.stockQty ?? null, stock_status: m.stockStatus ?? "in_stock",
+    stock_qty: m.stockQty ?? null,
+    stock_status: typeof m.stockQty === "number" ? null : (m.stockStatus ?? "in_stock"),
+    track_stock: typeof m.stockQty === "number",
     cost: m.cost ?? null,
     sku:  m.sku  ?? null,
     emoji: m.emoji ?? null,
     color: m.color ?? null,
     active: m.active ?? true,
-    // A numeric stockQty *is* the "track quantity" mode (see admin Stock tab and
-    // resolveStock). Keep the DB flag in lockstep so decrement_stock_atomic /
-    // restore_stock actually fire — they skip rows where track_stock = false.
-    track_stock: typeof m.stockQty === "number",
     offer: m.offer ?? null,
     // Channel split + online price override. Omitting `channels` from the
     // payload would let the DB default re-assert `{in_store, online}`; we
@@ -895,6 +904,29 @@ export function AppProvider({
     }).then(async (r) => {
       if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateMenuItem:", j.error); }
     }).catch((e) => console.error("updateMenuItem:", e));
+  };
+
+  // Dedicated stock writer. The general PUT above strips stock fields, so
+  // admin's stale form snapshot can't clobber the live counter that sales
+  // are decrementing. Stock changes must go through this path.
+  const updateMenuItemStock = (
+    id: string,
+    payload: { mode: "qty"; stockQty: number } | { mode: "manual"; stockStatus: "in_stock" | "low_stock" | "out_of_stock" },
+  ) => {
+    // Optimistic local update so the admin grid reflects the change immediately.
+    setMenuItems((prev) => prev.map((m) => {
+      if (m.id !== id) return m;
+      return payload.mode === "qty"
+        ? { ...m, stockQty: payload.stockQty, stockStatus: undefined, trackStock: true }
+        : { ...m, stockQty: undefined, stockStatus: payload.stockStatus, trackStock: false };
+    }));
+    fetch(`/api/admin/menu/${id}/stock`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateMenuItemStock:", j.error); }
+    }).catch((e) => console.error("updateMenuItemStock:", e));
   };
 
   const deleteMenuItem = (id: string) => {
@@ -1619,7 +1651,7 @@ export function AppProvider({
         fulfillment, setFulfillment, scheduledTime, setScheduledTime,
         categories, menuItems,
         addCategory, updateCategory, deleteCategory, reorderCategories,
-        addMenuItem, updateMenuItem, deleteMenuItem,
+        addMenuItem, updateMenuItem, updateMenuItemStock, deleteMenuItem,
         customers, addOrder, updateOrderStatus, addCustomer, updateCustomer,
         currentUser, login, register, logout,
         toggleFavourite, isFavourite,

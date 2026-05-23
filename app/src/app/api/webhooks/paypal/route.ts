@@ -197,14 +197,17 @@ async function handleCaptureCompleted(resource: PaypalCapture): Promise<void> {
 
   // Stock decrement. Oversold paid orders proceed (we keep the money, admin
   // reconciles); other DB errors restore stock and re-raise so PayPal retries.
+  // The order is stamped `oversold = true` so void/refund knows not to call
+  // restore_stock (the original decrement never ran) and admin sees the flag.
   const orderItems = Array.isArray(orderRow.items) ? (orderRow.items as Array<Record<string, unknown>>) : [];
   const stockItems: StockItem[] = orderItems
     .map((i) => ({ id: String(i.menuItemId ?? ""), qty: Number(i.qty ?? 0) }))
     .filter((i) => i.id);
   const stock = await decrementStock(stockItems);
-  if (!stock.ok) {
+  const oversold = !stock.ok;
+  if (oversold) {
     console.error(
-      `[webhooks/paypal] OVERSOLD on paid order ${orderRow.id}: ${stock.message}. Inserting order anyway — admin must reconcile.`,
+      `[webhooks/paypal] OVERSOLD on paid order ${orderRow.id}: ${stock.message}. Inserting flagged order — admin must reconcile.`,
     );
   }
 
@@ -213,6 +216,7 @@ async function handleCaptureCompleted(resource: PaypalCapture): Promise<void> {
     payment_status:    "paid",
     paypal_order_id:   paypalOrderId,
     paypal_capture_id: captureId,
+    oversold,
   };
 
   const { error: insertErr } = await supabaseAdmin

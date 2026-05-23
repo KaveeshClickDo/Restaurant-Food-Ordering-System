@@ -87,6 +87,13 @@ interface POSContextValue {
   refreshPosStaff: () => Promise<void>;
   products: POSProduct[];
   setProducts: React.Dispatch<React.SetStateAction<POSProduct[]>>;
+  /** Dedicated stock writer for POS-admin / manager. Goes through
+   *  /api/admin/menu/[id]/stock (which accepts POS canManageMenu too), so
+   *  stock writes bypass the debounced bulk sync that strips stock fields. */
+  updateProductStock: (
+    id: string,
+    payload: { mode: "qty"; stockQty: number } | { mode: "manual"; stockStatus: "in_stock" | "low_stock" | "out_of_stock" },
+  ) => void;
   categories: POSCategory[];
   setCategories: React.Dispatch<React.SetStateAction<POSCategory[]>>;
   sales: POSSale[];
@@ -131,16 +138,21 @@ interface POSContextValue {
   grandTotal: number;
   // Actions
   // completeSale is async — the receipt_no is server-allocated from
-  // pos_receipt_seq to prevent duplicate numbers across tills. Returns null
-  // when the sale could not be persisted (network / server error); callers
-  // must surface that to the cashier and not print a receipt.
+  // pos_receipt_seq to prevent duplicate numbers across tills. Returns
+  // `{ sale: null, error }` when the sale could not be persisted; callers
+  // must surface `error` to the cashier (it carries the server's actual
+  // reason — e.g. "'X' is no longer available on the menu") and not print
+  // a receipt. A bare network failure leaves `error` undefined.
   completeSale: (
     paymentMethod: "cash" | "card" | "split" | "gift_card",
     payments: { method: "cash" | "card"; amount: number }[],
     cashTendered?: number,
     giftCard?: { code: string; amount: number }
-  ) => Promise<POSSale | null>;
-  voidSale: (saleId: string, reason: string, refundMethod?: "cash" | "card" | "none", refundAmount?: number) => Promise<boolean>;
+  ) => Promise<{ sale: POSSale | null; error?: string }>;
+  // voidSale returns `{ ok, error? }` so callers can surface the server's
+  // actual reason (insufficient permission, sale already voided, refund
+  // amount exceeds total, etc.) instead of a generic network message.
+  voidSale: (saleId: string, reason: string, refundMethod?: "cash" | "card" | "none", refundAmount?: number) => Promise<{ ok: boolean; error?: string }>;
   clockIn: (staffId: string) => Promise<boolean>;
   clockOut: (staffId: string) => Promise<boolean>;
   isClocked: (staffId: string) => boolean;
@@ -881,7 +893,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     payments: { method: "cash" | "card"; amount: number }[],
     cashTendered?: number,
     giftCard?: { code: string; amount: number }
-  ): Promise<POSSale | null> => {
+  ): Promise<{ sale: POSSale | null; error?: string }> => {
     // Compute totals at full precision, then round each money field to 2dp
     // before sending. The server's Money primitive rejects float garbage
     // (15.000000000000002, 13.043478260869563, etc.) — round at the producer
@@ -931,6 +943,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     };
 
     let sale: POSSale | null = null;
+    let serverError: string | undefined;
     try {
       const res = await fetch("/api/pos/sales", {
         method:  "POST",
@@ -943,14 +956,24 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         const json = await res.json() as { ok: boolean; sale?: POSSale };
         if (json.sale) sale = json.sale;
       } else {
+        // Surface the server's actual reason to the caller so the cashier sees
+        // "'Burger' is no longer available on the menu" instead of a generic
+        // network error. Stock conflicts (409 with no sale), validation 400s,
+        // permission 403s all carry a useful message in `error`.
         const json = await res.json().catch(() => ({})) as { error?: string };
-        console.error("completeSale POST failed:", res.status, json.error ?? "(no details)");
+        serverError = json.error;
+        // 4xx is expected user-input flow (item went away, insufficient stock,
+        // permission denied) — log as a warning so Next.js's dev error overlay
+        // doesn't trip on it. The cashier already sees the message via alert().
+        // 5xx is a real backend problem worth flagging as an error.
+        const log = res.status >= 500 ? console.error : console.warn;
+        log("completeSale POST failed:", res.status, json.error ?? "(no details)");
       }
     } catch (err) {
       console.error("completeSale network error:", err);
     }
 
-    if (!sale) return null;
+    if (!sale) return { sale: null, error: serverError };
 
     // Optimistic local state update + downstream effects only run after the
     // sale is durably persisted in the DB.
@@ -989,14 +1012,15 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     }
 
     // Stock decrement now happens server-side inside /api/pos/sales (atomic,
-    // race-free across terminals). A client-side decrement here would feed
-    // the debounced menu sync below, which would then overwrite the server's
-    // authoritative count with our stale local value. Local stock_qty in the
-    // SaleView grid stays at the pre-sale value until the next `/api/pos/menu`
-    // fetch — Block 3 (POSContext → Supabase realtime) will close that gap.
+    // race-free across terminals). The local SaleView grid catches up via the
+    // menu_items realtime subscription above — the decrement triggers an
+    // UPDATE event that maps back into setProducts, so the counter ticks down
+    // in the UI within a frame or two. No client-side decrement here, because
+    // a client-driven setProducts would also re-trigger the debounced sync
+    // and could push our stale value back to the server.
 
     clearCart();
-    return sale;
+    return { sale };
   }, [cart, discount, tipAmount, settings, currentStaff, assignedCustomer, clearCart]);
 
   const voidSale = useCallback(async (
@@ -1004,7 +1028,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     reason: string,
     refundMethod?: "cash" | "card" | "none",
     refundAmount?: number,
-  ): Promise<boolean> => {
+  ): Promise<{ ok: boolean; error?: string }> => {
     try {
       const res = await fetch(`/api/pos/sales/${saleId}`, {
         method:  "PATCH",
@@ -1013,19 +1037,23 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({})) as { error?: string };
-        console.error("voidSale failed:", res.status, json.error ?? "(no details)");
-        return false;
+        // 4xx is expected user-input flow (no permission, already voided,
+        // bad refund amount) — warn so Next.js's dev overlay doesn't trip.
+        // 5xx is a real backend problem.
+        const log = res.status >= 500 ? console.error : console.warn;
+        log("voidSale failed:", res.status, json.error ?? "(no details)");
+        return { ok: false, error: json.error };
       }
     } catch (err) {
       console.error("voidSale network error:", err);
-      return false;
+      return { ok: false };
     }
     setSales((prev) =>
       prev.map((s) => s.id === saleId
         ? { ...s, voided: true, voidReason: reason, refundMethod, refundAmount }
         : s)
     );
-    return true;
+    return { ok: true };
   }, []);
 
   // ── Clock in/out ──────────────────────────────────────────────────────────
@@ -1040,7 +1068,10 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({})) as { error?: string };
-        console.error("clockIn failed:", res.status, json.error ?? "(no details)");
+        // 4xx (already clocked in, missing permission) is expected — warn so
+        // Next.js's dev overlay doesn't trip. 5xx is a real backend problem.
+        const log = res.status >= 500 ? console.error : console.warn;
+        log("clockIn failed:", res.status, json.error ?? "(no details)");
         return false;
       }
       const json = await res.json() as { ok: boolean; entry?: POSClockEntry };
@@ -1063,7 +1094,10 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({})) as { error?: string };
-        console.error("clockOut failed:", res.status, json.error ?? "(no details)");
+        // 4xx (not clocked in, missing permission) is expected — warn so
+        // Next.js's dev overlay doesn't trip. 5xx is a real backend problem.
+        const log = res.status >= 500 ? console.error : console.warn;
+        log("clockOut failed:", res.status, json.error ?? "(no details)");
         return false;
       }
       const json = await res.json() as { ok: boolean; entry?: POSClockEntry };
@@ -1094,11 +1128,38 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     URL.revokeObjectURL(url);
   }, [sales]);
 
+  // Dedicated stock writer for POS-admin / manager. Optimistically updates
+  // the local product so the SaleView grid reflects the change immediately,
+  // then PUTs to the targeted stock endpoint (which accepts POS canManageMenu).
+  // We deliberately do NOT route this through setProducts → bulk sync — the
+  // bulk sync strips stock fields, so this path is the only way to persist.
+  const updateProductStock = useCallback((
+    id: string,
+    payload: { mode: "qty"; stockQty: number } | { mode: "manual"; stockStatus: "in_stock" | "low_stock" | "out_of_stock" },
+  ) => {
+    setProducts((prev) => prev.map((p) => {
+      if (p.id !== id) return p;
+      return payload.mode === "qty"
+        ? { ...p, stockQty: payload.stockQty, stockStatus: undefined, trackStock: true }
+        : { ...p, stockQty: undefined, stockStatus: payload.stockStatus, trackStock: false };
+    }));
+    fetch(`/api/admin/menu/${id}/stock`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).then(async (r) => {
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({})) as { error?: string };
+        console.error("updateProductStock:", j.error);
+      }
+    }).catch((e) => console.error("updateProductStock:", e));
+  }, []);
+
   return (
     <POSContext.Provider value={{
       currentStaff, login, logout,
       staff, addPosStaff, updatePosStaff, deletePosStaff, refreshPosStaff,
-      products, setProducts,
+      products, setProducts, updateProductStock,
       categories, setCategories,
       sales,
       customers, setCustomers,

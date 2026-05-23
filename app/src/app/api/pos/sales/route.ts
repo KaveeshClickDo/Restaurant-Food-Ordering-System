@@ -138,15 +138,38 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Active-flag + channel check ───────────────────────────────────────────
+  // ── Missing-row + active-flag + channel + manual-OOS check ──────────────
   // Defence-in-depth: the SaleView grid already hides inactive / online-only
-  // items, but a stale tab could still submit one. Reject before commit.
-  const productIds = items.map((it) => it.productId).filter((id): id is string => !!id);
+  // / out-of-stock items, but a stale tab could still submit one. Reject
+  // before commit. Manual Status "out_of_stock" is the admin's explicit
+  // "don't sell" — honoured on POS too, since the user's rule is "if you
+  // want to override the limit, take the item off track-quantity and use
+  // Manual Status — but Manual Status = out_of_stock still means no sale."
+  //
+  // The missing-row check is the asymmetry fix with the online path: when
+  // admin hard-deletes a menu item, its row disappears from menu_items, the
+  // active/channel/OOS .find() calls below all miss, AND decrement_stock_atomic
+  // silently skips missing rows (schema.sql: "if not found then continue").
+  // Without an explicit reject, a stale POS tab could ring up a sale for an
+  // item that no longer exists on the menu.
+  const productIds = items
+    .map((it) => it.productId)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
   if (productIds.length > 0) {
     const { data: menuRows } = await supabaseAdmin
       .from("menu_items")
-      .select("id, name, active, channels")
+      .select("id, name, active, channels, stock_status, track_stock")
       .in("id", productIds);
+    const foundIds = new Set((menuRows ?? []).map((r) => r.id as string));
+    const missing = items.find(
+      (it) => typeof it.productId === "string" && it.productId.length > 0 && !foundIds.has(it.productId),
+    );
+    if (missing) {
+      return NextResponse.json(
+        { ok: false, error: `'${missing.name || "An item"}' is no longer available on the menu.` },
+        { status: 400 },
+      );
+    }
     const inactive = (menuRows ?? []).find((r) => r.active === false);
     if (inactive) {
       return NextResponse.json(
@@ -164,18 +187,31 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+    // Manual OOS only applies when track_stock is off — once tracked, the
+    // qty column is the single source of truth and a stale stock_status
+    // (carried over from when the item was in manual mode) must not block.
+    const manualOos = (menuRows ?? []).find(
+      (r) => r.track_stock !== true && r.stock_status === "out_of_stock",
+    );
+    if (manualOos) {
+      return NextResponse.json(
+        { ok: false, error: `'${manualOos.name}' is out of stock.` },
+        { status: 400 },
+      );
+    }
   }
 
-  // ── Stock decrement (warn-but-allow) ──────────────────────────────────────
-  // POS staff has the goods in front of them — if the counter says zero but
-  // the shelf says otherwise, the sale still completes and we just log so
-  // admin can reconcile. Stock counter is left untouched in that case.
+  // ── Stock decrement (hard reject) ─────────────────────────────────────────
+  // Track Quantity is a hard limit on every channel, including POS — if
+  // counter staff want to oversell because the shelf has stock the counter
+  // doesn't know about, admin must take the item off track-quantity (use
+  // Manual Status instead). This is the user's stated rule.
   const stockItems: StockItem[] = items
     .map((it) => ({ id: it.productId, qty: it.quantity }))
     .filter((i) => i.id);
   const stock = await decrementStock(stockItems);
   if (!stock.ok) {
-    console.warn(`[pos/sales] OVERSOLD on POS sale ${body.id}: ${stock.message}. Continuing — admin to reconcile.`);
+    return NextResponse.json({ ok: false, error: stock.message }, { status: 409 });
   }
 
   // Insert into pos_sales. receipt_no is filled by the DB default expression
@@ -240,15 +276,15 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (error) {
+    // Stock is guaranteed decremented at this point (we hard-reject above on
+    // !stock.ok), so any insert failure here means we owe units back.
     // Duplicate id means another request raced us between the pre-check above
     // and this insert. The other path won — restore our (now-extra) decrement
     // and return success so the outbox dequeues.
     if (error.code === "23505") {
-      if (stock.ok) {
-        restoreStock(stockItems).catch((err) =>
-          console.error("[pos/sales] restore after dup-insert:", err instanceof Error ? err.message : err),
-        );
-      }
+      restoreStock(stockItems).catch((err) =>
+        console.error("[pos/sales] restore after dup-insert:", err instanceof Error ? err.message : err),
+      );
       const { data: existing } = await supabaseAdmin
         .from("pos_sales").select("*").eq("id", body.id).single();
       if (existing) {
@@ -256,11 +292,9 @@ export async function POST(req: NextRequest) {
       }
     }
     // Any other error: undo the decrement before bubbling.
-    if (stock.ok) {
-      restoreStock(stockItems).catch((err) =>
-        console.error("[pos/sales] restore after insert error:", err instanceof Error ? err.message : err),
-      );
-    }
+    restoreStock(stockItems).catch((err) =>
+      console.error("[pos/sales] restore after insert error:", err instanceof Error ? err.message : err),
+    );
     console.error("POST /api/pos/sales (pos_sales insert):", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }

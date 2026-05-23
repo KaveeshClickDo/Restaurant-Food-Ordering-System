@@ -10,6 +10,16 @@ import { sendOrderStatusEmail }                 from "@/lib/emailServer";
 import type { OrderStatus }                     from "@/types";
 import { parseBody }                            from "@/lib/apiValidation";
 import { OrderStatusUpdateSchema }              from "@/lib/schemas/pos";
+import { restoreStock, type StockItem }         from "@/lib/stockMutation";
+
+// Statuses we consider "cancelled" for stock-restore purposes. Refunds go
+// through /admin/orders/[id]/refund and restore there; here we only handle
+// the cancellation transition. Once an order has already passed any of these
+// terminal states we treat it as "stock already accounted for" and skip the
+// restore on subsequent re-saves.
+const TERMINAL_STATUSES_FOR_STOCK = new Set([
+  "cancelled", "refunded", "partially_refunded",
+]);
 
 export async function PUT(
   req: NextRequest,
@@ -29,9 +39,13 @@ export async function PUT(
   // the new status is "delivered" AND the payment method is NOT card/stripe.
   // This must never override an already-set payment status (e.g. "paid",
   // "refunded", "partially_refunded") — Stripe flows are untouched.
+  //
+  // We also pull `items` + `oversold` so we can restore stock on the
+  // pending → cancelled transition (only when the original sale actually
+  // decremented — oversold webhook orders never did).
   const { data: existing, error: fetchErr } = await supabaseAdmin
     .from("orders")
-    .select("payment_status, payment_method, status")
+    .select("payment_status, payment_method, status, items, oversold")
     .eq("id", id)
     .single();
 
@@ -64,6 +78,25 @@ export async function PUT(
   if (error) {
     console.error("admin/orders/[id]/status PUT:", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
+
+  // Restore stock when an active order transitions into "cancelled". Skip
+  // when the order was already in a terminal state (idempotent — admin
+  // toggling cancelled → cancelled must not double-restore) or when the
+  // original webhook flagged it oversold (the decrement never ran, so
+  // restoring would create false positive inventory).
+  const wasActive = !TERMINAL_STATUSES_FOR_STOCK.has(String(existing.status ?? ""));
+  const becomingCancelled = body.status === "cancelled";
+  if (wasActive && becomingCancelled && existing.oversold !== true) {
+    const rawItems = Array.isArray(existing.items) ? existing.items as Array<Record<string, unknown>> : [];
+    const stockItems: StockItem[] = rawItems
+      .map((i) => ({ id: String(i.menuItemId ?? ""), qty: Number(i.qty ?? 0) }))
+      .filter((i) => i.id);
+    if (stockItems.length > 0) {
+      restoreStock(stockItems).catch((err) =>
+        console.error("[admin/orders status] stock restore on cancel:", err instanceof Error ? err.message : err),
+      );
+    }
   }
 
   // Fire-and-forget — email failure must never fail the status update response
