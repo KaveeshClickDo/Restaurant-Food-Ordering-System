@@ -309,7 +309,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                   >
                     <Minus size={13} strokeWidth={2.5} />
                   </button>
-                  <span className="w-6 text-center font-bold text-gray-900 text-[15px] tabular-nums">{quantity}</span>
+                  <span className="w-7 text-center font-bold text-gray-900 text-sm sm:text-[15px] tabular-nums">{quantity}</span>
                   <button
                     onClick={() => setQuantity((q) => q + 1)}
                     className="w-7 h-7 rounded-lg bg-white shadow-sm flex items-center justify-center text-gray-600 hover:text-gray-900 transition active:scale-90"
