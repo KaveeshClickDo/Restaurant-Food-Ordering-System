@@ -59,7 +59,7 @@ function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void
                 </div>
 
                 {/* Route visualization */}
-                <div className="px-5 py-6 bg-stone-50">
+                <div className="px-3 sm:px-5 py-6 bg-stone-50">
                     <div className="relative flex items-center justify-between">
                         {/* Line */}
                         <div className="absolute left-6 right-6 top-5 h-0.5 bg-zinc-200 z-0" />
@@ -356,7 +356,7 @@ export default function MyOrdersPage() {
                                                     </div>
                                                 )}
 
-                                                <div className="flex items-center justify-between">
+                                                <div className="flex flex-wrap gap-1 items-center justify-between">
                                                     <span className="text-[16px] font-bold text-white tabular-nums">{sym}{activeOrder.total.toFixed(2)}</span>
                                                     <button
                                                         onClick={() => setTrackingOrder(activeOrder)}
