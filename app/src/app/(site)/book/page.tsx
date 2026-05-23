@@ -144,7 +144,7 @@ export default function BookPage() {
   if (step === "confirmed") {
     return (
       <div className="flex-1 flex items-center justify-center px-4 py-12">
-        <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-gray-200 p-8 text-center space-y-5">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-gray-200 p-6 text-center space-y-5">
           <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto">
             <CheckCircle2 size={40} className="text-green-500" />
           </div>
@@ -219,7 +219,7 @@ export default function BookPage() {
                 <div className="flex items-center gap-3">
                   <button type="button" onClick={() => setPartySize((p) => Math.max(1, p - 1))}
                     className="w-10 h-10 rounded-full border border-gray-200 text-gray-600 hover:border-zinc-400 hover:text-zinc-700 font-bold text-lg transition flex items-center justify-center">−</button>
-                  <span className="text-2xl font-bold text-gray-900 w-8 text-center">{partySize}</span>
+                  <span className="text-xl font-bold text-gray-900 w-8 text-center">{partySize}</span>
                   <button type="button" onClick={() => setPartySize((p) => Math.min(maxPS, p + 1))}
                     className="w-10 h-10 rounded-full border border-gray-200 text-gray-600 hover:border-zinc-400 hover:text-zinc-700 font-bold text-lg transition flex items-center justify-center">+</button>
                   <span className="text-sm text-gray-400">{partySize === 1 ? "1 guest" : `${partySize} guests`}</span>
