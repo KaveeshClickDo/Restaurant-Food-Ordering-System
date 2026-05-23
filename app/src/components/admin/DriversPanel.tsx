@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useApp } from "@/context/AppContext";
 import type { Driver, Order } from "@/types";
 import { fullOrderNumber } from "@/lib/orderNumber";
@@ -8,6 +8,7 @@ import {
   UserPlus, Pencil, Trash2, Car, Phone, Mail,
   CheckCircle2, XCircle, Truck, Package, User,
   ChevronDown, ChevronUp, AlertCircle, X,
+  Banknote, Receipt,
 } from "lucide-react";
 import { DriverCreateSchema } from "@/lib/schemas/staff";
 import { cleanPhone, formErrorMessage } from "@/lib/inputUtils";
@@ -333,19 +334,79 @@ const DELIVERY_STATUS_CONFIG = {
   delivered:   { label: "Delivered",  color: "bg-green-100 text-green-700" },
 } as const;
 
+// ─── Outstanding-cash types ───────────────────────────────────────────────────
+
+interface CashOrder  { id: string; date: string; total: number; customerName: string }
+interface CashDriver { driverId: string; driverName: string; total: number; orderCount: number; orders: CashOrder[] }
+
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 
 export default function DriversPanel() {
   const {
-    drivers, customers,
+    drivers, customers, settings,
     addDriver, updateDriver, deleteDriver, toggleDriver,
     assignDriverToOrder,
   } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
 
   const [showForm, setShowForm]       = useState(false);
   const [editDriver, setEditDriver]   = useState<Driver | null>(null);
   const [showActive, setShowActive]   = useState(true);
   const [apiError, setApiError]       = useState("");
+
+  // ── Outstanding-cash state ─────────────────────────────────────────────────
+  const [cashOwed,          setCashOwed]          = useState<CashDriver[]>([]);
+  const [cashLoading,       setCashLoading]       = useState(true);
+  const [expandedDriverId,  setExpandedDriverId]  = useState<string | null>(null);
+  const [selectedByDriver,  setSelectedByDriver]  = useState<Record<string, Set<string>>>({});
+  const [reconcilingId,     setReconcilingId]     = useState<string | null>(null);
+
+  const fetchCashOwed = useCallback(async () => {
+    setCashLoading(true);
+    try {
+      const r = await fetch("/api/admin/drivers/cash", { cache: "no-store" });
+      const j = await r.json() as { ok: boolean; drivers?: CashDriver[] };
+      if (j.ok && j.drivers) setCashOwed(j.drivers);
+    } catch { /* keep last-known on network blip */ }
+    finally { setCashLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchCashOwed(); }, [fetchCashOwed]);
+
+  function toggleOrderSelected(driverId: string, orderId: string) {
+    setSelectedByDriver((prev) => {
+      const set = new Set(prev[driverId] ?? []);
+      if (set.has(orderId)) set.delete(orderId);
+      else set.add(orderId);
+      return { ...prev, [driverId]: set };
+    });
+  }
+
+  async function reconcileCash(driverId: string, payload: { all: true } | { orderIds: string[] }) {
+    setReconcilingId(driverId);
+    setApiError("");
+    try {
+      const r = await fetch(`/api/admin/drivers/${driverId}/reconcile-cash`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(payload),
+      });
+      const j = await r.json() as { ok: boolean; error?: string };
+      if (!j.ok) throw new Error(j.error ?? "Failed to reconcile cash.");
+      await fetchCashOwed();
+      setSelectedByDriver((prev) => {
+        const next = { ...prev };
+        delete next[driverId];
+        return next;
+      });
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : "Failed to reconcile cash.");
+    } finally {
+      setReconcilingId(null);
+    }
+  }
+
+  const totalCashOwed = cashOwed.reduce((s, d) => s + d.total, 0);
 
   // Flatten all orders for driver-related lookups
   const allOrders = customers.flatMap((c) =>
@@ -496,6 +557,120 @@ export default function DriversPanel() {
           )}
         </div>
       )}
+
+      {/* Outstanding cash — money drivers have collected but not handed in */}
+      <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <Banknote size={16} className="text-emerald-600" />
+            <h3 className="font-bold text-gray-900 text-sm">Cash to collect from drivers</h3>
+            {cashOwed.length > 0 && (
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                {cashOwed.length} driver{cashOwed.length !== 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+          {!cashLoading && totalCashOwed > 0 && (
+            <div className="text-right">
+              <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Outstanding total</p>
+              <p className="text-base font-extrabold text-emerald-700 leading-none">{sym}{totalCashOwed.toFixed(2)}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="p-4">
+          {cashLoading ? (
+            <p className="text-xs text-gray-400 py-2">Loading…</p>
+          ) : cashOwed.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">
+              <CheckCircle2 size={28} className="mx-auto mb-2 text-emerald-500 opacity-70" />
+              <p className="text-sm font-medium">No outstanding cash</p>
+              <p className="text-xs mt-1">All drivers have handed in their COD takings.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {cashOwed.map((row) => {
+                const expanded = expandedDriverId === row.driverId;
+                const selected = selectedByDriver[row.driverId] ?? new Set<string>();
+                const busy     = reconcilingId === row.driverId;
+                return (
+                  <div key={row.driverId} className="border border-gray-100 rounded-xl overflow-hidden">
+                    <button
+                      onClick={() => setExpandedDriverId(expanded ? null : row.driverId)}
+                      className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-gray-50 transition"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`w-9 h-9 rounded-xl ${avatarColor(row.driverId)} flex items-center justify-center text-white font-bold text-sm flex-shrink-0`}>
+                          {initials(row.driverName)}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-semibold text-gray-900 text-sm truncate">{row.driverName}</p>
+                          <p className="text-xs text-gray-500">
+                            {row.orderCount} order{row.orderCount !== 1 ? "s" : ""} awaiting hand-in
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <p className="text-base font-extrabold text-emerald-700">{sym}{row.total.toFixed(2)}</p>
+                        {expanded ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}
+                      </div>
+                    </button>
+
+                    {expanded && (
+                      <div className="border-t border-gray-100 bg-gray-50/50">
+                        <ul className="divide-y divide-gray-100">
+                          {row.orders.map((o) => {
+                            const isChecked = selected.has(o.id);
+                            return (
+                              <li key={o.id} className="flex items-center gap-3 px-4 py-2.5">
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => toggleOrderSelected(row.driverId, o.id)}
+                                  disabled={busy}
+                                  className="w-4 h-4 accent-emerald-500 flex-shrink-0"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <p title={fullOrderNumber(o.id)} className="text-xs font-semibold text-gray-800 truncate">
+                                    {fullOrderNumber(o.id)}
+                                    <span className="text-gray-500 font-normal"> — {o.customerName}</span>
+                                  </p>
+                                  <p className="text-[11px] text-gray-400 flex items-center gap-1">
+                                    <Receipt size={10} /> {new Date(o.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                                  </p>
+                                </div>
+                                <p className="text-sm font-bold text-gray-900 flex-shrink-0">{sym}{o.total.toFixed(2)}</p>
+                              </li>
+                            );
+                          })}
+                        </ul>
+
+                        <div className="flex flex-wrap items-center justify-end gap-2 px-4 py-3 border-t border-gray-100 bg-white">
+                          <button
+                            disabled={busy || selected.size === 0}
+                            onClick={() => reconcileCash(row.driverId, { orderIds: Array.from(selected) })}
+                            className="text-xs font-semibold border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed px-3 py-2 rounded-lg transition"
+                          >
+                            Mark selected as handed in ({selected.size})
+                          </button>
+                          <button
+                            disabled={busy}
+                            onClick={() => reconcileCash(row.driverId, { all: true })}
+                            className="text-xs font-bold bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-3 py-2 rounded-lg transition flex items-center gap-1.5"
+                          >
+                            <Banknote size={12} />
+                            {busy ? "Saving…" : `Mark all as handed in (${sym}${row.total.toFixed(2)})`}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Driver management */}
       <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">

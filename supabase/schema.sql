@@ -133,6 +133,11 @@ create table if not exists customers (
 -- delivered). The two move independently: a 'paid' order can still be 'pending'
 -- (just placed), and a 'delivered' order can be 'unpaid' (cash).
 --
+-- cash_reconciled_at: when admin marks the driver as having handed in the
+-- cash for a delivered COD order. Null = the driver still owes the business
+-- this cash. Only meaningful for delivery + cash + paid + delivered rows;
+-- card/PayPal orders never need reconciling.
+--
 -- Gateway-specific columns:
 --   • stripe_payment_intent_id / stripe_charge_id — populated for Stripe orders.
 --   • paypal_order_id / paypal_capture_id         — populated for PayPal orders.
@@ -175,12 +180,18 @@ create table if not exists orders (
   -- when the customer placed/dragged a pin or used "Detect location". The driver
   -- map prefers these over re-geocoding the address string.
   customer_lat             double precision,
-  customer_lng             double precision
+  customer_lng             double precision,
+  -- Driver cash reconciliation: stamped when admin confirms the driver has
+  -- handed in the cash for a delivered COD order. Null = still outstanding.
+  cash_reconciled_at       timestamptz,
+  cash_reconciled_by       text
 );
 
 -- Backfill for existing installs where the columns were not in the original CREATE.
 alter table orders add column if not exists customer_lat double precision;
 alter table orders add column if not exists customer_lng double precision;
+alter table orders add column if not exists cash_reconciled_at timestamptz;
+alter table orders add column if not exists cash_reconciled_by text;
 
 create table if not exists drivers (
   id                  text        primary key,
@@ -649,6 +660,14 @@ create index if not exists idx_orders_payment_status on orders(payment_status);
 create index if not exists idx_orders_stripe_pi      on orders(stripe_payment_intent_id) where stripe_payment_intent_id is not null;
 create index if not exists idx_orders_paypal_order    on orders(paypal_order_id)          where paypal_order_id          is not null;
 create index if not exists idx_orders_paypal_capture  on orders(paypal_capture_id)        where paypal_capture_id        is not null;
+-- Outstanding driver cash: rows the admin "cash owed" view needs to scan.
+-- Partial so it's cheap even on large orders tables.
+create index if not exists idx_orders_driver_cash_outstanding
+  on orders(driver_id)
+  where cash_reconciled_at is null
+    and payment_status = 'paid'
+    and status = 'delivered'
+    and driver_id is not null;
 create index if not exists idx_menu_items_category   on menu_items(category_id);
 create index if not exists idx_menu_items_channels   on menu_items using gin (channels);
 create index if not exists idx_mimp_item             on menu_item_meal_periods(menu_item_id);
