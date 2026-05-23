@@ -104,7 +104,7 @@ export default function GiftCardsPage() {
   return (
     <div className="max-w-xl mx-auto px-4 py-8 sm:py-12">
       <div className="flex items-center gap-3 mb-6">
-        <div className="w-11 h-11 rounded-2xl bg-orange-100 flex items-center justify-center">
+        <div className="w-11 h-11 rounded-2xl bg-orange-100 flex items-center justify-center flex-shrink-0">
           <Gift size={22} className="text-orange-600" />
         </div>
         <div>
@@ -207,7 +207,7 @@ export default function GiftCardsPage() {
           <button
             onClick={() => void startPurchase()}
             disabled={submitting}
-            className="w-full bg-orange-600 hover:bg-orange-700 disabled:bg-orange-300 text-white font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2"
+            className="w-full bg-orange-600 hover:bg-orange-700 disabled:bg-orange-300 text-white font-bold px-2 py-3.5 text-[15px] sm:text-base rounded-xl transition flex items-center justify-center gap-2"
           >
             {submitting ? <><Loader2 size={16} className="animate-spin" /> Preparing…</> : <>Continue to payment · {sym}{effectiveAmount.toFixed(2)}</>}
           </button>
@@ -297,7 +297,7 @@ function GiftCardPaymentForm({ amountLabel, onPaid }: { amountLabel: string; onP
       <button
         type="submit"
         disabled={!stripe || submitting}
-        className="w-full bg-orange-600 hover:bg-orange-700 disabled:bg-orange-300 text-white font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2"
+        className="w-full bg-orange-600 hover:bg-orange-700 disabled:bg-orange-300 text-white font-bold px-2 py-3.5 text-[15px] sm:text-base rounded-xl transition flex items-center justify-center gap-2"
       >
         {submitting ? <><Loader2 size={16} className="animate-spin" /> Processing…</> : <><Lock size={14} /> Pay {amountLabel}</>}
       </button>
