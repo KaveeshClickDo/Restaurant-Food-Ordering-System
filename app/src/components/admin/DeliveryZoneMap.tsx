@@ -75,8 +75,9 @@ export default function DeliveryZoneMap({
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="flex items-center gap-2 px-5 pt-5 pb-3">
-        <div className="w-8 h-8 bg-orange-100 rounded-xl flex items-center justify-center">
+      <div className="flex flex-wrap items-center gap-2 px-5 pt-5 pb-3">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="w-8 h-8 bg-orange-100 rounded-xl flex items-center justify-center">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-orange-600">
             <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
@@ -87,6 +88,10 @@ export default function DeliveryZoneMap({
           <h3 className="font-semibold text-gray-900 text-sm">Coverage map</h3>
           <p className="text-xs text-gray-400">Click the map or drag the pin to move the restaurant</p>
         </div>
+
+        </div>
+        
+
         <span className="text-xs text-gray-400 font-mono">{lat.toFixed(4)}, {lng.toFixed(4)}</span>
       </div>
 

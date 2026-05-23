@@ -228,7 +228,7 @@ function CustomerCard({ customer, onSave, sym }: { sym: string;
         <div className="border-t border-gray-100 px-5 py-4 space-y-5 bg-gray-50/50">
 
           {/* Marketing opt-in toggle */}
-          <div className="flex items-center justify-between bg-white rounded-xl border border-gray-100 px-4 py-3">
+          <div className="flex items-start justify-between bg-white rounded-xl border border-gray-100 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-gray-800">Marketing Communications</p>
               <p className="text-xs text-gray-400 mt-0.5">Customer has agreed to receive offers and promotions</p>
@@ -276,12 +276,12 @@ function CustomerCard({ customer, onSave, sym }: { sym: string;
                 onChange={(e) => setTagInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(tagInput); } }}
                 placeholder="Custom tag…"
-                className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400 transition"
+                className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400 transition"
               />
               <button
                 onClick={() => addTag(tagInput)}
                 disabled={!tagInput.trim()}
-                className="flex items-center gap-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:text-orange-600 hover:border-orange-300 transition disabled:opacity-40"
+                className="flex shrink-0 items-center gap-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:text-orange-600 hover:border-orange-300 transition disabled:opacity-40"
               >
                 <Plus size={13} /> Add
               </button>

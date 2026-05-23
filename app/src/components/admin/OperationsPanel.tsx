@@ -150,7 +150,7 @@ function HygieneRatingCard({
         {/* Rating value */}
         <div>
           <label className="block text-xs font-semibold text-gray-600 mb-2">Rating (0 – 5)</label>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-1">
               {[0, 1, 2, 3, 4, 5].map((n) => {
                 const active = n <= rating;
@@ -159,7 +159,7 @@ function HygieneRatingCard({
                     key={n}
                     type="button"
                     onClick={() => update({ hygieneRating: n })}
-                    className={`w-10 h-10 rounded-xl border flex items-center justify-center transition ${
+                    className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl border flex items-center justify-center transition ${
                       active
                         ? "bg-green-50 border-green-300 text-green-700"
                         : "bg-gray-50 border-gray-200 text-gray-400 hover:border-gray-300"
@@ -262,8 +262,8 @@ function CurrencyCard() {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
-        <div className="w-9 h-9 bg-emerald-50 rounded-xl flex items-center justify-center">
-          <Coins size={18} className="text-emerald-600" />
+        <div className="w-9 h-9 bg-emerald-50 rounded-xl flex items-center justify-center flex-shrink-0">
+          <Coins size={18} className="text-emerald-600 flex-shrink-0" />
         </div>
         <div>
           <h2 className="font-bold text-gray-900">Currency</h2>
@@ -273,10 +273,10 @@ function CurrencyCard() {
 
       <div className="p-6 space-y-5">
         {/* Live preview */}
-        <div className="bg-gray-50 rounded-xl px-4 py-3 flex items-center justify-between">
+        <div className="bg-gray-50 rounded-xl px-3 py-3 flex items-center justify-between">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-0.5">Preview</p>
-            <p className="text-base font-mono text-gray-700">
+            <p className="text-[13px] sm:text-base font-mono text-gray-700">
               {symbol}12.50 · {symbol}99.00 · {symbol}1.20
             </p>
           </div>

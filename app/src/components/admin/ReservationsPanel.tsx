@@ -744,7 +744,7 @@ export default function ReservationsPanel() {
       {showSettings && <ReservationSettings />}
 
       {/* Stats row */}
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
         {[
           { label: "Total", value: stats.total, bg: "bg-gray-50", border: "border-gray-200", text: "text-gray-800" },
           { label: "Pending", value: stats.pending, bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-700" },

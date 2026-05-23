@@ -99,14 +99,14 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
 
       {/* Discount modal */}
       {showDiscount && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-xs p-5 shadow-2xl">
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-white font-bold">Apply Discount</h3>
               <button onClick={() => setShowDiscount(false)} className="text-slate-400 hover:text-white"><X size={18} /></button>
             </div>
             <p className="text-slate-400 text-xs mb-2">Discount percentage</p>
-            <div className="flex gap-2 mb-4">
+            <div className="flex gap-1 sm:gap-2 mb-4">
               {[5,10,15,20,25,50].map((v) => (
                 <button key={v} onClick={() => setDiscountInput(v.toString())}
                   className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${discountInput === v.toString() ? "bg-orange-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}>
@@ -116,7 +116,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
             </div>
             <input type="number" min={0} max={s.maxDiscountPercent} value={discountInput}
               onChange={(e) => setDiscountInput(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white text-lg font-bold outline-none focus:border-orange-500 mb-3" placeholder="Custom %" />
+              className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white text-base sm:text-lg font-bold outline-none focus:border-orange-500 mb-3" placeholder="Custom %" />
             <input type="text" value={discountNote} onChange={(e) => setDiscountNote(e.target.value)}
               className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 mb-5" placeholder="Reason (optional)" />
             <div className="grid grid-cols-2 gap-2">
@@ -135,13 +135,13 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
 
       {/* Tip modal */}
       {showTip && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-xs p-5 shadow-2xl">
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm p-5 shadow-2xl">
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-white font-bold">Add Tip</h3>
               <button onClick={() => setShowTip(false)} className="text-slate-400 hover:text-white"><X size={18} /></button>
             </div>
-            <div className="grid grid-cols-2 gap-2 mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
               {s.defaultTipOptions.map((pct) => {
                 const amt = (grandTotal - tipAmount) * (pct / 100);
                 return (
@@ -153,7 +153,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
               })}
             </div>
             <input type="number" step="0.01" min={0} value={tipCustom} onChange={(e) => setTipCustom(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white text-lg font-bold outline-none focus:border-amber-500 mb-5" placeholder="Custom amount" />
+              className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white text-base sm:text-lg font-bold outline-none focus:border-amber-500 mb-5" placeholder="Custom amount" />
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => { setTipAmount(0); setTipCustom(""); setShowTip(false); }}
                 className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">
@@ -170,7 +170,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
 
       {/* Customer selector */}
       {showCustomer && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
             <div className="px-5 py-4 border-b border-slate-700 flex items-center justify-between">
               <h3 className="text-white font-bold">Select Customer</h3>
@@ -247,7 +247,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
               <p className="text-sm">No items found</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
               {filtered.map((product) => {
                 const outOfStock = product.trackStock && (product.stockQty ?? 0) <= 0;
                 const offerPrice = getOfferPrice(product);
@@ -280,7 +280,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
                   >
                     {/* Image or emoji tile */}
                     {product.imageUrl ? (
-                      <div className="w-full aspect-[5/2] relative flex-shrink-0 overflow-hidden">
+                      <div className="w-full aspect-[5/3] max-h-[75px] relative flex-shrink-0 overflow-hidden">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={product.imageUrl}
@@ -322,7 +322,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
                       <div className="flex items-center justify-between gap-1">
                         {/* Simple per-unit offer: show discounted + strikethrough */}
                         {offerPrice !== null ? (
-                          <div className="flex items-baseline gap-1.5">
+                          <div className="flex flex-wrap items-baseline gap-1">
                             <p className="text-amber-400 font-bold text-sm">{fmt(offerPrice, settings.currencySymbol)}</p>
                             <p className="text-slate-500 text-xs line-through">{fmt(product.price, settings.currencySymbol)}</p>
                           </div>
@@ -359,11 +359,11 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
             <div className="flex items-center gap-2">
               <ShoppingCart size={18} />
               <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs">
-                {cart.reduce((s, l) => s + l.quantity, 0)} items
+                  {cart.reduce((s, l) => s + l.quantity, 0)} <span className="hidden sm:inline">items</span> 
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-[13px]">View Order</span>
+              <span className="text-[12px] sm:text-[13px]">View Order</span>
               <span className="opacity-60 text-sm font-normal">|</span>
               <span>{fmt(grandTotal, settings.currencySymbol)}</span>
             </div>
@@ -374,7 +374,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
       {/* Right: Order panel */}
       <div className={`
         ${showMobileCart ? 'fixed inset-0 z-50 flex flex-col bg-slate-950' : 'hidden md:flex md:flex-col'}
-        md:w-80 xl:w-96 flex-shrink-0 md:static md:block
+        md:w-75 xl:w-96 flex-shrink-0 md:static md:block
       `}>
         {showMobileCart && (
           <div className="md:hidden bg-slate-900 border-b border-slate-800 p-4 flex items-center flex-shrink-0 pt-safe-top">
@@ -386,10 +386,10 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
         )}
         <div className="flex-1 overflow-hidden md:h-full">
           <OrderPanel
-            onCharge={() => { setShowPayment(true); setShowMobileCart(false); }}
-            onSelectCustomer={() => { setShowCustomer(true); setShowMobileCart(false); }}
-            onOpenDiscount={() => { setShowDiscount(true); setShowMobileCart(false); }}
-            onOpenTip={() => { setShowTip(true); setShowMobileCart(false); }}
+            onCharge={() => { setShowPayment(true); }}
+            onSelectCustomer={() => { setShowCustomer(true); }}
+            onOpenDiscount={() => { setShowDiscount(true); }}
+            onOpenTip={() => { setShowTip(true); }}
           />
         </div>
       </div>

@@ -73,7 +73,7 @@ function StatCard({ label, value, sub, icon }: { label: string; value: string | 
         <span className="text-xs text-gray-500 font-medium">{label}</span>
         <div className="text-orange-400">{icon}</div>
       </div>
-      <div className="text-2xl font-bold text-gray-900">{value}</div>
+      <div className="text-lg sm:text-xl xl:text-2xl font-bold text-gray-900">{value}</div>
       {sub && <div className="text-xs text-gray-400 mt-0.5">{sub}</div>}
     </div>
   );
@@ -776,13 +776,13 @@ function CustomerDrawer({
       <div className="absolute right-0 top-0 bottom-0 w-full max-w-xl bg-white shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="px-6 py-5 border-b border-gray-100 flex items-start justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white text-xl font-bold shadow-lg">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white text-xl font-bold shadow-lg">
               {customer.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
             </div>
             <div>
               <h2 className="font-bold text-gray-900 text-lg">{customer.name}</h2>
-              <p className="text-sm text-gray-500">Customer since {fmtDate(customer.createdAt)}</p>
+              <p className="text-[12px] sm:text-sm text-gray-500">Customer since {fmtDate(customer.createdAt)}</p>
               <div className="flex gap-1.5 mt-1 flex-wrap">
                 {customer.tags.map((t) => (
                   <span key={t} className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${TAG_COLORS[t] ?? "bg-gray-100 text-gray-500"}`}>
@@ -805,7 +805,7 @@ function CustomerDrawer({
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto">
           {/* Contact + stats */}
-          <div className="px-6 py-4 grid grid-cols-2 gap-4 border-b border-gray-100">
+          <div className="px-6 py-4 grid grid-cols-1 sm:grid-cols-2 gap-4 border-b border-gray-100">
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm text-gray-600">
                 <Mail size={14} className="text-gray-400 flex-shrink-0" />
@@ -818,11 +818,11 @@ function CustomerDrawer({
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="bg-orange-50 rounded-xl p-3 text-center">
-                <div className="text-xl font-bold text-orange-600">{customer.orders.length}</div>
+                <div className="text-lg md:text-xl font-bold text-orange-600">{customer.orders.length}</div>
                 <div className="text-[10px] text-orange-400 font-medium">Orders</div>
               </div>
               <div className="bg-green-50 rounded-xl p-3 text-center">
-                <div className="text-xl font-bold text-green-600">{sym}{spent.toFixed(0)}</div>
+                <div className="text-lg md:text-xl font-bold text-green-600">{sym}{spent.toFixed(0)}</div>
                 <div className="text-[10px] text-green-500 font-medium">Spent</div>
               </div>
             </div>

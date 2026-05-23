@@ -382,19 +382,19 @@ export default function DeliveryZonesPanel() {
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
           <p className="text-xs text-gray-500 font-medium mb-1">Active zones</p>
-          <p className="text-2xl font-bold text-gray-900">{activeCount}</p>
+          <p className="text-xl sm:text-2xl font-bold text-gray-900">{activeCount}</p>
           <p className="text-xs text-gray-400">of {zones.length} configured</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
           <p className="text-xs text-gray-500 font-medium mb-1">Max radius</p>
-          <p className="text-2xl font-bold text-gray-900">
+          <p className="text-xl sm:text-2xl font-bold text-gray-900">
             {zones.length ? Math.max(...zones.map((z) => z.maxRadiusKm)) : 0} km
           </p>
           <p className="text-xs text-gray-400">furthest delivery zone</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 col-span-2 sm:col-span-1">
           <p className="text-xs text-gray-500 font-medium mb-1">Fee range</p>
-          <p className="text-2xl font-bold text-gray-900">
+          <p className="text-xl sm:text-2xl font-bold text-gray-900">
             {zones.length
               ? `${sym}${Math.min(...zones.map((z) => z.fee)).toFixed(2)}–${sym}${Math.max(...zones.map((z) => z.fee)).toFixed(2)}`
               : "—"}

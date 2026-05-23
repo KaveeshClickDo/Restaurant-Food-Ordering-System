@@ -320,7 +320,7 @@ function OrderCard({
       <div className="px-4 py-3 flex-1 space-y-2.5">
         {order.items.map((item, i) => (
           <div key={i} className="flex items-center gap-3">
-            <span className={`${col.textClass} font-extrabold text-xl md:text-2xl leading-none tabular-nums w-8 text-center flex-shrink-0`}>
+            <span className={`${col.textClass} font-extrabold text-xl md:text-2xl leading-none tabular-nums min-w-[3rem] text-center flex-shrink-0`}>
               {item.qty}
             </span>
             <span className="text-white font-semibold text-sm md:text-base leading-snug">
@@ -368,7 +368,7 @@ function OrderCard({
               <Truck size={14} /> Awaiting Driver Pickup
             </div>
           ) : (
-            <div className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-semibold border ${
+            <div className={`w-full flex items-center justify-center gap-2 py-3 px-2 rounded-xl text-xs font-semibold border ${
               isDineIn
                 ? "bg-purple-900/20 border-purple-700/30 text-purple-300"
                 : isDelivery

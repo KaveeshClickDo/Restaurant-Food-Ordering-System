@@ -60,7 +60,7 @@ export default function ModifierModal({
   }, 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
       <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
         {/* Header */}
         <div className="px-5 py-4 border-b border-slate-700 flex items-start justify-between">
@@ -100,15 +100,15 @@ export default function ModifierModal({
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                        <div className={`w-5 h-5 rounded-full border-2 flex items-center flex-shrink-0 justify-center transition-all ${
                           selected ? "bg-orange-500 border-orange-500" : "border-slate-500"
                         }`}>
                           {selected && <CheckCircle2 size={12} className="text-white" />}
                         </div>
-                        <span className="text-sm font-medium">{option.label}</span>
+                        <span className="text-sm font-medium text-start">{option.label}</span>
                       </div>
                       {option.priceAdjust !== 0 && (
-                        <span className={`text-sm font-bold ${option.priceAdjust > 0 ? "text-green-400" : "text-red-400"}`}>
+                        <span className={`text-sm font-bold whitespace-nowrap ${option.priceAdjust > 0 ? "text-green-400" : "text-red-400"}`}>
                           {option.priceAdjust > 0 ? "+" : ""}{fmt(option.priceAdjust, currencySymbol)}
                         </span>
                       )}

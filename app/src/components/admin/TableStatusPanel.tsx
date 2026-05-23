@@ -274,15 +274,15 @@ function TableCard({
   }
 
   return (
-    <div className={`rounded-2xl border-2 p-3 sm:p-4 flex flex-col gap-3 transition ${s.card}`}>
-      {/* Header */}
+    <div className={`rounded-2xl border-2 p-3 sm:p-4 flex flex-col gap-3 transition h-full ${s.card}`}>
+      {/* Table header */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2.5 sm:gap-2">
         <div>
           <div className="flex items-center gap-2">
             <UtensilsCrossed size={14} className="text-orange-500" />
             <span className="font-bold text-gray-900 text-base">{table.label}</span>
           </div>
-          <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+          <div className="flex sm:hidden items-center gap-3 mt-1 text-xs text-gray-500">
             <span className="flex items-center gap-1"><Users size={11} /> {table.seats} seats</span>
             {table.section && <span>{table.section}</span>}
           </div>
@@ -291,6 +291,10 @@ function TableCard({
           <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
           {s.label}
         </span>
+      </div>
+      <div className="hidden sm:flex items-center gap-3 mt-1 text-xs text-gray-500">
+        <span className="flex items-center gap-1"><Users size={11} /> {table.seats} seats</span>
+        {table.section && <span>{table.section}</span>}
       </div>
 
       {/* Reservation detail (only when there is one) */}
@@ -319,11 +323,11 @@ function TableCard({
 
       {/* Status action row (check-in / check-out) */}
       {actioning ? (
-        <div className="flex justify-center py-1">
+        <div className="flex justify-center py-1 mt-auto">
           <Loader2 size={16} className="animate-spin text-gray-400" />
         </div>
       ) : (
-        <>
+        <div className="flex gap-2 mt-auto">
           {state === "reserved" && res && (
             <button
               onClick={() => act(() => onCheckIn(res.id))}
@@ -355,7 +359,7 @@ function TableCard({
               <EyeOff size={13} /> Hidden from the floor
             </div>
           )}
-        </>
+        </div>
       )}
 
       {/* Admin action footer — edit / toggle active / delete */}
@@ -695,13 +699,13 @@ export default function TableStatusPanel() {
           <p className="text-sm text-gray-400">Click <strong>Add Table</strong> to create your first one.</p>
         </div>
       ) : tableInfoList.length === 0 ? (
-        <div className="flex flex-col items-center py-16 gap-3 bg-white rounded-2xl border border-gray-200">
+        <div className="flex flex-col items-center py-16 gap-3 bg-white rounded-2xl border border-gray-200 text-center">
           <CalendarDays size={32} className="text-gray-300" />
           <p className="font-semibold text-gray-600">No tables in this section</p>
           <p className="text-sm text-gray-400">Pick another section or clear the filter.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 max-w-sm mx-auto sm:max-w-none">
           {tableInfoList.map((info) => (
             <TableCard
               key={info.table.id}

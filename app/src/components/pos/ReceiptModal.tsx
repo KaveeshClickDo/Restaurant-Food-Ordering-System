@@ -59,8 +59,8 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl w-full max-w-xs overflow-hidden shadow-2xl">
-        <div className="p-6 font-mono text-gray-900 text-xs">
+      <div className="bg-white rounded-2xl w-full max-w-xs flex flex-col shadow-2xl overflow-hidden max-h-[95vh]">
+        <div className="p-6 font-mono text-gray-900 text-xs overflow-y-auto flex-1">
 
           {/* ── Header ───────────────────────────────────────── */}
           <div className="text-center mb-4">
@@ -183,7 +183,7 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
                     onChange={(e) => { setEmailTo(e.target.value); setEmailStatus("idle"); }}
                     placeholder="customer@email.com"
                     type="email"
-                    className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-gray-900 text-xs outline-none focus:border-orange-400 placeholder-gray-400"
+                    className="flex-1 min-w-0 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-gray-900 text-xs outline-none focus:border-orange-400 placeholder-gray-400"
                   />
                   <button
                     onClick={sendEmail}
