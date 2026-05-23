@@ -890,7 +890,7 @@ function CustomerDrawer({
                   {resetSending
                     ? <Loader2 size={11} className="animate-spin" />
                     : <Send size={11} />}
-                  Send Reset Email
+                  Send Password Reset Email
                 </button>
 
                 {/* Delete */}
