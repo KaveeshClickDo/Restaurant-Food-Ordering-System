@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { X, Banknote, CreditCard, Shuffle, ChevronRight, AlertTriangle, Gift, Loader2 } from "lucide-react";
 import { fmt } from "./_utils";
 
@@ -70,18 +70,36 @@ export default function PaymentModal({
     }
   }
 
+  // Once any complete button is clicked, lock all of them until the modal
+  // unmounts. The parent handles the actual sale POST asynchronously; without
+  // this guard a quick double-tap on the same button (or a different tender
+  // method) would dispatch two sales (Bug #24). Use a ref alongside the state
+  // so the guard reads synchronously — between two rapid click events React
+  // is not guaranteed to have flushed the state update yet.
+  const submittingRef = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
+  function lock(): boolean {
+    if (submittingRef.current) return false;
+    submittingRef.current = true;
+    setSubmitting(true);
+    return true;
+  }
   function completeCash() {
+    if (!lock()) return;
     onComplete("cash", [{ method: "cash", amount: due }], cashTendered, giftCardArg);
   }
   function completeCard() {
+    if (!lock()) return;
     onComplete("card", [{ method: "card", amount: due }], undefined, giftCardArg);
   }
   function completeSplit() {
+    if (!lock()) return;
     const cash = parseFloat(splitCash) || 0;
     const card = parseFloat(splitCard) || 0;
     onComplete("split", [{ method: "cash", amount: cash }, { method: "card", amount: card }], cash, giftCardArg);
   }
   function completeGiftCardOnly() {
+    if (!lock()) return;
     onComplete("gift_card", [], undefined, giftCardArg);
   }
 
@@ -149,9 +167,11 @@ export default function PaymentModal({
             {due <= 0 && appliedGc ? (
               <button
                 onClick={completeGiftCardOnly}
-                className="w-full flex items-center justify-center gap-2 p-4 bg-purple-500 hover:bg-purple-400 text-white font-bold rounded-xl transition-all active:scale-[0.98]"
+                disabled={submitting}
+                className="w-full flex items-center justify-center gap-2 p-4 bg-purple-500 hover:bg-purple-400 disabled:bg-purple-500/50 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-all active:scale-[0.98]"
               >
-                <Gift size={18} /> Complete · paid by gift card
+                {submitting ? <Loader2 size={18} className="animate-spin" /> : <Gift size={18} />}
+                {submitting ? "Processing…" : "Complete · paid by gift card"}
               </button>
             ) : (
               <>
@@ -240,11 +260,12 @@ export default function PaymentModal({
               </div>
             )}
             <button
-              disabled={cashTendered < due}
+              disabled={cashTendered < due || submitting}
               onClick={completeCash}
-              className={`w-full py-3.5 px-2 rounded-xl font-bold text-sm transition-all ${cashTendered >= due ? "bg-green-500 hover:bg-green-400 text-white active:scale-[0.98]" : "bg-slate-700 text-slate-500 cursor-not-allowed"}`}
+              className={`w-full py-3.5 px-2 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${cashTendered >= due && !submitting ? "bg-green-500 hover:bg-green-400 text-white active:scale-[0.98]" : "bg-slate-700 text-slate-500 cursor-not-allowed"}`}
             >
-              {cashTendered >= due ? `Confirm Cash · Change ${fmt(change, currencySymbol)}` : "Enter amount"}
+              {submitting && <Loader2 size={14} className="animate-spin" />}
+              {submitting ? "Processing…" : cashTendered >= due ? `Confirm Cash · Change ${fmt(change, currencySymbol)}` : "Enter amount"}
             </button>
           </div>
         )}
@@ -262,9 +283,11 @@ export default function PaymentModal({
             </div>
             <button
               onClick={completeCard}
-              className="w-full px-2 py-3.5 rounded-xl font-bold text-sm bg-blue-500 hover:bg-blue-400 text-white transition-all active:scale-[0.98]"
+              disabled={submitting}
+              className="w-full px-2 py-3.5 rounded-xl font-bold text-sm bg-blue-500 hover:bg-blue-400 disabled:bg-blue-500/50 disabled:cursor-not-allowed text-white transition-all active:scale-[0.98] flex items-center justify-center gap-2"
             >
-              Payment Received · {fmt(due, currencySymbol)}
+              {submitting && <Loader2 size={14} className="animate-spin" />}
+              {submitting ? "Processing…" : `Payment Received · ${fmt(due, currencySymbol)}`}
             </button>
           </div>
         )}
@@ -294,8 +317,13 @@ export default function PaymentModal({
               </div>
             </div>
             {Math.abs((parseFloat(splitCash) || 0) + (parseFloat(splitCard) || 0) - due) < 0.01 ? (
-              <button onClick={completeSplit} className="w-full px-2 py-3.5 rounded-xl font-bold text-sm bg-purple-500 hover:bg-purple-400 text-white transition-all active:scale-[0.98]">
-                Confirm Split Payment
+              <button
+                onClick={completeSplit}
+                disabled={submitting}
+                className="w-full px-2 py-3.5 rounded-xl font-bold text-sm bg-purple-500 hover:bg-purple-400 disabled:bg-purple-500/50 disabled:cursor-not-allowed text-white transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+              >
+                {submitting && <Loader2 size={14} className="animate-spin" />}
+                {submitting ? "Processing…" : "Confirm Split Payment"}
               </button>
             ) : (
               <p className="text-center text-amber-400 text-xs">

@@ -76,15 +76,20 @@ async function canManageStaff(): Promise<boolean> {
 export async function GET() {
   try {
     // F-INS-10: public callers (the /pos/login tile picker) get only the
-    // minimum fields needed to show name + avatar. `hourly_rate`, `email`,
-    // and `permissions` are returned only to admin / manager sessions.
+    // minimum fields needed to show name + avatar, AND only active staff —
+    // deactivated members must not appear as a login option. Elevated callers
+    // (admin / POS manager opening the on-device Staff view) get the full row
+    // for ALL staff including inactive ones — they need to see deactivated
+    // members to reactivate, audit, or delete them. Mirrors the admin panel
+    // at /api/admin/pos.
     const elevated = await canManageStaff();
 
-    const { data, error } = await supabaseAdmin
+    let q = supabaseAdmin
       .from("pos_staff")
       .select(elevated ? FULL_COLUMNS : TILE_COLUMNS)
-      .eq("active", true)
       .order("created_at", { ascending: true });
+    if (!elevated) q = q.eq("active", true);
+    const { data, error } = await q;
 
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     const mapped = (data ?? []).map(elevated ? mapRow : mapTileRow);

@@ -81,7 +81,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
         <ModifierModal
           product={modifierProduct}
           currencySymbol={settings.currencySymbol}
-          onConfirm={(mods) => { addToCart(modifierProduct, mods); setModifierProduct(null); }}
+          onConfirm={(mods, note) => { addToCart(modifierProduct, mods, note); setModifierProduct(null); }}
           onClose={() => setModifierProduct(null)}
         />
       )}
@@ -119,7 +119,11 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
                 </button>
               ))}
             </div>
-            <input type="number" min={0} max={s.maxDiscountPercent} value={discountInput}
+            {/* Discounts are capped at 100% regardless of how the settings
+                value is configured — 110% off would imply paying the customer.
+                Browser-enforced max= only restricts spinner clicks, so we also
+                clamp on Apply below. */}
+            <input type="number" min={0} max={Math.min(100, s.maxDiscountPercent)} value={discountInput}
               onChange={(e) => setDiscountInput(e.target.value)}
               className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white text-base sm:text-lg font-bold outline-none focus:border-orange-500 mb-3" placeholder="Custom %" />
             <input type="text" value={discountNote} onChange={(e) => setDiscountNote(e.target.value)}
@@ -129,7 +133,13 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
                 className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">
                 Clear
               </button>
-              <button onClick={() => { setDiscount({ pct: parseFloat(discountInput) || 0, note: discountNote }); setShowDiscount(false); }}
+              <button onClick={() => {
+                const raw = parseFloat(discountInput) || 0;
+                const clamped = Math.max(0, Math.min(raw, 100, s.maxDiscountPercent));
+                setDiscount({ pct: clamped, note: discountNote });
+                setDiscountInput(clamped.toString());
+                setShowDiscount(false);
+              }}
                 className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors">
                 Apply
               </button>

@@ -26,6 +26,10 @@ export const PosSaleCreateSchema = z.object({
   subtotal:       Money.optional(),
   discountAmount: Money.optional(),
   discountNote:   z.string().optional(),
+  // Cart-wide kitchen note (mirrors the waiter's per-order note). Folded into
+  // the KDS ticket header so chefs see one combined instruction string. Not
+  // persisted on pos_sales separately — see /api/pos/sales/route.ts.
+  kitchenNote:    z.string().max(300).optional(),
   taxAmount:      Money.optional(),
   taxRate:        z.number().nonnegative().optional(),
   taxInclusive:   z.boolean().optional(),

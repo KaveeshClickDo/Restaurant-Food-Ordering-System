@@ -12,11 +12,12 @@ export default function ModifierModal({
   currencySymbol,
 }: {
   product: POSProduct;
-  onConfirm: (modifiers: POSCartModifier[]) => void;
+  onConfirm: (modifiers: POSCartModifier[], note?: string) => void;
   onClose: () => void;
   currencySymbol: string;
 }) {
   const [selections, setSelections] = useState<Record<string, string[]>>({});
+  const [note, setNote] = useState("");
 
   const modifiers = product.modifiers ?? [];
 
@@ -47,7 +48,8 @@ export default function ModifierModal({
         flat.push({ modifierId: m.id, modifierName: m.name, optionId: opt.id, optionLabel: opt.label, priceAdjust: opt.priceAdjust });
       }
     }
-    onConfirm(flat);
+    const trimmedNote = note.trim();
+    onConfirm(flat, trimmedNote ? trimmedNote : undefined);
   }
 
   const totalAdjust = Object.entries(selections).reduce((sum, [mId, optIds]) => {
@@ -73,7 +75,7 @@ export default function ModifierModal({
           </button>
         </div>
 
-        {/* Modifiers */}
+        {/* Modifiers + special note */}
         <div className="p-5 space-y-5 max-h-[60vh] overflow-y-auto">
           {modifiers.map((modifier) => (
             <div key={modifier.id}>
@@ -118,6 +120,19 @@ export default function ModifierModal({
               </div>
             </div>
           ))}
+
+          {/* Special note — sent through to the kitchen ticket on the line */}
+          <div>
+            <p className="text-white font-semibold text-sm mb-2">Special note <span className="text-slate-500 font-normal">(optional)</span></p>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g. no onions, well done, allergy: nuts"
+              rows={2}
+              maxLength={200}
+              className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 outline-none focus:border-orange-500 resize-none"
+            />
+          </div>
         </div>
 
         {/* Confirm */}

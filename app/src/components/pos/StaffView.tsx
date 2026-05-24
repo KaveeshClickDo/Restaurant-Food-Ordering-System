@@ -41,7 +41,7 @@ export default function StaffView() {
 
   async function addStaff() {
     if (addInFlight.current) return;
-    if (!newStaff.name.trim() || newStaff.pin.length !== 4) return;
+    if (!newStaff.name.trim() || newStaff.pin.length !== 6) return;
     addInFlight.current = true;
     setAddBusy(true);
     try {
@@ -72,7 +72,7 @@ export default function StaffView() {
   async function saveEdit() {
     if (saveInFlight.current) return;
     if (!editingStaff || !editDraft.name.trim()) return;
-    if (editDraft.pin && editDraft.pin.length !== 4) return;
+    if (editDraft.pin && editDraft.pin.length !== 6) return;
     saveInFlight.current = true;
     setSaveBusy(true);
     try {
@@ -199,7 +199,7 @@ export default function StaffView() {
                         "bg-slate-600 text-slate-400"
                       }`}>{member.role}</span>
                     </div>
-                    <p className="text-slate-400 text-xs mt-0.5">{member.email} · PIN: ••••</p>
+                    <p className="text-slate-400 text-xs mt-0.5">{member.email} · PIN: ••••••</p>
                     {member.hourlyRate && <p className="text-slate-500 text-xs">{sym}{member.hourlyRate}/hr</p>}
                   </div>
                 </div>
@@ -313,8 +313,8 @@ export default function StaffView() {
                 </select>
               </div>
               <div>
-                <label className="text-xs text-slate-400 mb-1 block">4-digit PIN *</label>
-                <input type="password" maxLength={4} value={newStaff.pin} onChange={(e) => setNewStaff((p) => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="••••"
+                <label className="text-xs text-slate-400 mb-1 block">6-digit PIN *</label>
+                <input type="password" maxLength={6} value={newStaff.pin} onChange={(e) => setNewStaff((p) => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="••••••"
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
               </div>
               <div>
@@ -325,7 +325,7 @@ export default function StaffView() {
             </div>
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => setShowAdd(false)} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">Cancel</button>
-              <button onClick={addStaff} disabled={addBusy || !newStaff.name.trim() || newStaff.pin.length !== 4}
+              <button onClick={addStaff} disabled={addBusy || !newStaff.name.trim() || newStaff.pin.length !== 6}
                 className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{addBusy ? "Saving…" : "Add"}</button>
             </div>
           </div>
@@ -361,8 +361,8 @@ export default function StaffView() {
                 </select>
               </div>
               <div>
-                <label className="text-xs text-slate-400 mb-1 block">4-digit PIN</label>
-                <input type="password" maxLength={4} value={editDraft.pin} onChange={(e) => setEditDraft((p) => ({ ...p, pin: e.target.value.replace(/\D/g,"") }))} placeholder="Leave blank to keep current"
+                <label className="text-xs text-slate-400 mb-1 block">6-digit PIN</label>
+                <input type="password" maxLength={6} value={editDraft.pin} onChange={(e) => setEditDraft((p) => ({ ...p, pin: e.target.value.replace(/\D/g,"") }))} placeholder="Leave blank to keep current"
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
               </div>
               <div>
@@ -373,7 +373,7 @@ export default function StaffView() {
             </div>
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => setEditingStaff(null)} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">Cancel</button>
-              <button onClick={saveEdit} disabled={saveBusy || !editDraft.name.trim() || (editDraft.pin.length > 0 && editDraft.pin.length !== 4)}
+              <button onClick={saveEdit} disabled={saveBusy || !editDraft.name.trim() || (editDraft.pin.length > 0 && editDraft.pin.length !== 6)}
                 className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{saveBusy ? "Saving…" : "Save"}</button>
             </div>
           </div>

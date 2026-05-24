@@ -54,6 +54,21 @@ export async function PUT(
     update.password_hash = await bcrypt.hash(body.password, 12);
   }
 
+  // Bump session_version when credentials or active status change so any
+  // device the driver is still logged in on is signed out on its next request.
+  // active=false is included because verifyStaffSession already rejects inactive
+  // staff — bumping makes the invalidation explicit and survives reactivation.
+  const credentialsChanged =
+    body.email !== undefined || body.password !== undefined || body.active === false;
+  if (credentialsChanged) {
+    const { data: current } = await supabaseAdmin
+      .from("drivers")
+      .select("session_version")
+      .eq("id", id)
+      .maybeSingle();
+    update.session_version = Number(current?.session_version ?? 1) + 1;
+  }
+
   const { data, error } = await supabaseAdmin
     .from("drivers")
     .update(update)

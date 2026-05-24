@@ -373,6 +373,11 @@ export default function ReservationCustomersPanel() {
   const [filterOptIn,  setFilterOptIn]  = useState(false);
   const [filterOrders, setFilterOrders] = useState(false);
 
+  // Snapshot of last server response so the silent poll can skip setState
+  // when nothing changed (Bug #25 — otherwise every 10s tick re-renders the
+  // entire guest list and any expanded customer card visibly flickers).
+  const lastDataKey = useRef<string>("");
+
   // isInitial=true shows the spinner (mount, manual refresh). Default silent so
   // background polls don't tear down the visible list.
   const fetchCustomers = useCallback(async (isInitial = false) => {
@@ -380,7 +385,14 @@ export default function ReservationCustomersPanel() {
     try {
       const res  = await fetch("/api/admin/reservation-customers");
       const json = await res.json() as { ok: boolean; customers?: ReservationCustomer[] };
-      if (json.ok) setCustomers(json.customers ?? []);
+      if (json.ok) {
+        const next = json.customers ?? [];
+        const key = JSON.stringify(next);
+        if (key !== lastDataKey.current) {
+          lastDataKey.current = key;
+          setCustomers(next);
+        }
+      }
     } catch (err) {
       console.error("ReservationCustomersPanel fetch:", err);
     } finally {
@@ -391,9 +403,13 @@ export default function ReservationCustomersPanel() {
   useEffect(() => { fetchCustomers(true); }, [fetchCustomers]);
 
   // Poll every 10 s — anon supabase realtime no longer fires after RLS revoke.
-  // Silent (default) so the list doesn't flicker on each tick.
+  // Silent (default) so the list doesn't flicker on each tick. Skip when
+  // the tab is hidden to avoid waking idle background sessions.
   useEffect(() => {
-    const id = setInterval(() => fetchCustomers(), 10_000);
+    const id = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      fetchCustomers();
+    }, 10_000);
     return () => clearInterval(id);
   }, [fetchCustomers]);
 

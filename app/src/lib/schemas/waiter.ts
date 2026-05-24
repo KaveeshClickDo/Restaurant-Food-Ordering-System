@@ -20,6 +20,19 @@ export const WaiterSettleSchema = z.object({
   // the batch, then redeems against that order id.
   giftCardCode:  z.string().optional(),
   giftCardUsed:  Money.optional(),
+  // Bill-level manual discount + table-service tip, applied across the whole
+  // bill and stamped on the anchor (first) order. discountAmount is the money
+  // value the waiter app already computed from the percentage; the server
+  // re-clamps it to the bill subtotal so it can never exceed what's owed.
+  discountAmount: Money.optional(),
+  discountNote:   z.string().optional(),
+  tipAmount:      Money.optional(),
+  // VAT on the post-discount bill, synced from the admin Tax & VAT setting.
+  // vatInclusive=true means it's already inside the item prices (the bill total
+  // is unchanged); false means it's added on top. Stored on the anchor order so
+  // Finance Reports' VAT breakdown includes dine-in.
+  vatAmount:     Money.optional(),
+  vatInclusive:  z.boolean().optional(),
 });
 
 export const WaiterVoidSchema = z.object({

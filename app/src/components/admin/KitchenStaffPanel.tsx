@@ -65,7 +65,7 @@ function StaffForm({
     const e: Record<string, string> = {};
     if (!form.name.trim()) e.name = "Name is required.";
     if (!isEdit && !form.pin.trim()) e.pin = "PIN is required.";
-    else if (form.pin.trim() && !/^\d{4,6}$/.test(form.pin)) e.pin = "PIN must be 4–6 digits.";
+    else if (form.pin.trim() && !/^\d{6}$/.test(form.pin)) e.pin = "PIN must be exactly 6 digits.";
     if (Object.keys(e).length) { setErrors(e); return false; }
     return true;
   }
@@ -101,14 +101,14 @@ function StaffForm({
       {/* PIN */}
       <div>
         <label className="block text-xs font-medium text-gray-400 mb-1">
-          PIN (4–6 digits){isEdit ? " — leave blank to keep current" : ""}
+          PIN (6 digits){isEdit ? " — leave blank to keep current" : ""}
         </label>
         <div className="relative">
           <input
             value={form.pin}
             onChange={(e) => set("pin", e.target.value.replace(/\D/g, "").slice(0, 6))}
             type={showPin ? "text" : "password"}
-            placeholder={isEdit ? "Leave blank to keep current" : "••••"}
+            placeholder={isEdit ? "Leave blank to keep current" : "••••••"}
             inputMode="numeric"
             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 pr-9 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-orange-500"
           />

@@ -18,7 +18,12 @@
  *    DB state and may reject expired offers at order time.
  */
 
-import type { MenuItem, MenuItemOffer, CartItem, MenuChannel } from "@/types";
+import type { MenuItem, MenuItemOffer, MenuChannel } from "@/types";
+
+/** Minimum shape the cart-line math needs. CartItem satisfies this; so does
+ *  any other in-app cart-line shape (waiter dine-in passes its own structural
+ *  object). Keeps the customer-site CartItem callers working unchanged. */
+type OfferLine = { price: number; quantity: number; offer?: MenuItemOffer };
 
 /** The customer site always reads in the 'online' channel; helpers default to
  *  this so callers don't have to thread the channel through every call. */
@@ -127,7 +132,7 @@ export function offerBadgeLabel(
  * `line.offer`. Falls back to a plain `price * quantity` if no offer applies
  * on `channel`.
  */
-export function cartLineTotal(line: CartItem, channel: MenuChannel = DEFAULT_CHANNEL): number {
+export function cartLineTotal(line: OfferLine, channel: MenuChannel = DEFAULT_CHANNEL): number {
   const o = line.offer;
   if (!o?.active || !offerDateOk(o) || !offerChannelOk(o, channel)) return line.price * line.quantity;
 
@@ -160,13 +165,13 @@ export function cartLineTotal(line: CartItem, channel: MenuChannel = DEFAULT_CHA
 }
 
 /** Money saved on this line vs. paying full price. Zero when no offer applies. */
-export function cartLineSaving(line: CartItem, channel: MenuChannel = DEFAULT_CHANNEL): number {
+export function cartLineSaving(line: OfferLine, channel: MenuChannel = DEFAULT_CHANNEL): number {
   const full = line.price * line.quantity;
   const actual = cartLineTotal(line, channel);
   return parseFloat(Math.max(0, full - actual).toFixed(2));
 }
 
 /** Subtotal across an entire customer cart (per-unit + cart-level offers applied). */
-export function cartSubtotal(cart: CartItem[], channel: MenuChannel = DEFAULT_CHANNEL): number {
+export function cartSubtotal(cart: OfferLine[], channel: MenuChannel = DEFAULT_CHANNEL): number {
   return parseFloat(cart.reduce((s, l) => s + cartLineTotal(l, channel), 0).toFixed(2));
 }

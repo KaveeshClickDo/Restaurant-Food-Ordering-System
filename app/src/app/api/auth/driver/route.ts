@@ -36,7 +36,7 @@ export async function POST(request: Request) {
   try {
     const { data, error } = await supabaseAdmin
       .from("drivers")
-      .select("id, name, email, phone, active, vehicle_info, notes, created_at, password_hash")
+      .select("id, name, email, phone, active, vehicle_info, notes, created_at, password_hash, session_version")
       .eq("email", email.trim().toLowerCase())
       .single();
 
@@ -66,7 +66,11 @@ export async function POST(request: Request) {
                      : new Date(data.created_at).toISOString(),
     };
 
-    const token = createSessionToken({ id: data.id, role: "driver" });
+    const token = createSessionToken({
+      id:             data.id,
+      role:           "driver",
+      sessionVersion: Number(data.session_version ?? 1),
+    });
     const res = NextResponse.json({ ok: true, driver });
     setSessionCookie(res, COOKIE_DRIVER, token);
     return res;

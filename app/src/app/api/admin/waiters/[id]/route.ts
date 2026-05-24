@@ -36,6 +36,20 @@ export async function PATCH(
     patch.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
   }
 
+  // Bump session_version on credential / deactivation changes so any waiter
+  // device that's still signed in (PIN-based sessions persist across reloads)
+  // is logged out on its next request.
+  const credentialsChanged =
+    body.pin !== undefined || body.email !== undefined || body.active === false;
+  if (credentialsChanged) {
+    const { data: current } = await supabaseAdmin
+      .from("waiters")
+      .select("session_version")
+      .eq("id", id)
+      .maybeSingle();
+    patch.session_version = Number(current?.session_version ?? 1) + 1;
+  }
+
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ ok: false, error: "No fields to update" }, { status: 400 });
   }

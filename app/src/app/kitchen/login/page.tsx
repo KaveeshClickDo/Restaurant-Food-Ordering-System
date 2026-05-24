@@ -27,7 +27,7 @@ function PinPad({ value, onChange }: { value: string; onChange: (v: string) => v
             key={k + i}
             onClick={() => {
               if (k === "⌫") onChange(value.slice(0, -1));
-              else if (value.length < 4) onChange(value + k);
+              else if (value.length < 6) onChange(value + k);
             }}
             className={`h-16 rounded-2xl text-2xl font-bold transition-all active:scale-95 select-none ${
               k === "⌫"
@@ -99,7 +99,7 @@ export default function KitchenLoginPage() {
   );
 
   useEffect(() => {
-    if (pin.length === 4) submitPin(pin);
+    if (pin.length === 6) submitPin(pin);
   }, [pin, submitPin]);
 
   function selectStaff(s: Omit<KitchenStaff, "pin">) {
@@ -185,8 +185,8 @@ export default function KitchenLoginPage() {
           </div>
 
           {/* PIN dots */}
-          <div className={`flex justify-center gap-4 ${pinError ? "animate-bounce" : ""}`}>
-            {[0, 1, 2, 3].map((i) => (
+          <div className={`flex justify-center gap-3 ${pinError ? "animate-bounce" : ""}`}>
+            {[0, 1, 2, 3, 4, 5].map((i) => (
               <div
                 key={i}
                 className={`w-4 h-4 rounded-full border-2 transition-all ${

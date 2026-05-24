@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 const uuid = () => crypto.randomUUID();
 import {
   POSStaff, POSProduct, POSCategory, POSModifier, POSCartItem, POSSale, POSCustomer,
@@ -119,7 +120,7 @@ interface POSContextValue {
   setSettings: React.Dispatch<React.SetStateAction<POSSettings>>;
   // Cart
   cart: POSCartItem[];
-  addToCart: (product: POSProduct, modifiers: POSCartModifier[]) => void;
+  addToCart: (product: POSProduct, modifiers: POSCartModifier[], note?: string) => void;
   updateCartQty: (lineId: string, qty: number) => void;
   removeFromCart: (lineId: string) => void;
   clearCart: () => void;
@@ -129,6 +130,8 @@ interface POSContextValue {
   setDiscount: React.Dispatch<React.SetStateAction<{ pct: number; note: string }>>;
   tipAmount: number;
   setTipAmount: React.Dispatch<React.SetStateAction<number>>;
+  kitchenNote: string;
+  setKitchenNote: React.Dispatch<React.SetStateAction<string>>;
   assignedCustomer: POSCustomer | null;
   setAssignedCustomer: React.Dispatch<React.SetStateAction<POSCustomer | null>>;
   // Computed totals
@@ -384,6 +387,7 @@ export function rowToPOSProduct(
 // ─── Provider ────────────────────────────────────────────────────────────────
 
 export function POSProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
   // currentStaff starts null on every mount; the httpOnly pos_staff_session
   // cookie is the source of truth. A useEffect below calls GET /api/pos/auth
   // to hydrate this from the server. localStorage is no longer trusted for
@@ -416,6 +420,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   const [cart, setCart] = useState<POSCartItem[]>([]);
   const [discount, setDiscount] = useState({ pct: 0, note: "" });
   const [tipAmount, setTipAmount] = useState(0);
+  const [kitchenNote, setKitchenNote] = useState("");
   const [assignedCustomer, setAssignedCustomer] = useState<POSCustomer | null>(null);
 
   // ── Staff — DB-backed (pos_staff table) ──────────────────────────────────
@@ -756,19 +761,48 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     if (typeof window !== "undefined") {
       try { localStorage.removeItem("pos_session"); } catch { /* ignore */ }
     }
-    fetch("/api/pos/auth")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((json: { ok: boolean; staff?: POSStaff } | null) => {
-        if (json?.ok && json.staff) setCurrentStaff(json.staff);
-      })
-      .catch(() => { /* network — fall through to login screen */ });
   }, []);
+
+  // Periodic self-check via /api/pos/auth — uses the kitchen-only session
+  // (getPosSession in lib/auth, which validates session_version + active
+  // against the DB). On 401 we log out + send the terminal back to the PIN
+  // picker, so an admin PIN/email/active change kicks the cashier within
+  // ~15 s. On success we refresh currentStaff so profile edits (name,
+  // avatar, permissions) appear live without a sign-out.
+  useEffect(() => {
+    let active = true;
+
+    async function checkSession() {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      try {
+        const r = await fetch("/api/pos/auth", { cache: "no-store" });
+        if (!active) return;
+        if (r.status === 401) {
+          // Stale or version-mismatched session — clear local state and bounce
+          // to the PIN picker. Don't loop the check once we're already null.
+          if (currentStaff !== null) {
+            setCurrentStaff(null);
+            fetch("/api/pos/auth", { method: "DELETE" }).catch(() => {});
+            router.replace("/pos/login");
+          }
+          return;
+        }
+        const d = await r.json() as { ok: boolean; staff?: POSStaff };
+        if (active && d.ok && d.staff) setCurrentStaff(d.staff);
+      } catch { /* network blip — keep last-known */ }
+    }
+
+    checkSession();
+    const id = setInterval(checkSession, 15_000);
+    return () => { active = false; clearInterval(id); };
+  }, [router, currentStaff]);
 
   const logout = useCallback(() => {
     setCurrentStaff(null);
     setCart([]);
     setDiscount({ pct: 0, note: "" });
     setTipAmount(0);
+    setKitchenNote("");
     setAssignedCustomer(null);
     // Bug #11 — clear in-memory customers so the next operator on this
     // terminal starts with an empty list until they sign in. Customers are
@@ -811,7 +845,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   }, [currentStaff, logout]);
 
   // ── Cart ─────────────────────────────────────────────────────────────────
-  const addToCart = useCallback((product: POSProduct, modifiers: POSCartModifier[]) => {
+  const addToCart = useCallback((product: POSProduct, modifiers: POSCartModifier[], note?: string) => {
     const modPrice = modifiers.reduce((sum, m) => sum + m.priceAdjust, 0);
     const offerPrice = getOfferPrice(product); // null for cart-level offer types
     const basePrice = offerPrice ?? product.price;
@@ -821,12 +855,14 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     // channel-aware, so an online-only offer won't ride along on a till sale.
     const cartOffer = isOfferActive(product) ? product.offer : undefined;
     setCart((prev) => {
-      // Merge with existing identical line (same product + same modifiers, no custom note)
+      // Merge with existing identical line (same product + same modifiers, no
+      // custom note on either side). A note makes the line unique — bumping qty
+      // on a noted line would dilute the note across silent units.
       const modKey = JSON.stringify(modifiers);
       const existing = prev.find(
         (l) => l.productId === product.id && JSON.stringify(l.modifiers) === modKey
       );
-      if (existing && !existing.note) {
+      if (existing && !existing.note && !note) {
         return prev.map((l) =>
           l.lineId === existing.lineId ? { ...l, quantity: l.quantity + 1 } : l
         );
@@ -839,6 +875,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         price: unitPrice,
         quantity: 1,
         modifiers,
+        note,
         offer: cartOffer,
       }];
     });
@@ -860,6 +897,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     setCart([]);
     setDiscount({ pct: 0, note: "" });
     setTipAmount(0);
+    setKitchenNote("");
     setAssignedCustomer(null);
   }, []);
 
@@ -919,6 +957,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       subtotal: round2(sub),
       discountAmount: round2(disc),
       discountNote: discount.note,
+      kitchenNote:  kitchenNote.trim() || undefined,
       taxAmount: round2(tax),
       // Snapshot the VAT mode + rate at time of sale so receipts always show
       // the correct label, even if the settings change later.
@@ -1021,7 +1060,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
     clearCart();
     return { sale };
-  }, [cart, discount, tipAmount, settings, currentStaff, assignedCustomer, clearCart]);
+  }, [cart, discount, tipAmount, kitchenNote, settings, currentStaff, assignedCustomer, clearCart]);
 
   const voidSale = useCallback(async (
     saleId: string,
@@ -1169,6 +1208,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       cart, addToCart, updateCartQty, removeFromCart, clearCart, updateCartNote,
       discount, setDiscount,
       tipAmount, setTipAmount,
+      kitchenNote, setKitchenNote,
       assignedCustomer, setAssignedCustomer,
       subtotal, discountAmount, taxAmount, grandTotal,
       completeSale, voidSale,

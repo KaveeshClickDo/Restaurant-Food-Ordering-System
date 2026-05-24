@@ -82,7 +82,10 @@ export default function SettingsView() {
                 </div>
                 <div>
                   <label className="text-xs text-slate-400 mb-1 block">Max Discount (%)</label>
-                  <input type="number" min={0} max={100} value={local.maxDiscountPercent} onChange={(e) => setLocal((p) => ({ ...p, maxDiscountPercent: parseInt(e.target.value) || 0 }))}
+                  <input type="number" min={0} max={100} value={local.maxDiscountPercent} onChange={(e) => {
+                    const raw = parseInt(e.target.value) || 0;
+                    setLocal((p) => ({ ...p, maxDiscountPercent: Math.max(0, Math.min(100, raw)) }));
+                  }}
                     className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500" />
                 </div>
               </div>

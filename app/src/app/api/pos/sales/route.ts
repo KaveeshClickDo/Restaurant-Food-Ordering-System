@@ -74,7 +74,9 @@ export async function POST(req: NextRequest) {
 
   const parsed = await parseBody(req, PosSaleCreateSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const body = parsed.data as unknown as Partial<POSSale>;
+  // kitchenNote isn't on POSSale (it's a transient create-only field that
+  // lands in the KDS ticket header but is never persisted on pos_sales).
+  const body = parsed.data as unknown as Partial<POSSale> & { kitchenNote?: string };
 
   // Discount + refund permission gates: only operators with the flag can
   // commit a sale that carries a non-zero discount.
@@ -102,6 +104,17 @@ export async function POST(req: NextRequest) {
   const taxAmount      = Number(body.taxAmount      ?? 0);
   const tipAmount      = Number(body.tipAmount      ?? 0);
   const taxInclusive   = Boolean(body.taxInclusive  ?? false);
+
+  // Hard cap on discount: it can never exceed the pre-tax subtotal. Anything
+  // larger would imply paying the customer to take the food. The client UI
+  // already clamps to ≤100% but a malicious or buggy client could still POST
+  // a larger discountAmount, so we defend here too (Bug #30).
+  if (discountAmount < 0 || discountAmount > subtotalServer + 0.01) {
+    return NextResponse.json(
+      { ok: false, error: "Discount cannot exceed the order subtotal." },
+      { status: 400 },
+    );
+  }
 
   // When tax is inclusive the tax is already inside subtotalServer; when
   // exclusive we add it. Discounts always reduce the pre-tax base.
@@ -316,14 +329,16 @@ export async function POST(req: NextRequest) {
   }
 
   // KDS sync — fire-and-await so the client knows whether the kitchen has
-  // the ticket. Failure here doesn't roll back the sale.
-  const kdsResult = await pushToKDS(sale);
+  // the ticket. Failure here doesn't roll back the sale. kitchenNote is
+  // passed separately because it's only on the create body, not persisted
+  // on pos_sales and therefore not on POSSale.
+  const kdsResult = await pushToKDS(sale, typeof body.kitchenNote === "string" ? body.kitchenNote : undefined);
 
   return NextResponse.json({ ok: true, sale, kds: kdsResult });
 }
 
 // ── KDS sync helper ──────────────────────────────────────────────────────────
-async function pushToKDS(sale: POSSale): Promise<{ ok: boolean; error?: string }> {
+async function pushToKDS(sale: POSSale, kitchenNote?: string): Promise<{ ok: boolean; error?: string }> {
   // The kitchen display reads from the orders table. POS sales are recorded
   // there as collection orders with a "[POS]" marker in the note so KDS can
   // distinguish them.
@@ -344,9 +359,12 @@ async function pushToKDS(sale: POSSale): Promise<{ ok: boolean; error?: string }
     const modLabel = item.modifiers?.length
       ? ` (${item.modifiers.map((m) => m.optionLabel).join(", ")})`
       : "";
+    // Per-line special note from the POS modifier modal — appended so it shows
+    // alongside the item name on the KDS ticket and printed kitchen copy.
+    const noteLabel = item.note ? ` — Note: ${item.note}` : "";
     const lineTotal = cartLineTotal(item);
     return {
-      name:  item.name + modLabel,
+      name:  item.name + modLabel + noteLabel,
       qty:   item.quantity,
       price: parseFloat((lineTotal / item.quantity).toFixed(2)),
     };
@@ -357,6 +375,12 @@ async function pushToKDS(sale: POSSale): Promise<{ ok: boolean; error?: string }
   noteParts.push(`Staff: ${sale.staffName || "Unknown"}`);
   noteParts.push(`Receipt: ${sale.receiptNo}`);
   if (sale.discountNote)  noteParts.push(`Discount: ${sale.discountNote}`);
+  // Cart-wide kitchen note (mirrors the waiter's per-order kitchenNote). Lives
+  // only on the create body, never persisted on pos_sales — so it's passed in
+  // as a separate parameter rather than read from the POSSale.
+  if (kitchenNote && kitchenNote.trim()) {
+    noteParts.push(`Note: ${kitchenNote.trim()}`);
+  }
 
   const orderRow = {
     id:             sale.id,

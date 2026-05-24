@@ -117,6 +117,11 @@ interface AppContextValue {
   setDefaultAddress: (customerId: string, addressId: string) => void;
   drivers: Driver[];
   currentDriver: Driver | null;
+  /** False until the first /api/auth/driver(/me) check resolves on mount.
+   *  The driver page uses this to distinguish "still checking" from "checked
+   *  and confirmed signed-out" so it can redirect to /driver/login without
+   *  a fixed-delay fallback timer. */
+  driverAuthChecked: boolean;
   /** Validates credentials via the server-side /api/auth/driver route. */
   driverLogin: (email: string, password: string) => Promise<boolean>;
   driverLogout: () => void;
@@ -478,7 +483,8 @@ export function AppProvider({
   // they are NOT part of app_settings so they are never exposed to customers.
   const [drivers, setDrivers]       = useState<Driver[]>([]);
   const [currentUser, setCurrentUser]   = useState<Customer | null>(null);
-  const [currentDriver, setCurrentDriver] = useState<Driver | null>(null);
+  const [currentDriver,      setCurrentDriver]      = useState<Driver | null>(null);
+  const [driverAuthChecked,  setDriverAuthChecked]  = useState(false);
   const [fulfillment, setFulfillment] = useState<"delivery" | "collection">("delivery");
   const [scheduledTime, setScheduledTime] = useState<string | null>(null);
   const [appliedCoupon, setAppliedCoupon] = useState<{
@@ -499,28 +505,41 @@ export function AppProvider({
       const d = localStorage.getItem("sg_driver_session");
       if (d) {
         setCurrentDriver(JSON.parse(d));
-        // Verify the cookie is still valid; clear stale localStorage if not.
+        // Verify the cookie is still valid; clear stale localStorage AND the
+        // server cookie if not (fresh DB / deactivated / session_version bump).
+        // Without the server-side clear the cookie keeps fooling middleware
+        // on the next nav, looping the driver into a slow auth retry.
         fetch("/api/auth/driver", { method: "GET" })
-          .then((r) => {
+          .then(async (r) => {
             if (!r.ok) {
               setCurrentDriver(null);
               localStorage.removeItem("sg_driver_session");
+              await fetch("/api/auth/driver/logout", { method: "POST" }).catch(() => {});
             }
           })
-          .catch(() => {});
+          .catch(() => {})
+          .finally(() => setDriverAuthChecked(true));
       } else {
         // No localStorage — try fetching the driver profile from the session cookie.
         // This restores currentDriver when localStorage has been cleared but the
         // cookie is still valid (e.g. after clearing site data or on a new tab).
         fetch("/api/auth/driver/me")
-          .then((r) => (r.ok ? r.json() : null))
-          .then((json: { ok: boolean; driver?: import("@/types").Driver } | null) => {
+          .then(async (r) => {
+            if (r.ok) return r.json() as Promise<{ ok: boolean; driver?: import("@/types").Driver }>;
+            // 401 with a present cookie = stale signed token (fresh DB, deleted
+            // driver, etc.). Drop it now so the driver lands on /driver/login
+            // immediately instead of after the legacy 4 s fallback timer.
+            await fetch("/api/auth/driver/logout", { method: "POST" }).catch(() => {});
+            return null;
+          })
+          .then((json) => {
             if (json?.ok && json.driver) {
               setCurrentDriver(json.driver);
               localStorage.setItem("sg_driver_session", JSON.stringify(json.driver));
             }
           })
-          .catch(() => {});
+          .catch(() => {})
+          .finally(() => setDriverAuthChecked(true));
       }
       // Restore last-known customer instantly so the account page renders on first
       // click without waiting for the network. The fetch below verifies the session
@@ -1700,7 +1719,7 @@ export function AppProvider({
         incrementCouponUsage, appliedCoupon, applyCoupon, removeCoupon,
         addSavedAddress, updateSavedAddress, deleteSavedAddress, setDefaultAddress,
         drivers,
-        currentDriver, driverLogin, driverLogout,
+        currentDriver, driverAuthChecked, driverLogin, driverLogout,
         addDriver, updateDriver, deleteDriver, toggleDriver,
         assignDriverToOrder, updateDeliveryStatus, addRefund, spendStoreCredit,
         mealPeriods, addMealPeriod, updateMealPeriod, deleteMealPeriod, reorderMealPeriods,

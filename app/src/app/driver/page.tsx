@@ -595,13 +595,12 @@ interface ServerOrderRow {
 }
 
 export default function DriverDashboardPage() {
-  const { currentDriver, driverLogout, settings } = useApp();
+  const { currentDriver, driverAuthChecked, driverLogout, settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
   const router = useRouter();
   const [showDelivered, setShowDelivered] = useState(false);
   const [acceptedId,    setAcceptedId]    = useState<string | null>(null);
   const [showMap,       setShowMap]       = useState(true);
-  const [authTimedOut, setAuthTimedOut]   = useState(false);
   const [mine,      setMine]      = useState<DriverOrder[]>([]);
   const [available, setAvailable] = useState<AvailableOrder[]>([]);
 
@@ -612,15 +611,13 @@ export default function DriverDashboardPage() {
   const advanceInFlight = useRef<Set<string>>(new Set());
   const acceptInFlight  = useRef<Set<string>>(new Set());
 
+  // Redirect to the login picker as soon as AppContext confirms there's no
+  // valid session. Previously this was a 4 s fallback timer, which left the
+  // page on a blank spinner for the full delay when the cookie was stale
+  // (fresh DB / removed driver / session_version bump on the previous run).
   useEffect(() => {
-    if (currentDriver) return;
-    const t = setTimeout(() => setAuthTimedOut(true), 4000);
-    return () => clearTimeout(t);
-  }, [currentDriver]);
-
-  useEffect(() => {
-    if (authTimedOut && !currentDriver) router.replace("/driver/login");
-  }, [authTimedOut, currentDriver, router]);
+    if (driverAuthChecked && !currentDriver) router.replace("/driver/login");
+  }, [driverAuthChecked, currentDriver, router]);
 
   // ── Poll /api/driver/orders every 4 s — server filters to this driver ─────
   // Replaces the prior pattern of reading every customer's orders from the

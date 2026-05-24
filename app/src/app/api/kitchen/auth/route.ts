@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
   try {
     const { data: member } = await supabaseAdmin
       .from("kitchen_staff")
-      .select(`${PUBLIC_COLUMNS}, pin_hash`)
+      .select(`${PUBLIC_COLUMNS}, pin_hash, session_version`)
       .eq("id", staffId)
       .eq("active", true)
       .maybeSingle();
@@ -49,9 +49,13 @@ export async function POST(req: NextRequest) {
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { pin_hash: _h, ...safe } = member;
+    const { pin_hash: _h, session_version: _v, ...safe } = member;
 
-    const token = createSessionToken({ id: staffId, role: "kitchen" });
+    const token = createSessionToken({
+      id:             staffId,
+      role:           "kitchen",
+      sessionVersion: Number(member.session_version ?? 1),
+    });
     const res   = NextResponse.json({ ok: true, staff: safe });
     setSessionCookie(res, COOKIE_KITCHEN, token);
     return res;

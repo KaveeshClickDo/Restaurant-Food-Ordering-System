@@ -22,6 +22,8 @@ import CouponsPanel         from "@/components/admin/CouponsPanel";
 import TaxSettingsPanel     from "@/components/admin/TaxSettingsPanel";
 import DriversPanel         from "@/components/admin/DriversPanel";
 import RefundsPanel         from "@/components/admin/RefundsPanel";
+import OrderMonitorPanel    from "@/components/admin/OrderMonitorPanel";
+import OrderHistoryPanel    from "@/components/admin/OrderHistoryPanel";
 import PaymentsPanel        from "@/components/admin/PaymentsPanel";
 import POSReportsPanel      from "@/components/admin/POSReportsPanel";
 import OnlineReportsPanel  from "@/components/admin/OnlineReportsPanel";
@@ -37,7 +39,7 @@ import {
   MapPin, Bell, X, Mail, FileText, Navigation, Palette, ImageIcon, Receipt,
   Tag, Percent, Car, RotateCcw, BarChart3, LineChart, UtensilsCrossed, CalendarDays, BookUser,
   Menu as MenuIcon, ChevronDown, ChevronRight, ChevronLeft,
-  Tablet, CreditCard, Globe, Monitor, Compass, Gift,
+  Tablet, CreditCard, Globe, Monitor, Compass, Gift, ClipboardList,
 } from "lucide-react";
 
 // ─── Navigation structure ─────────────────────────────────────────────────────
@@ -50,7 +52,9 @@ const NAV_GROUPS: NavGroup[] = [
     id: "orders", label: "Orders",
     items: [
       { id: "online-orders", label: "Online Orders", icon: Truck     },
-      { id: "refunds",   label: "Refunds",          icon: RotateCcw },
+      { id: "pos-orders",     label: "POS Orders",     icon: Tablet    },
+      { id: "dine-in-orders", label: "Dine-in Orders", icon: UtensilsCrossed },
+      { id: "order-history",  label: "Order History",  icon: ClipboardList },
     ],
   },
   {
@@ -80,7 +84,8 @@ const NAV_GROUPS: NavGroup[] = [
   {
     id: "finance", label: "Finance",
     items: [
-      { id: "payments",       label: "Payments",         icon: CreditCard },
+      { id: "online-payments", label: "Online Payments",  icon: CreditCard },
+      { id: "online-refunds", label: "Online Refunds",   icon: RotateCcw },
       { id: "online-reports", label: "Finance Reports",  icon: LineChart },
       { id: "coupons",        label: "Coupons",          icon: Tag       },
       { id: "gift-cards",     label: "Gift Cards",       icon: Gift      },
@@ -153,7 +158,10 @@ function bannerSubtitle(
   switch (tab) {
     case "menu":          return `Managing ${menuItemsLen} items across ${categoriesLen} categories.`;
     case "customers":     return `${customersLen} registered customers · manage orders & history.`;
-    case "online-orders": return `${activeOrderCount} active order${activeOrderCount !== 1 ? "s" : ""} in the queue · online deliveries and collections.`;
+    case "online-orders": return `${activeOrderCount} active order${activeOrderCount !== 1 ? "s" : ""} in the queue · online deliveries and collections today.`;
+    case "pos-orders":     return "Live view of POS counter (walk-in) sales — status, today's completed count, and earnings. Read-only.";
+    case "dine-in-orders": return "Live view of dine-in / table-service orders — status, today's completed count, and earnings. Read-only.";
+    case "order-history":  return "All-time order archive across every source — delivery, collection, walk-in, and dine-in. Read-only.";
     case "zones":         return "Define delivery zones, set per-zone fees, and control distance rules.";
     case "operations":    return "Update branding, fees, timings, and address. All changes apply instantly.";
     case "email":         return `${s.emailTemplates?.filter((t) => t.enabled).length ?? 0} active email templates · customise messages sent to customers.`;
@@ -166,8 +174,8 @@ function bannerSubtitle(
     case "gift-cards":    return "Prepaid gift card codes — issue manually, track balances, void, and view redemption history.";
     case "tax":           return s.taxSettings?.enabled ? `VAT ${s.taxSettings.rate}% · ${s.taxSettings.inclusive ? "inclusive" : "exclusive"} mode.` : "VAT is currently disabled.";
     case "drivers":       return "Manage driver accounts and track deliveries.";
-    case "refunds":       return "Process full or partial refunds, choose refund method, and view the full refund history.";
-    case "payments":      return "Stripe and cash transactions with status, customer, and gateway links — every order where money actually moved.";
+    case "online-refunds": return "Process full or partial refunds on online orders, choose refund method, and view the full refund history.";
+    case "online-payments": return "Online Stripe and cash transactions with status, customer, and gateway links — every online order where money actually moved.";
     case "online-reports": return "Revenue, orders, refunds, VAT, and payment breakdowns — filter by date range and export to CSV or PDF.";
     case "pos-reports":    return "View POS sales reports — revenue, profit, staff performance, and best-selling items.";
     case "waiters":        return "Manage waiter accounts, PINs, and roles. Dining tables moved to the Tables tab.";
@@ -205,10 +213,16 @@ function AdminPageContent() {
   // ── All hooks must be declared before any early return (Rules of Hooks) ───
   // Honor ?tab=<id> on first paint so deep-links (e.g. "Go to Delivery" from
   // the user-management active-orders modal) land on the right panel.
-  // Accept "delivery" as a legacy alias so old bookmarks / external links
-  // (e.g. emails sent before the rename) still land on the right tab.
+  // Accept legacy aliases so old bookmarks / external links (e.g. emails sent
+  // before a rename) still land on the right tab: "delivery" → online-orders,
+  // "payments" → online-payments, "refunds" → online-refunds.
   const rawTab = searchParams.get("tab");
-  const initialTab = (rawTab === "delivery" ? "online-orders" : rawTab ?? "online-orders") as TabId;
+  const initialTab = (
+    rawTab === "delivery" ? "online-orders" :
+    rawTab === "payments" ? "online-payments" :
+    rawTab === "refunds"  ? "online-refunds" :
+    rawTab ?? "online-orders"
+  ) as TabId;
   const [activeTab,          setActiveTab]          = useState<TabId>(initialTab);
   const [sidebarCollapsed,   setSidebarCollapsed]   = useState(false);
   const [mobileSidebarOpen,  setMobileSidebarOpen]  = useState(false);
@@ -273,7 +287,7 @@ function AdminPageContent() {
   // legacy alias the same way the initial-tab resolver above does.
   useEffect(() => {
     const raw = searchParams.get("tab");
-    const t   = raw === "delivery" ? "online-orders" : raw;
+    const t   = raw === "delivery" ? "online-orders" : raw === "payments" ? "online-payments" : raw === "refunds" ? "online-refunds" : raw;
     if (t && ALL_TABS.some((x) => x.id === t)) setActiveTab(t);
   }, [searchParams]);
 
@@ -790,6 +804,9 @@ function AdminPageContent() {
             {activeTab === "menu"          && <MenuManagementPanel />}
             {activeTab === "customers"     && <CustomersPanel />}
             {activeTab === "online-orders" && <DeliveryPanel />}
+            {activeTab === "pos-orders"    && <OrderMonitorPanel source="pos" />}
+            {activeTab === "dine-in-orders" && <OrderMonitorPanel source="dine-in" />}
+            {activeTab === "order-history" && <OrderHistoryPanel />}
             {activeTab === "zones"         && <DeliveryZonesPanel />}
             {activeTab === "operations"    && <OperationsPanel />}
             {activeTab === "schedule"      && <SchedulePanel />}
@@ -804,8 +821,8 @@ function AdminPageContent() {
             {activeTab === "gift-cards"    && <GiftCardsPanel />}
             {activeTab === "tax"           && <TaxSettingsPanel />}
             {activeTab === "drivers"       && <DriversPanel />}
-            {activeTab === "refunds"       && <RefundsPanel />}
-            {activeTab === "payments"      && <PaymentsPanel />}
+            {activeTab === "online-refunds" && <RefundsPanel />}
+            {activeTab === "online-payments" && <PaymentsPanel />}
             {activeTab === "online-reports" && <OnlineReportsPanel />}
             {activeTab === "pos-reports"   && <POSReportsPanel />}
             {activeTab === "waiters"        && <WaitersPanel />}

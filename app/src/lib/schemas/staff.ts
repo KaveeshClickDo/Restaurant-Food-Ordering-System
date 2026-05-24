@@ -1,8 +1,5 @@
 import { z } from "zod";
-import { Email, Phone, PhoneOrEmpty, Pin, Password, NonEmptyString, Hex, Money } from "./primitives";
-
-// 4-digit only (POS uses fixed 4-digit PINs)
-const Pin4 = z.string().regex(/^\d{4}$/, "PIN must be exactly 4 digits.");
+import { Email, Phone, PhoneOrEmpty, Pin6, Password, NonEmptyString, Hex, Money } from "./primitives";
 
 const KitchenRole = z.enum(["chef", "head_chef", "kitchen_manager"]);
 const PosRole     = z.enum(["admin", "manager", "cashier"]);
@@ -32,7 +29,7 @@ export const DriverUpdateSchema = z.object({
 export const WaiterCreateSchema = z.object({
   name:        NonEmptyString,
   email:       z.string().email().optional().or(z.literal("")),
-  pin:         Pin,
+  pin:         Pin6,
   active:      z.boolean().optional(),
   hourlyRate:  Money.optional(),
   avatarColor: Hex.optional(),
@@ -41,7 +38,7 @@ export const WaiterCreateSchema = z.object({
 export const WaiterUpdateSchema = z.object({
   name:        NonEmptyString.optional(),
   email:       z.string().email().optional().or(z.literal("")),
-  pin:         Pin.optional(),
+  pin:         Pin6.optional(),
   active:      z.boolean().optional(),
   hourlyRate:  Money.optional(),
   avatarColor: Hex.optional(),
@@ -52,7 +49,7 @@ export const KitchenStaffCreateSchema = z.object({
   name:        NonEmptyString,
   email:       z.string().email().optional().or(z.literal("")),
   role:        KitchenRole.optional(),
-  pin:         Pin,
+  pin:         Pin6,
   active:      z.boolean().optional(),
   avatarColor: Hex.optional(),
 });
@@ -61,7 +58,7 @@ export const KitchenStaffUpdateSchema = z.object({
   name:        NonEmptyString.optional(),
   email:       z.string().email().optional().or(z.literal("")),
   role:        KitchenRole.optional(),
-  pin:         Pin.optional(),
+  pin:         Pin6.optional(),
   active:      z.boolean().optional(),
   avatarColor: Hex.optional(),
 });
@@ -71,7 +68,7 @@ export const PosStaffCreateSchema = z.object({
   name:        NonEmptyString,
   email:       z.string().email().optional().or(z.literal("")),
   role:        PosRole.optional(),
-  pin:         Pin4,
+  pin:         Pin6,
   active:      z.boolean().optional(),
   permissions: z.record(z.string(), z.boolean()).optional(),
   hourlyRate:  Money.optional(),
@@ -82,7 +79,7 @@ export const PosStaffUpdateSchema = z.object({
   name:        NonEmptyString.optional(),
   email:       z.string().email().optional().or(z.literal("")),
   role:        PosRole.optional(),
-  pin:         Pin4.optional(),
+  pin:         Pin6.optional(),
   active:      z.boolean().optional(),
   permissions: z.record(z.string(), z.boolean()).optional(),
   hourlyRate:  Money.optional(),
@@ -112,7 +109,7 @@ export const UserCreateSchema = z.discriminatedUnion("type", [
     type:        z.literal("waiter"),
     name:        NonEmptyString,
     email:       z.string().email().optional().or(z.literal("")),
-    pin:         Pin,
+    pin:         Pin6,
     active:      z.boolean().optional(),
     waiterRole:  z.enum(["senior", "waiter"]).optional(),
     hourlyRate:  Money.optional(),
@@ -123,7 +120,7 @@ export const UserCreateSchema = z.discriminatedUnion("type", [
     name:        NonEmptyString,
     email:       z.string().email().optional().or(z.literal("")),
     kitchenRole: KitchenRole.optional(),
-    pin:         Pin,
+    pin:         Pin6,
     active:      z.boolean().optional(),
     avatarColor: Hex.optional(),
   }),
@@ -132,7 +129,7 @@ export const UserCreateSchema = z.discriminatedUnion("type", [
     name:        NonEmptyString,
     email:       z.string().email().optional().or(z.literal("")),
     posRole:     PosRole.optional(),
-    pin:         Pin4,
+    pin:         Pin6,
     active:      z.boolean().optional(),
     permissions: z.record(z.string(), z.boolean()).optional(),
     hourlyRate:  Money.optional(),
@@ -168,7 +165,7 @@ export const UserUpdateSchema = z.discriminatedUnion("type", [
     type:        z.literal("waiter"),
     name:        NonEmptyString.optional(),
     email:       z.string().email().optional().or(z.literal("")),
-    pin:         Pin.optional(),
+    pin:         Pin6.optional(),
     active:      z.boolean().optional(),
     hourlyRate:  Money.optional(),
     avatarColor: Hex.optional(),
@@ -178,7 +175,7 @@ export const UserUpdateSchema = z.discriminatedUnion("type", [
     name:        NonEmptyString.optional(),
     email:       z.string().email().optional().or(z.literal("")),
     kitchenRole: KitchenRole.optional(),
-    pin:         Pin.optional(),
+    pin:         Pin6.optional(),
     active:      z.boolean().optional(),
     avatarColor: Hex.optional(),
   }),
@@ -187,7 +184,7 @@ export const UserUpdateSchema = z.discriminatedUnion("type", [
     name:        NonEmptyString.optional(),
     email:       z.string().email().optional().or(z.literal("")),
     posRole:     PosRole.optional(),
-    pin:         Pin4.optional(),
+    pin:         Pin6.optional(),
     active:      z.boolean().optional(),
     permissions: z.record(z.string(), z.boolean()).optional(),
     hourlyRate:  Money.optional(),

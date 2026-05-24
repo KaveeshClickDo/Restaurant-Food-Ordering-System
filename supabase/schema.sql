@@ -193,6 +193,15 @@ alter table orders add column if not exists customer_lng double precision;
 alter table orders add column if not exists cash_reconciled_at timestamptz;
 alter table orders add column if not exists cash_reconciled_by text;
 
+-- Dine-in tip + manual discount. Online orders use coupon_discount for promo
+-- codes; these columns carry the waiter-applied bill-level discount and the
+-- table-service tip. Stamped on the bill's anchor order at settle time (mirrors
+-- the gift-card stamp), so the figures survive on the order row and flow into
+-- reports / receipts the same way POS tip + discount do on pos_sales.
+alter table orders add column if not exists tip_amount      numeric not null default 0;
+alter table orders add column if not exists discount_amount numeric not null default 0;
+alter table orders add column if not exists discount_note   text;
+
 -- Set when the webhook accepted a paid order that failed the stock check
 -- (we couldn't reject — customer's money was already captured). Admin sees
 -- the flag in the orders view for reconciliation, and void/refund flows use
@@ -669,6 +678,16 @@ alter table orders     add column if not exists gift_card_id   text references g
 alter table orders     add column if not exists gift_card_used numeric(10,2) not null default 0;
 alter table pos_sales  add column if not exists gift_card_id   text references gift_cards(id);
 alter table pos_sales  add column if not exists gift_card_used numeric(10,2) not null default 0;
+
+-- ── Session versioning for staff roles ───────────────────────────────────────
+-- Embedded in the HMAC session token so admin-initiated credential changes
+-- (password/PIN/email) or deactivation immediately invalidate all live
+-- sessions for that staff member. Bumped from the admin update endpoints;
+-- verified server-side on every authed staff request in lib/auth.ts.
+alter table drivers       add column if not exists session_version integer not null default 1;
+alter table waiters       add column if not exists session_version integer not null default 1;
+alter table kitchen_staff add column if not exists session_version integer not null default 1;
+alter table pos_staff     add column if not exists session_version integer not null default 1;
 
 -- ── payment_sessions: discriminator for non-order purchases ──────────────────
 -- The same stash-then-webhook pattern now serves both order checkout AND gift

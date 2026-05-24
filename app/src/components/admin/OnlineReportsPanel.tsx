@@ -29,7 +29,7 @@ interface RawOrder {
 }
 
 type Preset = "today" | "yesterday" | "7d" | "30d" | "month" | "lastMonth" | "year" | "custom";
-type Source  = "all" | "online" | "pos";
+type Source  = "all" | "online" | "pos" | "dine-in";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -81,8 +81,25 @@ function fmtPresetLabel(p: Preset): string {
            month:"This Month", lastMonth:"Last Month", year:"This Year", custom:"Custom" }[p];
 }
 
+// Waiter dine-in orders are written to the orders table with fulfillment
+// "dine-in" (and the shared pos-walk-in customer). Classify them on their own
+// so reports can break out table service from counter sales.
+function isDineIn(o: RawOrder) {
+  return o.fulfillment === "dine-in";
+}
+
+// POS counter (walk-in till) sales — the pos-walk-in customer / "pos" payment
+// method, EXCLUDING dine-in (which shares the same customer id). isDineIn wins.
 function isPOS(o: RawOrder) {
+  if (isDineIn(o)) return false;
   return o.customer_id === "pos-walk-in" || String(o.payment_method ?? "").toLowerCase() === "pos";
+}
+
+// Online = anything that isn't counter POS or dine-in.
+function orderSource(o: RawOrder): Exclude<Source, "all"> {
+  if (isDineIn(o)) return "dine-in";
+  if (isPOS(o))    return "pos";
+  return "online";
 }
 
 function isActive(o: RawOrder) {
@@ -318,9 +335,8 @@ export default function OnlineReportsPanel() {
   // ── Filter by source ───────────────────────────────────────────────────────
 
   const filtered = useMemo(() => {
-    if (source === "online") return orders.filter((o) => !isPOS(o));
-    if (source === "pos")    return orders.filter((o) => isPOS(o));
-    return orders;
+    if (source === "all") return orders;
+    return orders.filter((o) => orderSource(o) === source);
   }, [orders, source]);
 
   // ── Computed metrics ───────────────────────────────────────────────────────
@@ -391,7 +407,11 @@ export default function OnlineReportsPanel() {
 
     const restaurantName = settings.restaurant?.name ?? "Restaurant";
     const rangeLabel = `${startDate.toLocaleDateString("en-GB")} - ${endDate.toLocaleDateString("en-GB")}`;
-    const sourceLabel = source === "all" ? "All sources" : source === "online" ? "Online orders only" : "POS orders only";
+    const sourceLabel =
+      source === "all"     ? "All sources" :
+      source === "online"  ? "Online orders only" :
+      source === "pos"     ? "POS counter orders only" :
+                             "Dine-in orders only";
     const refundRate = pct(metrics.refunds, metrics.revenue);
     const totalOrders = metrics.count + metrics.cancelledCount;
 
@@ -469,7 +489,7 @@ export default function OnlineReportsPanel() {
         new Date(o.date).toLocaleDateString("en-GB"),
         o.id,
         o.status,
-        isPOS(o) ? "POS" : "Online",
+        orderSource(o) === "pos" ? "POS" : orderSource(o) === "dine-in" ? "Dine-in" : "Online",
         o.fulfillment,
         o.total.toFixed(2),
         (o.refunded_amount ?? 0).toFixed(2),
@@ -560,7 +580,7 @@ export default function OnlineReportsPanel() {
 
         {/* Source filter */}
         <div className="flex rounded-xl border border-gray-200 overflow-hidden text-[13px] sm:text-sm font-medium">
-          {(["all", "online", "pos"] as Source[]).map((s) => (
+          {(["all", "online", "pos", "dine-in"] as Source[]).map((s) => (
             <button
               key={s}
               onClick={() => setSource(s)}
@@ -570,7 +590,7 @@ export default function OnlineReportsPanel() {
                   : "bg-white text-gray-600 hover:bg-gray-50"
               }`}
             >
-              {s === "all" ? "All Orders" : s === "online" ? "Online" : "POS"}
+              {s === "all" ? "All Orders" : s === "online" ? "Online" : s === "pos" ? "POS" : "Dine-in"}
             </button>
           ))}
         </div>

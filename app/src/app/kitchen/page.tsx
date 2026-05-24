@@ -463,15 +463,35 @@ export default function KitchenPage() {
   const [isFullscreen,    setIsFullscreen]    = useState(false);
   const [currentStaff,    setCurrentStaff]    = useState<Omit<KitchenStaff, "pin"> | null>(null);
 
-  // Fetch current kitchen session on mount (best-effort — doesn't block KDS)
+  // Validate + refresh the chef's own session every 15 s via /api/kitchen/auth
+  // (GET). Unlike /api/kds/orders this endpoint authenticates with the KITCHEN
+  // cookie only — no admin fallback — so it reliably detects when admin changes
+  // the chef's PIN/email (session_version bump) or deactivates them, even when
+  // an admin happens to be signed in on the same browser. On 401 we log the
+  // chef out; on success we refresh currentStaff so profile edits show live
+  // (mirrors the waiter app's self-check poll).
   useEffect(() => {
-    fetch("/api/kitchen/auth")
-      .then((r) => r.json())
-      .then((d: { ok: boolean; staff?: Omit<KitchenStaff, "pin"> }) => {
-        if (d.ok && d.staff) setCurrentStaff(d.staff);
-      })
-      .catch(() => {});
-  }, []);
+    let active = true;
+
+    async function checkSession() {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const r = await fetch("/api/kitchen/auth", { cache: "no-store" });
+        if (!active) return;
+        if (r.status === 401) {
+          await fetch("/api/kitchen/logout", { method: "POST" }).catch(() => {});
+          router.replace("/kitchen/login");
+          return;
+        }
+        const d = await r.json() as { ok: boolean; staff?: Omit<KitchenStaff, "pin"> };
+        if (active && d.ok && d.staff) setCurrentStaff(d.staff);
+      } catch { /* network blip — retry next tick */ }
+    }
+
+    checkSession();
+    const id = setInterval(checkSession, 15_000);
+    return () => { active = false; clearInterval(id); };
+  }, [router]);
 
   async function handleLogout() {
     await fetch("/api/kitchen/logout", { method: "POST" }).catch(() => {});

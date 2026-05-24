@@ -10,6 +10,7 @@ import {
     RotateCcw,
     ChefHat,
     Bike,
+    ShoppingBag,
     CheckCheck,
     X,
     Pin,
@@ -28,11 +29,18 @@ import MobileBottomNav from "@/components/MobileBottomNav";
 function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void }) {
     const { settings } = useApp();
     const sym = settings.currency?.symbol ?? "£";
+    const isDelivery = order.fulfillment === "delivery";
     const STEPS: { key: string; label: string; icon: React.ReactNode }[] = [
         { key: "pending", label: "Order received", icon: <Receipt className="w-4 h-4" strokeWidth={1.8} /> },
         { key: "preparing", label: "In the kitchen", icon: <ChefHat className="w-4 h-4" strokeWidth={1.8} /> },
-        { key: "ready", label: "On the way", icon: <Bike className="w-4 h-4" strokeWidth={1.8} /> },
-        { key: "delivered", label: "Delivered", icon: <CheckCheck className="w-4 h-4" strokeWidth={2} /> },
+        {
+            key: "ready",
+            label: isDelivery ? "On the way" : "Ready to collect",
+            icon: isDelivery
+                ? <Bike className="w-4 h-4" strokeWidth={1.8} />
+                : <ShoppingBag className="w-4 h-4" strokeWidth={1.8} />,
+        },
+        { key: "delivered", label: isDelivery ? "Delivered" : "Collected", icon: <CheckCheck className="w-4 h-4" strokeWidth={2} /> },
     ];
 
     const statusIndex: Record<string, number> = {
@@ -207,11 +215,14 @@ export default function MyOrdersPage() {
     const activeOrders = allOrders.filter((o) => ACTIVE_STATUSES.has(o.status) && !isRefunded(o));
     const pastOrders = allOrders.filter((o) => !ACTIVE_STATUSES.has(o.status) || isRefunded(o));
 
-    const activeLabel: Record<string, string> = {
-        pending: "Order received",
-        confirmed: "Confirmed",
-        preparing: "In the kitchen",
-        ready: "Ready to collect / pick up",
+    const activeLabel = (order: Order): string => {
+        switch (order.status) {
+            case "pending": return "Order received";
+            case "confirmed": return "Confirmed";
+            case "preparing": return "In the kitchen";
+            case "ready": return order.fulfillment === "delivery" ? "Out for delivery" : "Ready to collect / pick up";
+            default: return order.status;
+        }
     };
 
     return (
@@ -331,7 +342,7 @@ export default function MyOrdersPage() {
                                                 </div>
                                                 <p title={fullOrderNumber(activeOrder.id)} className="text-[13px] text-zinc-400 mb-0.5 truncate">Order {fullOrderNumber(activeOrder.id)}</p>
                                                 <p className="text-[18px] font-bold text-white leading-snug mb-3">
-                                                    {activeLabel[activeOrder.status] ?? activeOrder.status}
+                                                    {activeLabel(activeOrder)}
                                                 </p>
                                                 <p className="text-[12.5px] text-zinc-400 leading-relaxed mb-5 line-clamp-2">
                                                     {activeOrder.items.map((i) => `${i.qty}× ${i.name}`).join(", ")}

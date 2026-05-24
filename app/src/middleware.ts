@@ -19,27 +19,43 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
-// ── Driver token: `<exp>|<id>|<role>|<hmac>` signed with AUTH_JWT_SECRET ──────
-async function verifyDriverToken(token: string): Promise<boolean> {
+// ── Shared HMAC verify ───────────────────────────────────────────────────────
+// Accepts both token formats: legacy 4-segment `<exp>|<id>|<role>|<sig>` and
+// the staff-versioned 5-segment `<exp>|<id>|<role>|<sessionVersion>|<sig>`
+// introduced for credential-rotation invalidation. The middleware only does
+// signature + expiry + role — session_version is validated downstream at the
+// API layer (lib/auth.ts) where a DB lookup is available; doing it here
+// would force every edge request to read Postgres.
+async function verifyToken(token: string, expectedRole: string): Promise<boolean> {
   try {
     const secret = process.env.AUTH_JWT_SECRET ?? process.env.ADMIN_JWT_SECRET ?? "";
     if (!secret) return false;
 
     const parts = token.split("|");
-    if (parts.length !== 4) return false;
-    const [exp, id, role, sig] = parts;
-    if (role !== "driver") return false;
+    let exp: string, id: string, role: string, sig: string;
+    let signedData: string;
+    if (parts.length === 5) {
+      const [e, i, r, v, s] = parts;
+      exp = e; id = i; role = r; sig = s;
+      signedData = `${e}|${i}|${r}|${v}`;
+    } else if (parts.length === 4) {
+      const [e, i, r, s] = parts;
+      exp = e; id = i; role = r; sig = s;
+      signedData = `${e}|${i}|${r}`;
+    } else {
+      return false;
+    }
+    if (role !== expectedRole) return false;
     if (Date.now() > Number(exp)) return false;
 
-    const data = `${exp}|${id}|${role}`;
-    const key  = await crypto.subtle.importKey(
+    const key = await crypto.subtle.importKey(
       "raw",
       new TextEncoder().encode(secret),
       { name: "HMAC", hash: "SHA-256" },
       false,
       ["sign"],
     );
-    const buf      = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
+    const buf      = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signedData));
     const expected = Array.from(new Uint8Array(buf))
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
@@ -50,100 +66,10 @@ async function verifyDriverToken(token: string): Promise<boolean> {
   }
 }
 
-// ── POS token: `<exp>|<id>|pos|<hmac>` signed with AUTH_JWT_SECRET ────────────
-async function verifyPosToken(token: string): Promise<boolean> {
-  try {
-    const secret = process.env.AUTH_JWT_SECRET ?? process.env.ADMIN_JWT_SECRET ?? "";
-    if (!secret) return false;
-
-    const parts = token.split("|");
-    if (parts.length !== 4) return false;
-    const [exp, id, role, sig] = parts;
-    if (role !== "pos") return false;
-    if (Date.now() > Number(exp)) return false;
-
-    const data = `${exp}|${id}|${role}`;
-    const key  = await crypto.subtle.importKey(
-      "raw",
-      new TextEncoder().encode(secret),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"],
-    );
-    const buf      = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
-    const expected = Array.from(new Uint8Array(buf))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-
-    return expected === sig;
-  } catch {
-    return false;
-  }
-}
-
-// ── Kitchen token: `<exp>|<id>|kitchen|<hmac>` signed with AUTH_JWT_SECRET ────
-async function verifyKitchenToken(token: string): Promise<boolean> {
-  try {
-    const secret = process.env.AUTH_JWT_SECRET ?? process.env.ADMIN_JWT_SECRET ?? "";
-    if (!secret) return false;
-
-    const parts = token.split("|");
-    if (parts.length !== 4) return false;
-    const [exp, id, role, sig] = parts;
-    if (role !== "kitchen") return false;
-    if (Date.now() > Number(exp)) return false;
-
-    const data = `${exp}|${id}|${role}`;
-    const key  = await crypto.subtle.importKey(
-      "raw",
-      new TextEncoder().encode(secret),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"],
-    );
-    const buf      = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
-    const expected = Array.from(new Uint8Array(buf))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-
-    return expected === sig;
-  } catch {
-    return false;
-  }
-}
-
-// ── Admin token: `<exp>|<id>|admin|<hmac>` signed with AUTH_JWT_SECRET ───────
-// Unified with the other roles (customer/driver/waiter/kitchen/pos) — uses
-// the same secret env var, same wire format, same verification path.
-async function verifyAdminToken(token: string): Promise<boolean> {
-  try {
-    const secret = process.env.AUTH_JWT_SECRET ?? process.env.ADMIN_JWT_SECRET ?? "";
-    if (!secret) return false;
-
-    const parts = token.split("|");
-    if (parts.length !== 4) return false;
-    const [exp, id, role, sig] = parts;
-    if (role !== "admin") return false;
-    if (Date.now() > Number(exp)) return false;
-
-    const data = `${exp}|${id}|${role}`;
-    const key  = await crypto.subtle.importKey(
-      "raw",
-      new TextEncoder().encode(secret),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"],
-    );
-    const buf      = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
-    const expected = Array.from(new Uint8Array(buf))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-
-    return expected === sig;
-  } catch {
-    return false;
-  }
-}
+const verifyDriverToken  = (t: string) => verifyToken(t, "driver");
+const verifyPosToken     = (t: string) => verifyToken(t, "pos");
+const verifyKitchenToken = (t: string) => verifyToken(t, "kitchen");
+const verifyAdminToken   = (t: string) => verifyToken(t, "admin");
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

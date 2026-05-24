@@ -428,25 +428,43 @@ export default function TableStatusPanel() {
     } catch { /* ignore — UI keeps last good list */ }
   }, [updateSettings]);
 
-  const fetchToday = useCallback(async () => {
-    setLoadingRes(true);
+  // Snapshot of last server response so silent polls can skip setState when
+  // nothing changed. Was the actual cause of the "page refreshing all the
+  // time" flicker in Bug #25 — the Refresh button icon was spinning every 8s
+  // because setLoadingRes(true) fired on every poll tick.
+  const lastResKey = useRef<string>("");
+
+  const fetchToday = useCallback(async (isInitial = false) => {
+    // Only show the spinner on mount / manual refresh, not on background polls.
+    if (isInitial) setLoadingRes(true);
     try {
       const params = new URLSearchParams({ from: todayStr(), to: todayStr() });
       const res = await fetch(`/api/admin/reservations?${params}`);
       const json = await res.json() as { ok: boolean; reservations?: Reservation[] };
-      if (json.ok) setReservations(json.reservations ?? []);
+      if (json.ok) {
+        const next = json.reservations ?? [];
+        const key = JSON.stringify(next);
+        if (key !== lastResKey.current) {
+          lastResKey.current = key;
+          setReservations(next);
+        }
+      }
     } catch (err) {
       console.error("TableStatusPanel fetch:", err);
     } finally {
-      setLoadingRes(false);
+      if (isInitial) setLoadingRes(false);
     }
   }, []);
 
-  useEffect(() => { refreshTables(); fetchToday(); }, [refreshTables, fetchToday]);
+  useEffect(() => { refreshTables(); fetchToday(true); }, [refreshTables, fetchToday]);
 
   // Poll every 8 s — anon supabase realtime no longer fires after RLS revoke.
+  // Silent (no spinner flicker) and skipped when the tab is hidden.
   useEffect(() => {
-    const id = setInterval(fetchToday, 8_000);
+    const id = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      fetchToday();
+    }, 8_000);
     return () => clearInterval(id);
   }, [fetchToday]);
 
@@ -613,7 +631,7 @@ export default function TableStatusPanel() {
 
         <div className="flex items-center gap-2">
           <button
-            onClick={fetchToday}
+            onClick={() => fetchToday(true)}
             disabled={loadingRes}
             className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300 transition"
           >

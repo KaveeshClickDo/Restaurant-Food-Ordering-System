@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
   try {
     const { data: waiter } = await supabaseAdmin
       .from("waiters")
-      .select("id, name, email, pin_hash, active, hourly_rate, avatar_color, created_at")
+      .select("id, name, email, pin_hash, active, hourly_rate, avatar_color, created_at, session_version")
       .eq("id", staffId)
       .eq("active", true)
       .maybeSingle();
@@ -45,9 +45,13 @@ export async function POST(req: NextRequest) {
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { pin_hash: _h, ...safe } = waiter;
+    const { pin_hash: _h, session_version: _v, ...safe } = waiter;
 
-    const token = createSessionToken({ id: staffId, role: "waiter" });
+    const token = createSessionToken({
+      id:             staffId,
+      role:           "waiter",
+      sessionVersion: Number(waiter.session_version ?? 1),
+    });
     const res = NextResponse.json({ ok: true, waiter: safe });
     setSessionCookie(res, COOKIE_WAITER, token);
     return res;

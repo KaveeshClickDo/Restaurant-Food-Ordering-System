@@ -36,6 +36,11 @@ function ZoneCard({
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
   const [editing, setEditing] = useState(false);
+  // Inline two-step delete confirm — matches the pattern used by the driver /
+  // waiter / coupon row cards. Deleting a zone is destructive (it can't be
+  // undone and changes which addresses the store delivers to), so a stray
+  // trash-icon click shouldn't action immediately.
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [draft, setDraft] = useState({
     name: zone.name,
     minRadiusKm: zone.minRadiusKm,
@@ -88,12 +93,31 @@ function ZoneCard({
           >
             <Pencil size={13} />
           </button>
-          <button
-            onClick={onDelete}
-            className="w-8 h-8 flex items-center justify-center rounded-xl bg-gray-100 hover:bg-red-100 hover:text-red-500 text-gray-500 transition"
-          >
-            <Trash2 size={13} />
-          </button>
+          {confirmDelete ? (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={onDelete}
+                className="text-xs bg-red-500 hover:bg-red-600 text-white font-bold px-2.5 py-1.5 rounded-xl transition"
+              >
+                Confirm
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-400 transition"
+                aria-label="Keep zone"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="w-8 h-8 flex items-center justify-center rounded-xl bg-gray-100 hover:bg-red-100 hover:text-red-500 text-gray-500 transition"
+              aria-label="Delete zone"
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
         </div>
       </div>
 

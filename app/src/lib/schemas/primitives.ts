@@ -30,10 +30,17 @@ export const PhoneOrEmpty = z
   .trim()
   .refine((v) => v === "" || phoneShape(v), "Please enter a valid phone number.");
 
-// 4–6 digit PIN — matches existing waiter/kitchen/POS PIN constraints.
+// 4–6 digit PIN — used by kitchen staff.
 export const Pin = z
   .string()
   .regex(/^\d{4,6}$/, "PIN must be 4–6 digits.");
+
+// Exactly 6 digits — waiters. The /waiter login pad enters a fixed-length PIN,
+// so the admin-side create/edit constraint must match the pad exactly or a
+// valid-on-create PIN becomes un-enterable at login.
+export const Pin6 = z
+  .string()
+  .regex(/^\d{6}$/, "PIN must be exactly 6 digits.");
 
 export const Password = z
   .string()

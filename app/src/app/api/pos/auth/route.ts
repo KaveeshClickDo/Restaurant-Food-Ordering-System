@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
 
     const { data: member } = await supabaseAdmin
       .from("pos_staff")
-      .select(`${PUBLIC_COLUMNS}, pin_hash`)
+      .select(`${PUBLIC_COLUMNS}, pin_hash, session_version`)
       .eq("id", staffId)
       .eq("active", true)
       .maybeSingle();
@@ -80,7 +80,11 @@ export async function POST(req: NextRequest) {
     }
 
     const token = createSessionToken(
-      { id: staffId, role: "pos" },
+      {
+        id:             staffId,
+        role:           "pos",
+        sessionVersion: Number(member.session_version ?? 1),
+      },
       POS_SESSION_HOURS * 60 * 60 * 1000,
     );
 

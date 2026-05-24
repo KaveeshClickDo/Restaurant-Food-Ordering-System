@@ -23,6 +23,7 @@ export default function OrderPanel({
     cart, updateCartQty, clearCart,
     subtotal, discountAmount, taxAmount, grandTotal, tipAmount,
     discount, settings, assignedCustomer, currentStaff,
+    kitchenNote, setKitchenNote,
   } = usePOS();
 
   return (
@@ -190,6 +191,17 @@ export default function OrderPanel({
               <span>Total</span><span>{fmt(grandTotal, settings.currencySymbol)}</span>
             </div>
           </div>
+
+          {/* Kitchen note — one note for the whole order; lands in the KDS
+              ticket header alongside [POS] / Customer / Staff / Receipt. */}
+          <input
+            type="text"
+            value={kitchenNote}
+            onChange={(e) => setKitchenNote(e.target.value)}
+            placeholder="Note to kitchen (optional)…"
+            maxLength={300}
+            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 outline-none focus:border-orange-500"
+          />
 
           {/* Charge button */}
           <button

@@ -34,9 +34,12 @@ export default function FavouritesPage() {
     void nowTick;
 
     const favIds = new Set(currentUser?.favourites ?? []);
-    // Customer site = online channel. A favourited item that's now in-store
-    // only just falls out of the list — orderable favourites only.
-    const favItems = menuItems.filter((m) => favIds.has(m.id) && isOnChannel(m, "online"));
+    // Bug #23 — keep favourited items visible even when admin has disabled
+    // the online channel for them; just disable ordering and show a clear
+    // "Not available online" badge instead of silently removing the card.
+    // Items deleted from the menu naturally drop out (favIds.has won't match
+    // any row in menuItems).
+    const favItems = menuItems.filter((m) => favIds.has(m.id));
 
     // For each favourited item, figure out if it's currently orderable based
     // on its meal-period tags. Items with no tags are always orderable.
@@ -175,15 +178,21 @@ export default function FavouritesPage() {
                                     const stockStatus = resolveStock(item);
                                     const outOfStock = stockStatus === "out_of_stock";
                                     const mp = mealPeriodAvailability(item);
+                                    // Item exists but admin has removed the online channel — keep
+                                    // it on the list so the customer doesn't silently lose their
+                                    // saved favourite, but block ordering until it's re-enabled.
+                                    const offlineOnly = !isOnChannel(item, "online");
                                     // Stock check wins if both apply; meal-period
                                     // unavailability shows the time hint instead.
-                                    const dimmed = outOfStock || !mp.orderable;
-                                    const canAdd = (isOpen || !!settings.restaurant) && !outOfStock && mp.orderable;
+                                    const dimmed = outOfStock || !mp.orderable || offlineOnly;
+                                    const canAdd = (isOpen || !!settings.restaurant) && !outOfStock && mp.orderable && !offlineOnly;
                                     const buttonLabel = outOfStock
                                       ? "Unavailable"
-                                      : !mp.orderable
-                                        ? (mp.label ?? "Currently unavailable")
-                                        : "Add to order";
+                                      : offlineOnly
+                                        ? "Not available online"
+                                        : !mp.orderable
+                                          ? (mp.label ?? "Currently unavailable")
+                                          : "Add to order";
                                     return (
                                         <div key={item.id} className="bg-white rounded-2xl border border-zinc-200/70 shadow-sm overflow-hidden group flex flex-col">
                                             {/* Image */}
@@ -209,6 +218,11 @@ export default function FavouritesPage() {
                                                 {!outOfStock && !mp.orderable && mp.label && (
                                                     <span className="absolute bottom-2.5 left-2.5 flex items-center gap-1 bg-white/95 backdrop-blur-sm text-amber-700 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-amber-200 shadow-sm">
                                                         <Clock className="w-3 h-3" /> {mp.label}
+                                                    </span>
+                                                )}
+                                                {!outOfStock && offlineOnly && (
+                                                    <span className="absolute bottom-2.5 left-2.5 flex items-center gap-1 bg-white/95 backdrop-blur-sm text-zinc-600 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-zinc-200 shadow-sm">
+                                                        Not available online
                                                     </span>
                                                 )}
                                             </div>

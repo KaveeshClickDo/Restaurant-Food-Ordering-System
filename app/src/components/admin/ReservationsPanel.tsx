@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import type { Reservation, ReservationStatus } from "@/types";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import {
   CalendarDays, Clock, Users, UtensilsCrossed, CheckCircle2, XCircle,
   AlertTriangle, Trash2, RefreshCw, MapPin, ChevronDown, Loader2,
@@ -238,12 +239,24 @@ function ReservationCard({
   const cfg = STATUS_CONFIG[res.status];
   const [actioning, setActioning] = useState(false);
   const [menuOpen,  setMenuOpen]  = useState(false);
+  // Two-step confirmation for destructive actions (cancel-the-booking and
+  // delete-the-row). Other status changes — check-in, check-out, confirm,
+  // mark no-show — are reversible and stay one-click.
+  const [confirmIntent, setConfirmIntent] = useState<"cancel" | "delete" | null>(null);
 
   async function doAction(fn: () => Promise<void>) {
     setActioning(true);
     setMenuOpen(false);
     await fn();
     setActioning(false);
+  }
+
+  function runConfirmedAction() {
+    if (!confirmIntent) return;
+    const intent = confirmIntent;
+    setConfirmIntent(null);
+    if (intent === "cancel") doAction(() => onStatusChange(res.id, "cancelled"));
+    else doAction(() => onDelete(res.id));
   }
 
   const isActive    = res.status === "pending" || res.status === "confirmed";
@@ -422,7 +435,7 @@ function ReservationCard({
                       )}
                       {(isActive || isCheckedIn) && (
                         <button
-                          onClick={() => doAction(() => onStatusChange(res.id, "cancelled"))}
+                          onClick={() => { setMenuOpen(false); setConfirmIntent("cancel"); }}
                           className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition"
                         >
                           <XCircle size={14} /> Cancel
@@ -430,7 +443,7 @@ function ReservationCard({
                       )}
                       <div className="border-t border-gray-100 my-1" />
                       <button
-                        onClick={() => doAction(() => onDelete(res.id))}
+                        onClick={() => { setMenuOpen(false); setConfirmIntent("delete"); }}
                         className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition"
                       >
                         <Trash2 size={14} /> Delete
@@ -443,6 +456,22 @@ function ReservationCard({
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmIntent !== null}
+        tone="danger"
+        title={confirmIntent === "delete" ? "Delete this reservation?" : "Cancel this reservation?"}
+        message={
+          confirmIntent === "delete"
+            ? `${res.customerName}'s booking on ${res.date} at ${res.time} will be permanently removed from the system.`
+            : `${res.customerName}'s booking on ${res.date} at ${res.time} will be marked as cancelled and the table will be released.`
+        }
+        confirmLabel={confirmIntent === "delete" ? "Delete" : "Cancel booking"}
+        cancelLabel={confirmIntent === "delete" ? "Keep" : "Keep booking"}
+        busy={actioning}
+        onConfirm={runConfirmedAction}
+        onCancel={() => setConfirmIntent(null)}
+      />
     </div>
   );
 }
@@ -537,6 +566,12 @@ export default function ReservationsPanel() {
 
   // isInitial=true shows the spinner (mount, filter change, manual refresh).
   // Default silent so background polls don't tear down the visible list.
+  // Snapshot of the last server response, JSON-encoded. Bug #25 — without
+  // this, the silent background poll calls setReservations with a fresh
+  // array reference on every tick even when the data hasn't changed, which
+  // re-renders the entire list and visibly flickers child components.
+  const lastDataKey = useRef<string>("");
+
   const fetchReservations = useCallback(async (isInitial = false) => {
     if (isInitial) setLoading(true);
     try {
@@ -545,7 +580,17 @@ export default function ReservationsPanel() {
       if (filterStatus) params.set("status", filterStatus);
       const res = await fetch(`/api/admin/reservations?${params}`);
       const json = await res.json() as { ok: boolean; reservations?: Reservation[]; error?: string };
-      if (json.ok) setReservations(json.reservations ?? []);
+      if (json.ok) {
+        const next = json.reservations ?? [];
+        const key = JSON.stringify(next);
+        // Skip the state update entirely if the payload is byte-identical to
+        // the last one — React would otherwise re-render the whole list for
+        // an array reference that holds the same contents.
+        if (key !== lastDataKey.current) {
+          lastDataKey.current = key;
+          setReservations(next);
+        }
+      }
     } catch (err) {
       console.error("ReservationsPanel fetch:", err);
     } finally {
@@ -556,9 +601,13 @@ export default function ReservationsPanel() {
   useEffect(() => { fetchReservations(true); }, [fetchReservations]);
 
   // Poll every 8 s — anon supabase realtime no longer fires after RLS revoke.
-  // Silent (default) so the list doesn't flicker on each tick.
+  // Silent (default) so the list doesn't flicker on each tick. Skip polls
+  // when the tab is hidden to avoid waking idle sessions.
   useEffect(() => {
-    const id = setInterval(() => fetchReservations(), 8_000);
+    const id = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      fetchReservations();
+    }, 8_000);
     return () => clearInterval(id);
   }, [fetchReservations]);
 

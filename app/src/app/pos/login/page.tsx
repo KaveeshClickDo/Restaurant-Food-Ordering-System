@@ -37,10 +37,10 @@ export default function POSLoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   function pressDigit(d: string) {
-    if (pin.length >= 4 || submitting) return;
+    if (pin.length >= 6 || submitting) return;
     const next = pin + d;
     setPin(next);
-    if (next.length === 4) {
+    if (next.length === 6) {
       // Auto-submit
       setTimeout(() => attemptLogin(next), 100);
     }
@@ -154,8 +154,8 @@ export default function POSLoginPage() {
           </div>
 
           {/* PIN dots */}
-          <div className={`flex justify-center gap-4 mb-6 ${shaking ? "animate-[shake_0.5s_ease-in-out]" : ""}`}>
-            {[0,1,2,3].map((i) => (
+          <div className={`flex justify-center gap-3 mb-6 ${shaking ? "animate-[shake_0.5s_ease-in-out]" : ""}`}>
+            {[0,1,2,3,4,5].map((i) => (
               <div
                 key={i}
                 className={`w-4 h-4 rounded-full border-2 transition-all duration-150 ${
