@@ -293,7 +293,7 @@ export default function ReservationsView() {
             <UserPlus size={13} /> Add Walk-in
           </button>
           <button
-            onClick={() => fetchRows(false)}
+            onClick={() => fetchRows(true)}
             disabled={initialLoading}
             className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl px-3 py-2 text-slate-300 text-xs font-medium transition"
           >

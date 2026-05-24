@@ -64,6 +64,10 @@ interface AppContextValue {
   cartCount: number;
   settings: AdminSettings;
   updateSettings: (patch: Partial<AdminSettings>) => void;
+  /** Re-fetch dining tables into settings.diningTables (no server write).
+   *  Poll this on surfaces that gate UI on the table list (POS, waiter) so
+   *  admin add/remove-table changes show without a full reload. */
+  refreshDiningTables: () => Promise<void>;
   isOpen: boolean;
   fulfillment: "delivery" | "collection";
   setFulfillment: (f: "delivery" | "collection") => void;
@@ -145,6 +149,11 @@ interface AppContextValue {
    */
   addRefund: (customerId: string, orderId: string, refund: Refund, newStatus?: OrderStatus) => void;
   spendStoreCredit: (customerId: string, amount: number, orderId: string) => void;
+  /** Local-only optimistic deduction. Use when the deduction is being handled
+   *  server-side elsewhere (e.g. Stripe/PayPal webhooks deduct after order
+   *  insert) — there's no order id yet on the client, so calling
+   *  `spendStoreCredit` would 404 against an order that doesn't exist. */
+  applyStoreCreditOptimistic: (customerId: string, amount: number) => void;
   // ─── Meal periods ─────────────────────────────────────────────────────────
   // Time-bounded customer-menu sections (Breakfast, Lunch, Dinner…). Items
   // reference these via MenuItem.mealPeriodIds. Many-to-many.
@@ -499,78 +508,100 @@ export function AppProvider({
   // ── Session data: cart, user, driver stay in localStorage ─────────────────
 
   useEffect(() => {
+    // Scope the session probes to the surface that actually uses each session,
+    // so we don't fire (and 401) on pages that have no business with that role.
+    //  • driver session  → only /driver (currentDriver is read only there)
+    //  • customer session → only the storefront (site) routes (currentUser is
+    //    never read on pos / kitchen / driver / admin)
+    // The cart restore below runs everywhere (it's role-agnostic, no network).
+    const path = typeof window !== "undefined" ? window.location.pathname : "";
+    const isDriverRoute  = path.startsWith("/driver");
+    const isCustomerSite = !isDriverRoute
+      && !path.startsWith("/admin")
+      && !path.startsWith("/pos")
+      && !path.startsWith("/kitchen");
+
     try {
       const c = localStorage.getItem("sg_cart");
       if (c) (JSON.parse(c) as CartItem[]).forEach((item) => dispatch({ type: "ADD", item }));
-      const d = localStorage.getItem("sg_driver_session");
-      if (d) {
-        setCurrentDriver(JSON.parse(d));
-        // Verify the cookie is still valid; clear stale localStorage AND the
-        // server cookie if not (fresh DB / deactivated / session_version bump).
-        // Without the server-side clear the cookie keeps fooling middleware
-        // on the next nav, looping the driver into a slow auth retry.
-        fetch("/api/auth/driver", { method: "GET" })
-          .then(async (r) => {
-            if (!r.ok) {
-              setCurrentDriver(null);
-              localStorage.removeItem("sg_driver_session");
+
+      if (isDriverRoute) {
+        const d = localStorage.getItem("sg_driver_session");
+        if (d) {
+          setCurrentDriver(JSON.parse(d));
+          // Verify the cookie is still valid; clear stale localStorage AND the
+          // server cookie if not (fresh DB / deactivated / session_version bump).
+          // Without the server-side clear the cookie keeps fooling middleware
+          // on the next nav, looping the driver into a slow auth retry.
+          fetch("/api/auth/driver", { method: "GET" })
+            .then(async (r) => {
+              if (!r.ok) {
+                setCurrentDriver(null);
+                localStorage.removeItem("sg_driver_session");
+                await fetch("/api/auth/driver/logout", { method: "POST" }).catch(() => {});
+              }
+            })
+            .catch(() => {})
+            .finally(() => setDriverAuthChecked(true));
+        } else {
+          // No localStorage — try fetching the driver profile from the session cookie.
+          // This restores currentDriver when localStorage has been cleared but the
+          // cookie is still valid (e.g. after clearing site data or on a new tab).
+          fetch("/api/auth/driver/me")
+            .then(async (r) => {
+              if (r.ok) return r.json() as Promise<{ ok: boolean; driver?: import("@/types").Driver }>;
+              // 401 with a present cookie = stale signed token (fresh DB, deleted
+              // driver, etc.). Drop it now so the driver lands on /driver/login
+              // immediately instead of after the legacy 4 s fallback timer.
               await fetch("/api/auth/driver/logout", { method: "POST" }).catch(() => {});
-            }
-          })
-          .catch(() => {})
-          .finally(() => setDriverAuthChecked(true));
-      } else {
-        // No localStorage — try fetching the driver profile from the session cookie.
-        // This restores currentDriver when localStorage has been cleared but the
-        // cookie is still valid (e.g. after clearing site data or on a new tab).
-        fetch("/api/auth/driver/me")
-          .then(async (r) => {
-            if (r.ok) return r.json() as Promise<{ ok: boolean; driver?: import("@/types").Driver }>;
-            // 401 with a present cookie = stale signed token (fresh DB, deleted
-            // driver, etc.). Drop it now so the driver lands on /driver/login
-            // immediately instead of after the legacy 4 s fallback timer.
-            await fetch("/api/auth/driver/logout", { method: "POST" }).catch(() => {});
-            return null;
-          })
-          .then((json) => {
-            if (json?.ok && json.driver) {
-              setCurrentDriver(json.driver);
-              localStorage.setItem("sg_driver_session", JSON.stringify(json.driver));
-            }
-          })
-          .catch(() => {})
-          .finally(() => setDriverAuthChecked(true));
+              return null;
+            })
+            .then((json) => {
+              if (json?.ok && json.driver) {
+                setCurrentDriver(json.driver);
+                localStorage.setItem("sg_driver_session", JSON.stringify(json.driver));
+              }
+            })
+            .catch(() => {})
+            .finally(() => setDriverAuthChecked(true));
+        }
       }
+
       // Restore last-known customer instantly so the account page renders on first
       // click without waiting for the network. The fetch below verifies the session
-      // and merges fresh data (stale-while-revalidate pattern).
-      const u = localStorage.getItem("sg_current_user");
-      if (u) setCurrentUser(JSON.parse(u) as Customer);
+      // and merges fresh data (stale-while-revalidate pattern). Storefront only.
+      if (isCustomerSite) {
+        const u = localStorage.getItem("sg_current_user");
+        if (u) setCurrentUser(JSON.parse(u) as Customer);
+      }
     } catch { /* ignore */ }
-    // Verify session via httpOnly cookie and sync fresh data from the server.
-    fetch("/api/auth/me", { cache: "no-store" })
-      .then((r) => r.ok ? r.json() : null)
-      .then((json: { ok: boolean; customer?: Customer } | null) => {
-        if (!json?.ok || !json.customer) {
-          // Session invalid or expired — clear any stale cached user.
-          setCurrentUser(null);
-          return;
-        }
-        const serverOrders: Order[] = json.customer.orders ?? [];
-        const serverIds = new Set(serverOrders.map((o) => o.id));
-        setCurrentUser((prev) => {
-          const localOnly: Order[] = (prev && prev.id === json.customer!.id)
-            ? prev.orders.filter((o) => !serverIds.has(o.id))
-            : [];
-          return {
-            ...json.customer!,
-            orders: [...localOnly, ...serverOrders].sort(
-              (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-            ),
-          };
-        });
-      })
-      .catch(() => {});
+
+    // Verify customer session via httpOnly cookie — storefront routes only.
+    if (isCustomerSite) {
+      fetch("/api/auth/me", { cache: "no-store" })
+        .then((r) => r.ok ? r.json() : null)
+        .then((json: { ok: boolean; customer?: Customer } | null) => {
+          if (!json?.ok || !json.customer) {
+            // Session invalid or expired — clear any stale cached user.
+            setCurrentUser(null);
+            return;
+          }
+          const serverOrders: Order[] = json.customer.orders ?? [];
+          const serverIds = new Set(serverOrders.map((o) => o.id));
+          setCurrentUser((prev) => {
+            const localOnly: Order[] = (prev && prev.id === json.customer!.id)
+              ? prev.orders.filter((o) => !serverIds.has(o.id))
+              : [];
+            return {
+              ...json.customer!,
+              orders: [...localOnly, ...serverOrders].sort(
+                (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+              ),
+            };
+          });
+        })
+        .catch(() => {});
+    }
   }, []);
 
   useEffect(() => { localStorage.setItem("sg_cart", JSON.stringify(cart)); }, [cart]);
@@ -613,15 +644,20 @@ export function AppProvider({
           await supabase.from("app_settings").insert({ id: 1, data: DEFAULT_SETTINGS });
         }
 
-        // Drivers — fetched via server API, not from app_settings
-        try {
-          const driversRes = await fetch("/api/admin/drivers");
-          if (driversRes.ok) {
-            const { drivers: loaded } = await driversRes.json() as { drivers: Driver[] };
-            setDrivers(loaded ?? []);
+        // Drivers — admin-only data (DriversPanel + admin dashboard are the
+        // only consumers). Skip on every other surface so we don't fire a 401
+        // on pos / kitchen / driver / storefront pages that never read it.
+        const onAdminRoute = typeof window !== "undefined" && window.location.pathname.startsWith("/admin");
+        if (onAdminRoute) {
+          try {
+            const driversRes = await fetch("/api/admin/drivers");
+            if (driversRes.ok) {
+              const { drivers: loaded } = await driversRes.json() as { drivers: Driver[] };
+              setDrivers(loaded ?? []);
+            }
+          } catch (err) {
+            console.error("AppContext: failed to load drivers:", err);
           }
-        } catch (err) {
-          console.error("AppContext: failed to load drivers:", err);
         }
 
         // dining_tables — moved out of app_settings.data.diningTables.
@@ -843,6 +879,27 @@ export function AppProvider({
       return next;
     }),
   []);
+
+  // Re-fetch dining_tables into settings.diningTables WITHOUT a server write.
+  // dining_tables has no realtime subscription (and anon realtime is dead post
+  // RLS-revoke), so surfaces that gate UI on the table list — the POS Table
+  // Service / Reservations tabs, the waiter grid — go stale after an admin
+  // adds/removes a table until a full reload. Callers poll this to stay live.
+  // No-op-if-unchanged so it never causes a spurious re-render.
+  const refreshDiningTables = useCallback(async () => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: tableRows } = await (supabase as any)
+        .from("dining_tables")
+        .select("id, label, number, seats, section, active, sort_order")
+        .order("sort_order", { ascending: true });
+      if (!Array.isArray(tableRows)) return;
+      setSettings((prev) => {
+        if (JSON.stringify(prev.diningTables ?? []) === JSON.stringify(tableRows)) return prev;
+        return { ...prev, diningTables: tableRows };
+      });
+    } catch { /* keep last-known */ }
+  }, []);
 
   // Internal helper: functional update + server-side persist.
   // Use this instead of setSettings directly for any mutation that must survive a refresh.
@@ -1107,6 +1164,24 @@ export function AppProvider({
     }).then(async (r) => {
       if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("addRefund:", j.error); }
     }).catch((e) => console.error("addRefund:", e));
+  };
+
+  // Pure-local mirror of the optimistic-update half of spendStoreCredit.
+  // Used by the card / PayPal checkout paths where the order hasn't been
+  // inserted yet (the webhook does that asynchronously) — calling the
+  // server-side endpoint here would 404. The actual balance deduction is
+  // handled by the webhook on insert; this just keeps the UI in sync.
+  const applyStoreCreditOptimistic = (customerId: string, amount: number) => {
+    setCurrentUser((prev) => {
+      if (!prev || prev.id !== customerId) return prev;
+      const newBalance = Math.max(0, (prev.storeCredit ?? 0) - amount);
+      return { ...prev, storeCredit: newBalance };
+    });
+    setCustomers((prev) => prev.map((c) => {
+      if (c.id !== customerId) return c;
+      const newBalance = Math.max(0, (c.storeCredit ?? 0) - amount);
+      return { ...c, storeCredit: newBalance };
+    }));
   };
 
   const spendStoreCredit = (customerId: string, amount: number, orderId: string) => {
@@ -1704,7 +1779,7 @@ export function AppProvider({
     <AppContext.Provider
       value={{
         cart, addToCart, removeFromCart, updateQty, clearCart, cartTotal, cartCount,
-        settings, updateSettings, isOpen,
+        settings, updateSettings, refreshDiningTables, isOpen,
         fulfillment, setFulfillment, scheduledTime, setScheduledTime,
         categories, menuItems,
         addCategory, updateCategory, deleteCategory, reorderCategories,
@@ -1721,7 +1796,7 @@ export function AppProvider({
         drivers,
         currentDriver, driverAuthChecked, driverLogin, driverLogout,
         addDriver, updateDriver, deleteDriver, toggleDriver,
-        assignDriverToOrder, updateDeliveryStatus, addRefund, spendStoreCredit,
+        assignDriverToOrder, updateDeliveryStatus, addRefund, spendStoreCredit, applyStoreCreditOptimistic,
         mealPeriods, addMealPeriod, updateMealPeriod, deleteMealPeriod, reorderMealPeriods,
         refreshCurrentUser,
         loadAllCustomers,

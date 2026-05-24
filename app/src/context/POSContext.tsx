@@ -393,6 +393,11 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // to hydrate this from the server. localStorage is no longer trusted for
   // identity — only for non-auth UI state caches.
   const [currentStaff, setCurrentStaff] = useState<POSStaff | null>(null);
+  // Mirror of currentStaff readable from inside effects/timers without
+  // re-subscribing them. Kept in sync just below. Used by the self-check poll
+  // and the menu-sync gate so neither has to depend on currentStaff directly.
+  const currentStaffRef = useRef<POSStaff | null>(null);
+  useEffect(() => { currentStaffRef.current = currentStaff; }, [currentStaff]);
   const [staff, setStaff] = useState<POSStaff[]>([]);
   const [products, setProducts] = useState<POSProduct[]>(() =>
     load<POSProduct[]>("pos_products", SEED_PRODUCTS)
@@ -666,6 +671,10 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     if (hash === lastSyncedHash.current) return; // nothing actually changed
+    // No POS session = no permission to write the menu. Pushing here would
+    // 401 on the login screen (the menu still loads read-only via realtime).
+    // Only an authenticated manager editing the menu should trigger a sync.
+    if (!currentStaffRef.current) return;
     if (menuSyncTimer.current) clearTimeout(menuSyncTimer.current);
     menuSyncTimer.current = setTimeout(() => {
       syncMenuToSupabase(products, categories);
@@ -763,39 +772,59 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Periodic self-check via /api/pos/auth — uses the kitchen-only session
+  // Periodic self-check via /api/pos/auth — uses the POS-only session
   // (getPosSession in lib/auth, which validates session_version + active
   // against the DB). On 401 we log out + send the terminal back to the PIN
   // picker, so an admin PIN/email/active change kicks the cashier within
   // ~15 s. On success we refresh currentStaff so profile edits (name,
   // avatar, permissions) appear live without a sign-out.
+  //
+  // currentStaff is read via a ref so this effect mounts ONCE and the
+  // interval ticks every 15 s — putting it in the deps caused a tight loop
+  // (every success bumped state → effect re-ran → immediate refetch).
+  // setCurrentStaff is also gated on byte-equal data so a no-op update
+  // doesn't fan out into re-renders for every downstream subscriber.
+  const initialAuthChecked = useRef(false);
   useEffect(() => {
     let active = true;
+    let lastStaffKey = "";
 
     async function checkSession() {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      // Once we've established there's no session, stop probing — the poll
+      // only exists to catch invalidation of an ACTIVE session. This avoids a
+      // needless 401 every 15 s on the /pos/login screen. The very first probe
+      // still runs so a valid cookie hydrates currentStaff on load; after
+      // login, currentStaffRef becomes non-null and probing resumes.
+      if (initialAuthChecked.current && currentStaffRef.current === null) return;
       try {
         const r = await fetch("/api/pos/auth", { cache: "no-store" });
         if (!active) return;
+        initialAuthChecked.current = true;
         if (r.status === 401) {
-          // Stale or version-mismatched session — clear local state and bounce
-          // to the PIN picker. Don't loop the check once we're already null.
-          if (currentStaff !== null) {
+          if (currentStaffRef.current !== null) {
             setCurrentStaff(null);
+            lastStaffKey = "";
             fetch("/api/pos/auth", { method: "DELETE" }).catch(() => {});
             router.replace("/pos/login");
           }
           return;
         }
         const d = await r.json() as { ok: boolean; staff?: POSStaff };
-        if (active && d.ok && d.staff) setCurrentStaff(d.staff);
+        if (active && d.ok && d.staff) {
+          const key = JSON.stringify(d.staff);
+          if (key !== lastStaffKey) {
+            lastStaffKey = key;
+            setCurrentStaff(d.staff);
+          }
+        }
       } catch { /* network blip — keep last-known */ }
     }
 
     checkSession();
     const id = setInterval(checkSession, 15_000);
     return () => { active = false; clearInterval(id); };
-  }, [router, currentStaff]);
+  }, [router]);
 
   const logout = useCallback(() => {
     setCurrentStaff(null);

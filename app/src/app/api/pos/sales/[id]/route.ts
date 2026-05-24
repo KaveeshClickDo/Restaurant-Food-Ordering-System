@@ -95,14 +95,33 @@ export async function PATCH(
 
   // Also flip the KDS-side orders row so kitchen + admin see the void
   // immediately. Failure here is non-fatal — pos_sales is the audit truth.
+  //
+  // Bug #1 (refunds): also propagate refund state to the mirror order. Without
+  // these fields the admin Finance Reports / Refunds / Payments panels — which
+  // read from `orders` (not `pos_sales`) — can't tell the sale was refunded.
+  // `isMoneyBearing` in OnlineReportsPanel excludes cancelled rows whose
+  // payment_status isn't paid/refunded/partially_refunded, so without stamping
+  // payment_status here the sale + its refund silently disappear from finance.
+  const orderPatch: Record<string, unknown> = {
+    status:      "cancelled",
+    voided_by:   actor?.id ?? "admin",
+    void_reason: reason,
+    voided_at:   new Date().toISOString(),
+  };
+  if (refundAmount !== null) {
+    // Fetch sale total so partial refunds get the right payment_status. The
+    // sale is voided regardless of refund amount, but the refund itself can
+    // be full or partial.
+    const { data: saleRow } = await supabaseAdmin
+      .from("pos_sales").select("total").eq("id", id).maybeSingle();
+    const saleTotal = Number(saleRow?.total ?? 0);
+    const isFullRefund = refundAmount >= saleTotal - 0.001;
+    orderPatch.refunded_amount = refundAmount;
+    orderPatch.payment_status  = isFullRefund ? "refunded" : "partially_refunded";
+  }
   await supabaseAdmin
     .from("orders")
-    .update({
-      status:      "cancelled",
-      voided_by:   actor?.id ?? "admin",
-      void_reason: reason,
-      voided_at:   new Date().toISOString(),
-    })
+    .update(orderPatch)
     .eq("id", id);
 
   return NextResponse.json({ ok: true, id: updated.id });

@@ -20,11 +20,22 @@ interface RawOrder {
   id:              string;
   date:            string;
   status:          string;
+  payment_status:  string | null;
   total:           number;
   items:           { name: string; qty: number; price: number }[] | null;
   note:            string | null;
   fulfillment:     string | null;
   payment_method:  string | null;
+}
+
+// Cancelled-but-refunded must surface both states — a bare "Cancelled" badge
+// hides the fact that the customer's money already went back (QA #37).
+function statusLabel(o: RawOrder): string {
+  const base = STATUS_CONFIG[o.status]?.label ?? o.status;
+  if (o.status !== "cancelled") return base;
+  if (o.payment_status === "refunded")           return "Cancelled · Refunded";
+  if (o.payment_status === "partially_refunded") return "Cancelled · Partial refund";
+  return base;
 }
 
 const STATUS_CONFIG: Record<string, { label: string; badge: string; dot: string; icon: React.ReactNode }> = {
@@ -93,7 +104,7 @@ function OrderCard({ o, source, sym }: { o: RawOrder; source: Source; sym: strin
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-bold text-gray-900 text-sm">{orderLabel(o, source)}</span>
           <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${cfg.badge}`}>
-            {cfg.icon} {cfg.label}
+            {cfg.icon} {statusLabel(o)}
           </span>
           <span className="text-xs text-gray-400 flex items-center gap-1"><Clock size={10} /> {fmtTime(o.date)}</span>
         </div>

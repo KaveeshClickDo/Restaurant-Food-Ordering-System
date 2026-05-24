@@ -89,6 +89,20 @@ function isRefundEligible(o: Order): boolean {
 }
 
 /**
+ * Is this an online order? This panel is "Online Refunds" — POS counter sales
+ * (handled by the cashier via /pos void+refund) and dine-in (handled by the
+ * waiter via /pos dine-in actions) must NOT appear here, even when the POS
+ * mirror order has refund fields stamped. Identifiers:
+ *   • dine-in waiter orders → fulfillment === "dine-in"
+ *   • POS counter sales     → note prefixed "[POS]" by the sales writer
+ */
+function isOnlineOrder(o: Order): boolean {
+  if (o.fulfillment === "dine-in") return false;
+  if ((o.note ?? "").startsWith("[POS]")) return false;
+  return true;
+}
+
+/**
  * The refund state of an order, independent of fulfillment.
  *
  * Source of truth is `paymentStatus`, which the admin refund flow sets while
@@ -553,9 +567,11 @@ export default function RefundsPanel() {
   const [toast,       setToast]       = useState<string | null>(null);
 
   // Flatten all eligible orders across all customers — see isRefundEligible.
+  // POS counter / dine-in orders are excluded — this panel is online-only.
   const allEligible = useMemo(() => {
     return customers.flatMap((c) =>
       c.orders
+        .filter(isOnlineOrder)
         .filter(isRefundEligible)
         .map((o) => ({ order: o, customerName: c.name, customerId: c.id }))
     ).sort((a, b) => new Date(b.order.date).getTime() - new Date(a.order.date).getTime());

@@ -108,6 +108,27 @@ export async function POST(request: Request) {
 
   const parsed = await parseBody(request, PosStaffCreateSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+
+  // F-INS-6 (extended): POS managers with canManageStaff can create cashiers,
+  // but role/permission elevation must go through the website-admin session —
+  // otherwise a manager could bootstrap an admin row and self-promote.
+  // The PATCH route already enforces this; POST was the remaining gap.
+  const isWebsiteAdmin = await isAdminAuthenticated();
+  if (!isWebsiteAdmin) {
+    if (parsed.data.role && parsed.data.role !== "cashier") {
+      return NextResponse.json(
+        { ok: false, error: "Only an admin can create manager or admin staff." },
+        { status: 403 },
+      );
+    }
+    if (parsed.data.permissions !== undefined) {
+      return NextResponse.json(
+        { ok: false, error: "Only an admin can set custom permissions." },
+        { status: 403 },
+      );
+    }
+  }
+
   const { name, email = "", role = "cashier", pin,
           active = true, permissions, hourlyRate, avatarColor } = parsed.data;
 

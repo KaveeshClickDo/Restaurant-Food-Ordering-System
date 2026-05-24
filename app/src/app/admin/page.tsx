@@ -343,12 +343,12 @@ function AdminPageContent() {
     }
   }
 
-  // Auto-logout after 15 minutes of inactivity. Admin sessions carry the most
+  // Auto-logout after 30 minutes of inactivity. Admin sessions carry the most
   // power in the system, so an unattended browser tab is the highest-risk
   // session to leave alive.
   useIdleLogout({
     enabled:   adminAuthed === true,
-    timeoutMs: 15 * 60 * 1000,
+    timeoutMs: 30 * 60 * 1000,
     onIdle:    handleLogout,
   });
 

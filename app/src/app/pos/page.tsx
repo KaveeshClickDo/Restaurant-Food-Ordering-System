@@ -23,10 +23,21 @@ import ReservationsView from "@/components/pos/ReservationsView";
 export default function POSPage() {
   const router = useRouter();
   const { currentStaff, logout, settings } = usePOS();
-  const { settings: appSettings } = useApp();
+  const { settings: appSettings, refreshDiningTables } = useApp();
   const [view, setView] = useState<View>("sale");
   const [time, setTime] = useState(""); // empty string on SSR, filled after mount
   const [mounted, setMounted] = useState(false);
+
+  // Keep the dining-table list live so the Table Service / Reservations tabs
+  // appear/disappear when an admin adds or removes tables — without needing a
+  // full reload (Bug #34/#40). dining_tables has no realtime, so we poll.
+  useEffect(() => {
+    refreshDiningTables();
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") refreshDiningTables();
+    }, 15_000);
+    return () => clearInterval(id);
+  }, [refreshDiningTables]);
 
   // ── Connectivity ──────────────────────────────────────────────────────────
   // Sales go straight to the server (no offline queue), so the only thing

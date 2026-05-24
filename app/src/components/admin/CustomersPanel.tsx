@@ -32,6 +32,16 @@ const STATUS_CONFIG: Record<OrderStatus, { label: string; className: string; ico
   partially_refunded: { label: "Partially Refunded", className: "bg-cyan-50 text-cyan-700 border-cyan-200",   icon: <RotateCcw size={11} className="text-cyan-600" /> },
 };
 
+// Cancelled-but-refunded must surface both states — a bare "Cancelled" badge
+// hides the fact that the customer's money already went back (QA #37).
+function orderStatusLabel(o: { status: OrderStatus; paymentStatus?: string | null }): string {
+  const base = STATUS_CONFIG[o.status]?.label ?? String(o.status);
+  if (o.status !== "cancelled") return base;
+  if (o.paymentStatus === "refunded")           return "Cancelled · Refunded";
+  if (o.paymentStatus === "partially_refunded") return "Cancelled · Partial refund";
+  return base;
+}
+
 const ORDER_STATUS_FLOW: OrderStatus[] = ["pending", "confirmed", "preparing", "ready", "delivered"];
 
 const TAG_COLORS: Record<string, string> = {
@@ -532,7 +542,7 @@ function ReceiptModal({
               <div className="flex justify-between">
                 <span className="text-gray-500">Status</span>
                 <span className={`font-semibold ${STATUS_CONFIG[order.status].className.split(" ").find((c) => c.startsWith("text-")) ?? "text-gray-900"}`}>
-                  {STATUS_CONFIG[order.status].label}
+                  {orderStatusLabel(order)}
                 </span>
               </div>
             </div>
@@ -1049,7 +1059,7 @@ function CustomerDrawer({
                         <div className="flex items-center gap-2 flex-wrap">
                           <span title={fullOrderNumber(order.id)} className="text-xs font-mono text-gray-400 truncate max-w-[140px]">{fullOrderNumber(order.id)}</span>
                           <span className={`flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${cfg.className}`}>
-                            {cfg.icon} {cfg.label}
+                            {cfg.icon} {orderStatusLabel(order)}
                           </span>
                           <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
                             order.fulfillment === "delivery"

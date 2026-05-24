@@ -17,7 +17,7 @@ const TABLE_STATE_STYLES: Record<TableState, { card: string; badge: string; labe
 };
 
 export default function TableStatusView() {
-  const { settings: appSettings } = useApp();
+  const { settings: appSettings, refreshDiningTables } = useApp();
   const tables = (appSettings.diningTables ?? []).filter((t) => t.active);
 
   const [reservations,   setReservations]   = useState<ResRow[]>([]);
@@ -128,7 +128,7 @@ export default function TableStatusView() {
             </select>
           )}
           <button
-            onClick={() => fetchToday(false)}
+            onClick={() => { refreshDiningTables(); fetchToday(true); }}
             disabled={initialLoading}
             className="flex items-center gap-1.5 bg-slate-800 border border-slate-600 text-slate-300 hover:text-white text-sm px-3 py-1.5 rounded-xl transition"
           >

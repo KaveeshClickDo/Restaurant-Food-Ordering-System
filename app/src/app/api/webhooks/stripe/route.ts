@@ -205,6 +205,33 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
     }
   }
 
+  // Store credit deduction — the order row carries store_credit_used from the
+  // browser; the customer's balance must be deducted server-side here because
+  // the client has no working window (the client's spend-credit POST would
+  // race the order insert). Idempotent through the 23505 early-return above —
+  // a webhook retry never reaches this block on the same order.
+  const storeCreditUsed   = Number(orderRow.store_credit_used ?? 0);
+  const orderCustomerId   = orderRow.customer_id as string | null;
+  if (orderCustomerId && storeCreditUsed > 0) {
+    try {
+      const { data: cust } = await supabaseAdmin
+        .from("customers")
+        .select("store_credit")
+        .eq("id", orderCustomerId)
+        .maybeSingle();
+      if (cust) {
+        const current    = Number(cust.store_credit ?? 0);
+        const newBalance = Math.max(0, parseFloat((current - storeCreditUsed).toFixed(2)));
+        await supabaseAdmin
+          .from("customers")
+          .update({ store_credit: newBalance })
+          .eq("id", orderCustomerId);
+      }
+    } catch (err) {
+      console.error("[webhooks/stripe] store credit deduct:", err instanceof Error ? err.message : err);
+    }
+  }
+
   // Gift card redemption — order row carries gift_card_id + gift_card_used
   // stamp from orderValidation. Fire-and-forget; helper is idempotent so a
   // webhook retry won't double-spend.

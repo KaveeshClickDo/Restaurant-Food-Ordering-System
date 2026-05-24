@@ -398,7 +398,12 @@ export default function MyOrdersPage() {
                                                             ? "partially refunded"
                                                             : null;
                                                 const isCancelled = order.status === "cancelled" || refundLabel !== null;
-                                                const pastLabel = order.status === "cancelled" ? "cancelled" : refundLabel ?? "Delivered";
+                                                // A cancelled-AND-refunded order must surface both facts — showing
+                                                // only "cancelled" hides from the customer that their money came back.
+                                                const pastLabel =
+                                                    order.status === "cancelled"
+                                                        ? (refundLabel ? `cancelled · ${refundLabel}` : "cancelled")
+                                                        : refundLabel ?? "Delivered";
                                                 return (
                                                     <div key={order.id} className="bg-white rounded-3xl p-5 shadow-sm">
                                                         <div className="flex items-start justify-between gap-2 mb-2">

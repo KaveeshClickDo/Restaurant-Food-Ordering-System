@@ -36,8 +36,25 @@ export default function StaffView() {
   const saveInFlight    = useRef(false);
   const deleteInFlight  = useRef<Set<string>>(new Set());
   const toggleInFlight  = useRef<Set<string>>(new Set());
+  const clockInFlight   = useRef(false);
   const [addBusy,  setAddBusy]  = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
+  const [clockBusy, setClockBusy] = useState(false);
+
+  // Double-click guard for the self clock-in/out button (QA #32). Without
+  // this a rapid second click fires a second API request that 409s/404s.
+  async function toggleClock(staffId: string, currentlyClocked: boolean) {
+    if (clockInFlight.current) return;
+    clockInFlight.current = true;
+    setClockBusy(true);
+    try {
+      if (currentlyClocked) await clockOut(staffId);
+      else                  await clockIn(staffId);
+    } finally {
+      clockInFlight.current = false;
+      setClockBusy(false);
+    }
+  }
 
   async function addStaff() {
     if (addInFlight.current) return;
@@ -76,10 +93,12 @@ export default function StaffView() {
     saveInFlight.current = true;
     setSaveBusy(true);
     try {
+      // Role is intentionally omitted — the API rejects role/permission
+      // changes from any non-website-admin session, so in-POS edits must not
+      // include them even when the value is unchanged.
       const result = await updatePosStaff(editingStaff.id, {
         name:       editDraft.name.trim(),
         email:      editDraft.email,
-        role:       editDraft.role,
         pin:        editDraft.pin || undefined, // "" → omit, server keeps existing
         hourlyRate: parseFloat(editDraft.hourlyRate) || undefined,
       });
@@ -136,7 +155,10 @@ export default function StaffView() {
           </button>
         </div>
 
-        {/* Clock in/out panel */}
+        {/* Clock in/out panel — the API is session-scoped (cannot clock another
+            staff member in/out without payroll forgery), so only the currently
+            logged-in cashier sees an action button. Everyone else's tile is
+            read-only status. */}
         <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
           <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2"><Clock size={16} className="text-orange-400" /> Today&apos;s Attendance</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -148,6 +170,7 @@ export default function StaffView() {
                   ? Math.floor((Date.now() - new Date(lastEntry.clockIn).getTime()) / 60000)
                   : (lastEntry.totalMinutes ?? 0)
                 : null;
+              const isSelf = currentStaff?.id === member.id;
 
               return (
                 <div key={member.id} className="bg-slate-700/50 border border-slate-600 rounded-xl p-4 flex items-center gap-3">
@@ -155,7 +178,10 @@ export default function StaffView() {
                     {getInitials(member.name)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-white text-sm font-semibold">{member.name}</p>
+                    <p className="text-white text-sm font-semibold">
+                      {member.name}
+                      {isSelf && <span className="ml-2 text-[10px] text-orange-400 font-semibold uppercase tracking-wide">You</span>}
+                    </p>
                     <p className="text-slate-400 text-xs capitalize">{member.role}</p>
                     {minutesWorked !== null && (
                       <p className="text-slate-400 text-xs mt-0.5 flex items-center gap-1">
@@ -163,15 +189,26 @@ export default function StaffView() {
                       </p>
                     )}
                   </div>
-                  <button
-                    onClick={() => { void (clocked ? clockOut(member.id) : clockIn(member.id)); }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 ${clocked
-                        ? "bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30"
-                        : "bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30"
-                      }`}
-                  >
-                    {clocked ? "Clock Out" : "Clock In"}
-                  </button>
+                  {isSelf ? (
+                    <button
+                      onClick={() => { void toggleClock(member.id, clocked); }}
+                      disabled={clockBusy}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${clocked
+                          ? "bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30"
+                          : "bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30"
+                        }`}
+                    >
+                      {clockBusy ? "…" : clocked ? "Clock Out" : "Clock In"}
+                    </button>
+                  ) : (
+                    <span className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 ${clocked
+                        ? "bg-green-500/10 text-green-400 border border-green-500/20"
+                        : "bg-slate-600/40 text-slate-400 border border-slate-600"
+                      }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${clocked ? "bg-green-400 animate-pulse" : "bg-slate-500"}`} />
+                      {clocked ? "Clocked in" : "Off"}
+                    </span>
+                  )}
                 </div>
               );
             })}
@@ -305,12 +342,10 @@ export default function StaffView() {
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">Role</label>
-                <select value={newStaff.role} onChange={(e) => setNewStaff((p) => ({ ...p, role: e.target.value as "admin" | "manager" | "cashier" }))}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500">
-                  <option value="cashier">Cashier</option>
-                  <option value="manager">Manager</option>
-                  <option value="admin">Admin</option>
-                </select>
+                <div className="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-300 text-sm flex items-center justify-between">
+                  <span>Cashier</span>
+                  <span className="text-[10px] text-slate-500">Manager / Admin: set from admin panel</span>
+                </div>
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">6-digit PIN *</label>
@@ -353,12 +388,10 @@ export default function StaffView() {
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">Role</label>
-                <select value={editDraft.role} onChange={(e) => setEditDraft((p) => ({ ...p, role: e.target.value as "admin" | "manager" | "cashier" }))}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500">
-                  <option value="cashier">Cashier</option>
-                  <option value="manager">Manager</option>
-                  <option value="admin">Admin</option>
-                </select>
+                <div className="w-full bg-slate-900/60 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-300 text-sm flex items-center justify-between">
+                  <span className="capitalize">{editDraft.role}</span>
+                  <span className="text-[10px] text-slate-500">Change role from admin panel</span>
+                </div>
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">6-digit PIN</label>

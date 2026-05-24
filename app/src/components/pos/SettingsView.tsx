@@ -1,20 +1,35 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
 import { POSSettings } from "@/types/pos";
-import { Mail, Receipt, Save, ToggleLeft, ToggleRight } from "lucide-react";
+import { Check, Mail, Receipt, Save, ToggleLeft, ToggleRight } from "lucide-react";
 import POSPrinterPanel from "./POSPrinterPanel";
 import MenuTab from "./settings/MenuTab";
+
+type SaveKey = "general" | "receipt" | "smtp";
 
 export default function SettingsView() {
   const { settings, setSettings, sales, exportSales } = usePOS();
   const { settings: appSettings } = useApp();
   const [local, setLocal] = useState({ ...settings });
   const [tab, setTab] = useState<"general"|"menu"|"receipt"|"hardware">("general");
+  // Persistence is synchronous (localStorage), so we flash a brief "Saved"
+  // confirmation rather than a fake spinner — addresses QA #33 (no feedback).
+  const [savedKey, setSavedKey] = useState<SaveKey | null>(null);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  function saveSettings() { setSettings(local); }
+  function flashSaved(key: SaveKey) {
+    setSavedKey(key);
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = setTimeout(() => setSavedKey(null), 1800);
+  }
+
+  function saveSettings(key: SaveKey = "general") {
+    setSettings(local);
+    flashSaved(key);
+  }
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -182,8 +197,20 @@ export default function SettingsView() {
               </div>
             </div>
 
-            <button onClick={saveSettings} className="w-full py-3.5 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-bold text-sm transition-all flex items-center justify-center gap-2">
-              <Save size={16} /> Save Settings
+            <button
+              onClick={() => saveSettings("general")}
+              disabled={savedKey === "general"}
+              className={`w-full py-3.5 rounded-xl text-white font-bold text-sm transition-all flex items-center justify-center gap-2 ${
+                savedKey === "general"
+                  ? "bg-green-600"
+                  : "bg-orange-500 hover:bg-orange-400"
+              }`}
+            >
+              {savedKey === "general" ? (
+                <><Check size={16} /> Saved</>
+              ) : (
+                <><Save size={16} /> Save Settings</>
+              )}
             </button>
           </div>
         )}
@@ -383,8 +410,20 @@ export default function SettingsView() {
               <p className="text-[11px] text-slate-500 text-center mt-2">Live preview · reflects unsaved draft</p>
             </div>
 
-            <button onClick={saveSettings} className="w-full py-3.5 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-bold text-sm transition-all flex items-center justify-center gap-2">
-              <Save size={16} /> Save Receipt Settings
+            <button
+              onClick={() => saveSettings("receipt")}
+              disabled={savedKey === "receipt"}
+              className={`w-full py-3.5 rounded-xl text-white font-bold text-sm transition-all flex items-center justify-center gap-2 ${
+                savedKey === "receipt"
+                  ? "bg-green-600"
+                  : "bg-orange-500 hover:bg-orange-400"
+              }`}
+            >
+              {savedKey === "receipt" ? (
+                <><Check size={16} /> Saved</>
+              ) : (
+                <><Save size={16} /> Save Receipt Settings</>
+              )}
             </button>
           </div>
         )}
@@ -422,10 +461,19 @@ export default function SettingsView() {
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
               </div>
               <button
-                onClick={() => setSettings({ ...settings, ...local })}
-                className="w-full py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                onClick={() => { setSettings({ ...settings, ...local }); flashSaved("smtp"); }}
+                disabled={savedKey === "smtp"}
+                className={`w-full py-2.5 rounded-xl text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
+                  savedKey === "smtp"
+                    ? "bg-green-600"
+                    : "bg-orange-500 hover:bg-orange-400"
+                }`}
               >
-                <Save size={14} /> Save
+                {savedKey === "smtp" ? (
+                  <><Check size={14} /> Saved</>
+                ) : (
+                  <><Save size={14} /> Save</>
+                )}
               </button>
             </div>
 

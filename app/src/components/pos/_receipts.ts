@@ -10,6 +10,7 @@ export interface DineInOrder {
   status: string;
   paymentMethod: string;
   date: string;
+  refundedAmount?: number;
 }
 
 export function buildReceiptHtml(sale: POSSale, settings: POSSettings, restaurantNameOverride?: string): string {

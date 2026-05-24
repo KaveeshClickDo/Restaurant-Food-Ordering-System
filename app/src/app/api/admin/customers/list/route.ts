@@ -26,22 +26,24 @@ interface AggregateBucket {
 }
 
 // What this order should contribute to lifetime spend.
-//   • Non-cancelled rows count at gross total (preserves prior behaviour —
-//     a delivered-then-refunded order still represents a real visit).
-//   • Cancelled rows only count if money actually flowed (payment_status
-//     paid / partially_refunded / refunded). The net = total - refunded,
-//     so a paid-then-fully-refunded cancellation is £0 but still a visit;
-//     a paid-without-refund cancellation is the full amount retained;
-//     an unpaid cash cancellation is excluded entirely.
+// "Total spent" means NET — what the customer paid and we kept — so refunds
+// reduce spend on EVERY order, regardless of channel or fulfillment status
+// (Bug #6: previously only cancelled orders netted out refunds, so a
+// delivered-then-refunded online order kept counting its full gross while a
+// refunded POS sale dropped entirely — two opposite behaviours).
+//   • Cancelled-and-unpaid → no money ever moved, excluded from spend & visits.
+//   • Everything else → net = total - refunded (a fully-refunded order is £0
+//     but still counts as a visit; a partial refund counts the retained part).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function spendContribution(o: any): { amount: number; counts: boolean } {
-  const total = Number(o.total) || 0;
-  if (o.status !== "cancelled") return { amount: total, counts: true };
-  const moneyBearing = o.payment_status === "paid"
-                    || o.payment_status === "partially_refunded"
-                    || o.payment_status === "refunded";
-  if (!moneyBearing) return { amount: 0, counts: false };
+  const total    = Number(o.total) || 0;
   const refunded = Number(o.refunded_amount) || 0;
+  if (o.status === "cancelled") {
+    const moneyBearing = o.payment_status === "paid"
+                      || o.payment_status === "partially_refunded"
+                      || o.payment_status === "refunded";
+    if (!moneyBearing) return { amount: 0, counts: false };
+  }
   return { amount: Math.max(0, total - refunded), counts: true };
 }
 
@@ -142,8 +144,7 @@ export async function GET() {
       .order("date", { ascending: false }),
     supabaseAdmin
       .from("pos_sales")
-      .select("customer_id, total, voided, date")
-      .eq("voided", false)
+      .select("customer_id, total, voided, refund_amount, date")
       .not("customer_id", "is", null),
   ]);
 
@@ -160,11 +161,12 @@ export async function GET() {
     ordersByCustomer.set(o.customer_id, arr);
   }
 
-  // Build the spend / visit / lastVisit aggregate. Online order rules are
-  // spelled out in spendContribution() above — non-cancelled at gross,
-  // cancelled-but-paid at net (so audit reflects real money flow instead of
-  // silently dropping it). POS sales contribute only when not voided
-  // (already filtered at the query above).
+  // Build the spend / visit / lastVisit aggregate. Both channels are netted of
+  // refunds — see spendContribution() above. POS sales mirror the same rule:
+  // a refunded sale contributes total-refund (£0 when fully refunded, but still
+  // a visit); a voided sale with no refund was reversed before money was kept,
+  // so it's skipped entirely (Bug #6 — previously ALL voided POS sales were
+  // dropped, overcounting the reduction for partial refunds).
   const agg = new Map<string, AggregateBucket>();
   const bumpAgg = (cid: string, amount: number, when: string) => {
     const bucket = agg.get(cid) ?? { spend: 0, visits: 0, lastVisit: null };
@@ -183,7 +185,10 @@ export async function GET() {
   }
   for (const s of posSales ?? []) {
     if (!s.customer_id) continue;
-    bumpAgg(s.customer_id, Number(s.total) || 0, s.date);
+    const total  = Number(s.total) || 0;
+    const refund = Number(s.refund_amount) || 0;
+    if (s.voided && refund <= 0) continue; // reversed, no money kept
+    bumpAgg(s.customer_id, Math.max(0, total - refund), s.date);
   }
 
   // Belt-and-braces: also skip the sentinel during the map step in case any

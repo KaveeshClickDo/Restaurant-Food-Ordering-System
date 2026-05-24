@@ -135,6 +135,16 @@ const STATUS_CONFIG: Record<OrderStatus, {
   },
 };
 
+// Cancelled-but-refunded must surface both states — a bare "Cancelled" badge
+// hides the fact that the customer's money already went back (QA #37).
+function orderStatusLabel(o: { status: OrderStatus; paymentStatus?: string | null }): string {
+  const base = STATUS_CONFIG[o.status]?.label ?? String(o.status);
+  if (o.status !== "cancelled") return base;
+  if (o.paymentStatus === "refunded")           return "Cancelled · Refunded";
+  if (o.paymentStatus === "partially_refunded") return "Cancelled · Partial refund";
+  return base;
+}
+
 // ─── Delivery leg config ──────────────────────────────────────────────────────
 
 const DS_STEPS: DeliveryStatus[] = ["assigned", "picked_up", "on_the_way", "delivered"];
@@ -331,7 +341,7 @@ function OrderModal({ order, onClose, onStatusChange, onRequestCancel }: {
               <p className="text-xs text-gray-400">{fmtDate(order.date)} at {fmtTime(order.date)}</p>
             </div>
             <span className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${cfg.badge}`}>
-              {cfg.icon} {cfg.label}
+              {cfg.icon} {orderStatusLabel(order)}
             </span>
           </div>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition">

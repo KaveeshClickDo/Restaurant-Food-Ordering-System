@@ -251,6 +251,32 @@ async function handleCaptureCompleted(resource: PaypalCapture): Promise<void> {
     .update({ status: "succeeded", completed_order_id: orderRow.id as string })
     .eq("id", session.id);
 
+  // Store credit deduction — order row carries store_credit_used from the
+  // browser; the customer's balance must be deducted server-side here because
+  // the client has no working window (its spend-credit POST would race the
+  // order insert). Idempotent through the 23505 early-return on retries.
+  const storeCreditUsed = Number(orderRow.store_credit_used ?? 0);
+  const orderCustomerId = orderRow.customer_id as string | null;
+  if (orderCustomerId && storeCreditUsed > 0) {
+    try {
+      const { data: cust } = await supabaseAdmin
+        .from("customers")
+        .select("store_credit")
+        .eq("id", orderCustomerId)
+        .maybeSingle();
+      if (cust) {
+        const current    = Number(cust.store_credit ?? 0);
+        const newBalance = Math.max(0, parseFloat((current - storeCreditUsed).toFixed(2)));
+        await supabaseAdmin
+          .from("customers")
+          .update({ store_credit: newBalance })
+          .eq("id", orderCustomerId);
+      }
+    } catch (err) {
+      console.error("[webhooks/paypal] store credit deduct:", err instanceof Error ? err.message : err);
+    }
+  }
+
   // Coupon usage — fire-and-forget; order is already committed.
   const couponCode = orderRow.coupon_code as string | null;
   if (couponCode) {

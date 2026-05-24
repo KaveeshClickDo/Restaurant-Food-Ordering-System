@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import {
   TrendingUp, Receipt, BarChart3, Users, Percent, BadgeDollarSign,
   Download, RefreshCw, Tag, CreditCard, Banknote, Shuffle,
-  Trophy, Package, ChevronUp, ChevronDown, AlertTriangle,
+  Trophy, Package, ChevronUp, ChevronDown, AlertTriangle, RotateCcw,
 } from "lucide-react";
 import { POSSale, POSProduct } from "@/types/pos";
 import { useApp } from "@/context/AppContext";
@@ -216,6 +216,12 @@ export default function POSReportsPanel() {
   const discountTotal = filtered.reduce((s, x) => s + x.discountAmount, 0);
   const avgOrder      = filtered.length > 0 ? revenue / filtered.length : 0;
   const voidedCount   = inRange.filter((s) => s.voided).length;
+  // Bug #1b: refunds were silently hidden — voided sales were dropped from
+  // `filtered` and there was no separate refund total. Compute from the voided
+  // slice so admin can see how much money went back out.
+  const refundedSales = inRange.filter((s) => s.voided && (s.refundAmount ?? 0) > 0);
+  const refundedTotal = refundedSales.reduce((sum, s) => sum + (s.refundAmount ?? 0), 0);
+  const refundedCount = refundedSales.length;
 
   // Cost / margin
   const costMap: Record<string, number> = {};
@@ -352,13 +358,14 @@ export default function POSReportsPanel() {
       {filtered.length > 0 && (
         <>
           {/* ── KPI cards ──────────────────────────────────────────────────── */}
-          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-4">
             <KpiCard label="Total Revenue"    value={fmtCur(revenue, sym)}       sub={`${filtered.length} txns`}           icon={TrendingUp}      color="text-green-600"  bg="bg-green-50" />
             <KpiCard label="Average Order"    value={fmtCur(avgOrder, sym)}       sub={`${filtered.length} sales`}         icon={Receipt}         color="text-blue-600"   bg="bg-blue-50" />
             <KpiCard label="Gross Profit"     value={fmtCur(grossProfit, sym)}    sub={`Margin ${fmtPct(marginPct)}`}      icon={BarChart3}       color="text-purple-600" bg="bg-purple-50" />
             <KpiCard label="VAT Collected"    value={fmtCur(taxCollected, sym)}   sub="excl. voided"                       icon={Percent}         color="text-amber-600"  bg="bg-amber-50" />
             <KpiCard label="Tips"             value={fmtCur(tipsTotal, sym)}      sub="staff tips"                         icon={BadgeDollarSign} color="text-pink-600"   bg="bg-pink-50" />
             <KpiCard label="Discounts Given"  value={fmtCur(discountTotal, sym)}  sub="reductions applied"                 icon={Tag}             color="text-red-600"    bg="bg-red-50" />
+            <KpiCard label="Refunded"         value={fmtCur(refundedTotal, sym)}  sub={`${refundedCount} txn${refundedCount === 1 ? "" : "s"}`} icon={RotateCcw} color="text-teal-600"  bg="bg-teal-50" />
           </div>
 
           {/* ── Tab bar ────────────────────────────────────────────────────── */}

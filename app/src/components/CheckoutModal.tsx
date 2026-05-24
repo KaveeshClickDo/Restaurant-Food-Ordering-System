@@ -248,7 +248,7 @@ function LocationWidget({
 export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   const {
     cart, settings, clearCart, addOrder, currentUser, fulfillment, scheduledTime, setScheduledTime,
-    appliedCoupon, applyCoupon, removeCoupon, incrementCouponUsage, spendStoreCredit,
+    appliedCoupon, applyCoupon, removeCoupon, incrementCouponUsage, spendStoreCredit, applyStoreCreditOptimistic,
     customers,
   } = useApp();
 
@@ -678,8 +678,12 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
       incrementCouponUsage(appliedCoupon.couponId);
       removeCoupon();
     }
-    if (storeCreditApplied > 0 && currentUser && pendingOrder) {
-      spendStoreCredit(currentUser.id, storeCreditApplied, pendingOrder.id);
+    if (storeCreditApplied > 0 && currentUser) {
+      // Stripe order is inserted asynchronously by the webhook — the order
+      // row doesn't exist yet at this moment, so calling the server-side
+      // spend-credit endpoint would 404. The webhook deducts the customer's
+      // balance authoritatively after insert; we just keep the UI in sync.
+      applyStoreCreditOptimistic(currentUser.id, storeCreditApplied);
     }
     setPlacedScheduledTime(scheduledTime);
     setStep("success");
@@ -762,8 +766,11 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
       incrementCouponUsage(appliedCoupon.couponId);
       removeCoupon();
     }
-    if (storeCreditApplied > 0 && currentUser && pendingOrder) {
-      spendStoreCredit(currentUser.id, storeCreditApplied, pendingOrder.id);
+    if (storeCreditApplied > 0 && currentUser) {
+      // PayPal order is inserted by the webhook after capture — same race as
+      // the Stripe path. Webhook handles the server-side deduction; we just
+      // keep the UI in sync here.
+      applyStoreCreditOptimistic(currentUser.id, storeCreditApplied);
     }
     setPlacedScheduledTime(scheduledTime);
     setStep("success");

@@ -21,18 +21,32 @@ import type { POSSale, POSCartItem } from "@/types/pos";
 import { parseBody }                 from "@/lib/apiValidation";
 import { PosSaleCreateSchema }       from "@/lib/schemas/pos";
 import { requirePosSession, requirePosPermission } from "@/lib/posPermissions";
+import { isAdminAuthenticated } from "@/lib/adminAuth";
 import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
 import { lookupActiveGiftCard, clampGiftCardAmount, redeemGiftCardForRow } from "@/lib/giftCardValidation";
 
 const POS_CUSTOMER_ID = "pos-walk-in";
 
 // ── GET ──────────────────────────────────────────────────────────────────────
-// Returns sales for the calling staff member. Managers/admins (who hold the
-// `canAccessDashboard` permission) get the full fleet view.
+// Returns sales scoped by who's calling:
+//   • Website admin (ADMIN_PASSWORD cookie, used by /admin → POS Reports panel)
+//     → always all sales, regardless of any POS-side session in the same browser.
+//     Without this bypass the panel got scoped to whichever cashier happened to
+//     be logged in to /pos in the same browser (QA bug: admin POS Reports showed
+//     only the cashier's sales when a cashier was the active POS session).
+//   • POS admin / manager (canAccessDashboard) → all sales for end-of-shift reports.
+//   • POS cashier → only their own sales.
 export async function GET(req: NextRequest) {
-  const gate = await requirePosSession();
-  if (!gate.ok) return gate.response;
-  const session = gate.staff;
+  const isAdmin = await isAdminAuthenticated();
+
+  let cashierScope: string | null = null;
+  if (!isAdmin) {
+    const gate = await requirePosSession();
+    if (!gate.ok) return gate.response;
+    if (!gate.staff.permissions?.canAccessDashboard) {
+      cashierScope = gate.staff.id;
+    }
+  }
 
   const { searchParams } = new URL(req.url);
   const from  = searchParams.get("from");
@@ -45,14 +59,9 @@ export async function GET(req: NextRequest) {
     .order("date", { ascending: false })
     .limit(limit);
 
-  // Cashiers see only their own sales. Managers/admins (canAccessDashboard)
-  // see everything for end-of-shift reports.
-  if (!session.permissions?.canAccessDashboard) {
-    q = q.eq("staff_id", session.id);
-  }
-
-  if (from) q = q.gte("date", from);
-  if (to)   q = q.lte("date", to);
+  if (cashierScope) q = q.eq("staff_id", cashierScope);
+  if (from)         q = q.gte("date", from);
+  if (to)           q = q.lte("date", to);
 
   const { data, error } = await q;
   if (error) {

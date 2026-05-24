@@ -74,6 +74,21 @@ function StatusBadge({ order }: { order: Order }) {
     order.paymentStatus === "refunded"           || order.status === "refunded"           ? "refunded"
     : order.paymentStatus === "partially_refunded" || order.status === "partially_refunded" ? "partially_refunded"
     : null;
+  // Cancelled-AND-refunded must surface both facts: showing only "Refunded"
+  // hides the cancellation, showing only "Cancelled" hides that the money came
+  // back. Cancelled is the dominant state, so we lead with it.
+  if (order.status === "cancelled") {
+    const cfg = STATUS_CONFIG.cancelled;
+    const label = refund
+      ? `Cancelled · ${refund === "refunded" ? "Refunded" : "Partially Refunded"}`
+      : cfg.label;
+    return (
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${cfg.color}`}>
+        <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+        {label}
+      </span>
+    );
+  }
   if (refund) {
     const cfg = STATUS_CONFIG[refund];
     return (
@@ -85,10 +100,10 @@ function StatusBadge({ order }: { order: Order }) {
   }
   // Delivery orders with an active driver leg: show delivery status instead of
   // order status, because order.status stays "ready" until final delivery.
+  // (Cancelled orders already returned above.)
   if (
     order.fulfillment === "delivery" &&
-    order.deliveryStatus &&
-    order.status !== "cancelled"
+    order.deliveryStatus
   ) {
     const cfg = DELIVERY_STATUS_BADGE[order.deliveryStatus];
     return (
