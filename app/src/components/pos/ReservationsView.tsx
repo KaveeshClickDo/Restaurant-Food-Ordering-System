@@ -528,7 +528,7 @@ export default function ReservationsView() {
                 <div className="flex gap-2">
                   {(["walk-in", "phone"] as const).map((src) => (
                     <button key={src} type="button" onClick={() => setAddSource(src)}
-                      className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all ${
+                      className={`flex-1 px-2 py-2.5 rounded-xl text-sm font-semibold border transition-all ${
                         addSource === src
                           ? "bg-orange-500 border-orange-500 text-white"
                           : "bg-slate-800 border-slate-600 text-slate-400 hover:border-slate-500"
@@ -548,14 +548,14 @@ export default function ReservationsView() {
                   <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Date</label>
                   <input type="date" value={addDate} min={localTodayStrRes()} max={localMaxDateStrRes(rs.maxAdvanceDays ?? 30)}
                     onChange={(e) => setAddDate(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-600 rounded-xl px-3 py-2.5 text-slate-200 text-sm focus:outline-none focus:border-orange-500 transition" />
+                    className="w-full bg-slate-800 border border-slate-600 rounded-xl px-3 py-2.5 text-slate-200 text-[13px] sm:text-sm focus:outline-none focus:border-orange-500 transition" />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Guests</label>
                   <div className="flex items-center gap-2">
                     <button type="button" onClick={() => setAddParty((p) => Math.max(1, p - 1))}
                       className="w-9 h-9 rounded-full border border-slate-600 text-slate-400 hover:border-orange-500 hover:text-orange-400 font-bold transition flex items-center justify-center">−</button>
-                    <span className="text-white font-bold text-lg w-6 text-center">{addParty}</span>
+                    <span className="text-white font-bold text-lg w-7 text-center text-sm sm:text-base">{addParty}</span>
                     <button type="button" onClick={() => setAddParty((p) => Math.min(20, p + 1))}
                       className="w-9 h-9 rounded-full border border-slate-600 text-slate-400 hover:border-orange-500 hover:text-orange-400 font-bold transition flex items-center justify-center">+</button>
                   </div>

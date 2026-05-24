@@ -14,6 +14,7 @@ import {
   LogOut,
   Search,
   Navigation,
+  UtensilsCrossed,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { Order, OrderLine, OrderStatus, DeliveryStatus, MenuItem, SavedAddress, AddOn, CartItem } from "@/types";
@@ -71,9 +72,9 @@ function StatusBadge({ order }: { order: Order }) {
   // Refund state takes precedence in the customer's history view. It lives in
   // paymentStatus (current) but older rows may carry it on status.
   const refund: OrderStatus | null =
-    order.paymentStatus === "refunded"           || order.status === "refunded"           ? "refunded"
-    : order.paymentStatus === "partially_refunded" || order.status === "partially_refunded" ? "partially_refunded"
-    : null;
+    order.paymentStatus === "refunded" || order.status === "refunded" ? "refunded"
+      : order.paymentStatus === "partially_refunded" || order.status === "partially_refunded" ? "partially_refunded"
+        : null;
   // Cancelled-AND-refunded must surface both facts: showing only "Refunded"
   // hides the cancellation, showing only "Cancelled" hides that the money came
   // back. Cancelled is the dominant state, so we lead with it.
@@ -199,9 +200,8 @@ function DeliveryTracker({ order }: { order: Order }) {
                   <div className={`w-2 h-2 rounded-full flex-shrink-0 transition-all ${active ? "bg-indigo-500 ring-2 ring-indigo-200 scale-125" :
                     done ? "bg-indigo-400" : "bg-gray-200"
                     }`} />
-                  <span className={`absolute top-4 whitespace-nowrap text-[9px] font-medium ${i === currentIdx ? "text-indigo-500" : "text-zinc-300"} ${
-                    i === 0 ? "left-0" : i === DS_STEPS.length - 1 ? "right-0" : "left-1/2 -translate-x-1/2"
-                  }`}>
+                  <span className={`absolute top-4 whitespace-nowrap text-[9px] font-medium ${i === currentIdx ? "text-indigo-500" : "text-zinc-300"} ${i === 0 ? "left-0" : i === DS_STEPS.length - 1 ? "right-0" : "left-1/2 -translate-x-1/2"
+                    }`}>
                     {DS_CONFIG[step].label.split(" ")[0]}
                   </span>
                 </div>
@@ -307,28 +307,31 @@ function QuickReorder({
 
       <div className="divide-y divide-gray-50">
         {eligible.map((order) => (
-          <div key={order.id} className="flex items-center gap-3 px-4 sm:px-5 py-3.5 hover:bg-zinc-50 transition">
-            {/* Icon */}
-            <div className="w-9 h-9 sm:w-10 sm:h-10 bg-zinc-50 rounded-xl flex items-center justify-center flex-shrink-0 text-base sm:text-lg">
-              🍛
-            </div>
+          <div key={order.id} className="flex flex-wrap items-center gap-3 px-4 sm:px-5 py-3.5 hover:bg-zinc-50 transition">
+            <div className="flex items-center gap-3">
 
-            {/* Info */}
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-gray-800 truncate">
-                {itemSummary(order.items, 2)}
-              </p>
-              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                <span className="text-xs text-zinc-400">{formatDate(order.date)}</span>
-                <span className="text-zinc-300 text-xs">·</span>
-                <span className="text-xs font-semibold text-zinc-700 tabular-nums">{sym}{order.total.toFixed(2)}</span>
+              {/* Icon */}
+              <div className="w-9 h-9 sm:w-10 sm:h-10 bg-zinc-50 rounded-xl flex items-center justify-center flex-shrink-0 text-base sm:text-lg">
+                🍛
+              </div>
+
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-gray-800 ">
+                  {itemSummary(order.items, 2)}
+                </p>
+                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                  <span className="text-xs text-zinc-400">{formatDate(order.date)}</span>
+                  <span className="text-zinc-300 text-xs">·</span>
+                  <span className="text-xs font-semibold text-zinc-700 tabular-nums">{sym}{order.total.toFixed(2)}</span>
+                </div>
               </div>
             </div>
 
             {/* Re-order button */}
             <button
               onClick={() => onReorder(order)}
-              className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-2.5 rounded-xl transition flex-shrink-0 min-h-[38px]"
+              className="flex ml-auto items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-2.5 rounded-xl transition flex-shrink-0 min-h-[38px]"
             >
               <RotateCcw size={12} />
               <span className="hidden sm:inline">Re-order</span>
@@ -340,7 +343,7 @@ function QuickReorder({
 
       <div className="px-5 py-3 bg-zinc-50 border-t border-zinc-100">
         <p className="text-xs text-zinc-400 flex items-center gap-1.5">
-          <AlertCircle size={11} className="text-zinc-300" />
+          <AlertCircle size={11} className="text-zinc-300 flex-shrink-0" />
           Items are added at current menu prices. Unavailable items are skipped.
         </p>
       </div>
@@ -388,7 +391,7 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
             {expanded ? <ChevronUp size={16} className="text-zinc-400" /> : <ChevronDown size={16} className="text-zinc-400" />}
           </div>
         </div>
-        
+
         {isActive && <OrderTracker order={order} />}
         <DeliveryTracker order={order} />
       </button>
@@ -452,6 +455,9 @@ function FavouritesTab() {
 
   const canOrder = isOpen || !!scheduledTime;
 
+  // Check if at least one item in the list has an image
+  const hasAnyImage = favouriteItems.some((item) => !!item.image);
+
   if (favouriteItems.length === 0) {
     return (
       <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm py-16 text-center">
@@ -473,14 +479,21 @@ function FavouritesTab() {
 
           return (
             <div key={item.id} className="bg-white rounded-2xl border border-zinc-100 shadow-sm overflow-hidden flex flex-col">
-              {/* Image */}
-              {item.image && (
-                <div className={`relative w-full h-36 overflow-hidden ${outOfStock ? "grayscale opacity-60" : ""}`}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+
+              {/* Image or Placeholder Area */}
+              {hasAnyImage && (
+                <div className={`relative w-full h-36 bg-orange-50 flex items-center justify-center overflow-hidden ${outOfStock ? "grayscale opacity-60" : ""}`}>
+                  {item.image ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                  ) : (
+                    // Placeholder for items without images
+                    <UtensilsCrossed size={48} strokeWidth={1} className="text-zinc-200" />
+                  )}
+
                   <button
                     onClick={() => toggleFavourite(item.id)}
-                    className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-white/90 backdrop-blur-sm hover:bg-white shadow transition"
+                    className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-white/90 backdrop-blur-sm hover:bg-white shadow transition z-10"
                     title="Remove from favourites"
                   >
                     <Heart size={14} className="text-red-500 fill-red-500" />
@@ -503,7 +516,9 @@ function FavouritesTab() {
                       </div>
                     )}
                   </div>
-                  {!item.image && (
+
+                  {/* Only show the inline heart if NO items have an image (fallback to old layout) */}
+                  {!hasAnyImage && (
                     <button
                       onClick={() => toggleFavourite(item.id)}
                       className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full border border-red-200 hover:bg-red-50 transition"
@@ -845,7 +860,7 @@ function AddressesTab() {
           <div className="flex gap-2 pt-1">
             <button
               onClick={handleSave}
-              className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold py-2.5 rounded-xl text-sm transition"
+              className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold px-2 py-2.5 rounded-xl text-sm transition"
             >
               {editingId ? "Update address" : "Save address"}
             </button>
@@ -904,9 +919,21 @@ function AddressesTab() {
                       <Edit2 size={13} />
                     </button>
                     {deleteConfirm === addr.id ? (
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => handleDelete(addr.id)} className="text-xs font-bold text-red-500 hover:text-red-700 px-2 py-1 rounded-lg hover:bg-red-50 transition">Delete</button>
-                        <button onClick={() => setDeleteConfirm(null)} className="text-xs text-zinc-400 hover:text-zinc-600 px-2 py-1 rounded-lg transition">Cancel</button>
+                      <div className="flex items-center gap-1 animate-in fade-in zoom-in-95 duration-200">
+                        <button
+                          onClick={() => handleDelete(addr.id)}
+                          className="w-8 h-8 flex items-center justify-center rounded-lg bg-red-100 hover:bg-red-200 text-red-600 transition"
+                          title="Confirm Delete"
+                        >
+                          <Check size={14} strokeWidth={2.5} />
+                        </button>
+                        <button
+                          onClick={() => setDeleteConfirm(null)}
+                          className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-600 transition"
+                          title="Cancel"
+                        >
+                          <X size={14} strokeWidth={2.5} />
+                        </button>
                       </div>
                     ) : (
                       <button
@@ -1135,7 +1162,7 @@ function ChangePasswordCard() {
               <p className="text-center text-xs text-zinc-400">
                 Forgot your password?{" "}
                 <Link href="/login?action=forgot" className="text-zinc-700 font-semibold hover:underline">
-                  Reset via email
+                  Send Password Reset Email
                 </Link>
               </p>
             </form>
@@ -1318,56 +1345,59 @@ function RewardsTab() {
 
   if (!currentUser) return null;
 
-  const storeCredit   = currentUser.storeCredit   ?? 0;
+  const storeCredit = currentUser.storeCredit ?? 0;
   const loyaltyPoints = currentUser.loyaltyPoints ?? 0;
 
   return (
-    <div className="space-y-4">
-      {/* Store credit */}
-      <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
-        <div className="flex items-start gap-4">
-          <div className="w-11 h-11 bg-teal-50 rounded-2xl flex items-center justify-center flex-shrink-0">
-            <Gift size={20} className="text-teal-500" />
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+        {/* Store credit */}
+        <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
+          <div className="flex items-start gap-4">
+            <div className="w-11 h-11 bg-teal-50 rounded-2xl flex items-center justify-center flex-shrink-0">
+              <Gift size={20} className="text-teal-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Store credit</p>
+              <p className="text-2xl font-bold text-zinc-900 tabular-nums mt-1">
+                {sym}{storeCredit.toFixed(2)}
+              </p>
+              <p className="text-xs text-zinc-500 mt-1">
+                {storeCredit > 0
+                  ? "Automatically applied at online checkout — you can toggle it off before paying."
+                  : "Issued when an order is refunded as store credit instead of a card return."}
+              </p>
+            </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Store credit</p>
-            <p className="text-3xl font-bold text-zinc-900 tabular-nums mt-1">
-              {sym}{storeCredit.toFixed(2)}
-            </p>
-            <p className="text-xs text-zinc-500 mt-1">
-              {storeCredit > 0
-                ? "Automatically applied at online checkout — you can toggle it off before paying."
-                : "Issued when an order is refunded as store credit instead of a card return."}
-            </p>
+        </div>
+
+        {/* Loyalty points */}
+        <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
+          <div className="flex items-start gap-4">
+            <div className="w-11 h-11 bg-amber-50 rounded-2xl flex items-center justify-center flex-shrink-0">
+              <Award size={20} className="text-amber-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Loyalty points</p>
+              <p className="text-2xl font-bold text-zinc-900 tabular-nums mt-1">
+                {loyaltyPoints.toLocaleString()}
+              </p>
+              <p className="text-xs text-zinc-500 mt-1">
+                {loyaltyPoints > 0
+                  ? "Earned on past orders. Ask staff in-store about redemption."
+                  : "Earned on orders. Your balance shows here as it grows."}
+              </p>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Loyalty points */}
-      <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
-        <div className="flex items-start gap-4">
-          <div className="w-11 h-11 bg-amber-50 rounded-2xl flex items-center justify-center flex-shrink-0">
-            <Award size={20} className="text-amber-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Loyalty points</p>
-            <p className="text-3xl font-bold text-zinc-900 tabular-nums mt-1">
-              {loyaltyPoints.toLocaleString()}
-            </p>
-            <p className="text-xs text-zinc-500 mt-1">
-              {loyaltyPoints > 0
-                ? "Earned on past orders. Ask staff in-store about redemption."
-                : "Earned on orders. Your balance shows here as it grows."}
-            </p>
-          </div>
-        </div>
-      </div>
 
       {/* Gift cards I've bought */}
       <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex flex-wrap gap-2 items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <CreditCard size={18} className="text-orange-500" />
+            <CreditCard size={18} className="text-orange-500 flex-shrink-0" />
             <h3 className="font-semibold text-zinc-900 text-sm">Gift cards I&apos;ve bought</h3>
           </div>
           <Link href="/gift-cards" className="text-xs font-semibold text-orange-600 hover:text-orange-700">
@@ -1632,7 +1662,7 @@ function AccountPageContent() {
 
       // Online channel: discount the base with any live per-unit offer, and
       // use the online price override when set. Mirrors ItemCustomizationModal.
-      const offerBase   = getOfferUnitPrice(menuItem) ?? effectiveMenuPrice(menuItem);
+      const offerBase = getOfferUnitPrice(menuItem) ?? effectiveMenuPrice(menuItem);
       const currentPrice = offerBase + variationPrice + addOnsTotal;
       if (Math.abs(currentPrice - line.price) > 0.005) {
         priceChanged.push(line.name);
@@ -1764,20 +1794,20 @@ function AccountPageContent() {
               </div>
 
               {/* Stats */}
-              <div className={`grid gap-3 sm:gap-4 ${(liveUser.storeCredit ?? 0) > 0 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2 sm:grid-cols-3"}`}>
+              <div className={`grid gap-3 sm:gap-4 ${(liveUser.storeCredit ?? 0) > 0 ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3"}`}>
                 <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5">
                   <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
                     <ShoppingBag size={14} className="text-zinc-700 flex-shrink-0" />
                     <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total orders</span>
                   </div>
-                  <p className="text-xl sm:text-2xl font-bold text-zinc-900 tabular-nums">{orders.length}</p>
+                  <p className="text-lg sm:text-xl font-bold text-zinc-900 tabular-nums">{orders.length}</p>
                 </div>
                 <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5">
                   <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
                     <TrendingUp size={14} className="text-zinc-700 flex-shrink-0" />
                     <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total spent</span>
                   </div>
-                  <p className="text-xl sm:text-2xl font-bold text-zinc-900 tabular-nums">{sym}{totalSpent.toFixed(2)}</p>
+                  <p className="text-[17px] sm:text-[19px] font-bold text-zinc-900 tabular-nums">{sym}{totalSpent.toFixed(2)}</p>
                 </div>
                 {favourite ? (
                   <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5 col-span-2 sm:col-span-1">
@@ -1796,7 +1826,7 @@ function AccountPageContent() {
                       <Gift size={14} className="text-teal-100 flex-shrink-0" />
                       <span className="text-[11px] sm:text-xs font-medium text-teal-100 truncate">Store credit</span>
                     </div>
-                    <p className="text-xl sm:text-2xl font-bold text-white tabular-nums">{sym}{(liveUser.storeCredit ?? 0).toFixed(2)}</p>
+                    <p className="text-xl sm:text-2xl lg:text-xl font-bold text-white tabular-nums">{sym}{(liveUser.storeCredit ?? 0).toFixed(2)}</p>
                     <p className="text-[10px] text-teal-200 mt-1">Auto-applied at checkout</p>
                   </div>
                 )}
@@ -1913,7 +1943,7 @@ function AccountPageContent() {
 
               {tab === "favourites" && <FavouritesTab />}
               {tab === "addresses" && <AddressesTab />}
-              {tab === "rewards"   && <RewardsTab />}
+              {tab === "rewards" && <RewardsTab />}
               {tab === "profile" && <ProfileTab />}
             </div>
 
