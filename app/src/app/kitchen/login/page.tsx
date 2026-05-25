@@ -178,7 +178,7 @@ export default function KitchenLoginPage() {
             >
               {initials(target?.name ?? "")}
             </div>
-            <div className="flex-1 min-w-0">
+            <div className="text-left flex-1 min-w-0">
               <p className="text-white font-semibold truncate">{target?.name}</p>
               <p className="text-slate-400 text-xs truncate">{target ? roleLabel(target.role) : ""}</p>
             </div>

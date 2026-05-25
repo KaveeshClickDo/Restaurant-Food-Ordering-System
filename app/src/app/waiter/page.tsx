@@ -1491,9 +1491,9 @@ export default function WaiterPage() {
                   >
                     {initials(w.name)}
                   </div>
-                  <div className="text-left">
-                    <p className="text-white font-bold">{w.name}</p>
-                    <p className="text-slate-400 text-xs capitalize">{w.role}</p>
+                  <div className="text-left flex-1 min-w-0">
+                    <p className="text-white font-bold truncate">{w.name}</p>
+                    <p className="text-slate-400 text-xs capitalize truncate">{w.role}</p>
                   </div>
                   <ChevronLeft size={16} className="text-slate-500 ml-auto rotate-180" />
                 </button>
