@@ -515,7 +515,7 @@ function OrderCard({
             <>
               {pickupBlocked && (
                 <p className="text-xs text-gray-500 text-center mb-2 flex items-center justify-center gap-1.5">
-                  <ChefHat size={12} className="text-orange-400" />
+                  <ChefHat size={12} className="text-orange-400 flex-shrink-0" />
                   Waiting for kitchen to mark this order ready.
                 </p>
               )}
@@ -963,7 +963,7 @@ export default function DriverDashboardPage() {
                       </p>
                       {d.order.address && (
                         <p className="text-xs text-gray-400 flex items-center gap-1">
-                          <MapPin size={10} /> {d.order.address}
+                          <MapPin size={10} className="flex-shrink-0" /> {d.order.address}
                         </p>
                       )}
                     </div>
