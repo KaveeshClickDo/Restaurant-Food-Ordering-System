@@ -290,8 +290,8 @@ function UnassignedOrderCard({
           <span className="text-xs text-gray-500">{customerName}</span>
         </div>
         {order.address && (
-          <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1 truncate">
-            <Package size={10} /> {order.address}
+          <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+            <Package size={10} className="flex-shrink-0" /> {order.address}
           </p>
         )}
         <p className="text-xs text-gray-400 mt-0.5">{order.items.length} item{order.items.length !== 1 ? "s" : ""} · {sym}{order.total.toFixed(2)}</p>
