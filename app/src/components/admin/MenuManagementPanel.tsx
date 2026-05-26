@@ -17,8 +17,8 @@ import type { StockStatus } from "@/types";
 // colours so admin can pick the same POS tile colour without reaching
 // for a colour picker. Mirrors PRESET_COLORS in pos/settings/_helpers.ts.
 const POS_PRESET_COLORS = [
-  "#f97316","#8b5cf6","#f59e0b","#06b6d4","#10b981","#ec4899","#3b82f6",
-  "#ef4444","#84cc16","#14b8a6","#a855f7","#f43f5e",
+  "#f97316", "#8b5cf6", "#f59e0b", "#06b6d4", "#10b981", "#ec4899", "#3b82f6",
+  "#ef4444", "#84cc16", "#14b8a6", "#a855f7", "#f43f5e",
 ];
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -172,9 +172,8 @@ export default function MenuManagementPanel() {
             {mealPeriods.map((p) => (
               <div
                 key={p.id}
-                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border bg-white ${
-                  p.enabled ? "border-amber-200" : "border-gray-200 opacity-60"
-                }`}
+                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border bg-white ${p.enabled ? "border-amber-200" : "border-gray-200 opacity-60"
+                  }`}
               >
                 <button
                   onClick={() => updateMealPeriod(p.id, { enabled: !p.enabled })}
@@ -218,9 +217,8 @@ export default function MenuManagementPanel() {
           <div className="flex gap-2 px-4 py-3 min-w-max">
             <button
               onClick={() => setSelectedCatId("all")}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap flex-shrink-0 transition ${
-                selectedCatId === "all" ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600"
-              }`}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap flex-shrink-0 transition ${selectedCatId === "all" ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600"
+                }`}
             >
               All <span className="opacity-70">({menuItems.length})</span>
             </button>
@@ -228,9 +226,8 @@ export default function MenuManagementPanel() {
               <button
                 key={cat.id}
                 onClick={() => setSelectedCatId(cat.id)}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap flex-shrink-0 transition ${
-                  selectedCatId === cat.id ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600"
-                }`}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap flex-shrink-0 transition ${selectedCatId === cat.id ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600"
+                  }`}
               >
                 {cat.emoji} {cat.name}
               </button>
@@ -259,11 +256,10 @@ export default function MenuManagementPanel() {
           {/* All items */}
           <button
             onClick={() => setSelectedCatId("all")}
-            className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all flex items-center justify-between ${
-              selectedCatId === "all"
-                ? "bg-orange-50 text-orange-600"
-                : "text-gray-600 hover:bg-gray-50"
-            }`}
+            className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all flex items-center justify-between ${selectedCatId === "all"
+              ? "bg-orange-50 text-orange-600"
+              : "text-gray-600 hover:bg-gray-50"
+              }`}
           >
             <span>All items</span>
             <span className="text-xs text-gray-400">{menuItems.length}</span>
@@ -273,9 +269,8 @@ export default function MenuManagementPanel() {
           {categories.map((cat, idx) => (
             <div
               key={cat.id}
-              className={`group flex items-center rounded-lg transition-all ${
-                selectedCatId === cat.id ? "bg-orange-50" : "hover:bg-gray-50"
-              }`}
+              className={`group flex items-center rounded-lg transition-all ${selectedCatId === cat.id ? "bg-orange-50" : "hover:bg-gray-50"
+                }`}
             >
               {/* Reorder arrows */}
               <div className="flex flex-col pl-1 transition">
@@ -464,9 +459,9 @@ export default function MenuManagementPanel() {
                         e.stopPropagation();
                         if (isTracked) return; // tracked items: edit via modal
                         const next: StockStatus =
-                          status === "in_stock"    ? "out_of_stock"
-                          : status === "out_of_stock" ? "low_stock"
-                          : "in_stock";
+                          status === "in_stock" ? "out_of_stock"
+                            : status === "out_of_stock" ? "low_stock"
+                              : "in_stock";
                         // Route through the dedicated stock endpoint so this
                         // quick-toggle doesn't drag the rest of the item's
                         // (possibly stale) form fields back into the DB.
@@ -476,13 +471,12 @@ export default function MenuManagementPanel() {
                         <button
                           onClick={cycleStatus}
                           title={isTracked ? `${item.stockQty} units tracked` : "Click to cycle status"}
-                          className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold border transition-all ${
-                            status === "out_of_stock"
-                              ? "bg-red-50 border-red-200 text-red-600 hover:bg-red-100"
-                              : status === "low_stock"
+                          className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold border transition-all ${status === "out_of_stock"
+                            ? "bg-red-50 border-red-200 text-red-600 hover:bg-red-100"
+                            : status === "low_stock"
                               ? "bg-amber-50 border-amber-200 text-amber-600 hover:bg-amber-100"
                               : "bg-green-50 border-green-200 text-green-600 hover:bg-green-100"
-                          } ${isTracked ? "cursor-default" : "cursor-pointer"}`}
+                            } ${isTracked ? "cursor-default" : "cursor-pointer"}`}
                         >
                           {status === "out_of_stock" ? <PackageX size={9} /> : status === "low_stock" ? <PackageMinus size={9} /> : <Package size={9} />}
                           {isTracked ? `${item.stockQty} left` : stockLabel(status)}
@@ -560,9 +554,9 @@ export default function MenuManagementPanel() {
               // this guard, every menu edit (name, price, image) would
               // re-write the counter and clobber any sales since the form
               // was opened.
-              const wasTracked  = typeof snapshot.stockQty === "number";
-              const nowTracked  = typeof item.stockQty === "number";
-              const qtyChanged  = wasTracked !== nowTracked
+              const wasTracked = typeof snapshot.stockQty === "number";
+              const nowTracked = typeof item.stockQty === "number";
+              const qtyChanged = wasTracked !== nowTracked
                 || (nowTracked && item.stockQty !== snapshot.stockQty);
               const statusChanged = !nowTracked
                 && (item.stockStatus ?? "in_stock") !== (snapshot.stockStatus ?? "in_stock");
@@ -646,7 +640,7 @@ function CategoryModal({
   cat: Category; isNew: boolean; onSave: (c: Category) => void; onClose: () => void;
 }) {
   const [form, setForm] = useState<Category>({ ...cat });
-  const EMOJIS = ["🍽️","🥗","🍗","🥩","🦐","🍜","🍛","🥦","🧆","🫓","🥤","🍮","🍰","🫙","🍲","🥘","🍱","🥪","🫔","🌮"];
+  const EMOJIS = ["🍽️", "🥗", "🍗", "🥩", "🦐", "🍜", "🍛", "🥦", "🧆", "🫓", "🥤", "🍮", "🍰", "🫙", "🍲", "🥘", "🍱", "🥪", "🫔", "🌮"];
 
   return (
     <ModalShell title={isNew ? "Add category" : "Edit category"} onClose={onClose}>
@@ -668,9 +662,8 @@ function CategoryModal({
               <button
                 key={e}
                 onClick={() => setForm((f) => ({ ...f, emoji: e }))}
-                className={`w-9 h-9 rounded-xl text-lg flex items-center justify-center border-2 transition-all ${
-                  form.emoji === e ? "border-orange-400 bg-orange-50" : "border-transparent hover:border-gray-200"
-                }`}
+                className={`w-9 h-9 rounded-xl text-lg flex items-center justify-center border-2 transition-all ${form.emoji === e ? "border-orange-400 bg-orange-50" : "border-transparent hover:border-gray-200"
+                  }`}
               >
                 {e}
               </button>
@@ -717,8 +710,8 @@ function ItemModal({
   const [tab, setTab] = useState<"basic" | "channels" | "variations" | "addons" | "offer" | "stock">("basic");
 
   const channels = form.channels ?? ["in_store", "online"];
-  const onOnline   = channels.includes("online");
-  const onInStore  = channels.includes("in_store");
+  const onOnline = channels.includes("online");
+  const onInStore = channels.includes("in_store");
   function toggleChannel(ch: "in_store" | "online") {
     setForm((f) => {
       const cur = f.channels ?? ["in_store", "online"];
@@ -799,9 +792,8 @@ function ItemModal({
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`flex sm:flex-1 min-w-[13vw] sm:min-w-0 sm:items-center whitespace-nowrap px-3 justify-center py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${
-              tab === t ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-            }`}
+            className={`flex sm:flex-1 min-w-[13vw] sm:min-w-0 sm:items-center whitespace-nowrap px-3 justify-center py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${tab === t ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+              }`}
           >
             {t === "addons" ? "Add-ons" : t === "channels" ? "Channels" : t.charAt(0).toUpperCase() + t.slice(1)}
             {t === "variations" && (form.variations?.length ?? 0) > 0 && (
@@ -1031,7 +1023,7 @@ function ItemModal({
             >
               {(form.active ?? true)
                 ? <ToggleRight size={28} className="text-green-500" />
-                : <ToggleLeft  size={28} className="text-gray-400" />}
+                : <ToggleLeft size={28} className="text-gray-400" />}
             </button>
             <div>
               <span className="text-sm font-medium text-gray-700">
@@ -1051,11 +1043,10 @@ function ItemModal({
                 <button
                   key={d}
                   onClick={() => toggleDietary(d)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium border-2 transition-all capitalize ${
-                    form.dietary.includes(d)
-                      ? "border-orange-400 bg-orange-50 text-orange-700"
-                      : "border-gray-200 text-gray-500 hover:border-gray-300"
-                  }`}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium border-2 transition-all capitalize ${form.dietary.includes(d)
+                    ? "border-orange-400 bg-orange-50 text-orange-700"
+                    : "border-gray-200 text-gray-500 hover:border-gray-300"
+                    }`}
                 >
                   {form.dietary.includes(d) && <Check size={10} className="inline mr-1" />}
                   {d}
@@ -1097,13 +1088,11 @@ function ItemModal({
               <button
                 type="button"
                 onClick={() => toggleChannel("in_store")}
-                className={`flex items-start gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all ${
-                  onInStore ? "border-orange-400 bg-orange-50" : "border-gray-200 hover:border-gray-300"
-                }`}
+                className={`flex items-start gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all ${onInStore ? "border-orange-400 bg-orange-50" : "border-gray-200 hover:border-gray-300"
+                  }`}
               >
-                <span className={`w-5 h-5 rounded-md border-2 flex-shrink-0 flex items-center justify-center mt-0.5 ${
-                  onInStore ? "bg-orange-500 border-orange-500" : "border-gray-300"
-                }`}>
+                <span className={`w-5 h-5 rounded-md border-2 flex-shrink-0 flex items-center justify-center mt-0.5 ${onInStore ? "bg-orange-500 border-orange-500" : "border-gray-300"
+                  }`}>
                   {onInStore && <Check size={11} className="text-white" strokeWidth={3} />}
                 </span>
                 <span>
@@ -1114,13 +1103,11 @@ function ItemModal({
               <button
                 type="button"
                 onClick={() => toggleChannel("online")}
-                className={`flex items-start gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all ${
-                  onOnline ? "border-orange-400 bg-orange-50" : "border-gray-200 hover:border-gray-300"
-                }`}
+                className={`flex items-start gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all ${onOnline ? "border-orange-400 bg-orange-50" : "border-gray-200 hover:border-gray-300"
+                  }`}
               >
-                <span className={`w-5 h-5 rounded-md border-2 flex-shrink-0 flex items-center justify-center mt-0.5 ${
-                  onOnline ? "bg-orange-500 border-orange-500" : "border-gray-300"
-                }`}>
+                <span className={`w-5 h-5 rounded-md border-2 flex-shrink-0 flex items-center justify-center mt-0.5 ${onOnline ? "bg-orange-500 border-orange-500" : "border-gray-300"
+                  }`}>
                   {onOnline && <Check size={11} className="text-white" strokeWidth={3} />}
                 </span>
                 <span>
@@ -1178,11 +1165,10 @@ function ItemModal({
                         if (next.has(mp.id)) next.delete(mp.id); else next.add(mp.id);
                         return { ...f, mealPeriodIds: Array.from(next) };
                       })}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border-2 transition-all ${
-                        checked
-                          ? "border-amber-400 bg-amber-50 text-amber-700"
-                          : "border-gray-200 text-gray-500 hover:border-gray-300"
-                      }`}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border-2 transition-all ${checked
+                        ? "border-amber-400 bg-amber-50 text-amber-700"
+                        : "border-gray-200 text-gray-500 hover:border-gray-300"
+                        }`}
                     >
                       {checked && <Check size={10} />}
                       <span>{mp.name}</span>
@@ -1206,61 +1192,67 @@ function ItemModal({
             // Treat older variations that pre-date the `required` field as required (backward compat).
             const isRequired = v.required !== false;
             return (
-            <div key={v.id} className="border border-gray-200 rounded-xl p-4 space-y-3">
-              <div className="flex items-center gap-2 sm:gap-3">
-                <input
-                  value={v.name}
-                  onChange={(e) => updateVariation(vi, { name: e.target.value })}
-                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                  placeholder="Variation name (e.g. Spice level)"
-                />
-                <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 cursor-pointer select-none whitespace-nowrap">
+              <div key={v.id} className="border border-gray-200 rounded-xl p-4 space-y-3">
+                <div className="flex items-center gap-2 sm:gap-3">
                   <input
-                    type="checkbox"
-                    checked={isRequired}
-                    onChange={(e) => updateVariation(vi, { required: e.target.checked })}
-                    className="w-4 h-4 rounded border-gray-300 text-orange-500 focus:ring-orange-400"
+                    value={v.name}
+                    onChange={(e) => updateVariation(vi, { name: e.target.value })}
+                    className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                    placeholder="Variation name (e.g. Spice level)"
                   />
-                  Required
-                </label>
-                <button onClick={() => removeVariation(vi)} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition">
-                  <Trash2 size={14} />
-                </button>
-              </div>
-              <div className="space-y-2 pl-2">
-                {v.options.map((opt, oi) => (
-                  <div key={opt.id} className="flex items-center gap-2">
-                    <span className="text-gray-300">›</span>
+                  <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 cursor-pointer select-none whitespace-nowrap">
                     <input
-                      value={opt.label}
-                      onChange={(e) => updateVariationOption(vi, oi, { label: e.target.value })}
-                      className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                      placeholder="Option label"
+                      type="checkbox"
+                      checked={isRequired}
+                      onChange={(e) => updateVariation(vi, { required: e.target.checked })}
+                      className="w-4 h-4 rounded border-gray-300 text-orange-500 focus:ring-orange-400"
                     />
-                    <div className="relative w-24">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">+{sym}</span>
+                    Required
+                  </label>
+                  <button onClick={() => removeVariation(vi)} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+                <div className="space-y-2 pl-2">
+                  {v.options.map((opt, oi) => (
+                    <div key={opt.id} className="flex items-center gap-2">
+                      <span className="text-gray-300">›</span>
                       <input
-                        type="number"
-                        min="0"
-                        step="0.25"
-                        value={opt.price}
-                        onChange={(e) => updateVariationOption(vi, oi, { price: parseFloat(e.target.value) || 0 })}
-                        className="w-full pl-7 pr-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                        value={opt.label}
+                        onChange={(e) => updateVariationOption(vi, oi, { label: e.target.value })}
+                        className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                        placeholder="Option label"
                       />
+                      <div className="relative w-24">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">+{sym}</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.25"
+                          value={opt.price}
+                          placeholder="0.00"
+                          onChange={(e) => updateVariationOption(vi, oi, { price: e.target.value === "" ? ("" as any) : parseFloat(e.target.value) })}
+                          onBlur={() => {
+                            if (opt.price === ("" as any) || isNaN(Number(opt.price))) {
+                              updateVariationOption(vi, oi, { price: 0 });
+                            }
+                          }}
+                          className="w-full pl-7 pr-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                        />
+                      </div>
+                      <button onClick={() => removeVariationOption(vi, oi)} className="text-gray-300 hover:text-red-400 transition">
+                        <X size={13} />
+                      </button>
                     </div>
-                    <button onClick={() => removeVariationOption(vi, oi)} className="text-gray-300 hover:text-red-400 transition">
-                      <X size={13} />
-                    </button>
-                  </div>
-                ))}
-                <button
-                  onClick={() => addVariationOption(vi)}
-                  className="text-xs text-orange-500 hover:text-orange-700 font-medium flex items-center gap-1 ml-4 mt-1"
-                >
-                  <Plus size={11} /> Add option
-                </button>
+                  ))}
+                  <button
+                    onClick={() => addVariationOption(vi)}
+                    className="text-xs text-orange-500 hover:text-orange-700 font-medium flex items-center gap-1 ml-4 mt-1"
+                  >
+                    <Plus size={11} /> Add option
+                  </button>
+                </div>
               </div>
-            </div>
             );
           })}
           <button
@@ -1294,7 +1286,13 @@ function ItemModal({
                   min="0"
                   step="0.25"
                   value={ao.price}
-                  onChange={(e) => updateAddOn(ai, { price: parseFloat(e.target.value) || 0 })}
+                  placeholder="0.00"
+                  onChange={(e) => updateAddOn(ai, { price: e.target.value === "" ? ("" as any) : parseFloat(e.target.value) })}
+                  onBlur={() => {
+                    if (ao.price === ("" as any) || isNaN(Number(ao.price))) {
+                      updateAddOn(ai, { price: 0 });
+                    }
+                  }}
                   className="w-full pl-7 pr-2 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                 />
               </div>
@@ -1333,11 +1331,10 @@ function ItemModal({
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => setForm((f) => ({ ...f, stockQty: undefined }))}
-                className={`flex items-center gap-2 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all text-left ${
-                  typeof form.stockQty !== "number"
-                    ? "border-orange-400 bg-orange-50 text-orange-700"
-                    : "border-gray-200 text-gray-500 hover:border-gray-300"
-                }`}
+                className={`flex items-center gap-2 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all text-left ${typeof form.stockQty !== "number"
+                  ? "border-orange-400 bg-orange-50 text-orange-700"
+                  : "border-gray-200 text-gray-500 hover:border-gray-300"
+                  }`}
               >
                 <Package size={15} className="flex-shrink-0" />
                 <div>
@@ -1347,11 +1344,10 @@ function ItemModal({
               </button>
               <button
                 onClick={() => setForm((f) => ({ ...f, stockQty: typeof f.stockQty === "number" ? f.stockQty : 10 }))}
-                className={`flex items-center gap-2 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all text-left ${
-                  typeof form.stockQty === "number"
-                    ? "border-orange-400 bg-orange-50 text-orange-700"
-                    : "border-gray-200 text-gray-500 hover:border-gray-300"
-                }`}
+                className={`flex items-center gap-2 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all text-left ${typeof form.stockQty === "number"
+                  ? "border-orange-400 bg-orange-50 text-orange-700"
+                  : "border-gray-200 text-gray-500 hover:border-gray-300"
+                  }`}
               >
                 <PackageMinus size={15} className="flex-shrink-0" />
                 <div>
@@ -1373,26 +1369,24 @@ function ItemModal({
                     <button
                       key={s}
                       onClick={() => setForm((f) => ({ ...f, stockStatus: s }))}
-                      className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl border-2 transition-all ${
-                        active
-                          ? s === "out_of_stock" ? "border-red-400 bg-red-50"
-                          : s === "low_stock"    ? "border-amber-400 bg-amber-50"
-                          :                        "border-green-400 bg-green-50"
-                          : "border-gray-200 hover:border-gray-300"
-                      }`}
+                      className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl border-2 transition-all ${active
+                        ? s === "out_of_stock" ? "border-red-400 bg-red-50"
+                          : s === "low_stock" ? "border-amber-400 bg-amber-50"
+                            : "border-green-400 bg-green-50"
+                        : "border-gray-200 hover:border-gray-300"
+                        }`}
                     >
                       {s === "out_of_stock"
                         ? <PackageX size={18} className={active ? "text-red-500" : "text-gray-400"} />
                         : s === "low_stock"
-                        ? <PackageMinus size={18} className={active ? "text-amber-500" : "text-gray-400"} />
-                        : <Package size={18} className={active ? "text-green-500" : "text-gray-400"} />}
-                      <span className={`text-[11px] font-semibold leading-tight text-center ${
-                        active
-                          ? s === "out_of_stock" ? "text-red-600"
-                          : s === "low_stock"    ? "text-amber-600"
-                          :                        "text-green-600"
-                          : "text-gray-500"
-                      }`}>
+                          ? <PackageMinus size={18} className={active ? "text-amber-500" : "text-gray-400"} />
+                          : <Package size={18} className={active ? "text-green-500" : "text-gray-400"} />}
+                      <span className={`text-[11px] font-semibold leading-tight text-center ${active
+                        ? s === "out_of_stock" ? "text-red-600"
+                          : s === "low_stock" ? "text-amber-600"
+                            : "text-green-600"
+                        : "text-gray-500"
+                        }`}>
                         {stockLabel(s)}
                       </span>
                     </button>
@@ -1435,28 +1429,26 @@ function ItemModal({
               {(() => {
                 const s = resolveStock(form);
                 return (
-                  <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${
-                    s === "out_of_stock" ? "bg-red-50 border-red-100"
+                  <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${s === "out_of_stock" ? "bg-red-50 border-red-100"
                     : s === "low_stock" ? "bg-amber-50 border-amber-100"
-                    : "bg-green-50 border-green-100"
-                  }`}>
+                      : "bg-green-50 border-green-100"
+                    }`}>
                     {s === "out_of_stock"
                       ? <PackageX size={16} className="text-red-500 flex-shrink-0" />
                       : s === "low_stock"
-                      ? <PackageMinus size={16} className="text-amber-500 flex-shrink-0" />
-                      : <Package size={16} className="text-green-500 flex-shrink-0" />}
+                        ? <PackageMinus size={16} className="text-amber-500 flex-shrink-0" />
+                        : <Package size={16} className="text-green-500 flex-shrink-0" />}
                     <div>
-                      <p className={`text-sm font-semibold ${
-                        s === "out_of_stock" ? "text-red-700"
+                      <p className={`text-sm font-semibold ${s === "out_of_stock" ? "text-red-700"
                         : s === "low_stock" ? "text-amber-700"
-                        : "text-green-700"
-                      }`}>{stockLabel(s)}</p>
+                          : "text-green-700"
+                        }`}>{stockLabel(s)}</p>
                       <p className="text-xs text-gray-500 mt-0.5">
                         {s === "out_of_stock"
                           ? "Item will show as Unavailable and cannot be added to cart."
                           : s === "low_stock"
-                          ? `Quantity is at or below the low-stock threshold (${LOW_STOCK_THRESHOLD} units). A "Low stock" badge will appear.`
-                          : "Item is available for purchase on the menu."}
+                            ? `Quantity is at or below the low-stock threshold (${LOW_STOCK_THRESHOLD} units). A "Low stock" badge will appear.`
+                            : "Item is available for purchase on the menu."}
                       </p>
                     </div>
                   </div>
@@ -1471,11 +1463,10 @@ function ItemModal({
                     <button
                       key={n}
                       onClick={() => setForm((f) => ({ ...f, stockQty: n }))}
-                      className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
-                        form.stockQty === n
-                          ? "bg-orange-500 text-white border-orange-500"
-                          : "border-gray-200 text-gray-500 hover:border-orange-300 hover:text-orange-600"
-                      }`}
+                      className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${form.stockQty === n
+                        ? "bg-orange-500 text-white border-orange-500"
+                        : "border-gray-200 text-gray-500 hover:border-orange-300 hover:text-orange-600"
+                        }`}
                     >
                       {n === 0 ? "0 (OOS)" : n}
                     </button>
@@ -1603,11 +1594,10 @@ function MealPeriodModal({
                 <button
                   key={day}
                   onClick={() => toggleDay(day)}
-                  className={`w-11 h-9 rounded-lg text-xs font-semibold border-2 transition-all ${
-                    active
-                      ? "border-amber-400 bg-amber-50 text-amber-700"
-                      : "border-gray-200 text-gray-400 hover:border-gray-300"
-                  }`}
+                  className={`w-11 h-9 rounded-lg text-xs font-semibold border-2 transition-all ${active
+                    ? "border-amber-400 bg-amber-50 text-amber-700"
+                    : "border-gray-200 text-gray-400 hover:border-gray-300"
+                    }`}
                 >
                   {label}
                 </button>
@@ -1727,7 +1717,7 @@ function OfferEditor({
         >
           {o.active
             ? <ToggleRight size={28} className="text-amber-500" />
-            : <ToggleLeft  size={28} className="text-gray-400" />}
+            : <ToggleLeft size={28} className="text-gray-400" />}
         </button>
       </div>
 
@@ -1736,19 +1726,18 @@ function OfferEditor({
           {/* Offer type — six buttons mirror the POS grid */}
           <div className="grid grid-cols-3 gap-1.5">
             {([
-              ["percent",      "% Off"],
-              ["fixed",        `${sym} Off`],
-              ["price",        "Set Price"],
-              ["bogo",         "BOGO"],
-              ["multibuy",     "Multi-Buy"],
+              ["percent", "% Off"],
+              ["fixed", `${sym} Off`],
+              ["price", "Set Price"],
+              ["bogo", "BOGO"],
+              ["multibuy", "Multi-Buy"],
               ["qty_discount", "Qty Deal"],
             ] as [MenuItemOffer["type"], string][]).map(([t, label]) => (
               <button
                 key={t}
                 onClick={() => patch({ type: t })}
-                className={`py-2 rounded-lg text-xs font-semibold transition-all ${
-                  o.type === t ? "bg-amber-400 text-gray-900" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                }`}
+                className={`py-2 rounded-lg text-xs font-semibold transition-all ${o.type === t ? "bg-amber-400 text-gray-900" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
               >
                 {label}
               </button>
@@ -1764,8 +1753,14 @@ function OfferEditor({
                 </label>
                 <input
                   type="number" min="0" step={o.type === "percent" ? "1" : "0.01"}
-                  value={Number.isFinite(o.value) ? o.value : 0}
-                  onChange={(e) => patch({ value: parseFloat(e.target.value) || 0 })}
+                  value={Number.isFinite(o.value) ? o.value : ""}
+                  placeholder="0"
+                  onChange={(e) => patch({ value: e.target.value === "" ? ("" as any) : parseFloat(e.target.value) })}
+                  onBlur={() => {
+                    if (o.value === ("" as any) || isNaN(Number(o.value))) {
+                      patch({ value: 0 });
+                    }
+                  }}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
                 />
               </div>
@@ -1828,8 +1823,14 @@ function OfferEditor({
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Bundle price ({sym})</label>
                 <input
                   type="number" min="0" step="0.01"
-                  value={Number.isFinite(o.value) ? o.value : 0}
-                  onChange={(e) => patch({ value: parseFloat(e.target.value) || 0 })}
+                  value={Number.isFinite(o.value) ? o.value : ""}
+                  placeholder="0.00"
+                  onChange={(e) => patch({ value: e.target.value === "" ? ("" as any) : parseFloat(e.target.value) })}
+                  onBlur={() => {
+                    if (o.value === ("" as any) || isNaN(Number(o.value))) {
+                      patch({ value: 0 });
+                    }
+                  }}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
                 />
               </div>
@@ -1860,8 +1861,14 @@ function OfferEditor({
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Discount %</label>
                 <input
                   type="number" min="1" max="100" step="1"
-                  value={Number.isFinite(o.value) ? o.value : 0}
-                  onChange={(e) => patch({ value: parseFloat(e.target.value) || 0 })}
+                  value={Number.isFinite(o.value) ? o.value : ""}
+                  placeholder="0"
+                  onChange={(e) => patch({ value: e.target.value === "" ? ("" as any) : parseFloat(e.target.value) })}
+                  onBlur={() => {
+                    if (o.value === ("" as any) || isNaN(Number(o.value))) {
+                      patch({ value: 0 });
+                    }
+                  }}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
                 />
               </div>
@@ -1924,9 +1931,8 @@ function OfferEditor({
                       // Both selected → store undefined ("all") to keep data clean.
                       patch({ channels: next.length === 2 ? undefined : next });
                     }}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border-2 transition-all ${
-                      selected ? "border-amber-400 bg-amber-50 text-amber-700" : "border-gray-200 text-gray-500 hover:border-gray-300"
-                    }`}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border-2 transition-all ${selected ? "border-amber-400 bg-amber-50 text-amber-700" : "border-gray-200 text-gray-500 hover:border-gray-300"
+                      }`}
                   >
                     {selected && <Check size={10} />}
                     {ch === "in_store" ? "In store" : "Online"}
