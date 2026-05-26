@@ -369,7 +369,7 @@ function DriverLoginInner() {
 
         <p className="text-center text-gray-600 text-xs mt-6">
           Not a driver?{" "}
-          <Link href="/" className="text-orange-500 hover:text-orange-400 font-semibold transition">
+          <Link href="/" className="text-gray-500 hover:text-gray-400 font-semibold transition">
             Back to menu
           </Link>
         </p>

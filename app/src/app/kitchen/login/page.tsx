@@ -151,11 +151,11 @@ export default function KitchenLoginPage() {
                 >
                   {initials(s.name)}
                 </div>
-                <div className="text-left">
-                  <p className="text-white font-bold">{s.name}</p>
-                  <p className="text-slate-400 text-xs">{roleLabel(s.role)}</p>
+                <div className="text-left flex-1 min-w-0">
+                  <p className="text-white font-bold truncate">{s.name}</p>
+                  <p className="text-slate-400 text-xs truncate">{roleLabel(s.role)}</p>
                 </div>
-                <ChevronRight size={16} className="text-slate-500 ml-auto" />
+                <ChevronRight size={16} className="text-slate-500 ml-auto flex-shrink-0" />
               </button>
             ))
           )}
@@ -178,9 +178,9 @@ export default function KitchenLoginPage() {
             >
               {initials(target?.name ?? "")}
             </div>
-            <div>
-              <p className="text-white font-semibold">{target?.name}</p>
-              <p className="text-slate-400 text-xs">{target ? roleLabel(target.role) : ""}</p>
+            <div className="text-left flex-1 min-w-0">
+              <p className="text-white font-semibold truncate">{target?.name}</p>
+              <p className="text-slate-400 text-xs truncate">{target ? roleLabel(target.role) : ""}</p>
             </div>
           </div>
 

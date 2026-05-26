@@ -104,7 +104,7 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
             aria-label={faved ? "Remove from favourites" : "Save to favourites"}
             className={`absolute top-2.5 right-2.5 w-8 h-8 rounded-full flex items-center justify-center shadow-md transition-all duration-200 ${faved
               ? "bg-red-500 text-white scale-100"
-              : "bg-white/90 text-zinc-400 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 hover:text-red-500"
+              : "bg-white/90 text-zinc-400 hover:text-red-500"
               }`}
           >
             <Heart className="w-3.5 h-3.5" strokeWidth={2} fill={faved ? "currentColor" : "none"} />
@@ -576,7 +576,7 @@ export default function HomePage() {
       </div>
 
       {/* ── Right cart panel (desktop lg+) ───────────────────────────────── */}
-      <aside className="hidden lg:flex w-[300px] xl:w-[320px] flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
+      <aside className="hidden lg:flex w-[310px] xl:w-[350px] flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
         <Cart onOrderPlaced={() => router.push('/my-orders')} />
       </aside>
 

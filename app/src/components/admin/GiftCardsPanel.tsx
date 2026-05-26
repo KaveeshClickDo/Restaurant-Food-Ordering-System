@@ -224,7 +224,7 @@ export default function GiftCardsPanel() {
                     <p className="text-[10px] text-gray-400">of {sym}{c.initialAmount.toFixed(2)}</p>
                   </div>
 
-                  <div className="flex items-center gap-1 flex-shrink-0 sm:opacity-0 sm:group-hover:opacity-100 transition">
+                  <div className="flex items-center gap-1 flex-shrink-0 transition">
                     <button onClick={() => setDetailId(c.id)} title="View history" className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition">
                       <Eye size={14} />
                     </button>

@@ -103,12 +103,12 @@ export default function ConfirmDialog({
       >
         <div className="flex items-start gap-3 p-5 border-b border-gray-800">
           <div
-            className={`w-10 h-10 flex-shrink-0 rounded-xl flex items-center justify-center ${
+            className={`w-9 h-9 flex-shrink-0 rounded-xl flex items-center justify-center ${
               tone === "danger" ? "bg-red-500/15" : "bg-orange-500/15"
             }`}
           >
             <AlertTriangle
-              size={20}
+              size={18}
               className={tone === "danger" ? "text-red-400" : "text-orange-400"}
             />
           </div>

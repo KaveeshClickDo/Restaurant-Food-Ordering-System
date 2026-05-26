@@ -153,7 +153,7 @@ export default function CustomersPanel() {
   return (
     <div className="space-y-5">
       {/* Stats row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Total customers"  value={customers.length}         sub={`${activeToday} active today`}    icon={<Users size={18} />} />
         <StatCard label="Total orders"     value={totalOrders}              sub="all time"                          icon={<ShoppingBag size={18} />} />
         <StatCard label="Total revenue"    value={`${sym}${totalRevenue.toFixed(2)}`} sub="delivered orders only"      icon={<TrendingUp size={18} />} />
@@ -267,7 +267,7 @@ export default function CustomersPanel() {
                     <td className="px-4 py-3.5">
                       <button
                         onClick={() => setSelectedCustomer(c)}
-                        className="flex items-center gap-1 text-xs text-orange-500 hover:text-orange-700 font-medium transition sm:opacity-0 sm:group-hover:opacity-100"
+                        className="flex items-center gap-1 text-xs text-orange-400 group-hover:text-orange-800 font-medium transition"
                       >
                         View <ChevronRight size={13} />
                       </button>
@@ -843,7 +843,7 @@ function CustomerDrawer({
               list endpoint emits to keep orphan orders visible. */}
           {!isDeletedRow && (
             <div className="px-6 py-4 border-b border-gray-100 space-y-3">
-              <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+              <h3 className="font-semibold text-gray-900 text-sm flex flex-wrap items-center gap-2">
                 <UserCog size={15} className="text-orange-500" />
                 Account
                 {actionToast && (
@@ -930,16 +930,16 @@ function CustomerDrawer({
               <span className="text-[10px] font-normal text-gray-400 ml-auto">shared with POS</span>
             </h3>
             <div className="grid grid-cols-2 gap-2">
-              <div className="flex items-center justify-between bg-teal-50 border border-teal-100 rounded-lg px-3 py-2">
+              <div className="flex flex-col sm:flex-row items-center justify-between bg-teal-50 border border-teal-100 rounded-lg px-3 py-2">
                 <div className="flex items-center gap-2 text-xs text-teal-700 min-w-0">
                   <Gift size={13} className="text-teal-500 flex-shrink-0" />
-                  <span className="font-semibold truncate">Store credit</span>
+                  <span className="font-semibold">Store credit</span>
                 </div>
                 <span className="text-sm font-bold text-teal-700 tabular-nums flex-shrink-0">
                   {sym}{(customer.storeCredit ?? 0).toFixed(2)}
                 </span>
               </div>
-              <div className="flex items-center justify-between bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+              <div className="flex flex-col sm:flex-row items-center justify-between bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
                 <div className="flex items-center gap-2 text-xs text-amber-700 min-w-0">
                   <Award size={13} className="text-amber-500 flex-shrink-0" />
                   <span className="font-semibold truncate">Loyalty points</span>
@@ -1069,9 +1069,9 @@ function CustomerDrawer({
                             {order.fulfillment === "delivery" ? "🚚 Delivery" : "🏪 Collection"}
                           </span>
                         </div>
-                        <div className="flex items-center gap-3 mt-1">
-                          <span className="text-xs text-gray-500 flex items-center gap-1">
-                            <Clock size={10} /> {fmtDate(order.date)} at {fmtTime(order.date)}
+                        <div className="flex flex-wrap items-center gap-1 mt-2">
+                          <span className="text-xs text-gray-500 flex items-center gap-1 mr-2">
+                            <Clock size={10} className="flex-shrink-0" /> {fmtDate(order.date)} at {fmtTime(order.date)}
                           </span>
                           <span className="font-bold text-gray-900 text-sm">{sym}{order.total.toFixed(2)}</span>
                         </div>
@@ -1250,7 +1250,7 @@ function CustomerDrawer({
       {/* Delete confirmation / active-orders block */}
       {deleteOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full border border-gray-100">
+          <div className="bg-white rounded-2xl shadow-2xl p-5 sm:p-6 max-w-sm w-full border border-gray-100">
             {activeOrders ? (
               <>
                 <div className="flex items-center gap-3 mb-4">
@@ -1279,15 +1279,15 @@ function CustomerDrawer({
                 <div className="flex gap-3">
                   <button
                     onClick={() => { setDeleteOpen(false); setActiveOrders(null); }}
-                    className="flex-1 px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition"
+                    className="flex px-6 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition items-center"
                   >
                     Close
                   </button>
                   <button
                     onClick={goToDelivery}
-                    className="flex-1 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold transition flex items-center justify-center gap-1.5"
+                    className="flex-1 px-2 sm:px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold transition flex items-center justify-center gap-1.5"
                   >
-                    Go to Online Orders <ExternalLink size={13} />
+                    Go to Online Orders <ExternalLink size={13} className="flex-shrink-0" />
                   </button>
                 </div>
               </>
