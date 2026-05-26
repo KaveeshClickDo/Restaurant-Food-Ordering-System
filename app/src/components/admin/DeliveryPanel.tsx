@@ -842,9 +842,9 @@ export default function DeliveryPanel() {
                     <button
                       type="button"
                       onClick={() => { const t = cancelTarget; setCancelTarget(null); setRefundCancelTarget(t); }}
-                      className="w-full flex items-center justify-center gap-2 bg-teal-500 hover:bg-teal-400 text-white text-sm font-bold py-2.5 rounded-lg transition"
+                      className="w-full flex items-center justify-center gap-2 bg-teal-500 hover:bg-teal-400 text-white text-sm font-bold px-2 py-2.5 rounded-lg transition"
                     >
-                      <RotateCcw size={14} /> Refund + cancel order
+                      <RotateCcw size={14} className="flex-shrink-0"/> Refund + cancel order
                     </button>
                     <p className="text-xs text-gray-500">
                       Or use “Cancel without refund” below to cancel and handle the refund later

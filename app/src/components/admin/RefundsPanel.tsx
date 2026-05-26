@@ -352,11 +352,11 @@ export function RefundModal({
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
 
         {/* Header */}
-        <div className="bg-teal-500 px-6 py-5 flex items-start justify-between gap-4">
+        <div className="bg-teal-500 px-5 sm:px-6 py-5 flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
               <RotateCcw size={18} className="text-white" />
-              <h2 className="text-white font-bold text-lg">{cancelAfter ? "Refund & Cancel Order" : "Process Refund"}</h2>
+              <h2 className="text-white font-bold text-base sm:text-lg">{cancelAfter ? "Refund & Cancel Order" : "Process Refund"}</h2>
             </div>
             <p title={fullOrderNumber(order.id)} className="text-teal-100 text-sm mt-0.5 truncate">
               {fullOrderNumber(order.id)} · {customerName}
@@ -367,7 +367,7 @@ export function RefundModal({
           </button>
         </div>
 
-        <div className="px-6 py-5 space-y-5 max-h-[60vh] sm:max-h-[70vh] overflow-y-auto">
+        <div className="px-5 sm:px-6 py-5 space-y-5 max-h-[60vh] sm:max-h-[70vh] overflow-y-auto">
 
           {cancelAfter && (
             <div className="flex items-start gap-2 bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-600">
@@ -377,7 +377,7 @@ export function RefundModal({
           )}
 
           {/* Order summary */}
-          <div className="bg-gray-50 rounded-xl sm:px-4 py-3 grid grid-cols-3 gap-3 text-center">
+          <div className="bg-gray-50 rounded-xl sm:px-4 py-3 grid grid-cols-2 sm:grid-cols-3 gap-3 text-center">
             <div>
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Order total</p>
               <p className="text-sm font-extrabold text-gray-900 mt-0.5">{fmtAmt(order.total, sym)}</p>
@@ -386,7 +386,7 @@ export function RefundModal({
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Already refunded</p>
               <p className="text-sm font-extrabold text-teal-600 mt-0.5">{fmtAmt(refundedAmount, sym)}</p>
             </div>
-            <div>
+            <div className="col-span-2 sm:col-span-1">
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{method === "gift_card" ? "Gift card" : "Refundable"}</p>
               <p className="text-sm font-extrabold text-gray-900 mt-0.5">{fmtAmt(effectiveMax, sym)}</p>
             </div>
@@ -394,7 +394,7 @@ export function RefundModal({
 
           {/* Amount */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="flex flex-wrap gap-0.5 items-center justify-between mb-1.5">
               <label className="text-sm font-semibold text-gray-700">Refund amount</label>
               <button
                 onClick={() => { setAmount(effectiveMax.toFixed(2)); setErrors((e) => ({ ...e, amount: "" })); }}
@@ -487,7 +487,7 @@ export function RefundModal({
                       className="mt-0.5 accent-teal-500"
                     />
                     <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-semibold flex items-center gap-1.5 ${method === key ? "text-teal-700" : "text-gray-700"}`}>
+                      <p className={`text-sm font-semibold flex flex-wrap items-center gap-1.5 flex-shrink-0 ${method === key ? "text-teal-700" : "text-gray-700"}`}>
                         {cfg.icon} {cfg.label}
                         {isStripeReversal && (
                           <span className="text-[9px] font-bold bg-indigo-100 text-indigo-700 rounded-full px-1.5 py-0.5">

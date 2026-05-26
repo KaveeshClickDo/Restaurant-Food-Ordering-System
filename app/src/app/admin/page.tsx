@@ -724,7 +724,7 @@ function AdminPageContent() {
 
       {/* ── Main content (offset by sidebar on desktop) ───────────────────── */}
       <div className={[
-        "flex flex-col flex-1 h-full transition-[padding-left] duration-300 ease-in-out pb-8",
+        "flex flex-col flex-1 h-full transition-[padding-left] duration-300 ease-in-out pb-12",
         sidebarCollapsed ? "lg:pl-[68px]" : "lg:pl-60",
       ].join(" ")}>
 
