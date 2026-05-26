@@ -50,7 +50,7 @@ export async function GET(): Promise<NextResponse> {
       .order("created_at", { ascending: false }),
     supabaseAdmin
       .from("waiters")
-      .select("id, name, email, active, avatar_color, created_at")
+      .select("id, name, email, role, active, avatar_color, created_at")
       .order("created_at", { ascending: false }),
     supabaseAdmin
       .from("kitchen_staff")
@@ -134,6 +134,7 @@ export async function GET(): Promise<NextResponse> {
                    ? row.created_at
                    : new Date(row.created_at).toISOString(),
     pin:         "••••",
+    waiterRole:  row.role ?? "waiter",
     avatarColor: row.avatar_color,
   }));
 
@@ -284,12 +285,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       .insert({
         name:         name,
         email:        email ? email.toLowerCase() : "",
+        role:         waiterRole ?? "waiter",
         pin_hash:     pinHash,
         active,
         hourly_rate:  hourlyRate ?? null,
         avatar_color: avatarColor ?? "#0891b2",
       })
-      .select("id, name, email, active, avatar_color, created_at")
+      .select("id, name, email, role, active, avatar_color, created_at")
       .single();
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
@@ -301,7 +303,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       active:      data.active,
       createdAt:   data.created_at,
       pin:         "••••",
-      waiterRole:  waiterRole ?? "waiter",
+      waiterRole:  data.role ?? "waiter",
       avatarColor: data.avatar_color,
     };
     return NextResponse.json({ ok: true, user }, { status: 201 });

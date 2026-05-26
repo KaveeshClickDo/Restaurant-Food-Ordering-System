@@ -29,17 +29,6 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 // the only source of truth, so a fresh terminal renders the correct staff
 // list immediately and edits made on one terminal are visible everywhere.
 
-// Intentionally empty. Demo categories/products must come from
-// `npm run db:seed-demo` (see app/seed-demo.ts). These constants are kept
-// only as typed fallbacks for the `load<…>("pos_categories", SEED_CATEGORIES)`
-// pattern below — they must NEVER carry data, otherwise localStorage becomes
-// a hidden seeding path that bypasses the migration script.
-const SEED_CATEGORIES: POSCategory[] = [];
-
-// Intentionally empty. See note on SEED_CATEGORIES above — seeding is the
-// exclusive responsibility of `npm run db:seed-demo`.
-const SEED_PRODUCTS: POSProduct[] = [];
-
 const SEED_SETTINGS: POSSettings = {
   businessName: "",
   taxRate: 20,
@@ -78,6 +67,10 @@ const SEED_SETTINGS: POSSettings = {
 interface POSContextValue {
   // Auth
   currentStaff: POSStaff | null;
+  /** True until the first server-session probe (/api/pos/auth) resolves on
+   *  mount. Pages should wait on this before treating a null currentStaff as
+   *  "logged out" — otherwise a refresh bounces to /pos/login mid-hydration. */
+  sessionLoading: boolean;
   login: (staffId: string, pin: string) => Promise<boolean>;
   logout: () => void;
   // Data
@@ -393,18 +386,23 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // to hydrate this from the server. localStorage is no longer trusted for
   // identity — only for non-auth UI state caches.
   const [currentStaff, setCurrentStaff] = useState<POSStaff | null>(null);
+  // sessionLoading is true until the first /api/pos/auth probe resolves, so a
+  // refresh waits for the cookie session to hydrate instead of treating the
+  // momentary null currentStaff as "logged out" and bouncing to /pos/login.
+  const [sessionLoading, setSessionLoading] = useState(true);
   // Mirror of currentStaff readable from inside effects/timers without
   // re-subscribing them. Kept in sync just below. Used by the self-check poll
   // and the menu-sync gate so neither has to depend on currentStaff directly.
   const currentStaffRef = useRef<POSStaff | null>(null);
   useEffect(() => { currentStaffRef.current = currentStaff; }, [currentStaff]);
   const [staff, setStaff] = useState<POSStaff[]>([]);
-  const [products, setProducts] = useState<POSProduct[]>(() =>
-    load<POSProduct[]>("pos_products", SEED_PRODUCTS)
-  );
-  const [categories, setCategories] = useState<POSCategory[]>(() =>
-    load<POSCategory[]>("pos_categories", SEED_CATEGORIES)
-  );
+  // products + categories are NOT cached in localStorage. The DB is the single
+  // source of truth — same pattern as customers (Bug #11). Caching them used
+  // to resurrect deleted items: a stale local list would ride along on the
+  // debounced bulk sync after any realtime menu event and re-upsert the ghost
+  // rows into menu_items. Start empty, hydrate from /api/pos/menu on mount.
+  const [products, setProducts] = useState<POSProduct[]>([]);
+  const [categories, setCategories] = useState<POSCategory[]>([]);
   // sales + clockEntries are DB-backed (pos_sales / pos_clock_entries tables).
   // They start empty and are hydrated from the API once the staff session
   // resolves below.
@@ -611,11 +609,9 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     );
   }, [adminTaxRate, adminTaxInclusive]);
 
-  useEffect(() => { save("pos_products", products); }, [products]);
-  useEffect(() => { save("pos_categories", categories); }, [categories]);
-  // Bug #11 — pos_customers is no longer persisted to localStorage. The
-  // customers list lives in the customers table and is re-fetched from
-  // /api/pos/customers on every staff login.
+  // products + categories are intentionally NOT persisted — see the useState
+  // declarations above. Same rationale as Bug #11 (customers): caching shared
+  // server-side data in localStorage lets stale rows resurrect after a wipe.
   useEffect(() => { save("pos_settings", settings); }, [settings]);
 
   // ── Supabase menu sync ────────────────────────────────────────────────────
@@ -627,30 +623,23 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       .then((r) => { if (!r.ok) throw new Error(`/api/pos/menu ${r.status}`); return r.json(); })
       .then((d: { ok: boolean; categories: Record<string,unknown>[]; items: Record<string,unknown>[] }) => {
         if (!d.ok) return;
-
-        if (d.categories.length > 0) {
-          setCategories((prev) =>
-            d.categories.map((row, i) =>
-              rowToPOSCategory(row, i, prev.find((c) => c.id === row.id)),
-            ),
-          );
-        }
-
-        if (d.items.length > 0) {
-          setProducts((prev) =>
-            d.items.map((row) =>
-              rowToPOSProduct(row, prev.find((p) => p.id === row.id)),
-            ),
-          );
-        }
-        // If the menu is empty here, do NOT auto-seed. Seeding is the
-        // exclusive responsibility of `npm run db:seed-demo` (see
-        // app/seed-demo.ts). Auto-seeding from the client used to mask
-        // misconfigured installs and re-populated demo data into real
-        // tenants after admins had deleted it.
+        // Always apply the server's response — including empty arrays. An
+        // empty server reply means the menu IS empty (fresh DB, full wipe);
+        // skipping the setState would leave whatever was already in memory
+        // and that stale list would then get pushed back to the DB by the
+        // debounced sync after the next realtime menu event.
+        setCategories((prev) =>
+          d.categories.map((row, i) =>
+            rowToPOSCategory(row, i, prev.find((c) => c.id === row.id)),
+          ),
+        );
+        setProducts((prev) =>
+          d.items.map((row) =>
+            rowToPOSProduct(row, prev.find((p) => p.id === row.id)),
+          ),
+        );
       })
-      .catch(() => { /* network error — POS keeps working from localStorage */ });
-   
+      .catch(() => { /* network error — leave state as-is until next mount */ });
   }, []);
 
   // Debounced push: whenever the POS menu changes, sync to Supabase so the
@@ -768,7 +757,14 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // be reused as an identity claim.
   useEffect(() => {
     if (typeof window !== "undefined") {
-      try { localStorage.removeItem("pos_session"); } catch { /* ignore */ }
+      try {
+        localStorage.removeItem("pos_session");
+        // Purge legacy menu caches written by older builds. These were the
+        // resurrection vector: a wipe + reload would keep them in memory and
+        // the debounced sync re-upserted them after the next realtime event.
+        localStorage.removeItem("pos_products");
+        localStorage.removeItem("pos_categories");
+      } catch { /* ignore */ }
     }
   }, []);
 
@@ -790,7 +786,10 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     let lastStaffKey = "";
 
     async function checkSession() {
-      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      // The very first probe must always run (even in a background tab) so the
+      // cookie session hydrates on load and sessionLoading can resolve; only
+      // subsequent polls skip while the tab is hidden.
+      if (initialAuthChecked.current && typeof document !== "undefined" && document.visibilityState !== "visible") return;
       // Once we've established there's no session, stop probing — the poll
       // only exists to catch invalidation of an ACTIVE session. This avoids a
       // needless 401 every 15 s on the /pos/login screen. The very first probe
@@ -819,6 +818,11 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
           }
         }
       } catch { /* network blip — keep last-known */ }
+      finally {
+        // First probe done (success, 401, or network blip) — let pages decide
+        // logged-in vs logged-out without bouncing through /pos/login.
+        if (active) setSessionLoading(false);
+      }
     }
 
     checkSession();
@@ -1225,7 +1229,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <POSContext.Provider value={{
-      currentStaff, login, logout,
+      currentStaff, sessionLoading, login, logout,
       staff, addPosStaff, updatePosStaff, deletePosStaff, refreshPosStaff,
       products, setProducts, updateProductStock,
       categories, setCategories,

@@ -8,7 +8,7 @@ import {
   CalendarDays, Clock, Users, UtensilsCrossed, CheckCircle2, XCircle,
   AlertTriangle, Trash2, RefreshCw, MapPin, ChevronDown, Loader2,
   ToggleLeft, ToggleRight, Settings2, Search, Mail, Phone,
-  LogIn, LogOut, UserPlus, Ban, Star, Link, ExternalLink,
+  LogIn, LogOut, UserPlus, Ban, Star, Link, ExternalLink, Crown,
 } from "lucide-react";
 import { cleanPhone } from "@/lib/inputUtils";
 
@@ -52,6 +52,17 @@ function generateSlots(open: string, close: string, interval: number): string[] 
     out.push(`${Math.floor(t / 60).toString().padStart(2, "0")}:${(t % 60).toString().padStart(2, "0")}`);
   }
   return out;
+}
+// Walk-ins are seated NOW, so they belong to the in-progress slot (the last
+// slot whose start time is at/before the current time), not the next future
+// one. e.g. at 6:38pm with 30-min slots this returns 6:30, not 7:00. Falls
+// back to the first slot when the restaurant hasn't opened yet.
+function currentSlot(slots: string[]): string {
+  const now = nowLocalMins();
+  for (let i = slots.length - 1; i >= 0; i--) {
+    if (toMins(slots[i]) <= now) return slots[i];
+  }
+  return slots[0] ?? "";
 }
 
 const STATUS_CONFIG: Record<ReservationStatus, { label: string; dotClass: string; badgeClass: string }> = {
@@ -236,6 +247,8 @@ function ReservationCard({
   onStatusChange: (id: string, status: ReservationStatus) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }) {
+  const { settings } = useApp();
+  const currencySymbol = settings.currency?.symbol ?? "£";
   const cfg = STATUS_CONFIG[res.status];
   const [actioning, setActioning] = useState(false);
   const [menuOpen,  setMenuOpen]  = useState(false);
@@ -346,6 +359,15 @@ function ReservationCard({
                 <span className="text-gray-400">· {res.section}</span>
               ) : null}
             </span>
+            {(res.vipFee ?? 0) > 0 && (
+              <span className="flex items-center gap-1.5 whitespace-nowrap text-amber-700" title={res.paymentMethod ? `Paid by ${res.paymentMethod}` : undefined}>
+                <Crown size={13} className="text-amber-500" />
+                {currencySymbol}{(res.vipFee ?? 0).toFixed(2)}
+                {res.paymentStatus === "paid" && (
+                  <span className="text-[10px] font-bold uppercase bg-green-100 text-green-700 px-1.5 py-0.5 rounded">Paid</span>
+                )}
+              </span>
+            )}
           </div>
 
           <div className="mt-3 sm:mt-2 space-y-1 sm:space-y-0.5 text-xs text-gray-500">
@@ -505,6 +527,7 @@ export default function ReservationsPanel() {
   const [addDate,       setAddDate]       = useState(todayStr());
   const [addTime,       setAddTime]       = useState(firstSlot);
   const [addNote,       setAddNote]       = useState("");
+  const [addPayMethod,  setAddPayMethod]  = useState<"cash" | "card">("cash");
   const [addSaving,     setAddSaving]     = useState(false);
   const [addError,      setAddError]      = useState("");
   const [addBookedIds,  setAddBookedIds]  = useState<Set<string>>(new Set());
@@ -525,17 +548,42 @@ export default function ReservationsPanel() {
     } finally { setAddLoadingTbl(false); }
   }, []);
 
-  // Re-fetch booked-IDs whenever date/time/party changes while the modal is open
+  // Re-fetch booked-IDs whenever date/time/party changes while the modal is
+  // open. Walk-ins use the in-progress slot (which counts as "past"), so skip
+  // the past-slot guard for them — they're being seated now.
   useEffect(() => {
     if (!showAddModal) return;
     setAddTableId("");
     setAddBookedIds(new Set());
-    if (addTime && !isSlotPast(addTime, addDate)) fetchAddTables(addDate, addTime, addParty);
+    if (addTime && (addSource === "walk-in" || !isSlotPast(addTime, addDate))) {
+      fetchAddTables(addDate, addTime, addParty);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addDate, addTime, addParty, showAddModal]);
+  }, [addDate, addTime, addParty, showAddModal, addSource]);
 
-  // Auto-advance time when date changes to today and current slot is past
+  // Silent poll while the modal is open — keeps the booked-table set in
+  // sync if someone else creates/cancels a reservation at the same slot.
+  // Skips the loading spinner so the UI doesn't flicker every tick.
   useEffect(() => {
+    if (!showAddModal) return;
+    const id = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      if (!addDate || !addTime) return;
+      if (addSource !== "walk-in" && isSlotPast(addTime, addDate)) return;
+      fetch(`/api/reservations/availability?date=${addDate}&time=${addTime}&partySize=${addParty}`)
+        .then((r) => r.json())
+        .then((json: { ok: boolean; bookedTableIds?: string[] }) => {
+          if (json.ok) setAddBookedIds(new Set(json.bookedTableIds ?? []));
+        })
+        .catch(() => {});
+    }, 5_000);
+    return () => clearInterval(id);
+  }, [showAddModal, addDate, addTime, addParty, addSource]);
+
+  // Auto-advance time when date changes to today and current slot is past.
+  // Walk-ins are exempt — they intentionally sit on the in-progress slot.
+  useEffect(() => {
+    if (addSource === "walk-in") return;
     if (isSlotPast(addTime, addDate)) {
       const next = allSlots.find((s) => !isSlotPast(s, addDate));
       if (next) setAddTime(next);
@@ -544,19 +592,17 @@ export default function ReservationsPanel() {
   }, [addDate]);
 
   // Walk-ins are seated right now — force date to today and time to the
-  // current slot whenever the source toggle is set to walk-in.
+  // in-progress slot whenever the source toggle is set to walk-in.
   useEffect(() => {
     if (!showAddModal || addSource !== "walk-in") return;
-    const today   = todayStr();
-    const nowSlot = allSlots.find((s) => !isSlotPast(s, today)) ?? allSlots[0] ?? "12:00";
-    setAddDate(today);
-    setAddTime(nowSlot);
+    setAddDate(todayStr());
+    setAddTime(currentSlot(allSlots));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addSource, showAddModal]);
 
   function openAddModal() {
     const today = todayStr();
-    const slot = allSlots.find((s) => !isSlotPast(s, today)) ?? allSlots[0] ?? "12:00";
+    const slot = currentSlot(allSlots);
     setAddSource("walk-in"); setAddDate(today); setAddTime(slot);
     setAddParty(2); setAddTableId("");
     setAddName(""); setAddEmail(""); setAddPhone(""); setAddNote("");
@@ -707,6 +753,8 @@ export default function ReservationsPanel() {
           customerName: addName.trim(), customerEmail: addEmail.trim(),
           customerPhone: addPhone.trim(), note: addNote.trim(),
           source: addSource,
+          // Sent only for VIP tables; the server ignores it for normal tables.
+          ...(table.isVip && (table.vipPrice ?? 0) > 0 ? { paymentMethod: addPayMethod } : {}),
         }),
       });
       const json = await res.json() as { ok: boolean; error?: string };
@@ -905,6 +953,9 @@ export default function ReservationsPanel() {
         const partyTooLarge = addParty > maxParty;
         const phoneMissing = addSource === "phone" && !addPhone.trim();
         const canSubmit = !addSaving && !!addTableId && !!addName.trim() && !slotPast && !isBlackout && !partyTooLarge && !phoneMissing;
+        const selectedAddTable = activeTables.find((t) => t.id === addTableId);
+        const addTableIsVip = !!selectedAddTable?.isVip && (selectedAddTable.vipPrice ?? 0) > 0;
+        const currencySymbol = settings.currency?.symbol ?? "£";
 
         return (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -1028,16 +1079,21 @@ export default function ReservationsPanel() {
                               const sel = addTableId === t.id;
                               const isBooked = addBookedIds.has(t.id);
                               const isUndersized = t.seats < addParty;
-                              const baseCls = "py-2 rounded-lg text-xs font-semibold border transition flex flex-col items-center leading-tight";
+                              const isVipT = !!t.isVip && (t.vipPrice ?? 0) > 0;
+                              const baseCls = "relative py-2 rounded-lg text-xs font-semibold border transition flex flex-col items-center leading-tight";
                               const cls = isBooked
                                 ? `${baseCls} bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed line-through`
                                 : sel
                                   ? isUndersized
                                     ? `${baseCls} bg-amber-500 text-white border-amber-500`
-                                    : `${baseCls} bg-orange-500 text-white border-orange-500`
+                                    : isVipT
+                                      ? `${baseCls} bg-amber-500 text-white border-amber-400 shadow-sm shadow-amber-200`
+                                      : `${baseCls} bg-orange-500 text-white border-orange-500`
                                   : isUndersized
                                     ? `${baseCls} bg-amber-50 text-amber-700 border-amber-200 hover:border-amber-400`
-                                    : `${baseCls} bg-white text-gray-700 border-gray-200 hover:border-orange-300 hover:text-orange-600`;
+                                    : isVipT
+                                      ? `${baseCls} bg-amber-50 text-amber-800 border-amber-300 hover:border-amber-500`
+                                      : `${baseCls} bg-white text-gray-700 border-gray-200 hover:border-orange-300 hover:text-orange-600`;
                               return (
                                 <button
                                   key={t.id}
@@ -1045,15 +1101,22 @@ export default function ReservationsPanel() {
                                   disabled={isBooked}
                                   title={
                                     isBooked ? "Already reserved at this time" :
-                                      isUndersized ? `Seats ${t.seats} — party of ${addParty} (will need extra chairs)` :
-                                        `Seats ${t.seats}`
+                                      (isVipT ? `VIP table — ${currencySymbol}${(t.vipPrice ?? 0).toFixed(2)} booking fee. ` : "") +
+                                      (isUndersized ? `Seats ${t.seats} — party of ${addParty} (will need extra chairs)` : `Seats ${t.seats}`)
                                   }
                                   onClick={() => setAddTableId(t.id)}
                                   className={cls}
                                 >
+                                  {isVipT && !isBooked && (
+                                    <Crown size={10} className={`absolute top-1 right-1 ${sel ? "text-white" : "text-amber-500"}`} />
+                                  )}
                                   <span>{t.label}</span>
                                   <span className="text-[9px] font-normal opacity-75">
-                                    {isBooked ? "reserved" : `seats ${t.seats}`}
+                                    {isBooked
+                                      ? "reserved"
+                                      : isVipT
+                                        ? `${currencySymbol}${(t.vipPrice ?? 0).toFixed(0)} · seats ${t.seats}`
+                                        : `seats ${t.seats}`}
                                   </span>
                                 </button>
                               );
@@ -1065,6 +1128,9 @@ export default function ReservationsPanel() {
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-[10px] text-gray-500">
                         <span className="flex items-center gap-1">
                           <span className="w-2.5 h-2.5 rounded-sm bg-white border border-gray-300" /> free
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Crown size={10} className="text-amber-500" /> VIP (fee)
                         </span>
                         <span className="flex items-center gap-1">
                           <span className="w-2.5 h-2.5 rounded-sm bg-amber-50 border border-amber-300" /> too small (warn)
@@ -1091,6 +1157,34 @@ export default function ReservationsPanel() {
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:border-orange-400 transition" />
                 </div>
 
+                {/* VIP booking fee — recorded cash/card (no gateway on admin) */}
+                {addTableIsVip && (
+                  <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold text-amber-800 flex items-center gap-1.5">
+                        <Crown size={14} className="text-amber-500" /> VIP booking fee
+                      </span>
+                      <span className="text-base font-bold text-amber-900">{currencySymbol}{(selectedAddTable!.vipPrice ?? 0).toFixed(2)}</span>
+                    </div>
+                    <p className="text-[11px] text-amber-700">Non-refundable. Record how the guest paid.</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(["cash", "card"] as const).map((m) => (
+                        <button
+                          key={m} type="button"
+                          onClick={() => setAddPayMethod(m)}
+                          className={`py-2 rounded-lg text-sm font-semibold border transition ${
+                            addPayMethod === m
+                              ? "bg-amber-500 text-white border-amber-400"
+                              : "bg-white text-gray-700 border-gray-200 hover:border-amber-400"
+                          }`}
+                        >
+                          {m === "cash" ? "Cash" : "Card"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {addError && (
                   <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">
                     <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" /> {addError}
@@ -1105,6 +1199,7 @@ export default function ReservationsPanel() {
                 <button type="button" onClick={(e) => handleAddBooking(e as unknown as React.FormEvent)} disabled={!canSubmit}
                   className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition">
                   {addSaving ? <><Loader2 size={14} className="animate-spin" /> Saving…</> :
+                    addTableIsVip ? <><CheckCircle2 size={14} /> Record {currencySymbol}{(selectedAddTable!.vipPrice ?? 0).toFixed(2)} &amp; Book</> :
                     addSource === "walk-in" ? <><LogIn size={14} /> Check In Now</> : <><CheckCircle2 size={14} /> Create Booking</>}
                 </button>
               </div>

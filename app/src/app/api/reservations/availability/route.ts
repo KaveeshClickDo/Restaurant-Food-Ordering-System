@@ -16,6 +16,20 @@ function toMins(time: string): number {
   return h * 60 + m;
 }
 
+// DB rows are snake_case; the booking UI consumes camelCase. Carry the VIP
+// fields through so the modal can show the crown + booking fee.
+type TableRow = DiningTable & { is_vip?: boolean; vip_price?: number };
+function toPublicTable(t: TableRow) {
+  return {
+    id:       t.id,
+    label:    t.label,
+    seats:    t.seats,
+    section:  t.section,
+    isVip:    t.is_vip ?? false,
+    vipPrice: Number(t.vip_price ?? 0),
+  };
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const date      = searchParams.get("date")      ?? "";
@@ -41,11 +55,11 @@ export async function GET(req: NextRequest) {
     supabaseAdmin.from("app_settings").select("data").limit(1).single(),
     supabaseAdmin
       .from("dining_tables")
-      .select("id, label, number, seats, section, active, sort_order")
+      .select("id, label, number, seats, section, active, sort_order, is_vip, vip_price")
       .order("sort_order", { ascending: true }),
   ]);
 
-  const tables: DiningTable[]      = (tableRows ?? []) as DiningTable[];
+  const tables: TableRow[]         = (tableRows ?? []) as TableRow[];
   const rs: ReservationSystem      = settingsRow?.data?.reservationSystem ?? {};
   const slotDuration: number       = rs.slotDurationMinutes ?? 90;
   const maxPartySize: number       = rs.maxPartySize ?? 20;
@@ -84,7 +98,7 @@ export async function GET(req: NextRequest) {
     // Table not yet created — treat as zero existing reservations so all eligible
     // tables show as available. The POST route will surface the setup error clearly.
     if (error.message?.includes("schema cache") || error.message?.includes("not found")) {
-      const allAvailable = eligibleTables.map(({ id, label, seats, section }) => ({ id, label, seats, section }));
+      const allAvailable = eligibleTables.map(toPublicTable);
       return NextResponse.json({ ok: true, availableTables: allAvailable, bookedTableIds: [] });
     }
     console.error("reservations/availability GET:", error.message);
@@ -110,7 +124,7 @@ export async function GET(req: NextRequest) {
 
   const availableTables = eligibleTables
     .filter((t) => !bookedTableIds.has(t.id))
-    .map(({ id, label, seats, section }) => ({ id, label, seats, section }));
+    .map(toPublicTable);
 
   return NextResponse.json({
     ok: true,

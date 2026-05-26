@@ -3,6 +3,7 @@ import { Email, Phone, PhoneOrEmpty, Pin6, Password, NonEmptyString, Hex, Money 
 
 const KitchenRole = z.enum(["chef", "head_chef", "kitchen_manager"]);
 const PosRole     = z.enum(["admin", "manager", "cashier"]);
+const WaiterRole  = z.enum(["waiter", "senior"]);
 
 // ── Drivers ───────────────────────────────────────────────────────────────────
 export const DriverCreateSchema = z.object({
@@ -29,6 +30,7 @@ export const DriverUpdateSchema = z.object({
 export const WaiterCreateSchema = z.object({
   name:        NonEmptyString,
   email:       z.string().email().optional().or(z.literal("")),
+  role:        WaiterRole.optional(),
   pin:         Pin6,
   active:      z.boolean().optional(),
   hourlyRate:  Money.optional(),
@@ -38,6 +40,7 @@ export const WaiterCreateSchema = z.object({
 export const WaiterUpdateSchema = z.object({
   name:        NonEmptyString.optional(),
   email:       z.string().email().optional().or(z.literal("")),
+  role:        WaiterRole.optional(),
   pin:         Pin6.optional(),
   active:      z.boolean().optional(),
   hourlyRate:  Money.optional(),
@@ -165,6 +168,7 @@ export const UserUpdateSchema = z.discriminatedUnion("type", [
     type:        z.literal("waiter"),
     name:        NonEmptyString.optional(),
     email:       z.string().email().optional().or(z.literal("")),
+    waiterRole:  WaiterRole.optional(),
     pin:         Pin6.optional(),
     active:      z.boolean().optional(),
     hourlyRate:  Money.optional(),

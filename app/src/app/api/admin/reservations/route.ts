@@ -11,15 +11,10 @@
 import { NextRequest, NextResponse }            from "next/server";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
-import { sendReservationEmailServer }           from "@/lib/emailServer";
-import type { Reservation, DiningTable, ReservationSystem } from "@/types";
+import type { Reservation, ReservationSystem }  from "@/types";
 import { parseBody }                            from "@/lib/apiValidation";
 import { ReservationAdminSchema }               from "@/lib/schemas/reservation";
-
-function toMins(time: string): number {
-  const [h, m] = time.split(":").map(Number);
-  return h * 60 + m;
-}
+import { createReservation }                    from "@/lib/reservations";
 
 function mapRow(row: Record<string, unknown>): Reservation {
   return {
@@ -41,6 +36,10 @@ function mapRow(row: Record<string, unknown>): Reservation {
     checkedOutAt:  row.checked_out_at as string | undefined,
     source:        row.source         as string | undefined,
     cancelToken:   row.cancel_token   as string | undefined,
+    vipFee:        row.vip_fee        != null ? Number(row.vip_fee) : undefined,
+    paymentStatus: row.payment_status as Reservation["paymentStatus"],
+    paymentMethod: row.payment_method as string | undefined,
+    paymentRef:    row.payment_ref    as string | undefined,
   };
 }
 
@@ -79,7 +78,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const {
     tableId, date, time, partySize, customerName, customerEmail, customerPhone,
-    note, source,
+    note, source, paymentMethod,
   } = parsed.data;
 
   // Reject past slots — 5 min grace for slow submissions
@@ -91,12 +90,12 @@ export async function POST(req: NextRequest) {
   }
 
   // Load settings + verify the table exists. Use server-side table data for
-  // label/seats/section — never trust client values.
+  // label/seats/section/VIP price — never trust client values.
   const [{ data: settingsRow }, { data: tableRow }] = await Promise.all([
     supabaseAdmin.from("app_settings").select("data").limit(1).single(),
     supabaseAdmin
       .from("dining_tables")
-      .select("id, label, seats, section, active")
+      .select("id, label, seats, section, active, is_vip, vip_price")
       .eq("id", tableId)
       .maybeSingle(),
   ]);
@@ -106,8 +105,7 @@ export async function POST(req: NextRequest) {
   const maxPartySize: number  = rs.maxPartySize ?? 20;
   const blackoutDates: string[] = rs.blackoutDates ?? [];
 
-  const table = tableRow && tableRow.active ? (tableRow as DiningTable) : null;
-  if (!table) {
+  if (!tableRow || !tableRow.active) {
     return NextResponse.json({ ok: false, error: "Table not found or inactive." }, { status: 400 });
   }
   if (partySize > maxPartySize) {
@@ -123,98 +121,44 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Hard-block double booking. Mirrors the POS conflict check — checked_in
-  // tables are always blocked, others only if their time window overlaps.
-  const { data: conflicts, error: conflictErr } = await supabaseAdmin
-    .from("reservations")
-    .select("id, time, status")
-    .eq("date", date)
-    .eq("table_id", tableId)
-    .in("status", ["pending", "confirmed", "checked_in"]);
-
-  if (conflictErr && !conflictErr.message?.includes("schema cache") && !conflictErr.message?.includes("not found")) {
-    console.error("admin/reservations conflict check:", conflictErr.message);
-    return NextResponse.json({ ok: false, error: conflictErr.message }, { status: 500 });
-  }
-
-  const requestedMins = toMins(time);
-  const hasConflict = (conflicts ?? []).some((r) =>
-    r.status === "checked_in" ||
-    Math.abs(toMins(r.time as string) - requestedMins) < slotDuration
-  );
-  if (hasConflict) {
+  // VIP tables require the (non-refundable) booking fee, collected as cash/card
+  // here — same model as POS, no payment gateway on the admin surface.
+  const isVip  = !!tableRow.is_vip && Number(tableRow.vip_price ?? 0) > 0;
+  const vipFee = isVip ? Number(tableRow.vip_price ?? 0) : 0;
+  if (isVip && !paymentMethod) {
     return NextResponse.json(
-      { ok: false, error: "This table is already reserved at the selected time. Please choose a different table or time." },
-      { status: 409 },
+      { ok: false, error: "This is a VIP table — record the booking fee (cash or card) before confirming." },
+      { status: 400 },
     );
   }
 
-  const id           = crypto.randomUUID();
-  const cancel_token = crypto.randomUUID();
-  const now          = new Date().toISOString();
-  // Walk-ins are physically present → checked_in immediately. Phone bookings → pending.
-  const status       = source === "walk-in" ? "checked_in" : "pending";
+  const isWalkIn = source === "walk-in";
+  const result = await createReservation(
+    {
+      tableId:       tableRow.id,
+      tableLabel:    tableRow.label,
+      tableSeats:    tableRow.seats,
+      section:       tableRow.section ?? "",
+      customerName,
+      customerEmail,
+      customerPhone,
+      date, time, partySize,
+      status:        isWalkIn ? "checked_in" : "pending",
+      note:          note ?? null,
+      source,
+      vipFee,
+      paymentStatus: isVip ? "paid" : "none",
+      paymentMethod: isVip ? paymentMethod : null,
+      paymentRef:    isVip && paymentMethod ? `admin:${paymentMethod}` : null,
+      slotDurationMinutes: slotDuration,
+    },
+    settingsRow?.data ?? null,
+    req.headers.get("origin") ?? req.nextUrl.origin,
+  );
 
-  const row: Record<string, unknown> = {
-    id,
-    table_id:       table.id,
-    table_label:    table.label,
-    table_seats:    table.seats,
-    section:        table.section ?? "",
-    customer_name:  customerName.trim(),
-    customer_email: customerEmail?.trim().toLowerCase() ?? "",
-    customer_phone: customerPhone?.trim() ?? "",
-    date,
-    time,
-    party_size:     partySize,
-    status,
-    note:           note?.trim() ?? null,
-    source,
-    cancel_token,
-    created_at:     now,
-  };
-  if (status === "checked_in") row.checked_in_at = now;
-
-  const { error } = await supabaseAdmin.from("reservations").insert(row);
-  if (error) {
-    console.error("admin/reservations POST:", error.message);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (!result.ok) {
+    console.error("admin/reservations POST:", result.error);
+    return NextResponse.json({ ok: false, error: result.error }, { status: result.status ?? 500 });
   }
-
-  // Upsert guest profile when email is provided
-  const email = customerEmail?.trim().toLowerCase();
-  if (email) {
-    const { data: existing } = await supabaseAdmin
-      .from("reservation_customers")
-      .select("id, first_visit_at")
-      .eq("email", email)
-      .single();
-
-    if (existing) {
-      await supabaseAdmin.from("reservation_customers").update({
-        name: customerName.trim(), phone: customerPhone?.trim() ?? "",
-        updated_at: now,
-        ...(existing.first_visit_at ? {} : { first_visit_at: now }),
-      }).eq("email", email);
-    } else {
-      await supabaseAdmin.from("reservation_customers").insert({
-        email, name: customerName.trim(), phone: customerPhone?.trim() ?? "",
-        visit_count: 0, first_visit_at: now, created_at: now, updated_at: now,
-      });
-    }
-  }
-
-  // Confirmation email for phone bookings (walk-ins are already here)
-  if (source === "phone" && email && settingsRow?.data) {
-    sendReservationEmailServer("reservation_confirmation", {
-      id, customer_name: customerName.trim(),
-      customer_email: email,
-      customer_phone: customerPhone?.trim() ?? "",
-      date, time, table_label: table.label,
-      party_size: partySize, status, note: note ?? null,
-      section: table.section ?? "", cancel_token,
-    }, settingsRow.data, req.headers.get("origin") ?? req.nextUrl.origin).catch(console.error);
-  }
-
-  return NextResponse.json({ ok: true, reservationId: id });
+  return NextResponse.json({ ok: true, reservationId: result.reservationId });
 }

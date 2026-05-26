@@ -32,6 +32,20 @@ function mergeEmailTemplates(stored: typeof DEFAULT_EMAIL_TEMPLATES | undefined 
   return missing.length > 0 ? [...stored, ...missing] : stored;
 }
 
+// ─── Dining table row mapping ─────────────────────────────────────────────────
+// dining_tables rows come back snake_case; the DiningTable type the whole app
+// consumes is camelCase. Most columns coincide (id/label/seats/section/active),
+// but the VIP fields don't — map them so the crown + booking fee surface in the
+// POS / waiter / reservation views that read settings.diningTables.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapDiningRow(r: any) {
+  return {
+    ...r,
+    isVip:    r.is_vip ?? false,
+    vipPrice: Number(r.vip_price ?? 0),
+  };
+}
+
 // ─── Cart (session data — stays in localStorage) ──────────────────────────────
 
 type CartAction =
@@ -669,10 +683,10 @@ export function AppProvider({
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const { data: tableRows } = await (supabase as any)
             .from("dining_tables")
-            .select("id, label, number, seats, section, active, sort_order")
+            .select("id, label, number, seats, section, active, sort_order, is_vip, vip_price")
             .order("sort_order", { ascending: true });
           if (Array.isArray(tableRows)) {
-            setSettings((prev) => ({ ...prev, diningTables: tableRows }));
+            setSettings((prev) => ({ ...prev, diningTables: tableRows.map(mapDiningRow) }));
           }
         } catch (err) {
           console.error("AppContext: failed to load dining_tables:", err);
@@ -752,19 +766,33 @@ export function AppProvider({
       // Menu items
       .on("postgres_changes", { event: "*", schema: "public", table: "menu_items" },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ({ eventType, new: newRow, old: oldRow }: any) => {
+        async ({ eventType, new: newRow, old: oldRow, errors }: any) => {
           if (eventType === "DELETE") {
             setMenuItems((prev) => prev.filter((m) => m.id !== oldRow.id));
-          } else {
-            setMenuItems((prev) => {
-              const existing = prev.find((m) => m.id === newRow.id);
-              // Preserve mealPeriodIds — those live in a separate table and
-              // arrive via the menu_item_meal_periods subscription below.
-              const item = mapMenuItem(newRow, existing?.mealPeriodIds ?? []);
-              const idx = prev.findIndex((m) => m.id === item.id);
-              return idx >= 0 ? prev.map((m) => (m.id === item.id ? item : m)) : [...prev, item];
-            });
+            return;
           }
+          // Supabase Realtime drops oversized columns and sets `errors`
+          // ("Payload Too Large") when a row exceeds its ~1 MB cap — e.g. a
+          // legacy base64 image still stored inline. Trusting that truncated
+          // row would blank the image, so refetch the full row (SELECT is not
+          // size-capped) instead of mapping the partial payload. New images go
+          // through Supabase Storage (lib/uploadImage.ts) so rows stay tiny and
+          // this branch only fires for not-yet-migrated rows.
+          if (errors) {
+            const id = newRow?.id ?? oldRow?.id;
+            if (!id) return;
+            const { data, error } = await supabase.from("menu_items").select("*").eq("id", id).single();
+            if (error || !data) return;
+            newRow = data;
+          }
+          setMenuItems((prev) => {
+            const existing = prev.find((m) => m.id === newRow.id);
+            // Preserve mealPeriodIds — those live in a separate table and
+            // arrive via the menu_item_meal_periods subscription below.
+            const item = mapMenuItem(newRow, existing?.mealPeriodIds ?? []);
+            const idx = prev.findIndex((m) => m.id === item.id);
+            return idx >= 0 ? prev.map((m) => (m.id === item.id ? item : m)) : [...prev, item];
+          });
         })
       // Meal periods
       .on("postgres_changes", { event: "*", schema: "public", table: "meal_periods" },
@@ -891,12 +919,13 @@ export function AppProvider({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: tableRows } = await (supabase as any)
         .from("dining_tables")
-        .select("id, label, number, seats, section, active, sort_order")
+        .select("id, label, number, seats, section, active, sort_order, is_vip, vip_price")
         .order("sort_order", { ascending: true });
       if (!Array.isArray(tableRows)) return;
+      const mapped = tableRows.map(mapDiningRow);
       setSettings((prev) => {
-        if (JSON.stringify(prev.diningTables ?? []) === JSON.stringify(tableRows)) return prev;
-        return { ...prev, diningTables: tableRows };
+        if (JSON.stringify(prev.diningTables ?? []) === JSON.stringify(mapped)) return prev;
+        return { ...prev, diningTables: mapped };
       });
     } catch { /* keep last-known */ }
   }, []);

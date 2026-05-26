@@ -11,6 +11,7 @@ import {
   ToggleLeft, ToggleRight,
 } from "lucide-react";
 import { resolveStock, stockLabel, LOW_STOCK_THRESHOLD } from "@/lib/stockUtils";
+import { uploadMenuImage, MAX_IMAGE_LABEL } from "@/lib/uploadImage";
 import type { StockStatus } from "@/types";
 
 // Bug #2 — POS / admin field parity. A small handful of preset accent
@@ -715,6 +716,8 @@ function ItemModal({
   const sym = settings.currency?.symbol ?? "£";
   const [form, setForm] = useState<MenuItem>({ ...item });
   const [tab, setTab] = useState<"basic" | "channels" | "variations" | "addons" | "offer" | "stock">("basic");
+  const [imgError, setImgError] = useState("");
+  const [uploading, setUploading] = useState(false);
 
   const channels = form.channels ?? ["in_store", "online"];
   const onOnline   = channels.includes("online");
@@ -937,28 +940,46 @@ function ItemModal({
                       placeholder="Paste image URL…"
                     />
                   </div>
-                  {/* File upload */}
-                  <label className="flex items-center gap-2 cursor-pointer w-full py-2 px-3 rounded-lg border border-gray-200 hover:border-orange-300 hover:text-orange-500 text-gray-500 text-xs font-medium transition">
+                  {/* File upload — stored in Supabase Storage, not as base64
+                      in the row (see lib/uploadImage.ts for why). */}
+                  <label className={`flex items-center gap-2 w-full py-2 px-3 rounded-lg border border-gray-200 text-xs font-medium transition ${
+                    uploading
+                      ? "opacity-60 cursor-wait text-gray-400"
+                      : "cursor-pointer hover:border-orange-300 hover:text-orange-500 text-gray-500"
+                  }`}>
                     <Upload size={13} />
-                    Upload from device
+                    {uploading ? "Uploading…" : "Upload from device"}
                     <input
                       type="file"
                       accept="image/*"
                       className="hidden"
-                      onChange={(e) => {
+                      disabled={uploading}
+                      onChange={async (e) => {
                         const file = e.target.files?.[0];
+                        e.target.value = ""; // let the same file be re-picked after an error
                         if (!file) return;
-                        const reader = new FileReader();
-                        reader.onload = (ev) => {
-                          setForm((f) => ({ ...f, image: ev.target?.result as string }));
-                        };
-                        reader.readAsDataURL(file);
+                        setImgError("");
+                        setUploading(true);
+                        try {
+                          const url = await uploadMenuImage(file);
+                          setForm((f) => ({ ...f, image: url }));
+                        } catch (err) {
+                          setImgError(err instanceof Error ? err.message : "Upload failed.");
+                        } finally {
+                          setUploading(false);
+                        }
                       }}
                     />
                   </label>
+                  <p className="text-[11px] text-gray-400">Max {MAX_IMAGE_LABEL}. JPG, PNG, WebP, GIF or AVIF.</p>
+                  {imgError && (
+                    <p className="text-[11px] text-red-500 flex items-start gap-1">
+                      <AlertTriangle size={12} className="mt-px flex-shrink-0" /> {imgError}
+                    </p>
+                  )}
                   {form.image && (
                     <button
-                      onClick={() => setForm((f) => ({ ...f, image: undefined }))}
+                      onClick={() => { setForm((f) => ({ ...f, image: undefined })); setImgError(""); }}
                       className="text-xs text-red-400 hover:text-red-600 transition"
                     >
                       × Remove image

@@ -18,13 +18,26 @@ export async function GET() {
   try {
     const { data: waiter } = await supabaseAdmin
       .from("waiters")
-      .select("id, name, email, active, hourly_rate, avatar_color, created_at")
+      .select("id, name, email, role, active, hourly_rate, avatar_color, created_at")
       .eq("id", session.id)
       .eq("active", true)
       .maybeSingle();
 
     if (!waiter) return NextResponse.json({ ok: false }, { status: 401 });
-    return NextResponse.json({ ok: true, waiter });
+    // Map to the camelCase shape the /waiter UI reads (e.g. `avatarColor`).
+    return NextResponse.json({
+      ok: true,
+      waiter: {
+        id:          waiter.id,
+        name:        waiter.name,
+        email:       waiter.email ?? "",
+        role:        waiter.role ?? "waiter",
+        active:      waiter.active,
+        hourlyRate:  waiter.hourly_rate ?? undefined,
+        avatarColor: waiter.avatar_color,
+        createdAt:   waiter.created_at,
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unexpected error";
     console.error("[auth/waiter/me]", message);

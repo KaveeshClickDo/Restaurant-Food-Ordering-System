@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     supabaseAdmin.from("app_settings").select("data").limit(1).single(),
     supabaseAdmin
       .from("dining_tables")
-      .select("id, label, seats, section, active")
+      .select("id, label, seats, section, active, is_vip, vip_price")
       .eq("id", tableId)
       .maybeSingle(),
   ]);
@@ -62,6 +62,15 @@ export async function POST(req: NextRequest) {
   }
   if (table.seats < partySize) {
     return NextResponse.json({ ok: false, error: "Party size exceeds table capacity." }, { status: 400 });
+  }
+  // VIP tables charge a non-refundable booking fee and must go through the
+  // pay-first flow (/api/reservations/intent). Reject them here so a tampered
+  // client can't create a free VIP booking by hitting this endpoint directly.
+  if (tableRow?.is_vip && Number(tableRow.vip_price ?? 0) > 0) {
+    return NextResponse.json(
+      { ok: false, error: "This is a VIP table — the booking fee must be paid to reserve it." },
+      { status: 402 },
+    );
   }
 
   // Re-check availability (race condition protection)

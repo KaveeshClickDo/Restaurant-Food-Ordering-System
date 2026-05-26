@@ -10,7 +10,7 @@ import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { parseBody } from "@/lib/apiValidation";
 import { WaiterUpdateSchema } from "@/lib/schemas/staff";
 
-const PUBLIC_COLUMNS = "id, name, email, active, hourly_rate, avatar_color, created_at";
+const PUBLIC_COLUMNS = "id, name, email, role, active, hourly_rate, avatar_color, created_at";
 const HASH_ROUNDS = 10;
 
 export async function PATCH(
@@ -28,6 +28,7 @@ export async function PATCH(
   const patch: Record<string, unknown> = {};
   if (body.name !== undefined)        patch.name         = body.name;
   if (body.email !== undefined)       patch.email        = body.email ? body.email.toLowerCase() : "";
+  if (body.role !== undefined)        patch.role         = body.role;
   if (body.active !== undefined)      patch.active       = body.active;
   if (body.hourlyRate !== undefined)  patch.hourly_rate  = body.hourlyRate;
   if (body.avatarColor !== undefined) patch.avatar_color = body.avatarColor;

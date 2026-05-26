@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import {
-  RefreshCw, UtensilsCrossed, Loader2, Clock, Users, Phone, LogIn, LogOut, CheckCircle2,
+  RefreshCw, UtensilsCrossed, Loader2, Clock, Users, Phone, LogIn, LogOut, CheckCircle2, Crown,
 } from "lucide-react";
 import { type ResRow, fmt12Pos, fmtTsPos } from "./_reservations";
 
@@ -18,6 +18,7 @@ const TABLE_STATE_STYLES: Record<TableState, { card: string; badge: string; labe
 
 export default function TableStatusView() {
   const { settings: appSettings, refreshDiningTables } = useApp();
+  const currencySymbol = appSettings.currency?.symbol ?? "£";
   const tables = (appSettings.diningTables ?? []).filter((t) => t.active);
 
   const [reservations,   setReservations]   = useState<ResRow[]>([]);
@@ -25,6 +26,9 @@ export default function TableStatusView() {
   // the first fetch resolves. Background 5 s polls do NOT toggle it, so the
   // page never thrashes back to a spinner mid-shift.
   const [initialLoading, setInitialLoading] = useState(true);
+  // refreshing drives the manual Refresh button's spinner only — kept separate
+  // from initialLoading so a manual refresh never blanks the table grid.
+  const [refreshing,     setRefreshing]     = useState(false);
   const [actioning,      setActioning]      = useState<string | null>(null);
   const [filterSection,  setFilterSection]  = useState("");
 
@@ -64,6 +68,18 @@ export default function TableStatusView() {
     const id = setInterval(() => fetchToday(false), 5_000);
     return () => clearInterval(id);
   }, [fetchToday]);
+
+  // Manual refresh — re-pulls tables + today's reservations and spins the button
+  // icon for the duration, without flipping initialLoading (which would blank the grid).
+  async function manualRefresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await Promise.all([Promise.resolve(refreshDiningTables()), fetchToday(false)]);
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   const actionInFlight = useRef<Set<string>>(new Set());
 
@@ -128,11 +144,11 @@ export default function TableStatusView() {
             </select>
           )}
           <button
-            onClick={() => { refreshDiningTables(); fetchToday(true); }}
-            disabled={initialLoading}
-            className="flex items-center gap-1.5 bg-slate-800 border border-slate-600 text-slate-300 hover:text-white text-sm px-3 py-1.5 rounded-xl transition"
+            onClick={manualRefresh}
+            disabled={initialLoading || refreshing}
+            className="flex items-center gap-1.5 bg-slate-800 border border-slate-600 text-slate-300 hover:text-white text-sm px-3 py-1.5 rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <RefreshCw size={13} className={initialLoading ? "animate-spin" : ""} />
+            <RefreshCw size={13} className={initialLoading || refreshing ? "animate-spin" : ""} />
             Refresh
           </button>
         </div>
@@ -169,18 +185,24 @@ export default function TableStatusView() {
             const busy = actioning === res?.id;
 
             return (
-              <div key={t.id} className={`rounded-2xl border-2 p-3.5 flex flex-col gap-3 transition ${s.card} ${s.ring}`}>
+              <div key={t.id} className={`rounded-2xl border-2 p-3.5 flex flex-col gap-3 transition ${s.card} ${s.ring} ${t.isVip ? "ring-1 ring-amber-400/40" : ""}`}>
 
                 {/* Table header */}
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <div className="flex items-center gap-1.5">
-                      <UtensilsCrossed size={13} className="text-orange-400" />
+                      {t.isVip
+                        ? <Crown size={13} className="text-amber-400" />
+                        : <UtensilsCrossed size={13} className="text-orange-400" />}
                       <span className="font-bold text-white text-sm">{t.label}</span>
+                      {t.isVip && (
+                        <span className="text-[9px] font-bold uppercase tracking-wide text-amber-300 bg-amber-500/15 px-1.5 py-0.5 rounded">VIP</span>
+                      )}
                     </div>
                     <div className="text-slate-400 text-[11px] mt-0.5 flex items-center gap-2">
                       <span>{t.seats} seats</span>
                       {t.section && <span>· {t.section}</span>}
+                      {t.isVip && <span className="text-amber-300">· {currencySymbol}{(t.vipPrice ?? 0).toFixed(2)}</span>}
                     </div>
                   </div>
                   <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${s.badge}`}>

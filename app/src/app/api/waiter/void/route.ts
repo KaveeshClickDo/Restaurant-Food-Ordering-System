@@ -25,8 +25,17 @@ export async function POST(req: NextRequest) {
   // row so the audit trail can't be forged.
   const { orderIds, reason } = parsed.data;
 
+  // Voids are a senior / head-waiter privilege. The client hides the action
+  // for regular waiters, but enforce it server-side too so a forged request
+  // can't bypass the role gate (AUTH_AUDIT 06-F14 elevation).
   const { data: waiterRow } = await supabaseAdmin
-    .from("waiters").select("name").eq("id", session.id).maybeSingle();
+    .from("waiters").select("name, role").eq("id", session.id).maybeSingle();
+  if (waiterRow?.role !== "senior") {
+    return NextResponse.json(
+      { ok: false, error: "Only senior staff can void orders." },
+      { status: 403 },
+    );
+  }
   const actorName = waiterRow?.name ?? "Staff";
 
   try {

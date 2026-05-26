@@ -196,6 +196,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
   <strong>Table:</strong> {{table_label}}<br>
   <strong>Party size:</strong> {{party_size}} guests
 </p>
+{{booking_fee_receipt}}
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
 <p style="color:#6b7280;font-size:14px">Please arrive on time. If your plans change, contact us at <strong>{{restaurant_phone}}</strong>.</p>
 <p style="color:#6b7280;font-size:13px">Need to cancel? <a href="{{cancel_link}}" style="color:{{brand_color}}">Click here to cancel your booking</a>.</p>
@@ -718,6 +719,11 @@ export interface ReservationEmailData {
   note?: string | null;
   section?: string;
   cancel_token?: string;  // used to build the self-service cancel link
+  // VIP booking fee receipt — populated only for VIP-table reservations. Drives
+  // the "booking fee paid" line in the confirmation email (the bill).
+  vip_fee?: number;
+  payment_status?: string;   // "none" | "paid"
+  payment_method?: string;   // "stripe" | "paypal" | "cash" | "card"
 }
 
 /** Build variable map from a real reservation row + settings. */
@@ -750,6 +756,22 @@ export function buildReservationVarMap(
     ? `${siteUrl}/reservation/${res.cancel_token}`
     : "";
 
+  // VIP booking-fee receipt block. Only rendered when a fee was actually
+  // charged; collapses to an empty string for normal (free) reservations so the
+  // {{booking_fee_receipt}} placeholder leaves no trace in those emails.
+  const sym = settings.currency?.symbol ?? "£";
+  const feeAmount = Number(res.vip_fee ?? 0);
+  const methodLabel: Record<string, string> = {
+    stripe: "Card", paypal: "PayPal", cash: "Cash", card: "Card",
+  };
+  const feePaid = feeAmount > 0 && res.payment_status === "paid";
+  const bookingFeeReceipt = feePaid
+    ? `<div style="background:${brandColorLight(primaryColor)};border-left:4px solid ${primaryColor};padding:14px 16px;margin:18px 0;border-radius:6px;color:#374151">
+         <div style="font-weight:700;margin-bottom:4px">VIP booking fee — paid</div>
+         <div>Table ${escHtml(res.table_label)} · ${sym}${feeAmount.toFixed(2)}${res.payment_method ? ` · ${methodLabel[res.payment_method] ?? escHtml(res.payment_method)}` : ""}</div>
+       </div>`
+    : "";
+
   return {
     customer_name:      escHtml(res.customer_name),
     customer_email:     escHtml(res.customer_email),
@@ -767,6 +789,9 @@ export function buildReservationVarMap(
     review_url:         (settings.reservationSystem as { reviewUrl?: string })?.reviewUrl ?? "",
     brand_color:        primaryColor,
     brand_color_light:  brandColorLight(primaryColor),
+    // VIP booking fee receipt — empty string for free reservations.
+    booking_fee:        feeAmount > 0 ? `${sym}${feeAmount.toFixed(2)}` : "",
+    booking_fee_receipt: bookingFeeReceipt,
   };
 }
 
@@ -797,6 +822,8 @@ export function buildReservationPreviewVarMap(settings: AdminSettings): Record<s
     review_url:         (settings.reservationSystem as { reviewUrl?: string })?.reviewUrl ?? "https://g.page/r/review",
     brand_color:        primaryColor,
     brand_color_light:  brandColorLight(primaryColor),
+    booking_fee:        "",
+    booking_fee_receipt: "",
   };
 }
 

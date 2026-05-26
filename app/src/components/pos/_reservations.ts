@@ -3,6 +3,7 @@ export type ResRow = {
   customer_name: string; customer_email: string; customer_phone: string;
   date: string; time: string; party_size: number; status: string; note?: string;
   checked_in_at?: string; checked_out_at?: string;
+  vip_fee?: number; payment_status?: string; payment_method?: string;
 };
 
 export function fmt12Pos(time: string): string {

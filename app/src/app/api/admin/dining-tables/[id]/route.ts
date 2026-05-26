@@ -45,6 +45,12 @@ export async function PATCH(
   if (body.section   !== undefined) patch.section    = body.section?.trim() ?? "";
   if (body.active    !== undefined) patch.active     = body.active;
   if (body.sortOrder !== undefined) patch.sort_order = body.sortOrder;
+  if (body.isVip     !== undefined) patch.is_vip     = body.isVip;
+  if (body.vipPrice  !== undefined) patch.vip_price  = body.vipPrice;
+  // Demoting a table to normal clears any fee so a stale price can't linger and
+  // get charged on a future booking. The schema refine already guarantees a
+  // VIP table has a positive price.
+  if (body.isVip === false) patch.vip_price = 0;
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ ok: false, error: "No fields to update" }, { status: 400 });

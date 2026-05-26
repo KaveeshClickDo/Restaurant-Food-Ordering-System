@@ -6,8 +6,23 @@ import { fullOrderNumber } from "@/lib/orderNumber";
 import {
   TrendingUp, ShoppingBag, RotateCcw, Percent, CreditCard,
   Download, Printer, RefreshCw, CalendarDays, ChevronDown,
-  ArrowUpRight, ArrowDownRight, Minus,
+  ArrowUpRight, ArrowDownRight, Minus, Crown,
 } from "lucide-react";
+
+interface VipFeeRow {
+  id: string;
+  created_at: string;
+  vip_fee: number;
+  payment_method: string | null;
+}
+
+// A VIP booking fee is "online" when it was paid through a gateway
+// (Stripe/PayPal) and "pos" when collected as cash/card at the till or by
+// admin. This mirrors the order source split so the fee lands on the same
+// sub-tab as the orders it belongs with.
+function vipFeeSource(f: VipFeeRow): "online" | "pos" {
+  return f.payment_method === "stripe" || f.payment_method === "paypal" ? "online" : "pos";
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -296,6 +311,10 @@ export default function OnlineReportsPanel() {
   const [customEnd,   setCustomEnd]   = useState("");
   const [source,      setSource]      = useState<Source>("all");
   const [orders,      setOrders]      = useState<RawOrder[]>([]);
+  // VIP booking fees collected online (Stripe / PayPal). Tracked separately
+  // from orders because they're not in the orders table — they live on the
+  // reservations row.
+  const [vipFees,     setVipFees]     = useState<VipFeeRow[]>([]);
   const [loading,     setLoading]     = useState(false);
   const [lastFetched, setLastFetched] = useState<Date | null>(null);
   const [showPresetMenu, setShowPresetMenu] = useState(false);
@@ -319,11 +338,23 @@ export default function OnlineReportsPanel() {
         to:    endDate.toISOString(),
         limit: "10000",
       });
-      const r = await fetch(`/api/admin/orders?${params}`, { cache: "no-store" });
-      if (!r.ok) return;
-      const json = await r.json() as { ok: boolean; orders?: RawOrder[] };
-      if (!json.ok || !json.orders) return;
-      setOrders(json.orders);
+      const feeParams = new URLSearchParams({
+        source: "all",
+        from:   startDate.toISOString(),
+        to:     endDate.toISOString(),
+      });
+      const [ordersRes, feesRes] = await Promise.all([
+        fetch(`/api/admin/orders?${params}`, { cache: "no-store" }),
+        fetch(`/api/admin/booking-fees?${feeParams}`, { cache: "no-store" }),
+      ]);
+      if (ordersRes.ok) {
+        const json = await ordersRes.json() as { ok: boolean; orders?: RawOrder[] };
+        if (json.ok && json.orders) setOrders(json.orders);
+      }
+      if (feesRes.ok) {
+        const json = await feesRes.json() as { ok: boolean; fees?: VipFeeRow[] };
+        setVipFees(json.ok ? (json.fees ?? []) : []);
+      }
       setLastFetched(new Date());
     } finally {
       setLoading(false);
@@ -338,6 +369,19 @@ export default function OnlineReportsPanel() {
     if (source === "all") return orders;
     return orders.filter((o) => orderSource(o) === source);
   }, [orders, source]);
+
+  // VIP booking fees that belong on the current source tab. Dine-in has no
+  // reservation fees; "all" shows both online and POS fees. These are folded
+  // into Gross/Net revenue and the revenue chart so the headline numbers match.
+  const vipFeesForSource = useMemo(() => {
+    if (source === "dine-in") return [];
+    if (source === "all")     return vipFees;
+    return vipFees.filter((f) => vipFeeSource(f) === source);
+  }, [vipFees, source]);
+  const vipFeeTotal = useMemo(
+    () => vipFeesForSource.reduce((s, f) => s + Number(f.vip_fee ?? 0), 0),
+    [vipFeesForSource],
+  );
 
   // ── Computed metrics ───────────────────────────────────────────────────────
 
@@ -387,12 +431,25 @@ export default function OnlineReportsPanel() {
              cancelledCount: cancelled.length };
   }, [filtered]);
 
+  // Headline revenue includes VIP booking fees (non-refundable, so they add to
+  // both gross and net). Order count / AOV stay order-only — a fee isn't an order.
+  const grossRevenue = metrics.revenue + vipFeeTotal;
+  const netRevenue   = metrics.netRev + vipFeeTotal;
+
   // ── Chart data ─────────────────────────────────────────────────────────────
 
   const chartData = useMemo(() => {
+    // Fold VIP fees into the time series as money-bearing points so the chart
+    // total matches the Gross Revenue KPI.
+    const feeAsOrders = vipFeesForSource.map((f) => ({
+      id: f.id, date: f.created_at, status: "confirmed", total: Number(f.vip_fee ?? 0),
+      fulfillment: "booking", refunded_amount: 0, vat_amount: 0, vat_inclusive: false,
+      payment_method: f.payment_method, payment_status: "paid", customer_id: "", items: [],
+    })) as RawOrder[];
+    const combined = [...filtered, ...feeAsOrders];
     const days = dateRangeDays(startDate, endDate);
-    return days > 90 ? groupByMonth(filtered) : groupByDay(filtered);
-  }, [filtered, startDate, endDate]);
+    return days > 90 ? groupByMonth(combined) : groupByDay(combined);
+  }, [filtered, vipFeesForSource, startDate, endDate]);
 
   // ── Export CSV ─────────────────────────────────────────────────────────────
 
@@ -424,8 +481,10 @@ export default function OnlineReportsPanel() {
 
     // Summary
     lines.push("## Summary");
-    lines.push(row(["Gross Revenue", metrics.revenue.toFixed(2)]));
-    lines.push(row(["Net Revenue", metrics.netRev.toFixed(2)]));
+    lines.push(row(["Gross Revenue (incl. VIP fees)", grossRevenue.toFixed(2)]));
+    lines.push(row(["Net Revenue (incl. VIP fees)", netRevenue.toFixed(2)]));
+    lines.push(row(["Order Revenue", metrics.revenue.toFixed(2)]));
+    lines.push(row(["VIP Booking Fees", vipFeeTotal.toFixed(2)]));
     lines.push(row(["Total Orders", totalOrders]));
     lines.push(row(["Average Order Value", metrics.aov.toFixed(2)]));
     lines.push(row(["Total Refunds", metrics.refunds.toFixed(2)]));
@@ -590,7 +649,7 @@ export default function OnlineReportsPanel() {
                   : "bg-white text-gray-600 hover:bg-gray-50"
               }`}
             >
-              {s === "all" ? "All Orders" : s === "online" ? "Online" : s === "pos" ? "POS" : "Dine-in"}
+              {s === "all" ? "All" : s === "online" ? "Online" : s === "pos" ? "POS" : "Dine-in"}
             </button>
           ))}
         </div>
@@ -631,14 +690,16 @@ export default function OnlineReportsPanel() {
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         <StatCard
           label="Gross Revenue"
-          value={cur(metrics.revenue)}
-          sub={`${metrics.count} order${metrics.count !== 1 ? "s" : ""} · avg ${cur(metrics.aov)}`}
+          value={cur(grossRevenue)}
+          sub={vipFeeTotal > 0
+            ? `${metrics.count} order${metrics.count !== 1 ? "s" : ""} + ${cur(vipFeeTotal)} VIP fees`
+            : `${metrics.count} order${metrics.count !== 1 ? "s" : ""} · avg ${cur(metrics.aov)}`}
           icon={TrendingUp}
           accent="bg-orange-500"
         />
         <StatCard
           label="Net Revenue"
-          value={cur(metrics.netRev)}
+          value={cur(netRevenue)}
           sub={`After ${cur(metrics.refunds)} in refunds`}
           icon={TrendingUp}
           accent="bg-emerald-500"
@@ -673,6 +734,18 @@ export default function OnlineReportsPanel() {
           icon={Percent}
           accent="bg-indigo-500"
         />
+        {/* VIP booking fees for the selected source. Already included in Gross
+            Revenue above — this card breaks out how much of it was booking fees.
+            Hidden on Dine-in (no reservation fees there). */}
+        {source !== "dine-in" && (
+          <StatCard
+            label="VIP Booking Fees"
+            value={cur(vipFeeTotal)}
+            sub={`${vipFeesForSource.length} reservation${vipFeesForSource.length !== 1 ? "s" : ""} · ${source === "all" ? "online + POS" : source === "online" ? "online" : "POS"}`}
+            icon={Crown}
+            accent="bg-amber-500"
+          />
+        )}
       </div>
 
       {/* ── Revenue over time ──────────────────────────────────────────────── */}
@@ -685,7 +758,7 @@ export default function OnlineReportsPanel() {
             </p>
           </div>
           <span className="text-xs font-semibold px-2.5 py-1 bg-orange-50 text-orange-600 rounded-lg whitespace-nowrap">
-            {cur(metrics.revenue)} total
+            {cur(grossRevenue)} total
           </span>
         </div>
         {loading ? (
@@ -862,10 +935,10 @@ export default function OnlineReportsPanel() {
         <h3 className="font-bold text-sm text-gray-300 uppercase tracking-widest mb-4">Period Summary</h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
-            { label: "Gross Revenue",   value: cur(metrics.revenue) },
+            { label: "Gross Revenue",   value: cur(grossRevenue) },
             { label: "Total Refunds",   value: cur(metrics.refunds) },
             { label: "VAT Due",         value: cur(metrics.vat) },
-            { label: "Net Revenue",     value: cur(metrics.netRev) },
+            { label: "Net Revenue",     value: cur(netRevenue) },
           ].map(({ label, value }) => (
             <div key={label}>
               <p className="text-xs text-gray-400 font-medium">{label}</p>

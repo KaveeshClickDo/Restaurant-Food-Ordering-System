@@ -153,6 +153,13 @@ export const MealPeriodUpdateSchema = z.object({
 // ── Dining tables ────────────────────────────────────────────────────────────
 const Seats = z.number().int().min(1, "Seats must be at least 1.").max(50, "Seats too large.");
 
+// A VIP table must carry a positive booking fee. Applied as a refine so the
+// validation error points at the vipPrice field.
+const VipPrice = z.number().nonnegative("Price cannot be negative.").max(100000, "Price too large.");
+const requireVipPrice = (data: { isVip?: boolean; vipPrice?: number }) =>
+  !data.isVip || (typeof data.vipPrice === "number" && data.vipPrice > 0);
+const vipPriceError = { message: "A VIP table needs a booking fee greater than 0.", path: ["vipPrice"] };
+
 export const DiningTableCreateSchema = z.object({
   label:     NonEmptyString,
   number:    z.number().int().nullable().optional(),
@@ -160,7 +167,9 @@ export const DiningTableCreateSchema = z.object({
   section:   z.string().optional(),
   active:    z.boolean().optional(),
   sortOrder: z.number().int().nonnegative().optional(),
-});
+  isVip:     z.boolean().optional(),
+  vipPrice:  VipPrice.optional(),
+}).refine(requireVipPrice, vipPriceError);
 
 export const DiningTableUpdateSchema = z.object({
   label:     NonEmptyString.optional(),
@@ -169,4 +178,6 @@ export const DiningTableUpdateSchema = z.object({
   section:   z.string().optional(),
   active:    z.boolean().optional(),
   sortOrder: z.number().int().nonnegative().optional(),
-});
+  isVip:     z.boolean().optional(),
+  vipPrice:  VipPrice.optional(),
+}).refine(requireVipPrice, vipPriceError);

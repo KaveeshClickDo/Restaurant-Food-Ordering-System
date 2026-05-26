@@ -382,6 +382,10 @@ export interface Reservation {
   checkedOutAt?: string;  // ISO timestamp set when staff check-out
   source?: string;        // "online" | "walk-in" | "phone" | "other"
   cancelToken?: string;   // UUID for guest self-service cancel link
+  vipFee?: number;        // booking fee charged for a VIP table (0 / absent for normal tables)
+  paymentStatus?: "none" | "paid";  // "paid" once the VIP booking fee is collected
+  paymentMethod?: string; // "stripe" | "paypal" (online) | "cash" | "card" (POS/admin)
+  paymentRef?: string;    // gateway id or till receipt reference
 }
 
 export interface ReservationCustomer {
@@ -459,6 +463,10 @@ export interface DiningTable {
   seats: number;
   section: string;  // e.g. "Main Hall", "Terrace"
   active: boolean;
+  /** Premium table — shows a crown + special styling everywhere and charges a non-refundable booking fee at reservation time. */
+  isVip?: boolean;
+  /** The booking fee (in the store currency) charged to reserve this table. 0 / absent for normal tables. */
+  vipPrice?: number;
 }
 
 export interface AdminSettings {

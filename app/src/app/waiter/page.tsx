@@ -12,7 +12,7 @@ import {
   LogOut, Users, UtensilsCrossed, CheckCircle2, Loader2,
   ChevronLeft, StickyNote, X, Receipt, CreditCard, Banknote,
   ClipboardList, Utensils, Printer, Mail, Eye, RefreshCw,
-  AlertTriangle, RotateCcw, ShieldAlert, Gift, Percent, BadgeDollarSign,
+  AlertTriangle, RotateCcw, ShieldAlert, Gift, Percent, BadgeDollarSign, Crown,
 } from "lucide-react";
 
 // ─── Internal types ───────────────────────────────────────────────────────────
@@ -1612,9 +1612,16 @@ export default function WaiterPage() {
                       onClick={() => occupied ? setTableAction(table) : selectTable(table)}
                       className={`relative flex flex-col items-center justify-center rounded-2xl p-4 aspect-square border-2 transition-all active:scale-95 ${occupied
                         ? "bg-amber-950/40 border-amber-500/60 hover:bg-amber-950/60"
-                        : "bg-slate-800 border-slate-700 hover:border-orange-500/60 hover:bg-slate-700"
+                        : table.isVip
+                          ? "bg-slate-800 border-amber-500/50 hover:border-amber-400 hover:bg-slate-700"
+                          : "bg-slate-800 border-slate-700 hover:border-orange-500/60 hover:bg-slate-700"
                         }`}
                     >
+                      {table.isVip && (
+                        <span className="absolute top-2 left-2" title="VIP table">
+                          <Crown size={13} className="text-amber-400" />
+                        </span>
+                      )}
                       {occupied && (
                         <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
                       )}

@@ -79,6 +79,7 @@ export async function PATCH(
     const updates: Record<string, unknown> = {};
     if (body.name        !== undefined) updates.name         = body.name;
     if (body.email       !== undefined) updates.email        = body.email ? body.email.toLowerCase() : "";
+    if (body.waiterRole  !== undefined) updates.role         = body.waiterRole;
     if (body.active      !== undefined) updates.active       = body.active;
     if (body.avatarColor !== undefined) updates.avatar_color = body.avatarColor;
     if (body.hourlyRate  !== undefined) updates.hourly_rate  = body.hourlyRate;

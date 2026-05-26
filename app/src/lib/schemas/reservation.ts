@@ -16,6 +16,11 @@ export const ReservationPublicSchema = z.object({
   source:        z.string().optional(),
 });
 
+// How a VIP booking fee was collected at a POS till or by an admin. There is no
+// payment gateway on these surfaces (cash drawer / card terminal), so the method
+// is recorded for the receipt but no charge is taken through Stripe/PayPal.
+const ManualPaymentMethod = z.enum(["cash", "card"]);
+
 // Admin walk-in / phone — email optional, but phone required for "phone" bookings.
 export const ReservationAdminSchema = z.object({
   tableId:       NonEmptyString,
@@ -27,6 +32,9 @@ export const ReservationAdminSchema = z.object({
   customerPhone: OptionalPhone,
   note:          z.string().optional(),
   source:        z.enum(["walk-in", "phone"]).default("walk-in"),
+  // Required by the route only when the chosen table is VIP — validated there
+  // against the live table record rather than trusted from the client.
+  paymentMethod: ManualPaymentMethod.optional(),
 }).refine(
   (data) => data.source !== "phone" || (data.customerPhone && data.customerPhone.length > 0),
   { message: "Phone number is required for phone bookings.", path: ["customerPhone"] },
@@ -47,10 +55,18 @@ export const ReservationPosSchema = z.object({
   customerPhone: OptionalPhone,
   note:          z.string().optional(),
   source:        z.enum(["walk-in", "phone"]).default("walk-in"),
+  paymentMethod: ManualPaymentMethod.optional(),
 }).refine(
   (data) => data.source !== "phone" || (data.customerPhone && data.customerPhone.length > 0),
   { message: "Phone number is required for phone bookings.", path: ["customerPhone"] },
 );
+
+// Online VIP booking-fee payment intent. Same fields as the public booking, plus
+// the gateway the guest chose. The reservation row itself is created later by
+// the Stripe/PayPal webhook once the fee is captured — never here.
+export const ReservationIntentSchema = ReservationPublicSchema.extend({
+  gateway: z.enum(["stripe", "paypal"]),
+});
 
 export const ReservationStatusSchema = z.object({
   status: z.enum(["pending", "confirmed", "checked_in", "checked_out", "cancelled", "no_show"]),

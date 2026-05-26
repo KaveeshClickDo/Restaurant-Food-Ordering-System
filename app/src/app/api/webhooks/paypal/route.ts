@@ -36,6 +36,7 @@ import {
 } from "@/lib/paypalServer";
 import { incrementCouponUsage } from "@/lib/orderValidation";
 import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
+import { completeReservationFromSession } from "@/lib/reservations";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -177,6 +178,12 @@ async function handleCaptureCompleted(resource: PaypalCapture): Promise<void> {
   }
   if (session.status === "succeeded" && session.completed_order_id) {
     // Idempotent — order already created.
+    return;
+  }
+
+  // VIP booking-fee payments create a reservation instead of an order.
+  if (session.kind === "reservation") {
+    await completeReservationFromSession(session, "paypal", captureId ?? paypalOrderId);
     return;
   }
 

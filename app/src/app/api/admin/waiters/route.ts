@@ -14,7 +14,7 @@ import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { parseBody } from "@/lib/apiValidation";
 import { WaiterCreateSchema } from "@/lib/schemas/staff";
 
-const PUBLIC_COLUMNS = "id, name, email, active, hourly_rate, avatar_color, created_at";
+const PUBLIC_COLUMNS = "id, name, email, role, active, hourly_rate, avatar_color, created_at";
 const HASH_ROUNDS = 10;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -23,6 +23,7 @@ function mapRow(row: any) {
     id:           row.id,
     name:         row.name,
     email:        row.email ?? "",
+    role:         row.role ?? "waiter",
     active:       row.active,
     hourlyRate:   row.hourly_rate ?? undefined,
     avatarColor:  row.avatar_color,
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
 
   const parsed = await parseBody(request, WaiterCreateSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { name, email = "", pin, active = true, hourlyRate, avatarColor } = parsed.data;
+  const { name, email = "", role = "waiter", pin, active = true, hourlyRate, avatarColor } = parsed.data;
 
   const pinHash = await bcrypt.hash(pin, HASH_ROUNDS);
 
@@ -58,6 +59,7 @@ export async function POST(request: Request) {
     .insert({
       name:         name,
       email:        email ? email.toLowerCase() : "",
+      role,
       pin_hash:     pinHash,
       active,
       hourly_rate:  hourlyRate ?? null,

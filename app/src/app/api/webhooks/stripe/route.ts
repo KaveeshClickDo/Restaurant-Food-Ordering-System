@@ -33,6 +33,7 @@ import { incrementCouponUsage } from "@/lib/orderValidation";
 import { redeemGiftCardForRow } from "@/lib/giftCardValidation";
 import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
 import { generateGiftCardCode } from "@/lib/giftCardCode";
+import { completeReservationFromSession } from "@/lib/reservations";
 
 // Tell Next.js this route handler should NOT parse the body — Stripe needs
 // the raw bytes for signature verification.
@@ -108,6 +109,12 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
   // a backup discriminator in case session.kind is missing on legacy rows.
   if (session.kind === "gift_card" || intent.metadata?.kind === "gift_card") {
     await handleGiftCardPurchaseSucceeded(intent, session);
+    return;
+  }
+
+  // VIP booking-fee payments create a reservation instead of an order.
+  if (session.kind === "reservation" || intent.metadata?.kind === "reservation") {
+    await completeReservationFromSession(session, "stripe", intent.id);
     return;
   }
 

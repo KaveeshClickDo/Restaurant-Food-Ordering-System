@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
   try {
     const { data: waiter } = await supabaseAdmin
       .from("waiters")
-      .select("id, name, email, pin_hash, active, hourly_rate, avatar_color, created_at, session_version")
+      .select("id, name, email, role, pin_hash, active, hourly_rate, avatar_color, created_at, session_version")
       .eq("id", staffId)
       .eq("active", true)
       .maybeSingle();
@@ -44,8 +44,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { pin_hash: _h, session_version: _v, ...safe } = waiter;
+    // Return the camelCase shape the /waiter UI reads (e.g. `avatarColor` for
+    // the header avatar). pin_hash and session_version are never exposed.
+    const safe = {
+      id:          waiter.id,
+      name:        waiter.name,
+      email:       waiter.email ?? "",
+      role:        waiter.role ?? "waiter",
+      active:      waiter.active,
+      hourlyRate:  waiter.hourly_rate ?? undefined,
+      avatarColor: waiter.avatar_color,
+      createdAt:   waiter.created_at,
+    };
 
     const token = createSessionToken({
       id:             staffId,

@@ -30,6 +30,8 @@ export default function MenuTab() {
 
   // Item state
   const [editProduct, setEditProduct] = useState<POSProduct | null>(null);
+  // Image upload error (shared — only one item modal is open at a time).
+  const [imgErr, setImgErr] = useState("");
   // Bug #2 — POS draft now also carries dietary[], variations[], addOns[],
   // sku, and a description so both editors can save the same item shape.
   // Stock fields added so POS-admin/manager can mark items OOS / set qty
@@ -142,6 +144,7 @@ export default function MenuTab() {
   }
 
   function openEdit(product: POSProduct) {
+    setImgErr("");
     setEditProduct(product);
     const o = product.offer;
     const tracked = typeof product.stockQty === "number";
@@ -333,7 +336,7 @@ export default function MenuTab() {
             {menuTab === "items" && (
               <>
                 <div className="flex justify-end">
-                  <button onClick={() => setShowAddProduct(true)} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-400 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors">
+                  <button onClick={() => { setImgErr(""); setShowAddProduct(true); }} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-400 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors">
                     <Plus size={16} /> Add Item
                   </button>
                 </div>
@@ -665,7 +668,13 @@ export default function MenuTab() {
                     <span className="text-xs text-slate-400">Click to upload image</span>
                     <input
                       type="file" accept="image/*" className="hidden"
-                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageFile(f, (url) => setEditDraft((d) => ({ ...d, imageUrl: url }))); }}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = "";
+                        if (!f) return;
+                        setImgErr("");
+                        handleImageFile(f, (url) => setEditDraft((d) => ({ ...d, imageUrl: url })), setImgErr);
+                      }}
                     />
                   </label>
                 )}
@@ -675,6 +684,8 @@ export default function MenuTab() {
                   placeholder="Or paste image URL…"
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2 text-white text-xs outline-none focus:border-orange-500 placeholder-slate-500"
                 />
+                {imgErr && <p className="text-[11px] text-red-400 mt-1">{imgErr}</p>}
+                <p className="text-[11px] text-slate-500 mt-1">Max 1 MB. JPG, PNG, WebP, GIF or AVIF.</p>
               </div>
 
               {/* Emoji + Name row — emoji only shown when no image */}
@@ -1082,7 +1093,13 @@ export default function MenuTab() {
                     <span className="text-xs text-slate-400">Click to upload image</span>
                     <input
                       type="file" accept="image/*" className="hidden"
-                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageFile(f, (url) => setNewProduct((p) => ({ ...p, imageUrl: url }))); }}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = "";
+                        if (!f) return;
+                        setImgErr("");
+                        handleImageFile(f, (url) => setNewProduct((p) => ({ ...p, imageUrl: url })), setImgErr);
+                      }}
                     />
                   </label>
                 )}
@@ -1092,6 +1109,8 @@ export default function MenuTab() {
                   placeholder="Or paste image URL…"
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2 text-white text-xs outline-none focus:border-orange-500 placeholder-slate-500"
                 />
+                {imgErr && <p className="text-[11px] text-red-400 mt-1">{imgErr}</p>}
+                <p className="text-[11px] text-slate-500 mt-1">Max 1 MB. JPG, PNG, WebP, GIF or AVIF.</p>
               </div>
 
               <div className="flex gap-3">

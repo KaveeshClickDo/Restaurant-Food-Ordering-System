@@ -250,6 +250,16 @@ create table if not exists reservations (
   checked_out_at timestamptz,
   source         text        not null default 'online',
   cancel_token   text        not null default gen_random_uuid()::text unique,
+  -- VIP booking fee captured at reservation time. vip_fee is the amount charged
+  -- (0 for normal tables); payment_status is 'none' for free bookings and 'paid'
+  -- once the fee is collected; payment_method records how ('stripe'/'paypal' for
+  -- online, 'cash'/'card' for POS & admin); payment_ref holds the gateway id or
+  -- till receipt reference. The fee is non-refundable on cancellation.
+  vip_fee        numeric(10,2) not null default 0,
+  payment_status text        not null default 'none'
+                 check (payment_status in ('none','paid')),
+  payment_method text,
+  payment_ref    text,
   created_at     timestamptz not null default now()
 );
 
@@ -315,6 +325,8 @@ create table if not exists waiters (
   id            text        primary key default gen_random_uuid()::text,
   name          text        not null,
   email         text        not null default '',
+  role          text        not null default 'waiter'
+                check (role in ('waiter','senior')),
   pin_hash      text        not null,
   active        boolean     not null default true,
   hourly_rate   numeric,
@@ -410,6 +422,12 @@ create table if not exists dining_tables (
   section     text        not null default '',
   active      boolean     not null default true,
   sort_order  integer     not null default 0,
+  -- VIP tables charge a non-refundable booking fee at reservation time. is_vip
+  -- toggles the crown/special UI everywhere; vip_price is the fee (0 for normal
+  -- tables). Reservations against a VIP table can only be created after the fee
+  -- is paid (online: Stripe/PayPal via webhook; POS/admin: cash/card recorded).
+  is_vip      boolean     not null default false,
+  vip_price   numeric(10,2) not null default 0,
   created_at  timestamptz not null default now()
 );
 
@@ -689,6 +707,21 @@ alter table waiters       add column if not exists session_version integer not n
 alter table kitchen_staff add column if not exists session_version integer not null default 1;
 alter table pos_staff     add column if not exists session_version integer not null default 1;
 
+-- ── waiters.role ─────────────────────────────────────────────────────────────
+-- 'senior' (Senior / Head Waiter) gates voids, refunds, and bill discounts in
+-- the /waiter app; 'waiter' is the default. Backfills existing deploys whose
+-- waiters table predates this column.
+alter table waiters add column if not exists role text not null default 'waiter';
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.constraint_column_usage
+    where table_name = 'waiters' and constraint_name = 'waiters_role_check'
+  ) then
+    alter table waiters add constraint waiters_role_check check (role in ('waiter','senior'));
+  end if;
+end $$;
+
 -- ── payment_sessions: discriminator for non-order purchases ──────────────────
 -- The same stash-then-webhook pattern now serves both order checkout AND gift
 -- card purchase. kind='order' (default) keeps existing behaviour; kind='gift_card'
@@ -696,10 +729,27 @@ alter table pos_staff     add column if not exists session_version integer not n
 -- gift_card_payload carries the recipient details captured at purchase time so
 -- the webhook can build the email without re-trusting the browser.
 alter table payment_sessions
-  add column if not exists kind text not null default 'order'
-    check (kind in ('order','gift_card'));
+  add column if not exists kind text not null default 'order';
 alter table payment_sessions
   add column if not exists gift_card_payload jsonb;
+-- reservation_payload carries the booking details captured at payment time so
+-- the webhook can create the reservation (and email the bill) without
+-- re-trusting the browser — same role gift_card_payload plays for gift cards.
+alter table payment_sessions
+  add column if not exists reservation_payload jsonb;
+-- Widen the kind check to allow reservation booking-fee payments. Drop the old
+-- constraint (if present) and re-add the superset so re-running is idempotent.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.constraint_column_usage
+    where table_name = 'payment_sessions' and constraint_name = 'payment_sessions_kind_check'
+  ) then
+    alter table payment_sessions drop constraint payment_sessions_kind_check;
+  end if;
+  alter table payment_sessions
+    add constraint payment_sessions_kind_check check (kind in ('order','gift_card','reservation'));
+end $$;
 -- Drop the legacy CHECK that required order_payload always be set. With the
 -- gift_card kind the order_payload is null and gift_card_payload is set.
 -- (Postgres lets us add a not-null column with a default, then relax the
@@ -707,6 +757,28 @@ alter table payment_sessions
 --  semantically since gift card kind doesn't populate it.)
 alter table payment_sessions
   alter column order_payload drop not null;
+
+-- ── VIP tables + reservation booking fees ────────────────────────────────────
+-- Backfills existing deploys whose dining_tables / reservations predate the VIP
+-- feature. is_vip/vip_price mark a table as premium and set its booking fee;
+-- the reservation columns record the fee actually collected. See the create
+-- table blocks above for column semantics.
+alter table dining_tables add column if not exists is_vip    boolean       not null default false;
+alter table dining_tables add column if not exists vip_price numeric(10,2) not null default 0;
+alter table reservations  add column if not exists vip_fee        numeric(10,2) not null default 0;
+alter table reservations  add column if not exists payment_status text          not null default 'none';
+alter table reservations  add column if not exists payment_method text;
+alter table reservations  add column if not exists payment_ref    text;
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.constraint_column_usage
+    where table_name = 'reservations' and constraint_name = 'reservations_payment_status_check'
+  ) then
+    alter table reservations add constraint reservations_payment_status_check
+      check (payment_status in ('none','paid'));
+  end if;
+end $$;
 
 
 -- ── 3. Indexes ───────────────────────────────────────────────────────────────

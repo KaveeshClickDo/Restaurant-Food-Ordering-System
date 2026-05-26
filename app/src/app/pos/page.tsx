@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
 import { useConnectivity } from "@/lib/connectivity";
@@ -20,11 +20,30 @@ import SettingsView from "@/components/pos/SettingsView";
 import TableStatusView from "@/components/pos/TableStatusView";
 import ReservationsView from "@/components/pos/ReservationsView";
 
+// Top-level POS views that are deep-linkable via ?tab=<view> so a page refresh
+// or shared link keeps the same tab open — mirrors /admin?tab=<id>.
+const TAB_VIEWS: View[] = ["sale", "dashboard", "customers", "tables", "reservations", "staff", "settings"];
+
 export default function POSPage() {
+  // useSearchParams() must be read inside a Suspense boundary (Next.js app router).
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-slate-950" />}>
+      <POSPageContent />
+    </Suspense>
+  );
+}
+
+function POSPageContent() {
   const router = useRouter();
-  const { currentStaff, logout, settings } = usePOS();
+  const searchParams = useSearchParams();
+  const { currentStaff, sessionLoading, logout, settings } = usePOS();
   const { settings: appSettings, refreshDiningTables } = useApp();
-  const [view, setView] = useState<View>("sale");
+
+  // Honor ?tab=<view> on first paint so a refresh / shared link lands on the
+  // same tab instead of always snapping back to Sale.
+  const rawTab = searchParams.get("tab");
+  const initialView = (rawTab && TAB_VIEWS.includes(rawTab as View) ? rawTab : "sale") as View;
+  const [view, setView] = useState<View>(initialView);
   const [time, setTime] = useState(""); // empty string on SSR, filled after mount
   const [mounted, setMounted] = useState(false);
 
@@ -50,6 +69,9 @@ export default function POSPage() {
 
   useEffect(() => {
     if (!mounted) return;
+    // Wait for the cookie session to hydrate before deciding "logged out" —
+    // otherwise a refresh bounces to /pos/login and loses the ?tab= param.
+    if (sessionLoading) return;
     if (!currentStaff) { router.replace("/pos/login"); return; }
     // Redirect to sale if current view is no longer permitted
     const p = currentStaff.permissions;
@@ -63,7 +85,7 @@ export default function POSPage() {
       reservations: true,
     };
     if (!allowed[view]) setView("sale");
-  }, [mounted, currentStaff, router, view]);
+  }, [mounted, sessionLoading, currentStaff, router, view]);
 
   useEffect(() => {
     // Only run clock on client after mount
@@ -71,6 +93,23 @@ export default function POSPage() {
     const id = setInterval(() => setTime(new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })), 30000);
     return () => clearInterval(id);
   }, []);
+
+  // Keep `view` in sync if ?tab=<view> changes after mount (browser back/forward
+  // or an in-app deep link).
+  useEffect(() => {
+    const raw = searchParams.get("tab");
+    if (raw && TAB_VIEWS.includes(raw as View)) setView(raw as View);
+  }, [searchParams]);
+
+  // Select a tab AND reflect it in the URL. `replace` keeps history flat (paging
+  // through tabs shouldn't fill the back stack) and `scroll: false` stops the
+  // page jumping to top — same pattern as the admin panel.
+  function selectView(next: View) {
+    setView(next);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", next);
+    router.replace(`/pos?${params.toString()}`, { scroll: false });
+  }
 
   // Show nothing until client has hydrated (avoids mismatch between SSR null and client session)
   if (!mounted || !currentStaff) return <div className="min-h-screen bg-slate-950" />;
@@ -190,7 +229,7 @@ export default function POSPage() {
           return (
             <button
               key={item.id}
-              onClick={() => setView(item.id)}
+              onClick={() => selectView(item.id)}
               className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all active:scale-95 ${
                 active
                   ? "text-orange-400 bg-orange-500/10 border-t-2 border-orange-500"

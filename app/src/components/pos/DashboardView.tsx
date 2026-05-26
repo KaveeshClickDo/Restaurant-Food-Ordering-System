@@ -401,14 +401,11 @@ export default function DashboardView() {
             )}
             {dashTab === "dine-in" && (
               <button
-                onClick={() => {
-                  setDineInOrders([]);
-                  setDashTab("dine-in");
-                  setDineInLoading(true);
-                }}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-semibold transition-colors"
+                onClick={() => refreshDineInTab(true)}
+                disabled={dineInLoading}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <RefreshCw size={13} /> Refresh
+                <RefreshCw size={13} className={dineInLoading ? "animate-spin" : ""} /> Refresh
               </button>
             )}
             <div className="flex gap-1 bg-slate-800 border border-slate-700 p-1 rounded-xl">

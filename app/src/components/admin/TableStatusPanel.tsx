@@ -6,7 +6,7 @@ import type { Reservation, DiningTable } from "@/types";
 import {
   UtensilsCrossed, Users, Clock, LogIn, LogOut,
   Loader2, RefreshCw, CheckCircle2, XCircle, CalendarDays,
-  Plus, Pencil, Trash2, AlertCircle, X, Save, EyeOff,
+  Plus, Pencil, Trash2, AlertCircle, X, Save, EyeOff, Crown,
 } from "lucide-react";
 
 // One unified panel for both live table status AND CRUD. Each card shows the
@@ -59,7 +59,7 @@ const STATE_STYLES: Record<TableState, {
 // ─── Table Form (Add / Edit) ──────────────────────────────────────────────────
 
 const EMPTY_TABLE: Omit<DiningTable, "id" | "number"> = {
-  label: "", seats: 4, section: "Main Hall", active: true,
+  label: "", seats: 4, section: "Main Hall", active: true, isVip: false, vipPrice: 0,
 };
 
 const SECTIONS = ["Main Hall", "Terrace", "Bar", "Private Dining", "Garden"];
@@ -76,6 +76,8 @@ function TableForm({
   onSave: (data: typeof EMPTY_TABLE) => Promise<void> | void;
   onCancel: () => void;
 }) {
+  const { settings } = useApp();
+  const currencySymbol = settings.currency?.symbol ?? "£";
   const [form, setForm]     = useState({ ...EMPTY_TABLE, ...initial });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -94,6 +96,9 @@ function TableForm({
     if (form.seats < 1)       e.seats   = "Must have at least 1 seat.";
     if (trimmedLabel && existingLabels.some((l) => l.trim().toLowerCase() === trimmedLabel.toLowerCase())) {
       e.label = "Another table already uses this label.";
+    }
+    if (form.isVip && !((form.vipPrice ?? 0) > 0)) {
+      e.vipPrice = "A VIP table needs a booking fee greater than 0.";
     }
     if (Object.keys(e).length) { setErrors(e); return false; }
     return true;
@@ -175,6 +180,40 @@ function TableForm({
         <span className="text-sm text-gray-700">{form.active ? "Active" : "Inactive"}</span>
       </label>
 
+      {/* VIP table — premium styling + a non-refundable booking fee charged at
+          reservation time. Turning it off clears the fee. */}
+      <div className={`rounded-xl border p-3 transition ${form.isVip ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <div
+            onClick={() => set("isVip", !form.isVip)}
+            className={`w-9 h-5 rounded-full transition relative flex-shrink-0 ${form.isVip ? "bg-amber-500" : "bg-gray-300"}`}
+          >
+            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.isVip ? "translate-x-4" : "translate-x-0.5"}`} />
+          </div>
+          <span className="text-sm text-gray-700 flex items-center gap-1.5">
+            <Crown size={14} className={form.isVip ? "text-amber-500" : "text-gray-400"} />
+            VIP table
+          </span>
+        </label>
+
+        {form.isVip && (
+          <div className="mt-3">
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Booking fee</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">{currencySymbol}</span>
+              <input
+                type="number" min={0} step="0.01"
+                value={form.vipPrice ?? 0}
+                onChange={(e) => set("vipPrice", parseFloat(e.target.value) || 0)}
+                className="w-full bg-white border border-gray-200 rounded-xl pl-7 pr-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition"
+              />
+            </div>
+            <p className="text-[11px] text-gray-500 mt-1">Charged (non-refundable) when this table is reserved.</p>
+            {errors.vipPrice && <p className="text-red-500 text-xs mt-1">{errors.vipPrice}</p>}
+          </div>
+        )}
+      </div>
+
       <div className="flex gap-2 pt-1">
         <button
           type="submit"
@@ -228,8 +267,15 @@ function TableCard({
   onCancelDelete:  () => void;
 }) {
   const [actioning, setActioning] = useState(false);
+  const { settings } = useApp();
+  const currencySymbol = settings.currency?.symbol ?? "£";
   const { table, state, reservation: res } = info;
   const s = STATE_STYLES[state];
+  const vipChip = table.isVip ? (
+    <span className="inline-flex items-center gap-1 text-amber-700">
+      <Crown size={11} className="text-amber-500" /> VIP · {currencySymbol}{(table.vipPrice ?? 0).toFixed(2)}
+    </span>
+  ) : null;
 
   async function act(fn: () => Promise<void>) {
     setActioning(true);
@@ -279,12 +325,15 @@ function TableCard({
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2.5 sm:gap-2">
         <div>
           <div className="flex items-center gap-2">
-            <UtensilsCrossed size={14} className="text-orange-500" />
+            {table.isVip
+              ? <Crown size={14} className="text-amber-500" />
+              : <UtensilsCrossed size={14} className="text-orange-500" />}
             <span className="font-bold text-gray-900 text-base">{table.label}</span>
           </div>
           <div className="flex sm:hidden items-center gap-3 mt-1 text-xs text-gray-500">
             <span className="flex items-center gap-1"><Users size={11} /> {table.seats} seats</span>
             {table.section && <span>{table.section}</span>}
+            {vipChip}
           </div>
         </div>
         <span className={`inline-flex text-center items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full ${s.badge}`}>
@@ -295,6 +344,7 @@ function TableCard({
       <div className="hidden sm:flex items-center gap-3 mt-1 text-xs text-gray-500">
         <span className="flex items-center gap-1"><Users size={11} /> {table.seats} seats</span>
         {table.section && <span>{table.section}</span>}
+        {vipChip}
       </div>
 
       {/* Reservation detail (only when there is one) */}
