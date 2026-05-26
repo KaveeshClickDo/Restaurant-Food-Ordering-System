@@ -860,7 +860,13 @@ function ItemModal({
                 min="0"
                 step="0.50"
                 value={form.price}
-                onChange={(e) => setForm((f) => ({ ...f, price: parseFloat(e.target.value) || 0 }))}
+                placeholder="0.00"
+                onChange={(e) => setForm((f) => ({ ...f, price: e.target.value === "" ? ("" as any) : parseFloat(e.target.value) }))}
+                onBlur={() => {
+                  if (form.price === ("" as any) || isNaN(Number(form.price))) {
+                    setForm((f) => ({ ...f, price: 0 }));
+                  }
+                }}
                 className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
               />
             </div>
