@@ -289,13 +289,13 @@ export default function MenuManagementPanel() {
 
               <button
                 onClick={() => setSelectedCatId(cat.id)}
-                className="flex-1 text-left px-2 py-2 text-sm flex items-center gap-1.5"
+                className="flex-1 min-w-0 text-left px-2 py-2 text-sm flex items-center gap-1.5"
               >
-                <span>{cat.emoji}</span>
-                <span className={`font-medium truncate ${selectedCatId === cat.id ? "text-orange-600" : "text-gray-700"}`}>
+                <span className="flex-shrink-0">{cat.emoji}</span>
+                <span className={`flex-1 font-medium truncate ${selectedCatId === cat.id ? "text-orange-600" : "text-gray-700"}`}>
                   {cat.name}
                 </span>
-                <span className="ml-auto text-xs text-gray-400">{catItemCount(cat.id)}</span>
+                <span className="ml-auto flex-shrink-0 text-xs text-gray-400">{catItemCount(cat.id)}</span>
               </button>
 
               {/* Edit/delete */}
@@ -334,7 +334,7 @@ export default function MenuManagementPanel() {
           {/* Category header when filtered */}
           {selectedCatId !== "all" && (
             <div className="flex flex-wrap gap-2 items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2.5">
                 <h3 className="font-semibold text-gray-900 flex items-center gap-2">
                   <span>{categories.find((c) => c.id === selectedCatId)?.emoji}</span>
                   <span>{categories.find((c) => c.id === selectedCatId)?.name}</span>
@@ -408,8 +408,8 @@ export default function MenuManagementPanel() {
                     <GripVertical size={14} className="text-gray-300 flex-shrink-0" />
 
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-gray-900 text-sm">{item.name}</span>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <span className="font-semibold text-gray-900 text-sm mr-1">{item.name}</span>
                         {item.popular && (
                           <span className="flex items-center gap-0.5 text-[10px] font-semibold text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded-full border border-orange-200">
                             <Flame size={9} /> Popular
