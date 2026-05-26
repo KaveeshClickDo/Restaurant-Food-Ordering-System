@@ -15,7 +15,7 @@
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendReservationEmailServer } from "@/lib/emailServer";
-import type { AdminSettings } from "@/types";
+import type { AdminSettings, EmailTemplateEvent } from "@/types";
 
 function toMins(time: string): number {
   const [h, m] = time.split(":").map(Number);
@@ -288,4 +288,141 @@ export async function completeReservationFromSession(
     .from("payment_sessions")
     .update({ status: "succeeded", completed_order_id: result.reservationId })
     .eq("id", session.id);
+}
+
+// ── Status change (check-in / check-out / confirm / cancel / no-show) ───────────
+
+// Keep in lockstep with /api/pos/reservations/[id] and /api/admin/reservations/[id].
+// Any status with a mapped event emails the guest after the row is updated.
+const STATUS_EMAIL_MAP: Partial<Record<string, EmailTemplateEvent>> = {
+  confirmed:   "reservation_update",
+  cancelled:   "reservation_cancellation",
+  checked_in:  "reservation_check_in",
+  checked_out: "reservation_review_request",
+};
+
+export type ReservationStatusChange =
+  | "checked_in" | "checked_out" | "confirmed" | "cancelled" | "no_show";
+
+export interface StatusChangeResult {
+  ok: boolean;
+  error?: string;
+  status?: number;   // suggested HTTP status for the caller
+  noop?: boolean;    // reservation was already in the target status (nothing done)
+}
+
+/**
+ * Move a reservation to a new status and run the matching side effects
+ * (checked_in_at / checked_out_at timestamps, reservation_customers profile
+ * upsert + visit_count, status-change email). Extracted from the POS/admin
+ * [id] routes so the waiter surface reuses the exact same behaviour instead of
+ * keeping a third copy.
+ *
+ * Idempotent: the UPDATE is filtered with `.neq("status", target)`, so a
+ * re-tap (or a transition another device already made) matches zero rows and
+ * returns `{ ok: true, noop: true }` WITHOUT re-sending the email or
+ * re-incrementing visit_count. Best-effort throughout — never throws.
+ *
+ * Server-only.
+ */
+export async function applyReservationStatusChange(
+  id: string,
+  status: ReservationStatusChange,
+  origin?: string,
+): Promise<StatusChangeResult> {
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = { status };
+  if (status === "checked_in")  patch.checked_in_at  = now;
+  if (status === "checked_out") patch.checked_out_at = now;
+
+  // Conditional update = atomic idempotency guard. Zero rows back means the
+  // reservation is already in this status (or doesn't exist) — either way,
+  // there's nothing to do and no email to send.
+  const { data: resRow, error: updateErr } = await supabaseAdmin
+    .from("reservations")
+    .update(patch)
+    .eq("id", id)
+    .neq("status", status)
+    .select("id,customer_name,customer_email,customer_phone,date,time,table_label,party_size,status,note,section,cancel_token")
+    .maybeSingle();
+
+  if (updateErr) {
+    console.error("applyReservationStatusChange:", updateErr.message);
+    return { ok: false, error: updateErr.message, status: 500 };
+  }
+  if (!resRow) return { ok: true, noop: true };
+
+  const email = (resRow.customer_email as string)?.trim().toLowerCase();
+
+  // Customer profile bookkeeping — only on check-in (create/refresh) and
+  // check-out (increment visit_count). Best-effort; never blocks the status.
+  if (email) {
+    try {
+      if (status === "checked_in") {
+        const { data: existing } = await supabaseAdmin
+          .from("reservation_customers")
+          .select("id, first_visit_at")
+          .eq("email", email)
+          .maybeSingle();
+        if (existing) {
+          await supabaseAdmin.from("reservation_customers").update({
+            name:       resRow.customer_name ?? "",
+            phone:      resRow.customer_phone ?? "",
+            updated_at: now,
+            ...(existing.first_visit_at ? {} : { first_visit_at: now }),
+          }).eq("email", email);
+        } else {
+          await supabaseAdmin.from("reservation_customers").insert({
+            email,
+            name:           resRow.customer_name ?? "",
+            phone:          resRow.customer_phone ?? "",
+            visit_count:    0,
+            first_visit_at: now,
+            created_at:     now,
+            updated_at:     now,
+          });
+        }
+      } else if (status === "checked_out") {
+        const { data: existing } = await supabaseAdmin
+          .from("reservation_customers")
+          .select("id, visit_count")
+          .eq("email", email)
+          .maybeSingle();
+        if (existing) {
+          await supabaseAdmin.from("reservation_customers").update({
+            visit_count:   (existing.visit_count as number) + 1,
+            last_visit_at: now,
+            updated_at:    now,
+          }).eq("email", email);
+        }
+      }
+    } catch {
+      /* profile bookkeeping is best-effort */
+    }
+  }
+
+  // Status-change email (fire-and-forget) — same map as POS/admin.
+  const emailEvent = STATUS_EMAIL_MAP[status];
+  if (emailEvent && email) {
+    const { data: settingsRow } = await supabaseAdmin
+      .from("app_settings").select("data").limit(1).single();
+    if (settingsRow?.data) {
+      sendReservationEmailServer(emailEvent, {
+        id:             resRow.id,
+        customer_name:  resRow.customer_name,
+        customer_email: resRow.customer_email,
+        customer_phone: resRow.customer_phone ?? "",
+        date:           resRow.date,
+        time:           resRow.time,
+        table_label:    resRow.table_label,
+        party_size:     resRow.party_size,
+        status:         resRow.status,
+        note:           resRow.note,
+        section:        resRow.section ?? "",
+        cancel_token:   resRow.cancel_token as string | undefined,
+      }, settingsRow.data, origin).catch(console.error);
+    }
+  }
+
+  return { ok: true };
 }

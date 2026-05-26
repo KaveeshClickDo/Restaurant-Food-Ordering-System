@@ -13,6 +13,7 @@ import {
   ChevronLeft, StickyNote, X, Receipt, CreditCard, Banknote,
   ClipboardList, Utensils, Printer, Mail, Eye, RefreshCw,
   AlertTriangle, RotateCcw, ShieldAlert, Gift, Percent, BadgeDollarSign, Crown,
+  Clock, CalendarClock,
 } from "lucide-react";
 
 // ─── Internal types ───────────────────────────────────────────────────────────
@@ -71,6 +72,38 @@ interface WaiterReceipt {
   orderIds: string[];
 }
 
+// Today's reservations the waiter grid overlays on the table tiles. Shape
+// matches GET /api/waiter/reservations (camelCase). Read-only awareness; the
+// only writes are seat (checked_in) and check-out (checked_out).
+interface WaiterReservation {
+  id: string;
+  tableLabel: string;
+  section: string;
+  customerName: string;
+  partySize: number;
+  date: string;     // "YYYY-MM-DD"
+  time: string;     // "HH:MM"
+  status: string;   // pending | confirmed | checked_in
+  note: string | null;
+  source: string | null;
+}
+
+// Derived per-tile reservation state used to render badges + drive the seat sheet.
+interface TileReservation {
+  /** The reservation currently seated at this table (status checked_in), if any. */
+  seated: WaiterReservation | null;
+  /** The next not-yet-seated booking worth surfacing, if any. */
+  next: WaiterReservation | null;
+  /** Minutes from now until `next` (negative = the booking time has passed). */
+  minutesUntil: number | null;
+  /** `next` is arriving soon — prompt the waiter to seat it. */
+  isDue: boolean;
+  /** `next`'s time has passed and nobody has been seated (awaiting / likely no-show). */
+  isOverdue: boolean;
+  /** How many active bookings this table has today (seated + upcoming). */
+  count: number;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const fmtCur = (n: number, sym = "£") =>
@@ -79,6 +112,19 @@ const fmtCur = (n: number, sym = "£") =>
 function initials(name: string) {
   return name.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
 }
+
+// "HH:MM" → minutes since midnight. Used to compare booking times against now.
+function hhmmToMins(time: string): number {
+  const [h, m] = time.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+// Awareness windows (minutes). A booking is "due" when it's within DUE_LEAD of
+// now; "overdue" once it's OVERDUE_GRACE past with nobody seated; bookings more
+// than STALE_MAX in the past are ignored as stale data (POS/admin will clear).
+const DUE_LEAD      = 30;
+const OVERDUE_GRACE = 15;
+const STALE_MAX     = 120;
 
 // ─── Receipt Modal ────────────────────────────────────────────────────────────
 
@@ -867,6 +913,9 @@ export default function WaiterPage() {
   const [staffLoaded, setStaffLoaded] = useState(false);
   const [tables, setTables] = useState<DiningTable[]>([]);
   const [occupiedLabels, setOccupiedLabels] = useState<Set<string>>(new Set());
+  // Today's active reservations, overlaid on the table grid. Kept entirely
+  // separate from `occupiedLabels` so the two concepts never get merged.
+  const [reservations, setReservations] = useState<WaiterReservation[]>([]);
 
   // ── Auth ────────────────────────────────────────────────────────────────────
   const [view, setView] = useState<View>("login");
@@ -916,6 +965,10 @@ export default function WaiterPage() {
   const [tipInput, setTipInput]                 = useState("");
   // table action sheet: null = closed, DiningTable = which table was tapped
   const [tableAction, setTableAction] = useState<DiningTable | null>(null);
+  // seat sheet for a free-but-reserved table: choose "seat reservation" or "walk-in"
+  const [seatAction, setSeatAction] = useState<{ table: DiningTable; reservation: WaiterReservation } | null>(null);
+  // best-effort flag while a seat/check-in PUT is in flight (prevents double taps)
+  const [seating, setSeating] = useState(false);
 
   // ── Receipt state ─────────────────────────────────────────────────────────────
   const [receipt, setReceipt] = useState<WaiterReceipt | null>(null);
@@ -1050,6 +1103,34 @@ export default function WaiterPage() {
     return () => clearInterval(id);
   }, [view, refreshOccupied]);
 
+  // ── Today's reservations overlay ─────────────────────────────────────────────
+  // Master kill-switch: when the reservation system is disabled the waiter grid
+  // behaves exactly as before — no fetch, no badges, no seat actions.
+  const reservationsEnabled = appSettings.reservationSystem?.enabled === true;
+  const slotDuration = appSettings.reservationSystem?.slotDurationMinutes ?? 90;
+
+  const refreshReservations = useCallback(async () => {
+    if (!reservationsEnabled) { setReservations([]); return; }
+    try {
+      // Use the tablet's local date so a server/browser timezone gap can't shift
+      // which day's bookings we load.
+      const now = new Date();
+      const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const r = await fetch(`/api/waiter/reservations?date=${localDate}`, { cache: "no-store" });
+      if (!r.ok) return;
+      const json = await r.json() as { ok: boolean; reservations?: WaiterReservation[] };
+      if (json.ok && Array.isArray(json.reservations)) setReservations(json.reservations);
+    } catch { /* network — keep last good values */ }
+  }, [reservationsEnabled]);
+
+  useEffect(() => {
+    if (view !== "tables" || !reservationsEnabled) return;
+    refreshReservations();
+    // Bookings don't move second-to-second, so poll slower than occupancy (30 s).
+    const id = setInterval(refreshReservations, 30_000);
+    return () => clearInterval(id);
+  }, [view, reservationsEnabled, refreshReservations]);
+
   // ── Login flow ───────────────────────────────────────────────────────────────
   function selectStaff(w: Omit<WaiterStaff, "pin">) {
     setLoginTarget(w);
@@ -1114,6 +1195,49 @@ export default function WaiterPage() {
     setCart([]);
     setKitchenNote("");
     setView("menu");
+  }
+
+  // Tile tap router: occupied → bill/add-items sheet (unchanged); free-but-booked
+  // → seat sheet (choose reservation vs walk-in); plain free → straight to menu.
+  function onTileClick(table: DiningTable) {
+    if (occupiedLabels.has(table.label)) { setTableAction(table); return; }
+    const info = reservationInfoFor(table.label);
+    if (info?.next) { setSeatAction({ table, reservation: info.next }); return; }
+    selectTable(table);
+  }
+
+  // Seat a reservation: flip it to checked_in (best-effort — never blocks
+  // ordering), pre-fill covers from the party size, then enter the order flow.
+  // The endpoint is idempotent, so a stale double-tap is harmless.
+  function seatReservation(table: DiningTable, res: WaiterReservation) {
+    setSeatAction(null);
+    setSeating(true);
+    setCovers(res.partySize > 0 ? res.partySize : 2);
+    fetch(`/api/waiter/reservations/${res.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "checked_in" }),
+    })
+      .then(() => refreshReservations())
+      .catch(() => { /* check-in is best-effort; ordering proceeds regardless */ })
+      .finally(() => setSeating(false));
+    selectTable(table);
+  }
+
+  // When a table is settled/cleared, close out any reservation seated there
+  // today. Best-effort + idempotent: a missing or already checked-out booking is
+  // a no-op and never blocks the bill.
+  function checkoutReservationForLabel(label: string) {
+    if (!reservationsEnabled) return;
+    const res = reservations.find((r) => r.tableLabel === label && r.status === "checked_in");
+    if (!res) return;
+    fetch(`/api/waiter/reservations/${res.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "checked_out" }),
+    })
+      .then(() => refreshReservations())
+      .catch(() => {});
   }
 
   // ── Cart ─────────────────────────────────────────────────────────────────────
@@ -1347,6 +1471,9 @@ export default function WaiterPage() {
       alert(json.error ?? "Couldn't settle the bill. Please try again.");
       return;
     }
+    // Table is settled — close out any reservation that was seated here today.
+    // Best-effort; the bill is already the source of truth.
+    checkoutReservationForLabel(activeTable.label);
     // Consolidate items for receipt
     const lineMap = new Map<string, { name: string; qty: number; price: number }>();
     for (const o of billOrders) {
@@ -1378,6 +1505,39 @@ export default function WaiterPage() {
   }
 
   // ── Computed ─────────────────────────────────────────────────────────────────
+  // Per-tile reservation state (null when the system is off or the table has no
+  // active booking today). Pure — recomputed each render; the 5 s / 30 s polls
+  // keep "now" fresh enough for the due / overdue windows.
+  function reservationInfoFor(label: string): TileReservation | null {
+    if (!reservationsEnabled) return null;
+    const forLabel = reservations.filter((r) => r.tableLabel === label);
+    if (forLabel.length === 0) return null;
+
+    const now = new Date();
+    const nowMins = now.getHours() * 60 + now.getMinutes();
+
+    const seated = forLabel.find((r) => r.status === "checked_in") ?? null;
+    // Upcoming = not yet seated; ignore stale bookings hours in the past.
+    const upcoming = forLabel
+      .filter((r) =>
+        (r.status === "pending" || r.status === "confirmed") &&
+        hhmmToMins(r.time) - nowMins > -STALE_MAX,
+      )
+      .sort((a, b) => hhmmToMins(a.time) - hhmmToMins(b.time));
+
+    const next = upcoming[0] ?? null;
+    let minutesUntil: number | null = null;
+    let isDue = false;
+    let isOverdue = false;
+    if (next) {
+      minutesUntil = hhmmToMins(next.time) - nowMins;
+      isOverdue = minutesUntil <= -OVERDUE_GRACE;
+      isDue = !isOverdue && minutesUntil <= DUE_LEAD;
+    }
+    if (!seated && !next) return null;
+    return { seated, next, minutesUntil, isDue, isOverdue, count: upcoming.length + (seated ? 1 : 0) };
+  }
+
   const cartTotal = cart.reduce((s, l) => s + lineMoney(l), 0);
   const cartCount = cart.reduce((s, l) => s + l.quantity, 0);
   const sections = ["All", ...Array.from(new Set(tables.map((t) => t.section)))];
@@ -1606,16 +1766,48 @@ export default function WaiterPage() {
               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
                 {visibleTables.map((table) => {
                   const occupied = occupiedLabels.has(table.label);
+                  const resInfo = reservationInfoFor(table.label);
+                  // A free table that carries a booking reads as "reserved" (sky),
+                  // kept visually distinct from "occupied" (amber). VIP styling is
+                  // preserved when there's no booking to show.
+                  const reservedFree = !occupied && !!resInfo?.next;
+                  const dueFree = reservedFree && (resInfo!.isDue || resInfo!.isOverdue);
+
+                  const tileCls = occupied
+                    ? "bg-amber-950/40 border-amber-500/60 hover:bg-amber-950/60"
+                    : dueFree
+                      ? "bg-sky-950/40 border-sky-500/60 hover:bg-sky-950/60"
+                      : reservedFree
+                        ? "bg-slate-800 border-sky-500/30 hover:border-sky-400/60 hover:bg-slate-700"
+                        : table.isVip
+                          ? "bg-slate-800 border-amber-500/50 hover:border-amber-400 hover:bg-slate-700"
+                          : "bg-slate-800 border-slate-700 hover:border-orange-500/60 hover:bg-slate-700";
+
+                  // Bottom status line — occupancy and/or reservation awareness.
+                  let statusText = "Available";
+                  let statusCls = "invisible";
+                  if (occupied) {
+                    statusText = "Occupied";
+                    statusCls = "text-amber-500";
+                    if (resInfo?.next) {
+                      statusText = `Occ · ${resInfo.next.time}`;
+                      // Turn warning: a booking lands within one sitting.
+                      if (resInfo.minutesUntil != null && resInfo.minutesUntil <= slotDuration) {
+                        statusCls = "text-rose-400";
+                      }
+                    }
+                  } else if (resInfo?.next) {
+                    if (resInfo.isOverdue)      { statusCls = "text-rose-400";    statusText = `Due ${resInfo.next.time}`; }
+                    else if (resInfo.isDue)     { statusCls = "text-sky-300";     statusText = `Soon ${resInfo.next.time}`; }
+                    else                        { statusCls = "text-sky-400/70";  statusText = `Res ${resInfo.next.time}`; }
+                    if (resInfo.count > 1) statusText += ` +${resInfo.count - 1}`;
+                  }
+
                   return (
                     <button
                       key={table.id}
-                      onClick={() => occupied ? setTableAction(table) : selectTable(table)}
-                      className={`relative flex flex-col items-center justify-center rounded-2xl p-4 aspect-square border-2 transition-all active:scale-95 ${occupied
-                        ? "bg-amber-950/40 border-amber-500/60 hover:bg-amber-950/60"
-                        : table.isVip
-                          ? "bg-slate-800 border-amber-500/50 hover:border-amber-400 hover:bg-slate-700"
-                          : "bg-slate-800 border-slate-700 hover:border-orange-500/60 hover:bg-slate-700"
-                        }`}
+                      onClick={() => onTileClick(table)}
+                      className={`relative flex flex-col items-center justify-center rounded-2xl p-4 aspect-square border-2 transition-all active:scale-95 ${tileCls}`}
                     >
                       {table.isVip && (
                         <span className="absolute top-2 left-2" title="VIP table">
@@ -1625,14 +1817,19 @@ export default function WaiterPage() {
                       {occupied && (
                         <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
                       )}
-                      <span className={`text-2xl font-black ${occupied ? "text-amber-300" : "text-white"}`}>
+                      {reservedFree && (
+                        <span className="absolute top-2 right-2" title={`Reserved ${resInfo!.next!.time} · ${resInfo!.next!.partySize} guests`}>
+                          <CalendarClock size={12} className={resInfo!.isOverdue ? "text-rose-400" : "text-sky-400"} />
+                        </span>
+                      )}
+                      <span className={`text-2xl font-black ${occupied ? "text-amber-300" : reservedFree ? "text-sky-100" : "text-white"}`}>
                         {table.label}
                       </span>
-                      <span className={`text-xs mt-1 ${occupied ? "text-amber-400/70" : "text-slate-500"}`}>
+                      <span className={`text-xs mt-1 ${occupied ? "text-amber-400/70" : reservedFree ? "text-sky-300/70" : "text-slate-500"}`}>
                         <Users size={10} className="inline mr-0.5" />{table.seats}
                       </span>
-                      <span className={`text-[10px] font-semibold mt-0.5 ${occupied ? "text-amber-500" : "invisible"}`}>
-                        {occupied ? "Occupied" : "Available"}
+                      <span className={`text-[10px] font-semibold mt-0.5 ${statusCls}`}>
+                        {statusText}
                       </span>
                     </button>
                   );
@@ -1684,6 +1881,74 @@ export default function WaiterPage() {
 
                 <button
                   onClick={() => setTableAction(null)}
+                  className="w-full py-3 text-slate-500 hover:text-slate-300 text-sm font-medium transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {/* ── Reserved-table seat sheet ───────────────────────────────────── */}
+          {seatAction && (
+            <div className="fixed inset-0 z-50 flex items-end justify-center">
+              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSeatAction(null)} />
+              <div className="relative bg-slate-900 rounded-t-3xl w-full max-w-md p-6 shadow-2xl space-y-4">
+                <div className="flex items-center gap-3 mb-1">
+                  <div className="w-10 h-10 bg-sky-500 rounded-xl flex items-center justify-center">
+                    <CalendarClock size={18} className="text-white" />
+                  </div>
+                  <div>
+                    <p className="text-white font-black text-lg">Table {seatAction.table.label}</p>
+                    <p className="text-sky-400 text-xs font-medium">Reserved</p>
+                  </div>
+                </div>
+
+                {/* Booking details */}
+                <div className="bg-slate-800 rounded-2xl px-4 py-3 space-y-1.5">
+                  <div className="flex items-center gap-2 text-white">
+                    <Clock size={14} className="text-sky-400" />
+                    <span className="font-bold">{seatAction.reservation.time}</span>
+                    <span className="text-slate-600">·</span>
+                    <Users size={13} className="text-slate-400" />
+                    <span className="text-slate-300 text-sm">{seatAction.reservation.partySize} guests</span>
+                  </div>
+                  <p className="text-slate-300 text-sm font-medium">{seatAction.reservation.customerName}</p>
+                  {seatAction.reservation.note && (
+                    <p className="text-amber-400 text-xs flex items-center gap-1">
+                      <StickyNote size={11} /> {seatAction.reservation.note}
+                    </p>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => seatReservation(seatAction.table, seatAction.reservation)}
+                  disabled={seating}
+                  className="w-full flex items-center gap-4 bg-slate-800 hover:bg-slate-700 active:scale-[0.98] rounded-2xl px-5 py-4 transition-all disabled:opacity-50"
+                >
+                  <div className="w-10 h-10 bg-sky-600 rounded-xl flex items-center justify-center flex-shrink-0">
+                    <CheckCircle2 size={18} className="text-white" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-white font-bold">Seat this reservation</p>
+                    <p className="text-slate-400 text-xs">Check in &amp; start the order</p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => { const t = seatAction.table; setSeatAction(null); selectTable(t); }}
+                  className="w-full flex items-center gap-4 bg-slate-800 hover:bg-slate-700 active:scale-[0.98] rounded-2xl px-5 py-4 transition-all"
+                >
+                  <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center flex-shrink-0">
+                    <Utensils size={18} className="text-white" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-white font-bold">Seat a walk-in instead</p>
+                    <p className="text-slate-400 text-xs">Use this table without the booking</p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => setSeatAction(null)}
                   className="w-full py-3 text-slate-500 hover:text-slate-300 text-sm font-medium transition"
                 >
                   Cancel

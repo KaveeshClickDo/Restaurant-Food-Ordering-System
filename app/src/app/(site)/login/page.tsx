@@ -45,8 +45,10 @@ function LoginContent() {
   });
 
   useEffect(() => {
-    if (currentUser) router.replace("/account");
-  }, [currentUser, router]);
+    // A signed-in user clicking a reset link from their email must be allowed to
+    // set a new password here — don't bounce them to /account in that case.
+    if (currentUser && searchParams.get("action") !== "reset") router.replace("/account");
+  }, [currentUser, router, searchParams]);
 
   function switchTab(t: Tab) {
     setTab(t); setError(""); setSuccess(""); setShowPwd(false); setIsAuthError(false);

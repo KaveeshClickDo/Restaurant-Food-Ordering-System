@@ -199,7 +199,7 @@ export default function AdminPage() {
 }
 
 function AdminPageContent() {
-  const { isOpen, settings, menuItems, categories, customers, loadAllCustomers } = useApp();
+  const { isOpen, settings, menuItems, categories, customers, loadAllCustomers, refreshDiningTables } = useApp();
   const router       = useRouter();
   const searchParams = useSearchParams();
 
@@ -272,6 +272,21 @@ function AdminPageContent() {
     const id = setInterval(() => { loadAllCustomers(); }, 8_000);
     return () => clearInterval(id);
   }, [adminAuthed, loadAllCustomers]);
+
+  // dining_tables has no realtime subscription, so the table-consuming panels
+  // (Reservations, Table Status, Dine-in) would show a stale list after an
+  // admin adds/removes a table until a full reload — which is exactly the "No
+  // active tables" the Reservations tab showed. Mirror the POS page: refresh on
+  // mount, on every tab switch (immediate), and on a 15 s visible poll.
+  // refreshDiningTables is no-op-if-unchanged, so this never causes spurious renders.
+  useEffect(() => {
+    if (adminAuthed !== true) return;
+    refreshDiningTables();
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") refreshDiningTables();
+    }, 15_000);
+    return () => clearInterval(id);
+  }, [adminAuthed, activeTab, refreshDiningTables]);
 
   useEffect(() => {
     const prev = prevCountRef.current;

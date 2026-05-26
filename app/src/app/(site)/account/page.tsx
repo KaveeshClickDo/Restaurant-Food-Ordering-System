@@ -1001,10 +1001,21 @@ function ChangePasswordCard() {
   const [success, setSuccess] = useState(false);
   const submitInFlight = useRef(false);
 
+  const { currentUser } = useApp();
+  // Inline "send reset email" — for signed-in users who don't remember their
+  // current password. Posts to the standard reset endpoint with their known
+  // email so they never leave /account. (The /login forgot flow bounces
+  // signed-in users straight back here, which is why a link there never worked.)
+  const [resetSent, setResetSent] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetError, setResetError] = useState("");
+  const resetInFlight = useRef(false);
+
   function reset() {
     setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
     setShowCurrent(false); setShowNew(false);
     setError(""); setSuccess(false);
+    setResetSent(false); setResetError("");
   }
 
   function handleToggle() {
@@ -1039,6 +1050,33 @@ function ChangePasswordCard() {
     } finally {
       submitInFlight.current = false;
       setLoading(false);
+    }
+  }
+
+  async function handleSendReset() {
+    if (resetInFlight.current || !currentUser?.email) return;
+    resetInFlight.current = true;
+    setResetError("");
+    setResetLoading(true);
+    try {
+      const res = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: currentUser.email }),
+      });
+      // The endpoint always returns ok:true on success (it never reveals whether
+      // an email is registered), so a non-2xx here means rate-limit or transport.
+      if (res.ok) {
+        setResetSent(true);
+      } else {
+        const json = await res.json().catch(() => null) as { error?: string } | null;
+        setResetError(json?.error ?? "Couldn't send the reset email. Please try again.");
+      }
+    } catch {
+      setResetError("Connection error. Please try again.");
+    } finally {
+      resetInFlight.current = false;
+      setResetLoading(false);
     }
   }
 
@@ -1159,12 +1197,26 @@ function ChangePasswordCard() {
                 </button>
               </div>
 
-              <p className="text-center text-xs text-zinc-400">
-                Forgot your password?{" "}
-                <Link href="/login?action=forgot" className="text-zinc-700 font-semibold hover:underline">
-                  Send Password Reset Email
-                </Link>
-              </p>
+              {resetSent ? (
+                <p className="text-center text-xs text-green-600">
+                  Reset link sent to <span className="font-semibold">{currentUser?.email}</span>. Check your inbox — it expires in 1 hour.
+                </p>
+              ) : (
+                <p className="text-center text-xs text-zinc-400">
+                  Forgot your current password?{" "}
+                  <button
+                    type="button"
+                    onClick={handleSendReset}
+                    disabled={resetLoading}
+                    className="text-zinc-700 font-semibold hover:underline disabled:opacity-50"
+                  >
+                    {resetLoading ? "Sending…" : "Send password reset email"}
+                  </button>
+                </p>
+              )}
+              {resetError && (
+                <p className="text-center text-xs text-red-500">{resetError}</p>
+              )}
             </form>
           )}
         </div>
