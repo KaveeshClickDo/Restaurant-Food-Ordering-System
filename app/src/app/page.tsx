@@ -576,7 +576,7 @@ export default function HomePage() {
       </div>
 
       {/* ── Right cart panel (desktop lg+) ───────────────────────────────── */}
-      <aside className="hidden lg:flex w-[300px] xl:w-[320px] flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
+      <aside className="hidden lg:flex w-[310px] xl:w-[350px] flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
         <Cart onOrderPlaced={() => router.push('/my-orders')} />
       </aside>
 
