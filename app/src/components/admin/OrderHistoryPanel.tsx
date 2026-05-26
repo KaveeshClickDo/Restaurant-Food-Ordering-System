@@ -179,13 +179,13 @@ export default function OrderHistoryPanel() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <div className="w-9 h-9 rounded-xl bg-orange-50 text-orange-500 flex items-center justify-center">
             <ClipboardList size={18} />
           </div>
-          <div>
+          <div className="flex flex-col leading-snug">
             <h2 className="font-bold text-gray-900 text-lg leading-tight">Order History</h2>
-            <span className="text-[11px] font-semibold text-gray-400">All sources · read-only</span>
+            <span className="text-[11px] font-semibold text-gray-400 mt-0.5">All sources · read-only</span>
           </div>
         </div>
         <button
@@ -205,7 +205,7 @@ export default function OrderHistoryPanel() {
             <button
               key={t.id}
               onClick={() => { setTab(t.id); setSearch(""); }}
-              className={`flex items-center gap-2 pl-2.5 pr-3 py-2 rounded-xl text-sm font-semibold border transition ${
+              className={`flex items-center gap-2 pl-2.5 pr-2.5 sm:pr-3 py-2 rounded-xl text-sm font-semibold border transition ${
                 isActive
                   ? "bg-white border-orange-300 text-gray-900 shadow-sm ring-1 ring-orange-200"
                   : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
@@ -225,7 +225,7 @@ export default function OrderHistoryPanel() {
 
       {/* Date range filter */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3 flex flex-wrap items-center gap-3">
-        <div className="flex bg-gray-100 rounded-xl p-1 gap-1">
+        <div className="flex flex-wrap bg-gray-100 rounded-xl p-1 gap-1">
           {PRESETS.map((p) => (
             <button
               key={p.id}
@@ -239,12 +239,12 @@ export default function OrderHistoryPanel() {
           ))}
         </div>
         {preset === "custom" && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
-              className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-300" />
+              className="px-1 sm:px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-300" />
             <span className="text-gray-400 text-xs">→</span>
             <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
-              className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-300" />
+              className="px-1 sm:px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-300" />
           </div>
         )}
         {/* Search */}

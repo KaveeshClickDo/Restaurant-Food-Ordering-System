@@ -166,13 +166,13 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <div className="w-9 h-9 rounded-xl bg-orange-50 text-orange-500 flex items-center justify-center">
             <HeadIcon size={18} />
           </div>
-          <div>
+          <div className="flex flex-col leading-snug">
             <h2 className="font-bold text-gray-900 text-lg leading-tight">{heading}</h2>
-            <span className="text-[11px] font-semibold text-gray-400">Live · read-only</span>
+            <span className="text-[11px] font-semibold text-gray-400 mt-0.5">Live · read-only</span>
           </div>
         </div>
         <button
