@@ -267,7 +267,7 @@ export default function CustomersPanel() {
                     <td className="px-4 py-3.5">
                       <button
                         onClick={() => setSelectedCustomer(c)}
-                        className="flex items-center gap-1 text-xs text-orange-500 hover:text-orange-700 font-medium transition sm:opacity-0 sm:group-hover:opacity-100"
+                        className="flex items-center gap-1 text-xs text-orange-400 group-hover:text-orange-800 font-medium transition"
                       >
                         View <ChevronRight size={13} />
                       </button>

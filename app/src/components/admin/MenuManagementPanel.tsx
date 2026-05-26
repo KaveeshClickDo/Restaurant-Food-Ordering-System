@@ -278,7 +278,7 @@ export default function MenuManagementPanel() {
               }`}
             >
               {/* Reorder arrows */}
-              <div className="flex flex-col pl-1 md:opacity-0 md:group-hover:opacity-100 transition">
+              <div className="flex flex-col pl-1 transition">
                 <button onClick={() => moveCat(idx, -1)} className="text-gray-300 hover:text-gray-500 leading-none">
                   <ArrowUp size={10} />
                 </button>
@@ -299,7 +299,7 @@ export default function MenuManagementPanel() {
               </button>
 
               {/* Edit/delete */}
-              <div className="flex md:opacity-0 md:group-hover:opacity-100 transition pr-1 gap-0.5">
+              <div className="flex transition pr-1 gap-0.5">
                 <button
                   onClick={(e) => { e.stopPropagation(); setEditingCat({ ...cat }); }}
                   className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition"
@@ -494,7 +494,7 @@ export default function MenuManagementPanel() {
                       {sym}{item.price.toFixed(2)}
                     </span>
 
-                    <div className="flex items-center gap-1 flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 transition">
+                    <div className="flex items-center gap-1 flex-shrink-0 transition">
                       <button
                         onClick={() => setEditingItem({ ...item, variations: item.variations ?? [], addOns: item.addOns ?? [] })}
                         className="w-6 h-6 md:w-8 md:h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition"
