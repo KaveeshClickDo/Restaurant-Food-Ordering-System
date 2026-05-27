@@ -22,6 +22,7 @@ import { parseBody }                 from "@/lib/apiValidation";
 import { ReservationIntentSchema }   from "@/lib/schemas/reservation";
 import { getStripe, toStripeAmount } from "@/lib/stripeServer";
 import { paypalFetch, paypalIsConfigured, toPaypalAmount } from "@/lib/paypalServer";
+import { getOrderOccupiedTableIds }  from "@/lib/tableOccupancy";
 import type { ReservationSystem }    from "@/types";
 
 function toMins(time: string): number {
@@ -90,10 +91,22 @@ export async function POST(req: NextRequest) {
     .eq("table_id", tableId)
     .in("status", ["pending", "confirmed", "checked_in"]);
   const requestedMins = toMins(time);
-  const hasConflict = (conflicts ?? []).some((r) =>
-    r.status === "checked_in" || Math.abs(toMins(r.time as string) - requestedMins) < slotDuration,
+  // Every status (incl. checked_in) blocks only its own sitting window.
+  const reservationConflict = (conflicts ?? []).some((r) =>
+    Math.abs(toMins(r.time as string) - requestedMins) < slotDuration,
   );
-  if (hasConflict) {
+  // Also block if an active dine-in order physically occupies this table for an
+  // overlapping sitting (seated walk-in, no reservation row). Best-effort.
+  let orderConflict = false;
+  if (!reservationConflict) {
+    const occ = await getOrderOccupiedTableIds({
+      date, requestedMins, slotDurationMinutes: slotDuration,
+      slotIntervalMinutes: rs.slotIntervalMinutes, openTime: rs.openTime,
+      tablesByLabel: new Map([[tableRow.label as string, tableRow.id as string]]),
+    });
+    orderConflict = occ.ids.has(tableRow.id as string);
+  }
+  if (reservationConflict || orderConflict) {
     return NextResponse.json(
       { ok: false, error: "This table is no longer available at the selected time. Please choose another slot." },
       { status: 409 },

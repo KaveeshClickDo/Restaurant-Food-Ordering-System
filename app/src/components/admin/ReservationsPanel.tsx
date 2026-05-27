@@ -531,20 +531,27 @@ export default function ReservationsPanel() {
   const [addSaving,     setAddSaving]     = useState(false);
   const [addError,      setAddError]      = useState("");
   const [addBookedIds,  setAddBookedIds]  = useState<Set<string>>(new Set());
+  // Walk-in only: tableId → next booking time. These tables are still pickable
+  // (a walk-in can be seated) but show a "booked HH:MM" warning so staff decide.
+  const [addUpcoming,   setAddUpcoming]   = useState<Record<string, string>>({});
   const [addLoadingTbl, setAddLoadingTbl] = useState(false);
 
   // Fetch which tables are already booked at the chosen date/time. Reuses the
   // public availability endpoint (no auth required) — same data the customer
   // and POS flows use, so admin sees the same conflicts.
-  const fetchAddTables = useCallback(async (date: string, time: string, party: number) => {
+  const fetchAddTables = useCallback(async (date: string, time: string, party: number, allowPast = false) => {
     if (!date || !time || !party) return;
     setAddLoadingTbl(true);
     try {
-      const res  = await fetch(`/api/reservations/availability?date=${date}&time=${time}&partySize=${party}`);
-      const json = await res.json() as { ok: boolean; bookedTableIds?: string[] };
+      // allowPast=1 for walk-ins: the slot is the current (slightly past) one,
+      // and occupancy is judged by who's physically at the table right now.
+      const res  = await fetch(`/api/reservations/availability?date=${date}&time=${time}&partySize=${party}${allowPast ? "&allowPast=1" : ""}`);
+      const json = await res.json() as { ok: boolean; bookedTableIds?: string[]; upcomingByTable?: Record<string, string> };
       setAddBookedIds(new Set(json.ok ? (json.bookedTableIds ?? []) : []));
+      setAddUpcoming(json.ok ? (json.upcomingByTable ?? {}) : {});
     } catch {
       setAddBookedIds(new Set());
+      setAddUpcoming({});
     } finally { setAddLoadingTbl(false); }
   }, []);
 
@@ -555,8 +562,9 @@ export default function ReservationsPanel() {
     if (!showAddModal) return;
     setAddTableId("");
     setAddBookedIds(new Set());
+    setAddUpcoming({});
     if (addTime && (addSource === "walk-in" || !isSlotPast(addTime, addDate))) {
-      fetchAddTables(addDate, addTime, addParty);
+      fetchAddTables(addDate, addTime, addParty, addSource === "walk-in");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addDate, addTime, addParty, showAddModal, addSource]);
@@ -570,10 +578,14 @@ export default function ReservationsPanel() {
       if (document.visibilityState !== "visible") return;
       if (!addDate || !addTime) return;
       if (addSource !== "walk-in" && isSlotPast(addTime, addDate)) return;
-      fetch(`/api/reservations/availability?date=${addDate}&time=${addTime}&partySize=${addParty}`)
+      const allowPast = addSource === "walk-in" ? "&allowPast=1" : "";
+      fetch(`/api/reservations/availability?date=${addDate}&time=${addTime}&partySize=${addParty}${allowPast}`)
         .then((r) => r.json())
-        .then((json: { ok: boolean; bookedTableIds?: string[] }) => {
-          if (json.ok) setAddBookedIds(new Set(json.bookedTableIds ?? []));
+        .then((json: { ok: boolean; bookedTableIds?: string[]; upcomingByTable?: Record<string, string> }) => {
+          if (json.ok) {
+            setAddBookedIds(new Set(json.bookedTableIds ?? []));
+            setAddUpcoming(json.upcomingByTable ?? {});
+          }
         })
         .catch(() => {});
     }, 5_000);
@@ -730,6 +742,16 @@ export default function ReservationsPanel() {
 
     const table = settings.diningTables?.find((t) => t.id === addTableId);
     if (!table) { setAddError("Selected table no longer exists. Refresh and try again."); return; }
+
+    // Soft-warn: seating a walk-in on a table that's booked again soon. Allowed,
+    // but confirm so staff are aware the next party is coming.
+    if (addSource === "walk-in" && addUpcoming[addTableId]) {
+      const ok = window.confirm(
+        `Table ${table.label} is booked again at ${fmt12(addUpcoming[addTableId])}. ` +
+        `Seat this walk-in anyway?`
+      );
+      if (!ok) return;
+    }
 
     // Soft-warn: party exceeds table capacity. Admin can pull chairs / merge
     // tables, so we allow override after explicit confirmation (mirrors POS).
@@ -947,7 +969,9 @@ export default function ReservationsPanel() {
         for (const t of activeTables) {
           (tablesBySection[t.section || "Other"] = tablesBySection[t.section || "Other"] ?? []).push(t);
         }
-        const slotPast = isSlotPast(addTime, addDate);
+        // Walk-ins are seated at the current (slightly past) slot, so the
+        // past-slot guard doesn't apply to them — only to future phone bookings.
+        const slotPast = addSource !== "walk-in" && isSlotPast(addTime, addDate);
         const isBlackout = (rs.blackoutDates ?? []).includes(addDate);
         const maxParty = rs.maxPartySize ?? 10;
         const partyTooLarge = addParty > maxParty;
@@ -1077,22 +1101,22 @@ export default function ReservationsPanel() {
                           <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
                             {tbls.map((t) => {
                               const sel = addTableId === t.id;
-                              const isBooked = addBookedIds.has(t.id);
+                              const isBooked = addBookedIds.has(t.id);   // physically occupied → hard block
+                              const upcomingTime = addUpcoming[t.id];     // booked again soon → warn, still pickable
+                              const isBookedSoon = !isBooked && !!upcomingTime;
                               const isUndersized = t.seats < addParty;
                               const isVipT = !!t.isVip && (t.vipPrice ?? 0) > 0;
                               const baseCls = "relative py-2 rounded-lg text-xs font-semibold border transition flex flex-col items-center leading-tight";
                               const cls = isBooked
                                 ? `${baseCls} bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed line-through`
                                 : sel
-                                  ? isUndersized
+                                  ? (isUndersized || isBookedSoon)
                                     ? `${baseCls} bg-amber-500 text-white border-amber-500`
-                                    : isVipT
-                                      ? `${baseCls} bg-amber-500 text-white border-amber-400 shadow-sm shadow-amber-200`
-                                      : `${baseCls} bg-orange-500 text-white border-orange-500`
-                                  : isUndersized
-                                    ? `${baseCls} bg-amber-50 text-amber-700 border-amber-200 hover:border-amber-400`
-                                    : isVipT
-                                      ? `${baseCls} bg-amber-50 text-amber-800 border-amber-300 hover:border-amber-500`
+                                    : `${baseCls} bg-orange-500 text-white border-orange-500`
+                                  : isBookedSoon
+                                    ? `${baseCls} bg-amber-50 text-amber-800 border-amber-300 hover:border-amber-500`
+                                    : isUndersized
+                                      ? `${baseCls} bg-amber-50 text-amber-700 border-amber-200 hover:border-amber-400`
                                       : `${baseCls} bg-white text-gray-700 border-gray-200 hover:border-orange-300 hover:text-orange-600`;
                               return (
                                 <button
@@ -1100,7 +1124,8 @@ export default function ReservationsPanel() {
                                   type="button"
                                   disabled={isBooked}
                                   title={
-                                    isBooked ? "Already reserved at this time" :
+                                    isBooked ? (addSource === "walk-in" ? "Occupied right now" : "Already reserved at this time") :
+                                      (isBookedSoon ? `Booked again at ${fmt12(upcomingTime)} — seat a walk-in only if it'll be free in time. ` : "") +
                                       (isVipT ? `VIP table — ${currencySymbol}${(t.vipPrice ?? 0).toFixed(2)} booking fee. ` : "") +
                                       (isUndersized ? `Seats ${t.seats} — party of ${addParty} (will need extra chairs)` : `Seats ${t.seats}`)
                                   }
@@ -1113,9 +1138,9 @@ export default function ReservationsPanel() {
                                   <span>{t.label}</span>
                                   <span className="text-[9px] font-normal opacity-75">
                                     {isBooked
-                                      ? "reserved"
-                                      : isVipT
-                                        ? `${currencySymbol}${(t.vipPrice ?? 0).toFixed(0)} · seats ${t.seats}`
+                                      ? (addSource === "walk-in" ? "occupied" : "reserved")
+                                      : isBookedSoon
+                                        ? `booked ${fmt12(upcomingTime)}`
                                         : `seats ${t.seats}`}
                                   </span>
                                 </button>
@@ -1133,10 +1158,10 @@ export default function ReservationsPanel() {
                           <Crown size={10} className="text-amber-500" /> VIP (fee)
                         </span>
                         <span className="flex items-center gap-1">
-                          <span className="w-2.5 h-2.5 rounded-sm bg-amber-50 border border-amber-300" /> too small (warn)
+                          <span className="w-2.5 h-2.5 rounded-sm bg-amber-50 border border-amber-300" /> too small / booked soon (warn)
                         </span>
                         <span className="flex items-center gap-1">
-                          <span className="w-2.5 h-2.5 rounded-sm bg-gray-100 border border-gray-300" /> reserved (blocked)
+                          <span className="w-2.5 h-2.5 rounded-sm bg-gray-100 border border-gray-300" /> occupied now (blocked)
                         </span>
                       </div>
                     </div>

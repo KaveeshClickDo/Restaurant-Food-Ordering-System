@@ -22,6 +22,10 @@ export default function TableStatusView() {
   const tables = (appSettings.diningTables ?? []).filter((t) => t.active);
 
   const [reservations,   setReservations]   = useState<ResRow[]>([]);
+  // Table ids occupied by an active dine-in order (a seated walk-in with no
+  // reservation row). Merged into resolveState so this view agrees with the
+  // waiter grid on what "occupied" means.
+  const [orderOccupiedIds, setOrderOccupiedIds] = useState<Set<string>>(new Set());
   // initialLoading drives the user-visible spinner — it flips to false after
   // the first fetch resolves. Background 5 s polls do NOT toggle it, so the
   // page never thrashes back to a spinner mid-shift.
@@ -41,18 +45,30 @@ export default function TableStatusView() {
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       })();
 
-      const r = await fetch(`/api/pos/reservations?date=${encodeURIComponent(today)}`, { cache: "no-store" });
-      if (!r.ok) {
-        if (r.status !== 401) console.error("TableStatusView fetch:", r.status);
-        return;
-      }
-      const json = await r.json() as { ok: boolean; reservations?: ResRow[] };
-      if (!json.ok || !json.reservations) return;
+      // Reservations + live order-occupancy, in parallel. Each is handled
+      // independently so one failing doesn't blank the other.
+      const [r, occR] = await Promise.all([
+        fetch(`/api/pos/reservations?date=${encodeURIComponent(today)}`, { cache: "no-store" }),
+        fetch(`/api/pos/tables/occupancy`, { cache: "no-store" }),
+      ]);
 
-      const active = json.reservations.filter((row) =>
-        ["pending", "confirmed", "checked_in", "checked_out"].includes(String(row.status)),
-      );
-      setReservations(active);
+      if (r.ok) {
+        const json = await r.json() as { ok: boolean; reservations?: ResRow[] };
+        if (json.ok && json.reservations) {
+          setReservations(json.reservations.filter((row) =>
+            ["pending", "confirmed", "checked_in", "checked_out"].includes(String(row.status)),
+          ));
+        }
+      } else if (r.status !== 401) {
+        console.error("TableStatusView fetch:", r.status);
+      }
+
+      if (occR.ok) {
+        const occ = await occR.json() as { ok: boolean; occupiedTableIds?: string[] };
+        if (occ.ok && Array.isArray(occ.occupiedTableIds)) {
+          setOrderOccupiedIds(new Set(occ.occupiedTableIds));
+        }
+      }
     } catch (err) {
       console.error("TableStatusView fetch:", err);
     } finally {
@@ -109,6 +125,10 @@ export default function TableStatusView() {
   function resolveState(tableId: string): { state: TableState; res?: ResRow } {
     const occupied = reservations.find((r) => r.table_id === tableId && r.status === "checked_in");
     if (occupied) return { state: "occupied", res: occupied };
+    // A seated walk-in (active dine-in order, no reservation row) also counts as
+    // occupied — no `res`, so the card shows occupied without a check-out button
+    // (it frees when the waiter settles the bill).
+    if (orderOccupiedIds.has(tableId)) return { state: "occupied" };
     const reserved = reservations.find((r) => r.table_id === tableId && (r.status === "pending" || r.status === "confirmed"));
     if (reserved) return { state: "reserved", res: reserved };
     const done = reservations.find((r) => r.table_id === tableId && r.status === "checked_out");
@@ -258,6 +278,12 @@ export default function TableStatusView() {
                     >
                       <LogOut size={13} /> Check Out
                     </button>
+                  ) : state === "occupied" ? (
+                    // Seated walk-in (active order, no reservation) — frees when
+                    // the waiter settles the bill, so no check-out here.
+                    <div className="flex items-center justify-center gap-1 text-blue-400 text-xs py-2">
+                      <UtensilsCrossed size={13} /> In service
+                    </div>
                   ) : state === "free" ? (
                     <div className="flex items-center justify-center gap-1 text-slate-500 text-xs py-2">
                       <CheckCircle2 size={13} /> Available

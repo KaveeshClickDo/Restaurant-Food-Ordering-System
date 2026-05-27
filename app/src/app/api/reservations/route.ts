@@ -11,6 +11,7 @@ import { sendReservationEmailServer }          from "@/lib/emailServer";
 import { rateLimit }                  from "@/lib/rateLimit";
 import { parseBody }                  from "@/lib/apiValidation";
 import { ReservationPublicSchema }    from "@/lib/schemas/reservation";
+import { getOrderOccupiedTableIds }   from "@/lib/tableOccupancy";
 
 function toMins(time: string): number {
   const [h, m] = time.split(":").map(Number);
@@ -90,12 +91,24 @@ export async function POST(req: NextRequest) {
   }
 
   const requestedMins = toMins(time);
-  const hasConflict = (conflicts ?? []).some((r) =>
-    r.status === "checked_in" ||
+  // Every status (incl. checked_in) blocks only its own sitting window.
+  const reservationConflict = (conflicts ?? []).some((r) =>
     Math.abs(toMins(r.time as string) - requestedMins) < slotDuration
   );
 
-  if (hasConflict) {
+  // Also block if an active dine-in order (a seated walk-in with no reservation
+  // row) physically occupies this table for an overlapping sitting. Best-effort.
+  let orderConflict = false;
+  if (!reservationConflict) {
+    const occ = await getOrderOccupiedTableIds({
+      date, requestedMins, slotDurationMinutes: slotDuration,
+      slotIntervalMinutes: rs.slotIntervalMinutes, openTime: rs.openTime,
+      tablesByLabel: new Map([[table.label, table.id]]),
+    });
+    orderConflict = occ.ids.has(table.id);
+  }
+
+  if (reservationConflict || orderConflict) {
     return NextResponse.json(
       { ok: false, error: "This table is no longer available at the selected time. Please choose another slot." },
       { status: 409 },

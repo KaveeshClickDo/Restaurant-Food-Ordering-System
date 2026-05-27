@@ -103,6 +103,9 @@ export default function ReservationsView() {
   const [addTableId,     setAddTableId]     = useState("");
   const [addTableMeta,   setAddTableMeta]   = useState<AvailTablePos | null>(null);
   const [addAvailTables, setAddAvailTables] = useState<AvailTablePos[]>([]);
+  // Walk-in only: tableId → next booking time. These tables are available to
+  // seat but show a "booked HH:MM" warning so staff decide.
+  const [addUpcoming,    setAddUpcoming]    = useState<Record<string, string>>({});
   const [addLoadingTbl,  setAddLoadingTbl]  = useState(false);
   const [addName,        setAddName]        = useState("");
   const [addEmail,       setAddEmail]       = useState("");
@@ -115,15 +118,19 @@ export default function ReservationsView() {
   // Fetch available tables for the add modal. Both walk-in and phone bookings
   // use the same availability check so staff can't accidentally double-book a
   // table that's reserved for the same slot.
-  const fetchAddTables = useCallback(async (date: string, time: string, party: number) => {
+  const fetchAddTables = useCallback(async (date: string, time: string, party: number, allowPast = false) => {
     if (!date || !time || !party) return;
     setAddLoadingTbl(true);
     try {
-      const res  = await fetch(`/api/reservations/availability?date=${date}&time=${time}&partySize=${party}`);
-      const json = await res.json() as { ok: boolean; availableTables?: AvailTablePos[] };
+      // allowPast=1 for walk-ins: the slot is the current (slightly past) one,
+      // and occupancy is judged by who's physically at the table right now.
+      const res  = await fetch(`/api/reservations/availability?date=${date}&time=${time}&partySize=${party}${allowPast ? "&allowPast=1" : ""}`);
+      const json = await res.json() as { ok: boolean; availableTables?: AvailTablePos[]; upcomingByTable?: Record<string, string> };
       setAddAvailTables(json.ok ? (json.availableTables ?? []) : []);
+      setAddUpcoming(json.ok ? (json.upcomingByTable ?? {}) : {});
     } catch {
       setAddAvailTables([]);
+      setAddUpcoming({});
     } finally { setAddLoadingTbl(false); }
   }, []);
 
@@ -132,9 +139,9 @@ export default function ReservationsView() {
   // for them — they're being seated now.
   useEffect(() => {
     if (!showAdd) return;
-    setAddTableId(""); setAddTableMeta(null);
+    setAddTableId(""); setAddTableMeta(null); setAddUpcoming({});
     if (addTime && (addSource === "walk-in" || !isSlotPastRes(addTime, addDate))) {
-      fetchAddTables(addDate, addTime, addParty);
+      fetchAddTables(addDate, addTime, addParty, addSource === "walk-in");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addDate, addTime, addParty, showAdd, addSource]);
@@ -148,10 +155,14 @@ export default function ReservationsView() {
       if (document.visibilityState !== "visible") return;
       if (!addDate || !addTime) return;
       if (addSource !== "walk-in" && isSlotPastRes(addTime, addDate)) return;
-      fetch(`/api/reservations/availability?date=${addDate}&time=${addTime}&partySize=${addParty}`)
+      const allowPast = addSource === "walk-in" ? "&allowPast=1" : "";
+      fetch(`/api/reservations/availability?date=${addDate}&time=${addTime}&partySize=${addParty}${allowPast}`)
         .then((r) => r.json())
-        .then((json: { ok: boolean; availableTables?: AvailTablePos[] }) => {
-          if (json.ok) setAddAvailTables(json.availableTables ?? []);
+        .then((json: { ok: boolean; availableTables?: AvailTablePos[]; upcomingByTable?: Record<string, string> }) => {
+          if (json.ok) {
+            setAddAvailTables(json.availableTables ?? []);
+            setAddUpcoming(json.upcomingByTable ?? {});
+          }
         })
         .catch(() => {});
     }, 5_000);
@@ -181,7 +192,7 @@ export default function ReservationsView() {
   function openAddModal() {
     const today = localTodayStrRes();
     setAddSource("walk-in"); setAddDate(today); setAddTime(currentSlotRes(allSlots));
-    setAddParty(2); setAddTableId(""); setAddTableMeta(null); setAddAvailTables([]);
+    setAddParty(2); setAddTableId(""); setAddTableMeta(null); setAddAvailTables([]); setAddUpcoming({});
     setAddName(""); setAddEmail(""); setAddPhone(""); setAddNote("");
     setAddError(""); setAddSaving(false); setShowAdd(true);
   }
@@ -193,6 +204,15 @@ export default function ReservationsView() {
     if (addSource === "phone" && !addPhone.trim()) {
       setAddError("Phone number is required for phone bookings.");
       return;
+    }
+    // Soft-warn: seating a walk-in on a table that's booked again soon. Allowed,
+    // but confirm so staff know the next party is coming.
+    if (addSource === "walk-in" && addUpcoming[addTableMeta.id]) {
+      const ok = window.confirm(
+        `Table ${addTableMeta.label} is booked again at ${fmt12Pos(addUpcoming[addTableMeta.id])}. ` +
+        `Seat this walk-in anyway?`
+      );
+      if (!ok) return;
     }
     // Soft-warn: party exceeds table capacity. Staff often pulls extra chairs
     // or merges tables, so we allow override after explicit confirmation.
@@ -678,24 +698,23 @@ export default function ReservationsView() {
                   <div className="grid grid-cols-4 gap-1.5">
                     {addAvailTables.map((t) => {
                       const sel          = addTableId === t.id;
+                      const upcomingTime = addUpcoming[t.id];          // booked again soon → warn, still pickable
+                      const isBookedSoon = !!upcomingTime;
                       const isUndersized = t.seats < addParty;
                       const baseCls      = "relative py-2 rounded-lg text-[11px] font-semibold border transition-all flex flex-col items-center leading-tight";
                       const cls = sel
-                        ? isUndersized
+                        ? (isUndersized || isBookedSoon)
                           ? `${baseCls} bg-amber-500 text-white border-amber-400`
-                          : t.isVip
-                            ? `${baseCls} bg-amber-500 text-white border-amber-400`
-                            : `${baseCls} bg-orange-500 text-white border-orange-500`
-                        : isUndersized
+                          : `${baseCls} bg-orange-500 text-white border-orange-500`
+                        : (isBookedSoon || isUndersized)
                           ? `${baseCls} bg-amber-900/30 text-amber-300 border-amber-700/50 hover:border-amber-500`
-                          : t.isVip
-                            ? `${baseCls} bg-slate-800 text-amber-200 border-amber-600/50 hover:border-amber-400`
-                            : `${baseCls} bg-slate-800 text-slate-300 border-slate-700 hover:border-orange-500 hover:text-orange-300`;
+                          : `${baseCls} bg-slate-800 text-slate-300 border-slate-700 hover:border-orange-500 hover:text-orange-300`;
                       return (
                         <button
                           key={t.id}
                           type="button"
                           title={
+                            (isBookedSoon ? `Booked again at ${fmt12Pos(upcomingTime)} — seat a walk-in only if it'll be free in time. ` : "") +
                             (t.isVip ? `VIP table — ${currencySymbol}${(t.vipPrice ?? 0).toFixed(2)} booking fee. ` : "") +
                             (isUndersized ? `Seats ${t.seats} — party of ${addParty} (will need extra chairs)` : `Seats ${t.seats}`)
                           }
@@ -705,7 +724,7 @@ export default function ReservationsView() {
                           {t.isVip && <Crown size={10} className="absolute top-1 right-1 text-amber-400" />}
                           <span>{t.label}</span>
                           <span className="text-[9px] font-normal opacity-75">
-                            {t.isVip ? `${currencySymbol}${(t.vipPrice ?? 0).toFixed(0)} · seats ${t.seats}` : `seats ${t.seats}`}
+                            {isBookedSoon ? `booked ${fmt12Pos(upcomingTime)}` : `seats ${t.seats}`}
                           </span>
                         </button>
                       );
@@ -768,7 +787,7 @@ export default function ReservationsView() {
               <button onClick={() => setShowAdd(false)} className="text-slate-400 hover:text-slate-200 text-sm font-semibold transition">Cancel</button>
               <button
                 onClick={handleAddBooking}
-                disabled={addSaving || !addName.trim() || !addTableMeta || isSlotPastRes(addTime, addDate) || (addSource === "phone" && !addPhone.trim())}
+                disabled={addSaving || !addName.trim() || !addTableMeta || (addSource !== "walk-in" && isSlotPastRes(addTime, addDate)) || (addSource === "phone" && !addPhone.trim())}
                 className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-400 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-all"
               >
                 {addSaving ? <><Loader2 size={14} className="animate-spin" />Saving…</> :

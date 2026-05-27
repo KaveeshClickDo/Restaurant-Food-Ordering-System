@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import type { DiningTable, ReservationSystem } from "@/types";
+import { getOrderOccupiedTableIds, getActiveDineInTableIds } from "@/lib/tableOccupancy";
 
 function toMins(time: string): number {
   const [h, m] = time.split(":").map(Number);
@@ -35,15 +36,20 @@ export async function GET(req: NextRequest) {
   const date      = searchParams.get("date")      ?? "";
   const time      = searchParams.get("time")      ?? "";
   const partySize = parseInt(searchParams.get("partySize") ?? "0", 10);
+  // Walk-ins are seated at the *current in-progress slot*, which is a few minutes
+  // in the past by design. allowPast=1 tells us this is a "seat now" query so we
+  // (a) skip the past-slot guard and (b) judge occupancy by who's physically at
+  // the table right now, rather than by the booking time window.
+  const allowPast = searchParams.get("allowPast") === "1";
 
   if (!date || !time || !partySize) {
     return NextResponse.json({ ok: false, error: "date, time, and partySize are required." }, { status: 400 });
   }
 
   // Reject slots in the past. Constructing without "Z" so JS treats it as local server time.
-  // Allow a 5-minute buffer for slow form submissions.
+  // Allow a 5-minute buffer for slow form submissions. Skipped for seat-now (walk-in) queries.
   const slotMs = new Date(`${date}T${time}`).getTime();
-  if (slotMs < Date.now() - 5 * 60 * 1000) {
+  if (!allowPast && slotMs < Date.now() - 5 * 60 * 1000) {
     return NextResponse.json(
       { ok: false, error: "This time slot has already passed. Please select a future time." },
       { status: 400 },
@@ -107,19 +113,48 @@ export async function GET(req: NextRequest) {
 
   const requestedMins = toMins(time);
 
-  // Build set of table IDs that are unavailable:
-  // - checked_in tables are physically occupied — blocked regardless of time window
-  // - pending/confirmed reservations within the slot duration window are blocked
+  // bookedTableIds = physically unavailable (hard block).
+  // upcomingByTable = tableId → earliest upcoming booking time today within the
+  //   window. Seat-now only: a soft "booked at X" heads-up the staff can override.
   const bookedTableIds = new Set<string>();
+  const upcomingByTable: Record<string, string> = {};
   for (const r of existing ?? []) {
-    if (r.status === "checked_in") {
-      bookedTableIds.add(r.table_id as string);
-    } else {
-      const existingMins = toMins(r.time as string);
-      if (Math.abs(existingMins - requestedMins) < slotDuration) {
-        bookedTableIds.add(r.table_id as string);
+    const rTime = r.time as string;
+    if (allowPast) {
+      // Seat-now (walk-in): only a guest physically present blocks the table.
+      // A checked-out / cancelled booking isn't in this list, so it frees up.
+      if (r.status === "checked_in") { bookedTableIds.add(r.table_id as string); continue; }
+      // An upcoming booking does NOT block a walk-in — record it as a warning so
+      // the staff can decide whether to seat the table anyway.
+      if (Math.abs(toMins(rTime) - requestedMins) < slotDuration) {
+        const id = r.table_id as string;
+        if (!upcomingByTable[id] || rTime < upcomingByTable[id]) upcomingByTable[id] = rTime;
       }
+      continue;
     }
+    // Future booking: every status blocks only its own sitting window, so a
+    // checked-in guest's table can still be booked for a *later* sitting today.
+    if (Math.abs(toMins(rTime) - requestedMins) < slotDuration) {
+      bookedTableIds.add(r.table_id as string);
+    }
+  }
+
+  // Tables physically occupied by an active dine-in order (a seated walk-in with
+  // no reservation row). Best-effort — degrades to "no extra blocks" on error so
+  // a booking is never blocked by an infrastructure hiccup.
+  if (allowPast) {
+    // Seat-now: any active dine-in order means the table is taken right now,
+    // regardless of when the order started (long meals stay blocked).
+    const live = await getActiveDineInTableIds();
+    for (const id of live) bookedTableIds.add(id);
+  } else {
+    // Future slot: block only when the order's sitting window overlaps the slot.
+    const tablesByLabel = new Map<string, string>(tables.map((t) => [t.label, t.id]));
+    const orderOccupancy = await getOrderOccupiedTableIds({
+      date, requestedMins, slotDurationMinutes: slotDuration,
+      slotIntervalMinutes: rs.slotIntervalMinutes, openTime: rs.openTime, tablesByLabel,
+    });
+    for (const id of orderOccupancy.ids) bookedTableIds.add(id);
   }
 
   const availableTables = eligibleTables
@@ -130,5 +165,8 @@ export async function GET(req: NextRequest) {
     ok: true,
     availableTables,
     bookedTableIds: Array.from(bookedTableIds),
+    // Seat-now only: tables that are free to use but booked again soon, so the
+    // picker can warn ("booked 6:00") and let staff decide.
+    upcomingByTable,
   });
 }

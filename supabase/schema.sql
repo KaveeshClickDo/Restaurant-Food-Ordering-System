@@ -202,6 +202,23 @@ alter table orders add column if not exists tip_amount      numeric not null def
 alter table orders add column if not exists discount_amount numeric not null default 0;
 alter table orders add column if not exists discount_note   text;
 
+-- Dine-in table linkage. Historically dine-in orders linked to a table only via
+-- the free-text note ("[WAITER] Table T4 · …"), which is fragile to parse and
+-- impossible to index. These columns make the link structural — set at order
+-- creation, matching reservations.table_id — so live occupancy AND reservation
+-- availability can join orders↔tables reliably. Nullable: only dine-in orders
+-- set them; delivery / collection leave them null.
+alter table orders add column if not exists table_id    text;
+alter table orders add column if not exists table_label text;
+
+-- Fast "which tables are occupied right now" lookups — only active dine-in
+-- orders carry a table_id, so this partial index stays tiny.
+create index if not exists orders_dine_in_table_idx
+  on orders (table_id)
+  where fulfillment = 'dine-in' and table_id is not null;
+-- NOTE: the one-time backfill that populates these columns from old notes lives
+-- AFTER the dining_tables table is created (it joins against it) — see below.
+
 -- Set when the webhook accepted a paid order that failed the stock check
 -- (we couldn't reject — customer's money was already captured). Admin sees
 -- the flag in the orders view for reconciliation, and void/refund flows use
@@ -430,6 +447,20 @@ create table if not exists dining_tables (
   vip_price   numeric(10,2) not null default 0,
   created_at  timestamptz not null default now()
 );
+
+-- One-time backfill for dine-in orders created before orders.table_id existed:
+-- recover the table from the "[WAITER] Table <label>" note by matching
+-- dining_tables.label. Placed here (not next to the orders columns) because it
+-- joins dining_tables, which is only created above. Idempotent — fills nulls
+-- only; rows that don't match stay null and fall back to note-parsing at read.
+update orders o
+   set table_id    = dt.id,
+       table_label = dt.label
+  from dining_tables dt
+ where o.fulfillment = 'dine-in'
+   and o.table_id is null
+   and o.note like '[WAITER] Table %'
+   and dt.label = substring(o.note from '\[WAITER\] Table (\S+)');
 
 -- Atomic receipt-number allocator. nextval() is a serializable database
 -- operation, so two concurrent tills always get distinct numbers — the

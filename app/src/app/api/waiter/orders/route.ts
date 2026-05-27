@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
 
   const parsed = await parseBody(req, WaiterOrderCreateSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { tableLabel, covers, staffName, items, total, kitchenNote } = parsed.data;
+  const { tableLabel, tableId, covers, staffName, items, total, kitchenNote } = parsed.data;
 
   try {
     await ensureWalkInCustomer();
@@ -131,7 +131,7 @@ export async function POST(req: NextRequest) {
     if (kitchenNote) noteParts.push(kitchenNote);
     const note = noteParts.join(" · ");
 
-    const row = {
+    const baseRow = {
       id:             crypto.randomUUID(),
       customer_id:    POS_CUSTOMER_ID,
       date:           new Date().toISOString(),
@@ -142,8 +142,17 @@ export async function POST(req: NextRequest) {
       note,
       payment_method: "table-service",
     };
+    // Structural table link (matches reservations.table_id) so occupancy /
+    // availability can join orders↔tables without parsing the note. The note is
+    // still written above for the kitchen display.
+    const row = { ...baseRow, table_id: tableId ?? null, table_label: tableLabel };
 
-    const { error } = await supabaseAdmin.from("orders").insert(row);
+    let { error } = await supabaseAdmin.from("orders").insert(row);
+    // Pre-migration DB without the new columns — retry without them so the order
+    // still goes through (occupancy falls back to note-parsing for these rows).
+    if (error && (error.message?.includes("table_id") || error.message?.includes("table_label"))) {
+      ({ error } = await supabaseAdmin.from("orders").insert(baseRow));
+    }
     if (error) {
       // Insert failed after successful decrement — give the units back.
       restoreStock(stockItems).catch((err) =>

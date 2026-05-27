@@ -91,6 +91,9 @@ const WaiterItem = z.object({
 
 export const WaiterOrderCreateSchema = z.object({
   tableLabel:  NonEmptyString,
+  // Structural table link, set so occupancy/availability can join orders↔tables
+  // without parsing the note. Optional for back-compat with older clients.
+  tableId:     z.string().optional(),
   covers:      z.number().int().positive().optional(),
   staffName:   z.string().optional(),
   items:       z.array(WaiterItem).min(1, "At least one item required."),

@@ -15,6 +15,7 @@
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendReservationEmailServer } from "@/lib/emailServer";
+import { getOrderOccupiedTableIds, getActiveDineInTableIds } from "@/lib/tableOccupancy";
 import type { AdminSettings, EmailTemplateEvent } from "@/types";
 
 function toMins(time: string): number {
@@ -81,8 +82,9 @@ export async function createReservation(
 
   // ── Conflict re-check (race protection) ──────────────────────────────────
   if (input.checkConflict !== false) {
+    const rs = (settingsData as AdminSettings | undefined)?.reservationSystem;
     const slotDuration = input.slotDurationMinutes
-      ?? (settingsData as AdminSettings | undefined)?.reservationSystem?.slotDurationMinutes
+      ?? rs?.slotDurationMinutes
       ?? 90;
     const { data: conflicts, error: conflictErr } = await supabaseAdmin
       .from("reservations")
@@ -96,11 +98,32 @@ export async function createReservation(
       return { ok: false, error: conflictErr.message, status: 500 };
     }
     const requestedMins = toMins(input.time);
-    const hasConflict = (conflicts ?? []).some((r) =>
-      r.status === "checked_in" ||
-      Math.abs(toMins(r.time as string) - requestedMins) < slotDuration,
-    );
-    if (hasConflict) {
+    // A walk-in is seated now, so it's only blocked by a table that's PHYSICALLY
+    // occupied this moment (another checked-in guest or an active order) — an
+    // upcoming booking is a warning the staff already overrode in the UI, not a
+    // hard block. Every other booking blocks on its sitting window.
+    const isWalkIn = input.source === "walk-in";
+    const reservationConflict = isWalkIn
+      ? (conflicts ?? []).some((r) => r.status === "checked_in")
+      : (conflicts ?? []).some((r) => Math.abs(toMins(r.time as string) - requestedMins) < slotDuration);
+
+    // Also block if an active dine-in order physically occupies this table.
+    // Walk-ins judge that live (any active order); future bookings use the
+    // order's sitting window. Best-effort — degrades to the check above on error.
+    let orderConflict = false;
+    if (!reservationConflict && isWalkIn) {
+      const live = await getActiveDineInTableIds();
+      orderConflict = live.has(input.tableId);
+    } else if (!reservationConflict) {
+      const occ = await getOrderOccupiedTableIds({
+        date: input.date, requestedMins, slotDurationMinutes: slotDuration,
+        slotIntervalMinutes: rs?.slotIntervalMinutes, openTime: rs?.openTime,
+        tablesByLabel: new Map([[input.tableLabel, input.tableId]]),
+      });
+      orderConflict = occ.ids.has(input.tableId);
+    }
+
+    if (reservationConflict || orderConflict) {
       return {
         ok: false, conflict: true, status: 409,
         error: "This table is no longer available at the selected time. Please choose another slot.",

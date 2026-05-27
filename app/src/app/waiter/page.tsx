@@ -102,6 +102,8 @@ interface TileReservation {
   isOverdue: boolean;
   /** How many active bookings this table has today (seated + upcoming). */
   count: number;
+  /** Upcoming (not-yet-seated) bookings — drives the "+N more" badge. */
+  upcomingCount: number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1197,10 +1199,19 @@ export default function WaiterPage() {
     setView("menu");
   }
 
+  // A table is occupied if a waiter order is active on it OR a reservation is
+  // checked in there — both mean a party is physically seated. This keeps the
+  // grid honest when a guest is checked in from POS/admin (or our own Seat
+  // action) before any order is placed, instead of waiting for the first order.
+  function isOccupiedLabel(label: string): boolean {
+    if (occupiedLabels.has(label)) return true;
+    return reservationsEnabled && reservations.some((r) => r.tableLabel === label && r.status === "checked_in");
+  }
+
   // Tile tap router: occupied → bill/add-items sheet (unchanged); free-but-booked
   // → seat sheet (choose reservation vs walk-in); plain free → straight to menu.
   function onTileClick(table: DiningTable) {
-    if (occupiedLabels.has(table.label)) { setTableAction(table); return; }
+    if (isOccupiedLabel(table.label)) { setTableAction(table); return; }
     const info = reservationInfoFor(table.label);
     if (info?.next) { setSeatAction({ table, reservation: info.next }); return; }
     selectTable(table);
@@ -1310,6 +1321,7 @@ export default function WaiterPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           tableLabel: activeTable.label,
+          tableId: activeTable.id,
           covers,
           staffName: waiter?.name,
           items: cart.map((l) => ({ menuItemId: l.menuItemId, name: l.name + (l.note ? ` [${l.note}]` : ""), qty: l.quantity, price: l.unitPrice })),
@@ -1535,7 +1547,11 @@ export default function WaiterPage() {
       isDue = !isOverdue && minutesUntil <= DUE_LEAD;
     }
     if (!seated && !next) return null;
-    return { seated, next, minutesUntil, isDue, isOverdue, count: upcoming.length + (seated ? 1 : 0) };
+    return {
+      seated, next, minutesUntil, isDue, isOverdue,
+      count: upcoming.length + (seated ? 1 : 0),
+      upcomingCount: upcoming.length,
+    };
   }
 
   const cartTotal = cart.reduce((s, l) => s + lineMoney(l), 0);
@@ -1755,6 +1771,33 @@ export default function WaiterPage() {
             </div>
           )}
 
+          {/* Colour key — explains the tile states. Matches the POS / admin
+              Table Status boards (amber = reserved, blue = occupied). */}
+          {tables.length > 0 && (
+            <div className="flex items-center gap-3 px-5 py-2 flex-shrink-0 border-b border-slate-800 overflow-x-auto text-[11px] text-slate-400">
+              <span className="font-bold uppercase tracking-wide text-slate-500">Key</span>
+              <span className="flex items-center gap-1.5 whitespace-nowrap">
+                <span className="w-2.5 h-2.5 rounded-full bg-slate-600" /> Available
+              </span>
+              {reservationsEnabled && (
+                <span className="flex items-center gap-1.5 whitespace-nowrap">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400" /> Reserved
+                </span>
+              )}
+              <span className="flex items-center gap-1.5 whitespace-nowrap">
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-400" /> Occupied
+              </span>
+              {reservationsEnabled && (
+                <span className="flex items-center gap-1.5 whitespace-nowrap">
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-400" /> Due / turn soon
+                </span>
+              )}
+              <span className="flex items-center gap-1.5 whitespace-nowrap">
+                <Crown size={11} className="text-amber-400" /> VIP
+              </span>
+            </div>
+          )}
+
           {/* Table grid */}
           <div className="flex-1 p-5 pb-15 overflow-y-auto h-full">
             {tables.length === 0 ? (
@@ -1765,43 +1808,29 @@ export default function WaiterPage() {
             ) : (
               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
                 {visibleTables.map((table) => {
-                  const occupied = occupiedLabels.has(table.label);
+                  const occupied = isOccupiedLabel(table.label);
                   const resInfo = reservationInfoFor(table.label);
-                  // A free table that carries a booking reads as "reserved" (sky),
-                  // kept visually distinct from "occupied" (amber). VIP styling is
-                  // preserved when there's no booking to show.
+                  // Two distinct signals, kept visually separate and aligned with
+                  // the POS / admin boards: OCCUPIED = blue, RESERVED = amber.
                   const reservedFree = !occupied && !!resInfo?.next;
                   const dueFree = reservedFree && (resInfo!.isDue || resInfo!.isOverdue);
 
                   const tileCls = occupied
-                    ? "bg-amber-950/40 border-amber-500/60 hover:bg-amber-950/60"
+                    ? "bg-blue-950/40 border-blue-500/60 hover:bg-blue-950/60"
                     : dueFree
-                      ? "bg-sky-950/40 border-sky-500/60 hover:bg-sky-950/60"
+                      ? "bg-amber-950/40 border-amber-500/60 hover:bg-amber-950/60"
                       : reservedFree
-                        ? "bg-slate-800 border-sky-500/30 hover:border-sky-400/60 hover:bg-slate-700"
-                        : table.isVip
-                          ? "bg-slate-800 border-amber-500/50 hover:border-amber-400 hover:bg-slate-700"
-                          : "bg-slate-800 border-slate-700 hover:border-orange-500/60 hover:bg-slate-700";
+                        ? "bg-slate-800 border-amber-500/30 hover:border-amber-400/60 hover:bg-slate-700"
+                        : "bg-slate-800 border-slate-700 hover:border-orange-500/60 hover:bg-slate-700";
 
-                  // Bottom status line — occupancy and/or reservation awareness.
-                  let statusText = "Available";
-                  let statusCls = "invisible";
-                  if (occupied) {
-                    statusText = "Occupied";
-                    statusCls = "text-amber-500";
-                    if (resInfo?.next) {
-                      statusText = `Occ · ${resInfo.next.time}`;
-                      // Turn warning: a booking lands within one sitting.
-                      if (resInfo.minutesUntil != null && resInfo.minutesUntil <= slotDuration) {
-                        statusCls = "text-rose-400";
-                      }
-                    }
-                  } else if (resInfo?.next) {
-                    if (resInfo.isOverdue)      { statusCls = "text-rose-400";    statusText = `Due ${resInfo.next.time}`; }
-                    else if (resInfo.isDue)     { statusCls = "text-sky-300";     statusText = `Soon ${resInfo.next.time}`; }
-                    else                        { statusCls = "text-sky-400/70";  statusText = `Res ${resInfo.next.time}`; }
-                    if (resInfo.count > 1) statusText += ` +${resInfo.count - 1}`;
-                  }
+                  // Bottom status line pieces. An occupied table shows a calendar
+                  // icon + "Next <time>" so the bare time reads clearly as the
+                  // upcoming booking (rose if it lands within one sitting); a
+                  // free-but-booked table reads Soon / Res / Due.
+                  const seatedName  = occupied ? resInfo?.seated?.customerName?.split(" ")[0] : undefined;
+                  const nextSoon    = !!resInfo?.next && resInfo.minutesUntil != null && resInfo.minutesUntil <= slotDuration;
+                  const moreLabel   = resInfo && resInfo.upcomingCount > 1 ? ` +${resInfo.upcomingCount - 1}` : "";
+                  const reservedTag = resInfo?.isOverdue ? "Due" : resInfo?.isDue ? "Soon" : "Res";
 
                   return (
                     <button
@@ -1815,22 +1844,37 @@ export default function WaiterPage() {
                         </span>
                       )}
                       {occupied && (
-                        <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+                        <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-blue-400 animate-pulse" />
                       )}
                       {reservedFree && (
                         <span className="absolute top-2 right-2" title={`Reserved ${resInfo!.next!.time} · ${resInfo!.next!.partySize} guests`}>
-                          <CalendarClock size={12} className={resInfo!.isOverdue ? "text-rose-400" : "text-sky-400"} />
+                          <CalendarClock size={12} className={resInfo!.isOverdue ? "text-rose-400" : "text-amber-400"} />
                         </span>
                       )}
-                      <span className={`text-2xl font-black ${occupied ? "text-amber-300" : reservedFree ? "text-sky-100" : "text-white"}`}>
+                      <span className={`text-2xl font-black ${occupied ? "text-blue-100" : reservedFree ? "text-amber-100" : "text-white"}`}>
                         {table.label}
                       </span>
-                      <span className={`text-xs mt-1 ${occupied ? "text-amber-400/70" : reservedFree ? "text-sky-300/70" : "text-slate-500"}`}>
+                      <span className={`text-xs mt-1 ${occupied ? "text-blue-300/70" : reservedFree ? "text-amber-300/70" : "text-slate-500"}`}>
                         <Users size={10} className="inline mr-0.5" />{table.seats}
                       </span>
-                      <span className={`text-[10px] font-semibold mt-0.5 ${statusCls}`}>
-                        {statusText}
-                      </span>
+                      {occupied ? (
+                        resInfo?.next ? (
+                          <span className={`mt-0.5 flex items-center gap-0.5 text-[10px] font-semibold max-w-full px-1 ${nextSoon ? "text-rose-400" : "text-amber-400"}`}>
+                            <CalendarClock size={9} className="flex-shrink-0" />
+                            <span className="truncate">Next {resInfo.next.time}{moreLabel}</span>
+                          </span>
+                        ) : (
+                          <span className="mt-0.5 text-[10px] font-semibold text-blue-400 truncate max-w-full px-1">
+                            {seatedName || "Occupied"}
+                          </span>
+                        )
+                      ) : resInfo?.next ? (
+                        <span className={`mt-0.5 text-[10px] font-semibold truncate max-w-full px-1 ${resInfo.isOverdue ? "text-rose-400" : resInfo.isDue ? "text-amber-300" : "text-amber-400/70"}`}>
+                          {reservedTag} {resInfo.next.time}{moreLabel}
+                        </span>
+                      ) : (
+                        <span className="mt-0.5 text-[10px] font-semibold invisible">Available</span>
+                      )}
                     </button>
                   );
                 })}
@@ -1839,19 +1883,61 @@ export default function WaiterPage() {
           </div>
 
           {/* ── Occupied-table action sheet ─────────────────────────────────── */}
-          {tableAction && (
+          {tableAction && (() => {
+            const seatedRes = reservationsEnabled
+              ? reservations.find((r) => r.tableLabel === tableAction.label && r.status === "checked_in") ?? null
+              : null;
+            // The next not-yet-seated booking for this table today (if any), so
+            // the floor knows the table is booked again later — at any distance.
+            const nextRes = reservationsEnabled ? (reservationInfoFor(tableAction.label)?.next ?? null) : null;
+            return (
             <div className="fixed inset-0 z-50 flex items-end justify-center">
               <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setTableAction(null)} />
               <div className="relative bg-slate-900 rounded-t-3xl w-full max-w-md p-6 shadow-2xl space-y-4">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center">
+                <div className="flex items-center gap-3 mb-1">
+                  <div className="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center">
                     <UtensilsCrossed size={18} className="text-white" />
                   </div>
                   <div>
                     <p className="text-white font-black text-lg">Table {tableAction.label}</p>
-                    <p className="text-amber-400 text-xs font-medium">Currently occupied</p>
+                    <p className="text-blue-400 text-xs font-medium">{seatedRes ? "Seated guest" : "Currently occupied"}</p>
                   </div>
                 </div>
+
+                {/* Booking details — shown when this occupied table is a seated reservation */}
+                {seatedRes && (
+                  <div className="bg-slate-800 rounded-2xl px-4 py-3 space-y-1.5">
+                    <p className="text-white text-sm font-medium">{seatedRes.customerName}</p>
+                    <div className="flex items-center gap-2 text-slate-400 text-xs">
+                      <Clock size={12} className="text-amber-400" />
+                      <span>{seatedRes.time}</span>
+                      <span className="text-slate-600">·</span>
+                      <Users size={12} />
+                      <span>{seatedRes.partySize} guests</span>
+                    </div>
+                    {seatedRes.note && (
+                      <p className="text-amber-400 text-xs flex items-center gap-1">
+                        <StickyNote size={11} /> {seatedRes.note}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Upcoming booking — this table is reserved again later today */}
+                {nextRes && (
+                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl px-4 py-3 space-y-1">
+                    <p className="text-amber-300 text-[11px] font-bold uppercase tracking-wide flex items-center gap-1.5">
+                      <CalendarClock size={12} /> Booked again today
+                    </p>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-slate-300 text-sm">
+                      <span className="flex items-center gap-1"><Clock size={13} className="text-amber-400" /> <span className="font-semibold">{nextRes.time}</span></span>
+                      <span className="text-slate-600">·</span>
+                      <span className="flex items-center gap-1"><Users size={12} className="text-slate-400" /> {nextRes.partySize}</span>
+                      <span className="text-slate-600">·</span>
+                      <span className="text-slate-400">{nextRes.customerName}</span>
+                    </div>
+                  </div>
+                )}
 
                 <button
                   onClick={() => { setTableAction(null); selectTable(tableAction); }}
@@ -1887,26 +1973,27 @@ export default function WaiterPage() {
                 </button>
               </div>
             </div>
-          )}
+            );
+          })()}
           {/* ── Reserved-table seat sheet ───────────────────────────────────── */}
           {seatAction && (
             <div className="fixed inset-0 z-50 flex items-end justify-center">
               <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSeatAction(null)} />
               <div className="relative bg-slate-900 rounded-t-3xl w-full max-w-md p-6 shadow-2xl space-y-4">
                 <div className="flex items-center gap-3 mb-1">
-                  <div className="w-10 h-10 bg-sky-500 rounded-xl flex items-center justify-center">
+                  <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center">
                     <CalendarClock size={18} className="text-white" />
                   </div>
                   <div>
                     <p className="text-white font-black text-lg">Table {seatAction.table.label}</p>
-                    <p className="text-sky-400 text-xs font-medium">Reserved</p>
+                    <p className="text-amber-400 text-xs font-medium">Reserved</p>
                   </div>
                 </div>
 
                 {/* Booking details */}
                 <div className="bg-slate-800 rounded-2xl px-4 py-3 space-y-1.5">
                   <div className="flex items-center gap-2 text-white">
-                    <Clock size={14} className="text-sky-400" />
+                    <Clock size={14} className="text-amber-400" />
                     <span className="font-bold">{seatAction.reservation.time}</span>
                     <span className="text-slate-600">·</span>
                     <Users size={13} className="text-slate-400" />
@@ -1925,7 +2012,7 @@ export default function WaiterPage() {
                   disabled={seating}
                   className="w-full flex items-center gap-4 bg-slate-800 hover:bg-slate-700 active:scale-[0.98] rounded-2xl px-5 py-4 transition-all disabled:opacity-50"
                 >
-                  <div className="w-10 h-10 bg-sky-600 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <div className="w-10 h-10 bg-amber-600 rounded-xl flex items-center justify-center flex-shrink-0">
                     <CheckCircle2 size={18} className="text-white" />
                   </div>
                   <div className="text-left">

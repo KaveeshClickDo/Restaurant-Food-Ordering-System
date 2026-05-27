@@ -394,6 +394,13 @@ function TableCard({
               <LogOut size={13} /> Check Out
             </button>
           )}
+          {state === "occupied" && !res && (
+            // Seated walk-in (active order, no reservation) — frees when the
+            // waiter settles the bill, so there's no check-out here.
+            <div className="w-full flex items-center justify-center gap-1.5 text-blue-500 text-xs py-1">
+              <UtensilsCrossed size={13} /> In service
+            </div>
+          )}
           {state === "free" && (
             <div className="w-full flex items-center justify-center gap-1.5 text-gray-400 text-xs py-1">
               <CheckCircle2 size={13} /> Available
@@ -455,6 +462,9 @@ export default function TableStatusPanel() {
   const [allTables, setAllTables] = useState<DiningTable[]>([]);
 
   const [reservations, setReservations] = useState<Reservation[]>([]);
+  // Table ids occupied by an active dine-in order (seated walk-in, no reservation
+  // row) — merged into the live state so this panel matches the waiter grid.
+  const [orderOccupiedIds, setOrderOccupiedIds] = useState<Set<string>>(new Set());
   const [loadingRes, setLoadingRes] = useState(true);
   const [filterSection, setFilterSection] = useState("");
 
@@ -489,7 +499,11 @@ export default function TableStatusPanel() {
     if (isInitial) setLoadingRes(true);
     try {
       const params = new URLSearchParams({ from: todayStr(), to: todayStr() });
-      const res = await fetch(`/api/admin/reservations?${params}`);
+      // Reservations + live order-occupancy in parallel; handled independently.
+      const [res, occRes] = await Promise.all([
+        fetch(`/api/admin/reservations?${params}`),
+        fetch(`/api/pos/tables/occupancy`),
+      ]);
       const json = await res.json() as { ok: boolean; reservations?: Reservation[] };
       if (json.ok) {
         const next = json.reservations ?? [];
@@ -497,6 +511,12 @@ export default function TableStatusPanel() {
         if (key !== lastResKey.current) {
           lastResKey.current = key;
           setReservations(next);
+        }
+      }
+      if (occRes.ok) {
+        const occ = await occRes.json() as { ok: boolean; occupiedTableIds?: string[] };
+        if (occ.ok && Array.isArray(occ.occupiedTableIds)) {
+          setOrderOccupiedIds(new Set(occ.occupiedTableIds));
         }
       }
     } catch (err) {
@@ -629,6 +649,10 @@ export default function TableStatusPanel() {
     // Priority: occupied > reserved > done > free
     const occupied = reservations.find((r) => r.tableId === tableId && r.status === "checked_in");
     if (occupied) return { state: "occupied", reservation: occupied };
+
+    // Seated walk-in (active dine-in order, no reservation row) is also occupied
+    // — no reservation, so the card shows occupied without a check-out action.
+    if (orderOccupiedIds.has(tableId)) return { state: "occupied" };
 
     const reserved = reservations.find(
       (r) => r.tableId === tableId && (r.status === "pending" || r.status === "confirmed"),

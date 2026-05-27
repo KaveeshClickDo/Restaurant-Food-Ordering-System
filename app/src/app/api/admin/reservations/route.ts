@@ -81,8 +81,10 @@ export async function POST(req: NextRequest) {
     note, source, paymentMethod,
   } = parsed.data;
 
-  // Reject past slots — 5 min grace for slow submissions
-  if (new Date(`${date}T${time}`).getTime() < Date.now() - 5 * 60 * 1000) {
+  // Reject past slots — 5 min grace for slow submissions. Walk-ins are exempt:
+  // they're seated at the current in-progress slot, which is intentionally a few
+  // minutes in the past (mirrors the POS route, which has no past-slot guard).
+  if (source !== "walk-in" && new Date(`${date}T${time}`).getTime() < Date.now() - 5 * 60 * 1000) {
     return NextResponse.json(
       { ok: false, error: "This time slot has already passed. Please select a future time." },
       { status: 400 },
