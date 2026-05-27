@@ -104,8 +104,6 @@ const COLUMNS: ColumnConfig[] = [
   },
 ];
 
-const ACTIVE_STATUSES: KDSStatus[] = ["pending", "confirmed", "preparing", "ready"];
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function elapsedMin(dateStr: string): number {

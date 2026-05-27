@@ -282,43 +282,11 @@ function mapMealPeriod(row: any): MealPeriod {
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapOrder(row: any): Order {
-  return {
-    id: row.id,
-    customerId: row.customer_id ?? null,
-    date: typeof row.date === "string" ? row.date : new Date(row.date).toISOString(),
-    status: row.status as OrderStatus,
-    fulfillment: row.fulfillment,
-    total: Number(row.total),
-    items: row.items ?? [],
-    address: row.address || undefined,
-    note: row.note || undefined,
-    paymentMethod: row.payment_method || undefined,
-    deliveryFee: row.delivery_fee ? Number(row.delivery_fee) : undefined,
-    serviceFee: row.service_fee ? Number(row.service_fee) : undefined,
-    scheduledTime: row.scheduled_time || undefined,
-    couponCode: row.coupon_code || undefined,
-    couponDiscount: row.coupon_discount ? Number(row.coupon_discount) : undefined,
-    vatAmount: row.vat_amount ? Number(row.vat_amount) : undefined,
-    vatInclusive: row.vat_inclusive ?? undefined,
-    driverId: row.driver_id || undefined,
-    driverName: row.driver_name || undefined,
-    deliveryStatus: (row.delivery_status as DeliveryStatus) || undefined,
-    deliveryCode: row.delivery_code || undefined,
-    refunds: row.refunds ?? [],
-    refundedAmount: row.refunded_amount ? Number(row.refunded_amount) : undefined,
-    storeCreditUsed: row.store_credit_used ? Number(row.store_credit_used) : undefined,
-    paymentStatus: row.payment_status ?? undefined,
-    stripePaymentIntentId: row.stripe_payment_intent_id ?? null,
-    stripeChargeId: row.stripe_charge_id ?? null,
-  };
-}
-
-// mapCustomer + customersRef were used by the old client-side anon SELECT on
-// `customers` and the matching realtime hydration. Both paths are gone —
-// customers now come from /api/auth/me (logged-in user only) and
-// /api/admin/customers/list (admin tree).
+// mapOrder (row → Order) + mapCustomer + customersRef were used by the old
+// client-side anon SELECT on `customers`/`orders` and the matching realtime
+// hydration. Both paths are gone — orders/customers now arrive already shaped
+// from /api/auth/me (logged-in user only) and /api/admin/customers/list (admin
+// tree), so no client-side row mapping is needed.
 
 // ─── TypeScript → DB row mappers ─────────────────────────────────────────────
 

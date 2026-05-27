@@ -330,14 +330,8 @@ async function handleCaptureDenied(resource: PaypalCapture): Promise<void> {
 }
 
 async function handleCaptureRefunded(resource: PaypalRefund): Promise<void> {
-  // PayPal sends the capture id in either supplementary_data.related_ids
-  // or in `links[]` with rel=up. We use the capture id (not order id) to
-  // find the order because a single order may have several captures over
-  // time — though in our flow it's always one.
-  const captureId = (resource as PaypalCapture).supplementary_data?.related_ids
-    ? undefined  // capture id isn't directly here for refund payloads
-    : undefined;
-
+  // We match on the capture id (not order id) because a single order may have
+  // several captures over time — though in our flow it's always one.
   // Try resource.links[rel='up'] first — PayPal puts the capture URL there.
   let parentCaptureId: string | null = null;
   const links = resource.links ?? [];

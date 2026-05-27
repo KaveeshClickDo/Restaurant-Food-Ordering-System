@@ -32,15 +32,18 @@ async function verifyToken(token: string, expectedRole: string): Promise<boolean
     if (!secret) return false;
 
     const parts = token.split("|");
-    let exp: string, id: string, role: string, sig: string;
+    let exp: string, role: string, sig: string;
     let signedData: string;
+    // The id (and version) segments are part of the signed payload but aren't
+    // checked here — only exp, role, and signature are. session_version is
+    // validated downstream at the API layer (see header comment).
     if (parts.length === 5) {
       const [e, i, r, v, s] = parts;
-      exp = e; id = i; role = r; sig = s;
+      exp = e; role = r; sig = s;
       signedData = `${e}|${i}|${r}|${v}`;
     } else if (parts.length === 4) {
       const [e, i, r, s] = parts;
-      exp = e; id = i; role = r; sig = s;
+      exp = e; role = r; sig = s;
       signedData = `${e}|${i}|${r}`;
     } else {
       return false;
