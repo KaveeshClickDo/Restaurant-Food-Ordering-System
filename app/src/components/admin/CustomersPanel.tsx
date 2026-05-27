@@ -95,8 +95,9 @@ type SortKey = "name" | "orders" | "spent" | "joined";
 type SortDir = "asc" | "desc";
 
 export default function CustomersPanel() {
-  const { customers, updateOrderStatus, settings } = useApp();
+  const { customers, updateOrderStatus, addCustomer, settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
+  const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("spent");
@@ -202,6 +203,13 @@ export default function CustomersPanel() {
               className="pl-8 pr-4 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition w-full sm:w-52"
             />
           </div>
+
+          <button
+            onClick={() => setShowAdd(true)}
+            className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex-shrink-0"
+          >
+            <UserCog size={14} /> Add Customer
+          </button>
         </div>
 
         {/* Table */}
@@ -280,6 +288,31 @@ export default function CustomersPanel() {
         </div>
       </div>
 
+      {/* Add customer modal */}
+      {showAdd && (
+        <AddCustomerModal
+          existingEmails={customers.map((c) => c.email.toLowerCase())}
+          onClose={() => setShowAdd(false)}
+          onCreate={async (data) => {
+            const newCustomer: Customer = {
+              id:             `cust-${crypto.randomUUID()}`,
+              name:           data.name.trim(),
+              email:          data.email.trim().toLowerCase(),
+              phone:          data.phone.trim(),
+              createdAt:      new Date().toISOString(),
+              tags:           [],
+              orders:         [],
+              favourites:     [],
+              savedAddresses: [],
+              storeCredit:    0,
+              emailVerified:  true,
+              active:         true,
+            };
+            await addCustomer(newCustomer, data.password.trim() || undefined);
+          }}
+        />
+      )}
+
       {/* Customer detail drawer */}
       {selectedCustomer && (
         <CustomerDrawer
@@ -299,6 +332,140 @@ export default function CustomersPanel() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+// ─── Add customer modal ───────────────────────────────────────────────────────
+
+function AddCustomerModal({
+  existingEmails,
+  onCreate,
+  onClose,
+}: {
+  existingEmails: string[];
+  onCreate: (data: { name: string; email: string; phone: string; password: string }) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "" });
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  function set(k: keyof typeof form, v: string) {
+    setForm((f) => ({ ...f, [k]: v }));
+    setError("");
+  }
+
+  function validate(): string | null {
+    if (!form.name.trim()) return "Name is required.";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) return "Enter a valid email address.";
+    if (existingEmails.includes(form.email.trim().toLowerCase())) return "A customer with this email already exists.";
+    if (form.password && form.password.length < 6) return "Password must be at least 6 characters.";
+    return null;
+  }
+
+  async function handleSubmit() {
+    if (saving) return;
+    const v = validate();
+    if (v) { setError(v); return; }
+    setSaving(true);
+    try {
+      await onCreate(form);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to add customer.");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-9 h-9 rounded-xl bg-orange-100 flex items-center justify-center">
+              <UserCog size={18} className="text-orange-600" />
+            </div>
+            <h2 className="font-bold text-gray-900">Add customer</h2>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition text-gray-500">
+            <X size={15} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Full name</label>
+            <input
+              value={form.name}
+              onChange={(e) => set("name", e.target.value)}
+              placeholder="Jane Smith"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Email address</label>
+            <input
+              type="email"
+              autoComplete="off"
+              value={form.email}
+              onChange={(e) => set("email", e.target.value)}
+              placeholder="jane@example.com"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">
+              Phone <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <input
+              inputMode="tel"
+              value={form.phone}
+              onChange={(e) => set("phone", cleanPhone(e.target.value))}
+              placeholder="+44 7700 900000"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">
+              Password <span className="text-gray-400 font-normal">(optional — lets them sign in)</span>
+            </label>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={form.password}
+              onChange={(e) => set("password", e.target.value)}
+              placeholder="Min. 6 characters"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+            />
+            <p className="text-[11px] text-gray-400 mt-1">
+              Leave blank to create the account without a password — set one later from the customer, or they can use “Forgot password”.
+            </p>
+          </div>
+
+          {error && (
+            <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+              <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-red-700">{error}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="px-6 py-4 border-t border-gray-100 flex gap-3">
+          <button onClick={onClose} disabled={saving} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition">
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={saving}
+            className="flex-1 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white text-sm font-bold transition flex items-center justify-center gap-2"
+          >
+            {saving && <Loader2 size={14} className="animate-spin" />}
+            {saving ? "Adding…" : "Add customer"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

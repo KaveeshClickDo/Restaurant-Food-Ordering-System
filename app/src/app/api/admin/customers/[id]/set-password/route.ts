@@ -30,9 +30,23 @@ export async function POST(
 
   const passwordHash = await bcrypt.hash(parsed.data.password, HASH_ROUNDS);
 
+  // Bump session_version so any device the customer is still signed in on is
+  // logged out on its next request (verified in lib/auth.ts readCustomerSession).
+  // Done defensively: if the column isn't present yet (not-quite-migrated DB),
+  // the read errors and we simply skip the bump and still set the password.
+  const update: Record<string, unknown> = { password_hash: passwordHash };
+  const { data: current } = await supabaseAdmin
+    .from("customers")
+    .select("session_version")
+    .eq("id", id)
+    .maybeSingle();
+  if (current && current.session_version !== undefined && current.session_version !== null) {
+    update.session_version = Number(current.session_version) + 1;
+  }
+
   const { error } = await supabaseAdmin
     .from("customers")
-    .update({ password_hash: passwordHash })
+    .update(update)
     .eq("id", id);
 
   if (error) {

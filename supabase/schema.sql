@@ -706,6 +706,9 @@ alter table drivers       add column if not exists session_version integer not n
 alter table waiters       add column if not exists session_version integer not null default 1;
 alter table kitchen_staff add column if not exists session_version integer not null default 1;
 alter table pos_staff     add column if not exists session_version integer not null default 1;
+-- Customers carry it too so an admin password reset (User Management → Set
+-- password) invalidates the customer's live sessions on their next request.
+alter table customers     add column if not exists session_version integer not null default 1;
 
 -- ── waiters.role ─────────────────────────────────────────────────────────────
 -- 'senior' (Senior / Head Waiter) gates voids, refunds, and bill discounts in

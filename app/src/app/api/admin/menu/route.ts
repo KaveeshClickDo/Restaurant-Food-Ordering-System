@@ -20,6 +20,25 @@ export async function POST(req: NextRequest) {
   const mealPeriodIds = Array.isArray(body.mealPeriodIds) ? (body.mealPeriodIds as string[]) : [];
   delete body.mealPeriodIds;
 
+  // Reject duplicate names (case-insensitive). The DB has no unique constraint
+  // on name, so two items called "Margherita" would otherwise both be created
+  // and confuse customers, the kitchen, and reporting. ilike narrows the scan;
+  // the JS compare confirms an exact (case-insensitive) match so names that
+  // happen to contain SQL wildcards (% / _) don't yield false positives.
+  const newName = String(body.name ?? "").trim();
+  if (newName) {
+    const { data: dupes } = await supabaseAdmin
+      .from("menu_items")
+      .select("id, name")
+      .ilike("name", newName);
+    if ((dupes ?? []).some((r) => String(r.name ?? "").trim().toLowerCase() === newName.toLowerCase())) {
+      return NextResponse.json(
+        { ok: false, error: `A menu item named "${newName}" already exists.` },
+        { status: 409 },
+      );
+    }
+  }
+
   const { error } = await supabaseAdmin.from("menu_items").insert(body);
   if (error) {
     console.error("admin/menu POST:", error.message);

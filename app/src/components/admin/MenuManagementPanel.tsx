@@ -8,7 +8,7 @@ import {
   GripVertical, X, Check, AlertTriangle, Flame, Tag,
   ArrowUp, ArrowDown, ImagePlus, Link, Upload,
   Package, PackageX, PackageMinus, Minus, Clock,
-  ToggleLeft, ToggleRight,
+  ToggleLeft, ToggleRight, Loader2,
 } from "lucide-react";
 import { resolveStock, stockLabel, LOW_STOCK_THRESHOLD } from "@/lib/stockUtils";
 import { uploadMenuImage, MAX_IMAGE_LABEL } from "@/lib/uploadImage";
@@ -536,6 +536,9 @@ export default function MenuManagementPanel() {
           categories={categories}
           mealPeriods={mealPeriods}
           isNew={!menuItems.find((i) => i.id === editingItem.id)}
+          existingNames={menuItems
+            .filter((i) => i.id !== editingItem.id)
+            .map((i) => i.name.trim().toLowerCase())}
           onSave={(item) => {
             // `editingItem` is the snapshot taken when the modal opened — we
             // diff against THIS, not against `menuItems.find(...)`. Live
@@ -700,10 +703,10 @@ function CategoryModal({
 // ─── Item Modal ──────────────────────────────────────────────────────────────
 
 function ItemModal({
-  item, categories, mealPeriods, isNew, onSave, onClose,
+  item, categories, mealPeriods, isNew, existingNames, onSave, onClose,
 }: {
   item: MenuItem; categories: Category[]; mealPeriods: MealPeriod[]; isNew: boolean;
-  onSave: (i: MenuItem) => void; onClose: () => void;
+  existingNames: string[]; onSave: (i: MenuItem) => void; onClose: () => void;
 }) {
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
@@ -785,7 +788,12 @@ function ItemModal({
     setForm((f) => ({ ...f, addOns: (f.addOns ?? []).filter((_, i) => i !== idx) }));
   }
 
-  const isValid = form.name.trim() && form.price >= 0 && form.categoryId;
+  // Duplicate-name guard (case-insensitive). `existingNames` already excludes
+  // the item being edited, so renaming an item to its own name is fine. The
+  // server enforces this too (POST /api/admin/menu) — this is the friendly
+  // inline version so the admin sees it before the optimistic add.
+  const nameTaken = !!form.name.trim() && existingNames.includes(form.name.trim().toLowerCase());
+  const isValid = form.name.trim() && form.price >= 0 && form.categoryId && !nameTaken;
 
   return (
     <ModalShell title={isNew ? "Add menu item" : "Edit menu item"} onClose={onClose} wide>
@@ -856,9 +864,9 @@ function ItemModal({
                 step="0.50"
                 value={form.price}
                 placeholder="0.00"
-                onChange={(e) => setForm((f) => ({ ...f, price: e.target.value === "" ? ("" as any) : parseFloat(e.target.value) }))}
+                onChange={(e) => setForm((f) => ({ ...f, price: e.target.value === "" ? ("" as unknown as number) : parseFloat(e.target.value) }))}
                 onBlur={() => {
-                  if (form.price === ("" as any) || isNaN(Number(form.price))) {
+                  if (form.price === ("" as unknown as number) || isNaN(Number(form.price))) {
                     setForm((f) => ({ ...f, price: 0 }));
                   }
                 }}
@@ -1252,9 +1260,9 @@ function ItemModal({
                           step="0.25"
                           value={opt.price}
                           placeholder="0.00"
-                          onChange={(e) => updateVariationOption(vi, oi, { price: e.target.value === "" ? ("" as any) : parseFloat(e.target.value) })}
+                          onChange={(e) => updateVariationOption(vi, oi, { price: e.target.value === "" ? ("" as unknown as number) : parseFloat(e.target.value) })}
                           onBlur={() => {
-                            if (opt.price === ("" as any) || isNaN(Number(opt.price))) {
+                            if (opt.price === ("" as unknown as number) || isNaN(Number(opt.price))) {
                               updateVariationOption(vi, oi, { price: 0 });
                             }
                           }}
@@ -1308,9 +1316,9 @@ function ItemModal({
                   step="0.25"
                   value={ao.price}
                   placeholder="0.00"
-                  onChange={(e) => updateAddOn(ai, { price: e.target.value === "" ? ("" as any) : parseFloat(e.target.value) })}
+                  onChange={(e) => updateAddOn(ai, { price: e.target.value === "" ? ("" as unknown as number) : parseFloat(e.target.value) })}
                   onBlur={() => {
-                    if (ao.price === ("" as any) || isNaN(Number(ao.price))) {
+                    if (ao.price === ("" as unknown as number) || isNaN(Number(ao.price))) {
                       updateAddOn(ai, { price: 0 });
                     }
                   }}
@@ -1509,6 +1517,13 @@ function ItemModal({
         </div>
       )}
 
+      {nameTaken && (
+        <div className="flex items-start gap-2 mt-4 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl">
+          <AlertTriangle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-red-600">A menu item named <strong>{form.name.trim()}</strong> already exists. Choose a different name.</p>
+        </div>
+      )}
+
       <div className="flex gap-3 mt-6 pt-4 border-t border-gray-100">
         <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition">Cancel</button>
         <button
@@ -1561,7 +1576,25 @@ function MealPeriodModal({
   onClose: () => void;
 }) {
   const [form, setForm] = useState<MealPeriod>({ ...period });
+  const [saving, setSaving] = useState(false);
   const isValid = form.name.trim() && form.startTime && form.endTime && form.daysOfWeek.length > 0;
+
+  async function handleSave() {
+    if (!isValid || saving) return;
+    setSaving(true);
+    try {
+      await onSave({
+        name: form.name.trim(),
+        enabled: form.enabled,
+        startTime: form.startTime,
+        endTime: form.endTime,
+        daysOfWeek: form.daysOfWeek,
+        sortOrder: form.sortOrder,
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   function toggleDay(day: number) {
     setForm((f) => ({
@@ -1641,22 +1674,16 @@ function MealPeriodModal({
       </div>
 
       <div className="flex gap-3 mt-6">
-        <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition">
+        <button onClick={onClose} disabled={saving} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition">
           Cancel
         </button>
         <button
-          onClick={() => isValid && onSave({
-            name: form.name.trim(),
-            enabled: form.enabled,
-            startTime: form.startTime,
-            endTime: form.endTime,
-            daysOfWeek: form.daysOfWeek,
-            sortOrder: form.sortOrder,
-          })}
-          disabled={!isValid}
-          className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:bg-gray-200 disabled:cursor-not-allowed text-white text-sm font-semibold transition"
+          onClick={handleSave}
+          disabled={!isValid || saving}
+          className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:bg-gray-200 disabled:cursor-not-allowed text-white text-sm font-semibold transition flex items-center justify-center gap-2"
         >
-          {isNew ? "Add" : "Save"}
+          {saving && <Loader2 size={14} className="animate-spin" />}
+          {saving ? (isNew ? "Adding…" : "Saving…") : (isNew ? "Add" : "Save")}
         </button>
       </div>
     </ModalShell>
@@ -1776,9 +1803,9 @@ function OfferEditor({
                   type="number" min="0" step={o.type === "percent" ? "1" : "0.01"}
                   value={Number.isFinite(o.value) ? o.value : ""}
                   placeholder="0"
-                  onChange={(e) => patch({ value: e.target.value === "" ? ("" as any) : parseFloat(e.target.value) })}
+                  onChange={(e) => patch({ value: e.target.value === "" ? ("" as unknown as number) : parseFloat(e.target.value) })}
                   onBlur={() => {
-                    if (o.value === ("" as any) || isNaN(Number(o.value))) {
+                    if (o.value === ("" as unknown as number) || isNaN(Number(o.value))) {
                       patch({ value: 0 });
                     }
                   }}
@@ -1846,9 +1873,9 @@ function OfferEditor({
                   type="number" min="0" step="0.01"
                   value={Number.isFinite(o.value) ? o.value : ""}
                   placeholder="0.00"
-                  onChange={(e) => patch({ value: e.target.value === "" ? ("" as any) : parseFloat(e.target.value) })}
+                  onChange={(e) => patch({ value: e.target.value === "" ? ("" as unknown as number) : parseFloat(e.target.value) })}
                   onBlur={() => {
-                    if (o.value === ("" as any) || isNaN(Number(o.value))) {
+                    if (o.value === ("" as unknown as number) || isNaN(Number(o.value))) {
                       patch({ value: 0 });
                     }
                   }}
@@ -1884,9 +1911,9 @@ function OfferEditor({
                   type="number" min="1" max="100" step="1"
                   value={Number.isFinite(o.value) ? o.value : ""}
                   placeholder="0"
-                  onChange={(e) => patch({ value: e.target.value === "" ? ("" as any) : parseFloat(e.target.value) })}
+                  onChange={(e) => patch({ value: e.target.value === "" ? ("" as unknown as number) : parseFloat(e.target.value) })}
                   onBlur={() => {
-                    if (o.value === ("" as any) || isNaN(Number(o.value))) {
+                    if (o.value === ("" as unknown as number) || isNaN(Number(o.value))) {
                       patch({ value: 0 });
                     }
                   }}

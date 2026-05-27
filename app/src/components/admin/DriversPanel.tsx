@@ -10,7 +10,7 @@ import {
   ChevronDown, ChevronUp, AlertCircle, X,
   Banknote, Receipt,
 } from "lucide-react";
-import { DriverCreateSchema } from "@/lib/schemas/staff";
+import { DriverCreateSchema, DriverUpdateSchema } from "@/lib/schemas/staff";
 import { cleanPhone, formErrorMessage } from "@/lib/inputUtils";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -37,11 +37,13 @@ const EMPTY_FORM = {
 
 function DriverForm({
   initial,
+  isEdit = false,
   existingEmails,
   onSave,
   onCancel,
 }: {
   initial?: Partial<typeof EMPTY_FORM>;
+  isEdit?: boolean;
   existingEmails: string[];
   onSave: (data: typeof EMPTY_FORM) => void;
   onCancel: () => void;
@@ -56,10 +58,17 @@ function DriverForm({
   }
 
   function validate(): boolean {
-    const result = DriverCreateSchema.safeParse({
-      name: form.name, email: form.email, phone: form.phone, password: form.password,
+    // On edit, the password is optional — leaving it blank keeps the existing
+    // one. Only validate (and later send) a password when the admin typed one.
+    // On create it stays required.
+    const base = {
+      name: form.name, email: form.email, phone: form.phone,
       vehicleInfo: form.vehicleInfo || undefined, notes: form.notes || undefined,
-    });
+    };
+    const includePassword = !isEdit || form.password.trim().length > 0;
+    const result = (isEdit ? DriverUpdateSchema : DriverCreateSchema).safeParse(
+      includePassword ? { ...base, password: form.password } : base,
+    );
     const e: Record<string, string> = {};
     if (!result.success) {
       for (const issue of result.error.issues) {
@@ -112,13 +121,15 @@ function DriverForm({
         {field("phone", "Phone number",  { placeholder: "+44 7700 900000" })}
         {field("email", "Email address", { placeholder: "jane@example.com", type: "email" })}
         <div>
-          <label className="block text-xs font-semibold text-gray-600 mb-1">Password</label>
+          <label className="block text-xs font-semibold text-gray-600 mb-1">
+            Password{isEdit && <span className="text-gray-400 font-normal ml-1">(leave blank to keep current)</span>}
+          </label>
           <div className="relative">
             <input
               type={showPwd ? "text" : "password"}
               value={form.password}
               onChange={(e) => set("password", e.target.value)}
-              placeholder="Min. 6 characters"
+              placeholder={isEdit ? "Leave blank to keep current" : "Min. 6 characters"}
               className={`w-full border rounded-xl px-3 py-2.5 text-sm pr-16 focus:outline-none focus:ring-2 transition ${
                 errors.password ? "border-red-300 focus:ring-red-400" : "border-gray-200 focus:ring-orange-400"
               }`}
@@ -361,17 +372,27 @@ export default function DriversPanel() {
   const [selectedByDriver,  setSelectedByDriver]  = useState<Record<string, Set<string>>>({});
   const [reconcilingId,     setReconcilingId]     = useState<string | null>(null);
 
-  const fetchCashOwed = useCallback(async () => {
-    setCashLoading(true);
+  const fetchCashOwed = useCallback(async (isInitial = false) => {
+    if (isInitial) setCashLoading(true);
     try {
       const r = await fetch("/api/admin/drivers/cash", { cache: "no-store" });
       const j = await r.json() as { ok: boolean; drivers?: CashDriver[] };
       if (j.ok && j.drivers) setCashOwed(j.drivers);
     } catch { /* keep last-known on network blip */ }
-    finally { setCashLoading(false); }
+    finally { if (isInitial) setCashLoading(false); }
   }, []);
 
-  useEffect(() => { fetchCashOwed(); }, [fetchCashOwed]);
+  // Initial load shows the spinner; thereafter poll every 10s so a freshly
+  // delivered cash order shows up under the driver without a manual refresh.
+  // Skipped while the tab is hidden to avoid needless background fetches.
+  useEffect(() => { fetchCashOwed(true); }, [fetchCashOwed]);
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      fetchCashOwed();
+    }, 10_000);
+    return () => clearInterval(id);
+  }, [fetchCashOwed]);
 
   function toggleOrderSelected(driverId: string, orderId: string) {
     setSelectedByDriver((prev) => {
@@ -457,8 +478,12 @@ export default function DriversPanel() {
   async function handleEdit(form: typeof EMPTY_FORM) {
     if (!editDriver) return;
     setApiError("");
+    // Omit the password entirely when left blank so the server keeps the
+    // existing hash (sending "" would fail the min-length rule).
+    const { password, ...rest } = form;
+    const payload = password.trim() ? form : rest;
     try {
-      await updateDriver(editDriver.id, form);
+      await updateDriver(editDriver.id, payload);
       setEditDriver(null);
     } catch (err) {
       setApiError(err instanceof Error ? err.message : "Failed to update driver.");
@@ -719,6 +744,7 @@ export default function DriversPanel() {
                 <DriverForm
                   key={driver.id}
                   initial={editDriver}
+                  isEdit
                   existingEmails={existingEmails}
                   onSave={handleEdit}
                   onCancel={() => setEditDriver(null)}

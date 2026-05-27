@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error: fetchErr } = await supabaseAdmin
     .from("customers")
-    .select("id, name, email, phone, password_hash, email_verified, active, tags, favourites, saved_addresses, store_credit, created_at, loyalty_points, gift_card_balance")
+    .select("id, name, email, phone, password_hash, email_verified, active, tags, favourites, saved_addresses, store_credit, created_at, loyalty_points, gift_card_balance, session_version")
     .eq("email", email.trim().toLowerCase())
     .maybeSingle();
 
@@ -106,7 +106,13 @@ export async function POST(req: NextRequest) {
     giftCardUsed:          o.gift_card_used ? Number(o.gift_card_used) : undefined,
   });
 
-  const token = createSessionToken({ id: data.id, role: "customer" });
+  const token = createSessionToken({
+    id: data.id,
+    role: "customer",
+    // Embed the live version so a prior admin password reset (which bumped it)
+    // is reflected — the new token matches the DB and stays valid.
+    sessionVersion: Number(data.session_version ?? 1),
+  });
   const res = NextResponse.json({
     ok: true,
     customer: {

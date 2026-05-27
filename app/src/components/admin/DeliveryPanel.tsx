@@ -438,12 +438,29 @@ function OrderModal({ order, onClose, onStatusChange, onRequestCancel }: {
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Order items</p>
             <div className="space-y-2">
-              {order.items.map((item, i) => (
-                <div key={i} className="flex justify-between text-sm">
-                  <span className="text-gray-700">{item.qty}× {item.name}</span>
-                  <span className="font-medium text-gray-900">{sym}{(item.price * item.qty).toFixed(2)}</span>
-                </div>
-              ))}
+              {order.items.map((item, i) => {
+                // Prefer the array form; fall back to the legacy singular variation.
+                const variations = (item.selectedVariations?.length
+                  ? item.selectedVariations
+                  : item.selectedVariation ? [item.selectedVariation] : []
+                ).map((v) => v.label).filter(Boolean);
+                const addOns = (item.selectedAddOns ?? []).map((a) => a.name).filter(Boolean);
+                const mods = [...variations, ...addOns];
+                return (
+                  <div key={i} className="flex justify-between gap-3 text-sm">
+                    <div className="min-w-0">
+                      <span className="text-gray-700">{item.qty}× {item.name}</span>
+                      {mods.length > 0 && (
+                        <p className="text-xs text-gray-500 mt-0.5">{mods.join(" · ")}</p>
+                      )}
+                      {item.specialInstructions && (
+                        <p className="text-xs text-amber-600 mt-0.5 italic">📝 {item.specialInstructions}</p>
+                      )}
+                    </div>
+                    <span className="font-medium text-gray-900 flex-shrink-0">{sym}{(item.price * item.qty).toFixed(2)}</span>
+                  </div>
+                );
+              })}
             </div>
             <div className="border-t border-gray-100 mt-3 pt-3 flex justify-between font-bold text-gray-900 text-sm">
               <span>Total</span>

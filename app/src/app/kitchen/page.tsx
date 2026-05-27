@@ -18,11 +18,25 @@ import {
 type KDSStatus = "pending" | "confirmed" | "preparing" | "ready";
 type DeliveryStatus = "assigned" | "picked_up" | "on_the_way" | "delivered";
 
+interface KDSItem {
+  name: string;
+  qty: number;
+  price: number;
+  /** Variation-group selections (e.g. Size: Large). New orders write the array;
+   *  `selectedVariation` is the legacy singular fallback. */
+  selectedVariations?: { variationId: string; optionId: string; label: string }[];
+  selectedVariation?: { variationId: string; optionId: string; label: string };
+  /** Add-ons (e.g. Extra cheese). */
+  selectedAddOns?: { id: string; name: string; price: number }[];
+  /** Per-line customer note ("Notes for the kitchen"). */
+  specialInstructions?: string;
+}
+
 interface KDSOrder {
   id: string;
   displayName: string;
   kitchenNote: string | undefined;
-  items: { name: string; qty: number; price: number }[];
+  items: KDSItem[];
   status: KDSStatus;
   fulfillment: string;
   /** Driver-side state — only present for delivery orders. Used to distinguish
@@ -151,7 +165,14 @@ function deriveKitchenNote(fulfillment: string, note: string | null): string | u
     if (nextSep === -1) return undefined;  // no kitchen note after staff
     return afterStaff.slice(nextSep + 3).trim() || undefined;
   }
-  if (n.startsWith("[POS]")) return undefined;  // metadata only, not for kitchen
+  if (n.startsWith("[POS]")) {
+    // Format: "[POS] | Customer: X | Staff: Y | Receipt: Z | Discount: … | Note: <kitchen note>"
+    // Everything except the "Note:" segment is internal metadata; surface only
+    // the cashier's kitchen note (the rest stays off the ticket).
+    const seg = n.split(" | ").find((s) => s.trim().startsWith("Note:"));
+    if (!seg) return undefined;
+    return seg.slice(seg.indexOf("Note:") + "Note:".length).trim() || undefined;
+  }
   return n || undefined;
 }
 
@@ -318,16 +339,37 @@ function OrderCard({
 
       {/* Items */}
       <div className="px-4 py-3 flex-1 space-y-2.5">
-        {order.items.map((item, i) => (
-          <div key={i} className="flex items-center gap-3">
-            <span className={`${col.textClass} font-extrabold text-xl lg:text-2xl leading-none tabular-nums min-w-[3rem] text-center flex-shrink-0`}>
-              {item.qty}
-            </span>
-            <span className="text-white font-semibold text-sm lg:text-base leading-snug">
-              {item.name}
-            </span>
-          </div>
-        ))}
+        {order.items.map((item, i) => {
+          // Prefer the array form; fall back to the legacy singular variation.
+          const variations = (item.selectedVariations?.length
+            ? item.selectedVariations
+            : item.selectedVariation ? [item.selectedVariation] : []
+          ).map((v) => v.label).filter(Boolean);
+          const addOns = (item.selectedAddOns ?? []).map((a) => a.name).filter(Boolean);
+          const mods = [...variations, ...addOns];
+          return (
+            <div key={i} className="flex items-start gap-3">
+              <span className={`${col.textClass} font-extrabold text-xl lg:text-2xl leading-none tabular-nums min-w-[3rem] text-center flex-shrink-0`}>
+                {item.qty}
+              </span>
+              <div className="flex-1 min-w-0">
+                <span className="text-white font-semibold text-sm lg:text-base leading-snug">
+                  {item.name}
+                </span>
+                {mods.length > 0 && (
+                  <p className="text-gray-300 text-xs lg:text-sm leading-snug mt-0.5">
+                    {mods.join(" · ")}
+                  </p>
+                )}
+                {item.specialInstructions && (
+                  <p className="text-amber-300 text-xs lg:text-sm leading-snug mt-0.5 italic">
+                    📝 {item.specialInstructions}
+                  </p>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Kitchen note — only for waiter kitchen instructions and online customer notes */}

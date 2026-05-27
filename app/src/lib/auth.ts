@@ -169,7 +169,33 @@ async function readStaffSession(
   return session;
 }
 
-export const getCustomerSession = () => readSession(COOKIE_CUSTOMER);
+// Customer session reader. Like the staff reader, it confirms the token's
+// embedded session_version still matches the customer row so an admin password
+// reset (or account deactivation) invalidates outstanding sessions. Unlike
+// staff, it is deliberately LENIENT on a query error (e.g. the `session_version`
+// column not yet present on a not-quite-migrated DB): in that case it keeps the
+// session valid rather than logging every customer out. Once the column exists,
+// a missing row → invalid (deleted account) and active=false → invalid.
+async function readCustomerSession(cookieName: string): Promise<SessionPayload | null> {
+  const session = await readSession(cookieName);
+  if (!session) return null;
+  if (session.role !== "customer") return null;
+
+  const { data, error } = await supabaseAdmin
+    .from("customers")
+    .select("session_version, active")
+    .eq("id", session.id)
+    .maybeSingle();
+
+  if (error) return session;        // migration window / transient — fail open
+  if (!data) return null;            // account deleted
+  if (data.active === false) return null;
+  const current = Number(data.session_version ?? 1);
+  if (current !== session.sessionVersion) return null;
+  return session;
+}
+
+export const getCustomerSession = () => readCustomerSession(COOKIE_CUSTOMER);
 export const getDriverSession   = () => readStaffSession(COOKIE_DRIVER,  "driver");
 export const getWaiterSession   = () => readStaffSession(COOKIE_WAITER,  "waiter");
 export const getKitchenSession  = () => readStaffSession(COOKIE_KITCHEN, "kitchen");

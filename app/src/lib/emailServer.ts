@@ -294,7 +294,9 @@ export async function sendOrderStatusEmail(
   if (!template) return;
 
   const customerId = orderRow.customer_id as string | undefined;
-  if (!customerId || customerId === "guest") return;
+  // No real recipient for guest checkouts or the POS walk-in sentinel (its
+  // email is the internal "pos-walkin@internal" placeholder, not a real inbox).
+  if (!customerId || customerId === "guest" || customerId === "pos-walk-in") return;
 
   const { data: cust } = await supabaseAdmin
     .from("customers")
@@ -302,6 +304,8 @@ export async function sendOrderStatusEmail(
     .eq("id", customerId)
     .single();
   if (!cust?.email) return;
+  // Skip internal placeholder inboxes (e.g. the POS walk-in sentinel).
+  if (cust.email.endsWith("@internal")) return;
 
   const order: Order = {
     id:             orderRow.id as string,

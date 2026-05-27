@@ -106,7 +106,7 @@ interface AppContextValue {
   customers: Customer[];
   addOrder: (customerId: string, order: Order) => Promise<{ ok: boolean; error?: string }>;
   updateOrderStatus: (customerId: string, orderId: string, status: OrderStatus) => void;
-  addCustomer: (customer: Customer) => void;
+  addCustomer: (customer: Customer, password?: string) => Promise<void>;
   updateCustomer: (customer: Customer) => void;
   currentUser: Customer | null;
   login: (email: string, password: string) => Promise<{ ok: boolean; needsVerification?: boolean; email?: string; error?: string }>;
@@ -1050,15 +1050,37 @@ export function AppProvider({
 
   // ─── Customer & order actions ──────────────────────────────────────────────
 
-  const addCustomer = (customer: Customer) => {
+  const addCustomer = async (customer: Customer, password?: string): Promise<void> => {
+    // Optimistic insert so the new row appears immediately (admin realtime does
+    // not receive customer INSERTs — anon has no SELECT on the table).
     setCustomers((prev) => [...prev, customer]);
-    fetch("/api/admin/customers", {
+    // Mark admin-created customers verified so they can sign in straight away;
+    // the create schema doesn't accept a password, so it's set via the
+    // dedicated route below.
+    const res = await fetch("/api/admin/customers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(customerToRow(customer)),
-    }).then(async (r) => {
-      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("addCustomer:", j.error); }
-    }).catch((e) => console.error("addCustomer:", e));
+      body: JSON.stringify({ ...customerToRow(customer), email_verified: true }),
+    });
+    const j = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+    if (!res.ok || !j.ok) {
+      // Roll back the optimistic add so a failed create doesn't linger in the UI.
+      setCustomers((prev) => prev.filter((c) => c.id !== customer.id));
+      throw new Error(j.error ?? "Failed to add customer.");
+    }
+    if (password && password.trim()) {
+      const pr = await fetch(`/api/admin/customers/${customer.id}/set-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      const pj = await pr.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (!pr.ok || !pj.ok) {
+        // The customer exists; only the password failed. Surface it so the admin
+        // can retry via the per-customer "Set password" control.
+        throw new Error(pj.error ?? "Customer created, but setting the password failed. Use “Set password” on the customer to try again.");
+      }
+    }
   };
 
   const updateCustomer = (customer: Customer) => {

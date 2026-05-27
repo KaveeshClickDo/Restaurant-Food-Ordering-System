@@ -12,6 +12,8 @@ import { getKitchenSession }         from "@/lib/auth";
 import { isAdminAuthenticated }      from "@/lib/adminAuth";
 import { parseBody }                 from "@/lib/apiValidation";
 import { KdsOrderStatusSchema }      from "@/lib/schemas/pos";
+import { sendOrderStatusEmail }      from "@/lib/emailServer";
+import type { OrderStatus }          from "@/types";
 
 export async function PUT(
   req: NextRequest,
@@ -41,6 +43,14 @@ export async function PUT(
     console.error("kds/orders/[id]/status PUT:", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
+
+  // Notify the customer of the status change — mirrors the admin Online Orders
+  // path (/api/admin/orders/[id]/status). Fire-and-forget; an email failure must
+  // never fail the status update. sendOrderStatusEmail is a no-op for statuses
+  // with no template (e.g. "pending") and for guest / POS walk-in orders.
+  sendOrderStatusEmail(id, status as OrderStatus).catch((err: unknown) =>
+    console.error("[kds] status email:", err instanceof Error ? err.message : err)
+  );
 
   return NextResponse.json({ ok: true });
 }
