@@ -118,7 +118,7 @@ export default function LocationMap({
   const primaryIdx = useMemo(() => markers.findIndex((m) => m.isPrimary), [markers]);
 
   return (
-    <div className={`overflow-hidden ${className}`} style={{ height }}>
+    <div className={`relative z-0 overflow-hidden ${className}`} style={{ height }}>
       <MapContainer
         center={center}
         zoom={zoom}
