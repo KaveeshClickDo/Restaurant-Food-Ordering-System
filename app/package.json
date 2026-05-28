@@ -13,6 +13,7 @@
     "android:build": "npm run build && npx cap sync android"
   },
   "dependencies": {
+    "@capacitor-community/sqlite": "^7.0.3",
     "@paypal/react-paypal-js": "^9.2.0",
     "@stripe/react-stripe-js": "^6.3.0",
     "@stripe/stripe-js": "^9.5.0",

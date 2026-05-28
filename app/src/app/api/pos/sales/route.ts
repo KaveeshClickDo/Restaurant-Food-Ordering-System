@@ -236,10 +236,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: stock.message }, { status: 409 });
   }
 
-  // Insert into pos_sales. receipt_no is filled by the DB default expression
-  // ('R' || nextval('pos_receipt_seq')) so neither client nor server has to
-  // touch the counter. staff_id and staff_name are SET FROM SESSION — body
-  // attribution is intentionally discarded (F-INS-3).
+  // Insert into pos_sales. receipt_no defaults via the DB expression
+  // ('R' || nextval('pos_receipt_seq')) when omitted — that's the path online
+  // web POS takes. Offline-mode Capacitor clients supply receipt_no themselves
+  // (per-terminal namespace, e.g. 'T1-1042') so two tablets ringing offline at
+  // the same time can't collide; strict prefix validation against the caller's
+  // terminal lands in Phase 2. staff_id and staff_name are SET FROM SESSION —
+  // body attribution is intentionally discarded (F-INS-3).
   // ── Gift card tender (optional) ───────────────────────────────────────────
   // The gift card is a PAYMENT instrument, not a discount — it does NOT change
   // the sale total (value of goods), it covers part/all of what's owed. We
@@ -265,31 +268,43 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const row = {
-    id:              body.id,
-    date:            body.date ?? new Date().toISOString(),
-    staff_id:        session.id,
-    staff_name:      session.name,
-    customer_id:     body.customerId || null,
-    customer_name:   body.customerName ?? null,
-    table_number:    body.tableNumber ?? null,
-    items,
-    subtotal:        subtotalServer,
-    discount_amount: discountAmount,
-    discount_note:   body.discountNote   ?? null,
-    tax_amount:      taxAmount,
-    tax_rate:        Number(body.taxRate ?? 0),
-    tax_inclusive:   taxInclusive,
-    tip_amount:      tipAmount,
-    total:           totalServer,
-    payment_method:  body.paymentMethod  ?? "cash",
-    payments:        body.payments       ?? [],
-    cash_tendered:   body.cashTendered   ?? null,
-    change_given:    body.changeGiven    ?? null,
-    voided:          false,
-    gift_card_id:    giftCardId,
-    gift_card_used:  giftCardUsed,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const offlineFields = body as any as {
+    receiptNo?: string; terminalId?: string; clientCreatedAt?: string;
   };
+
+  const row: Record<string, unknown> = {
+    id:                body.id,
+    date:              body.date ?? new Date().toISOString(),
+    staff_id:          session.id,
+    staff_name:        session.name,
+    customer_id:       body.customerId || null,
+    customer_name:     body.customerName ?? null,
+    table_number:      body.tableNumber ?? null,
+    items,
+    subtotal:          subtotalServer,
+    discount_amount:   discountAmount,
+    discount_note:     body.discountNote   ?? null,
+    tax_amount:        taxAmount,
+    tax_rate:          Number(body.taxRate ?? 0),
+    tax_inclusive:     taxInclusive,
+    tip_amount:        tipAmount,
+    total:             totalServer,
+    payment_method:    body.paymentMethod  ?? "cash",
+    payments:          body.payments       ?? [],
+    cash_tendered:     body.cashTendered   ?? null,
+    change_given:      body.changeGiven    ?? null,
+    voided:            false,
+    gift_card_id:      giftCardId,
+    gift_card_used:    giftCardUsed,
+    // Offline-tablet provenance. NULL for online web POS sales — preserves
+    // the original semantics for every existing query and report.
+    terminal_id:       offlineFields.terminalId       ?? null,
+    client_created_at: offlineFields.clientCreatedAt  ?? null,
+  };
+  // Offline clients mint their own receipt_no (per-terminal namespace).
+  // Omit the field when no value supplied so the DB default fires for online sales.
+  if (offlineFields.receiptNo) row.receipt_no = offlineFields.receiptNo;
 
   const { data: inserted, error } = await supabaseAdmin
     .from("pos_sales")

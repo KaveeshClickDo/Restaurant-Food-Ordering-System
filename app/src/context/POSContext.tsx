@@ -9,6 +9,8 @@ import {
 } from "@/types/pos";
 import { useApp } from "@/context/AppContext";
 import { supabase } from "@/lib/supabase";
+import { isCapacitorAndroid } from "@/lib/capacitorBridge";
+import { enqueueSale } from "@/lib/posOutbox";
 
 // Module-scope so the value is stable across renders (used by the idle-logout effect).
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
@@ -982,10 +984,25 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     const cashPayment = payments.filter((p) => p.method === "cash").reduce((s, p) => s + p.amount, 0);
     const change = cashTendered !== undefined ? cashTendered - cashPayment : undefined;
 
-    // Build the payload. receiptNo is intentionally omitted — the server
-    // assigns it atomically from pos_receipt_seq so two tills can't collide.
+    // ── Offline provisional fields (Capacitor Android only) ─────────────────
+    // Online web POS lets the server allocate receipt_no from pos_receipt_seq.
+    // On Android we may need to fall back to the local outbox if the network
+    // POST fails, and the cashier expects a receipt number on the printout
+    // BEFORE the sync round-trip. So we mint a provisional id here whenever
+    // we're in the native shell. Phase 2 replaces this with proper per-
+    // terminal numbering (e.g. T1-1042) sourced from pos_terminals.
+    const onAndroid = isCapacitorAndroid();
+    const provisionalReceiptNo = onAndroid
+      ? `OFF-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 4).toUpperCase()}`
+      : undefined;
+    const clientCreatedAt = onAndroid ? new Date().toISOString() : undefined;
+
+    const saleId = uuid();
+    const saleDate = new Date().toISOString();
+    // Build the payload. On web (`onAndroid = false`) the new offline fields
+    // stay undefined and the existing server allocator runs exactly as before.
     const payload = {
-      id: uuid(),
+      id: saleId,
       items: [...cart],
       subtotal: round2(sub),
       discountAmount: round2(disc),
@@ -1010,8 +1027,12 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       staffName: currentStaff?.name ?? "",
       customerId: assignedCustomer?.id,
       customerName: assignedCustomer?.name,
-      date: new Date().toISOString(),
+      date: saleDate,
       voided: false,
+      // Offline-tablet fields — server accepts as opaque pass-throughs in
+      // Phase 1; strict per-terminal validation lands in Phase 2.
+      ...(provisionalReceiptNo ? { receiptNo: provisionalReceiptNo } : {}),
+      ...(clientCreatedAt      ? { clientCreatedAt }                  : {}),
     };
 
     let sale: POSSale | null = null;
@@ -1043,6 +1064,47 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (err) {
       console.error("completeSale network error:", err);
+    }
+
+    // ── Offline fallback (Capacitor Android only) ─────────────────────────
+    // The server is unreachable (network error) OR returned a 5xx. Queue the
+    // sale to the local outbox so it can be drained on reconnect, and return
+    // an optimistic POSSale to the caller so the receipt modal can open and
+    // the cashier can hand the receipt to the customer. The outbox drain in
+    // pos/page.tsx re-POSTs every queued sale; the server is idempotent on
+    // payload.id (see /api/pos/sales § "Idempotency pre-check") so a later
+    // online retry is a safe 200/409 no-op.
+    //
+    // 4xx responses (validation, permission denied, stock conflict) are NOT
+    // queued — they carry a clear `serverError` we surface to the cashier
+    // directly. Replay would hit the same gate.
+    if (!sale && onAndroid && provisionalReceiptNo && !serverError) {
+      const enqueued = await enqueueSale(payload);
+      if (enqueued) {
+        sale = {
+          id:             saleId,
+          receiptNo:      provisionalReceiptNo,
+          items:          payload.items,
+          subtotal:       payload.subtotal,
+          discountAmount: payload.discountAmount,
+          discountNote:   payload.discountNote || undefined,
+          taxAmount:      payload.taxAmount,
+          taxRate:        payload.taxRate,
+          taxInclusive:   payload.taxInclusive,
+          tipAmount:      payload.tipAmount,
+          total:          payload.total,
+          paymentMethod:  payload.paymentMethod,
+          payments:       payload.payments,
+          cashTendered:   payload.cashTendered,
+          changeGiven:    payload.changeGiven,
+          staffId:        payload.staffId,
+          staffName:      payload.staffName,
+          customerId:     payload.customerId,
+          customerName:   payload.customerName,
+          date:           payload.date,
+          voided:         false,
+        };
+      }
     }
 
     if (!sale) return { sale: null, error: serverError };

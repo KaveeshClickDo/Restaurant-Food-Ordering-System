@@ -5,8 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
 import { useConnectivity } from "@/lib/connectivity";
+import { isCapacitorAndroid } from "@/lib/capacitorBridge";
+import { onPendingChange, pendingCount, drainOutbox } from "@/lib/posOutbox";
 import {
-  ChefHat, LogOut, WifiOff, RefreshCw,
+  ChefHat, LogOut, WifiOff, RefreshCw, Cloud,
   ShoppingCart, LayoutDashboard, Users, UserCog, Settings2,
   UtensilsCrossed, CalendarDays,
 } from "lucide-react";
@@ -59,10 +61,33 @@ function POSPageContent() {
   }, [refreshDiningTables]);
 
   // ── Connectivity ──────────────────────────────────────────────────────────
-  // Sales go straight to the server (no offline queue), so the only thing
-  // the connectivity hook drives now is the "card payments unavailable"
-  // offline banner below.
+  // On web, sales hard-fail when offline — the banner below tells the cashier
+  // to wait. On Capacitor Android, the cashier can keep ringing up cash sales
+  // and they queue to the local SQLite outbox (lib/posOutbox.ts); the drain
+  // effect immediately below pushes them to the server when connectivity
+  // restores.
   const { isOnline, recheck } = useConnectivity();
+  const onAndroid = isCapacitorAndroid();
+
+  // ── Outbox pending-count subscription ─────────────────────────────────────
+  // The outbox lives in on-device SQLite. We subscribe to its change events
+  // (fired by enqueue / drain) and also hydrate the initial value on mount so
+  // a queue that survives a page refresh is reflected immediately.
+  const [outboxCount, setOutboxCount] = useState(0);
+  useEffect(() => {
+    if (!onAndroid) return;
+    pendingCount().then(setOutboxCount).catch(() => {});
+    return onPendingChange(setOutboxCount);
+  }, [onAndroid]);
+
+  // ── Drain on connectivity ─────────────────────────────────────────────────
+  // Every time isOnline becomes true we kick a drain. drainOutbox latches
+  // against itself so a rapid sequence of online events collapses into a
+  // single in-flight pass — no manual prev-state tracking needed.
+  useEffect(() => {
+    if (!onAndroid || !isOnline) return;
+    drainOutbox().catch(() => {});
+  }, [onAndroid, isOnline]);
 
   // Mount guard: prevents SSR/hydration mismatch from localStorage state
   useEffect(() => { setMounted(true); }, []);
@@ -192,13 +217,16 @@ function POSPageContent() {
         </button>
       </header>
 
-      {/* Offline banner — sales now go straight to the server, so this is
-          purely a "card terminal may be unavailable" advisory. */}
+      {/* Offline banner. On web the cashier cannot complete a sale offline.
+          On Capacitor Android the outbox catches cash sales and the message
+          changes to reflect that — see lib/posOutbox.ts. */}
       {!isOnline && (
         <div className="flex-shrink-0 bg-amber-500/10 border-b border-amber-500/30 px-4 py-2 flex items-center gap-3">
           <WifiOff size={14} className="text-amber-400 flex-shrink-0" />
           <p className="text-amber-300 text-xs font-medium flex-1">
-            No internet connection — sales cannot be completed until you reconnect.
+            {onAndroid
+              ? "No internet connection — cash sales will queue and sync when you reconnect. Card payments unavailable."
+              : "No internet connection — sales cannot be completed until you reconnect."}
           </p>
           <button
             onClick={recheck}
@@ -207,6 +235,21 @@ function POSPageContent() {
           >
             <RefreshCw size={13} />
           </button>
+        </div>
+      )}
+
+      {/* Pending-sync banner — shown whenever the local SQLite outbox is
+          non-empty, regardless of connectivity. Online + non-zero means a
+          drain is in progress; offline + non-zero means the queue is waiting
+          for reconnection. */}
+      {onAndroid && outboxCount > 0 && (
+        <div className="flex-shrink-0 bg-blue-500/10 border-b border-blue-500/30 px-4 py-2 flex items-center gap-3">
+          <Cloud size={14} className={`text-blue-400 flex-shrink-0 ${isOnline ? "animate-pulse" : ""}`} />
+          <p className="text-blue-300 text-xs font-medium flex-1">
+            {isOnline
+              ? `Syncing ${outboxCount} offline sale${outboxCount > 1 ? "s" : ""}…`
+              : `${outboxCount} sale${outboxCount > 1 ? "s" : ""} pending sync — will upload when reconnected.`}
+          </p>
         </div>
       )}
 

@@ -46,6 +46,14 @@ export const PosSaleCreateSchema = z.object({
   // card, clamps the amount to its balance, stamps the sale row, and redeems.
   giftCardCode:   z.string().optional(),
   giftCardUsed:   Money.optional(),
+  // ── Offline-tablet fields (Phase 1 pass-through; strict per-terminal
+  // validation lands in Phase 2) ────────────────────────────────────────────
+  // Set ONLY by the Capacitor Android client when running offline. Web POS
+  // sales leave these undefined and continue to use the server-side defaults
+  // (receipt_no via pos_receipt_seq, client_created_at NULL, terminal_id NULL).
+  receiptNo:        z.string().max(32).optional(),
+  terminalId:       z.string().max(64).optional(),
+  clientCreatedAt:  z.string().optional(),
 }).passthrough();
 
 export const PosSaleVoidSchema = z.object({
@@ -60,6 +68,33 @@ export const PosClockSchema = z.object({
   staffName: NonEmptyString,
   notes:     z.string().optional(),
 });
+
+// ── POS terminals (offline-capable Android tablets) ──────────────────────────
+// `prefix` is the receipt-number namespace for sales rung up on this terminal
+// (e.g. T1 → 'T1-1042'). 1–4 chars [A-Z0-9]; uniqueness among active terminals
+// is enforced by the partial unique index on pos_terminals.prefix.
+const TerminalPrefix = z.string().regex(
+  /^[A-Z0-9]{1,4}$/,
+  "Prefix must be 1-4 uppercase letters or digits (e.g. T1, BAR1).",
+);
+
+export const PosTerminalCreateSchema = z.object({
+  label:             NonEmptyString.max(40, "Label is too long."),
+  prefix:            TerminalPrefix,
+  // Optional device fingerprint hash supplied by the tablet at first
+  // registration. Admin-created terminals leave this blank until a device binds.
+  deviceFingerprint: z.string().max(128).optional(),
+}).strict();
+
+export const PosTerminalUpdateSchema = z.object({
+  label:             NonEmptyString.max(40).optional(),
+  prefix:            TerminalPrefix.optional(),
+  active:            z.boolean().optional(),
+  deviceFingerprint: z.string().max(128).optional(),
+}).strict().refine(
+  (v) => Object.keys(v).length > 0,
+  { message: "At least one field is required." },
+);
 
 // ── Order status / driver ────────────────────────────────────────────────────
 export const OrderStatusUpdateSchema = z.object({
