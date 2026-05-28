@@ -795,6 +795,44 @@ export function buildReservationVarMap(
   };
 }
 
+/**
+ * Dummy variable map for the gift card template preview pane. Mirrors what
+ * sendGiftCardDeliveredEmail builds at send time, but with sample values so
+ * the admin sees a realistic preview when editing the gift_card_delivered
+ * template. `personal_message` is rendered as the same styled blockquote the
+ * real sender uses, so the editor preview matches what recipients receive.
+ */
+export function buildGiftCardPreviewVarMap(settings: AdminSettings): Record<string, string> {
+  const primaryColor = settings.colors?.primaryColor ?? "#f97316";
+  const primaryColorLt = brandColorLight(primaryColor);
+  const sym            = settings.currency?.symbol ?? "£";
+
+  const restAddr = [
+    settings.restaurant.addressLine1,
+    settings.restaurant.city,
+    settings.restaurant.postcode,
+  ].filter(Boolean).join(", ");
+
+  const sampleMessage = "Happy birthday — enjoy a nice meal on me!";
+  const personalBlock = `<div style="background:${primaryColorLt};border-left:4px solid ${primaryColor};padding:14px 16px;margin:18px 0;border-radius:6px;font-style:italic;color:#374151">"${sampleMessage}"</div>`;
+
+  return {
+    customer_name:       "Alex",
+    customer_email:      "alex@example.com",
+    gift_code:           "GC-7K9X-LM3P-WT2Q",
+    gift_amount:         `${sym}50.00`,
+    gift_recipient_name: "Alex",
+    gift_sender_name:    "Jane Smith",
+    personal_message:    personalBlock,
+    gift_expires_at:     "11 Apr 2027",
+    restaurant_name:     settings.restaurant.name,
+    restaurant_phone:    settings.restaurant.phone,
+    restaurant_address:  restAddr,
+    brand_color:         primaryColor,
+    brand_color_light:   primaryColorLt,
+  };
+}
+
 /** Build dummy variable map for the admin preview pane. */
 export function buildReservationPreviewVarMap(settings: AdminSettings): Record<string, string> {
   const primaryColor = settings.colors?.primaryColor ?? "#f97316";

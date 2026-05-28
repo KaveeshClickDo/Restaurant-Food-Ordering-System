@@ -10,6 +10,7 @@ import {
   buildEmailDocument,
   buildPreviewVarMap,
   buildReservationPreviewVarMap,
+  buildGiftCardPreviewVarMap,
   sendEmailViaApi,
 } from "@/lib/emailTemplates";
 import {
@@ -17,7 +18,7 @@ import {
   AlignLeft, AlignCenter, AlignRight, Minus, Undo2,
   CheckCircle, AlertTriangle, Loader2, Eye, Pencil,
   ToggleLeft, ToggleRight, Send, Variable, Strikethrough,
-  Heading1, Heading2, CalendarDays, ShoppingBag,
+  Heading1, Heading2, CalendarDays, ShoppingBag, Gift,
 } from "lucide-react";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -34,8 +35,15 @@ function sanitizePreviewHtml(html: string): string {
     .replace(/\bon\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, "");
 }
 
-function isReservationEvent(event: EmailTemplateEvent): boolean {
-  return event.startsWith("reservation_");
+// Three template families share this editor — order / reservation / gift card.
+// The kind controls which preview-var helper, which variable group is shown
+// in the picker, and which sample data the subject placeholder hints at.
+type EventKind = "order" | "reservation" | "gift_card";
+
+function eventKindOf(event: EmailTemplateEvent): EventKind {
+  if (event.startsWith("reservation_")) return "reservation";
+  if (event.startsWith("gift_card_"))   return "gift_card";
+  return "order";
 }
 
 const VAR_STYLE =
@@ -43,12 +51,54 @@ const VAR_STYLE =
   "border-radius:4px;padding:0 5px;font-size:0.82em;font-family:monospace;" +
   "color:#92400e;cursor:default;user-select:none;margin:0 2px;line-height:1.6;";
 
+// Wrap every {{variable}} occurrence in a styled chip — but ONLY when the
+// token appears in visible text content, not when it sits inside an HTML
+// attribute (`style="color:{{brand_color}}"`, `href="{{cancel_link}}"`, etc.).
+// The old version did a blind regex replace on the raw HTML string, which
+// happily inserted a <span> inside attribute values like
+//   style="color:<span ...>{{brand_color}}</span>;..."
+// producing broken HTML, a corrupted contenteditable view, and a "ruined view"
+// once the corrupted DOM was serialised back to storage on save (QA bug:
+// "changes are not updating correctly").
+//
+// We instead parse the HTML, walk text nodes via a TreeWalker, and only
+// inject the chip span where the token is genuinely visible. Attribute
+// values are left untouched as literal `{{var}}` text, which is exactly
+// what applyVars() needs at send time.
 function storageToDisplay(html: string): string {
-  return html.replace(
-    /\{\{([a-z_]+)\}\}/g,
-    (_, v) =>
-      `<span contenteditable="false" data-var="${v}" style="${VAR_STYLE}">{{${v}}}</span>`,
-  );
+  if (typeof document === "undefined") return html;  // SSR safety
+  const root = document.createElement("div");
+  root.innerHTML = html;
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const targets: Text[] = [];
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const text = (node as Text).nodeValue ?? "";
+    if (/\{\{[a-z_]+\}\}/.test(text)) targets.push(node as Text);
+  }
+
+  for (const textNode of targets) {
+    const text = textNode.nodeValue ?? "";
+    const frag = document.createDocumentFragment();
+    const re = /\{\{([a-z_]+)\}\}/g;
+    let lastIdx = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      if (m.index > lastIdx) frag.appendChild(document.createTextNode(text.slice(lastIdx, m.index)));
+      const span = document.createElement("span");
+      span.contentEditable = "false";
+      span.setAttribute("data-var", m[1]);
+      span.setAttribute("style", VAR_STYLE);
+      span.textContent = `{{${m[1]}}}`;
+      frag.appendChild(span);
+      lastIdx = m.index + m[0].length;
+    }
+    if (lastIdx < text.length) frag.appendChild(document.createTextNode(text.slice(lastIdx)));
+    textNode.parentNode?.replaceChild(frag, textNode);
+  }
+
+  return root.innerHTML;
 }
 
 function displayToStorage(container: HTMLElement): string {
@@ -244,16 +294,17 @@ function EmailPreview({
   subject,
   body,
   settings,
-  isReservation,
+  kind,
 }: {
   subject: string;
   body: string;
   settings: ReturnType<typeof useApp>["settings"];
-  isReservation: boolean;
+  kind: EventKind;
 }) {
-  const vars = isReservation
-    ? buildReservationPreviewVarMap(settings)
-    : buildPreviewVarMap(settings);
+  const vars =
+    kind === "gift_card"   ? buildGiftCardPreviewVarMap(settings)    :
+    kind === "reservation" ? buildReservationPreviewVarMap(settings) :
+                             buildPreviewVarMap(settings);
 
   const resolvedSubject = applyVars(subject, vars);
   const resolvedBody    = applyVars(body,    vars);
@@ -284,7 +335,7 @@ function EmailPreview({
         />
       </div>
       <p className="text-[11px] text-gray-400 text-center">
-        Preview uses sample data — actual emails will contain real {isReservation ? "reservation" : "order"} details.
+        Preview uses sample data — actual emails will contain real {kind === "gift_card" ? "gift card" : kind === "reservation" ? "reservation" : "order"} details.
       </p>
     </div>
   );
@@ -298,12 +349,12 @@ function TestSendWidget({
   subject,
   body,
   settings,
-  isReservation,
+  kind,
 }: {
   subject: string;
   body: string;
   settings: ReturnType<typeof useApp>["settings"];
-  isReservation: boolean;
+  kind: EventKind;
 }) {
   const [email,     setEmail]     = useState("");
   const [sendState, setSendState] = useState<SendState>("idle");
@@ -314,9 +365,10 @@ function TestSendWidget({
     setSendState("sending");
     setSendError("");
 
-    const vars = isReservation
-      ? buildReservationPreviewVarMap(settings)
-      : buildPreviewVarMap(settings);
+    const vars =
+      kind === "gift_card"   ? buildGiftCardPreviewVarMap(settings)    :
+      kind === "reservation" ? buildReservationPreviewVarMap(settings) :
+                               buildPreviewVarMap(settings);
 
     const resolvedSubject = applyVars(subject, vars);
     const resolvedBody    = applyVars(body,    vars);
@@ -399,6 +451,14 @@ const SIDEBAR_GROUPS = [
     icon: CalendarDays,
     filter: (e: EmailTemplateEvent) => e.startsWith("reservation_"),
   },
+  {
+    // Surfacing this group exposes the gift_card_delivered template that was
+    // already sent at runtime but had no UI to edit (QA: "for some emails no
+    // templates eg: Gift card email template").
+    label: "Gift Card Emails",
+    icon: Gift,
+    filter: (e: EmailTemplateEvent) => e.startsWith("gift_card_"),
+  },
 ];
 
 // ─── Main panel ───────────────────────────────────────────────────────────────
@@ -411,7 +471,7 @@ export default function EmailTemplatesPanel() {
   const [activeView,    setActiveView]    = useState<"edit" | "preview">("edit");
   const [saved,         setSaved]         = useState(false);
 
-  const isResv = isReservationEvent(selectedEvent);
+  const kind: EventKind = eventKindOf(selectedEvent);
 
   const currentTemplate = templates.find((t) => t.event === selectedEvent);
   const [subject, setSubject] = useState(currentTemplate?.subject ?? "");
@@ -446,10 +506,14 @@ export default function EmailTemplatesPanel() {
   const cfg = EVENT_CONFIGS.find((c) => c.event === selectedEvent)!;
   const enabledCount = templates.filter((t) => t.enabled).length;
 
-  // Variable groups shown in the editor depend on the template category
-  const varGroupFilter = isResv
-    ? ["Customer", "Reservation", "Restaurant"]
-    : ["Customer", "Order", "Restaurant"];
+  // Variable groups shown in the editor depend on the template category.
+  // Branding vars (brand_color etc.) are intentionally omitted from the picker
+  // — they're already baked into the default templates via style attributes
+  // and admins don't typically need to insert them as visible chips.
+  const varGroupFilter =
+    kind === "gift_card"   ? ["Customer", "Gift Card",    "Restaurant"] :
+    kind === "reservation" ? ["Customer", "Reservation",  "Restaurant"] :
+                             ["Customer", "Order",        "Restaurant"];
 
   return (
     <div className="space-y-5">
@@ -584,16 +648,16 @@ export default function EmailTemplatesPanel() {
                       value={subject}
                       onChange={(e) => setSubject(e.target.value)}
                       placeholder={
-                        isResv
-                          ? "e.g. Your reservation {{booking_ref}} is confirmed"
-                          : "e.g. Your order {{order_id}} has been confirmed"
+                        kind === "gift_card"   ? "e.g. 🎁 You've received a gift card from {{gift_sender_name}}" :
+                        kind === "reservation" ? "e.g. Your reservation {{booking_ref}} is confirmed" :
+                                                 "e.g. Your order {{order_id}} has been confirmed"
                       }
                       className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
                     />
                     <p className="text-[11px] text-gray-400 mt-1">
                       Variables like{" "}
                       <code className="bg-gray-100 px-1 rounded">
-                        {isResv ? "{{booking_ref}}" : "{{order_id}}"}
+                        {kind === "gift_card" ? "{{gift_code}}" : kind === "reservation" ? "{{booking_ref}}" : "{{order_id}}"}
                       </code>{" "}
                       are replaced with real values when sent.
                     </p>
@@ -617,7 +681,7 @@ export default function EmailTemplatesPanel() {
                   subject={subject}
                   body={body}
                   settings={settings}
-                  isReservation={isResv}
+                  kind={kind}
                 />
               )}
             </div>
@@ -628,7 +692,7 @@ export default function EmailTemplatesPanel() {
             subject={subject}
             body={body}
             settings={settings}
-            isReservation={isResv}
+            kind={kind}
           />
 
           {/* Variable reference */}
@@ -636,7 +700,9 @@ export default function EmailTemplatesPanel() {
             <div className="px-5 py-3.5 border-b border-gray-100">
               <p className="text-sm font-bold text-gray-900">Variable reference</p>
               <p className="text-xs text-gray-400 mt-0.5">
-                {isResv
+                {kind === "gift_card"
+                  ? "Gift card variables available for this template"
+                  : kind === "reservation"
                   ? "Reservation variables available for this template"
                   : "Order variables available for this template"}
               </p>
