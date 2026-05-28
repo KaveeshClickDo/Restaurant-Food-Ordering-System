@@ -31,16 +31,27 @@ export async function PATCH(
   if (body.role        !== undefined) patch.role         = body.role;
   if (body.pin) patch.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
 
-  // Bump session_version on PIN / email change or deactivation so the chef's
-  // open KDS tab is logged out on its next poll instead of staying authed.
-  const credentialsChanged =
-    body.pin !== undefined || body.email !== undefined || body.active === false;
-  if (credentialsChanged) {
-    const { data: current } = await supabaseAdmin
-      .from("kitchen_staff")
-      .select("session_version")
-      .eq("id", id)
-      .maybeSingle();
+  // Bump session_version ONLY on a real credential change — not just because
+  // the form re-sent an existing field. Without this guard every harmless edit
+  // (name / role / avatar) signs the chef out of the KDS tab because the form
+  // posts the whole row whether or not anything actually changed.
+  const { data: current } = await supabaseAdmin
+    .from("kitchen_staff")
+    .select("email, active, session_version")
+    .eq("id", id)
+    .maybeSingle();
+
+  const currentEmail  = String(current?.email ?? "").toLowerCase();
+  const currentActive = current?.active !== false;
+
+  const newEmail     = body.email?.toLowerCase();
+  const emailChanged = newEmail !== undefined && newEmail !== currentEmail;
+  // body.pin is only present when the admin typed a new one — KitchenStaffPanel
+  // strips a blank pin before sending.
+  const pinChanged   = body.pin !== undefined;
+  const deactivating = body.active === false && currentActive === true;
+
+  if (emailChanged || pinChanged || deactivating) {
     patch.session_version = Number(current?.session_version ?? 1) + 1;
   }
 

@@ -16,6 +16,7 @@ import {
   getWaiterSession,
   unauthorizedJson,
 } from "@/lib/auth";
+import { sendOrderStatusEmail }      from "@/lib/emailServer";
 
 // PUT body is empty — no schema needed. Auth + DB-state check are the guards.
 
@@ -63,6 +64,14 @@ export async function PUT(
     console.error("pos/orders/[id]/collected PUT:", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
+
+  // Notify the customer that their collection order has been picked up
+  // (status → "delivered"). Fire-and-forget so an SMTP outage never fails the
+  // status update. sendOrderStatusEmail is a no-op for guest / POS walk-in
+  // orders, so in-restaurant cash sales don't trigger a bogus send.
+  sendOrderStatusEmail(id, "delivered").catch((err: unknown) =>
+    console.error("[pos/collected] delivered email:", err instanceof Error ? err.message : err)
+  );
 
   return NextResponse.json({ ok: true });
 }

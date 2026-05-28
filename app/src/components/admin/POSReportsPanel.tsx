@@ -37,7 +37,9 @@ function loadPOS<T>(key: string, fallback: T): T {
 // aggregate across all tills regardless of which device the admin is on.
 async function fetchAllSales(): Promise<POSSale[]> {
   try {
-    const res = await fetch("/api/pos/sales?limit=5000");
+    // no-store: without it the browser serves the cached sales response, so
+    // the Refresh button spins but the numbers never change.
+    const res = await fetch("/api/pos/sales?limit=5000", { cache: "no-store" });
     if (!res.ok) return [];
     const json = await res.json() as { ok: boolean; sales?: POSSale[] };
     return json.ok && Array.isArray(json.sales) ? json.sales : [];
@@ -86,8 +88,13 @@ const PERIODS: { id: Period; label: string }[] = [
 function getDateRange(period: Period, customStart: string, customEnd: string): [Date, Date] {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // Upper bound for open-ended periods is the END of today, not the current
+  // instant. Using `now` froze the range at page-load time, so a sale rung up
+  // afterwards fell past endDate and never appeared — even after Refresh
+  // re-fetched it (QA: "refresh button works but content not updated").
+  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
   switch (period) {
-    case "today":     return [today, now];
+    case "today":     return [today, endOfToday];
     case "yesterday": {
       const y = new Date(today); y.setDate(y.getDate() - 1);
       const ye = new Date(today); ye.setMilliseconds(-1);
@@ -95,13 +102,13 @@ function getDateRange(period: Period, customStart: string, customEnd: string): [
     }
     case "week": {
       const w = new Date(today); w.setDate(w.getDate() - 6);
-      return [w, now];
+      return [w, endOfToday];
     }
-    case "month": return [new Date(today.getFullYear(), today.getMonth(), 1), now];
-    case "last30": { const l = new Date(today); l.setDate(l.getDate() - 29); return [l, now]; }
+    case "month": return [new Date(today.getFullYear(), today.getMonth(), 1), endOfToday];
+    case "last30": { const l = new Date(today); l.setDate(l.getDate() - 29); return [l, endOfToday]; }
     case "custom": return [
       customStart ? new Date(customStart) : new Date(0),
-      customEnd   ? new Date(customEnd + "T23:59:59") : now,
+      customEnd   ? new Date(customEnd + "T23:59:59") : endOfToday,
     ];
   }
 }

@@ -715,7 +715,28 @@ export function AppProvider({
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "app_settings" },
         ({ new: row }) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          setSettings(buildSettingsFromData((row as any).data ?? null));
+          setSettings((prev) => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const next = buildSettingsFromData((row as any).data ?? null);
+            // diningTables / waiters / kitchenStaff live in their own DB
+            // tables, not in app_settings.data. buildSettingsFromData blanks
+            // them to [] by design — without preserving them here every realtime
+            // app_settings UPDATE would wipe the POS table grid (the QA bug:
+            // "when admin adds a table, all tables vanish then reappear").
+            return {
+              ...next,
+              diningTables: prev.diningTables,
+              waiters:      prev.waiters,
+              kitchenStaff: prev.kitchenStaff,
+            };
+          });
+          // Admin's table CRUD writes diningTables back through updateSettings
+          // (which persists to app_settings.data and triggers this realtime),
+          // so use that signal to refresh the dedicated dining_tables table.
+          // refreshDiningTables is no-op-if-unchanged, so this is cheap, and
+          // when it does update it appends the new row instead of replacing
+          // — existing cards stay in place via React key reconciliation.
+          refreshDiningTables();
         })
       // Categories
       .on("postgres_changes", { event: "*", schema: "public", table: "categories" },

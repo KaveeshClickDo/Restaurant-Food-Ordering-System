@@ -171,8 +171,8 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
             <HeadIcon size={18} />
           </div>
           <div className="flex flex-col leading-snug">
-            <h2 className="font-bold text-gray-900 text-lg leading-tight">{heading} · Today</h2>
-            <span className="text-[11px] font-semibold text-gray-400 mt-0.5">Live · read-only · today&apos;s orders</span>
+            <h2 className="font-bold text-gray-900 text-lg leading-tight">{heading} · Today / Ongoing</h2>
+            <span className="text-[11px] font-semibold text-gray-400 mt-0.5">Live · read-only · ongoing orders &amp; today&apos;s completed</span>
           </div>
         </div>
         <button

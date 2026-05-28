@@ -633,6 +633,20 @@ export default function DeliveryPanel() {
 
   return (
     <div className="space-y-6">
+      {/* Header — mirrors POS / Dine-in monitor panels. The "Today / Ongoing"
+          qualifier matches what the panel actually shows: the kanban lists
+          ongoing orders of any date, the "Completed today" table below is
+          today-only. */}
+      <div className="flex items-center gap-2">
+        <div className="w-9 h-9 rounded-xl bg-orange-50 text-orange-500 flex items-center justify-center">
+          <Truck size={18} />
+        </div>
+        <div className="flex flex-col leading-snug">
+          <h2 className="font-bold text-gray-900 text-lg leading-tight">Online Orders · Today / Ongoing</h2>
+          <span className="text-[11px] font-semibold text-gray-400 mt-0.5">Live · ongoing orders &amp; today&apos;s completed</span>
+        </div>
+      </div>
+
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard

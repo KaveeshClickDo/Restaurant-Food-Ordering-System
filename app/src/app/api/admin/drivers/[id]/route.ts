@@ -54,18 +54,29 @@ export async function PUT(
     update.password_hash = await bcrypt.hash(body.password, 12);
   }
 
-  // Bump session_version when credentials or active status change so any
-  // device the driver is still logged in on is signed out on its next request.
-  // active=false is included because verifyStaffSession already rejects inactive
-  // staff — bumping makes the invalidation explicit and survives reactivation.
-  const credentialsChanged =
-    body.email !== undefined || body.password !== undefined || body.active === false;
-  if (credentialsChanged) {
-    const { data: current } = await supabaseAdmin
-      .from("drivers")
-      .select("session_version")
-      .eq("id", id)
-      .maybeSingle();
+  // Bump session_version ONLY when a real credential change happens — not just
+  // when the form re-submits the field with its existing value. Otherwise every
+  // harmless edit (name / phone / notes) signs the driver out, because the form
+  // always sends the whole driver row whether or not anything changed.
+  const { data: current } = await supabaseAdmin
+    .from("drivers")
+    .select("email, active, session_version")
+    .eq("id", id)
+    .maybeSingle();
+
+  const currentEmail  = String(current?.email ?? "").toLowerCase();
+  const currentActive = current?.active !== false;        // null/undefined ≈ active
+
+  const newEmail        = body.email?.toLowerCase();
+  const emailChanged    = newEmail !== undefined && newEmail !== currentEmail;
+  // body.password is only present when the admin typed a new one (the form
+  // strips a blank password before sending — see DriversPanel.handleEdit).
+  const passwordChanged = body.password !== undefined;
+  // Transition active → inactive locks the driver out; flipping inactive → active
+  // doesn't need a bump (they couldn't have been logged in while disabled).
+  const deactivating    = body.active === false && currentActive === true;
+
+  if (emailChanged || passwordChanged || deactivating) {
     update.session_version = Number(current?.session_version ?? 1) + 1;
   }
 

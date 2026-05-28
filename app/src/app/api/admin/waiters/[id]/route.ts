@@ -37,17 +37,27 @@ export async function PATCH(
     patch.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
   }
 
-  // Bump session_version on credential / deactivation changes so any waiter
-  // device that's still signed in (PIN-based sessions persist across reloads)
-  // is logged out on its next request.
-  const credentialsChanged =
-    body.pin !== undefined || body.email !== undefined || body.active === false;
-  if (credentialsChanged) {
-    const { data: current } = await supabaseAdmin
-      .from("waiters")
-      .select("session_version")
-      .eq("id", id)
-      .maybeSingle();
+  // Bump session_version ONLY on a real credential change — not just because
+  // the form re-sent an existing field. Without this guard every harmless edit
+  // (name / role / hourly rate / avatar) signs the waiter out of their tablet
+  // because the form posts the whole row whether or not anything actually changed.
+  const { data: current } = await supabaseAdmin
+    .from("waiters")
+    .select("email, active, session_version")
+    .eq("id", id)
+    .maybeSingle();
+
+  const currentEmail  = String(current?.email ?? "").toLowerCase();
+  const currentActive = current?.active !== false;
+
+  const newEmail     = body.email?.toLowerCase();
+  const emailChanged = newEmail !== undefined && newEmail !== currentEmail;
+  // body.pin is only present when the admin typed a new one — WaitersPanel
+  // strips a blank pin before sending.
+  const pinChanged   = body.pin !== undefined;
+  const deactivating = body.active === false && currentActive === true;
+
+  if (emailChanged || pinChanged || deactivating) {
     patch.session_version = Number(current?.session_version ?? 1) + 1;
   }
 

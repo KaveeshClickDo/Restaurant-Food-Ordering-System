@@ -116,18 +116,17 @@ function POSPageContent() {
 
   const perms = currentStaff.permissions;
 
-  // hasTables: any dining tables exist (active or not) — shows Table Service tab
-  const hasTables      = (appSettings.diningTables?.length ?? 0) > 0;
-  // hasReservations: reservation system is explicitly enabled — shows Reservations tab
-  // Use || hasTables so it also appears alongside Table Service when tables are configured.
-  const hasReservations = (appSettings.reservationSystem?.enabled === true) || hasTables;
-
+  // Table Service and Reservations are always visible on POS — POS staff
+  // need to seat walk-ins and manage reservations regardless of whether any
+  // tables have been configured yet or how the admin has set the online
+  // reservation toggle (Admin → Reservations). That toggle controls the
+  // public booking page only; POS access is unconditional.
   const NAV = [
     { id: "sale"         as View, label: "Sale",          icon: ShoppingCart,    show: true },
     { id: "dashboard"    as View, label: "Dashboard",     icon: LayoutDashboard, show: perms.canAccessDashboard },
     { id: "customers"    as View, label: "Customers",     icon: Users,           show: perms.canManageCustomers },
-    { id: "tables"       as View, label: "Table Service", icon: UtensilsCrossed, show: hasTables },
-    { id: "reservations" as View, label: "Reservations",  icon: CalendarDays,    show: hasReservations },
+    { id: "tables"       as View, label: "Table Service", icon: UtensilsCrossed, show: true },
+    { id: "reservations" as View, label: "Reservations",  icon: CalendarDays,    show: true },
     { id: "staff"        as View, label: "Staff",         icon: UserCog,         show: perms.canManageStaff },
     { id: "settings"     as View, label: "Settings",      icon: Settings2,       show: perms.canAccessSettings },
   ].filter((n) => n.show);
