@@ -150,8 +150,8 @@ export default function GiftCardsPanel() {
         </div>
 
         {/* Outstanding liability stat */}
-        <div className="mt-4 bg-purple-50 border border-purple-100 rounded-xl px-4 py-3 flex items-center gap-3">
-          <TrendingUp size={16} className="text-purple-500" />
+        <div className="mt-4 bg-purple-50 border border-purple-100 rounded-xl px-4 py-3 flex flex-wrap items-center gap-3">
+          <TrendingUp size={16} className="text-purple-500 flex-shrink-0" />
           <div>
             <p className="text-xs text-purple-700 font-medium">Outstanding balance (liability)</p>
             <p className="text-lg font-bold text-purple-800 tabular-nums">{sym}{stats.totalOutstanding.toFixed(2)}</p>
