@@ -1008,7 +1008,7 @@ export default function ReservationsPanel() {
                   <div className="flex rounded-xl border border-gray-200 overflow-hidden">
                     {(["walk-in", "phone"] as const).map((s) => (
                       <button key={s} type="button" onClick={() => setAddSource(s)}
-                        className={`flex-1 py-2 text-sm font-semibold transition ${addSource === s ? "bg-orange-500 text-white" : "text-gray-500 hover:bg-gray-50"}`}>
+                        className={`flex-1 py-2 text-[13px] sm:text-sm font-semibold transition ${addSource === s ? "bg-orange-500 text-white" : "text-gray-500 hover:bg-gray-50"}`}>
                         {s === "walk-in" ? "Walk-in (check in now)" : "Phone booking"}
                       </button>
                     ))}
@@ -1017,7 +1017,7 @@ export default function ReservationsPanel() {
 
                 {/* Date + party. Date column is hidden for walk-ins — they're
                     seated now, so a "Seating now" pill replaces it. */}
-                <div className={`grid gap-3 ${addSource === "phone" ? "grid-cols-2" : "grid-cols-1"}`}>
+                <div className={`grid gap-4 ${addSource === "phone" ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
                   {addSource === "phone" && (
                     <div>
                       <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Date <span className="text-red-400">*</span></label>
@@ -1031,10 +1031,10 @@ export default function ReservationsPanel() {
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Guests <span className="text-red-400">*</span></label>
                     <div className="flex items-center gap-2">
                       <button type="button" onClick={() => setAddParty((p) => Math.max(1, p - 1))}
-                        className="w-9 h-9 rounded-full border border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-500 font-bold transition flex items-center justify-center">−</button>
+                        className="w-9 h-9 flex-shrink-0 rounded-full border border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-500 font-bold transition flex items-center justify-center">−</button>
                       <span className="text-gray-900 font-bold text-lg w-8 text-center">{addParty}</span>
                       <button type="button" onClick={() => setAddParty((p) => Math.min(maxParty, p + 1))}
-                        className="w-9 h-9 rounded-full border border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-500 font-bold transition flex items-center justify-center">+</button>
+                        className="w-9 h-9 flex-shrink-0 rounded-full border border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-500 font-bold transition flex items-center justify-center">+</button>
                       <span className="text-xs text-gray-400 ml-1">max {maxParty}</span>
                     </div>
                   </div>
