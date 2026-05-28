@@ -14,7 +14,7 @@ export default function SettingsView() {
   const { settings, setSettings, sales, exportSales } = usePOS();
   const { settings: appSettings } = useApp();
   const [local, setLocal] = useState({ ...settings });
-  const [tab, setTab] = useState<"general"|"menu"|"receipt"|"hardware">("general");
+  const [tab, setTab] = useState<"general" | "menu" | "receipt" | "hardware">("general");
   // Persistence is synchronous (localStorage), so we flash a brief "Saved"
   // confirmation rather than a fake spinner — addresses QA #33 (no feedback).
   const [savedKey, setSavedKey] = useState<SaveKey | null>(null);
@@ -38,7 +38,7 @@ export default function SettingsView() {
 
         {/* Sub-tabs */}
         <div className="flex gap-1.5 bg-slate-800/50 p-1 rounded-xl border border-slate-700">
-          {(["general","menu","receipt","hardware"] as const).map((t) => (
+          {(["general", "menu", "receipt", "hardware"] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)} className={`flex-1 px-1.5 py-2 rounded-lg text-xs font-semibold capitalize transition-all ${tab === t ? "bg-slate-700 text-white" : "text-slate-400 hover:text-white"}`}>
               {t}
             </button>
@@ -73,11 +73,11 @@ export default function SettingsView() {
                 <div key={f.key}>
                   <label className="text-xs text-slate-400 mb-1 block">{f.label}</label>
                   {f.type === "textarea" ? (
-                    <textarea rows={3} value={(local as Record<string,unknown>)[f.key] as string}
+                    <textarea rows={3} value={(local as Record<string, unknown>)[f.key] as string}
                       onChange={(e) => setLocal((p) => ({ ...p, [f.key]: e.target.value }))}
                       className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 resize-none" />
                   ) : (
-                    <input type={f.type} value={(local as Record<string,unknown>)[f.key] as string}
+                    <input type={f.type} value={(local as Record<string, unknown>)[f.key] as string}
                       onChange={(e) => setLocal((p) => ({ ...p, [f.key]: e.target.value }))}
                       className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500" />
                   )}
@@ -92,7 +92,17 @@ export default function SettingsView() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs text-slate-400 mb-1 block">Tax Rate (%)</label>
-                  <input type="number" step="0.5" value={local.taxRate} onChange={(e) => setLocal((p) => ({ ...p, taxRate: parseFloat(e.target.value) || 0 }))}
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={local.taxRate}
+                    placeholder="e.g. 20 for 20%"
+                    onChange={(e) => setLocal((p) => ({ ...p, taxRate: e.target.value === "" ? ("" as any) : parseFloat(e.target.value) }))}
+                    onBlur={() => {
+                      if (local.taxRate === ("" as any) || isNaN(Number(local.taxRate))) {
+                        setLocal((p) => ({ ...p, taxRate: 0 }));
+                      }
+                    }}
                     className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500" />
                 </div>
                 <div>
@@ -112,16 +122,14 @@ export default function SettingsView() {
                   {/* Inclusive VAT */}
                   <button
                     onClick={() => setLocal((p) => ({ ...p, taxInclusive: true }))}
-                    className={`text-left p-4 rounded-2xl border-2 transition-all ${
-                      local.taxInclusive
-                        ? "border-blue-500 bg-blue-500/10"
-                        : "border-slate-600 bg-slate-900 hover:border-slate-500"
-                    }`}
+                    className={`text-left p-4 rounded-2xl border-2 transition-all ${local.taxInclusive
+                      ? "border-blue-500 bg-blue-500/10"
+                      : "border-slate-600 bg-slate-900 hover:border-slate-500"
+                      }`}
                   >
                     <div className="flex items-center gap-2 mb-2">
-                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-                        local.taxInclusive ? "border-blue-400" : "border-slate-500"
-                      }`}>
+                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${local.taxInclusive ? "border-blue-400" : "border-slate-500"
+                        }`}>
                         {local.taxInclusive && <div className="w-2 h-2 rounded-full bg-blue-400" />}
                       </div>
                       <span className={`text-sm font-bold ${local.taxInclusive ? "text-blue-300" : "text-slate-300"}`}>
@@ -136,16 +144,14 @@ export default function SettingsView() {
                   {/* Exclusive VAT */}
                   <button
                     onClick={() => setLocal((p) => ({ ...p, taxInclusive: false }))}
-                    className={`text-left p-4 rounded-2xl border-2 transition-all ${
-                      !local.taxInclusive
-                        ? "border-orange-500 bg-orange-500/10"
-                        : "border-slate-600 bg-slate-900 hover:border-slate-500"
-                    }`}
+                    className={`text-left p-4 rounded-2xl border-2 transition-all ${!local.taxInclusive
+                      ? "border-orange-500 bg-orange-500/10"
+                      : "border-slate-600 bg-slate-900 hover:border-slate-500"
+                      }`}
                   >
                     <div className="flex items-center gap-2 mb-2">
-                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-                        !local.taxInclusive ? "border-orange-400" : "border-slate-500"
-                      }`}>
+                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${!local.taxInclusive ? "border-orange-400" : "border-slate-500"
+                        }`}>
                         {!local.taxInclusive && <div className="w-2 h-2 rounded-full bg-orange-400" />}
                       </div>
                       <span className={`text-sm font-bold ${!local.taxInclusive ? "text-orange-300" : "text-slate-300"}`}>
@@ -159,11 +165,10 @@ export default function SettingsView() {
                 </div>
 
                 {/* Mode hint */}
-                <div className={`mt-3 text-center text-xs font-semibold px-2 py-2 rounded-xl ${
-                  local.taxInclusive
-                    ? "bg-blue-900/30 text-blue-300"
-                    : "bg-orange-900/30 text-orange-300"
-                }`}>
+                <div className={`mt-3 text-center text-xs font-semibold px-2 py-2 rounded-xl ${local.taxInclusive
+                  ? "bg-blue-900/30 text-blue-300"
+                  : "bg-orange-900/30 text-orange-300"
+                  }`}>
                   {local.taxInclusive
                     ? `Inclusive VAT — ${local.taxRate}% extracted from price at checkout`
                     : `Exclusive VAT — ${local.taxRate}% added on top at checkout`}
@@ -200,11 +205,10 @@ export default function SettingsView() {
             <button
               onClick={() => saveSettings("general")}
               disabled={savedKey === "general"}
-              className={`w-full py-3.5 rounded-xl text-white font-bold text-sm transition-all flex items-center justify-center gap-2 ${
-                savedKey === "general"
-                  ? "bg-green-600"
-                  : "bg-orange-500 hover:bg-orange-400"
-              }`}
+              className={`w-full py-3.5 rounded-xl text-white font-bold text-sm transition-all flex items-center justify-center gap-2 ${savedKey === "general"
+                ? "bg-green-600"
+                : "bg-orange-500 hover:bg-orange-400"
+                }`}
             >
               {savedKey === "general" ? (
                 <><Check size={16} /> Saved</>
@@ -278,10 +282,10 @@ export default function SettingsView() {
                   <p className="text-[11px] text-slate-500 mt-1">Printed in large text at the top. Leave blank to use your branding name.</p>
                 </div>
                 {[
-                  { key: "receiptPhone",     label: "Phone Number", type: "tel",   placeholder: "e.g. 020 7123 4567" },
-                  { key: "receiptWebsite",   label: "Website",      type: "text",  placeholder: "e.g. www.restaurant.co.uk" },
-                  { key: "receiptEmail",     label: "Email",        type: "email", placeholder: "e.g. hello@restaurant.co.uk" },
-                  { key: "receiptVatNumber", label: "VAT Number",   type: "text",  placeholder: "e.g. GB 123 4567 89", hint: "Leave blank if not VAT registered" },
+                  { key: "receiptPhone", label: "Phone Number", type: "tel", placeholder: "e.g. 020 7123 4567" },
+                  { key: "receiptWebsite", label: "Website", type: "text", placeholder: "e.g. www.restaurant.co.uk" },
+                  { key: "receiptEmail", label: "Email", type: "email", placeholder: "e.g. hello@restaurant.co.uk" },
+                  { key: "receiptVatNumber", label: "VAT Number", type: "text", placeholder: "e.g. GB 123 4567 89", hint: "Leave blank if not VAT registered" },
                 ].map((f) => (
                   <div key={f.key} className={f.key === "receiptVatNumber" ? "sm:col-span-2" : ""}>
                     <label className="text-xs text-slate-400 mb-1 block">{f.label}</label>
@@ -303,7 +307,7 @@ export default function SettingsView() {
               <h3 className="text-white font-semibold text-sm">Bottom Section</h3>
               {[
                 { key: "receiptThankYouMessage", label: "Thank You Message", placeholder: "Thank you for your order!", hint: "Appears at the bottom of every receipt" },
-                { key: "receiptCustomMessage",   label: "Custom Message",     placeholder: "e.g. Follow us on Instagram · Use code THANKS10 for 10% off", hint: "Optional second line — great for promotions or social handles" },
+                { key: "receiptCustomMessage", label: "Custom Message", placeholder: "e.g. Follow us on Instagram · Use code THANKS10 for 10% off", hint: "Optional second line — great for promotions or social handles" },
               ].map((f) => (
                 <div key={f.key}>
                   <label className="text-xs text-slate-400 mb-1 block">{f.label}</label>
@@ -334,16 +338,16 @@ export default function SettingsView() {
                   const left = l.length > lw - 1 ? l.slice(0, lw - 2) + "~" : l.padEnd(lw);
                   return left + r;
                 };
-                const eq   = "═".repeat(W);
+                const eq = "═".repeat(W);
                 const dash = "─".repeat(W);
                 type Line = { text: string; bold?: boolean; large?: boolean; dim?: boolean };
                 const lines: Line[] = [];
 
                 const name = (local.receiptRestaurantName || appSettings.restaurant?.name || "Restaurant Name").toUpperCase();
                 lines.push({ text: center(name), bold: true, large: true });
-                if (local.receiptPhone)     lines.push({ text: center(local.receiptPhone) });
-                if (local.receiptWebsite)   lines.push({ text: center(local.receiptWebsite) });
-                if (local.receiptEmail)     lines.push({ text: center(local.receiptEmail) });
+                if (local.receiptPhone) lines.push({ text: center(local.receiptPhone) });
+                if (local.receiptWebsite) lines.push({ text: center(local.receiptWebsite) });
+                if (local.receiptEmail) lines.push({ text: center(local.receiptEmail) });
                 if (local.receiptVatNumber) lines.push({ text: center(`VAT: ${local.receiptVatNumber}`), dim: true });
                 lines.push({ text: eq });
                 lines.push({ text: "ORDER  ORD-A1B2C3D4", bold: true });
@@ -415,11 +419,10 @@ export default function SettingsView() {
             <button
               onClick={() => saveSettings("receipt")}
               disabled={savedKey === "receipt"}
-              className={`w-full py-3.5 rounded-xl text-white font-bold text-sm transition-all flex items-center justify-center gap-2 ${
-                savedKey === "receipt"
-                  ? "bg-green-600"
-                  : "bg-orange-500 hover:bg-orange-400"
-              }`}
+              className={`w-full py-3.5 rounded-xl text-white font-bold text-sm transition-all flex items-center justify-center gap-2 ${savedKey === "receipt"
+                ? "bg-green-600"
+                : "bg-orange-500 hover:bg-orange-400"
+                }`}
             >
               {savedKey === "receipt" ? (
                 <><Check size={16} /> Saved</>
@@ -465,11 +468,10 @@ export default function SettingsView() {
               <button
                 onClick={() => { setSettings({ ...settings, ...local }); flashSaved("smtp"); }}
                 disabled={savedKey === "smtp"}
-                className={`w-full py-2.5 rounded-xl text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
-                  savedKey === "smtp"
-                    ? "bg-green-600"
-                    : "bg-orange-500 hover:bg-orange-400"
-                }`}
+                className={`w-full py-2.5 rounded-xl text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${savedKey === "smtp"
+                  ? "bg-green-600"
+                  : "bg-orange-500 hover:bg-orange-400"
+                  }`}
               >
                 {savedKey === "smtp" ? (
                   <><Check size={14} /> Saved</>
@@ -498,7 +500,7 @@ export default function SettingsView() {
                 onClick={exportSales}
                 className="w-full px-3 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
               >
-                <Receipt size={14} className="flex-shrink-0"/> Export loaded sales as JSON
+                <Receipt size={14} className="flex-shrink-0" /> Export loaded sales as JSON
               </button>
             </div>
           </div>
