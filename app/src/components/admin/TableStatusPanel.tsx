@@ -204,7 +204,13 @@ function TableForm({
               <input
                 type="number" min={0} step="0.01"
                 value={form.vipPrice ?? 0}
-                onChange={(e) => set("vipPrice", parseFloat(e.target.value) || 0)}
+                placeholder="0.00"
+                onChange={(e) => set("vipPrice", e.target.value === "" ? ("" as any) : parseFloat(e.target.value))}
+                onBlur={() => {
+                  if (form.vipPrice === ("" as any) || isNaN(Number(form.vipPrice))) {
+                    set("vipPrice", 0);
+                  }
+                }}
                 className="w-full bg-white border border-gray-200 rounded-xl pl-7 pr-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition"
               />
             </div>
