@@ -135,7 +135,7 @@ export default function SiteSidebar({
             return (
               <button key={cat.id}
                 onClick={() => navigateToCategory(cat.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] transition-colors ${active
+                className={`w-full flex items-center gap-3 px-3 py-2 text-left rounded-xl text-[13.5px] transition-colors ${active
                     ? "bg-orange-50 text-orange-700 font-medium"
                     : "text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50"
                   }`}

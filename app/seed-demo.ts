@@ -28,7 +28,7 @@
 
 import pg from "pg";
 import bcrypt from "bcryptjs";
-import { categories as demoCategories, menuItems as demoMenuItems, mealPeriods as demoMealPeriods } from "./src/data/menu.js";
+import { categories as demoCategories, menuItems as demoMenuItems, mealPeriods as demoMealPeriods } from "./src/data/menu-new.js";
 import { mockCustomers } from "./src/data/customers.js";
 
 const HASH_ROUNDS = 10;

@@ -212,7 +212,7 @@ export default function SiteMobileHeader() {
             </button>
             {categories.map((cat) => (
               <button key={cat.id} onClick={() => navigateToCategory(cat.id)}
-                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] transition-colors text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50">
+                className="w-full flex items-center text-left gap-3 px-3 py-2 rounded-xl text-[13.5px] transition-colors text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50">
                 <span className="text-base leading-none">{cat.emoji}</span>
                 <span>{cat.name}</span>
               </button>
