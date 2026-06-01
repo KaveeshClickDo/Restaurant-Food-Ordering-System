@@ -1,5 +1,4 @@
 import { Category, MealPeriod, MenuItem } from "@/types";
-import { Sunshiney } from "next/font/google";
 
 export const categories: Category[] = [
   // Sri Lankan categories

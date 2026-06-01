@@ -97,9 +97,9 @@ export default function SettingsView() {
                     step="0.5"
                     value={local.taxRate}
                     placeholder="e.g. 20 for 20%"
-                    onChange={(e) => setLocal((p) => ({ ...p, taxRate: e.target.value === "" ? ("" as any) : parseFloat(e.target.value) }))}
+                    onChange={(e) => setLocal((p) => ({ ...p, taxRate: e.target.value === "" ? ("" as unknown as number) : parseFloat(e.target.value) }))}
                     onBlur={() => {
-                      if (local.taxRate === ("" as any) || isNaN(Number(local.taxRate))) {
+                      if (String(local.taxRate) === "" || isNaN(Number(local.taxRate))) {
                         setLocal((p) => ({ ...p, taxRate: 0 }));
                       }
                     }}
