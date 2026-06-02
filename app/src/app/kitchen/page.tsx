@@ -663,7 +663,7 @@ export default function KitchenPage() {
             <div className="flex items-center gap-2">
               <div
                 className="w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-[11px] flex-shrink-0"
-                style={{ backgroundColor: currentStaff.avatarColor }}
+                style={{ backgroundColor: currentStaff?.avatarColor ?? "#666" }}
               >
                 {initials(currentStaff.name)}
               </div>

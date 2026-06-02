@@ -18,7 +18,21 @@ import { rateLimit } from "@/lib/rateLimit";
 import { parseBody } from "@/lib/apiValidation";
 import { StaffPinLoginSchema } from "@/lib/schemas/auth";
 
-const PUBLIC_COLUMNS = "id, name, email, role, active, created_at";
+const PUBLIC_COLUMNS = "id, name, email, role, active, avatar_color, created_at";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapStaff(row: any) {
+  return {
+    id:          row.id,
+    name:        row.name,
+    role:        row.role,
+    active:      row.active,
+    avatarColor: row.avatar_color,
+    createdAt:   typeof row.created_at === "string"
+                   ? row.created_at
+                   : new Date(row.created_at).toISOString(),
+  };
+}
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
@@ -83,7 +97,7 @@ export async function GET() {
     if (!member) {
       return NextResponse.json({ ok: false, error: "Staff account not found or inactive." }, { status: 401 });
     }
-    return NextResponse.json({ ok: true, staff: member });
+    return NextResponse.json({ ok: true, staff: mapStaff(member) });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unexpected error";
     console.error("[kitchen/auth GET]", message);
