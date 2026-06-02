@@ -16,7 +16,11 @@ const navItems = [
   { href: "/account", label: "Profile", Icon: User },
 ];
 
-export default function SiteMobileHeader() {
+export default function SiteMobileHeader({
+  onReserve,
+}: {
+  onReserve: () => void;
+}) {
   const { settings, categories, currentUser, logout } = useApp();
   const { restaurant } = settings;
   const pathname = usePathname();
@@ -81,13 +85,13 @@ export default function SiteMobileHeader() {
           </Link>
 
           {reservationsEnabled && (
-            <Link href="/book"
+            <button onClick={onReserve}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors ${pathname.startsWith("/book") ? "bg-orange-500 text-white" : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100"
                 }`}
             >
               <CalendarDays size={13} strokeWidth={1.7} />
               <span className="hidden sm:inline">Book</span>
-            </Link>
+            </button>
           )}
 
           {headerLinks.map((link) => {
@@ -175,15 +179,15 @@ export default function SiteMobileHeader() {
                 </Link>
               );
             })}
-            
+
             {reservationsEnabled && (
-              <Link href="/book" onClick={close}
-                className={`flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors ${pathname.startsWith("/book") ? "bg-orange-500 text-white" : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
-                  }`}
+              <button
+                onClick={onReserve}
+                className="w-full flex items-center gap-3 px-3 py-2 mt-1 rounded-xl text-[13.5px] font-semibold transition-all border border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-500 hover:text-white hover:border-orange-500 active:scale-[0.98] group"
               >
                 <CalendarDays className="w-[17px] h-[17px]" strokeWidth={1.6} />
-                <span>Book a table</span>
-              </Link>
+                <span>Reserve a Table</span>
+              </button>
             )}
 
             {headerLinks.map((link) => {
