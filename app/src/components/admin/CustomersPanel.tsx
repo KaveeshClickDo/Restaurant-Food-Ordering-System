@@ -566,6 +566,8 @@ function ReceiptModal({
   const couponDisc  = order.couponDiscount ?? 0;
   const vatAmt      = order.vatAmount     ?? 0;
   const vatRate     = settings.taxSettings?.rate ?? 0;
+  const storeCreditUsed = order.storeCreditUsed ?? 0;
+  const giftCardUsed    = order.giftCardUsed    ?? 0;
 
   function handlePrint() {
     const html = buildPrintHtml(order, customer, rs, restaurantAddress, sym);
@@ -685,6 +687,18 @@ function ReceiptModal({
               <div className={`flex justify-between font-semibold ${order.vatInclusive ? "text-gray-400" : "text-orange-600"}`}>
                 <span>{order.vatInclusive ? `Incl. VAT (${vatRate}%)` : `VAT (${vatRate}%)`}</span>
                 <span>{order.vatInclusive ? `${sym}${vatAmt.toFixed(2)}` : `+${sym}${vatAmt.toFixed(2)}`}</span>
+              </div>
+            )}
+            {storeCreditUsed > 0 && (
+              <div className="flex justify-between text-blue-600 font-semibold">
+                <span>Store credit applied</span>
+                <span>−{sym}{storeCreditUsed.toFixed(2)}</span>
+              </div>
+            )}
+            {giftCardUsed > 0 && (
+              <div className="flex justify-between text-purple-600 font-semibold">
+                <span>Gift card applied</span>
+                <span>−{sym}{giftCardUsed.toFixed(2)}</span>
               </div>
             )}
           </div>
