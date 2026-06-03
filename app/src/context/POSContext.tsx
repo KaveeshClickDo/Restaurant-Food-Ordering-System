@@ -609,6 +609,20 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     );
   }, [adminTaxRate, adminTaxInclusive]);
 
+  // Mirror the admin Loyalty configuration into POSSettings. Without this, the
+  // POS will use its hardcoded seed defaults (1 point per £ / 0.01 value) 
+  // regardless of what the admin configures in the Operations panel.
+  const adminLoyaltyPointsPer = appSettings.loyaltyPointsPerPound ?? 1;
+  const adminLoyaltyPointValue = appSettings.loyaltyPointsValue ?? 0.01;
+  
+  useEffect(() => {
+    setSettings((p) =>
+      p.loyaltyPointsPerPound === adminLoyaltyPointsPer && p.loyaltyPointsValue === adminLoyaltyPointValue
+        ? p
+        : { ...p, loyaltyPointsPerPound: adminLoyaltyPointsPer, loyaltyPointsValue: adminLoyaltyPointValue }
+    );
+  }, [adminLoyaltyPointsPer, adminLoyaltyPointValue]);
+
   // products + categories are intentionally NOT persisted — see the useState
   // declarations above. Same rationale as Bug #11 (customers): caching shared
   // server-side data in localStorage lets stale rows resurrect after a wipe.
