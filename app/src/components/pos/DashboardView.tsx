@@ -6,7 +6,7 @@ import { useApp } from "@/context/AppContext";
 import { POSSale } from "@/types/pos";
 import {
   AlertTriangle, BadgeDollarSign, Banknote, BarChart3, CreditCard, Download,
-  Flame, Mail, Package, Percent, Printer, Receipt, RefreshCw,
+  Flame, Gift, Mail, Package, Percent, Printer, Receipt, RefreshCw,
   RotateCcw, Search, Shuffle, Tag, Trash2, TrendingUp, Trophy, Users, Utensils,
 } from "lucide-react";
 import { fmt, fmtPct, fmtDate, fmtTime, relTime } from "./_utils";
@@ -359,9 +359,10 @@ export default function DashboardView() {
 
   // ── Payment-row helper ──────────────────────────────────────────────────────
   const reportPaymentRows = [
+    { key: "gift_card", label: "Gift Card", bar: "bg-purple-400", Icon: Gift },
     { key: "cash", label: "Cash", bar: "bg-green-500", Icon: Banknote },
     { key: "card", label: "Card", bar: "bg-blue-500", Icon: CreditCard },
-    { key: "split", label: "Split", bar: "bg-purple-500", Icon: Shuffle },
+    { key: "split", label: "Split", bar: "bg-purple-700", Icon: Shuffle },
   ] as const;
 
   return (
@@ -492,7 +493,7 @@ export default function DashboardView() {
                   <CreditCard size={16} className="text-blue-400" /> Payment Mix
                 </h3>
                 <div className="space-y-3">
-                  {([["cash", "Cash", "bg-green-500"], ["card", "Card", "bg-blue-500"], ["split", "Split", "bg-purple-500"]] as [string, string, string][]).map(([key, label, color]) => {
+                  {([["gift_card", "Gift Card", "bg-purple-400"], ["cash", "Cash", "bg-green-500"], ["card", "Card", "bg-blue-500"], ["split", "Split", "bg-purple-700"]] as [string, string, string][]).map(([key, label, color]) => {
                     const pct = ((overviewPayMix[key as keyof typeof overviewPayMix] ?? 0) / overviewPayTotal) * 100;
                     return (
                       <div key={key}>
