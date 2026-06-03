@@ -201,7 +201,7 @@ export default function DashboardView() {
   }
   const maxRev = Math.max(...last7.map((d) => d.revenue), 1);
 
-  const overviewPayMix = { cash: 0, card: 0, split: 0 };
+  const overviewPayMix = { cash: 0, card: 0, split: 0, gift_card: 0 };
   for (const s of todaySales) overviewPayMix[s.paymentMethod] = (overviewPayMix[s.paymentMethod] || 0) + 1;
   const overviewPayTotal = totalTransactions || 1;
 
@@ -285,7 +285,7 @@ export default function DashboardView() {
   const marginPct = rRevenue > 0 ? (grossProfit / rRevenue) * 100 : 0;
 
   // Payment mix (reports)
-  const rPayMix = { cash: 0, card: 0, split: 0 };
+  const rPayMix = { cash: 0, card: 0, split: 0, gift_card: 0 };
   for (const s of rFiltered) rPayMix[s.paymentMethod] = (rPayMix[s.paymentMethod] ?? 0) + 1;
   const rPayTotal = rFiltered.length || 1;
 
