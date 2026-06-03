@@ -62,15 +62,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { pin_hash: _h, session_version: _v, ...safe } = member;
-
     const token = createSessionToken({
       id:             staffId,
       role:           "kitchen",
       sessionVersion: Number(member.session_version ?? 1),
     });
-    const res   = NextResponse.json({ ok: true, staff: safe });
+    const res   = NextResponse.json({ ok: true, staff: mapStaff(member) });
     setSessionCookie(res, COOKIE_KITCHEN, token);
     return res;
   } catch (err) {
