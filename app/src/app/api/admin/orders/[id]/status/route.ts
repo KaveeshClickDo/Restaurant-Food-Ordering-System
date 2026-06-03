@@ -45,7 +45,7 @@ export async function PUT(
   // decremented — oversold webhook orders never did).
   const { data: existing, error: fetchErr } = await supabaseAdmin
     .from("orders")
-    .select("payment_status, payment_method, status, items, oversold")
+    .select("payment_status, payment_method, status, items, oversold, customer_id, store_credit_used")
     .eq("id", id)
     .single();
 
@@ -96,6 +96,48 @@ export async function PUT(
       restoreStock(stockItems).catch((err) =>
         console.error("[admin/orders status] stock restore on cancel:", err instanceof Error ? err.message : err),
       );
+    }
+  }
+
+  // Restore the customer's store credit when an active order goes to
+  // "cancelled". Mirrors the stock-restore gate above — only triggers on the
+  // first transition into cancelled (`wasActive` guard) so re-saving a
+  // cancelled order doesn't double-restore. After topping the balance up we
+  // zero the stamp on the order row, which makes the operation idempotent if
+  // the same status-update is replayed. Guest / POS walk-in sentinels are
+  // skipped — they don't have a real customer balance to restore to.
+  const creditUsed = Number(existing.store_credit_used ?? 0);
+  const orderCustomerId = String(existing.customer_id ?? "");
+  if (
+    wasActive && becomingCancelled
+    && creditUsed > 0
+    && orderCustomerId && orderCustomerId !== "guest" && orderCustomerId !== "pos-walk-in"
+  ) {
+    try {
+      const { data: cust } = await supabaseAdmin
+        .from("customers")
+        .select("store_credit")
+        .eq("id", orderCustomerId)
+        .maybeSingle();
+      if (cust) {
+        const current    = Number(cust.store_credit ?? 0);
+        const newBalance = parseFloat((current + creditUsed).toFixed(2));
+        const { error: credErr } = await supabaseAdmin
+          .from("customers")
+          .update({ store_credit: newBalance })
+          .eq("id", orderCustomerId);
+        if (credErr) {
+          console.error("[admin/orders status] store credit restore:", credErr.message);
+        } else {
+          // Idempotency: zero the order's stamp so a replay sees 0 and no-ops.
+          await supabaseAdmin
+            .from("orders")
+            .update({ store_credit_used: 0 })
+            .eq("id", id);
+        }
+      }
+    } catch (err) {
+      console.error("[admin/orders status] store credit restore:", err instanceof Error ? err.message : err);
     }
   }
 
