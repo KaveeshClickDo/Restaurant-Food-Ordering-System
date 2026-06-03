@@ -1,5 +1,6 @@
 "use client";
 
+import { uuid } from "@/lib/uuid";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import { useIdleLogout } from "@/lib/useIdleLogout";
@@ -763,7 +764,7 @@ function ItemModal({
 
   function handleAdd() {
     onAdd({
-      lineId: crypto.randomUUID(),
+      lineId: uuid(),
       menuItemId: item.id,
       name: buildName(),
       unitPrice,
@@ -1293,7 +1294,7 @@ export default function WaiterPage() {
       ? item.offer
       : undefined;
     addToCart({
-      lineId: crypto.randomUUID(),
+      lineId: uuid(),
       menuItemId: item.id,
       name: item.name,
       unitPrice: basePrice,

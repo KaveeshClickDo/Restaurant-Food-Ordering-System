@@ -1,5 +1,6 @@
 "use client";
 
+import { uuid } from "@/lib/uuid";
 import React, {
   createContext,
   useCallback,
@@ -403,7 +404,7 @@ function buildSettingsFromData(raw: Record<string, unknown> | null): AdminSettin
     const converted: import("@/types").CustomPage[] = legacyFooterPages
       .filter((fp) => fp && fp.slug && !existingSlugs.has(fp.slug))
       .map((fp) => ({
-        id: (typeof crypto !== "undefined" && "randomUUID" in crypto) ? crypto.randomUUID() : `fp-${fp.slug}`,
+        id: (typeof crypto !== "undefined" && "randomUUID" in crypto) ? uuid() : `fp-${fp.slug}`,
         title: fp.title ?? "",
         slug: fp.slug,
         content: fp.content ?? "",
@@ -1393,7 +1394,7 @@ export function AppProvider({
   const register = async (
     name: string, email: string, phone: string, password: string,
   ): Promise<{ success: boolean; error?: string; needsVerification?: boolean; email?: string }> => {
-    const id = crypto.randomUUID();
+    const id = uuid();
     const createdAt = new Date().toISOString();
     try {
       const res = await fetch("/api/auth/register", {
@@ -1513,7 +1514,7 @@ export function AppProvider({
     mutateSettings((prev) => {
       const method = prev.paymentMethods.find((m) => m.id === id);
       const entry: AuditEntry = {
-        id: crypto.randomUUID(), timestamp: new Date().toISOString(),
+        id: uuid(), timestamp: new Date().toISOString(),
         action: `${enabled ? "Enabled" : "Disabled"} ${method?.name ?? id}`, actor: "Admin",
       };
       return {

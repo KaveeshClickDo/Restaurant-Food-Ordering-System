@@ -225,7 +225,7 @@ function POSPageContent() {
           <WifiOff size={14} className="text-amber-400 flex-shrink-0" />
           <p className="text-amber-300 text-xs font-medium flex-1">
             {onAndroid
-              ? "No internet connection — cash sales will queue and sync when you reconnect. Card payments unavailable."
+              ? "No internet connection — cash and card sales will queue and sync when you reconnect. Confirm card on terminal before completing. Gift cards unavailable."
               : "No internet connection — sales cannot be completed until you reconnect."}
           </p>
           <button

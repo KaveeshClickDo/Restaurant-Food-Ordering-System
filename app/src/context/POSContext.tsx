@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-const uuid = () => crypto.randomUUID();
+import { uuid } from "@/lib/uuid";
 import {
   POSStaff, POSProduct, POSCategory, POSModifier, POSCartItem, POSSale, POSCustomer,
   POSSettings, POSClockEntry, POSCartModifier, getOfferPrice, cartLineTotal, isOfferActive,
@@ -984,17 +984,19 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     const cashPayment = payments.filter((p) => p.method === "cash").reduce((s, p) => s + p.amount, 0);
     const change = cashTendered !== undefined ? cashTendered - cashPayment : undefined;
 
-    // ── Offline provisional fields (Capacitor Android only) ─────────────────
-    // Online web POS lets the server allocate receipt_no from pos_receipt_seq.
-    // On Android we may need to fall back to the local outbox if the network
-    // POST fails, and the cashier expects a receipt number on the printout
-    // BEFORE the sync round-trip. So we mint a provisional id here whenever
-    // we're in the native shell. Phase 2 replaces this with proper per-
-    // terminal numbering (e.g. T1-1042) sourced from pos_terminals.
+    // ── Offline-tablet provenance fields (Capacitor Android only) ──────────
+    // We stamp `clientCreatedAt` on every Capacitor sale so admin reports can
+    // tell tablet-rung-up sales from web-rung-up sales at a glance — Phase 1
+    // treats it as an audit field, Phase 1.6 makes it tax-significant for
+    // offline-then-synced rows.
+    //
+    // We deliberately do NOT pre-mint `receiptNo`. The server's
+    // `pos_receipt_seq` default ('R' || nextval) is the canonical allocator
+    // and we want online Capacitor sales to use it just like web sales do —
+    // otherwise every Capacitor sale would carry an OFF-… number even when
+    // synced live. The OFF-… receipt is minted ONLY in the offline-fallback
+    // branch below, when the network POST has actually failed.
     const onAndroid = isCapacitorAndroid();
-    const provisionalReceiptNo = onAndroid
-      ? `OFF-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 4).toUpperCase()}`
-      : undefined;
     const clientCreatedAt = onAndroid ? new Date().toISOString() : undefined;
 
     const saleId = uuid();
@@ -1029,10 +1031,9 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       customerName: assignedCustomer?.name,
       date: saleDate,
       voided: false,
-      // Offline-tablet fields — server accepts as opaque pass-throughs in
-      // Phase 1; strict per-terminal validation lands in Phase 2.
-      ...(provisionalReceiptNo ? { receiptNo: provisionalReceiptNo } : {}),
-      ...(clientCreatedAt      ? { clientCreatedAt }                  : {}),
+      // Stamp client time on every Capacitor sale (Phase 1 — opaque
+      // pass-through field). The server keeps `created_at` independently.
+      ...(clientCreatedAt ? { clientCreatedAt } : {}),
     };
 
     let sale: POSSale | null = null;
@@ -1078,8 +1079,17 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     // 4xx responses (validation, permission denied, stock conflict) are NOT
     // queued — they carry a clear `serverError` we surface to the cashier
     // directly. Replay would hit the same gate.
-    if (!sale && onAndroid && provisionalReceiptNo && !serverError) {
-      const enqueued = await enqueueSale(payload);
+    if (!sale && onAndroid && !serverError) {
+      // Mint the OFF-… receipt only NOW that we know we're going offline.
+      // Pre-minting would have made every online Capacitor sale carry an
+      // OFF-… number too (the server uses whatever receiptNo arrives in
+      // the payload, overriding pos_receipt_seq's R-… default).
+      const provisionalReceiptNo = `OFF-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 4).toUpperCase()}`;
+      // Re-attach receiptNo to the queued payload so the drain pass sends it
+      // to the server. The optimistic POSSale shown to the cashier carries
+      // the same number so the printed receipt matches the DB row on sync.
+      const offlinePayload = { ...payload, receiptNo: provisionalReceiptNo };
+      const enqueued = await enqueueSale(offlinePayload);
       if (enqueued) {
         sale = {
           id:             saleId,

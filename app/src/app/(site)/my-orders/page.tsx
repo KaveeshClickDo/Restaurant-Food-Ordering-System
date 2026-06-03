@@ -1,5 +1,6 @@
 "use client";
 
+import { uuid } from "@/lib/uuid";
 import { useState, useEffect } from "react";
 import { useApp } from "@/context/AppContext";
 import { useRouter } from "next/navigation";
@@ -419,7 +420,7 @@ export default function MyOrdersPage() {
                                                                 onClick={() => {
                                                                     order.items.forEach((line) => {
                                                                         addToCart({
-                                                                            id: crypto.randomUUID(),
+                                                                            id: uuid(),
                                                                             menuItemId: line.menuItemId ?? line.name,
                                                                             name: line.name,
                                                                             price: line.price,

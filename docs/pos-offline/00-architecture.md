@@ -2,6 +2,49 @@
 
 The single architectural decision the rest of this project flows from.
 
+## Mental model — Supabase is truth, SQLite is buffer
+
+**Supabase is always the source of truth.** It is the database for
+every surface of this project: the customer website, admin panel,
+kitchen display, waiter app, driver app, and the POS — online and
+offline alike.
+
+**On-device SQLite is a temporary buffer**, not a parallel database.
+It exists only inside the Capacitor Android shell and holds two things:
+
+1. **`outbox` table** — sales the cashier rang up while the network was
+   unreachable, waiting to be POSTed to Supabase on reconnect.
+2. **`kv_cache` table** — snapshots of menu / customers / settings
+   downloaded the last time the device was online, used to render the
+   POS UI when the network is unreachable.
+
+A useful analogy: SQLite is the **mailbox** for outgoing letters and a
+**photocopy** of recent incoming data. The post office (Supabase)
+remains the system of record. Once a letter is delivered the mailbox is
+emptied; once new mail arrives the photocopy is replaced.
+
+> **What SQLite is NOT:** it is not the system of record. It is not
+> permanent storage. It does not contain rows that don't exist in
+> Supabase. The Capacitor app does not "sync two databases" — it talks
+> to Supabase first, falls back to SQLite only when Supabase is
+> unreachable.
+
+### Three runtime scenarios
+
+The same `/pos` code runs in three places. The behaviour differs only
+because of the `isCapacitorAndroid()` runtime check.
+
+| Where `/pos` runs | Online behaviour | Offline behaviour | SQLite used? |
+|---|---|---|---|
+| **Chrome browser on desktop** | Reads / writes Supabase | Hard-fails (no fallback) | No |
+| **Chrome browser on tablet** | Reads / writes Supabase | Hard-fails (no fallback) | No |
+| **Capacitor APK on tablet** | Reads / writes Supabase, plus side-effect writes a snapshot to SQLite | Reads from SQLite cache, writes to SQLite outbox | Yes — outbox + cache |
+
+The web POS is unchanged by any work in this project. SQLite **only
+ever activates inside the Capacitor APK.** A browser session — even on
+the same tablet, in the device's Chrome — uses Supabase only, and has
+no offline support.
+
 ## The decision
 
 **One Next.js codebase. Two runtime modes, gated at runtime by
@@ -111,26 +154,31 @@ that Capacitor can bundle.
 
 ## What "offline" means here (honest scope)
 
-**In scope:**
-- Cash and card-via-external-terminal sales work fully offline.
-- Local printer access works fully offline (BT / USB / TCP-on-LAN).
-- Menu / staff / customer data is cached after first online session and
-  remains usable for a bounded window (proposed 7 days, configurable).
-- PIN login works offline against cached `pin_hash`.
+The bullet list that used to live here has been replaced by three
+dedicated docs that go deeper:
 
-**Out of scope (offline):**
-- Stripe / PayPal online payments — these require live API calls. UI
-  must surface this as disabled when offline.
-- Gift card validation against live balance — partial offline support is
-  possible (last-known balance) but full validation requires online.
-- Online-channel order ingestion (website orders, delivery) — those
-  arrive through Supabase realtime and are out of POS terminal scope.
+- **[11-offline-scope.md](./11-offline-scope.md)** — full
+  Allowed / Degraded / Blocked matrix. Every POS feature × every
+  connectivity state. The single source of truth for "is X allowed
+  offline?"
+- **[12-sync-protocol.md](./12-sync-protocol.md)** — for each data
+  type (sales, menu, customers, staff credentials, settings,
+  reservations, terminals), the sync direction, trigger, frequency,
+  stale-tolerance, and failure-recovery rules.
+- **[13-conflict-resolution.md](./13-conflict-resolution.md)** — every
+  conflict case (concurrent customer edits, deactivated cashier mid-
+  shift, stock oversells, mid-sync interruption, clock drift, long-
+  offline tablets, partial-coverage reports, schema migration during
+  offline period) with a concrete resolution policy.
 
-**Time bound:**
-- 24–72 hours of expected offline window. After 72h of disconnection
-  without a successful sync, the terminal shows a hard warning and
-  optionally locks new sales. Beyond a week, cached data is stale enough
-  that we'd rather fail than silently misrepresent stock or prices.
+Read those three before designing any feature that touches offline
+state. Headline scope, for quick reference:
+
+**Cash sales work offline. Card and gift card payments do not.**
+Receipt printing offline depends on Phase 6 hardware verification.
+Reports during a partial-sync state show a clear "may be incomplete"
+banner. Hard time-bound: tablet refuses new sales beyond 7 days
+offline.
 
 ## The three correctness problems the old POS got wrong
 

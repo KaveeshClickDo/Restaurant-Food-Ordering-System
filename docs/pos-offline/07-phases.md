@@ -10,16 +10,19 @@ across every phase boundary — that's the hard constraint, see
 | Phase | Name | Effort | Depends on | Ships value |
 |---|---|---|---|---|
 | 0 | Proof of life | done (software) | — | Sets baseline; hardware checks deferred to Phase 6 |
-| 1 | Offline outbox + native shell | 3–5 days | Phase 0 | Sales survive outages on Android |
+| 1 | Offline outbox + native shell | ~~3–5 days~~ done | Phase 0 | Sales survive outages on Android |
+| **1.5** | **Bundled assets — cold-start UI offline** | **1 day** | **Phase 1** | **Cold-boot tablet renders POS UI without internet** |
+| **1.6** | **Data cache hydration — cold-start data offline** | **2 days** | **Phase 1.5** | **Menu / customers / settings load from cache offline; conflict-policy columns shipped** |
 | 2 | Per-terminal receipt numbering | 2–3 days | Phase 1 | Multi-tablet deployment safe |
 | 3 | Offline stock + oversell policy | 2 days | Phase 1 | Admin can reconcile stock after outages |
-| 4 | Offline PIN auth | 1–2 days | Phase 1 | Cashier can log in offline |
+| 4 | Offline PIN auth | 1–2 days | Phase 1.6 | Cashier can log in offline |
 | 5 | Service worker + manifest re-enable | 1 day | — (can land anywhere) | Browser/PWA gains offline shell too |
 | 6 | Hardware verification + offline printing | 2–4 days | Hardware availability | Offline paper receipts |
 
-**Total: 11–17 working days.** Phase 6 starts whenever you get printer
-hardware. Phases 1–5 are sequential except 5, which can land in
-parallel.
+**Total: 12–18 working days.** Phase 1 already complete. Phases 1.5 +
+1.6 are inserted as a result of the scale-thinking review (see
+[09-decisions.md](./09-decisions.md) entries from 2026-05-29) — they
+close the cold-start offline gap that Phase 1 alone leaves open.
 
 ---
 
@@ -107,6 +110,196 @@ tablet (Android 8.0+, no printer needed).
 | IndexedDB quota exhaustion on a busy day | Retention pruning every 100 outbox entries: failed entries older than 7 days move to a "stuck" table the admin can inspect |
 | Capacitor SQLite plugin version drift | Pin exact version in `package.json`. Wait one minor version before updating in production |
 | Service worker double-registration when both PWA and Capacitor present | Phase 5 registers SW only when `!isCapacitorAndroid()` |
+
+---
+
+## Phase 1.5 — Bundled assets · cold-start UI offline
+
+After Phase 1, the Android tablet still needs internet on **first
+launch** to load the `/pos` page over HTTPS. Phase 1.5 closes this gap
+by bundling the static export of the POS routes into the APK itself.
+After this phase, opening the app with no internet renders the UI from
+device storage — only API calls fail (which Phase 1.6 then mitigates by
+hydrating from local cache).
+
+This phase also lands the 2-minute auto-recovery in `posOutbox.ts` for
+entries stuck in `syncing` status — per
+[13 § Case 8](./13-conflict-resolution.md#case-8--mid-sync-interruption-drain-killed-half-way).
+
+### 1.5.1 Files touched
+
+**New files:**
+- `app/next.config.capacitor.ts` — Next.js config variant with
+  `output: "export"`, scoped via path-rewrites or build-time route
+  filtering so only `/pos` and `/pos/login` end up in `out/`.
+- `app/src/lib/apiBase.ts` — module exporting `apiBase()`. Returns `""`
+  on web (relative URLs work) and the baked-in server URL when running
+  inside Capacitor bundled mode.
+
+**Edited files:**
+- `app/capacitor.config.ts` — remove the `server.url` block. Add
+  `appendUserAgent: "RestaurantPOS"` so server routes can log Capacitor
+  hits separately if useful.
+- `app/package.json` — new script `build:capacitor` that sets
+  `NEXT_CONFIG=capacitor` and runs `next build`, then `npx cap sync
+  android` to copy the export into the Android assets directory.
+- `app/src/context/POSContext.tsx` — every `fetch("/api/...")` becomes
+  `fetch(apiBase() + "/api/...")`. Roughly a dozen call sites.
+- `app/src/lib/posOutbox.ts` — drain logic gains 2-minute auto-recovery
+  for rows stuck `syncing` (per [13 § Case 8](./13-conflict-resolution.md)).
+- Every API call in `app/src/components/pos/**.tsx` — same `apiBase()`
+  wrapping. Roughly 30-50 call sites; can be done with a codemod or
+  search-and-replace.
+
+**Hoisted off the server side (for export compatibility):**
+- `app/src/app/layout.tsx` — `getDbSettings()` currently runs at request
+  time via Supabase REST fetch. For Capacitor's static export this
+  call must be hoisted client-side (POSContext can fetch on mount when
+  online). Keep the server-side path for the **web** build by using a
+  conditional in the layout: only `getDbSettings()` when not exporting.
+
+### 1.5.2 Acceptance criteria
+
+1. ✅ Web `/pos` still works byte-identically. `apiBase()` returns `""`
+   on web, so existing fetch calls are unchanged.
+2. ✅ `npm run build` (web) succeeds; `npm run build:capacitor` (Android)
+   also succeeds with a populated `out/` directory containing
+   `out/pos/index.html` and `out/pos/login/index.html`.
+3. ✅ APK built from `npm run android:build` opens in airplane mode on
+   a tablet that has never seen the internet, and the `/pos/login`
+   PIN-picker screen renders.
+4. ✅ Once online, PIN login completes, POS hydrates from server
+   normally. Online flow unchanged from Phase 1.
+5. ✅ `drainOutbox()` resets a `syncing` entry whose `last_attempt_at`
+   is > 2 minutes ago back to `pending` on the next drain pass.
+
+### 1.5.3 Out of scope
+
+- Offline login (Phase 4 — cached `pin_hash`).
+- Menu / customer / settings hydration when cold-start offline
+  (Phase 1.6).
+- iOS support (Kotlin printer plugins are Android-only).
+
+### 1.5.4 Conflict policies resolved
+
+| Conflict | Policy doc | Resolved how |
+|---|---|---|
+| Mid-sync interruption | [13 § Case 8](./13-conflict-resolution.md#case-8--mid-sync-interruption-drain-killed-half-way) | 2-min auto-reset in `drainOutbox()` |
+
+### 1.5.5 Known risks
+
+| Risk | Mitigation |
+|---|---|
+| Static export fails because of root-layout server fetch | Hoist the fetch to client-side conditional; verified in Phase 0 that `/pos` is `○ Static`. |
+| Two build configs drift apart | Single `next.config.capacitor.ts` extends the main config (uses `...require("./next.config")`), only overriding `output`. |
+| WebView can't resolve `apiBase()` URL (mixed-scheme issue) | The URL is baked in at build time as HTTPS; matches network_security_config.xml's existing whitelist. |
+| Static export skips a needed route | Verify via `out/` directory inspection in CI. |
+
+---
+
+## Phase 1.6 — Data cache hydration · cold-start data offline
+
+After Phase 1.5 the UI renders offline; this phase makes the UI
+**usable** offline by populating menu / customer / settings caches and
+serving them when the server is unreachable. Also lands the schema +
+route changes required by the conflict-resolution policies in
+[13-conflict-resolution.md](./13-conflict-resolution.md).
+
+### 1.6.1 Schema additions
+
+Append to [06-schema-changes.md](./06-schema-changes.md) — additive,
+nullable / defaulted, no migration of existing rows:
+
+```sql
+-- For LWW on customer profile fields ([13 § Case 1](./13-conflict-resolution.md#case-1))
+alter table customers add column if not exists updated_at timestamptz default now();
+
+-- For deactivated-cashier audit ([13 § Case 2](./13-conflict-resolution.md#case-2))
+alter table pos_sales add column if not exists staff_was_active boolean not null default true;
+
+-- For clock-drift surface ([13 § Case 5](./13-conflict-resolution.md#case-5))
+alter table pos_sales add column if not exists clock_drift_seconds integer;
+```
+
+### 1.6.2 Files touched
+
+**New files:** None (extending existing modules).
+
+**Edited files:**
+- `app/src/lib/posLocalDb.ts` — already has `kv_cache`; this phase
+  defines the keys per [12-sync-protocol.md](./12-sync-protocol.md):
+  `menu_snapshot`, `customers_snapshot`, `settings_snapshot`,
+  `staff_picker_snapshot`, `reservations_today`, `dining_tables_snapshot`,
+  `terminal_self`.
+- `app/src/context/POSContext.tsx`:
+  - On hydration: try server first; on network failure, fall back to
+    SQLite cache. Show stale banner if cache age > soft threshold.
+  - On successful server response: write fresh snapshot to cache with
+    timestamp.
+  - Stale-cache UI gates (refuse Sale tab if menu cache > 24h hard).
+- `app/src/app/api/pos/customers/[id]/route.ts` — PATCH accepts
+  optional `clientCreatedAt`. Returns 409 if `customers.updated_at` is
+  newer than the incoming `clientCreatedAt` (LWW collision).
+- `app/src/app/api/pos/sales/route.ts`:
+  - On insert: re-lookup `pos_staff.active` and stamp
+    `staff_was_active`.
+  - On insert: compute `clock_drift_seconds = (synced_at -
+    client_created_at) | epoch_seconds` and stamp.
+- `app/src/components/admin/POSReportsPanel.tsx` — new badge column for
+  `staff_was_active = false` and `clock_drift_seconds > 3600`. New
+  filter "Sales by deactivated staff" and "Drift > 1h".
+
+### 1.6.3 Acceptance criteria
+
+1. ✅ Web `/pos` unchanged. All hydration tries server first; cache is
+   only consulted on failure.
+2. ✅ Tablet cold-start offline (Phase 1.5 + 1.6): UI renders, last-
+   known menu snapshot loads, last-known customer list loads. Sale tab
+   functional. Cashier can ring sales.
+3. ✅ Cache age banner shows when soft-stale (per
+   [13 § Case 6](./13-conflict-resolution.md#case-6) thresholds).
+4. ✅ Sale tab disabled when hard-stale (menu > 24h).
+5. ✅ Customer PATCH with older `clientCreatedAt` returns 409. Outbox
+   surfaces the rejected change to the cashier.
+6. ✅ Offline sale by a cashier deactivated mid-shift syncs with
+   `staff_was_active = false`. Admin POSReportsPanel shows the badge.
+7. ✅ Clock-drift sale (test by setting tablet clock 2 hours back)
+   syncs with `clock_drift_seconds` populated. Admin sees the badge.
+8. ✅ **Local stock decrement for UI feedback:** when an offline sale
+   completes, the on-screen "X in stock" counter on the Sale tab ticks
+   down by the sold quantity immediately. This is purely a UI hint —
+   the server is still the truth (no client write to `menu_items`).
+   When the tablet syncs and a new menu pull happens, the on-screen
+   count snaps to the server value (which may differ if other channels
+   sold the same item — see [13 § Case 3](./13-conflict-resolution.md#case-3)).
+   Cart guard: if local cached `stock_qty` reaches 0 AND
+   `track_stock = true`, the "Add to cart" button is disabled with
+   "Out of stock" copy. Override permission may force-add (Phase 3).
+
+### 1.6.4 Out of scope
+
+- Offline customer create (deferred to Phase 6 — minor risk of
+  duplicate creates needs admin de-dup tool).
+- Offline reservations / dine-in / table management (Phase 6+).
+- Settings edits offline (always blocked — see
+  [11 § Settings](./11-offline-scope.md)).
+
+### 1.6.5 Conflict policies resolved
+
+| Conflict | Policy doc | Resolved how |
+|---|---|---|
+| Customer profile concurrent edits | [13 § Case 1](./13-conflict-resolution.md#case-1) | LWW via `updated_at` + 409 on out-of-order patch |
+| Deactivated cashier mid-shift | [13 § Case 2](./13-conflict-resolution.md#case-2) | `staff_was_active` stamp + admin badge |
+| Clock drift | [13 § Case 5](./13-conflict-resolution.md#case-5) | `clock_drift_seconds` stamp + admin badge |
+| Long-offline stale data | [13 § Case 6](./13-conflict-resolution.md#case-6) | Tiered banner/refusal per cache age |
+
+### 1.6.6 Known risks
+
+| Risk | Mitigation |
+|---|---|
+| LWW false-409 from clock-drifted clients | Server clamps incoming `clientCreatedAt` if drift > 1h; uses `now()` instead and logs the divergence. |
+| Cache size grows unbounded | Limit `customers_snapshot` to 5000 most-recent rows; trim on each refresh. Same for `pos_sales` local mirror if added. |
+| Stale-cache UI banner annoys cashiers during normal flaky-internet | Soft threshold is 4h for menu; not triggered by short outages. |
 
 ---
 
@@ -381,9 +574,11 @@ when the first non-obvious choice arises in implementation).
 
 | After phase | What customers see |
 |---|---|
-| 1 | Internal: single-tablet Android POS that survives outages. **Not deployed to multi-tablet customers yet.** |
-| 2 | Internal: multi-tablet correctness. Still not deployed if PIN-offline matters. |
-| 3 | Internal: oversell handling. Still requires per-cashier offline login (Phase 4). |
-| 4 | **First customer release of the Android POS.** Single- or multi-tablet, fully offline-tolerant. Receipts via screen + email-on-sync. |
+| 1 | Internal: Android POS that survives **mid-session** outages. Cold-start still requires internet. |
+| **1.5** | Internal: Android POS that **renders** offline from cold-start. Login + data still require internet. |
+| **1.6** | Internal: Android POS that's **usable** offline from cold-start. Menu / customers / settings hydrate from cache. Login still online-only. |
+| 2 | Internal: multi-tablet correctness — per-terminal receipt namespace. |
+| 3 | Internal: oversell handling + admin reconciliation panel. |
+| 4 | **First customer release of the Android POS.** Single- or multi-tablet, fully cold-start offline-tolerant including PIN login. Receipts via screen + email-on-sync. |
 | 5 | Web `/pos` becomes a PWA. Browser users can install + use offline. Independent value, no Android coordination. |
-| 6 | Offline paper receipts. Closes the last UX gap. |
+| 6 | Offline paper receipts via native printer plugins. Closes the last UX gap. |

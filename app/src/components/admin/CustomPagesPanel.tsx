@@ -1,5 +1,6 @@
 "use client";
 
+import { uuid } from "@/lib/uuid";
 import { useState, useEffect } from "react";
 import { useApp } from "@/context/AppContext";
 import RichEditor from "@/components/admin/RichEditor";
@@ -81,7 +82,7 @@ export default function CustomPagesPanel() {
   useEffect(() => {
     if (selectedId === "new") {
       setDraft({
-        id: crypto.randomUUID(),
+        id: uuid(),
         title: "",
         slug: "",
         content: "",

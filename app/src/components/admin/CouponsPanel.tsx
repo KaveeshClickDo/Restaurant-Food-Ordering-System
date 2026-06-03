@@ -1,5 +1,6 @@
 "use client";
 
+import { uuid } from "@/lib/uuid";
 import { useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { Coupon, CouponType } from "@/types";
@@ -432,7 +433,7 @@ export default function CouponsPanel() {
   const existingCodes = coupons.map((c) => c.code);
 
   function handleCreate(data: Omit<Coupon, "id" | "usageCount" | "createdAt">) {
-    addCoupon({ ...data, id: crypto.randomUUID(), usageCount: 0, createdAt: new Date().toISOString() });
+    addCoupon({ ...data, id: uuid(), usageCount: 0, createdAt: new Date().toISOString() });
     setCreating(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);

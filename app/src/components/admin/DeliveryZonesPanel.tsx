@@ -1,5 +1,6 @@
 "use client";
 
+import { uuid } from "@/lib/uuid";
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import { useApp } from "@/context/AppContext";
@@ -366,7 +367,7 @@ export default function DeliveryZonesPanel() {
   function handleAdd() {
     if (!newZone.name.trim() || newZone.maxRadiusKm <= newZone.minRadiusKm) return;
     addDeliveryZone({
-      id: crypto.randomUUID(),
+      id: uuid(),
       ...newZone,
       enabled: true,
     });

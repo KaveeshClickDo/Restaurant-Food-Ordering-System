@@ -1,5 +1,6 @@
 "use client";
 
+import { uuid } from "@/lib/uuid";
 import { useState, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
@@ -295,7 +296,7 @@ export default function CustomersPanel() {
           onClose={() => setShowAdd(false)}
           onCreate={async (data) => {
             const newCustomer: Customer = {
-              id:             `cust-${crypto.randomUUID()}`,
+              id:             `cust-${uuid()}`,
               name:           data.name.trim(),
               email:          data.email.trim().toLowerCase(),
               phone:          data.phone.trim(),

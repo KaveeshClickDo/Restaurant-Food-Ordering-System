@@ -18,6 +18,9 @@ relaxation preserves the existing online-allocator behaviour.
 | 1 | Add `terminal_id text` to `pos_sales` | column | None — nullable default |
 | 1 | Add `client_created_at timestamptz` to `pos_sales` | column | None — nullable default |
 | 1 | Add `synced_at timestamptz default now()` to `pos_sales` | column | None — default = existing semantics |
+| **1.6** | **Add `updated_at timestamptz default now()` to `customers`** | **column** | **None — additive; existing reads ignore it** |
+| **1.6** | **Add `staff_was_active boolean default true` to `pos_sales`** | **column** | **None — additive** |
+| **1.6** | **Add `clock_drift_seconds integer` to `pos_sales`** | **column** | **None — additive nullable** |
 | 2 | Loosen `pos_sales.receipt_no` default | constraint | Low — see below |
 | 2 | Add per-terminal sequence column to `pos_terminals` | column | None — additive |
 | 3 | Add `oversold boolean default false` to `pos_sales` | column | None — mirrors `orders.oversold` |
@@ -124,6 +127,64 @@ alter table pos_sales add column if not exists synced_at timestamptz default now
 
 Admin dashboards can compute "lag" as `synced_at - client_created_at`
 to highlight terminals that ran offline for a long time.
+
+## Phase 1.6 — Conflict-policy columns
+
+These columns make the policies in [13-conflict-resolution.md](./13-conflict-resolution.md)
+implementable. Each is additive, defaulted, and silent for existing
+queries.
+
+### 1.6.1 `customers.updated_at`
+
+LWW timestamp for customer profile patches. Default `now()` so existing
+rows are immediately participating without backfill. Server stamps from
+the incoming `clientCreatedAt` if provided, else `now()`.
+
+```sql
+-- Append to supabase/schema.sql in the customers section.
+alter table customers add column if not exists updated_at timestamptz not null default now();
+
+-- Auto-bump on UPDATE so even direct admin edits maintain the invariant.
+create or replace function customers_set_updated_at()
+returns trigger language plpgsql as $$
+begin
+  new.updated_at := coalesce(new.updated_at, now());
+  return new;
+end;
+$$;
+
+drop trigger if exists customers_updated_at_trigger on customers;
+create trigger customers_updated_at_trigger
+  before update on customers
+  for each row execute function customers_set_updated_at();
+```
+
+### 1.6.2 `pos_sales.staff_was_active`
+
+Stamps whether the calling cashier was active at insert time. Default
+`true` so the existing schema-defined behaviour is preserved for old
+rows.
+
+```sql
+alter table pos_sales add column if not exists staff_was_active boolean not null default true;
+
+-- Partial index for the admin filter "Sales by deactivated staff."
+create index if not exists idx_pos_sales_staff_was_inactive
+  on pos_sales (staff_was_active) where staff_was_active = false;
+```
+
+### 1.6.3 `pos_sales.clock_drift_seconds`
+
+Signed delta between server `synced_at` and client `client_created_at`.
+NULL for online web POS sales (where both are essentially `now()`).
+
+```sql
+alter table pos_sales add column if not exists clock_drift_seconds integer;
+
+-- Partial index for the admin filter "Drift > 1 hour."
+create index if not exists idx_pos_sales_clock_drift
+  on pos_sales (clock_drift_seconds) where clock_drift_seconds is not null and abs(clock_drift_seconds) > 3600;
+```
 
 ## Phase 2 — Per-terminal receipt numbering
 

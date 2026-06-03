@@ -1,4 +1,5 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { AppProvider } from "@/context/AppContext";
@@ -90,6 +91,49 @@ export async function generateMetadata(): Promise<Metadata> {
       description,
       ...(ogImage && { images: [ogImage] }),
     },
+  };
+}
+
+// ── Viewport — Capacitor-aware ───────────────────────────────────────────────
+// Web visitors (any browser, including a mobile browser hitting /pos directly)
+// get the default `width=device-width` so the page is responsive normally.
+// The Capacitor Android shell appends "RestaurantPOS" to its User-Agent (set
+// in capacitor.config.ts → appendUserAgent), and that token is what we
+// detect here to serve a wider viewport so the POS layout has the CSS-pixel
+// height it needs on high-DPI phone screens. Set in the INITIAL HTML so the
+// Android WebView applies it before computing layout — overriding viewport
+// after page load is unreliable on Android WebViews.
+
+export async function generateViewport(): Promise<Viewport> {
+  const ua = (await headers()).get("user-agent") ?? "";
+  const isCapacitor = ua.includes("RestaurantPOS");
+  if (isCapacitor) {
+    // ONLY `initial-scale`, NO `width`. Why:
+    //   • With `width=1920` + `initial-scale=0.6`, the page renders at 1920
+    //     CSS pixels wide and is then scaled to 60% visually = 1152
+    //     physical pixels. The device is 854 wide — page is wider than
+    //     screen, so the user has to pan horizontally. Bad.
+    //   • With ONLY `initial-scale=0.6`, the WebView auto-computes the
+    //     viewport width to fill the screen at the given scale:
+    //         viewport_width = device_width / initial-scale
+    //         854 / 0.6 = 1423 CSS pixels wide
+    //         384 / 0.6 = 640 CSS pixels tall
+    //     The page is exactly the device's physical width, no scrolling.
+    //
+    // initial-scale=0.6 gives the phone a 1423x640 canvas (plenty for the
+    // POS layout) with content at 60% physical size. On a 10" tablet the
+    // canvas is larger (~2133x1333) — content looks smaller but no cut-off.
+    // Requires `useWideViewPort = true` in MainActivity.kt; without that
+    // flag the WebView ignores `initial-scale` too.
+    return {
+      initialScale: 0.6,
+      userScalable: false,
+      viewportFit: "cover",
+    };
+  }
+  return {
+    width: "device-width",
+    initialScale: 1,
   };
 }
 

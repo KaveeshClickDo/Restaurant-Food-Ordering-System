@@ -1,5 +1,6 @@
 "use client";
 
+import { uuid } from "@/lib/uuid";
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
@@ -492,7 +493,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
    */
   function buildOrder(method: PaymentMethod): Order {
     return {
-      id: `ord-${crypto.randomUUID().slice(0, 8)}`,
+      id: `ord-${uuid().slice(0, 8)}`,
       customerId: currentUser?.id ?? "guest",
       date: new Date().toISOString(),
       status: "pending",

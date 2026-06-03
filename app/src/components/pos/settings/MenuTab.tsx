@@ -1,5 +1,6 @@
 "use client";
 
+import { uuid } from "@/lib/uuid";
 import { useState } from "react";
 import { usePOS } from "@/context/POSContext";
 import { POSProduct, POSCategory, POSOffer, getOfferPrice, isOfferActive } from "@/types/pos";
@@ -14,12 +15,12 @@ const DIETARY_OPTIONS = ["vegetarian", "vegan", "halal", "gluten-free"] as const
 
 function blankVariation(): Variation {
   return {
-    id: crypto.randomUUID(), name: "", required: true,
-    options: [{ id: crypto.randomUUID(), label: "", price: 0 }],
+    id: uuid(), name: "", required: true,
+    options: [{ id: uuid(), label: "", price: 0 }],
   };
 }
 function blankAddOn(): AddOn {
-  return { id: crypto.randomUUID(), name: "", price: 0 };
+  return { id: uuid(), name: "", price: 0 };
 }
 
 type StockMode = "qty" | "manual";
@@ -1515,7 +1516,7 @@ function VariationsEditor({
   }
   function addOption(idx: number) {
     const v = value[idx];
-    update(idx, { options: [...v.options, { id: crypto.randomUUID(), label: "", price: 0 }] });
+    update(idx, { options: [...v.options, { id: uuid(), label: "", price: 0 }] });
   }
   function updateOption(vIdx: number, oIdx: number, patch: { label?: string; price?: number }) {
     const v = value[vIdx];
