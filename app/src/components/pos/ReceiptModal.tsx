@@ -23,9 +23,9 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
 
   // VAT label and sign — read from the snapshot saved on the sale itself so it's
   // always accurate even if settings change after the transaction.
-  const taxRate      = sale.taxRate      ?? settings.taxRate;
+  const taxRate = sale.taxRate ?? settings.taxRate;
   const taxInclusive = sale.taxInclusive ?? settings.taxInclusive;
-  const vatLabel     = taxInclusive
+  const vatLabel = taxInclusive
     ? `VAT (${taxRate}% incl.)`
     : `VAT (${taxRate}%)`;
   const vatSign = taxInclusive ? "" : "+";
@@ -37,7 +37,7 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
     try {
       const html = buildReceiptHtml(sale, settings, effectiveName);
       const fromName = settings.smtpFromName?.trim() || effectiveName;
-      const subject  = `Your receipt from ${fromName} — #${sale.receiptNo}`;
+      const subject = `Your receipt from ${fromName} — #${sale.receiptNo}`;
       // SMTP credentials are read from server-side env vars in /api/email
       const res = await fetch("/api/email", {
         method: "POST",
@@ -64,6 +64,13 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
 
           {/* ── Header ───────────────────────────────────────── */}
           <div className="text-center mb-4">
+            {settings.receiptShowLogo && settings.receiptLogoUrl && (
+              <div className="flex justify-center mb-3">
+                {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary URL or data: URI, needs onError fallback */}
+                <img src={settings.receiptLogoUrl} alt="Logo" className="h-10 w-auto object-contain"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              </div>
+            )}
             <p className="font-bold text-base">{restaurantName}</p>
             {settings.receiptPhone && <p className="text-gray-500">{settings.receiptPhone}</p>}
             {settings.receiptWebsite && <p className="text-gray-500">{settings.receiptWebsite}</p>}
@@ -150,12 +157,12 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
                 )}
               </>
             ) : sale.paymentMethod === "gift_card" ? (
-               // Covered entirely by gift card, no remaining balance.
-               !sale.giftCard && (
-                 <div className="flex justify-between text-gray-500 capitalize">
-                   <span>Gift Card</span><span>{fmt(sale.total, sym)}</span>
-                 </div>
-               )
+              // Covered entirely by gift card, no remaining balance.
+              !sale.giftCard && (
+                <div className="flex justify-between text-gray-500 capitalize">
+                  <span>Gift Card</span><span>{fmt(sale.total, sym)}</span>
+                </div>
+              )
             ) : (
               <div className="flex justify-between text-gray-500 capitalize">
                 <span>{sale.paymentMethod}</span>

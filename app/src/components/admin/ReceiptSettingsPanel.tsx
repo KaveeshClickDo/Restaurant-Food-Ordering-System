@@ -179,7 +179,7 @@ function ReceiptPreview({ r, restaurantName }: { r: ReceiptSettings; restaurantN
                   className={[
                     "whitespace-pre",
                     line.bold ? "font-bold" : "font-normal",
-                    line.large ? "text-[13px]" : "",
+                    line.large ? "text-[13px] -ml-[25px]" : "",
                     line.dim ? "text-gray-400" : "text-gray-800",
                   ].filter(Boolean).join(" ")}
                 >

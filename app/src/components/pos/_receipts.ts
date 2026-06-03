@@ -16,13 +16,13 @@ export interface DineInOrder {
 export function buildReceiptHtml(sale: POSSale, settings: POSSettings, restaurantNameOverride?: string): string {
   const sym = settings.currencySymbol;
   const restaurantName = (restaurantNameOverride || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant").toUpperCase();
-  const taxRate      = sale.taxRate      ?? settings.taxRate;
+  const taxRate = sale.taxRate ?? settings.taxRate;
   const taxInclusive = sale.taxInclusive ?? settings.taxInclusive;
-  const vatLabel     = taxInclusive ? `VAT (${taxRate}% incl.)` : `VAT (${taxRate}%)`;
-  const vatSign      = taxInclusive ? "" : "+";
+  const vatLabel = taxInclusive ? `VAT (${taxRate}% incl.)` : `VAT (${taxRate}%)`;
+  const vatSign = taxInclusive ? "" : "+";
 
   const row = (l: string, r: string, bold = false, color = "#374151") =>
-    `<tr><td style="padding:1px 0;color:${color};${bold?"font-weight:700;":""}font-size:12px">${l}</td><td style="padding:1px 0;color:${color};${bold?"font-weight:700;":""}font-size:12px;text-align:right">${r}</td></tr>`;
+    `<tr><td style="padding:1px 0;color:${color};${bold ? "font-weight:700;" : ""}font-size:12px">${l}</td><td style="padding:1px 0;color:${color};${bold ? "font-weight:700;" : ""}font-size:12px;text-align:right">${r}</td></tr>`;
 
   const itemsHtml = sale.items.map((item) => {
     const mods = item.modifiers.map((m) => `<div style="font-size:11px;color:#6b7280;padding-left:8px">+ ${m.optionLabel}</div>`).join("");
@@ -64,6 +64,7 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, restauran
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#f9fafb;font-family:monospace">
 <div style="max-width:360px;margin:24px auto;background:#fff;border-radius:12px;padding:24px">
   <div style="text-align:center;margin-bottom:16px">
+    ${settings.receiptShowLogo && settings.receiptLogoUrl?.trim() ? `<div style="margin-bottom:12px;display:block;"><img src="${settings.receiptLogoUrl.trim()}" alt="Logo" style="max-height:40px;width:auto;display:inline-block;vertical-align:middle;" /></div>`: ""}
     <div style="font-weight:700;font-size:16px;letter-spacing:1px">${restaurantName}</div>
     ${settings.receiptPhone ? `<div style="font-size:11px;color:#6b7280">${settings.receiptPhone}</div>` : ""}
     ${settings.receiptWebsite ? `<div style="font-size:11px;color:#6b7280">${settings.receiptWebsite}</div>` : ""}
