@@ -205,7 +205,12 @@ function TableForm({
                 type="number" min={0} step="0.01"
                 value={form.vipPrice ?? 0}
                 placeholder="0.00"
-                onChange={(e) => set("vipPrice", parseFloat(e.target.value))}
+                onChange={(e) => set("vipPrice", e.target.value === "" ? ("" as unknown as number) : parseFloat(e.target.value))}
+                onBlur={() => {
+                  if (form.vipPrice === ("" as unknown as number) || isNaN(Number(form.vipPrice))) {
+                    set("vipPrice", 0);
+                  }
+                }}
                 className="w-full bg-white border border-gray-200 rounded-xl pl-7 pr-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition"
               />
             </div>
@@ -284,19 +289,28 @@ function TableCard({
     setActioning(false);
   }
 
-  // Edit mode swaps the entire card body for the form.
+  // EDIT MODE: Use a floating Absolute Popover here
+  // This prevents the tall edit form from stretching the other cards in the grid row.
   if (isEditing) {
     return (
-      <div className="rounded-2xl border-2 border-gray-200 bg-white p-4">
-        <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2 text-sm">
-          <Pencil size={14} /> Edit {table.label}
-        </h4>
-        <TableForm
-          initial={table}
-          existingLabels={existingLabelsForEdit}
-          onSave={onSaveEdit}
-          onCancel={onCancelEdit}
-        />
+      <div className="relative h-full w-full">
+        {/* Invisible ghost card: Allows the grid row height to size naturally based on the OTHER normal cards */}
+        <div className="opacity-0 pointer-events-none h-full rounded-2xl border-2 p-4">
+          <div className="h-24 w-full"></div>
+        </div>
+
+        {/* Floating Edit Form: Hovers over the grid, overlapping downwards smoothly */}
+        <div className="absolute top-0 left-0 w-full z-30 rounded-2xl border-2 border-gray-200 bg-white p-4 h-fit">
+          <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2 text-sm">
+            <Pencil size={14} /> Edit {table.label}
+          </h4>
+          <TableForm
+            initial={table}
+            existingLabels={existingLabelsForEdit}
+            onSave={onSaveEdit}
+            onCancel={onCancelEdit}
+          />
+        </div>
       </div>
     );
   }
