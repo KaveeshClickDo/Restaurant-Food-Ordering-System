@@ -250,7 +250,7 @@ export interface POSSplitPayment {
   amount: number;
 }
 
-export type POSPaymentMethod = "cash" | "card" | "split";
+export type POSPaymentMethod = "cash" | "card" | "split" | "gift_card";
 
 export interface POSSale {
   id: string;
@@ -271,6 +271,7 @@ export interface POSSale {
   staffId: string;
   staffName: string;
   customerId?: string;
+  giftCard?: { code: string; amount: number };
   customerName?: string;
   tableNumber?: number;
   date: string; // ISO

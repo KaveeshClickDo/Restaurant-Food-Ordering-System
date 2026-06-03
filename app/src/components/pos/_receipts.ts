@@ -31,17 +31,34 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, restauran
   }).join("");
 
   let paymentHtml = "";
+  const gcAmount = sale.giftCard?.amount ?? 0;
+
+  // 1. Show the gift card deduction first
+  if (sale.giftCard) {
+    const codeStr = sale.giftCard.code ? ` (..${sale.giftCard.code.slice(-4)})` : "";
+    paymentHtml += `<tr><td style="font-size:11px;color:#6b7280">Gift Card${codeStr}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${sale.giftCard.amount.toFixed(2)}</td></tr>`;
+  }
+
+  // 2. Show the remaining amount paid by Cash/Card/Split
   if (sale.paymentMethod === "split") {
-    paymentHtml = sale.payments.map((p) =>
+    paymentHtml += sale.payments.map((p) =>
       `<tr><td style="font-size:11px;color:#6b7280;text-transform:capitalize">${p.method}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${p.amount.toFixed(2)}</td></tr>`
     ).join("");
   } else if (sale.paymentMethod === "cash") {
-    paymentHtml = `<tr><td style="font-size:11px;color:#6b7280">Cash</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${(sale.cashTendered ?? sale.total).toFixed(2)}</td></tr>`;
+    const cashPaid = sale.cashTendered ?? (sale.total - gcAmount);
+    paymentHtml += `<tr><td style="font-size:11px;color:#6b7280">Cash</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${cashPaid.toFixed(2)}</td></tr>`;
     if ((sale.changeGiven ?? 0) > 0) {
       paymentHtml += `<tr><td style="font-size:11px;color:#6b7280">Change</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${sale.changeGiven!.toFixed(2)}</td></tr>`;
     }
+  } else if (sale.paymentMethod === "gift_card") {
+    // Covered entirely by gift card. (Fallback safety if sale.giftCard was missing)
+    if (!sale.giftCard) {
+      paymentHtml += `<tr><td style="font-size:11px;color:#6b7280">Gift Card</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${sale.total.toFixed(2)}</td></tr>`;
+    }
   } else {
-    paymentHtml = `<tr><td style="font-size:11px;color:#6b7280;text-transform:capitalize">${sale.paymentMethod}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${sale.total.toFixed(2)}</td></tr>`;
+    // Card or other payment methods
+    const charged = sale.total - gcAmount;
+    paymentHtml += `<tr><td style="font-size:11px;color:#6b7280;text-transform:capitalize">${sale.paymentMethod}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${charged.toFixed(2)}</td></tr>`;
   }
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#f9fafb;font-family:monospace">

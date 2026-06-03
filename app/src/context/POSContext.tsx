@@ -1026,7 +1026,14 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       // treat the returned `sale` as authoritative.
       if (res.ok || res.status === 409) {
         const json = await res.json() as { ok: boolean; sale?: POSSale };
-        if (json.sale) sale = json.sale;
+        if (json.sale){
+          sale = json.sale;
+
+          if (giftCard && !sale.giftCard) {
+            sale.giftCard = { code: giftCard.code, amount: giftCard.amount };
+          }
+        } 
+
       } else {
         // Surface the server's actual reason to the caller so the cashier sees
         // "'Burger' is no longer available on the menu" instead of a generic

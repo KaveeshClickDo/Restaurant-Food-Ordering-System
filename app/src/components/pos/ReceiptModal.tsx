@@ -122,6 +122,15 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
 
           {/* ── Payment breakdown ─────────────────────────────── */}
           <div className="mt-1 space-y-0.5">
+            {/* 1. Show the gift card deduction first */}
+            {sale.giftCard && (
+              <div className="flex justify-between text-gray-500">
+                <span>Gift Card {sale.giftCard.code ? `(..${sale.giftCard.code.slice(-4)})` : ""}</span>
+                <span>{fmt(sale.giftCard.amount, sym)}</span>
+              </div>
+            )}
+
+            {/* 2. Show the remaining amount paid by Cash/Card/Split */}
             {sale.paymentMethod === "split" ? (
               sale.payments.map((p, i) => (
                 <div key={i} className="flex justify-between text-gray-500 capitalize">
@@ -132,7 +141,7 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
               <>
                 <div className="flex justify-between text-gray-500">
                   <span>Cash</span>
-                  <span>{fmt(sale.cashTendered ?? sale.total, sym)}</span>
+                  <span>{fmt(sale.cashTendered ?? (sale.total - (sale.giftCard?.amount ?? 0)), sym)}</span>
                 </div>
                 {(sale.changeGiven ?? 0) > 0 && (
                   <div className="flex justify-between text-gray-500">
@@ -140,9 +149,18 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
                   </div>
                 )}
               </>
+            ) : sale.paymentMethod === "gift_card" ? (
+               // Covered entirely by gift card, no remaining balance.
+               !sale.giftCard && (
+                 <div className="flex justify-between text-gray-500 capitalize">
+                   <span>Gift Card</span><span>{fmt(sale.total, sym)}</span>
+                 </div>
+               )
             ) : (
               <div className="flex justify-between text-gray-500 capitalize">
-                <span>{sale.paymentMethod}</span><span>{fmt(sale.total, sym)}</span>
+                <span>{sale.paymentMethod}</span>
+                {/* Deduct gift card amount so Card shows the exact remaining balance */}
+                <span>{fmt(sale.total - (sale.giftCard?.amount ?? 0), sym)}</span>
               </div>
             )}
           </div>
