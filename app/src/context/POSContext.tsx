@@ -1122,6 +1122,10 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     refundMethod?: "cash" | "card" | "none",
     refundAmount?: number,
   ): Promise<{ ok: boolean; error?: string }> => {
+    // 1. Locate the target sale first to read its customer details
+    const sale = sales.find((s) => s.id === saleId);
+    if (!sale) return { ok: false, error: "Sale not found." };
+
     try {
       const res = await fetch(`/api/pos/sales/${saleId}`, {
         method:  "PATCH",
@@ -1141,13 +1145,51 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       console.error("voidSale network error:", err);
       return { ok: false };
     }
+
+    // 2. Update local sales state
     setSales((prev) =>
       prev.map((s) => s.id === saleId
         ? { ...s, voided: true, voidReason: reason, refundMethod, refundAmount }
         : s)
     );
+
+    // 3. Deduct loyalty points matching the refund amount if there is an assigned customer
+    if (sale.customerId && refundAmount && refundAmount > 0) {
+      const ptsToDeduct = Math.floor(refundAmount * settings.loyaltyPointsPerPound);
+      
+      if (ptsToDeduct > 0) {
+        const targetCustomer = customers.find((c) => c.id === sale.customerId);
+        if (targetCustomer) {
+          const existingPts = targetCustomer.loyaltyPoints ?? 0;
+          // Ensure points don't drop below 0
+          const newPts = Math.max(0, existingPts - ptsToDeduct);
+
+          // Optimistically update local customer state
+          setCustomers((prev) =>
+            prev.map((c) =>
+              c.id === sale.customerId
+                ? {
+                    ...c,
+                    loyaltyPoints: newPts,
+                    // Optionally adjust totalSpend to reflect the refund deduction
+                    totalSpend: Math.max(0, (c.totalSpend ?? 0) - refundAmount),
+                  }
+                : c
+            )
+          );
+
+          // Update customer loyalty points in the database
+          fetch(`/api/pos/customers/${sale.customerId}`, {
+            method:  "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify({ loyaltyPoints: newPts }),
+          }).catch((err) => console.error("voidSale loyalty points patch failed:", err));
+        }
+      }
+    }
+
     return { ok: true };
-  }, []);
+  }, [sales, customers, settings]);
 
   // ── Clock in/out ──────────────────────────────────────────────────────────
   const clockIn = useCallback(async (staffId: string): Promise<boolean> => {

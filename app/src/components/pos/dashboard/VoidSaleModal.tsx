@@ -16,7 +16,10 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
 
   async function confirmVoid() {
     if (!voidReason.trim() || submitting) return;
-    const amt = parseFloat(refundAmount);
+    // If there is no refund, force the amount to 0. 
+    // Otherwise, parse the refund input state.
+    const amt = refundMethod === "none" ? 0 : parseFloat(refundAmount);
+
     setSubmitting(true);
     const { ok, error } = await voidSale(sale.id, voidReason.trim(), refundMethod, isNaN(amt) ? 0 : amt);
     setSubmitting(false);
