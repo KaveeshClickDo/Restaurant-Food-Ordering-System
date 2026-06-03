@@ -6,7 +6,7 @@ import { useApp } from "@/context/AppContext";
 import { RestaurantInfo } from "@/types";
 import { restaurantInfo as seedInfo } from "@/data/restaurant";
 import { CURRENCY_PRESETS, DEFAULT_CURRENCY } from "@/lib/currency";
-import { Store, Clock, Coins, MapPin, CheckCircle2, AlertCircle, Palette, Upload, X, Image as ImageIcon, Search, Code2, Info, Navigation, Star, Eye, EyeOff } from "lucide-react";
+import { Store, Clock, Coins, MapPin, CheckCircle2, AlertCircle, Palette, Upload, X, Image as ImageIcon, Search, Code2, Info, Navigation, Star, Eye, EyeOff, Gift } from "lucide-react";
 
 const LocationMap = dynamic(() => import("@/components/maps/LocationMap"), {
   ssr: false,
@@ -52,15 +52,6 @@ export default function OperationsPanel() {
     <div className="space-y-6">
       {/* ── Branding ────────────────────────────────────────────────────── */}
       <BrandingCard />
-
-      {/* ── Currency ────────────────────────────────────────────────────── */}
-      <CurrencyCard />
-
-      {/* ── SEO ─────────────────────────────────────────────────────────── */}
-      <SeoCard />
-
-      {/* ── Custom Head Code ────────────────────────────────────────────── */}
-      <CustomHeadCard />
 
       {/* ── Fees & Timings ──────────────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -112,12 +103,123 @@ export default function OperationsPanel() {
           />
         </div>
       </div>
+      
+      {/* ── Currency ────────────────────────────────────────────────────── */}
+      <CurrencyCard />
+
+      {/* ── Loyalty Program ─────────────────────────────────────────────── */}
+      <LoyaltyCard />
 
       {/* ── Hygiene Rating ──────────────────────────────────────────────── */}
       <HygieneRatingCard restaurant={restaurant} update={update} />
 
       {/* ── Restaurant Location ──────────────────────────────────────────── */}
       <LocationCard />
+
+       {/* ── SEO ─────────────────────────────────────────────────────────── */}
+      <SeoCard />
+
+      {/* ── Custom Head Code ────────────────────────────────────────────── */}
+      <CustomHeadCard />
+    </div>
+  );
+}
+
+// ─── Loyalty Program card ──────────────────────────────────────────────────────
+
+function LoyaltyCard() {
+  const { settings, updateSettings } = useApp();
+  const sym = settings.currency?.symbol || DEFAULT_CURRENCY.symbol;
+
+  // Initialize with strings so users can clear the input while typing.
+  // We use 1 and 0.01 as safe fallbacks.
+  const [pointsPer, setPointsPer] = useState(settings.loyaltyPointsPerPound?.toString() || "1");
+  const [pointValue, setPointValue] = useState(settings.loyaltyPointsValue?.toString() || "0.01");
+  const [saved, setSaved] = useState(false);
+
+  // Re-sync local state when settings load from Supabase after mount
+  useEffect(() => {
+    setPointsPer(settings.loyaltyPointsPerPound?.toString() || "1");
+    setPointValue(settings.loyaltyPointsValue?.toString() || "0.01");
+  }, [settings.loyaltyPointsPerPound, settings.loyaltyPointsValue]);
+
+  function handleSave() {
+    const parsedPointsPer = parseFloat(pointsPer) || 0;
+    const parsedPointValue = parseFloat(pointValue) || 0;
+
+    updateSettings({
+      loyaltyPointsPerPound: parsedPointsPer,
+      loyaltyPointsValue: parsedPointValue,
+    });
+
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+        <div className="w-9 h-9 bg-purple-50 rounded-xl flex items-center justify-center flex-shrink-0">
+          <Gift size={18} className="text-purple-600 flex-shrink-0" />
+        </div>
+        <div>
+          <h2 className="font-bold text-gray-900">Loyalty Program</h2>
+          <p className="text-xs text-gray-400">Configure points earned per order and their monetary redemption value</p>
+        </div>
+      </div>
+
+      <div className="p-6 space-y-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+              Points per {sym}
+            </label>
+            <input
+              type="number"
+              step="0.5"
+              min="0"
+              value={pointsPer}
+              onChange={(e) => { setPointsPer(e.target.value); setSaved(false); }}
+              placeholder="1"
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-400 transition"
+            />
+            <p className="mt-1 text-[11px] text-gray-400">
+              How many points a customer earns for every {sym}1 spent.
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+              Point value ({sym})
+            </label>
+            <input
+              type="number"
+              step="0.001"
+              min="0"
+              value={pointValue}
+              onChange={(e) => { setPointValue(e.target.value); setSaved(false); }}
+              placeholder="0.01"
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-400 transition"
+            />
+            <p className="mt-1 text-[11px] text-gray-400">
+              The monetary value of a single point when redeemed at checkout.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 pt-1 border-t border-gray-100">
+          <button
+            onClick={handleSave}
+            className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-xl transition"
+          >
+            Save loyalty options
+          </button>
+          {saved && (
+            <span className="flex items-center gap-1.5 text-sm text-green-600 font-medium">
+              <CheckCircle2 size={16} /> Saved
+            </span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -473,6 +473,8 @@ export interface AdminSettings {
   coupons: Coupon[];
   taxSettings: TaxSettings;
   restaurant: RestaurantInfo;
+  loyaltyPointsPerPound: number; // points per £ spent
+  loyaltyPointsValue: number;    // £ value per point (e.g. 0.01)
   schedule: WeekSchedule;
   manualClosed: boolean;
   /** Stripe publishable key — safe to expose to the browser. */
