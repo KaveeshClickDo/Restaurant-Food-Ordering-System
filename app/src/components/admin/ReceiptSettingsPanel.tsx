@@ -151,8 +151,8 @@ function ReceiptPreview({ r, restaurantName }: { r: ReceiptSettings; restaurantN
       {/* Simulated printer paper */}
       <div className="bg-white rounded-xl overflow-hidden shadow-inner">
         {/* Sprocket holes strip */}
-        <div className="flex gap-1.5 px-3 py-1.5 bg-gray-50 border-b border-dashed border-gray-200">
-          {Array.from({ length: 12 }).map((_, i) => (
+        <div className="flex gap-3 items-center justify-center px-3 py-1.5 bg-gray-50 border-b border-dashed border-gray-200">
+          {Array.from({ length: 13 }).map((_, i) => (
             <div key={i} className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" />
           ))}
         </div>
@@ -171,8 +171,8 @@ function ReceiptPreview({ r, restaurantName }: { r: ReceiptSettings; restaurantN
             </div>
           )}
           {/* Receipt lines */}
-          <div className="font-mono text-[11px] leading-[1.45] w-full overflow-x-auto min-w-0">
-            <div className="min-w-max">
+          <div className="font-mono text-[11px] leading-[1.45] w-full overflow-x-auto min-w-0 flex justify-center">
+            <div className="min-w-max text-left">
               {lines.map((line, i) => (
                 <div
                   key={i}
@@ -191,8 +191,8 @@ function ReceiptPreview({ r, restaurantName }: { r: ReceiptSettings; restaurantN
         </div>
 
         {/* Bottom tear strip */}
-        <div className="flex gap-1.5 px-3 py-1.5 bg-gray-50 border-t border-dashed border-gray-200">
-          {Array.from({ length: 12 }).map((_, i) => (
+        <div className="flex gap-3 items-center justify-center px-3 py-1.5 bg-gray-50 border-t border-dashed border-gray-200">
+          {Array.from({ length: 13 }).map((_, i) => (
             <div key={i} className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" />
           ))}
         </div>

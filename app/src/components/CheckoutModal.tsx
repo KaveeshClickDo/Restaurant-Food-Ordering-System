@@ -249,7 +249,7 @@ function LocationWidget({
 export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   const {
     cart, settings, clearCart, addOrder, currentUser, fulfillment, scheduledTime, setScheduledTime,
-    appliedCoupon, applyCoupon, removeCoupon, incrementCouponUsage, spendStoreCredit, applyStoreCreditOptimistic,
+    appliedCoupon, applyCoupon, removeCoupon, incrementCouponUsage, applyStoreCreditOptimistic,
     customers,
   } = useApp();
 
@@ -600,7 +600,13 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
       removeCoupon();
     }
     if (storeCreditApplied > 0 && currentUser) {
-      spendStoreCredit(currentUser.id, storeCreditApplied, newOrder.id);
+      // Server-side deduction now happens in /api/orders (same pattern as the
+      // Stripe / PayPal webhooks). Here we just sync the optimistic UI so the
+      // user's balance display updates immediately without waiting for a
+      // reload. The legacy /api/customers/[id]/spend-credit call was removed
+      // because the orders POST already stamps `store_credit_used` at insert,
+      // which made that endpoint 409 and the balance silently never moved.
+      applyStoreCreditOptimistic(currentUser.id, storeCreditApplied);
     }
     setChosenMethod(method);
     setPlacedScheduledTime(scheduledTime);

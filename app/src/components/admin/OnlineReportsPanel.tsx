@@ -933,7 +933,7 @@ export default function OnlineReportsPanel() {
       {/* ── Summary footer ────────────────────────────────────────────────── */}
       <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-5 text-white">
         <h3 className="font-bold text-sm text-gray-300 uppercase tracking-widest mb-4">Period Summary</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { label: "Gross Revenue",   value: cur(grossRevenue) },
             { label: "Total Refunds",   value: cur(metrics.refunds) },

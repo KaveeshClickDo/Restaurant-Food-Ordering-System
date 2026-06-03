@@ -44,9 +44,9 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
   // Cart-level offers (bogo/multibuy/qty_discount) don't change the per-unit
   // shelf price, but we still show the badge so customers know there's a
   // deal in the cart.
-  const offerOn      = isOfferActive(item);
+  const offerOn = isOfferActive(item);
   const discountedBase = getOfferUnitPrice(item);
-  const offerLabel   = offerBadgeLabel(item);
+  const offerLabel = offerBadgeLabel(item);
 
   return (
     <div
@@ -277,13 +277,15 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
 
         {/* Closed banner — only when store is shut */}
         {!isOpen && (
-          <div className="flex items-center gap-3 px-6 py-3.5 bg-red-50 border-t border-red-100">
-            <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" strokeWidth={1.8} />
-            <p className="flex-1 text-[12.5px] text-red-700 font-medium min-w-0">
-              {nextOpen
-                ? <>We&apos;re closed · Opens {formatNextOpen(nextOpen)}</>
-                : "We're not accepting orders right now"}
-            </p>
+          <div className="flex flex-wrap justify-between items-center gap-3 px-6 py-3.5 bg-red-50 border-t border-red-100">
+            <div className="flex gap-2 ">
+              <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" strokeWidth={1.8} />
+              <p className="flex-1 text-[12.5px] text-red-700 font-medium min-w-0">
+                {nextOpen
+                  ? <>We&apos;re closed · Opens {formatNextOpen(nextOpen)}</>
+                  : "We're not accepting orders right now"}
+              </p>
+            </div>
             {nextOpen && (
               <button
                 onClick={() => setShowSchedule(true)}
@@ -386,11 +388,11 @@ export default function HomePage() {
   const isBrowsingAll = activeCat === "all" && !search;
   const sectionsToShow = isBrowsingAll
     ? activeMealPeriods
-        .map((p) => ({
-          period: p,
-          items: filteredItems.filter((i) => (i.mealPeriodIds ?? []).includes(p.id)),
-        }))
-        .filter(({ items }) => items.length > 0)
+      .map((p) => ({
+        period: p,
+        items: filteredItems.filter((i) => (i.mealPeriodIds ?? []).includes(p.id)),
+      }))
+      .filter(({ items }) => items.length > 0)
     : [];
 
   const itemsInAnySection = new Set(sectionsToShow.flatMap((s) => s.items.map((i) => i.id)));

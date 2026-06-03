@@ -95,7 +95,7 @@ export default function DeliveryZoneMap({
         <span className="text-xs text-gray-400 font-mono">{lat.toFixed(4)}, {lng.toFixed(4)}</span>
       </div>
 
-      <div className="h-[320px] w-full">
+      <div className="h-[320px] w-full relative z-0">
         <MapContainer
           center={[lat, lng]}
           zoom={13}

@@ -117,7 +117,7 @@ export default function PaymentsPanel() {
   return (
     <div className="space-y-6">
       {/* ── Stats ─────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: "Gross collected",  value: fmt(stats.totalGross, sym),  icon: <DollarSign size={18} />,   color: "text-emerald-600 bg-emerald-50 border-emerald-100" },
           { label: "Net after refunds", value: fmt(stats.totalNet, sym),    icon: <ArrowDownCircle size={18} />, color: "text-blue-600 bg-blue-50 border-blue-100"  },

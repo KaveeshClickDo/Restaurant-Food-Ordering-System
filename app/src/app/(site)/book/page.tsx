@@ -49,10 +49,10 @@ function isSlotPast(slot: string, selectedDate: string): boolean {
 
 const STEPS = ["Date & Time", "Table", "Details"];
 
-export default function BookPage() {
+export default function BookPage() {  
   // Settings fetched from the public API
   const [rsSettings, setRsSettings] = useState<{
-    openTime: string; closeTime: string; slotIntervalMinutes: number; maxAdvanceDays: number; maxPartySize: number;
+    openTime: string; closeTime: string; slotIntervalMinutes: number; maxAdvanceDays: number; maxPartySize: number; enabled: boolean;
   } | null>(null);
   const [restaurantName, setRestaurantName] = useState("Reserve a Table");
 
@@ -63,6 +63,7 @@ export default function BookPage() {
     }).catch(() => {});
   }, []);
 
+  const enabled = rsSettings?.enabled             ?? false;
   const open    = rsSettings?.openTime            ?? "12:00";
   const close   = rsSettings?.closeTime           ?? "22:00";
   const interval= rsSettings?.slotIntervalMinutes ?? 30;
@@ -140,6 +141,25 @@ export default function BookPage() {
   }, {});
 
   const stepIdx = step === "datetime" ? 0 : step === "table" ? 1 : step === "details" ? 2 : 3;
+
+  // ─── Disabled State ──────────────────────────────────────────────────────────
+  if (!enabled) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center px-4 py-20 min-h-[60vh]">
+        <div className="w-full max-w-md bg-white rounded-3xl shadow-sm border border-gray-100 p-8 text-center space-y-4">
+          <div className="w-16 h-16 rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center mx-auto mb-2">
+            <CalendarDays size={28} className="text-gray-400" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">Reservations Unavailable</h1>
+            <p className="text-gray-500 text-sm mt-2 leading-relaxed">
+              We are currently not accepting online table reservations. Please check back later or contact us directly to book a table.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (step === "confirmed") {
     return (

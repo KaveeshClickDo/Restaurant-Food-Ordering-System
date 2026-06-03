@@ -591,18 +591,18 @@ export default function DriversPanel() {
 
       {/* Outstanding cash — money drivers have collected but not handed in */}
       <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-4 border-b border-gray-100">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
             <Banknote size={16} className="text-emerald-600" />
             <h3 className="font-bold text-gray-900 text-sm">Cash to collect from drivers</h3>
             {cashOwed.length > 0 && (
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 whitespace-nowrap">
                 {cashOwed.length} driver{cashOwed.length !== 1 ? "s" : ""}
               </span>
             )}
           </div>
           {!cashLoading && totalCashOwed > 0 && (
-            <div className="text-right">
+            <div className="text-right ml-auto">
               <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Outstanding total</p>
               <p className="text-base font-extrabold text-emerald-700 leading-none">{sym}{totalCashOwed.toFixed(2)}</p>
             </div>
@@ -631,18 +631,18 @@ export default function DriversPanel() {
                       className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-gray-50 transition"
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className={`w-9 h-9 rounded-xl ${avatarColor(row.driverId)} flex items-center justify-center text-white font-bold text-sm flex-shrink-0`}>
+                        <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl ${avatarColor(row.driverId)} flex items-center justify-center text-white font-bold text-sm flex-shrink-0`}>
                           {initials(row.driverName)}
                         </div>
                         <div className="min-w-0">
                           <p className="font-semibold text-gray-900 text-sm truncate">{row.driverName}</p>
-                          <p className="text-xs text-gray-500">
+                          <p className="text-xs text-gray-500 truncate">
                             {row.orderCount} order{row.orderCount !== 1 ? "s" : ""} awaiting hand-in
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        <p className="text-base font-extrabold text-emerald-700">{sym}{row.total.toFixed(2)}</p>
+                        <p className="text-[14px] sm:text-base font-extrabold text-emerald-700">{sym}{row.total.toFixed(2)}</p>
                         {expanded ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}
                       </div>
                     </button>
@@ -689,7 +689,7 @@ export default function DriversPanel() {
                             onClick={() => reconcileCash(row.driverId, { all: true })}
                             className="text-xs font-bold bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-3 py-2 rounded-lg transition flex items-center gap-1.5"
                           >
-                            <Banknote size={12} />
+                            <Banknote size={12} className="flex-shrink-0" />
                             {busy ? "Saving…" : `Mark all as handed in (${sym}${row.total.toFixed(2)})`}
                           </button>
                         </div>

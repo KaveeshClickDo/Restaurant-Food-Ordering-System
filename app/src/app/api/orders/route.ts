@@ -124,6 +124,37 @@ export async function POST(req: NextRequest) {
     if (!redeem.ok) console.error("[orders] gift card redeem:", redeem.error);
   }
 
+  // Store-credit deduction. Mirrors the Stripe / PayPal webhook behaviour so
+  // the cash flow also debits `customers.store_credit` server-side. Before
+  // this, the cash path stamped `order.store_credit_used` at insert but never
+  // touched the customer balance (the client-side /spend-credit POST 409'd
+  // because the stamp was already non-zero) → customers could redeem the
+  // same credit forever. Best-effort: a failure here is logged but doesn't
+  // fail the order response (we don't want one balance write hiccup to look
+  // like the entire checkout failed).
+  if (row.store_credit_used > 0 && row.customer_id && row.customer_id !== "guest") {
+    try {
+      const { data: cust, error: fetchErr } = await supabaseAdmin
+        .from("customers")
+        .select("store_credit")
+        .eq("id", row.customer_id)
+        .maybeSingle();
+      if (fetchErr) {
+        console.error("[orders] store credit fetch:", fetchErr.message);
+      } else if (cust) {
+        const current    = Number(cust.store_credit ?? 0);
+        const newBalance = Math.max(0, parseFloat((current - row.store_credit_used).toFixed(2)));
+        const { error: credErr } = await supabaseAdmin
+          .from("customers")
+          .update({ store_credit: newBalance })
+          .eq("id", row.customer_id);
+        if (credErr) console.error("[orders] store credit deduct:", credErr.message);
+      }
+    } catch (err) {
+      console.error("[orders] store credit deduct:", err instanceof Error ? err.message : err);
+    }
+  }
+
   // Fire-and-forget — email failure must never fail the order response
   sendOrderConfirmationEmail({
     id:              row.id,

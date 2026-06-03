@@ -662,7 +662,7 @@ export function AppProvider({
         }
 
         // Categories — no runtime seed and no fallback to bundled defaults.
-        // An empty DB shows an empty UI; populate via `npm run db:seed-demo` or
+        // An empty DB shows an empty UI; populate via `npm run db:seed-menu` or
         // through the admin panel.
         const { data: catsData, error: catsErr } = await supabase
           .from("categories").select("*").order("sort_order", { ascending: true });
