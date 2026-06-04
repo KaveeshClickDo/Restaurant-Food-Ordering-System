@@ -439,7 +439,7 @@ export default function CustomerDisplayPage() {
       {/* ── Footer ──────────────────────────────────────────────────────────── */}
       <footer className="bg-gray-900 border-t border-gray-800 px-3 sm:px-5 py-1.5 sm:py-2 flex items-center justify-between flex-shrink-0">
         <p className="text-gray-600 text-[9px] sm:text-xs">Updates automatically <span className="hidden sm:inline">—  no refresh needed</span></p>
-        <p className="text-gray-600 text-[9px] sm:text-xs text-right">Thank you for dining with us!</p>
+        <p className="text-gray-600 text-[9px] sm:text-xs text-right">Thank you for dining with us!<br/>Designed by SeekaHost Technologies Ltd.</p>
       </footer>
     </div>
   );

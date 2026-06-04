@@ -23,8 +23,8 @@ interface WaiterCartItem {
   menuItemId: string;
   name: string;       // includes variation/add-on labels
   unitPrice: number;  // base + variations + add-ons. Per-unit offers already
-                      // applied to the base; cart-level offers are NOT — see
-                      // `offer` below.
+  // applied to the base; cart-level offers are NOT — see
+  // `offer` below.
   quantity: number;
   note?: string;
   /** Cart-level offer snapshot (bogo / multibuy / qty_discount) taken at
@@ -124,9 +124,9 @@ function hhmmToMins(time: string): number {
 // Awareness windows (minutes). A booking is "due" when it's within DUE_LEAD of
 // now; "overdue" once it's OVERDUE_GRACE past with nobody seated; bookings more
 // than STALE_MAX in the past are ignored as stale data (POS/admin will clear).
-const DUE_LEAD      = 30;
+const DUE_LEAD = 30;
 const OVERDUE_GRACE = 15;
-const STALE_MAX     = 120;
+const STALE_MAX = 120;
 
 // ─── Receipt Modal ────────────────────────────────────────────────────────────
 
@@ -142,10 +142,10 @@ function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string, receip
   const giftUsed = receipt.giftCardUsed ?? 0;
   const amountPaid = Math.max(0, receipt.total - giftUsed);
   const rcptDiscount = receipt.discountAmount ?? 0;
-  const rcptTip      = receipt.tipAmount ?? 0;
-  const rcptVat      = receipt.vatAmount ?? 0;
+  const rcptTip = receipt.tipAmount ?? 0;
+  const rcptVat = receipt.vatAmount ?? 0;
   const rcptSubtotal = receipt.subtotal ?? receipt.total;
-  const vatLabel     = receipt.vatInclusive
+  const vatLabel = receipt.vatInclusive
     ? `Incl. VAT${receipt.vatRate ? ` (${receipt.vatRate}%)` : ""}`
     : `VAT${receipt.vatRate ? ` (${receipt.vatRate}%)` : ""}`;
   // Subtotal / Discount / VAT / Tip lines only appear when something applies.
@@ -405,11 +405,11 @@ function BillEmailBar({ onPrint, tableLabel, waiterName, consolidatedLines, bill
       items: consolidatedLines,
       subtotal: billSubtotal,
       discountAmount: billDiscountAmount > 0 ? billDiscountAmount : undefined,
-      discountNote:   billDiscountAmount > 0 ? (billDiscountNote.trim() || undefined) : undefined,
-      vatAmount:      billVatAmount > 0 ? billVatAmount : undefined,
-      vatInclusive:   billVatAmount > 0 ? billVatInclusive : undefined,
-      vatRate:        billVatAmount > 0 ? billVatRate : undefined,
-      tipAmount:      billTip > 0 ? billTip : undefined,
+      discountNote: billDiscountAmount > 0 ? (billDiscountNote.trim() || undefined) : undefined,
+      vatAmount: billVatAmount > 0 ? billVatAmount : undefined,
+      vatInclusive: billVatAmount > 0 ? billVatInclusive : undefined,
+      vatRate: billVatAmount > 0 ? billVatRate : undefined,
+      tipAmount: billTip > 0 ? billTip : undefined,
       total: billTotal,
       paymentMethod: "pending",
       orderIds,
@@ -958,13 +958,13 @@ export default function WaiterPage() {
   // Bill-level manual discount (percentage, like POS) + table-service tip.
   // Discount is senior/head-waiter only; both flow into the settle total and
   // the receipt. Reset whenever the bill is closed or the table changes.
-  const [billDiscountPct, setBillDiscountPct]   = useState(0);
+  const [billDiscountPct, setBillDiscountPct] = useState(0);
   const [billDiscountNote, setBillDiscountNote] = useState("");
-  const [billTip, setBillTip]                   = useState(0);
+  const [billTip, setBillTip] = useState(0);
   const [showBillDiscount, setShowBillDiscount] = useState(false);
-  const [showBillTip, setShowBillTip]           = useState(false);
-  const [discountInput, setDiscountInput]       = useState("");
-  const [tipInput, setTipInput]                 = useState("");
+  const [showBillTip, setShowBillTip] = useState(false);
+  const [discountInput, setDiscountInput] = useState("");
+  const [tipInput, setTipInput] = useState("");
   // table action sheet: null = closed, DiningTable = which table was tapped
   const [tableAction, setTableAction] = useState<DiningTable | null>(null);
   // seat sheet for a free-but-reserved table: choose "seat reservation" or "walk-in"
@@ -1017,7 +1017,7 @@ export default function WaiterPage() {
   // required a sign-out + sign-in to surface. A 401 here also auto-logs the
   // waiter out (covers the session_version path for deactivation).
   const lastConfigKey = useRef<string>("");
-  const lastMeKey     = useRef<string>("");
+  const lastMeKey = useRef<string>("");
   useEffect(() => {
     let cancelled = false;
     async function tick() {
@@ -1171,7 +1171,7 @@ export default function WaiterPage() {
     // Tell the server to drop the cookie before we wipe the local mirror.
     // Fire-and-forget — even if the request fails (network blip), wiping the
     // client state still removes the visible session.
-    fetch("/api/waiter/logout", { method: "POST" }).catch(() => {});
+    fetch("/api/waiter/logout", { method: "POST" }).catch(() => { });
     sessionStorage.removeItem("waiter_session");
     setWaiter(null);
     setLoginStep("staff");
@@ -1186,9 +1186,9 @@ export default function WaiterPage() {
   // during a shift — without this, a forgotten tab keeps the waiter PIN
   // valid for the full 30-day server cookie window.
   useIdleLogout({
-    enabled:   Boolean(waiter),
+    enabled: Boolean(waiter),
     timeoutMs: 15 * 60 * 1000,
-    onIdle:    logout,
+    onIdle: logout,
   });
 
   // ── Table selection ──────────────────────────────────────────────────────────
@@ -1248,7 +1248,7 @@ export default function WaiterPage() {
       body: JSON.stringify({ status: "checked_out" }),
     })
       .then(() => refreshReservations())
-      .catch(() => {});
+      .catch(() => { });
   }
 
   // ── Cart ─────────────────────────────────────────────────────────────────────
@@ -1405,10 +1405,10 @@ export default function WaiterPage() {
 
       setBillOrders(
         filtered.map((o) => ({
-          id:    o.id,
+          id: o.id,
           items: (o.items ?? []) as BillLineItem[],
           total: Number(o.total ?? 0),
-          note:  String(o.note ?? ""),
+          note: String(o.note ?? ""),
         }))
       );
     } finally {
@@ -1502,11 +1502,11 @@ export default function WaiterPage() {
       items: Array.from(lineMap.values()),
       subtotal,
       discountAmount: discountAmount > 0 ? discountAmount : undefined,
-      discountNote:   discountAmount > 0 ? (billDiscountNote.trim() || undefined) : undefined,
-      vatAmount:      vatAmount > 0 ? vatAmount : undefined,
-      vatInclusive:   vatAmount > 0 ? tax.inclusive : undefined,
-      vatRate:        vatAmount > 0 ? appSettings.taxSettings?.rate : undefined,
-      tipAmount:      tipAmount > 0 ? tipAmount : undefined,
+      discountNote: discountAmount > 0 ? (billDiscountNote.trim() || undefined) : undefined,
+      vatAmount: vatAmount > 0 ? vatAmount : undefined,
+      vatInclusive: vatAmount > 0 ? tax.inclusive : undefined,
+      vatRate: vatAmount > 0 ? appSettings.taxSettings?.rate : undefined,
+      tipAmount: tipAmount > 0 ? tipAmount : undefined,
       total,
       giftCardUsed: gcAmount > 0 ? gcAmount : undefined,
       paymentMethod: method,
@@ -1827,9 +1827,9 @@ export default function WaiterPage() {
                   // icon + "Next <time>" so the bare time reads clearly as the
                   // upcoming booking (rose if it lands within one sitting); a
                   // free-but-booked table reads Soon / Res / Due.
-                  const seatedName  = occupied ? resInfo?.seated?.customerName?.split(" ")[0] : undefined;
-                  const nextSoon    = !!resInfo?.next && resInfo.minutesUntil != null && resInfo.minutesUntil <= slotDuration;
-                  const moreLabel   = resInfo && resInfo.upcomingCount > 1 ? ` +${resInfo.upcomingCount - 1}` : "";
+                  const seatedName = occupied ? resInfo?.seated?.customerName?.split(" ")[0] : undefined;
+                  const nextSoon = !!resInfo?.next && resInfo.minutesUntil != null && resInfo.minutesUntil <= slotDuration;
+                  const moreLabel = resInfo && resInfo.upcomingCount > 1 ? ` +${resInfo.upcomingCount - 1}` : "";
                   const reservedTag = resInfo?.isOverdue ? "Due" : resInfo?.isDue ? "Soon" : "Res";
 
                   return (
@@ -1891,88 +1891,88 @@ export default function WaiterPage() {
             // the floor knows the table is booked again later — at any distance.
             const nextRes = reservationsEnabled ? (reservationInfoFor(tableAction.label)?.next ?? null) : null;
             return (
-            <div className="fixed inset-0 z-50 flex items-end justify-center">
-              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setTableAction(null)} />
-              <div className="relative bg-slate-900 rounded-t-3xl w-full max-w-md p-6 shadow-2xl space-y-4">
-                <div className="flex items-center gap-3 mb-1">
-                  <div className="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center">
-                    <UtensilsCrossed size={18} className="text-white" />
-                  </div>
-                  <div>
-                    <p className="text-white font-black text-lg">Table {tableAction.label}</p>
-                    <p className="text-blue-400 text-xs font-medium">{seatedRes ? "Seated guest" : "Currently occupied"}</p>
-                  </div>
-                </div>
-
-                {/* Booking details — shown when this occupied table is a seated reservation */}
-                {seatedRes && (
-                  <div className="bg-slate-800 rounded-2xl px-4 py-3 space-y-1.5">
-                    <p className="text-white text-sm font-medium">{seatedRes.customerName}</p>
-                    <div className="flex items-center gap-2 text-slate-400 text-xs">
-                      <Clock size={12} className="text-amber-400" />
-                      <span>{seatedRes.time}</span>
-                      <span className="text-slate-600">·</span>
-                      <Users size={12} />
-                      <span>{seatedRes.partySize} guests</span>
+              <div className="fixed inset-0 z-50 flex items-end justify-center">
+                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setTableAction(null)} />
+                <div className="relative bg-slate-900 rounded-t-3xl w-full max-w-md p-6 shadow-2xl space-y-4">
+                  <div className="flex items-center gap-3 mb-1">
+                    <div className="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center">
+                      <UtensilsCrossed size={18} className="text-white" />
                     </div>
-                    {seatedRes.note && (
-                      <p className="text-amber-400 text-xs flex items-center gap-1">
-                        <StickyNote size={11} /> {seatedRes.note}
+                    <div>
+                      <p className="text-white font-black text-lg">Table {tableAction.label}</p>
+                      <p className="text-blue-400 text-xs font-medium">{seatedRes ? "Seated guest" : "Currently occupied"}</p>
+                    </div>
+                  </div>
+
+                  {/* Booking details — shown when this occupied table is a seated reservation */}
+                  {seatedRes && (
+                    <div className="bg-slate-800 rounded-2xl px-4 py-3 space-y-1.5">
+                      <p className="text-white text-sm font-medium">{seatedRes.customerName}</p>
+                      <div className="flex items-center gap-2 text-slate-400 text-xs">
+                        <Clock size={12} className="text-amber-400" />
+                        <span>{seatedRes.time}</span>
+                        <span className="text-slate-600">·</span>
+                        <Users size={12} />
+                        <span>{seatedRes.partySize} guests</span>
+                      </div>
+                      {seatedRes.note && (
+                        <p className="text-amber-400 text-xs flex items-center gap-1">
+                          <StickyNote size={11} /> {seatedRes.note}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Upcoming booking — this table is reserved again later today */}
+                  {nextRes && (
+                    <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl px-4 py-3 space-y-1">
+                      <p className="text-amber-300 text-[11px] font-bold uppercase tracking-wide flex items-center gap-1.5">
+                        <CalendarClock size={12} /> Booked again today
                       </p>
-                    )}
-                  </div>
-                )}
-
-                {/* Upcoming booking — this table is reserved again later today */}
-                {nextRes && (
-                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl px-4 py-3 space-y-1">
-                    <p className="text-amber-300 text-[11px] font-bold uppercase tracking-wide flex items-center gap-1.5">
-                      <CalendarClock size={12} /> Booked again today
-                    </p>
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-slate-300 text-sm">
-                      <span className="flex items-center gap-1"><Clock size={13} className="text-amber-400" /> <span className="font-semibold">{nextRes.time}</span></span>
-                      <span className="text-slate-600">·</span>
-                      <span className="flex items-center gap-1"><Users size={12} className="text-slate-400" /> {nextRes.partySize}</span>
-                      <span className="text-slate-600">·</span>
-                      <span className="text-slate-400">{nextRes.customerName}</span>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-slate-300 text-sm">
+                        <span className="flex items-center gap-1"><Clock size={13} className="text-amber-400" /> <span className="font-semibold">{nextRes.time}</span></span>
+                        <span className="text-slate-600">·</span>
+                        <span className="flex items-center gap-1"><Users size={12} className="text-slate-400" /> {nextRes.partySize}</span>
+                        <span className="text-slate-600">·</span>
+                        <span className="text-slate-400">{nextRes.customerName}</span>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                <button
-                  onClick={() => { setTableAction(null); selectTable(tableAction); }}
-                  className="w-full flex items-center gap-4 bg-slate-800 hover:bg-slate-700 active:scale-[0.98] rounded-2xl px-5 py-4 transition-all"
-                >
-                  <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center flex-shrink-0">
-                    <Utensils size={18} className="text-white" />
-                  </div>
-                  <div className="text-left">
-                    <p className="text-white font-bold">Add More Items</p>
-                    <p className="text-slate-400 text-xs">Send another round to the kitchen</p>
-                  </div>
-                </button>
+                  <button
+                    onClick={() => { setTableAction(null); selectTable(tableAction); }}
+                    className="w-full flex items-center gap-4 bg-slate-800 hover:bg-slate-700 active:scale-[0.98] rounded-2xl px-5 py-4 transition-all"
+                  >
+                    <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center flex-shrink-0">
+                      <Utensils size={18} className="text-white" />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-white font-bold">Add More Items</p>
+                      <p className="text-slate-400 text-xs">Send another round to the kitchen</p>
+                    </div>
+                  </button>
 
-                <button
-                  onClick={() => openBill(tableAction)}
-                  className="w-full flex items-center gap-4 bg-slate-800 hover:bg-slate-700 active:scale-[0.98] rounded-2xl px-5 py-4 transition-all"
-                >
-                  <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center flex-shrink-0">
-                    <Receipt size={18} className="text-white" />
-                  </div>
-                  <div className="text-left">
-                    <p className="text-white font-bold">View Bill &amp; Pay</p>
-                    <p className="text-slate-400 text-xs">Show total and settle the table</p>
-                  </div>
-                </button>
+                  <button
+                    onClick={() => openBill(tableAction)}
+                    className="w-full flex items-center gap-4 bg-slate-800 hover:bg-slate-700 active:scale-[0.98] rounded-2xl px-5 py-4 transition-all"
+                  >
+                    <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center flex-shrink-0">
+                      <Receipt size={18} className="text-white" />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-white font-bold">View Bill &amp; Pay</p>
+                      <p className="text-slate-400 text-xs">Show total and settle the table</p>
+                    </div>
+                  </button>
 
-                <button
-                  onClick={() => setTableAction(null)}
-                  className="w-full py-3 text-slate-500 hover:text-slate-300 text-sm font-medium transition"
-                >
-                  Cancel
-                </button>
+                  <button
+                    onClick={() => setTableAction(null)}
+                    className="w-full py-3 text-slate-500 hover:text-slate-300 text-sm font-medium transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
-            </div>
             );
           })()}
           {/* ── Reserved-table seat sheet ───────────────────────────────────── */}
@@ -2043,6 +2043,11 @@ export default function WaiterPage() {
               </div>
             </div>
           )}
+
+          <footer className="bg-slate-900 border-t border-slate-800 px-4 py-3 flex-shrink-0 text-center text-[11px] text-gray-500">
+            {appSettings.footerCopyright || `© ${new Date().getFullYear()} ${appSettings.restaurant.name}. All rights reserved.`}<br />
+            Designed by SeekaHost Technologies Ltd.
+          </footer>
         </div>
 
         {/* Last receipt — floats above tables view after payment */}
@@ -2090,11 +2095,11 @@ export default function WaiterPage() {
         items: consolidatedLines,
         subtotal: billSubtotal,
         discountAmount: billDiscountAmount > 0 ? billDiscountAmount : undefined,
-        discountNote:   billDiscountAmount > 0 ? (billDiscountNote.trim() || undefined) : undefined,
-        vatAmount:      billTax.enabled && billTax.vatAmount > 0 ? billTax.vatAmount : undefined,
-        vatInclusive:   billTax.enabled && billTax.vatAmount > 0 ? billTax.inclusive : undefined,
-        vatRate:        billTax.enabled && billTax.vatAmount > 0 ? appSettings.taxSettings?.rate : undefined,
-        tipAmount:      billTip > 0 ? billTip : undefined,
+        discountNote: billDiscountAmount > 0 ? (billDiscountNote.trim() || undefined) : undefined,
+        vatAmount: billTax.enabled && billTax.vatAmount > 0 ? billTax.vatAmount : undefined,
+        vatInclusive: billTax.enabled && billTax.vatAmount > 0 ? billTax.inclusive : undefined,
+        vatRate: billTax.enabled && billTax.vatAmount > 0 ? appSettings.taxSettings?.rate : undefined,
+        tipAmount: billTip > 0 ? billTip : undefined,
         total: billTotal,
         paymentMethod: "pending",
         orderIds: billOrders.map(o => o.id),
@@ -2128,7 +2133,7 @@ export default function WaiterPage() {
             <Receipt size={20} className="text-emerald-400 flex-shrink-0" />
           </header>
 
-          <div className="overflow-y-auto">
+          <div className="overflow-y-auto flex-1">
 
             {/* Bill content */}
             <div className="flex-1 p-5 space-y-4">
@@ -2202,22 +2207,20 @@ export default function WaiterPage() {
                       onClick={() => { if (!canDiscount) return; setDiscountInput(billDiscountPct ? String(billDiscountPct) : ""); setShowBillDiscount(true); }}
                       disabled={!canDiscount}
                       title={canDiscount ? "Apply a bill discount" : "Senior / head waiter only"}
-                      className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition ${
-                        billDiscountAmount > 0
-                          ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300"
-                          : "bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-600"
-                      } disabled:opacity-40 disabled:cursor-not-allowed`}
+                      className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition ${billDiscountAmount > 0
+                        ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300"
+                        : "bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-600"
+                        } disabled:opacity-40 disabled:cursor-not-allowed`}
                     >
                       <Percent size={14} />
                       {billDiscountAmount > 0 ? `Discount ${billDiscountPct}%` : "Discount"}
                     </button>
                     <button
                       onClick={() => { setTipInput(billTip ? String(billTip) : ""); setShowBillTip(true); }}
-                      className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition ${
-                        billTip > 0
-                          ? "bg-amber-500/15 border-amber-500/40 text-amber-300"
-                          : "bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-600"
-                      }`}
+                      className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition ${billTip > 0
+                        ? "bg-amber-500/15 border-amber-500/40 text-amber-300"
+                        : "bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-600"
+                        }`}
                     >
                       <BadgeDollarSign size={14} />
                       {billTip > 0 ? `Tip ${fmtCur(billTip, sym)}` : "Tip"}
@@ -2261,7 +2264,7 @@ export default function WaiterPage() {
                       >
                         {paying
                           ? <Loader2 size={18} className="animate-spin" />
-                          : settleConfirm === "cash" ? <Banknote size={18} className="hidden sm:block"/> : <CreditCard size={18} className="hidden sm:block" />}
+                          : settleConfirm === "cash" ? <Banknote size={18} className="hidden sm:block" /> : <CreditCard size={18} className="hidden sm:block" />}
                         Confirm Settle
                       </button>
                     </div>
@@ -2374,7 +2377,10 @@ export default function WaiterPage() {
             )}
           </div>
 
-
+          <footer className="bg-slate-900 border-t border-slate-800 px-4 py-3 flex-shrink-0 text-center text-[11px] text-gray-500">
+            {appSettings.footerCopyright || `© ${new Date().getFullYear()} ${appSettings.restaurant.name}. All rights reserved.`}<br />
+            Designed by SeekaHost Technologies Ltd.
+          </footer>
         </div>
 
         {/* Discount modal — senior/head waiter only, capped at 100% */}
@@ -2592,9 +2598,9 @@ export default function WaiterPage() {
                 const lowStock = stockState === "low_stock";
                 const hasVar = (item.variations?.length ?? 0) > 0 || (item.addOns?.length ?? 0) > 0;
                 // Offer math (shared in_store channel — same as POS counter)
-                const offerLabel  = offerBadgeLabel(item, "in_store");
-                const offerPrice  = getOfferUnitPrice(item, "in_store"); // null = cart-level (bogo/multibuy/qty) or no offer
-                const showStrike  = offerPrice !== null && offerPrice < item.price;
+                const offerLabel = offerBadgeLabel(item, "in_store");
+                const offerPrice = getOfferUnitPrice(item, "in_store"); // null = cart-level (bogo/multibuy/qty) or no offer
+                const showStrike = offerPrice !== null && offerPrice < item.price;
                 return (
                   <button
                     key={item.id}
@@ -2656,7 +2662,7 @@ export default function WaiterPage() {
                         ) : (
                           <span className="ml-auto text-slate-500 hover:text-white transition">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="m9 18 6-6-6-6"/>
+                              <path d="m9 18 6-6-6-6" />
                             </svg>
                           </span>
                         )}
@@ -2809,6 +2815,12 @@ export default function WaiterPage() {
           onAdd={addToCart}
         />
       )}
+
+      <footer className="bg-slate-900 border-t border-slate-800 px-4 py-3 flex-shrink-0 text-center text-[11px] text-gray-500">
+        {appSettings.footerCopyright || `© ${new Date().getFullYear()} ${appSettings.restaurant.name}. All rights reserved.`}<br />
+        Designed by SeekaHost Technologies Ltd.
+      </footer>
+
     </div>
   );
 }

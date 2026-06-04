@@ -5,34 +5,34 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { useIdleLogout } from "@/lib/useIdleLogout";
-import OperationsPanel      from "@/components/admin/OperationsPanel";
-import SchedulePanel        from "@/components/admin/SchedulePanel";
-import IntegrationsPanel    from "@/components/admin/IntegrationsPanel";
-import MenuManagementPanel  from "@/components/admin/MenuManagementPanel";
-import CustomersPanel       from "@/components/admin/CustomersPanel";
-import DeliveryPanel        from "@/components/admin/DeliveryPanel";
-import DeliveryZonesPanel   from "@/components/admin/DeliveryZonesPanel";
-import EmailTemplatesPanel  from "@/components/admin/EmailTemplatesPanel";
-import CustomPagesPanel     from "@/components/admin/CustomPagesPanel";
-import MenuLinksPanel       from "@/components/admin/MenuLinksPanel";
-import ColorSettingsPanel   from "@/components/admin/ColorSettingsPanel";
-import FooterLogosPanel     from "@/components/admin/FooterLogosPanel";
+import OperationsPanel from "@/components/admin/OperationsPanel";
+import SchedulePanel from "@/components/admin/SchedulePanel";
+import IntegrationsPanel from "@/components/admin/IntegrationsPanel";
+import MenuManagementPanel from "@/components/admin/MenuManagementPanel";
+import CustomersPanel from "@/components/admin/CustomersPanel";
+import DeliveryPanel from "@/components/admin/DeliveryPanel";
+import DeliveryZonesPanel from "@/components/admin/DeliveryZonesPanel";
+import EmailTemplatesPanel from "@/components/admin/EmailTemplatesPanel";
+import CustomPagesPanel from "@/components/admin/CustomPagesPanel";
+import MenuLinksPanel from "@/components/admin/MenuLinksPanel";
+import ColorSettingsPanel from "@/components/admin/ColorSettingsPanel";
+import FooterLogosPanel from "@/components/admin/FooterLogosPanel";
 import ReceiptSettingsPanel from "@/components/admin/ReceiptSettingsPanel";
-import CouponsPanel         from "@/components/admin/CouponsPanel";
-import TaxSettingsPanel     from "@/components/admin/TaxSettingsPanel";
-import DriversPanel         from "@/components/admin/DriversPanel";
-import RefundsPanel         from "@/components/admin/RefundsPanel";
-import OrderMonitorPanel    from "@/components/admin/OrderMonitorPanel";
-import OrderHistoryPanel    from "@/components/admin/OrderHistoryPanel";
-import PaymentsPanel        from "@/components/admin/PaymentsPanel";
-import POSReportsPanel      from "@/components/admin/POSReportsPanel";
-import OnlineReportsPanel  from "@/components/admin/OnlineReportsPanel";
-import WaitersPanel         from "@/components/admin/WaitersPanel";
-import KitchenStaffPanel    from "@/components/admin/KitchenStaffPanel";
-import POSStaffPanel        from "@/components/admin/POSStaffPanel";
-import GiftCardsPanel       from "@/components/admin/GiftCardsPanel";
-import ReservationsPanel         from "@/components/admin/ReservationsPanel";
-import TableStatusPanel          from "@/components/admin/TableStatusPanel";
+import CouponsPanel from "@/components/admin/CouponsPanel";
+import TaxSettingsPanel from "@/components/admin/TaxSettingsPanel";
+import DriversPanel from "@/components/admin/DriversPanel";
+import RefundsPanel from "@/components/admin/RefundsPanel";
+import OrderMonitorPanel from "@/components/admin/OrderMonitorPanel";
+import OrderHistoryPanel from "@/components/admin/OrderHistoryPanel";
+import PaymentsPanel from "@/components/admin/PaymentsPanel";
+import POSReportsPanel from "@/components/admin/POSReportsPanel";
+import OnlineReportsPanel from "@/components/admin/OnlineReportsPanel";
+import WaitersPanel from "@/components/admin/WaitersPanel";
+import KitchenStaffPanel from "@/components/admin/KitchenStaffPanel";
+import POSStaffPanel from "@/components/admin/POSStaffPanel";
+import GiftCardsPanel from "@/components/admin/GiftCardsPanel";
+import ReservationsPanel from "@/components/admin/ReservationsPanel";
+import TableStatusPanel from "@/components/admin/TableStatusPanel";
 import ReservationCustomersPanel from "@/components/admin/ReservationCustomersPanel";
 import {
   LayoutDashboard, ExternalLink, ShieldCheck, Store, Calendar, Plug, ChefHat, Users, Truck,
@@ -51,71 +51,71 @@ const NAV_GROUPS: NavGroup[] = [
   {
     id: "orders", label: "Orders",
     items: [
-      { id: "online-orders", label: "Online Orders", icon: Truck     },
-      { id: "pos-orders",     label: "POS Orders",     icon: Tablet    },
+      { id: "online-orders", label: "Online Orders", icon: Truck },
+      { id: "pos-orders", label: "POS Orders", icon: Tablet },
       { id: "dine-in-orders", label: "Dine-in Orders", icon: UtensilsCrossed },
-      { id: "order-history",  label: "Order History",  icon: ClipboardList },
+      { id: "order-history", label: "Order History", icon: ClipboardList },
     ],
   },
   {
     id: "menu", label: "Menu",
     items: [
-      { id: "menu",      label: "Menu Items",       icon: ChefHat  },
+      { id: "menu", label: "Menu Items", icon: ChefHat },
     ],
   },
   {
     id: "customers", label: "Customers & Services",
     items: [
-      { id: "customers",    label: "Customers",     icon: Users           },
-      { id: "drivers",      label: "Drivers",       icon: Car             },
-      { id: "reservations", label: "Reservations",  icon: CalendarDays    },
-      { id: "table-status", label: "Tables",        icon: UtensilsCrossed },
+      { id: "customers", label: "Customers", icon: Users },
+      { id: "drivers", label: "Drivers", icon: Car },
+      { id: "reservations", label: "Reservations", icon: CalendarDays },
+      { id: "table-status", label: "Tables", icon: UtensilsCrossed },
     ],
   },
   {
     id: "table-service", label: "Table Service",
     items: [
-      { id: "waiters",              label: "Waiter Staff",   icon: UtensilsCrossed },
-      { id: "kitchen-staff",        label: "Kitchen Staff",  icon: ChefHat         },
-      { id: "pos-staff",            label: "POS Staff",      icon: Tablet          },
-      { id: "reservation-customers",label: "Guest Profiles", icon: BookUser        },
+      { id: "waiters", label: "Waiter Staff", icon: UtensilsCrossed },
+      { id: "kitchen-staff", label: "Kitchen Staff", icon: ChefHat },
+      { id: "pos-staff", label: "POS Staff", icon: Tablet },
+      { id: "reservation-customers", label: "Guest Profiles", icon: BookUser },
     ],
   },
   {
     id: "finance", label: "Finance",
     items: [
-      { id: "online-payments", label: "Online Payments",  icon: CreditCard },
-      { id: "online-refunds", label: "Online Refunds",   icon: RotateCcw },
-      { id: "online-reports", label: "Finance Reports",  icon: LineChart },
-      { id: "coupons",        label: "Coupons",          icon: Tag       },
-      { id: "gift-cards",     label: "Gift Cards",       icon: Gift      },
-      { id: "tax",            label: "Tax & VAT",         icon: Percent   },
-      { id: "pos-reports",    label: "POS Reports",       icon: BarChart3 },
+      { id: "online-payments", label: "Online Payments", icon: CreditCard },
+      { id: "online-refunds", label: "Online Refunds", icon: RotateCcw },
+      { id: "online-reports", label: "Finance Reports", icon: LineChart },
+      { id: "coupons", label: "Coupons", icon: Tag },
+      { id: "gift-cards", label: "Gift Cards", icon: Gift },
+      { id: "tax", label: "Tax & VAT", icon: Percent },
+      { id: "pos-reports", label: "POS Reports", icon: BarChart3 },
     ],
   },
   {
     id: "settings", label: "Settings",
     items: [
-      { id: "operations",   label: "Operations",      icon: Store    },
-      { id: "schedule",     label: "Schedule",         icon: Calendar },
-      { id: "zones",        label: "Delivery Zones",  icon: MapPin   },
-      { id: "integrations", label: "Integrations",    icon: Plug     },
+      { id: "operations", label: "Operations", icon: Store },
+      { id: "schedule", label: "Schedule", icon: Calendar },
+      { id: "zones", label: "Delivery Zones", icon: MapPin },
+      { id: "integrations", label: "Integrations", icon: Plug },
     ],
   },
   {
     id: "templates", label: "Templates",
     items: [
-      { id: "email",        label: "Email Templates", icon: Mail     },
-      { id: "receipt",      label: "Receipt",         icon: Receipt  },
+      { id: "email", label: "Email Templates", icon: Mail },
+      { id: "receipt", label: "Receipt", icon: Receipt },
     ],
   },
   {
     id: "content", label: "Content & SEO",
     items: [
-      { id: "custom-pages", label: "Pages",          icon: FileText      },
-      { id: "nav-menus",    label: "Navigation",     icon: Navigation    },
-      { id: "colors",       label: "Brand Colors",   icon: Palette       },
-      { id: "footer-logos", label: "Footer Logos",   icon: ImageIcon     },
+      { id: "custom-pages", label: "Pages", icon: FileText },
+      { id: "nav-menus", label: "Navigation", icon: Navigation },
+      { id: "colors", label: "Brand Colors", icon: Palette },
+      { id: "footer-logos", label: "Footer Logos", icon: ImageIcon },
     ],
   },
 ];
@@ -136,12 +136,12 @@ interface SubAppLink {
 }
 
 const SUB_APP_LINKS: SubAppLink[] = [
-  { href: "/",                  label: "Customer Site",     description: "Public ordering site",           icon: Globe            },
-  { href: "/pos",               label: "POS Terminal",      description: "Cashier checkout",               icon: Tablet           },
-  { href: "/kitchen",           label: "Kitchen Display",   description: "KDS order queue",                icon: ChefHat          },
-  { href: "/waiter",            label: "Waiter App",        description: "Table service / orders",         icon: UtensilsCrossed  },
-  { href: "/customer-display",  label: "Customer Display",  description: "Counter-facing screen",          icon: Monitor          },
-  { href: "/driver",            label: "Driver App",        description: "Delivery dispatch view",         icon: Truck            },
+  { href: "/", label: "Customer Site", description: "Public ordering site", icon: Globe },
+  { href: "/pos", label: "POS Terminal", description: "Cashier checkout", icon: Tablet },
+  { href: "/kitchen", label: "Kitchen Display", description: "KDS order queue", icon: ChefHat },
+  { href: "/waiter", label: "Waiter App", description: "Table service / orders", icon: UtensilsCrossed },
+  { href: "/customer-display", label: "Customer Display", description: "Counter-facing screen", icon: Monitor },
+  { href: "/driver", label: "Driver App", description: "Delivery dispatch view", icon: Truck },
 ];
 
 // ─── Welcome banner copy ──────────────────────────────────────────────────────
@@ -156,35 +156,35 @@ function bannerSubtitle(
 ) {
   const s = settings;
   switch (tab) {
-    case "menu":          return `Managing ${menuItemsLen} items across ${categoriesLen} categories.`;
-    case "customers":     return `${customersLen} registered customers · manage orders & history.`;
+    case "menu": return `Managing ${menuItemsLen} items across ${categoriesLen} categories.`;
+    case "customers": return `${customersLen} registered customers · manage orders & history.`;
     case "online-orders": return `${activeOrderCount} active order${activeOrderCount !== 1 ? "s" : ""} in the queue · online deliveries and collections today.`;
-    case "pos-orders":     return "Live view of POS counter (walk-in) sales — status, today's completed count, and earnings. Read-only.";
+    case "pos-orders": return "Live view of POS counter (walk-in) sales — status, today's completed count, and earnings. Read-only.";
     case "dine-in-orders": return "Live view of dine-in / table-service orders — status, today's completed count, and earnings. Read-only.";
-    case "order-history":  return "All-time order archive across every source — delivery, collection, walk-in, and dine-in. Read-only.";
-    case "zones":         return "Define delivery zones, set per-zone fees, and control distance rules.";
-    case "operations":    return "Update branding, fees, timings, and address. All changes apply instantly.";
-    case "email":         return `${s.emailTemplates?.filter((t) => t.enabled).length ?? 0} active email templates · customise messages sent to customers.`;
-    case "custom-pages":  return `${(s.customPages ?? []).filter((p) => p.published).length} published · standalone pages with custom content and SEO.`;
-    case "nav-menus":     return "Assign pages to header and footer menus, control ordering, and toggle visibility.";
-    case "colors":        return "Customise brand colour and page background — changes apply live across the site.";
-    case "footer-logos":  return `${(s.footerLogos ?? []).filter((l) => l.enabled).length} active logo${(s.footerLogos ?? []).filter((l) => l.enabled).length !== 1 ? "s" : ""} · upload payment icons, partner logos, and badges.`;
-    case "receipt":       return "Configure what appears on printed and emailed receipts — name, phone, VAT number, and footer.";
-    case "coupons":       return `${(s.coupons ?? []).filter((c) => c.active).length} active coupon${(s.coupons ?? []).filter((c) => c.active).length !== 1 ? "s" : ""} · percentage and fixed-amount discount codes.`;
-    case "gift-cards":    return "Prepaid gift card codes — issue manually, track balances, void, and view redemption history.";
-    case "tax":           return s.taxSettings?.enabled ? `VAT ${s.taxSettings.rate}% · ${s.taxSettings.inclusive ? "inclusive" : "exclusive"} mode.` : "VAT is currently disabled.";
-    case "drivers":       return "Manage driver accounts and track deliveries.";
+    case "order-history": return "All-time order archive across every source — delivery, collection, walk-in, and dine-in. Read-only.";
+    case "zones": return "Define delivery zones, set per-zone fees, and control distance rules.";
+    case "operations": return "Update branding, fees, timings, and address. All changes apply instantly.";
+    case "email": return `${s.emailTemplates?.filter((t) => t.enabled).length ?? 0} active email templates · customise messages sent to customers.`;
+    case "custom-pages": return `${(s.customPages ?? []).filter((p) => p.published).length} published · standalone pages with custom content and SEO.`;
+    case "nav-menus": return "Assign pages to header and footer menus, control ordering, and toggle visibility.";
+    case "colors": return "Customise brand colour and page background — changes apply live across the site.";
+    case "footer-logos": return `${(s.footerLogos ?? []).filter((l) => l.enabled).length} active logo${(s.footerLogos ?? []).filter((l) => l.enabled).length !== 1 ? "s" : ""} · upload payment icons, partner logos, and badges.`;
+    case "receipt": return "Configure what appears on printed and emailed receipts — name, phone, VAT number, and footer.";
+    case "coupons": return `${(s.coupons ?? []).filter((c) => c.active).length} active coupon${(s.coupons ?? []).filter((c) => c.active).length !== 1 ? "s" : ""} · percentage and fixed-amount discount codes.`;
+    case "gift-cards": return "Prepaid gift card codes — issue manually, track balances, void, and view redemption history.";
+    case "tax": return s.taxSettings?.enabled ? `VAT ${s.taxSettings.rate}% · ${s.taxSettings.inclusive ? "inclusive" : "exclusive"} mode.` : "VAT is currently disabled.";
+    case "drivers": return "Manage driver accounts and track deliveries.";
     case "online-refunds": return "Process full or partial refunds on online orders, choose refund method, and view the full refund history.";
     case "online-payments": return "Online Stripe and cash transactions with status, customer, and gateway links — every online order where money actually moved.";
     case "online-reports": return "Revenue, orders, refunds, VAT, and payment breakdowns — filter by date range and export to CSV or PDF.";
-    case "pos-reports":    return "View POS sales reports — revenue, profit, staff performance, and best-selling items.";
-    case "waiters":        return "Manage waiter accounts, PINs, and roles. Dining tables moved to the Tables tab.";
-    case "kitchen-staff":  return "Manage KDS login accounts, PINs, and kitchen roles.";
-    case "pos-staff":      return "Manage POS terminal accounts — PINs, roles (Admin / Manager / Cashier), and per-role permissions.";
-    case "reservations":          return settings.reservationSystem?.enabled ? "Reservations are live — customers can book tables from the website." : "Reservations are currently disabled — enable them below.";
-    case "table-status":          return "Live occupancy plus add / edit / delete dining tables — used by the host stand and reservations.";
+    case "pos-reports": return "View POS sales reports — revenue, profit, staff performance, and best-selling items.";
+    case "waiters": return "Manage waiter accounts, PINs, and roles. Dining tables moved to the Tables tab.";
+    case "kitchen-staff": return "Manage KDS login accounts, PINs, and kitchen roles.";
+    case "pos-staff": return "Manage POS terminal accounts — PINs, roles (Admin / Manager / Cashier), and per-role permissions.";
+    case "reservations": return settings.reservationSystem?.enabled ? "Reservations are live — customers can book tables from the website." : "Reservations are currently disabled — enable them below.";
+    case "table-status": return "Live occupancy plus add / edit / delete dining tables — used by the host stand and reservations.";
     case "reservation-customers": return "Guest profiles built from reservation check-ins — add notes, tags, and manage marketing opt-ins.";
-    default:              return "Manage your restaurant settings below.";
+    default: return "Manage your restaurant settings below.";
   }
 }
 
@@ -200,15 +200,16 @@ export default function AdminPage() {
 
 function AdminPageContent() {
   const { isOpen, settings, menuItems, categories, customers, loadAllCustomers, refreshDiningTables } = useApp();
-  const router       = useRouter();
+  const router = useRouter();
   const searchParams = useSearchParams();
+  const { restaurant } = settings;
 
   // ── Admin authentication ──────────────────────────────────────────────────
   // null = checking, true = authenticated, false = needs login
-  const [adminAuthed,   setAdminAuthed]   = useState<boolean | null>(null);
+  const [adminAuthed, setAdminAuthed] = useState<boolean | null>(null);
   const [loginPassword, setLoginPassword] = useState("");
-  const [loginError,    setLoginError]    = useState("");
-  const [loginLoading,  setLoginLoading]  = useState(false);
+  const [loginError, setLoginError] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
 
   // ── All hooks must be declared before any early return (Rules of Hooks) ───
   // Honor ?tab=<id> on first paint so deep-links (e.g. "Go to Delivery" from
@@ -219,15 +220,15 @@ function AdminPageContent() {
   const rawTab = searchParams.get("tab");
   const initialTab = (
     rawTab === "delivery" ? "online-orders" :
-    rawTab === "payments" ? "online-payments" :
-    rawTab === "refunds"  ? "online-refunds" :
-    rawTab ?? "online-orders"
+      rawTab === "payments" ? "online-payments" :
+        rawTab === "refunds" ? "online-refunds" :
+          rawTab ?? "online-orders"
   ) as TabId;
-  const [activeTab,          setActiveTab]          = useState<TabId>(initialTab);
-  const [sidebarCollapsed,   setSidebarCollapsed]   = useState(false);
-  const [mobileSidebarOpen,  setMobileSidebarOpen]  = useState(false);
-  const [collapsedGroups,    setCollapsedGroups]    = useState<Set<string>>(new Set());
-  const [goToOpen,           setGoToOpen]           = useState(false);
+  const [activeTab, setActiveTab] = useState<TabId>(initialTab);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [goToOpen, setGoToOpen] = useState(false);
   const goToWrapperRef = useRef<HTMLDivElement | null>(null);
 
   // Close the "Go To" popover when the user clicks anywhere outside it.
@@ -255,7 +256,7 @@ function AdminPageContent() {
 
   const prevCountRef = useRef(activeOrderCount);
   const [newOrderCount, setNewOrderCount] = useState(0);
-  const [showAlert,     setShowAlert]     = useState(false);
+  const [showAlert, setShowAlert] = useState(false);
 
   useEffect(() => {
     fetch("/api/admin/auth")
@@ -302,7 +303,7 @@ function AdminPageContent() {
   // legacy alias the same way the initial-tab resolver above does.
   useEffect(() => {
     const raw = searchParams.get("tab");
-    const t   = raw === "delivery" ? "online-orders" : raw === "payments" ? "online-payments" : raw === "refunds" ? "online-refunds" : raw;
+    const t = raw === "delivery" ? "online-orders" : raw === "payments" ? "online-payments" : raw === "refunds" ? "online-refunds" : raw;
     if (t && ALL_TABS.some((x) => x.id === t)) setActiveTab(t);
   }, [searchParams]);
 
@@ -312,7 +313,7 @@ function AdminPageContent() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const loginInFlight  = useRef(false);
+  const loginInFlight = useRef(false);
   const logoutInFlight = useRef(false);
 
   async function handleLogin(e: { preventDefault(): void }) {
@@ -351,7 +352,7 @@ function AdminPageContent() {
     if (logoutInFlight.current) return;
     logoutInFlight.current = true;
     try {
-      await fetch("/api/admin/auth", { method: "DELETE" }).catch(() => {});
+      await fetch("/api/admin/auth", { method: "DELETE" }).catch(() => { });
       setAdminAuthed(false);
     } finally {
       logoutInFlight.current = false;
@@ -362,9 +363,9 @@ function AdminPageContent() {
   // power in the system, so an unattended browser tab is the highest-risk
   // session to leave alive.
   useIdleLogout({
-    enabled:   adminAuthed === true,
+    enabled: adminAuthed === true,
     timeoutMs: 30 * 60 * 1000,
-    onIdle:    handleLogout,
+    onIdle: handleLogout,
   });
 
   // ── Auth loading / login gate ─────────────────────────────────────────────
@@ -445,13 +446,13 @@ function AdminPageContent() {
     router.replace(`/admin?${params.toString()}`, { scroll: false });
   }
 
-  const currentTab  = ALL_TABS.find((t) => t.id === activeTab);
+  const currentTab = ALL_TABS.find((t) => t.id === activeTab);
   const CurrentIcon = currentTab?.icon ?? LayoutDashboard;
 
   // ── Badge helper ──────────────────────────────────────────────────────────
   function getBadge(id: string): { count: number; pulse: boolean } | null {
     if (id === "online-orders" && activeOrderCount > 0) return { count: activeOrderCount, pulse: true };
-    if (id === "menu")      return { count: menuItems.length, pulse: false };
+    if (id === "menu") return { count: menuItems.length, pulse: false };
     if (id === "customers") return { count: customers.length, pulse: false };
     return null;
   }
@@ -506,7 +507,7 @@ function AdminPageContent() {
                   </span>
                   {isGroupCollapsed
                     ? <ChevronRight size={11} className="text-gray-600 group-hover:text-gray-400 transition" />
-                    : <ChevronDown  size={11} className="text-gray-600 group-hover:text-gray-400 transition" />
+                    : <ChevronDown size={11} className="text-gray-600 group-hover:text-gray-400 transition" />
                   }
                 </button>
               )}
@@ -552,8 +553,8 @@ function AdminPageContent() {
                                   badge.pulse
                                     ? "bg-orange-400 text-white animate-pulse"
                                     : isActive
-                                    ? "bg-white/20 text-white"
-                                    : "bg-gray-800 text-gray-400",
+                                      ? "bg-white/20 text-white"
+                                      : "bg-gray-800 text-gray-400",
                                 ].join(" ")}>
                                   {badge.count}
                                 </span>
@@ -739,7 +740,7 @@ function AdminPageContent() {
 
       {/* ── Main content (offset by sidebar on desktop) ───────────────────── */}
       <div className={[
-        "flex flex-col flex-1 h-full transition-[padding-left] duration-300 ease-in-out pb-12",
+        "flex flex-col flex-1 h-full transition-[padding-left] duration-300 ease-in-out pb-4 w-full",
         sidebarCollapsed ? "lg:pl-[68px]" : "lg:pl-60",
       ].join(" ")}>
 
@@ -763,7 +764,7 @@ function AdminPageContent() {
             >
               {sidebarCollapsed
                 ? <ChevronRight size={18} className="text-gray-500" />
-                : <ChevronLeft  size={18} className="text-gray-500" />
+                : <ChevronLeft size={18} className="text-gray-500" />
               }
             </button>
 
@@ -816,38 +817,44 @@ function AdminPageContent() {
             </div>
 
             {/* Panel content */}
-            {activeTab === "menu"          && <MenuManagementPanel />}
-            {activeTab === "customers"     && <CustomersPanel />}
+            {activeTab === "menu" && <MenuManagementPanel />}
+            {activeTab === "customers" && <CustomersPanel />}
             {activeTab === "online-orders" && <DeliveryPanel />}
-            {activeTab === "pos-orders"    && <OrderMonitorPanel source="pos" />}
+            {activeTab === "pos-orders" && <OrderMonitorPanel source="pos" />}
             {activeTab === "dine-in-orders" && <OrderMonitorPanel source="dine-in" />}
             {activeTab === "order-history" && <OrderHistoryPanel />}
-            {activeTab === "zones"         && <DeliveryZonesPanel />}
-            {activeTab === "operations"    && <OperationsPanel />}
-            {activeTab === "schedule"      && <SchedulePanel />}
-            {activeTab === "integrations"  && <IntegrationsPanel />}
-            {activeTab === "email"         && <EmailTemplatesPanel />}
-            {activeTab === "custom-pages"  && <CustomPagesPanel />}
-            {activeTab === "nav-menus"     && <MenuLinksPanel />}
-            {activeTab === "colors"        && <ColorSettingsPanel />}
-            {activeTab === "footer-logos"  && <FooterLogosPanel />}
-            {activeTab === "receipt"       && <ReceiptSettingsPanel />}
-            {activeTab === "coupons"       && <CouponsPanel />}
-            {activeTab === "gift-cards"    && <GiftCardsPanel />}
-            {activeTab === "tax"           && <TaxSettingsPanel />}
-            {activeTab === "drivers"       && <DriversPanel />}
+            {activeTab === "zones" && <DeliveryZonesPanel />}
+            {activeTab === "operations" && <OperationsPanel />}
+            {activeTab === "schedule" && <SchedulePanel />}
+            {activeTab === "integrations" && <IntegrationsPanel />}
+            {activeTab === "email" && <EmailTemplatesPanel />}
+            {activeTab === "custom-pages" && <CustomPagesPanel />}
+            {activeTab === "nav-menus" && <MenuLinksPanel />}
+            {activeTab === "colors" && <ColorSettingsPanel />}
+            {activeTab === "footer-logos" && <FooterLogosPanel />}
+            {activeTab === "receipt" && <ReceiptSettingsPanel />}
+            {activeTab === "coupons" && <CouponsPanel />}
+            {activeTab === "gift-cards" && <GiftCardsPanel />}
+            {activeTab === "tax" && <TaxSettingsPanel />}
+            {activeTab === "drivers" && <DriversPanel />}
             {activeTab === "online-refunds" && <RefundsPanel />}
             {activeTab === "online-payments" && <PaymentsPanel />}
             {activeTab === "online-reports" && <OnlineReportsPanel />}
-            {activeTab === "pos-reports"   && <POSReportsPanel />}
-            {activeTab === "waiters"        && <WaitersPanel />}
-            {activeTab === "kitchen-staff"  && <KitchenStaffPanel />}
-            {activeTab === "pos-staff"      && <POSStaffPanel />}
-            {activeTab === "reservations"          && <ReservationsPanel />}
-            {activeTab === "table-status"          && <TableStatusPanel />}
+            {activeTab === "pos-reports" && <POSReportsPanel />}
+            {activeTab === "waiters" && <WaitersPanel />}
+            {activeTab === "kitchen-staff" && <KitchenStaffPanel />}
+            {activeTab === "pos-staff" && <POSStaffPanel />}
+            {activeTab === "reservations" && <ReservationsPanel />}
+            {activeTab === "table-status" && <TableStatusPanel />}
             {activeTab === "reservation-customers" && <ReservationCustomersPanel />}
           </div>
         </main>
+
+        {/* FOOTER */}
+        <footer className="bg-white border-t border-gray-200 px-4 pt-4 flex-shrink-0 text-center text-[11px] text-gray-400">
+          {settings.footerCopyright || `© ${new Date().getFullYear()} ${settings.restaurant.name}. All rights reserved.`}<br />
+          Designed by SeekaHost Technologies Ltd.
+        </footer>
       </div>
     </div>
   );
