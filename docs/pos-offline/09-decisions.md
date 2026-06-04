@@ -10,6 +10,125 @@ stay where they are; newer ones go on top.
 
 ---
 
+## 2026-06-03 § Receipt mint timing: `OFF-…` minted INSIDE the offline fallback only, not upfront
+
+**Decision:** [POSContext.completeSale](../../app/src/context/POSContext.tsx)
+no longer mints an `OFF-…` provisional receipt before the network POST.
+The online path POSTs to `/api/pos/sales` with **no `receiptNo`** field;
+the server allocates `R<seq>` from `pos_receipt_seq`. The `OFF-…`
+provisional is minted **only** inside the offline-fallback branch
+(network/5xx failure) right before `enqueueSale`.
+
+**Why:** On 2026-06-02 the Capacitor APK was tested online and every
+sale came back with an `OFF-…` receipt instead of the expected `R<seq>`.
+Root cause: the old code minted the provisional upfront and put it in
+the payload regardless of network state. The server's POST handler
+respects `body.receiptNo` if present (used by the outbox drain to
+preserve identity across retries), so a "happily online" sale was being
+recorded with an offline-shaped receipt. The fix decouples mint timing
+from network outcome: provisional minting is a fallback concern, not a
+setup concern.
+
+**How to apply:**
+- Online Capacitor sales → server-allocated `R<seq>` (matches web).
+- Offline Capacitor sales → client-minted `OFF-…` carried by the outbox.
+- Outbox drain at reconnect → server sees `body.receiptNo = "OFF-…"`,
+  preserves it (so the cashier's printed receipt still matches the DB
+  row). It does NOT reallocate — that would break audit continuity.
+- Idempotency UUID (`body.id`) is always client-supplied (online and
+  offline) so retries are idempotent regardless of receipt source.
+- Tested: online sale → `R12`. Offline sale → `OFF-LJZ8K2-A7`.
+  Reconnect drain → row in `pos_sales` with `OFF-…` receipt preserved.
+
+**Caveat:** when Phase 2 introduces per-terminal sequences
+(`T<prefix>-<seq>`), the offline path will mint a *real* terminal
+sequence locally (via the cached counter) rather than the `OFF-…`
+provisional. The mint-only-when-offline pattern from this fix stays —
+only the format string changes.
+
+## 2026-06-03 § Capacitor viewport: `initialScale: 0.6` for phone landscape; tablet should bump to 0.8–0.9
+
+**Decision:** [app/src/app/layout.tsx](../../app/src/app/layout.tsx)
+exports a `generateViewport()` that detects Capacitor via the
+`RestaurantPOS` User-Agent token and returns `initialScale: 0.6` with
+`userScalable: false`. Web (and Chrome PWA) keep the default
+`width: "device-width", initialScale: 1`.
+
+**Why:** Phone landscape (Xiaomi Redmi tested 2026-06-02) reports
+854×384 CSS pixels — the cart panel + payment buttons + summary section
+overflow vertically at `initialScale: 1`. The user explicitly wanted
+the same desktop layout, scaled down, not a responsive mobile reflow.
+Several alternatives tried:
+- CSS `zoom: 0.6` on `<html>` → left empty space below the content.
+- `viewport width=1920` → ignored by WebView until `useWideViewPort`
+  was set (see next entry).
+- `viewport width=1920 + initial-scale=0.6` → caused horizontal scroll
+  because visual width 1920·0.6 = 1152 > 854 device width.
+- `initial-scale=0.6` alone → WebView auto-fits to device width at
+  that scale; this works.
+
+**How to apply:**
+- Phone deployments use `0.6` (current).
+- Tablet deployments (10–11" landscape, ~1280×800 CSS) should bump
+  this to `0.8–0.9`. Suggest adding a `RestaurantPOS/tablet` UA token
+  in [capacitor.config.ts](../../app/capacitor.config.ts) when we ship
+  tablet builds, and branching on that token in `generateViewport()`.
+- Do NOT set `viewport width=…` for Capacitor — let the WebView
+  auto-fit at the chosen scale.
+- The UA-detection pattern (`appendUserAgent: "RestaurantPOS"` →
+  `headers().get("user-agent")` in a server component) is the
+  blueprint for *all* future Capacitor-only behaviour. Reuse it
+  before reaching for `Capacitor.isNativePlatform()` (which is
+  client-only).
+
+## 2026-06-03 § Android WebView quirks blocking the Capacitor APK bring-up
+
+**Decision:** Three WebView/Android quirks bit us during APK bring-up
+and are now baked into the repo (live `app/android/` plus mirrored to
+`app/android-src/` so `android-setup.sh` re-runs don't lose them):
+
+1. **`useWideViewPort` defaults to `false`** —
+   [MainActivity.kt:46-47](../../app/android/app/src/main/java/com/restaurant/pos/MainActivity.kt#L46-L47)
+   now sets `bridge.webView.settings.useWideViewPort = true` and
+   `loadWithOverviewMode = true` after `super.onCreate`. Without
+   these, the WebView silently ignores `<meta viewport>` width/scale
+   directives and renders at device-width.
+2. **Next.js auto-fills `initialScale: 1` if you don't specify it** —
+   our `generateViewport()` must return an *explicit* `initialScale`
+   value, even if it's the default. Omitting it caused our Capacitor
+   `0.6` value to be clobbered.
+3. **`<domain>` in `network_security_config.xml` is exact-host match,
+   not CIDR** — listing `192.168.1.0` does NOT match `192.168.1.16`.
+   We switched to a permissive
+   [base-config cleartextTrafficPermitted="true"](../../app/android/app/src/main/res/xml/network_security_config.xml)
+   ([android-src copy](../../app/android-src/app/src/main/res/xml/network_security_config.xml)).
+   Production URLs are HTTPS so this doesn't downgrade them; dev URLs
+   and LAN printer sockets all work.
+
+**Why:** Bug-by-bug debugging on 2026-06-02 ate most of a session. See
+[SESSION-LOG-2026-06-02.md](./SESSION-LOG-2026-06-02.md) for the full
+11-row table including the upstream causes (`crypto.randomUUID` not
+available on HTTP LAN, `ClassNotFoundException` from missing Kotlin
+plugin, etc.).
+
+**How to apply:**
+- The `android-setup.sh` script now also patches the root
+  [android/build.gradle](../../app/android/build.gradle) with
+  `classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.25'` and
+  the module [android/app/build.gradle](../../app/android/app/build.gradle)
+  with `apply plugin: 'kotlin-android'`. Without these the .kt files
+  silently aren't compiled and the WebView crashes on launch with
+  `ClassNotFoundException: MainActivity`.
+- `crypto.randomUUID()` is gated on a secure context (HTTPS or
+  localhost). HTTP LAN dev URLs hit a runtime `is not a function`
+  error. The repo uses
+  [app/src/lib/uuid.ts](../../app/src/lib/uuid.ts) (Math.random
+  fallback). All 16 client files were swept on 2026-06-02. Future
+  client code MUST use the `uuid()` helper, not `crypto.randomUUID`
+  directly.
+
+---
+
 ## 2026-05-29 § Card payment offline ALLOWED — POS is bookkeeping only, terminal is standalone
 
 **Decision:** Card and split (cash + card) payments are now ✅ allowed

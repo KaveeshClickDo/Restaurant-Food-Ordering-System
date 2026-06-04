@@ -36,5 +36,14 @@ class MainActivity : BridgeActivity() {
         registerPlugin(TcpPrinterPlugin::class.java)
 
         super.onCreate(savedInstanceState)
+
+        // Enable wide viewport so the WebView respects <meta name="viewport"
+        // content="width=NNNN" / initial-scale=N> directives. Android WebView
+        // defaults these to false, which means our Capacitor-only viewport
+        // (initial-scale=0.6 set in app/src/app/layout.tsx) would be silently
+        // ignored — the WebView would always render at device-width regardless,
+        // and the cart panel would clip off-screen on phone landscape.
+        bridge.webView.settings.useWideViewPort = true
+        bridge.webView.settings.loadWithOverviewMode = true
     }
 }
