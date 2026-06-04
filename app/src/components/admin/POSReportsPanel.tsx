@@ -415,7 +415,7 @@ export default function POSReportsPanel() {
       {(filtered.length > 0 || vipFeesInRange.length > 0) && (
         <>
           {/* ── KPI cards ──────────────────────────────────────────────────── */}
-          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
             <KpiCard label="Total Revenue"    value={fmtCur(revenue + vipFeesTotal, sym)} sub={vipFeesTotal > 0 ? `${filtered.length} sales + ${fmtCur(vipFeesTotal, sym)} VIP fees` : `${filtered.length} txns`} icon={TrendingUp} color="text-green-600"  bg="bg-green-50" />
             <KpiCard label="Average Order"    value={fmtCur(avgOrder, sym)}       sub={`${filtered.length} sales`}         icon={Receipt}         color="text-blue-600"   bg="bg-blue-50" />
             <KpiCard label="Gross Profit"     value={fmtCur(grossProfit, sym)}    sub={`Margin ${fmtPct(marginPct)}`}      icon={BarChart3}       color="text-purple-600" bg="bg-purple-50" />
