@@ -11,6 +11,7 @@ import type { OrderStatus }                     from "@/types";
 import { parseBody }                            from "@/lib/apiValidation";
 import { OrderStatusUpdateSchema }              from "@/lib/schemas/pos";
 import { restoreStock, type StockItem }         from "@/lib/stockMutation";
+import { rewardLoyaltyPoints } from "@/lib/loyaltyUtils";
 
 // Statuses we consider "cancelled" for stock-restore purposes. Refunds go
 // through /admin/orders/[id]/refund and restore there; here we only handle
@@ -45,7 +46,7 @@ export async function PUT(
   // decremented — oversold webhook orders never did).
   const { data: existing, error: fetchErr } = await supabaseAdmin
     .from("orders")
-    .select("payment_status, payment_method, status, items, oversold, customer_id, store_credit_used")
+    .select("payment_status, payment_method, status, items, oversold, customer_id, store_credit_used, total")
     .eq("id", id)
     .single();
 
@@ -78,6 +79,11 @@ export async function PUT(
   if (error) {
     console.error("admin/orders/[id]/status PUT:", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
+
+  // Award Loyalty Points if this update transitioned a Cash order to "paid"
+  if (shouldMarkPaid && existing.customer_id && existing.customer_id !== "guest" && existing.customer_id !== "pos-walk-in") {
+    await rewardLoyaltyPoints(existing.customer_id, Number(existing.total));
   }
 
   // Restore stock when an active order transitions into "cancelled". Skip

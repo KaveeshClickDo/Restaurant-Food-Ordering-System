@@ -21,6 +21,7 @@ import { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getDriverSession, unauthorizedJson } from "@/lib/auth";
 import { parseBody } from "@/lib/apiValidation";
+import { rewardLoyaltyPoints } from "@/lib/loyaltyUtils";
 
 const DRIVER_STATUSES = ["assigned", "picked_up", "on_the_way", "delivered"] as const;
 
@@ -46,7 +47,7 @@ export async function PUT(
   // Fetch the order — must be assigned to this driver.
   const { data: order, error: fetchErr } = await supabaseAdmin
     .from("orders")
-    .select("status, fulfillment, delivery_code, driver_id, payment_status, payment_method")
+    .select("status, fulfillment, delivery_code, driver_id, payment_status, payment_method, customer_id, total")
     .eq("id", id)
     .maybeSingle();
   if (fetchErr || !order) {
@@ -111,5 +112,11 @@ export async function PUT(
     console.error("driver/orders/[id]/status PUT:", updErr.message);
     return NextResponse.json({ ok: false, error: updErr.message }, { status: 500 });
   }
+
+  // Award Loyalty Points if this update transitioned a Cash delivery order to "paid"
+  if (patch.payment_status === "paid" && order.customer_id && order.customer_id !== "guest" && order.customer_id !== "pos-walk-in") {
+    await rewardLoyaltyPoints(order.customer_id, Number(order.total));
+  }
+
   return NextResponse.json({ ok: true });
 }

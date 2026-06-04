@@ -34,6 +34,7 @@ import { redeemGiftCardForRow } from "@/lib/giftCardValidation";
 import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
 import { generateGiftCardCode } from "@/lib/giftCardCode";
 import { completeReservationFromSession } from "@/lib/reservations";
+import { rewardLoyaltyPoints } from "@/lib/loyaltyUtils";
 
 // Tell Next.js this route handler should NOT parse the body — Stripe needs
 // the raw bytes for signature verification.
@@ -197,6 +198,12 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
     .from("payment_sessions")
     .update({ status: "succeeded", completed_order_id: orderRow.id as string })
     .eq("id", session.id);
+
+  // AWARD LOYALTY POINTS FOR CARD PAYMENTS
+  if (orderRow.customer_id && orderRow.customer_id !== "pos-walk-in" && orderRow.customer_id !== "guest") {
+    // We pass the final total to calculate the points
+    await rewardLoyaltyPoints(orderRow.customer_id as string, Number(orderRow.total));
+  }
 
   // Coupon increment — fire-and-forget; order is already committed.
   const couponCode = orderRow.coupon_code as string | null;

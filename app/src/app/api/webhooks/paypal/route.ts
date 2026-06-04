@@ -37,6 +37,7 @@ import {
 import { incrementCouponUsage } from "@/lib/orderValidation";
 import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
 import { completeReservationFromSession } from "@/lib/reservations";
+import { rewardLoyaltyPoints } from "@/lib/loyaltyUtils";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,28 +45,28 @@ export const dynamic = "force-dynamic";
 // Minimal shapes of the PayPal payloads we care about — keeps strict TS happy
 // without dragging in the whole PayPal type universe.
 interface PaypalCapture {
-  id?:        string;
-  status?:    string;
+  id?: string;
+  status?: string;
   custom_id?: string;
-  amount?:    { currency_code?: string; value?: string };
+  amount?: { currency_code?: string; value?: string };
   supplementary_data?: {
     related_ids?: { order_id?: string };
   };
 }
 
 interface PaypalRefund {
-  id?:        string;
-  status?:    string;
+  id?: string;
+  status?: string;
   custom_id?: string;
-  amount?:    { currency_code?: string; value?: string };
-  links?:     Array<{ rel?: string; href?: string }>;
+  amount?: { currency_code?: string; value?: string };
+  links?: Array<{ rel?: string; href?: string }>;
 }
 
 interface PaypalEvent {
-  id?:           string;
-  event_type?:   string;
+  id?: string;
+  event_type?: string;
   resource_type?: string;
-  resource?:     PaypalCapture & PaypalRefund;
+  resource?: PaypalCapture & PaypalRefund;
 }
 
 export async function POST(req: NextRequest) {
@@ -81,10 +82,10 @@ export async function POST(req: NextRequest) {
   // Build a lowercased-key view of headers — PayPal sends them in mixed case
   // but Next.js exposes them lowercased.
   const headers: Record<string, string | null> = {
-    "paypal-auth-algo":         req.headers.get("paypal-auth-algo"),
-    "paypal-cert-url":          req.headers.get("paypal-cert-url"),
-    "paypal-transmission-id":   req.headers.get("paypal-transmission-id"),
-    "paypal-transmission-sig":  req.headers.get("paypal-transmission-sig"),
+    "paypal-auth-algo": req.headers.get("paypal-auth-algo"),
+    "paypal-cert-url": req.headers.get("paypal-cert-url"),
+    "paypal-transmission-id": req.headers.get("paypal-transmission-id"),
+    "paypal-transmission-sig": req.headers.get("paypal-transmission-sig"),
     "paypal-transmission-time": req.headers.get("paypal-transmission-time"),
   };
 
@@ -220,8 +221,8 @@ async function handleCaptureCompleted(resource: PaypalCapture): Promise<void> {
 
   const insertRow = {
     ...orderRow,
-    payment_status:    "paid",
-    paypal_order_id:   paypalOrderId,
+    payment_status: "paid",
+    paypal_order_id: paypalOrderId,
     paypal_capture_id: captureId,
     oversold,
   };
@@ -258,6 +259,12 @@ async function handleCaptureCompleted(resource: PaypalCapture): Promise<void> {
     .update({ status: "succeeded", completed_order_id: orderRow.id as string })
     .eq("id", session.id);
 
+  // AWARD LOYALTY POINTS FOR PAYPAL PAYMENTS
+  if (orderRow.customer_id && orderRow.customer_id !== "pos-walk-in" && orderRow.customer_id !== "guest") {
+    // We pass the final total to calculate the points
+    await rewardLoyaltyPoints(orderRow.customer_id as string, Number(orderRow.total));
+  }
+
   // Store credit deduction — order row carries store_credit_used from the
   // browser; the customer's balance must be deducted server-side here because
   // the client has no working window (its spend-credit POST would race the
@@ -272,7 +279,7 @@ async function handleCaptureCompleted(resource: PaypalCapture): Promise<void> {
         .eq("id", orderCustomerId)
         .maybeSingle();
       if (cust) {
-        const current    = Number(cust.store_credit ?? 0);
+        const current = Number(cust.store_credit ?? 0);
         const newBalance = Math.max(0, parseFloat((current - storeCreditUsed).toFixed(2)));
         await supabaseAdmin
           .from("customers")
@@ -300,21 +307,21 @@ async function handleCaptureCompleted(resource: PaypalCapture): Promise<void> {
 
   // Confirmation email.
   sendOrderConfirmationEmail({
-    id:              orderRow.id as string,
-    customer_id:     orderRow.customer_id as string,
-    fulfillment:     orderRow.fulfillment as string,
-    total:           orderRow.total as number,
-    items:           orderRow.items as Array<{ name: string; qty: number; price: number }>,
-    payment_method:  orderRow.payment_method as string,
-    address:         (orderRow.address as string | null) ?? undefined,
-    delivery_fee:    (orderRow.delivery_fee as number) > 0 ? (orderRow.delivery_fee as number) : undefined,
-    service_fee:     (orderRow.service_fee  as number) > 0 ? (orderRow.service_fee  as number) : undefined,
-    vat_amount:      (orderRow.vat_amount as number | null) ?? undefined,
-    vat_inclusive:   (orderRow.vat_inclusive as boolean | null) ?? undefined,
-    coupon_code:     (orderRow.coupon_code as string | null) ?? undefined,
+    id: orderRow.id as string,
+    customer_id: orderRow.customer_id as string,
+    fulfillment: orderRow.fulfillment as string,
+    total: orderRow.total as number,
+    items: orderRow.items as Array<{ name: string; qty: number; price: number }>,
+    payment_method: orderRow.payment_method as string,
+    address: (orderRow.address as string | null) ?? undefined,
+    delivery_fee: (orderRow.delivery_fee as number) > 0 ? (orderRow.delivery_fee as number) : undefined,
+    service_fee: (orderRow.service_fee as number) > 0 ? (orderRow.service_fee as number) : undefined,
+    vat_amount: (orderRow.vat_amount as number | null) ?? undefined,
+    vat_inclusive: (orderRow.vat_inclusive as boolean | null) ?? undefined,
+    coupon_code: (orderRow.coupon_code as string | null) ?? undefined,
     coupon_discount: orderRow.coupon_code ? (orderRow.coupon_discount as number) : undefined,
-    delivery_code:   (orderRow.delivery_code as string | null) ?? undefined,
-    date:            orderRow.date as string,
+    delivery_code: (orderRow.delivery_code as string | null) ?? undefined,
+    date: orderRow.date as string,
   }).catch((err: unknown) =>
     console.error("[webhooks/paypal] confirmation email:", err instanceof Error ? err.message : err),
   );
@@ -356,7 +363,7 @@ async function handleCaptureRefunded(resource: PaypalRefund): Promise<void> {
     .select("id, total, refunds, refunded_amount, payment_status, paypal_capture_id");
 
   if (parentCaptureId) orderQuery = orderQuery.eq("paypal_capture_id", parentCaptureId);
-  else                 orderQuery = orderQuery.eq("id", customId!);
+  else orderQuery = orderQuery.eq("id", customId!);
 
   const { data: order, error: orderErr } = await orderQuery.maybeSingle();
   if (orderErr) throw new Error(`orders lookup: ${orderErr.message}`);
@@ -382,15 +389,15 @@ async function handleCaptureRefunded(resource: PaypalRefund): Promise<void> {
   if (alreadyRecorded) return;
 
   const newRefund = {
-    id:              `rf-${Date.now()}`,
-    orderId:         order.id,
-    amount:          Math.round(refundValue * 100) / 100,
-    type:            refundedFromPaypal >= Number(order.total) - 0.01 ? "full" : "partial",
-    reason:          "Refunded via PayPal dashboard",
-    method:          "original_payment",
-    processedAt:     new Date().toISOString(),
-    processedBy:     "PayPal",
-    paypalRefundId:  resource.id ?? null,
+    id: `rf-${Date.now()}`,
+    orderId: order.id,
+    amount: Math.round(refundValue * 100) / 100,
+    type: refundedFromPaypal >= Number(order.total) - 0.01 ? "full" : "partial",
+    reason: "Refunded via PayPal dashboard",
+    method: "original_payment",
+    processedAt: new Date().toISOString(),
+    processedBy: "PayPal",
+    paypalRefundId: resource.id ?? null,
   };
 
   const newPaymentStatus = refundedFromPaypal >= Number(order.total) - 0.01
@@ -404,9 +411,9 @@ async function handleCaptureRefunded(resource: PaypalRefund): Promise<void> {
   const { error: updateErr } = await supabaseAdmin
     .from("orders")
     .update({
-      refunds:         [...existingRefunds, newRefund],
+      refunds: [...existingRefunds, newRefund],
       refunded_amount: refundedFromPaypal,
-      payment_status:  newPaymentStatus,
+      payment_status: newPaymentStatus,
     })
     .eq("id", order.id);
 
