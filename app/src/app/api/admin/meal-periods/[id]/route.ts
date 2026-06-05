@@ -28,6 +28,7 @@ export async function PUT(
   if (body.end_time     !== undefined) patch.end_time     = body.end_time;
   if (body.days_of_week !== undefined) patch.days_of_week = body.days_of_week;
   if (body.sort_order   !== undefined) patch.sort_order   = body.sort_order;
+  if (body.theme_color  !== undefined) patch.theme_color  = body.theme_color;
 
   const { error } = await supabaseAdmin
     .from("meal_periods")

@@ -30,6 +30,7 @@ export interface MealPeriod {
   endTime: string;          // "HH:MM"
   daysOfWeek: number[];     // 0=Sun..6=Sat
   sortOrder: number;
+  themeColor: string;
 }
 
 // ─── Menu item offers (POS + customer site) ─────────────────────────────────

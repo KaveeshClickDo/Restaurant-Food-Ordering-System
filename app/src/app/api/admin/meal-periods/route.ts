@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
     end_time:     body.end_time,
     days_of_week: body.days_of_week ?? [0, 1, 2, 3, 4, 5, 6],
     sort_order:   body.sort_order ?? 0,
+    theme_color:  body.theme_color ?? "#f59e0b",
   };
   if (body.id) row.id = body.id;
 
