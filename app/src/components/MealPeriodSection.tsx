@@ -22,33 +22,60 @@ export default function MealPeriodSection({ period, categories, items }: Props) 
 
   if (grouped.length === 0) return null;
 
+  // Fallback to the default amber if missing
+  const tColor = period.themeColor || "#f59e0b";
+
   return (
-    <div className="mb-5 rounded-2xl overflow-hidden border border-amber-200 bg-gradient-to-b from-amber-50 to-white shadow-sm">
+    <div
+      className="mb-5 rounded-2xl overflow-hidden shadow-sm"
+      style={{
+        borderColor: `${tColor}4D`,
+        background: `linear-gradient(to bottom, ${tColor}1A, #ffffff)`
+      }}
+    >
+
       {/* Header */}
       <button
         onClick={() => setCollapsed((c) => !c)}
         className="w-full flex items-center justify-between px-5 py-4 text-left"
+
       >
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-amber-400 flex items-center justify-center flex-shrink-0">
+          <div
+            className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{ backgroundColor: tColor }}
+          >
             <Clock size={18} className="text-white" />
           </div>
           <div>
             <h2 className="font-bold text-gray-900 text-base">{period.name}</h2>
-            <p className="text-xs text-amber-600 font-medium flex items-center gap-1 mt-0.5">
+            <p
+              className="text-xs text-amber-600 font-medium flex items-center gap-1 mt-0.5"
+              style={{ color: tColor }}
+            >
               <Clock size={11} />
               Available {period.startTime}–{period.endTime}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span className="hidden sm:inline-flex items-center gap-1 bg-amber-100 text-amber-700 text-xs font-semibold px-2.5 py-1 rounded-full border border-amber-200">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+          <span
+            className="hidden sm:inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border"
+            style={{
+              backgroundColor: `${tColor}1A`, 
+              borderColor: `${tColor}4D`,    
+              color: tColor
+            }}
+          >
+            <span
+              className="w-1.5 h-1.5 rounded-full animate-pulse"
+              style={{ backgroundColor: tColor }}
+            />
             Serving now
           </span>
           {collapsed
-            ? <ChevronDown size={18} className="text-amber-400" />
-            : <ChevronUp size={18} className="text-amber-400" />}
+            ? <ChevronDown size={18} style={{ color: tColor }} />
+            : <ChevronUp size={18} style={{ color: tColor }} />}
         </div>
       </button>
 
@@ -57,7 +84,10 @@ export default function MealPeriodSection({ period, categories, items }: Props) 
         <div className="px-4 pb-5 space-y-6">
           {grouped.map(({ cat, items: catItems }) => (
             <div key={cat.id}>
-              <div className="flex items-center gap-2 mb-3 pb-2 border-b border-amber-100">
+              <div
+                className="flex items-center gap-2 mb-3 pb-2 border-b"
+                style={{ borderColor: `${tColor}33` }}
+              >
                 <span className="text-lg">{cat.emoji}</span>
                 <h3 className="font-semibold text-gray-800 text-sm">{cat.name}</h3>
                 <span className="text-xs text-gray-400">({catItems.length})</span>

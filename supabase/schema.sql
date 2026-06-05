@@ -565,6 +565,7 @@ create table if not exists meal_periods (
   end_time      text        not null,           -- "HH:MM"
   days_of_week  integer[]   not null default array[0,1,2,3,4,5,6], -- 0=Sun..6=Sat
   sort_order    integer     not null default 0,
+  theme_color   text        not null default '#f59e0b',
   created_at    timestamptz not null default now()
 );
 

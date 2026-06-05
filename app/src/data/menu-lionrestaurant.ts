@@ -37,12 +37,14 @@ export const mealPeriods: MealPeriod[] = [
     enabled: true, startTime: "07:00", endTime: "11:30",
     daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
     sortOrder: 0,
+    themeColor: "#f59e0b", // Amber-500
   },
   {
     id: "mp-dinner", name: "Dinner",
     enabled: true, startTime: "17:00", endTime: "22:00",
     daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
     sortOrder: 1,
+    themeColor: "#1c0b03", // Emerald-500
   },
 ];
 

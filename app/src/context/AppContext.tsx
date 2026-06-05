@@ -279,6 +279,7 @@ function mapMealPeriod(row: any): MealPeriod {
     endTime: row.end_time,
     daysOfWeek: row.days_of_week ?? [0, 1, 2, 3, 4, 5, 6],
     sortOrder: row.sort_order ?? 0,
+    themeColor: row.theme_color ?? "#f59e0b",
   };
 }
 
@@ -1715,6 +1716,7 @@ export function AppProvider({
       end_time: p.endTime,
       days_of_week: p.daysOfWeek,
       sort_order: p.sortOrder,
+      theme_color: p.themeColor,
     };
     if ("id" in p && p.id) row.id = p.id;
     return row;
@@ -1754,6 +1756,7 @@ export function AppProvider({
       if (patch.endTime     !== undefined) body.end_time     = patch.endTime;
       if (patch.daysOfWeek  !== undefined) body.days_of_week = patch.daysOfWeek;
       if (patch.sortOrder   !== undefined) body.sort_order   = patch.sortOrder;
+      if (patch.themeColor  !== undefined) body.theme_color  = patch.themeColor;
       const r = await fetch(`/api/admin/meal-periods/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },

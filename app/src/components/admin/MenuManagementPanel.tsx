@@ -22,6 +22,19 @@ const POS_PRESET_COLORS = [
   "#ef4444", "#84cc16", "#14b8a6", "#a855f7", "#f43f5e",
 ];
 
+// Curated preset colors specifically for Meal Periods (morning yellows,
+// evening purples, fresh greens, dinner reds).
+const MEAL_PERIOD_COLORS = [
+  "#fcd34d", // Sunny Morning (Breakfast)
+  "#f59e0b", // Warm Amber (Brunch)
+  "#f97316", // Bright Orange (Lunch)
+  "#ef4444", // Deep Red (Dinner)
+  "#8b5cf6", // Violet (Late Night)
+  "#3b82f6", // Blue (Afternoon/Drinks)
+  "#10b981", // Emerald (Healthy/Vegan)
+  "#84cc16", // Lime (Salads)
+];
+
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const DIETARY_OPTIONS = ["vegetarian", "vegan", "halal", "gluten-free"] as const;
@@ -158,6 +171,7 @@ export default function MenuManagementPanel() {
               startTime: "12:00", endTime: "15:00",
               daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
               sortOrder: mealPeriods.length,
+              themeColor: "#f59e0b",
             })}
             className="flex items-center gap-1 text-xs font-semibold text-amber-800 hover:text-amber-900 bg-white px-2 py-1 rounded-lg border border-amber-200"
           >
@@ -173,12 +187,13 @@ export default function MenuManagementPanel() {
             {mealPeriods.map((p) => (
               <div
                 key={p.id}
-                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border bg-white ${p.enabled ? "border-amber-200" : "border-gray-200 opacity-60"
-                  }`}
+                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border bg-white`}
+                style={{ borderColor: p.enabled ? p.themeColor : '#e5e7eb', opacity: p.enabled ? 1 : 0.6 }}
               >
                 <button
                   onClick={() => updateMealPeriod(p.id, { enabled: !p.enabled })}
-                  className={`relative w-7 h-4 rounded-full transition-colors flex-shrink-0 ${p.enabled ? "bg-amber-500" : "bg-gray-300"}`}
+                  className={`relative w-7 h-4 rounded-full transition-colors flex-shrink-0`}
+                  style={{ backgroundColor: p.enabled ? p.themeColor : '#d1d5db' }}
                   aria-label={p.enabled ? `Disable ${p.name}` : `Enable ${p.name}`}
                 >
                   <span className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${p.enabled ? "translate-x-3" : ""}`} />
@@ -414,11 +429,18 @@ export default function MenuManagementPanel() {
                         {(item.mealPeriodIds ?? []).map((mpId) => {
                           const mp = mealPeriods.find((p) => p.id === mpId);
                           if (!mp) return null;
+                          const tColor = mp.themeColor || "#f59e0b";
+
                           return (
                             <span
                               key={mpId}
-                              className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-full border border-amber-200"
+                              className="text-[10px] font-semibold text-amber-700 px-1.5 py-0.5 rounded-full border"
                               title={`${mp.startTime}–${mp.endTime}`}
+                              style={{
+                                borderColor: `${tColor}2A`, 
+                                backgroundColor: `${tColor}1A`,
+                                color: tColor
+                              }}
                             >
                               <Clock size={9} className="inline -mt-px mr-0.5" /> {mp.name}
                             </span>
@@ -948,11 +970,10 @@ function ItemModal({
                   </div>
                   {/* File upload — stored in Supabase Storage, not as base64
                       in the row (see lib/uploadImage.ts for why). */}
-                  <label className={`flex items-center gap-2 w-full py-2 px-3 rounded-lg border border-gray-200 text-xs font-medium transition ${
-                    uploading
+                  <label className={`flex items-center gap-2 w-full py-2 px-3 rounded-lg border border-gray-200 text-xs font-medium transition ${uploading
                       ? "opacity-60 cursor-wait text-gray-400"
                       : "cursor-pointer hover:border-orange-300 hover:text-orange-500 text-gray-500"
-                  }`}>
+                    }`}>
                     <Upload size={13} />
                     {uploading ? "Uploading…" : "Upload from device"}
                     <input
@@ -1195,9 +1216,14 @@ function ItemModal({
                         return { ...f, mealPeriodIds: Array.from(next) };
                       })}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border-2 transition-all ${checked
-                        ? "border-amber-400 bg-amber-50 text-amber-700"
+                        ? ""
                         : "border-gray-200 text-gray-500 hover:border-gray-300"
                         }`}
+                      style={checked ? {
+                        borderColor: mp.themeColor,
+                        backgroundColor: `${mp.themeColor}1A`,
+                        color: mp.themeColor
+                      } : undefined}
                     >
                       {checked && <Check size={10} />}
                       <span>{mp.name}</span>
@@ -1590,6 +1616,7 @@ function MealPeriodModal({
         endTime: form.endTime,
         daysOfWeek: form.daysOfWeek,
         sortOrder: form.sortOrder,
+        themeColor: form.themeColor,
       });
     } finally {
       setSaving(false);
@@ -1658,6 +1685,36 @@ function MealPeriodModal({
               );
             })}
           </div>
+        </div>
+
+        {/* Theme Color Picker */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-2">Theme colour</label>
+          <div className="flex flex-wrap gap-2 items-center">
+            {MEAL_PERIOD_COLORS.map((c) => (
+              <button
+                key={c}
+                onClick={() => setForm((f) => ({ ...f, themeColor: c }))}
+                className="w-7 h-7 rounded-md transition-all"
+                style={{
+                  backgroundColor: c,
+                  outline: form.themeColor === c ? `2px solid #1f2937` : "none",
+                  outlineOffset: "2px",
+                }}
+                aria-label={`Pick colour ${c}`}
+              />
+            ))}
+            <input
+              type="color"
+              value={form.themeColor ?? "#f59e0b"}
+              onChange={(e) => setForm((f) => ({ ...f, themeColor: e.target.value }))}
+              className="w-8 h-8 rounded cursor-pointer border border-gray-200"
+              aria-label="Custom colour"
+            />
+          </div>
+          <p className="text-[11px] text-gray-400 mt-1.5">
+            Used to highlight this section on the menu.
+          </p>
         </div>
 
         <label className="flex items-center gap-3 cursor-pointer">

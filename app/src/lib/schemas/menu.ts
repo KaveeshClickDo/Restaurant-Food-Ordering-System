@@ -139,6 +139,7 @@ export const MealPeriodCreateSchema = z.object({
   end_time:     IsoTime,
   days_of_week: z.array(DayOfWeek).optional(),
   sort_order:   z.number().int().nonnegative().optional(),
+  theme_color:  z.string().nullable().optional(),
 });
 
 export const MealPeriodUpdateSchema = z.object({
@@ -148,6 +149,7 @@ export const MealPeriodUpdateSchema = z.object({
   end_time:     IsoTime.optional(),
   days_of_week: z.array(DayOfWeek).optional(),
   sort_order:   z.number().int().nonnegative().optional(),
+  theme_color:  z.string().nullable().optional(),
 });
 
 // ── Dining tables ────────────────────────────────────────────────────────────
