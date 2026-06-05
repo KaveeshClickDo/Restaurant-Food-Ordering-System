@@ -30,6 +30,7 @@ import OnlineReportsPanel from "@/components/admin/OnlineReportsPanel";
 import WaitersPanel from "@/components/admin/WaitersPanel";
 import KitchenStaffPanel from "@/components/admin/KitchenStaffPanel";
 import POSStaffPanel from "@/components/admin/POSStaffPanel";
+import CollectionStaffPanel from "@/components/admin/CollectionStaffPanel";
 import GiftCardsPanel from "@/components/admin/GiftCardsPanel";
 import ReservationsPanel from "@/components/admin/ReservationsPanel";
 import TableStatusPanel from "@/components/admin/TableStatusPanel";
@@ -40,6 +41,7 @@ import {
   Tag, Percent, Car, RotateCcw, BarChart3, LineChart, UtensilsCrossed, CalendarDays, BookUser,
   Menu as MenuIcon, ChevronDown, ChevronRight, ChevronLeft,
   Tablet, CreditCard, Globe, Monitor, Compass, Gift, ClipboardList,
+  PackageCheck,
 } from "lucide-react";
 
 // ─── Navigation structure ─────────────────────────────────────────────────────
@@ -78,6 +80,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "waiters", label: "Waiter Staff", icon: UtensilsCrossed },
       { id: "kitchen-staff", label: "Kitchen Staff", icon: ChefHat },
       { id: "pos-staff", label: "POS Staff", icon: Tablet },
+      { id: "collection-staff", label: "Collection Staff", icon: PackageCheck },
       { id: "reservation-customers", label: "Guest Profiles", icon: BookUser },
     ],
   },
@@ -181,6 +184,7 @@ function bannerSubtitle(
     case "waiters": return "Manage waiter accounts, PINs, and roles. Dining tables moved to the Tables tab.";
     case "kitchen-staff": return "Manage KDS login accounts, PINs, and kitchen roles.";
     case "pos-staff": return "Manage POS terminal accounts — PINs, roles (Admin / Manager / Cashier), and per-role permissions.";
+    case "collection-staff": return "Manage Collection screen login accounts and PINs — for taking pickup payments without the POS.";
     case "reservations": return settings.reservationSystem?.enabled ? "Reservations are live — customers can book tables from the website." : "Reservations are currently disabled — enable them below.";
     case "table-status": return "Live occupancy plus add / edit / delete dining tables — used by the host stand and reservations.";
     case "reservation-customers": return "Guest profiles built from reservation check-ins — add notes, tags, and manage marketing opt-ins.";
@@ -769,6 +773,7 @@ function AdminPageContent() {
             {activeTab === "waiters" && <WaitersPanel />}
             {activeTab === "kitchen-staff" && <KitchenStaffPanel />}
             {activeTab === "pos-staff" && <POSStaffPanel />}
+            {activeTab === "collection-staff" && <CollectionStaffPanel />}
             {activeTab === "reservations" && <ReservationsPanel />}
             {activeTab === "table-status" && <TableStatusPanel />}
             {activeTab === "reservation-customers" && <ReservationCustomersPanel />}

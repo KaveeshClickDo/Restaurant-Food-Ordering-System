@@ -126,6 +126,13 @@ export async function middleware(req: NextRequest) {
     if (r) return r;
   }
 
+  // ── Collection routes ─────────────────────────────────────────────────────
+  // Collection staff only — no admin bypass (admin is accepted at the API layer).
+  if (pathname.startsWith("/collection")) {
+    const r = await gate(req, pathname, "/collection/login", "collection_session", "collection");
+    if (r) return r;
+  }
+
   // ── Admin routes ──────────────────────────────────────────────────────────
   if (pathname.startsWith("/admin")) {
     const r = await gate(req, pathname, "/admin/login", "admin_session", "admin");
@@ -150,6 +157,7 @@ export const config = {
     "/kitchen", "/kitchen/:path*",
     "/pos", "/pos/:path*",
     "/waiter", "/waiter/:path*",
+    "/collection", "/collection/:path*",
     "/admin", "/admin/:path*",
     "/customer-display", "/customer-display/:path*",
   ],

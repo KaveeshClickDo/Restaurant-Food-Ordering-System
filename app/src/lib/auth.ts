@@ -26,6 +26,7 @@ export const COOKIE_KITCHEN  = "kitchen_session";
 export const COOKIE_POS      = "pos_staff_session";
 export const COOKIE_ADMIN    = "admin_session";
 export const COOKIE_DISPLAY  = "customer_display_session";
+export const COOKIE_COLLECTION = "collection_session";
 
 export const SESSION_DURATION_MS    = 30 * 24 * 60 * 60 * 1000; // 30 days
 export const COOKIE_MAX_AGE         = 30 * 24 * 60 * 60;         // 30 days (seconds)
@@ -40,7 +41,7 @@ export const DISPLAY_SESSION_DURATION_MS = 10 * 365 * 24 * 60 * 60 * 1000; // ~1
 export const DISPLAY_COOKIE_MAX_AGE      = 10 * 365 * 24 * 60 * 60;        // ~10 years (seconds)
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-export type SessionRole = "customer" | "driver" | "waiter" | "kitchen" | "pos" | "admin" | "display";
+export type SessionRole = "customer" | "driver" | "waiter" | "kitchen" | "pos" | "admin" | "display" | "collection";
 
 export interface SessionPayload {
   id:   string;
@@ -51,12 +52,13 @@ export interface SessionPayload {
 
 // Staff roles whose tokens carry a DB-checked session_version. Customer and
 // admin tokens skip the DB lookup (different threat model / different code path).
-type StaffRole = "driver" | "waiter" | "kitchen" | "pos";
+type StaffRole = "driver" | "waiter" | "kitchen" | "pos" | "collection";
 const STAFF_TABLE: Record<StaffRole, string> = {
-  driver:  "drivers",
-  waiter:  "waiters",
-  kitchen: "kitchen_staff",
-  pos:     "pos_staff",
+  driver:     "drivers",
+  waiter:     "waiters",
+  kitchen:    "kitchen_staff",
+  pos:        "pos_staff",
+  collection: "collection_staff",
 };
 
 // ── Secret ────────────────────────────────────────────────────────────────────
@@ -252,6 +254,7 @@ export const getDriverSession   = () => readStaffSession(COOKIE_DRIVER,  "driver
 export const getWaiterSession   = () => readStaffSession(COOKIE_WAITER,  "waiter");
 export const getKitchenSession  = () => readStaffSession(COOKIE_KITCHEN, "kitchen");
 export const getPosSession      = () => readStaffSession(COOKIE_POS,     "pos");
+export const getCollectionSession = () => readStaffSession(COOKIE_COLLECTION, "collection");
 export const getAdminSession    = () => readSession(COOKIE_ADMIN);
 
 // ── Shared responses ──────────────────────────────────────────────────────────

@@ -364,6 +364,22 @@ create table if not exists kitchen_staff (
   created_at    timestamptz not null default now()
 );
 
+-- Collection staff that log into /collection — the standalone pickup-payment
+-- surface for shops that run online orders without the POS. Flat list (no
+-- roles/permissions); PINs are bcrypt-hashed in pin_hash. session_version is
+-- inline (mirrors the staff invalidation pattern) so an admin PIN reset or
+-- deactivation signs the operator out on their next request.
+create table if not exists collection_staff (
+  id              text        primary key default gen_random_uuid()::text,
+  name            text        not null,
+  email           text        not null default '',
+  pin_hash        text        not null,
+  active          boolean     not null default true,
+  avatar_color    text        not null default '#f97316',
+  session_version integer     not null default 1,
+  created_at      timestamptz not null default now()
+);
+
 -- Promo codes (replaces app_settings.data.coupons). Lives as a real table
 -- so usage_count can be incremented atomically at checkout without
 -- rewriting the entire settings blob (the old race window).
@@ -868,6 +884,7 @@ create index if not exists idx_pos_sales_voided      on pos_sales(voided) where 
 create index if not exists idx_pos_clock_staff_in    on pos_clock_entries(staff_id, clock_in desc);
 create index if not exists idx_waiters_active        on waiters(active)   where active = true;
 create index if not exists idx_kitchen_staff_active  on kitchen_staff(active) where active = true;
+create index if not exists idx_collection_staff_active on collection_staff(active) where active = true;
 create index if not exists idx_coupons_active        on coupons(active)   where active = true;
 create index if not exists idx_payment_audit_time    on payment_audit_log(timestamp desc);
 create index if not exists idx_payment_sessions_pi      on payment_sessions(stripe_payment_intent_id) where stripe_payment_intent_id is not null;
@@ -901,6 +918,7 @@ alter table pos_sales              enable row level security;
 alter table pos_clock_entries      enable row level security;
 alter table waiters                enable row level security;
 alter table kitchen_staff          enable row level security;
+alter table collection_staff       enable row level security;
 alter table coupons                enable row level security;
 alter table payment_audit_log      enable row level security;
 alter table payment_sessions       enable row level security;

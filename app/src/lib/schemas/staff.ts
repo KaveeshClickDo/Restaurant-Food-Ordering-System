@@ -66,6 +66,25 @@ export const KitchenStaffUpdateSchema = z.object({
   avatarColor: Hex.optional(),
 });
 
+// ── Collection staff ──────────────────────────────────────────────────────────
+// Flat list (no roles/permissions) — they log into /collection to take pickup
+// payments and complete handovers.
+export const CollectionStaffCreateSchema = z.object({
+  name:        NonEmptyString,
+  email:       z.string().email().optional().or(z.literal("")),
+  pin:         Pin6,
+  active:      z.boolean().optional(),
+  avatarColor: Hex.optional(),
+});
+
+export const CollectionStaffUpdateSchema = z.object({
+  name:        NonEmptyString.optional(),
+  email:       z.string().email().optional().or(z.literal("")),
+  pin:         Pin6.optional(),
+  active:      z.boolean().optional(),
+  avatarColor: Hex.optional(),
+});
+
 // ── POS staff ────────────────────────────────────────────────────────────────
 export const PosStaffCreateSchema = z.object({
   name:        NonEmptyString,
