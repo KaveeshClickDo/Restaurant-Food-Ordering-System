@@ -8,11 +8,12 @@ import { useConnectivity } from "@/lib/connectivity";
 import {
   ChefHat, LogOut, WifiOff, RefreshCw,
   ShoppingCart, LayoutDashboard, Users, UserCog, Settings2,
-  UtensilsCrossed, CalendarDays,
+  UtensilsCrossed, CalendarDays, PackageCheck,
 } from "lucide-react";
 import { getInitials } from "@/components/pos/_utils";
 import type { View } from "@/components/pos/_types";
 import SaleView from "@/components/pos/SaleView";
+import CollectionView from "@/components/pos/CollectionView";
 import DashboardView from "@/components/pos/DashboardView";
 import CustomersView from "@/components/pos/CustomersView";
 import StaffView from "@/components/pos/StaffView";
@@ -22,7 +23,7 @@ import ReservationsView from "@/components/pos/ReservationsView";
 
 // Top-level POS views that are deep-linkable via ?tab=<view> so a page refresh
 // or shared link keeps the same tab open — mirrors /admin?tab=<id>.
-const TAB_VIEWS: View[] = ["sale", "dashboard", "customers", "tables", "reservations", "staff", "settings"];
+const TAB_VIEWS: View[] = ["sale", "collection", "dashboard", "customers", "tables", "reservations", "staff", "settings"];
 
 export default function POSPage() {
   // useSearchParams() must be read inside a Suspense boundary (Next.js app router).
@@ -77,6 +78,7 @@ function POSPageContent() {
     const p = currentStaff.permissions;
     const allowed: Record<View, boolean> = {
       sale: true,
+      collection: true,
       dashboard: p.canAccessDashboard,
       customers: p.canManageCustomers,
       staff: p.canManageStaff,
@@ -123,6 +125,7 @@ function POSPageContent() {
   // public booking page only; POS access is unconditional.
   const NAV = [
     { id: "sale"         as View, label: "Sale",          icon: ShoppingCart,    show: true },
+    { id: "collection"   as View, label: "Collection",    icon: PackageCheck,    show: true },
     { id: "dashboard"    as View, label: "Dashboard",     icon: LayoutDashboard, show: perms.canAccessDashboard },
     { id: "customers"    as View, label: "Customers",     icon: Users,           show: perms.canManageCustomers },
     { id: "tables"       as View, label: "Table Service", icon: UtensilsCrossed, show: true },
@@ -133,6 +136,7 @@ function POSPageContent() {
 
   const viewLabels: Record<View, string> = {
     sale: "Point of Sale",
+    collection: "Collection Pickups",
     dashboard: "Sales Dashboard",
     customers: "Customers",
     staff: "Staff & Attendance",
@@ -213,6 +217,7 @@ function POSPageContent() {
       {/* Main content */}
       <div className="flex-1 overflow-hidden flex flex-col">
         {view === "sale" && <SaleView isOffline={!isOnline} />}
+        {view === "collection" && <CollectionView />}
         {view === "dashboard" && perms.canAccessDashboard && <DashboardView />}
         {view === "customers" && perms.canManageCustomers && <CustomersView />}
         {view === "staff" && perms.canManageStaff && <StaffView />}

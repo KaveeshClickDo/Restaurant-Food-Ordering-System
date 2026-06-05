@@ -39,6 +39,11 @@ interface KDSOrder {
   items: KDSItem[];
   status: KDSStatus;
   fulfillment: string;
+  /** True for POS walk-in mirror tickets (note starts with "[POS]"). These are
+   *  already paid at the till and still complete via the KDS "Mark as Collected"
+   *  button. Real online collection orders are settled on the POS Collection
+   *  screen instead, so their KDS card is display-only. */
+  isPosWalkin: boolean;
   /** Driver-side state — only present for delivery orders. Used to distinguish
    *  a "ready" delivery order that's still waiting for a driver pickup from
    *  one that has already been collected and is en route. */
@@ -186,6 +191,7 @@ function mapRow(row: Record<string, unknown>): KDSOrder {
     items:         (row.items as KDSOrder["items"]) ?? [],
     status:        row.status as KDSStatus,
     fulfillment,
+    isPosWalkin:   note?.startsWith("[POS]") ?? false,
     deliveryStatus: (row.delivery_status as DeliveryStatus | null) ?? null,
     date:          String(row.date),
     address:       (row.address as string) || undefined,
@@ -246,6 +252,9 @@ function OrderCard({
 }) {
   const isDelivery = order.fulfillment === "delivery";
   const isDineIn   = order.fulfillment === "dine-in";
+  // POS walk-in tickets still complete on the KDS; real online collection
+  // orders are settled on the POS Collection screen, so their card is display-only.
+  const isPosWalkin = order.isPosWalkin;
 
   // A delivery order that the kitchen has marked "ready" but where no driver
   // has yet collected it (delivery_status null or still "assigned"). We keep
@@ -419,11 +428,13 @@ function OrderCard({
                 ? <>{`🍽️`} Serve at {tableLabel ? `Table ${tableLabel}` : "table"}</>
                 : isDelivery
                   ? <><Truck size={13} /> Out for delivery</>
-                  : <><ShoppingBag size={13} /> Awaiting customer collection</>
+                  : isPosWalkin
+                    ? <><ShoppingBag size={13} /> Awaiting customer collection</>
+                    : <><ShoppingBag size={13} /> Ready for pickup</>
               }
             </div>
           )}
-          {!isDelivery && !isDineIn && (
+          {!isDelivery && !isDineIn && isPosWalkin && (
             confirming ? (
               <div className="flex gap-2">
                 <button onClick={handleConfirmCollect}

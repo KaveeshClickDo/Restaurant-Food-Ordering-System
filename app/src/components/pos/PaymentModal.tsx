@@ -10,6 +10,7 @@ export default function PaymentModal({
   onComplete,
   currencySymbol,
   isOffline = false,
+  allowGiftCard = true,
 }: {
   total: number;
   onClose: () => void;
@@ -21,6 +22,9 @@ export default function PaymentModal({
   ) => void;
   currencySymbol: string;
   isOffline?: boolean;
+  /** Show the gift-card tender step. Off for flows where any gift card was
+   *  already applied upstream (e.g. online collection orders paid at the POS). */
+  allowGiftCard?: boolean;
 }) {
   type Step = "method" | "cash" | "card" | "split" | "done";
   const [step, setStep] = useState<Step>("method");
@@ -129,8 +133,10 @@ export default function PaymentModal({
               </div>
             )}
 
-            {/* Gift card tender */}
-            {appliedGc ? (
+            {/* Gift card tender — hidden when allowGiftCard is false (e.g. an
+                online collection order whose gift card was already applied at
+                checkout). */}
+            {allowGiftCard && (appliedGc ? (
               <div className="flex items-center justify-between gap-2 bg-purple-500/10 border border-purple-500/40 rounded-xl px-3 py-2.5">
                 <div className="flex items-center gap-2 min-w-0">
                   <Gift size={15} className="text-purple-400 flex-shrink-0" />
@@ -161,7 +167,7 @@ export default function PaymentModal({
                 </div>
                 {gcError && <p className="text-red-400 text-xs px-1">{gcError}</p>}
               </div>
-            )}
+            ))}
 
             {/* When the gift card covers everything, offer direct completion. */}
             {due <= 0 && appliedGc ? (

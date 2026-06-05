@@ -70,6 +70,14 @@ export const KdsOrderStatusSchema = z.object({
   status: z.enum(["pending", "confirmed", "preparing", "ready"]),
 });
 
+// Collection-order settle (POS pickup payment). Cash / card / split only —
+// gift card, coupon, and store credit are all applied at online checkout and
+// already baked into `order.total`, so the POS just records how the
+// outstanding balance was tendered and flips the order to paid + delivered.
+export const PosCollectionSettleSchema = z.object({
+  paymentMethod: z.enum(["cash", "card", "split"]),
+});
+
 export const OrderDriverAssignSchema = z.object({
   driver_id:       NonEmptyString,
   driver_name:     NonEmptyString,

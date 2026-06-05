@@ -1,1 +1,1 @@
-export type View = "sale" | "dashboard" | "customers" | "staff" | "settings" | "tables" | "reservations";
+export type View = "sale" | "collection" | "dashboard" | "customers" | "staff" | "settings" | "tables" | "reservations";
