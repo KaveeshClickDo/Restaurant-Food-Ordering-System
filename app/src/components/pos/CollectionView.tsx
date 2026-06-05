@@ -162,7 +162,7 @@ export default function CollectionView() {
           <p className="text-sm">No collection orders right now.</p>
         </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {orders.map((order) => {
             const isReady   = order.status === "ready";
             const isPaid    = order.payment_status === "paid";
