@@ -461,6 +461,11 @@ create table if not exists dining_tables (
   -- is paid (online: Stripe/PayPal via webhook; POS/admin: cash/card recorded).
   is_vip      boolean     not null default false,
   vip_price   numeric(10,2) not null default 0,
+  -- Position on the customer-facing floor-plan map, stored as a 0..1 fraction of
+  -- the plan image's width/height so the layout scales to any screen. NULL = the
+  -- table hasn't been placed on the map yet (it falls back to the card list).
+  pos_x       real,
+  pos_y       real,
   created_at  timestamptz not null default now()
 );
 
@@ -835,6 +840,15 @@ alter table payment_sessions
 -- table blocks above for column semantics.
 alter table dining_tables add column if not exists is_vip    boolean       not null default false;
 alter table dining_tables add column if not exists vip_price numeric(10,2) not null default 0;
+
+-- ── Floor-plan map coordinates ───────────────────────────────────────────────
+-- Normalised 0..1 position of each table on the customer-facing floor-plan
+-- image. NULL until an admin places the table in the floor-plan editor; such
+-- tables fall back to the booking card list. The plan image URL itself lives in
+-- app_settings.data.reservationSystem.floorPlanImageUrl (Storage bucket
+-- "floor-plan"), not in this table.
+alter table dining_tables add column if not exists pos_x real;
+alter table dining_tables add column if not exists pos_y real;
 alter table reservations  add column if not exists vip_fee        numeric(10,2) not null default 0;
 alter table reservations  add column if not exists payment_status text          not null default 'none';
 alter table reservations  add column if not exists payment_method text;

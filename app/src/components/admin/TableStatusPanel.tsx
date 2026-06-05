@@ -3,10 +3,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import type { Reservation, DiningTable } from "@/types";
+import { uploadFloorPlanImage, floorPlanSizeError } from "@/lib/uploadImage";
 import {
   UtensilsCrossed, Users, Clock, LogIn, LogOut,
   Loader2, RefreshCw, CheckCircle2, XCircle, CalendarDays,
   Plus, Pencil, Trash2, AlertCircle, X, Save, EyeOff, Crown,
+  ImagePlus, Map as MapIcon, LayoutGrid,
 } from "lucide-react";
 
 // One unified panel for both live table status AND CRUD. Each card shows the
@@ -465,10 +467,192 @@ function TableCard({
   );
 }
 
+// ─── Floor-plan editor ──────────────────────────────────────────────────────
+// Upload a floor-plan image and drag each active table onto it. Positions are
+// saved as a 0..1 fraction of the image so they scale to any screen on the
+// customer booking map. Tables left in the tray simply don't appear on the map.
+
+function FloorPlanEditor({
+  tables,
+  imageUrl,
+  uploading,
+  onUpload,
+  onRemoveImage,
+  onSaveCoords,
+}: {
+  tables: DiningTable[];
+  imageUrl: string;
+  uploading: boolean;
+  onUpload: (file: File) => void;
+  onRemoveImage: () => void;
+  onSaveCoords: (id: string, posX: number | null, posY: number | null) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dragId, setDragId]     = useState<string | null>(null);
+  const [localPos, setLocalPos] = useState<Record<string, { x: number; y: number }>>({});
+  const [selected, setSelected] = useState<string | null>(null);
+  const [err, setErr]           = useState("");
+  const moved = useRef(false);
+
+  function posOf(t: DiningTable): { x: number; y: number } | null {
+    if (localPos[t.id]) return localPos[t.id];
+    if (t.posX != null && t.posY != null) return { x: t.posX, y: t.posY };
+    return null;
+  }
+
+  const active   = tables.filter((t) => t.active);
+  const placed   = active.filter((t) => posOf(t) !== null);
+  const unplaced = active.filter((t) => posOf(t) === null);
+
+  function clientToNorm(clientX: number, clientY: number) {
+    const rect = containerRef.current!.getBoundingClientRect();
+    return {
+      x: Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)),
+      y: Math.min(1, Math.max(0, (clientY - rect.top) / rect.height)),
+    };
+  }
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";               // allow re-selecting the same file
+    if (!file) return;
+    const sizeErr = floorPlanSizeError(file);
+    if (sizeErr) { setErr(sizeErr); return; }
+    setErr("");
+    onUpload(file);
+  }
+
+  // Pointer-capture keeps move/up on the grabbed marker even if the cursor
+  // outruns it. moved guards a click-without-drag from saving a no-op.
+  function onMarkerDown(e: React.PointerEvent, id: string) {
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setDragId(id);
+    setSelected(id);
+    moved.current = false;
+  }
+  function onMarkerMove(e: React.PointerEvent, id: string) {
+    if (dragId !== id) return;
+    moved.current = true;
+    setLocalPos((p) => ({ ...p, [id]: clientToNorm(e.clientX, e.clientY) }));
+  }
+  function onMarkerUp(e: React.PointerEvent, id: string) {
+    if (dragId !== id) return;
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    setDragId(null);
+    const pos = localPos[id];
+    if (moved.current && pos) onSaveCoords(id, pos.x, pos.y);
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-xl cursor-pointer transition">
+          {uploading ? <Loader2 size={15} className="animate-spin" /> : <ImagePlus size={15} />}
+          {imageUrl ? "Replace image" : "Upload floor plan"}
+          <input type="file" accept="image/*" className="hidden" onChange={handleFile} disabled={uploading} />
+        </label>
+        {imageUrl && (
+          <button
+            onClick={onRemoveImage}
+            className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-red-600 hover:border-red-200 transition"
+          >
+            <Trash2 size={14} /> Remove image
+          </button>
+        )}
+        {imageUrl && (
+          <span className="text-xs text-gray-400 ml-auto">{placed.length} placed · {unplaced.length} to place</span>
+        )}
+      </div>
+
+      {err && (
+        <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">
+          <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
+          <span className="flex-1">{err}</span>
+          <button onClick={() => setErr("")} className="text-red-500 hover:text-red-700 transition"><X size={14} /></button>
+        </div>
+      )}
+
+      {!imageUrl ? (
+        <div className="flex flex-col items-center py-16 gap-3 bg-white rounded-2xl border-2 border-dashed border-gray-200 text-center">
+          <MapIcon size={32} className="text-gray-300" />
+          <p className="font-semibold text-gray-600">No floor plan yet</p>
+          <p className="text-sm text-gray-400 max-w-xs">Upload a picture or diagram of your dining room, then drag your tables onto it. Customers will see it when booking.</p>
+        </div>
+      ) : (
+        <>
+          {/* Canvas — centered and height-capped so a large upload doesn't dominate
+              the panel. The ref box is inline-block so it shrinks to the rendered
+              image, keeping the percentage-based marker coordinates aligned to it. */}
+          <div className="flex justify-center">
+          <div ref={containerRef} className="relative inline-block max-w-full rounded-2xl overflow-hidden border border-gray-200 bg-gray-50 select-none">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={imageUrl} alt="Floor plan" className="block w-auto h-auto max-w-full max-h-[60vh] pointer-events-none" draggable={false} />
+            {placed.map((t) => {
+              const p = posOf(t)!;
+              const isSel = selected === t.id;
+              return (
+                <div
+                  key={t.id}
+                  onPointerDown={(e) => onMarkerDown(e, t.id)}
+                  onPointerMove={(e) => onMarkerMove(e, t.id)}
+                  onPointerUp={(e) => onMarkerUp(e, t.id)}
+                  style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}
+                  className={`absolute -translate-x-1/2 -translate-y-1/2 touch-none cursor-grab active:cursor-grabbing ${dragId === t.id ? "z-20" : "z-10"}`}
+                >
+                  <div className={`flex flex-col items-center justify-center w-11 h-11 rounded-full border-2 shadow text-[11px] font-bold ${
+                    t.isVip ? "bg-amber-100 border-amber-400 text-amber-800" : "bg-white border-orange-400 text-orange-700"
+                  } ${isSel ? "ring-2 ring-offset-1 ring-blue-400" : ""}`}>
+                    {t.isVip && <Crown size={10} className="text-amber-500" />}
+                    <span className="leading-none max-w-[2.4rem] truncate px-0.5">{t.label}</span>
+                  </div>
+                  {isSel && (
+                    <button
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => { setSelected(null); setLocalPos((p2) => { const n = { ...p2 }; delete n[t.id]; return n; }); onSaveCoords(t.id, null, null); }}
+                      title="Remove from map"
+                      className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow"
+                    >
+                      <X size={11} />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          </div>
+          <p className="text-xs text-gray-400">Drag a table to reposition it. Tap a placed table, then ✕ to take it off the map.</p>
+
+          {/* Unplaced tray */}
+          {unplaced.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Tables not on the map</p>
+              <div className="flex flex-wrap gap-2">
+                {unplaced.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => { setSelected(t.id); onSaveCoords(t.id, 0.5, 0.5); }}
+                    className="flex items-center gap-1.5 border border-dashed border-gray-300 rounded-xl px-3 py-1.5 text-sm text-gray-600 hover:border-orange-400 hover:text-orange-600 transition"
+                  >
+                    {t.isVip && <Crown size={12} className="text-amber-500" />}
+                    <Plus size={12} /> {t.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-gray-400 mt-1.5">Click a table to drop it on the centre of the plan, then drag it where it belongs.</p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Main panel ───────────────────────────────────────────────────────────────
 
 export default function TableStatusPanel() {
-  const { updateSettings } = useApp();
+  const { settings, updateSettings } = useApp();
 
   // The full DB list (including inactive tables) is the source of truth for
   // the unified card grid. Each mutation re-fetches and pushes the fresh list
@@ -482,6 +666,11 @@ export default function TableStatusPanel() {
   const [orderOccupiedIds, setOrderOccupiedIds] = useState<Set<string>>(new Set());
   const [loadingRes, setLoadingRes] = useState(true);
   const [filterSection, setFilterSection] = useState("");
+
+  // Grid (cards) vs. Floor Plan (drag-to-place map editor).
+  const [view, setView] = useState<"grid" | "map">("grid");
+  const [uploadingPlan, setUploadingPlan] = useState(false);
+  const floorPlanImageUrl = settings.reservationSystem?.floorPlanImageUrl ?? "";
 
   // Add / edit / delete state
   const [addingTable,   setAddingTable]   = useState(false);
@@ -607,6 +796,46 @@ export default function TableStatusPanel() {
     }
   }
 
+  // ── Floor-plan editor ───────────────────────────────────────────────────────
+
+  // Persist the floor-plan image URL into reservationSystem settings (shallow
+  // merge — updateSettings replaces top-level keys, so spread the existing block).
+  function setFloorPlanImageUrl(url: string) {
+    updateSettings({ reservationSystem: { ...settings.reservationSystem, floorPlanImageUrl: url } });
+  }
+
+  async function handleUploadFloorPlan(file: File) {
+    setTableError("");
+    setUploadingPlan(true);
+    try {
+      const url = await uploadFloorPlanImage(file);
+      setFloorPlanImageUrl(url);
+    } catch (err) {
+      setTableError(err instanceof Error ? err.message : "Failed to upload floor plan.");
+    } finally {
+      setUploadingPlan(false);
+    }
+  }
+
+  // Save a table's map position (or null/null to take it off the map). Optimistic
+  // local update first, then PATCH; refresh syncs context so the customer map and
+  // other panels pick up the change.
+  async function saveTableCoords(id: string, posX: number | null, posY: number | null) {
+    setAllTables((prev) => prev.map((t) => (t.id === id ? { ...t, posX, posY } : t)));
+    try {
+      const res = await fetch(`/api/admin/dining-tables/${id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ posX, posY }),
+      });
+      if (!res.ok) setTableError("Failed to save table position.");
+    } catch {
+      setTableError("Failed to save table position.");
+    } finally {
+      refreshTables();
+    }
+  }
+
   async function toggleTableActive(table: DiningTable) {
     if (tableRowInFlight.current.has(table.id)) return;
     tableRowInFlight.current.add(table.id);
@@ -719,15 +948,36 @@ export default function TableStatusPanel() {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => fetchToday(true)}
-            disabled={loadingRes}
-            className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300 transition"
-          >
-            <RefreshCw size={14} className={loadingRes ? "animate-spin" : ""} />
-            Refresh
-          </button>
-          {!addingTable && !editingTable && (
+          {/* Grid ↔ Floor-plan toggle */}
+          <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
+            <button
+              onClick={() => setView("grid")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition ${
+                view === "grid" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              <LayoutGrid size={14} /> Grid
+            </button>
+            <button
+              onClick={() => setView("map")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition ${
+                view === "map" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              <MapIcon size={14} /> Floor Plan
+            </button>
+          </div>
+          {view === "grid" && (
+            <button
+              onClick={() => fetchToday(true)}
+              disabled={loadingRes}
+              className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300 transition"
+            >
+              <RefreshCw size={14} className={loadingRes ? "animate-spin" : ""} />
+              Refresh
+            </button>
+          )}
+          {view === "grid" && !addingTable && !editingTable && (
             <button
               onClick={() => setAddingTable(true)}
               className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-xl transition shadow-sm shadow-orange-200"
@@ -737,6 +987,31 @@ export default function TableStatusPanel() {
           )}
         </div>
       </div>
+
+      {/* Inline error banner (shared by both views) */}
+      {tableError && (
+        <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">
+          <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
+          <span className="flex-1">{tableError}</span>
+          <button onClick={() => setTableError("")} className="text-red-500 hover:text-red-700 transition">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Floor-plan editor view */}
+      {view === "map" ? (
+        <FloorPlanEditor
+          tables={allTables}
+          imageUrl={floorPlanImageUrl}
+          uploading={uploadingPlan}
+          onUpload={handleUploadFloorPlan}
+          onRemoveImage={() => setFloorPlanImageUrl("")}
+          onSaveCoords={saveTableCoords}
+        />
+      ) : (
+      <>
+      {/* Grid view */}
 
       {/* Stats strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -772,17 +1047,6 @@ export default function TableStatusPanel() {
           </select>
         )}
       </div>
-
-      {/* Inline error banner */}
-      {tableError && (
-        <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">
-          <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
-          <span className="flex-1">{tableError}</span>
-          <button onClick={() => setTableError("")} className="text-red-500 hover:text-red-700 transition">
-            <X size={14} />
-          </button>
-        </div>
-      )}
 
       {/* Add form */}
       {addingTable && (
@@ -832,6 +1096,8 @@ export default function TableStatusPanel() {
             />
           ))}
         </div>
+      )}
+      </>
       )}
     </div>
   );

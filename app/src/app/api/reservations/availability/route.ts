@@ -18,8 +18,9 @@ function toMins(time: string): number {
 }
 
 // DB rows are snake_case; the booking UI consumes camelCase. Carry the VIP
-// fields through so the modal can show the crown + booking fee.
-type TableRow = DiningTable & { is_vip?: boolean; vip_price?: number };
+// fields through so the modal can show the crown + booking fee, and the floor-
+// plan coordinates so the booking page can render the interactive table map.
+type TableRow = DiningTable & { is_vip?: boolean; vip_price?: number; pos_x?: number | null; pos_y?: number | null };
 function toPublicTable(t: TableRow) {
   return {
     id:       t.id,
@@ -28,7 +29,22 @@ function toPublicTable(t: TableRow) {
     section:  t.section,
     isVip:    t.is_vip ?? false,
     vipPrice: Number(t.vip_price ?? 0),
+    posX:     t.pos_x ?? null,
+    posY:     t.pos_y ?? null,
   };
+}
+
+// Map status for a placed table: bookable now, taken for this slot, or simply
+// too small for the requested party. The booking-page map colours each marker
+// by this and only lets the guest pick an "available" one.
+type MapStatus = "available" | "booked" | "too_small";
+function toMapTable(t: TableRow, status: MapStatus) {
+  return { ...toPublicTable(t), status };
+}
+// Every active table that has been placed on the floor plan, regardless of
+// whether it fits the party — so the rendered map matches the real room.
+function placedTables(tables: TableRow[]): TableRow[] {
+  return tables.filter((t) => t.active && t.pos_x != null && t.pos_y != null);
 }
 
 export async function GET(req: NextRequest) {
@@ -61,7 +77,7 @@ export async function GET(req: NextRequest) {
     supabaseAdmin.from("app_settings").select("data").limit(1).single(),
     supabaseAdmin
       .from("dining_tables")
-      .select("id, label, number, seats, section, active, sort_order, is_vip, vip_price")
+      .select("id, label, number, seats, section, active, sort_order, is_vip, vip_price, pos_x, pos_y")
       .order("sort_order", { ascending: true }),
   ]);
 
@@ -105,7 +121,12 @@ export async function GET(req: NextRequest) {
     // tables show as available. The POST route will surface the setup error clearly.
     if (error.message?.includes("schema cache") || error.message?.includes("not found")) {
       const allAvailable = eligibleTables.map(toPublicTable);
-      return NextResponse.json({ ok: true, availableTables: allAvailable, bookedTableIds: [] });
+      // No reservations table yet → nothing is booked; placed tables are
+      // available unless they're physically too small for the party.
+      const mapTables = placedTables(tables).map((t) =>
+        toMapTable(t, t.seats < partySize ? "too_small" : "available"),
+      );
+      return NextResponse.json({ ok: true, availableTables: allAvailable, bookedTableIds: [], mapTables });
     }
     console.error("reservations/availability GET:", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
@@ -161,9 +182,21 @@ export async function GET(req: NextRequest) {
     .filter((t) => !bookedTableIds.has(t.id))
     .map(toPublicTable);
 
+  // Floor-plan map: every placed active table with a per-slot status. A table
+  // too small for the party is "too_small"; one taken for this slot is "booked";
+  // the rest are "available" (and selectable in the map UI).
+  const mapTables = placedTables(tables).map((t) => {
+    const status: MapStatus =
+      t.seats < partySize        ? "too_small"
+      : bookedTableIds.has(t.id) ? "booked"
+      :                            "available";
+    return toMapTable(t, status);
+  });
+
   return NextResponse.json({
     ok: true,
     availableTables,
+    mapTables,
     bookedTableIds: Array.from(bookedTableIds),
     // Seat-now only: tables that are free to use but booked again soon, so the
     // picker can warn ("booked 6:00") and let staff decide.

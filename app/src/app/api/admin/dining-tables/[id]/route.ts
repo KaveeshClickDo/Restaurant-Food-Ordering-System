@@ -47,6 +47,10 @@ export async function PATCH(
   if (body.sortOrder !== undefined) patch.sort_order = body.sortOrder;
   if (body.isVip     !== undefined) patch.is_vip     = body.isVip;
   if (body.vipPrice  !== undefined) patch.vip_price  = body.vipPrice;
+  // Floor-plan position. null is a valid value (un-place the table), so guard on
+  // `undefined` (field omitted) rather than falsiness.
+  if (body.posX      !== undefined) patch.pos_x      = body.posX;
+  if (body.posY      !== undefined) patch.pos_y      = body.posY;
   // Demoting a table to normal clears any fee so a stale price can't linger and
   // get charged on a future booking. The schema refine already guarantees a
   // VIP table has a positive price.

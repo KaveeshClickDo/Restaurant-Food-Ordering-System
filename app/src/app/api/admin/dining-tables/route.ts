@@ -12,7 +12,7 @@ import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { parseBody } from "@/lib/apiValidation";
 import { DiningTableCreateSchema } from "@/lib/schemas/menu";
 
-const COLUMNS = "id, label, number, seats, section, active, sort_order, is_vip, vip_price, created_at";
+const COLUMNS = "id, label, number, seats, section, active, sort_order, is_vip, vip_price, pos_x, pos_y, created_at";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapRow(row: any) {
@@ -26,6 +26,8 @@ function mapRow(row: any) {
     sortOrder: row.sort_order ?? 0,
     isVip:     row.is_vip ?? false,
     vipPrice:  Number(row.vip_price ?? 0),
+    posX:      row.pos_x ?? null,
+    posY:      row.pos_y ?? null,
     createdAt: typeof row.created_at === "string"
                  ? row.created_at
                  : new Date(row.created_at).toISOString(),
@@ -49,7 +51,7 @@ export async function POST(request: Request) {
 
   const parsed = await parseBody(request, DiningTableCreateSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { label, number = null, seats, section = "", active = true, sortOrder = 0, isVip = false, vipPrice = 0 } = parsed.data;
+  const { label, number = null, seats, section = "", active = true, sortOrder = 0, isVip = false, vipPrice = 0, posX = null, posY = null } = parsed.data;
   // Normal tables never carry a fee, even if a stale client sent one.
   const vipPriceFinal = isVip ? vipPrice : 0;
 
@@ -79,6 +81,8 @@ export async function POST(request: Request) {
       sort_order: sortOrder,
       is_vip:     isVip,
       vip_price:  vipPriceFinal,
+      pos_x:      posX,
+      pos_y:      posY,
     })
     .select(COLUMNS)
     .single();

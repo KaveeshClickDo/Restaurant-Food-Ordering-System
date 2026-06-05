@@ -43,6 +43,8 @@ function mapDiningRow(r: any) {
     ...r,
     isVip:    r.is_vip ?? false,
     vipPrice: Number(r.vip_price ?? 0),
+    posX:     r.pos_x ?? null,
+    posY:     r.pos_y ?? null,
   };
 }
 
@@ -652,7 +654,7 @@ export function AppProvider({
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const { data: tableRows } = await (supabase as any)
             .from("dining_tables")
-            .select("id, label, number, seats, section, active, sort_order, is_vip, vip_price")
+            .select("id, label, number, seats, section, active, sort_order, is_vip, vip_price, pos_x, pos_y")
             .order("sort_order", { ascending: true });
           if (Array.isArray(tableRows)) {
             setSettings((prev) => ({ ...prev, diningTables: tableRows.map(mapDiningRow) }));

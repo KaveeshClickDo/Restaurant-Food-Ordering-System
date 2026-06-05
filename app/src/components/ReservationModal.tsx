@@ -9,6 +9,8 @@ import {
 import { ReservationFormSchema } from "@/lib/schemas/reservation";
 import { cleanPhone, formErrorMessage } from "@/lib/inputUtils";
 import ReservationPaymentStep from "@/components/ReservationPaymentStep";
+import TableMap, { type MapTable } from "@/components/reservation/TableMap";
+import { LayoutGrid, Map as MapIcon } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -135,8 +137,12 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
 
   // ── Availability state ────────────────────────────────────────────────────
   const [tables,       setTables]       = useState<AvailableTable[]>([]);
+  const [mapTables,    setMapTables]    = useState<MapTable[]>([]);
   const [loadingTables, setLoadingTables] = useState(false);
   const [availError,   setAvailError]   = useState("");
+  // Floor-plan map vs. card list. Defaults to the map whenever one is configured.
+  const floorPlanImageUrl = rs.floorPlanImageUrl ?? "";
+  const [tableView, setTableView] = useState<"map" | "list">("map");
 
   // ── Submission state ──────────────────────────────────────────────────────
   const [submitting,     setSubmitting]     = useState(false);
@@ -162,9 +168,10 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
       const res  = await fetch(
         `/api/reservations/availability?date=${date}&time=${time}&partySize=${partySize}`
       );
-      const json = await res.json() as { ok: boolean; availableTables?: AvailableTable[]; error?: string };
+      const json = await res.json() as { ok: boolean; availableTables?: AvailableTable[]; mapTables?: MapTable[]; error?: string };
       if (json.ok) {
         setTables(json.availableTables ?? []);
+        setMapTables(json.mapTables ?? []);
       } else {
         setAvailError(json.error ?? "Failed to check availability.");
       }
@@ -414,6 +421,40 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                 </div>
               ) : (
                 <div className="space-y-4">
+                  {/* Map ↔ list toggle — only when a floor plan with placed tables exists */}
+                  {floorPlanImageUrl && mapTables.length > 0 && (
+                    <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+                      <button
+                        type="button"
+                        onClick={() => setTableView("map")}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                          tableView === "map" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                        }`}
+                      >
+                        <MapIcon size={13} /> Map
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTableView("list")}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                          tableView === "list" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                        }`}
+                      >
+                        <LayoutGrid size={13} /> List
+                      </button>
+                    </div>
+                  )}
+
+                  {floorPlanImageUrl && mapTables.length > 0 && tableView === "map" ? (
+                    <TableMap
+                      imageUrl={floorPlanImageUrl}
+                      tables={mapTables}
+                      selectedId={selectedTable?.id ?? null}
+                      currencySymbol={currencySymbol}
+                      onSelect={(t) => setSelectedTable({ id: t.id, label: t.label, seats: t.seats, section: t.section, isVip: t.isVip, vipPrice: t.vipPrice })}
+                    />
+                  ) : (
+                  <div className="space-y-4">
                   {Object.entries(tablesBySection).map(([section, sectionTables]) => (
                     <div key={section}>
                       <div className="flex items-center gap-1.5 text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
@@ -465,6 +506,8 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                       </div>
                     </div>
                   ))}
+                  </div>
+                  )}
                 </div>
               )}
             </div>

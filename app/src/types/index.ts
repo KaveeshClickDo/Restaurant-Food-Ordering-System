@@ -420,6 +420,7 @@ export interface ReservationSystem {
   maxPartySize: number;          // maximum guests per booking (default 10)
   blackoutDates: string[];       // "YYYY-MM-DD" dates the restaurant is closed
   reviewUrl?: string;            // Google Maps / TripAdvisor review link
+  floorPlanImageUrl?: string;    // public URL of the floor-plan map shown on the booking page (Storage bucket "floor-plan"); empty = no map, booking uses the card list
 }
 
 export interface WaitlistEntry {
@@ -468,6 +469,9 @@ export interface DiningTable {
   isVip?: boolean;
   /** The booking fee (in the store currency) charged to reserve this table. 0 / absent for normal tables. */
   vipPrice?: number;
+  /** Position on the customer-facing floor-plan map, as a 0..1 fraction of the plan image's width/height. null / absent = not placed yet (falls back to the card list). */
+  posX?: number | null;
+  posY?: number | null;
 }
 
 export interface AdminSettings {
