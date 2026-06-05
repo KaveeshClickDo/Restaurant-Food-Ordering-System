@@ -333,15 +333,25 @@ export default function OnlineReportsPanel() {
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     try {
+      // Recompute the window at call time rather than reusing the memoized
+      // [startDate, endDate] (which is frozen until the preset/custom dates
+      // change). For live presets (today / 7d / 30d / month / year) the upper
+      // bound otherwise stayed pinned to the mount instant, so a sale placed
+      // afterwards never showed on Refresh — only after a remount (navigating
+      // away and back). yesterday / lastMonth / custom are date-anchored, so
+      // getPresetRange returns the same fixed range and they're unaffected.
+      const [from, to] = (preset === "custom" && customStart && customEnd)
+        ? [new Date(customStart + "T00:00:00"), new Date(customEnd + "T23:59:59")]
+        : getPresetRange(preset);
       const params = new URLSearchParams({
-        from:  startDate.toISOString(),
-        to:    endDate.toISOString(),
+        from:  from.toISOString(),
+        to:    to.toISOString(),
         limit: "10000",
       });
       const feeParams = new URLSearchParams({
         source: "all",
-        from:   startDate.toISOString(),
-        to:     endDate.toISOString(),
+        from:   from.toISOString(),
+        to:     to.toISOString(),
       });
       const [ordersRes, feesRes] = await Promise.all([
         fetch(`/api/admin/orders?${params}`, { cache: "no-store" }),
@@ -359,7 +369,7 @@ export default function OnlineReportsPanel() {
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate]);
+  }, [preset, customStart, customEnd]);
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
 

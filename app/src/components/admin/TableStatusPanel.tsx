@@ -517,7 +517,7 @@ export default function TableStatusPanel() {
       // Reservations + live order-occupancy in parallel; handled independently.
       const [res, occRes] = await Promise.all([
         fetch(`/api/admin/reservations?${params}`),
-        fetch(`/api/pos/tables/occupancy`),
+        fetch(`/api/admin/table-occupancy`),
       ]);
       const json = await res.json() as { ok: boolean; reservations?: Reservation[] };
       if (json.ok) {

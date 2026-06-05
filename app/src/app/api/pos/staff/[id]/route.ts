@@ -2,14 +2,15 @@
  * PATCH  /api/pos/staff/[id] — update fields; omit `pin` to keep current.
  * DELETE /api/pos/staff/[id] — remove a staff member.
  *
- * Caller must be a logged-in admin OR a POS staff member with
- * permissions.canManageStaff.
+ * Caller must be a POS staff member with permissions.canManageStaff. The admin
+ * panel manages POS staff via /api/admin/pos, so there is no admin bypass here —
+ * which means role/permission elevation and admin-row edits are not possible on
+ * this POS route at all.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { isAdminAuthenticated } from "@/lib/adminAuth";
 import { getPosSession } from "@/lib/auth";
 import { ROLE_PERMISSIONS } from "@/types/pos";
 import { parseBody } from "@/lib/apiValidation";
@@ -18,20 +19,16 @@ import { PosStaffUpdateSchema } from "@/lib/schemas/staff";
 const HASH_ROUNDS = 10;
 
 interface ManageStaffContext {
-  isWebsiteAdmin: boolean;          // ADMIN_PASSWORD-bearing session
-  posSessionId:   string | null;    // pos_staff.id of the calling cashier (if POS-cookie)
+  posSessionId: string;    // pos_staff.id of the calling manager
 }
 
 async function manageStaffContext(): Promise<ManageStaffContext | null> {
-  if (await isAdminAuthenticated()) {
-    return { isWebsiteAdmin: true, posSessionId: null };
-  }
   const session = await getPosSession();
   if (!session) return null;
   const { data } = await supabaseAdmin
     .from("pos_staff").select("permissions, active").eq("id", session.id).maybeSingle();
   if (!data?.active || !data.permissions?.canManageStaff) return null;
-  return { isWebsiteAdmin: false, posSessionId: session.id };
+  return { posSessionId: session.id };
 }
 
 export async function PATCH(
@@ -46,14 +43,14 @@ export async function PATCH(
 
   // F-INS-6: a POS manager cannot edit their own row (no self-permission-grant),
   // cannot edit a POS-admin row, and cannot mutate `permissions` or `role` on
-  // anyone — those changes require the website-admin session.
-  if (!ctx.isWebsiteAdmin) {
-    if (id === ctx.posSessionId) {
-      return NextResponse.json(
-        { ok: false, error: "Managers cannot edit their own staff record. Ask an admin." },
-        { status: 403 },
-      );
-    }
+  // anyone — those changes require the website-admin panel (/api/admin/pos).
+  if (id === ctx.posSessionId) {
+    return NextResponse.json(
+      { ok: false, error: "Managers cannot edit their own staff record. Ask an admin." },
+      { status: 403 },
+    );
+  }
+  {
     const { data: target } = await supabaseAdmin
       .from("pos_staff").select("role").eq("id", id).maybeSingle();
     if (target?.role === "admin") {
@@ -68,7 +65,7 @@ export async function PATCH(
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const body = parsed.data;
 
-  if (!ctx.isWebsiteAdmin && (body.permissions !== undefined || body.role !== undefined)) {
+  if (body.permissions !== undefined || body.role !== undefined) {
     return NextResponse.json(
       { ok: false, error: "Only an admin can change role or permissions." },
       { status: 403 },
@@ -136,7 +133,7 @@ export async function DELETE(
   }
 
   // POS managers cannot delete admin rows.
-  if (!ctx.isWebsiteAdmin && target?.role === "admin") {
+  if (target?.role === "admin") {
     return NextResponse.json(
       { ok: false, error: "Managers cannot delete admin staff." },
       { status: 403 },

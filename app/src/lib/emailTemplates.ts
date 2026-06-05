@@ -683,9 +683,10 @@ export function buildEmailDocument(
 // ─── Send helpers ─────────────────────────────────────────────────────────────
 
 /**
- * Low-level send: POSTs to the /api/email route.
- * SMTP credentials are read from server-side env vars in the API route —
- * they must NOT be passed from the browser.
+ * Low-level send: POSTs to the admin-only /api/admin/email route. This helper
+ * is only ever invoked from admin surfaces (Email Templates "Send test",
+ * Customers "Resend"); POS operators call /api/email directly. SMTP credentials
+ * are read from server-side env vars in the API route — never from the browser.
  */
 export async function sendEmailViaApi(params: {
   to: string;
@@ -693,7 +694,7 @@ export async function sendEmailViaApi(params: {
   html: string;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch("/api/email", {
+    const res = await fetch("/api/admin/email", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify(params),

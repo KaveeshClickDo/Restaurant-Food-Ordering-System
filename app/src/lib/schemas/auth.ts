@@ -55,3 +55,15 @@ export const DriverLoginSchema = z.object({
 export const AdminLoginSchema = z.object({
   password: z.string().min(1, "Password is required."),
 });
+
+// Customer Display unlock. Password is optional: when no display password is
+// set the screen auto-grants a session (the display stays open), so the login
+// page POSTs with no body.
+export const DisplayLoginSchema = z.object({
+  password: z.string().optional(),
+});
+
+// Admin setting/changing the Customer Display password.
+export const DisplayPasswordSchema = z.object({
+  password: z.string().min(4, "Password must be at least 4 characters.").max(128),
+});

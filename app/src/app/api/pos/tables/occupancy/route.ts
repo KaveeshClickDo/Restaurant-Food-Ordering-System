@@ -8,18 +8,18 @@
  * walk-in order that has no reservation row — so all the staff surfaces agree
  * on what "occupied" means.
  *
- * Requires a POS or admin session. Read-only and fail-safe: an error returns an
- * empty list so the dashboards still render.
+ * Requires a POS session. The admin Table Status panel uses its own
+ * /api/admin/table-occupancy route (admin session). Read-only and fail-safe: an
+ * error returns an empty list so the dashboards still render.
  */
 
 import { NextResponse }                    from "next/server";
 import { getPosSession, unauthorizedJson } from "@/lib/auth";
-import { isAdminAuthenticated }            from "@/lib/adminAuth";
 import { getActiveDineInTableIds }         from "@/lib/tableOccupancy";
 
 export async function GET() {
-  const [pos, admin] = await Promise.all([getPosSession(), isAdminAuthenticated()]);
-  if (!pos && !admin) return unauthorizedJson();
+  const pos = await getPosSession();
+  if (!pos) return unauthorizedJson();
 
   try {
     const ids = await getActiveDineInTableIds();

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { useIdleLogout } from "@/lib/useIdleLogout";
 import { resolveStock, isAvailable } from "@/lib/stockUtils";
@@ -10,7 +11,7 @@ import type { MenuItem, MenuItemOffer, WaiterStaff, DiningTable } from "@/types"
 import {
   ChefHat, ArrowLeft, Plus, Minus, Trash2, SendHorizonal,
   LogOut, Users, UtensilsCrossed, CheckCircle2, Loader2,
-  ChevronLeft, StickyNote, X, Receipt, CreditCard, Banknote,
+  StickyNote, X, Receipt, CreditCard, Banknote,
   ClipboardList, Utensils, Printer, Mail, Eye, RefreshCw,
   AlertTriangle, RotateCcw, ShieldAlert, Gift, Percent, BadgeDollarSign, Crown,
   Clock, CalendarClock,
@@ -35,7 +36,6 @@ interface WaiterCartItem {
 }
 
 type View = "login" | "tables" | "menu" | "success" | "bill";
-type LoginStep = "staff" | "pin";
 
 interface BillOrder {
   id: string;
@@ -679,35 +679,6 @@ function isOutOfStock(item: MenuItem): boolean {
   return !isAvailable(item);
 }
 
-// ─── PIN pad ──────────────────────────────────────────────────────────────────
-
-function PinPad({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"];
-  return (
-    <div className="grid grid-cols-3 gap-3 max-w-[280px] mx-auto">
-      {keys.map((k, i) => (
-        k === "" ? (
-          <div key={i} />
-        ) : (
-          <button
-            key={k + i}
-            onClick={() => {
-              if (k === "⌫") onChange(value.slice(0, -1));
-              else if (value.length < 6) onChange(value + k);
-            }}
-            className={`h-16 rounded-2xl text-2xl font-bold transition-all active:scale-95 select-none ${k === "⌫"
-              ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
-              : "bg-slate-700 text-white hover:bg-slate-600 active:bg-orange-500"
-              }`}
-          >
-            {k}
-          </button>
-        )
-      ))}
-    </div>
-  );
-}
-
 // ─── Item modal ───────────────────────────────────────────────────────────────
 
 function ItemModal({
@@ -906,13 +877,12 @@ function ItemModal({
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function WaiterPage() {
+  const router = useRouter();
   // ── Menu data from AppContext (single source of truth, same as admin/online) ─
   const { menuItems, categories, settings: appSettings } = useApp();
   const sym = appSettings.currency?.symbol ?? "£";
 
   // ── Data ────────────────────────────────────────────────────────────────────
-  const [allWaiters, setAllWaiters] = useState<Omit<WaiterStaff, "pin">[]>([]);
-  const [staffLoaded, setStaffLoaded] = useState(false);
   const [tables, setTables] = useState<DiningTable[]>([]);
   const [occupiedLabels, setOccupiedLabels] = useState<Set<string>>(new Set());
   // Today's active reservations, overlaid on the table grid. Kept entirely
@@ -920,13 +890,11 @@ export default function WaiterPage() {
   const [reservations, setReservations] = useState<WaiterReservation[]>([]);
 
   // ── Auth ────────────────────────────────────────────────────────────────────
-  const [view, setView] = useState<View>("login");
-  const [loginStep, setLoginStep] = useState<LoginStep>("staff");
-  const [loginTarget, setLoginTarget] = useState<Omit<WaiterStaff, "pin"> | null>(null);
-  const [pin, setPin] = useState("");
-  const [pinError, setPinError] = useState(false);
+  // Login lives on the dedicated /waiter/login page; middleware guarantees a
+  // valid waiter session before this page renders. We only restore the signed-in
+  // waiter's profile here (from sessionStorage, falling back to /api/auth/waiter/me).
+  const [view, setView] = useState<View>("tables");
   const [waiter, setWaiter] = useState<Omit<WaiterStaff, "pin"> | null>(null);
-  const pinShakeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Table selection ──────────────────────────────────────────────────────────
   const [activeSection, setActiveSection] = useState("All");
@@ -983,31 +951,38 @@ export default function WaiterPage() {
     tableLabel: string;
   } | null>(null);
 
-  // ── Initialise: restore session + load staff/tables config ──────────────────
+  // ── Initialise: restore signed-in waiter + load tables config ───────────────
   useEffect(() => {
-    // Restore session
+    // Restore the waiter profile for the header. sessionStorage is the fast
+    // path; if it's empty (new tab / cleared) we recover it from the session
+    // cookie via /api/auth/waiter/me. A 401 there means the cookie is no longer
+    // valid (e.g. session_version bumped) — bounce to the dedicated login.
+    let restored = false;
     try {
       const stored = sessionStorage.getItem("waiter_session");
-      if (stored) {
-        setWaiter(JSON.parse(stored));
-        setView("tables");
-      }
+      if (stored) { setWaiter(JSON.parse(stored)); restored = true; }
     } catch { /* ignore */ }
 
-    // Load staff + tables
+    if (!restored) {
+      fetch("/api/auth/waiter/me", { cache: "no-store" })
+        .then((r) => (r.status === 401 ? null : r.json()))
+        .then((d: { ok: boolean; waiter?: Omit<WaiterStaff, "pin"> } | null) => {
+          if (d?.ok && d.waiter) {
+            setWaiter(d.waiter);
+            sessionStorage.setItem("waiter_session", JSON.stringify(d.waiter));
+          } else {
+            router.replace("/waiter/login");
+          }
+        })
+        .catch(() => {});
+    }
+
+    // Load tables
     fetch("/api/waiter/config")
       .then((r) => r.json())
-      .then((d) => {
-        if (d.ok) {
-          setAllWaiters(d.waiters);
-          setTables(d.tables);
-        }
-        setStaffLoaded(true);
-      })
-      .catch(() => {
-        setStaffLoaded(true);
-      });
-  }, []);
+      .then((d) => { if (d.ok) setTables(d.tables); })
+      .catch(() => {});
+  }, [router]);
 
   // ── Live sync from admin (Bugs #9 + #12) ────────────────────────────────────
   // Re-fetch the public config every 15 s so admin-side additions (new tables,
@@ -1027,10 +1002,9 @@ export default function WaiterPage() {
         const r = await fetch("/api/waiter/config", { cache: "no-store" });
         const d = await r.json();
         if (d.ok && !cancelled) {
-          const key = JSON.stringify({ w: d.waiters, t: d.tables });
+          const key = JSON.stringify({ t: d.tables });
           if (key !== lastConfigKey.current) {
             lastConfigKey.current = key;
-            setAllWaiters(d.waiters ?? []);
             setTables(d.tables ?? []);
           }
         }
@@ -1043,7 +1017,7 @@ export default function WaiterPage() {
             if (!cancelled) {
               sessionStorage.removeItem("waiter_session");
               setWaiter(null);
-              setView("login");
+              router.replace("/waiter/login");
             }
             return;
           }
@@ -1061,7 +1035,7 @@ export default function WaiterPage() {
     }
     const id = setInterval(tick, 15_000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [waiter]);
+  }, [waiter, router]);
 
   // ── Set initial category when menu loads ─────────────────────────────────────
   useEffect(() => {
@@ -1133,54 +1107,18 @@ export default function WaiterPage() {
     return () => clearInterval(id);
   }, [view, reservationsEnabled, refreshReservations]);
 
-  // ── Login flow ───────────────────────────────────────────────────────────────
-  function selectStaff(w: Omit<WaiterStaff, "pin">) {
-    setLoginTarget(w);
-    setPin("");
-    setPinError(false);
-    setLoginStep("pin");
-  }
-
-  useEffect(() => {
-    if (pin.length === 6 && loginTarget) {
-      fetch("/api/waiter/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ staffId: loginTarget.id, pin }),
-      })
-        .then((r) => r.json())
-        .then((d) => {
-          if (d.ok) {
-            setWaiter(d.waiter);
-            sessionStorage.setItem("waiter_session", JSON.stringify(d.waiter));
-            setView("tables");
-            setLoginStep("staff");
-            setPin("");
-          } else {
-            setPinError(true);
-            setPin("");
-            if (pinShakeRef.current) clearTimeout(pinShakeRef.current);
-            pinShakeRef.current = setTimeout(() => setPinError(false), 700);
-          }
-        });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pin]);
-
+  // ── Logout ───────────────────────────────────────────────────────────────────
   const logout = useCallback(() => {
-    // Tell the server to drop the cookie before we wipe the local mirror.
-    // Fire-and-forget — even if the request fails (network blip), wiping the
-    // client state still removes the visible session.
+    // Tell the server to drop the cookie before we wipe the local mirror, then
+    // hand off to the dedicated login page. Fire-and-forget — even if the
+    // request fails (network blip), the redirect + middleware re-gate covers us.
     fetch("/api/waiter/logout", { method: "POST" }).catch(() => { });
     sessionStorage.removeItem("waiter_session");
     setWaiter(null);
-    setLoginStep("staff");
-    setLoginTarget(null);
-    setPin("");
     setCart([]);
     setActiveTable(null);
-    setView("login");
-  }, []);
+    router.replace("/waiter/login");
+  }, [router]);
 
   // Auto-logout after 15 minutes of inactivity. Tablets get passed around
   // during a shift — without this, a forgotten tab keeps the waiter PIN
@@ -1631,93 +1569,6 @@ export default function WaiterPage() {
           <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} />
         )}
       </>
-    );
-  }
-
-  // ── LOGIN ────────────────────────────────────────────────────────────────────
-  if (view === "login") {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 gap-8">
-        {/* Branding */}
-        <div className="text-center">
-          <div className="w-16 h-16 bg-orange-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <UtensilsCrossed size={28} className="text-white" />
-          </div>
-          <h1 className="text-white text-2xl font-black">Waiter Login</h1>
-          <p className="text-slate-400 text-sm mt-1">Select your name then enter your PIN</p>
-        </div>
-
-        {loginStep === "staff" ? (
-          /* Staff grid */
-          <div className="w-full max-w-sm space-y-3">
-            {!staffLoaded ? (
-              <p className="text-slate-500 text-center text-sm">Loading staff…</p>
-            ) : allWaiters.length === 0 ? (
-              <p className="text-slate-500 text-center text-sm">No staff configured. Ask an admin to add staff in the Admin → Staff panel.</p>
-            ) : (
-              allWaiters.map((w) => (
-                <button
-                  key={w.id}
-                  onClick={() => selectStaff(w)}
-                  className="w-full flex items-center gap-4 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 rounded-2xl px-5 py-4 transition-all"
-                >
-                  <div
-                    className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-base flex-shrink-0"
-                    style={{ backgroundColor: w.avatarColor }}
-                  >
-                    {initials(w.name)}
-                  </div>
-                  <div className="text-left flex-1 min-w-0">
-                    <p className="text-white font-bold truncate">{w.name}</p>
-                    <p className="text-slate-400 text-xs capitalize truncate">{w.role}</p>
-                  </div>
-                  <ChevronLeft size={16} className="text-slate-500 ml-auto rotate-180" />
-                </button>
-              ))
-            )}
-          </div>
-        ) : (
-          /* PIN pad */
-          <div className="w-full max-w-sm space-y-6">
-            <button
-              onClick={() => { setLoginStep("staff"); setPin(""); setPinError(false); }}
-              className="flex items-center gap-2 text-slate-400 hover:text-white transition text-sm"
-            >
-              <ArrowLeft size={14} /> Back
-            </button>
-
-            {/* Who */}
-            <div className="flex items-center gap-3">
-              <div
-                className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
-                style={{ backgroundColor: loginTarget?.avatarColor }}
-              >
-                {initials(loginTarget?.name ?? "")}
-              </div>
-              <p className="text-white font-semibold">{loginTarget?.name}</p>
-            </div>
-
-            {/* PIN dots */}
-            <div className={`flex justify-center gap-3 ${pinError ? "animate-bounce" : ""}`}>
-              {[0, 1, 2, 3, 4, 5].map((i) => (
-                <div
-                  key={i}
-                  className={`w-4 h-4 rounded-full border-2 transition-all ${i < pin.length
-                    ? pinError ? "bg-red-500 border-red-500" : "bg-orange-500 border-orange-500"
-                    : "border-slate-600"
-                    }`}
-                />
-              ))}
-            </div>
-
-            <PinPad value={pin} onChange={setPin} />
-
-            {pinError && (
-              <p className="text-red-400 text-sm text-center font-medium">Incorrect PIN — try again</p>
-            )}
-          </div>
-        )}
-      </div>
     );
   }
 

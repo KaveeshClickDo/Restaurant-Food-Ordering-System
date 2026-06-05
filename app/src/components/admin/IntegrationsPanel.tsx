@@ -516,7 +516,7 @@ function PrinterTab() {
         return;
       }
       const bytes  = buildTestReceipt(previewSettings);
-      const result = await sendToPrinter(bytes, draft.ip.trim(), draft.port);
+      const result = await sendToPrinter(bytes, draft.ip.trim(), draft.port, "/api/admin/print");
       if (result.ok) { setTestState("success"); setTimeout(() => setTestState("idle"), 5000); }
       else           { setTestState("error"); setTestError(result.error ?? "Unknown error"); }
       return;

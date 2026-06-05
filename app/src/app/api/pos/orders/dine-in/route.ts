@@ -8,17 +8,17 @@
  *   to     ISO-8601 upper bound (inclusive)
  *   limit  max rows (defaults 200, capped 2000)
  *
- * Requires a POS or admin session.
+ * Requires a POS session. The admin dashboard reads dine-in orders via
+ * /api/admin/orders.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getPosSession, unauthorizedJson } from "@/lib/auth";
-import { isAdminAuthenticated } from "@/lib/adminAuth";
 
 export async function GET(req: NextRequest) {
-  const [pos, admin] = await Promise.all([getPosSession(), isAdminAuthenticated()]);
-  if (!pos && !admin) return unauthorizedJson();
+  const pos = await getPosSession();
+  if (!pos) return unauthorizedJson();
 
   const { searchParams } = new URL(req.url);
   const from  = searchParams.get("from");

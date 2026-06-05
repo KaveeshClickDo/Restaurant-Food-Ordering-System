@@ -267,19 +267,24 @@ const MAX_RETRIES = 3;
 const RETRY_DELAY = 2_000;
 
 /**
- * Send bytes to an IP thermal printer via the /api/print route.
+ * Send bytes to an IP thermal printer via a server relay route.
  * Retries up to MAX_RETRIES times. Never throws — returns ok/error.
+ *
+ * `endpoint` selects the relay: operational surfaces (POS / kitchen / waiter)
+ * use the default "/api/print"; admin surfaces pass "/api/admin/print" so they
+ * authenticate with their own session (no cross-surface bypass).
  */
 export async function sendToPrinter(
   bytes: number[],
   ip: string,
   port: number,
+  endpoint: string = "/api/print",
 ): Promise<{ ok: boolean; error?: string }> {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15_000);
     try {
-      const res  = await fetch("/api/print", {
+      const res  = await fetch(endpoint, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ ip, port, bytes }),

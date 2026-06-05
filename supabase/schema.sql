@@ -720,6 +720,25 @@ create table if not exists gift_card_transactions (
   created_at      timestamptz not null default now()
 );
 
+-- ── display_auth — Customer Display screen password ──────────────────────────
+-- Single-row table (id=1) gating the public /customer-display order board.
+--   • password_hash   NULL  = no password set → the display is OPEN (current
+--                             behaviour). Non-null = a bcrypt hash; the screen
+--                             must present /customer-display/login first.
+--   • session_version is embedded in the display session token. Setting,
+--     changing, or clearing the password bumps it, which invalidates every
+--     live display session on its next poll (the only thing that logs a screen
+--     out — display sessions otherwise never expire). Mirrors the staff
+--     session_version pattern. Server-only: anon has no access (see RLS below),
+--     so the hash is never readable from the browser. NEVER store this in
+--     app_settings.data — that blob is read by the anon client on every page.
+create table if not exists display_auth (
+  id              integer primary key default 1,
+  password_hash   text,
+  session_version integer not null default 1,
+  updated_at      timestamptz default now()
+);
+
 -- ── Gift card columns on consuming tables ────────────────────────────────────
 -- Mirrors store_credit_used pattern. The stamp on the order/sale row is what
 -- makes the redemption idempotent — see /api/gift-cards/[code]/redeem.
@@ -890,6 +909,7 @@ alter table meal_periods           enable row level security;
 alter table menu_item_meal_periods enable row level security;
 alter table gift_cards             enable row level security;
 alter table gift_card_transactions enable row level security;
+alter table display_auth           enable row level security;
 
 -- 4b. Read policies for anon. Public catalog tables are readable so the
 -- storefront can render without a session; everything that holds customer
@@ -926,6 +946,11 @@ create policy "anon_select_mimp"
 drop policy if exists "anon_select_customers"      on customers;
 drop policy if exists "anon_select_orders"         on orders;
 drop policy if exists "anon_select_reservations"   on reservations;
+-- Drop the deny_anon_select policies too before re-creating, so a re-run of
+-- this schema is idempotent (Postgres has no CREATE POLICY IF NOT EXISTS).
+drop policy if exists "deny_anon_select"           on customers;
+drop policy if exists "deny_anon_select"           on orders;
+drop policy if exists "deny_anon_select"           on reservations;
 create policy "deny_anon_select" on customers     for select to anon using (false);
 create policy "deny_anon_select" on orders        for select to anon using (false);
 create policy "deny_anon_select" on reservations  for select to anon using (false);
@@ -991,6 +1016,12 @@ drop policy if exists "deny_anon_all" on gift_card_transactions;
 create policy "deny_anon_all" on gift_card_transactions
   for all to anon using (false) with check (false);
 
+-- display_auth holds the Customer Display password hash — anon must never read
+-- or write it. Only the service-role API layer touches this table.
+drop policy if exists "deny_anon_all" on display_auth;
+create policy "deny_anon_all" on display_auth
+  for all to anon using (false) with check (false);
+
 
 -- ── 5. Grants ────────────────────────────────────────────────────────────────
 -- Supabase applies the base grants below automatically at project creation,
@@ -1030,6 +1061,7 @@ revoke select (pin_hash)      on kitchen_staff from anon, authenticated;
 revoke select (password_hash) on drivers       from anon, authenticated;
 revoke select (reset_token)         on drivers from anon, authenticated;
 revoke select (reset_token_expires) on drivers from anon, authenticated;
+revoke select (password_hash) on display_auth  from anon, authenticated;
 
 
 -- ── 6. Sentinel rows ─────────────────────────────────────────────────────────
@@ -1038,6 +1070,12 @@ revoke select (reset_token_expires) on drivers from anon, authenticated;
 -- here; the settings seed script fills in defaults (theme, restaurant info,
 -- email templates, etc.) on top.
 insert into app_settings (id, data) values (1, '{}'::jsonb)
+on conflict (id) do nothing;
+
+-- display_auth row id=1 must exist for the password set/clear UPSERT. Starts
+-- with a null password_hash, i.e. the Customer Display is OPEN until an admin
+-- sets a password in Admin → Operations → Customer Display Access.
+insert into display_auth (id, password_hash, session_version) values (1, null, 1)
 on conflict (id) do nothing;
 
 -- The 'pos-walk-in' synthetic customer is an FK-only sentinel row. POS-placed

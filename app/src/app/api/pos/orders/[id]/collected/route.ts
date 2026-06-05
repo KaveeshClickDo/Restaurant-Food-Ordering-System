@@ -1,15 +1,12 @@
 /**
  * PUT /api/pos/orders/[id]/collected
  * Marks a POS (collection) order as "delivered" once the customer has picked it up.
- * Called from the kitchen UI and the in-restaurant customer-display screen.
- * Requires an authenticated staff session (kitchen / POS / waiter / admin) —
- * the customer-display device must be signed into one of those before use.
- * Only allowed when the order's current status is "ready".
+ * Called from the kitchen UI. Requires an operational staff session
+ * (kitchen / POS / waiter). Only allowed when the order's current status is "ready".
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
-import { isAdminAuthenticated }      from "@/lib/adminAuth";
 import {
   getPosSession,
   getKitchenSession,
@@ -21,7 +18,6 @@ import { sendOrderStatusEmail }      from "@/lib/emailServer";
 // PUT body is empty — no schema needed. Auth + DB-state check are the guards.
 
 async function isStaffAuthenticated(): Promise<boolean> {
-  if (await isAdminAuthenticated()) return true;
   const [pos, kitchen, waiter] = await Promise.all([
     getPosSession(),
     getKitchenSession(),

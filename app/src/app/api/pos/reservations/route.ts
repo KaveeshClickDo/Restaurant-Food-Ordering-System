@@ -2,21 +2,21 @@
  * GET  /api/pos/reservations — list reservations (with optional date filter).
  * POST /api/pos/reservations — create a walk-in or phone reservation.
  *
- * Both require a POS or admin session. The GET replaces the direct
+ * Both require a POS session. The admin Reservations panel uses
+ * /api/admin/reservations. The GET replaces the direct
  * `supabase.from("reservations")` reads in POS components.
  */
 
 import { NextRequest, NextResponse }  from "next/server";
 import { supabaseAdmin }              from "@/lib/supabaseAdmin";
-import { isAdminAuthenticated }       from "@/lib/adminAuth";
 import { getPosSession, unauthorizedJson } from "@/lib/auth";
 import { parseBody }                  from "@/lib/apiValidation";
 import { ReservationPosSchema }       from "@/lib/schemas/reservation";
 import { createReservation }          from "@/lib/reservations";
 
 export async function GET(req: NextRequest) {
-  const [pos, admin] = await Promise.all([getPosSession(), isAdminAuthenticated()]);
-  if (!pos && !admin) return unauthorizedJson();
+  const pos = await getPosSession();
+  if (!pos) return unauthorizedJson();
 
   const { searchParams } = new URL(req.url);
   const date  = searchParams.get("date");
@@ -44,8 +44,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const [pos, admin] = await Promise.all([getPosSession(), isAdminAuthenticated()]);
-  if (!pos && !admin) return unauthorizedJson();
+  const pos = await getPosSession();
+  if (!pos) return unauthorizedJson();
 
   const parsed = await parseBody(req, ReservationPosSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });

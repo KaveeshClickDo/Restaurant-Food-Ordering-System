@@ -21,32 +21,25 @@ import type { POSSale, POSCartItem } from "@/types/pos";
 import { parseBody }                 from "@/lib/apiValidation";
 import { PosSaleCreateSchema }       from "@/lib/schemas/pos";
 import { requirePosSession, requirePosPermission } from "@/lib/posPermissions";
-import { isAdminAuthenticated } from "@/lib/adminAuth";
 import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
 import { lookupActiveGiftCard, clampGiftCardAmount, redeemGiftCardForRow } from "@/lib/giftCardValidation";
+import { rowToSale } from "@/lib/posSaleMap";
 
 const POS_CUSTOMER_ID = "pos-walk-in";
 
 // ── GET ──────────────────────────────────────────────────────────────────────
-// Returns sales scoped by who's calling:
-//   • Website admin (ADMIN_PASSWORD cookie, used by /admin → POS Reports panel)
-//     → always all sales, regardless of any POS-side session in the same browser.
-//     Without this bypass the panel got scoped to whichever cashier happened to
-//     be logged in to /pos in the same browser (QA bug: admin POS Reports showed
-//     only the cashier's sales when a cashier was the active POS session).
+// POS-side sales feed, scoped by the POS session:
 //   • POS admin / manager (canAccessDashboard) → all sales for end-of-shift reports.
 //   • POS cashier → only their own sales.
+// The website admin no longer reads this endpoint — the admin POS Reports panel
+// uses the dedicated /api/admin/pos-sales route (admin session only), so there
+// is no cross-surface bypass here.
 export async function GET(req: NextRequest) {
-  const isAdmin = await isAdminAuthenticated();
-
-  let cashierScope: string | null = null;
-  if (!isAdmin) {
-    const gate = await requirePosSession();
-    if (!gate.ok) return gate.response;
-    if (!gate.staff.permissions?.canAccessDashboard) {
-      cashierScope = gate.staff.id;
-    }
-  }
+  const gate = await requirePosSession();
+  if (!gate.ok) return gate.response;
+  const cashierScope: string | null = gate.staff.permissions?.canAccessDashboard
+    ? null
+    : gate.staff.id;
 
   const { searchParams } = new URL(req.url);
   const from  = searchParams.get("from");
@@ -417,61 +410,3 @@ async function pushToKDS(sale: POSSale, kitchenNote?: string): Promise<{ ok: boo
   return { ok: true };
 }
 
-// ── snake_case row → camelCase POSSale ───────────────────────────────────────
-type PosSaleRow = {
-  id: string;
-  receipt_no: string;
-  date: string;
-  staff_id: string | null;
-  staff_name: string;
-  customer_id: string | null;
-  customer_name: string | null;
-  table_number: number | null;
-  items: POSCartItem[];
-  subtotal: number;
-  discount_amount: number;
-  discount_note: string | null;
-  tax_amount: number;
-  tax_rate: number;
-  tax_inclusive: boolean;
-  tip_amount: number;
-  total: number;
-  payment_method: "cash" | "card" | "split";
-  payments: { method: "cash" | "card"; amount: number }[];
-  cash_tendered: number | null;
-  change_given: number | null;
-  voided: boolean;
-  void_reason: string | null;
-  refund_method: "cash" | "card" | "none" | null;
-  refund_amount: number | null;
-};
-
-function rowToSale(r: PosSaleRow): POSSale {
-  return {
-    id:             r.id,
-    receiptNo:      r.receipt_no,
-    date:           r.date,
-    staffId:        r.staff_id ?? "",
-    staffName:      r.staff_name,
-    customerId:     r.customer_id ?? undefined,
-    customerName:   r.customer_name ?? undefined,
-    tableNumber:    r.table_number ?? undefined,
-    items:          r.items,
-    subtotal:       Number(r.subtotal),
-    discountAmount: Number(r.discount_amount),
-    discountNote:   r.discount_note ?? undefined,
-    taxAmount:      Number(r.tax_amount),
-    taxRate:        Number(r.tax_rate),
-    taxInclusive:   r.tax_inclusive,
-    tipAmount:      Number(r.tip_amount),
-    total:          Number(r.total),
-    paymentMethod:  r.payment_method,
-    payments:       r.payments ?? [],
-    cashTendered:   r.cash_tendered  != null ? Number(r.cash_tendered)  : undefined,
-    changeGiven:    r.change_given   != null ? Number(r.change_given)   : undefined,
-    voided:         r.voided,
-    voidReason:     r.void_reason  ?? undefined,
-    refundMethod:   r.refund_method ?? undefined,
-    refundAmount:   r.refund_amount != null ? Number(r.refund_amount) : undefined,
-  };
-}

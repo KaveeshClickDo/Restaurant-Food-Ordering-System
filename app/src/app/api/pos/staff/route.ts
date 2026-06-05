@@ -11,7 +11,6 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { isAdminAuthenticated } from "@/lib/adminAuth";
 import { getPosSession } from "@/lib/auth";
 import { ROLE_PERMISSIONS } from "@/types/pos";
 import { parseBody } from "@/lib/apiValidation";
@@ -59,13 +58,12 @@ function mapTileRow(row: any) {
 }
 
 /**
- * Returns true when the request carries either:
- *   • an admin session (admin panel calling), or
- *   • a POS session whose permissions.canManageStaff flag is true.
- * Used by POST/PATCH/DELETE — write paths only.
+ * Returns true when the request carries a POS session whose
+ * permissions.canManageStaff flag is true. Used by POST — write path only.
+ * The admin panel manages POS staff via /api/admin/pos, so there is no admin
+ * bypass here.
  */
 async function canManageStaff(): Promise<boolean> {
-  if (await isAdminAuthenticated()) return true;
   const session = await getPosSession();
   if (!session) return false;
   const { data } = await supabaseAdmin
@@ -110,23 +108,20 @@ export async function POST(request: Request) {
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
 
   // F-INS-6 (extended): POS managers with canManageStaff can create cashiers,
-  // but role/permission elevation must go through the website-admin session —
-  // otherwise a manager could bootstrap an admin row and self-promote.
-  // The PATCH route already enforces this; POST was the remaining gap.
-  const isWebsiteAdmin = await isAdminAuthenticated();
-  if (!isWebsiteAdmin) {
-    if (parsed.data.role && parsed.data.role !== "cashier") {
-      return NextResponse.json(
-        { ok: false, error: "Only an admin can create manager or admin staff." },
-        { status: 403 },
-      );
-    }
-    if (parsed.data.permissions !== undefined) {
-      return NextResponse.json(
-        { ok: false, error: "Only an admin can set custom permissions." },
-        { status: 403 },
-      );
-    }
+  // but role/permission elevation must go through the website-admin panel
+  // (/api/admin/pos) — otherwise a manager could bootstrap an admin row and
+  // self-promote. This POS route therefore only ever creates cashiers.
+  if (parsed.data.role && parsed.data.role !== "cashier") {
+    return NextResponse.json(
+      { ok: false, error: "Only an admin can create manager or admin staff." },
+      { status: 403 },
+    );
+  }
+  if (parsed.data.permissions !== undefined) {
+    return NextResponse.json(
+      { ok: false, error: "Only an admin can set custom permissions." },
+      { status: 403 },
+    );
   }
 
   const { name, email = "", role = "cashier", pin,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { ChefHat, CheckCircle2, Clock, UtensilsCrossed, Wifi } from "lucide-react";
 import type { OrderLine } from "@/types";
 
@@ -325,6 +326,7 @@ function OrderPanel({
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function CustomerDisplayPage() {
+  const router = useRouter();
   const[orders, setOrders] = useState<DisplayOrder[]>([]);
   const [restaurantName, setRestaurantName] = useState("Our Restaurant");
   const [connected, setConnected] = useState(false);
@@ -348,6 +350,9 @@ export default function CustomerDisplayPage() {
     async function fetchOrders() {
       try {
         const r = await fetch("/api/customer-display/orders", { cache: "no-store" });
+        // 401 = no valid display session (never set up, or the password changed
+        // and bumped the version). Bounce to the login page to re-authenticate.
+        if (r.status === 401) { router.replace("/customer-display/login"); return; }
         if (!r.ok) { setConnected(false); return; }
         const json = await r.json() as { ok: boolean; orders?: Array<Record<string, unknown>> };
         if (!active || !json.ok || !json.orders) return;
@@ -367,7 +372,7 @@ export default function CustomerDisplayPage() {
     fetchOrders();
     const id = setInterval(fetchOrders, 4_000);
     return () => { active = false; clearInterval(id); };
-  }, []);
+  }, [router]);
 
   const preparing = orders.filter((o) =>["pending", "confirmed", "preparing"].includes(o.status));
   const ready = orders.filter((o) => o.status === "ready");

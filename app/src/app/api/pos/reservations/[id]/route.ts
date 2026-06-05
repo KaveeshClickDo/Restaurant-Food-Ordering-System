@@ -1,7 +1,8 @@
 /**
  * PUT /api/pos/reservations/[id]
  * POS-accessible check-in / check-out / status-change endpoint.
- * Requires a POS or admin session.
+ * Requires a POS session. The admin Reservations panel uses
+ * /api/admin/reservations/[id].
  *
  * Status transitions and side-effects (mirrors /api/admin/reservations/[id]):
  *  → confirmed   : sends reservation_update
@@ -16,7 +17,6 @@
 import { NextRequest, NextResponse }       from "next/server";
 import { supabaseAdmin }                   from "@/lib/supabaseAdmin";
 import { sendReservationEmailServer }      from "@/lib/emailServer";
-import { isAdminAuthenticated }            from "@/lib/adminAuth";
 import { getPosSession, unauthorizedJson } from "@/lib/auth";
 import type { EmailTemplateEvent }         from "@/types";
 import { parseBody }                       from "@/lib/apiValidation";
@@ -39,8 +39,8 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const [pos, admin] = await Promise.all([getPosSession(), isAdminAuthenticated()]);
-  if (!pos && !admin) return unauthorizedJson();
+  const pos = await getPosSession();
+  if (!pos) return unauthorizedJson();
 
   const { id } = await params;
 

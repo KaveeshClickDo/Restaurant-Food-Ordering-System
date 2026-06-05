@@ -2,23 +2,19 @@
  * GET /api/kds/orders — active orders for the Kitchen Display System.
  *
  * Replaces the prior direct `supabase.from("orders")` read in the
- * kitchen client. Accepts a kitchen session OR an admin session
- * (matches the middleware path-protection rule for /kitchen).
+ * kitchen client. Requires a kitchen session — the admin dashboard reads
+ * online orders via /api/admin/orders, not this kitchen route.
  */
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getKitchenSession, unauthorizedJson } from "@/lib/auth";
-import { isAdminAuthenticated } from "@/lib/adminAuth";
 
 const ACTIVE_STATUSES = ["pending", "confirmed", "preparing", "ready"];
 
 export async function GET() {
-  const [kitchen, admin] = await Promise.all([
-    getKitchenSession(),
-    isAdminAuthenticated(),
-  ]);
-  if (!kitchen && !admin) return unauthorizedJson();
+  const kitchen = await getKitchenSession();
+  if (!kitchen) return unauthorizedJson();
 
   const { data, error } = await supabaseAdmin
     .from("orders")

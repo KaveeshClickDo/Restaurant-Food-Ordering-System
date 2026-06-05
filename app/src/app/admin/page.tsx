@@ -202,14 +202,13 @@ function AdminPageContent() {
   const { isOpen, settings, menuItems, categories, customers, loadAllCustomers, refreshDiningTables } = useApp();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { restaurant } = settings;
 
   // ── Admin authentication ──────────────────────────────────────────────────
-  // null = checking, true = authenticated, false = needs login
+  // Login lives on the dedicated /admin/login page; middleware guarantees a
+  // valid admin session before this page renders. We only confirm the session
+  // here and bounce to /admin/login if it has gone away.
+  // null = checking, true = authenticated.
   const [adminAuthed, setAdminAuthed] = useState<boolean | null>(null);
-  const [loginPassword, setLoginPassword] = useState("");
-  const [loginError, setLoginError] = useState("");
-  const [loginLoading, setLoginLoading] = useState(false);
 
   // ── All hooks must be declared before any early return (Rules of Hooks) ───
   // Honor ?tab=<id> on first paint so deep-links (e.g. "Go to Delivery" from
@@ -260,9 +259,12 @@ function AdminPageContent() {
 
   useEffect(() => {
     fetch("/api/admin/auth")
-      .then((r) => setAdminAuthed(r.ok))
-      .catch(() => setAdminAuthed(false));
-  }, []);
+      .then((r) => {
+        if (r.ok) setAdminAuthed(true);
+        else router.replace("/admin/login");
+      })
+      .catch(() => router.replace("/admin/login"));
+  }, [router]);
 
   // Once admin-authed, pull the full customers/orders list via the
   // admin-gated API (replaces the prior AppContext anon supabase read)
@@ -313,47 +315,14 @@ function AdminPageContent() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const loginInFlight = useRef(false);
   const logoutInFlight = useRef(false);
-
-  async function handleLogin(e: { preventDefault(): void }) {
-    e.preventDefault();
-    if (loginInFlight.current) return;
-    loginInFlight.current = true;
-    setLoginError("");
-    setLoginLoading(true);
-    try {
-      const r = await fetch("/api/admin/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: loginPassword }),
-      });
-      if (r.ok) {
-        const redirectTo = searchParams.get("redirect");
-        if (redirectTo && redirectTo.startsWith("/")) {
-          router.replace(redirectTo);
-          return;
-        }
-        setAdminAuthed(true);
-        setLoginPassword("");
-      } else {
-        const j = await r.json().catch(() => ({})) as { error?: string };
-        setLoginError(j.error ?? "Invalid password.");
-      }
-    } catch {
-      setLoginError("Connection error. Please try again.");
-    } finally {
-      loginInFlight.current = false;
-      setLoginLoading(false);
-    }
-  }
 
   async function handleLogout() {
     if (logoutInFlight.current) return;
     logoutInFlight.current = true;
     try {
       await fetch("/api/admin/auth", { method: "DELETE" }).catch(() => { });
-      setAdminAuthed(false);
+      router.replace("/admin/login");
     } finally {
       logoutInFlight.current = false;
     }
@@ -368,58 +337,14 @@ function AdminPageContent() {
     onIdle: handleLogout,
   });
 
-  // ── Auth loading / login gate ─────────────────────────────────────────────
-  if (adminAuthed === null) {
+  // ── Auth gate ─────────────────────────────────────────────────────────────
+  // Middleware redirects unauthenticated visitors to /admin/login before this
+  // renders; this spinner only covers the brief in-page session re-check (and
+  // the moment before the redirect fires if the session has since expired).
+  if (adminAuthed !== true) {
     return (
       <div className="min-h-screen bg-gray-950 flex items-center justify-center">
         <div className="w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  if (adminAuthed === false) {
-    return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
-        <div className="w-full max-w-sm bg-gray-900 rounded-2xl border border-gray-800 p-8 shadow-2xl">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center flex-shrink-0">
-              <ShieldCheck size={20} className="text-white" />
-            </div>
-            <div>
-              <h1 className="text-white font-bold text-lg leading-tight">Admin Login</h1>
-              <p className="text-gray-500 text-xs mt-0.5">Enter your admin password to continue</p>
-            </div>
-          </div>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1.5">Password</label>
-              <input
-                type="password"
-                value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
-                placeholder="••••••••"
-                autoFocus
-                required
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition"
-              />
-            </div>
-            {loginError && (
-              <p className="text-red-400 text-xs">{loginError}</p>
-            )}
-            <button
-              type="submit"
-              disabled={loginLoading || !loginPassword}
-              className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm rounded-lg py-2.5 transition"
-            >
-              {loginLoading ? "Signing in…" : "Sign in"}
-            </button>
-          </form>
-          {!process.env.NEXT_PUBLIC_ADMIN_CONFIGURED && (
-            <p className="mt-4 text-gray-600 text-xs text-center">
-              Set <code className="text-gray-500">ADMIN_PASSWORD</code> in <code className="text-gray-500">.env.local</code>
-            </p>
-          )}
-        </div>
       </div>
     );
   }

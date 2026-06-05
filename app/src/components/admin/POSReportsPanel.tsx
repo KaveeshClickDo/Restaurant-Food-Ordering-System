@@ -39,7 +39,7 @@ async function fetchAllSales(): Promise<POSSale[]> {
   try {
     // no-store: without it the browser serves the cached sales response, so
     // the Refresh button spins but the numbers never change.
-    const res = await fetch("/api/pos/sales?limit=5000", { cache: "no-store" });
+    const res = await fetch("/api/admin/pos-sales?limit=5000", { cache: "no-store" });
     if (!res.ok) return [];
     const json = await res.json() as { ok: boolean; sales?: POSSale[] };
     return json.ok && Array.isArray(json.sales) ? json.sales : [];

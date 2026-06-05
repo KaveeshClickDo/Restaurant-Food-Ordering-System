@@ -10,6 +10,7 @@
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getDisplaySession } from "@/lib/auth";
 
 const ACTIVE_STATUSES = ["pending", "confirmed", "preparing", "ready"];
 
@@ -34,6 +35,16 @@ function displayNumber(id: string, fulfillment: string | null | undefined, note:
 }
 
 export async function GET() {
+  // Gated on the display session. Middleware already redirects the page to
+  // /customer-display/login when the cookie is missing/invalid; this guards the
+  // data itself and — crucially — enforces session_version, so a password
+  // change/clear (which bumps the version) returns 401 here and the screen
+  // bounces back to the login page on its next 4-second poll.
+  const session = await getDisplaySession();
+  if (!session) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+
   // Delivery orders are intentionally excluded — the in-store collection screen
   // only shows orders a customer can walk up and collect (collection, dine-in,
   // POS). Delivery is the driver's concern, not the counter's.
