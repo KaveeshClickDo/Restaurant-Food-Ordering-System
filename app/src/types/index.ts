@@ -113,6 +113,8 @@ export interface Category {
   id: string;
   name: string;
   emoji: string;
+  parentId?: string | null;
+  sort_order?: number;
 }
 
 export interface CartItem {

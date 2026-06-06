@@ -20,6 +20,7 @@ export async function POST(req: NextRequest) {
   const { error } = await supabaseAdmin.from("categories").insert({
     id: body.id, name: body.name, emoji: body.emoji ?? "",
     sort_order: body.sort_order ?? 0,
+    parent_id: body.parent_id ?? null,
   });
 
   if (error) {

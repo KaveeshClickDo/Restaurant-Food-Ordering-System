@@ -21,9 +21,12 @@ export async function PUT(
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const body = parsed.data;
 
-  const patch: Record<string, string> = {};
+  const patch: Record<string, string | null> = {};
   if (body.name  !== undefined) patch.name  = body.name;
   if (body.emoji !== undefined) patch.emoji = body.emoji;
+  // parent_id can legitimately be set to null (converting sub → parent)
+  if ("parent_id" in body) patch.parent_id = body.parent_id ?? null;
+ 
 
   const { error } = await supabaseAdmin.from("categories").update(patch).eq("id", id);
   if (error) {

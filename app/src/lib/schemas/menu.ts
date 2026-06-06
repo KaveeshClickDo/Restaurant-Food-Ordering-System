@@ -112,11 +112,13 @@ export const CategoryCreateSchema = z.object({
   name:       NonEmptyString,
   emoji:      z.string().optional(),
   sort_order: z.number().int().nonnegative().optional(),
+  parent_id:  z.string().nullable().optional(),
 });
 
 export const CategoryUpdateSchema = z.object({
   name:  z.string().optional(),
   emoji: z.string().optional(),
+  parent_id:  z.string().nullable().optional(),
 });
 
 export const CategoryReorderSchema = z.object({
@@ -125,6 +127,7 @@ export const CategoryReorderSchema = z.object({
     name:       z.string(),
     emoji:      z.string(),
     sort_order: z.number().int(),
+    parent_id: z.string().nullable().optional(),
   })),
 });
 

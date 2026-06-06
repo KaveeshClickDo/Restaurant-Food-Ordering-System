@@ -2,9 +2,24 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { UtensilsCrossed, Heart, Receipt, User, CalendarDays, LogOut } from "lucide-react";
+import { UtensilsCrossed, Heart, Receipt, User, CalendarDays, LogOut, ChevronDown, ChevronRight, ChevronUp } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import type { Category } from "@/types";
+import { useMemo, useState } from "react";
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
+
+function getParents(cats: Category[]) {
+  return cats
+    .filter((c) => !c.parentId)
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+}
+
+function getChildren(parentId: string, cats: Category[]) {
+  return cats
+    .filter((c) => c.parentId === parentId)
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+}
 
 export default function SiteSidebar({
   activeCat,
@@ -28,6 +43,24 @@ export default function SiteSidebar({
   const router = useRouter();
   const reservationEnabled = !!settings.reservationSystem?.enabled;
 
+  // Which parent categories are expanded in the sidebar
+  const [expandedParents, setExpandedParents] = useState<Set<string>>(() => {
+    // Auto-expand the parent of the currently active sub-category on mount
+    const active = categories.find((c) => c.id === activeCat);
+    return active?.parentId ? new Set([active.parentId]) : new Set();
+  });
+
+  const parents = useMemo(() => getParents(categories), [categories]);
+
+  function toggleExpand(parentId: string) {
+    setExpandedParents((prev) => {
+      const next = new Set(prev);
+      if (next.has(parentId)) next.delete(parentId);
+      else next.add(parentId);
+      return next;
+    });
+  }
+
   const navigateToCategory = (id: string) => {
     // Navigate using session storage instead of url parameters
     if (pathname !== "/") {
@@ -36,6 +69,15 @@ export default function SiteSidebar({
     } else {
       setCat(id);
     }
+  };
+
+  // When clicking a parent that has children — expand it AND navigate to it
+  const handleParentClick = (parent: Category) => {
+    const children = getChildren(parent.id, categories);
+    if (children.length > 0) {
+      toggleExpand(parent.id);
+    }
+    navigateToCategory(parent.id);
   };
 
   const navItems = [
@@ -48,6 +90,14 @@ export default function SiteSidebar({
   const headerLinks = (settings.menuLinks ?? [])
     .filter((l) => l.location === "header" && l.active)
     .sort((a, b) => a.order - b.order);
+
+  // Is a given cat id "active" — also true when activeCat is a child of it
+  const isCatActive = (catId: string) => {
+    if (activeCat === catId) return true;
+    // Check if activeCat is a child of this parent
+    const activeCatObj = categories.find((c) => c.id === activeCat);
+    return activeCatObj?.parentId === catId;
+  };
 
   return (
     <aside className="hidden lg:flex w-[260px] flex-shrink-0 h-full flex-col bg-white border-r border-zinc-200/70">
@@ -83,8 +133,8 @@ export default function SiteSidebar({
             return (
               <Link key={href} href={href}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors ${active
-                    ? "bg-orange-500 text-white"
-                    : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                  ? "bg-orange-500 text-white"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
                   }`}
               >
                 <Icon className="w-[17px] h-[17px]" strokeWidth={1.6} />
@@ -121,8 +171,8 @@ export default function SiteSidebar({
           <button
             onClick={() => navigateToCategory("all")}
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] transition-colors ${pathname === "/" && activeCat === "all"
-                ? "bg-orange-50 text-orange-700 font-medium"
-                : "text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50"
+              ? "bg-orange-50 text-orange-700 font-medium"
+              : "text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50"
               }`}
           >
             <span className="text-base leading-none">🍽️</span>
@@ -130,20 +180,66 @@ export default function SiteSidebar({
             {pathname === "/" && activeCat === "all" && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-orange-500" />}
           </button>
 
-          {categories.map((cat) => {
-            const active = pathname === "/" && activeCat === cat.id;
+          {/* Parent → children tree */}
+          {parents.map((parent) => {
+            const children = getChildren(parent.id, categories);
+            const hasKids = children.length > 0;
+            const isExpanded = expandedParents.has(parent.id);
+            const parentActive = pathname === "/" && isCatActive(parent.id);
+            const isDirectSel = pathname === "/" && activeCat === parent.id;
+
             return (
-              <button key={cat.id}
-                onClick={() => navigateToCategory(cat.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2 text-left rounded-xl text-[13.5px] transition-colors ${active
-                    ? "bg-orange-50 text-orange-700 font-medium"
-                    : "text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50"
-                  }`}
-              >
-                <span className="text-base leading-none">{cat.emoji}</span>
-                <span>{cat.name}</span>
-                {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-orange-500" />}
-              </button>
+              <div key={parent.id}>
+                {/* Parent row */}
+                <button
+                  onClick={() => handleParentClick(parent)}
+                  className={`w-full flex items-center rounded-xl px-3 py-2 gap-2.5 transition-colors text-left ${parentActive
+                      ? "bg-orange-50 text-orange-700 font-medium"
+                      : "text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50"
+                    }`}
+                >
+                  <span className="text-base leading-none flex-shrink-0">{parent.emoji}</span>
+                  <span className="flex-1 text-[13.5px] truncate">{parent.name}</span>
+
+                  {/* Visual toggle indicator */}
+                  {hasKids && (
+                    <div>
+                      {isExpanded
+                        ? <ChevronUp className="w-4 h-4" strokeWidth={2.5} />
+                        : <ChevronDown className="w-4 h-4" strokeWidth={2.5} />}
+                    </div>
+                  )}
+
+                   {isDirectSel && !hasKids && (
+                            <span className="ml-auto w-1.5 h-1.5 rounded-full bg-orange-500 flex-shrink-0" />
+                          )}
+                </button>
+
+                {/* Children — shown when expanded */}
+                {hasKids && isExpanded && (
+                  <div className="ml-4 mt-0.5 mb-1 border-l border-zinc-100 pl-1 space-y-0.5">
+                    {children.map((child) => {
+                      const childActive = pathname === "/" && activeCat === child.id;
+                      return (
+                        <button
+                          key={child.id}
+                          onClick={() => navigateToCategory(child.id)}
+                          className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] transition-colors ${childActive
+                              ? "bg-orange-50 text-orange-700 font-medium"
+                              : "text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50"
+                            }`}
+                        >
+                          <span className="text-sm leading-none flex-shrink-0">{child.emoji}</span>
+                          <span className="truncate">{child.name}</span>
+                          {childActive && (
+                            <span className="ml-auto w-1.5 h-1.5 rounded-full bg-orange-500 flex-shrink-0" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             );
           })}
         </nav>

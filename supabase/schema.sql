@@ -38,7 +38,8 @@ create table if not exists categories (
   id         text primary key,
   name       text not null,
   emoji      text not null default '',
-  sort_order integer not null default 0
+  sort_order integer not null default 0,
+  parent_id  text references categories(id) on delete set null
 );
 
 -- menu_items — admin/POS unified item catalog.

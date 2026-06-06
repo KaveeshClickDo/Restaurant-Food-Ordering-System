@@ -233,7 +233,7 @@ function validateCouponCode(code: string, subtotal: number, coupons: Coupon[], s
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapCategory(row: any): Category {
-  return { id: row.id, name: row.name, emoji: row.emoji };
+  return { id: row.id, name: row.name, emoji: row.emoji, parentId: row.parent_id || null };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -294,7 +294,7 @@ function mapMealPeriod(row: any): MealPeriod {
 // ─── TypeScript → DB row mappers ─────────────────────────────────────────────
 
 function categoryToRow(c: Category, order: number) {
-  return { id: c.id, name: c.name, emoji: c.emoji, sort_order: order };
+  return { id: c.id, name: c.name, emoji: c.emoji, sort_order: order, parent_id: c.parentId || null };
 }
 
 function menuItemToRow(m: MenuItem) {
@@ -957,7 +957,7 @@ export function AppProvider({
     fetch(`/api/admin/categories/${cat.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: cat.name, emoji: cat.emoji }),
+      body: JSON.stringify({ name: cat.name, emoji: cat.emoji, parent_id: cat.parentId || null }),
     }).then(async (r) => {
       if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateCategory:", j.error); }
     }).catch((e) => console.error("updateCategory:", e));

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { MenuItem } from "@/types";
+import { useState, useEffect, useMemo } from "react";
+import { Category, MenuItem } from "@/types";
 import { useApp } from "@/context/AppContext";
 import { useRouter } from "next/navigation";
 import {
@@ -304,6 +304,15 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
   );
 }
 
+/** All category ids that should show when `activeCat` is selected.
+ *  If a parent is selected → include its children too.
+ *  If a child is selected → just that child. */
+function effectiveCatIds(activeCat: string, cats: Category[]): string[] | null {
+  if (activeCat === "all") return null;
+  const childIds = cats.filter((c) => c.parentId === activeCat).map((c) => c.id);
+  return [activeCat, ...childIds];
+}
+
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function HomePage() {
   const {
@@ -357,7 +366,18 @@ export default function HomePage() {
   // Categories visible to the customer — hide any category whose only items
   // are currently non-orderable (e.g. a category full of dinner-only items
   // during breakfast). Empty categories stay visible.
+
   const visibleCategories = categories.filter((cat) => {
+    // For a parent: visible if it itself has orderable items OR any child does
+    if (!cat.parentId) {
+      const ownItems   = menuItems.filter((i) => i.categoryId === cat.id);
+      const childIds   = categories.filter((c) => c.parentId === cat.id).map((c) => c.id);
+      const childItems = menuItems.filter((i) => childIds.includes(i.categoryId));
+      const allItems   = [...ownItems, ...childItems];
+      if (allItems.length === 0) return true;           // empty categories stay visible
+      return allItems.some(isItemOrderable);
+    }
+    // For a sub-category: same logic as before
     const catItems = menuItems.filter((i) => i.categoryId === cat.id);
     if (catItems.length === 0) return true;
     return catItems.some(isItemOrderable);
@@ -371,9 +391,12 @@ export default function HomePage() {
   }, [activeCat, visibleCategories]);
 
   // Filtered items (search + category). Apply meal-period orderability after.
+
+  const activeCatIds = effectiveCatIds(activeCat, categories);
+  
   const filteredItems = menuItems
     .filter((item) => {
-      if (activeCat !== "all" && item.categoryId !== activeCat) return false;
+      if (activeCatIds && !activeCatIds.includes(item.categoryId)) return false;
       if (search) {
         const q = search.toLowerCase();
         if (!item.name.toLowerCase().includes(q) && !item.description.toLowerCase().includes(q)) return false;

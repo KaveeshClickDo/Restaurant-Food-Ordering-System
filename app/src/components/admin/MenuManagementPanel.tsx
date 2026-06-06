@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { Category, MealPeriod, MenuItem, Variation, AddOn, MenuItemOffer } from "@/types";
 import {
@@ -9,6 +9,11 @@ import {
   ArrowUp, ArrowDown, ImagePlus, Link, Upload,
   Package, PackageX, PackageMinus, Minus, Clock,
   ToggleLeft, ToggleRight, Loader2,
+  ChevronDown,
+  ChevronRight,
+  FolderMinus,
+  FolderOpen,
+  FolderPlus,
 } from "lucide-react";
 import { resolveStock, stockLabel, LOW_STOCK_THRESHOLD } from "@/lib/stockUtils";
 import { uploadMenuImage, MAX_IMAGE_LABEL } from "@/lib/uploadImage";
@@ -64,8 +69,8 @@ function blankItem(categoryId: string): MenuItem {
   };
 }
 
-function blankCategory(): Category {
-  return { id: crypto.randomUUID(), name: "", emoji: "🍽️" };
+function blankCategory(parentId?: string): Category {
+  return { id: crypto.randomUUID(), name: "", emoji: "🍽️", parentId: parentId ?? null };
 }
 
 function blankVariation(): Variation {
@@ -74,6 +79,27 @@ function blankVariation(): Variation {
 
 function blankAddOn(): AddOn {
   return { id: crypto.randomUUID(), name: "", price: 0 };
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Returns true if `cat` has any direct children in the list */
+function hasChildren(cat: Category, all: Category[]) {
+  return all.some((c) => c.parentId === cat.id);
+}
+
+/** Parent categories, sorted by sort_order */
+function getParents(cats: Category[]) {
+  return cats
+    .filter((c) => !c.parentId)
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+}
+
+/** Sub-categories of a given parent, sorted by sort_order */
+function getChildren(parentId: string, cats: Category[]) {
+  return cats
+    .filter((c) => c.parentId === parentId)
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 }
 
 // ─── Main Component ──────────────────────────────────────────────────────────
@@ -92,31 +118,110 @@ export default function MenuManagementPanel() {
   const [deletingPeriod, setDeletingPeriod] = useState<MealPeriod | null>(null);
 
   const [selectedCatId, setSelectedCatId] = useState<string | "all">("all");
+  const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
   const [editingCat, setEditingCat] = useState<Category | null>(null);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [deletingCat, setDeletingCat] = useState<Category | null>(null);
   const [deletingItem, setDeletingItem] = useState<MenuItem | null>(null);
 
-  // Filtered items
-  const displayedItems = menuItems.filter((item) => {
-    const matchesCat = selectedCatId === "all" || item.categoryId === selectedCatId;
-    const matchesSearch =
-      !search ||
-      item.name.toLowerCase().includes(search.toLowerCase()) ||
-      item.description.toLowerCase().includes(search.toLowerCase());
-    return matchesCat && matchesSearch;
-  });
+  const parents = useMemo(() => getParents(categories), [categories]);
+
+  // Items shown in main panel
+  const displayedItems = useMemo(() => {
+    // When a parent is selected, show items from it AND all its children
+    const effectiveCatIds =
+      selectedCatId === "all"
+        ? null
+        : [
+          selectedCatId,
+          ...categories
+            .filter((c) => c.parentId === selectedCatId)
+            .map((c) => c.id),
+        ];
+
+    return menuItems.filter((item) => {
+      const matchesCat =
+        !effectiveCatIds || effectiveCatIds.includes(item.categoryId);
+      const matchesSearch =
+        !search ||
+        item.name.toLowerCase().includes(search.toLowerCase()) ||
+        item.description.toLowerCase().includes(search.toLowerCase());
+      return matchesCat && matchesSearch;
+    });
+  }, [menuItems, selectedCatId, categories, search]);
 
   const catItemCount = (catId: string) => menuItems.filter((i) => i.categoryId === catId).length;
 
-  function moveCat(idx: number, dir: -1 | 1) {
-    const next = [...categories];
-    const swap = idx + dir;
-    if (swap < 0 || swap >= next.length) return;
-    [next[idx], next[swap]] = [next[swap], next[idx]];
-    reorderCategories(next);
+  // Count items in parent + all its children
+  const parentItemCount = (parentId: string) => {
+    const childIds = categories
+      .filter((c) => c.parentId === parentId)
+      .map((c) => c.id);
+    return menuItems.filter(
+      (i) => i.categoryId === parentId || childIds.includes(i.categoryId),
+    ).length;
+  };
+
+  function toggleExpand(parentId: string) {
+    setExpandedParents((prev) => {
+      const next = new Set(prev);
+      if (next.has(parentId)) next.delete(parentId);
+      else next.add(parentId);
+      return next;
+    });
   }
+
+  // ── Reorder helpers ──────────────────────────────────────────────────────
+
+  /** Move a parent category up/down among other parent categories only */
+  function moveParent(idx: number, dir: -1 | 1) {
+    const currentParents = getParents(categories);
+    const swap = idx + dir;
+    if (swap < 0 || swap >= currentParents.length) return;
+
+    // Build new full list preserving children positions
+    const newParents = [...currentParents];
+    [newParents[idx], newParents[swap]] = [newParents[swap], newParents[idx]];
+
+    // Reconstruct full ordered list: parents with their children interleaved
+    const ordered: Category[] = [];
+    newParents.forEach((p) => {
+      ordered.push(p);
+      ordered.push(...getChildren(p.id, categories));
+    });
+    reorderCategories(ordered);
+  }
+
+  /** Move a sub-category up/down among siblings of the same parent only */
+  function moveChild(parentId: string, idx: number, dir: -1 | 1) {
+    const siblings = getChildren(parentId, categories);
+    const swap = idx + dir;
+    if (swap < 0 || swap >= siblings.length) return;
+
+    const newSiblings = [...siblings];
+    [newSiblings[idx], newSiblings[swap]] = [newSiblings[swap], newSiblings[idx]];
+
+    // Merge back into full list
+    const siblingIds = new Set(newSiblings.map((s) => s.id));
+    const others = categories.filter((c) => !siblingIds.has(c.id));
+
+    // Insert sorted siblings back in place
+    const ordered: Category[] = [];
+    getParents(others).forEach((p) => {
+      ordered.push(p);
+      if (p.id === parentId) {
+        ordered.push(...newSiblings);
+      } else {
+        ordered.push(...getChildren(p.id, others));
+      }
+    });
+    reorderCategories(ordered);
+  }
+
+  // ── Category selected label ──────────────────────────────────────────────
+
+  const selectedCat = categories.find((c) => c.id === selectedCatId);
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -256,8 +361,9 @@ export default function MenuManagementPanel() {
             </button>
           </div>
         </div>
+
         {/* ── Left: Category sidebar ── */}
-        <div className="hidden md:block w-56 flex-shrink-0 p-3 space-y-0.5">
+        <div className="hidden md:block w-60 xl:w-70 flex-shrink-0 p-3 space-y-0.5">
           <div className="flex items-center justify-between px-2 pb-2">
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Categories</span>
             <button
@@ -281,51 +387,166 @@ export default function MenuManagementPanel() {
             <span className="text-xs text-gray-400">{menuItems.length}</span>
           </button>
 
-          {/* Category list */}
-          {categories.map((cat, idx) => (
-            <div
-              key={cat.id}
-              className={`group flex items-center rounded-lg transition-all ${selectedCatId === cat.id ? "bg-orange-50" : "hover:bg-gray-50"
-                }`}
-            >
-              {/* Reorder arrows */}
-              <div className="flex flex-col pl-1 transition">
-                <button onClick={() => moveCat(idx, -1)} className="text-gray-300 hover:text-gray-500 leading-none">
-                  <ArrowUp size={10} />
-                </button>
-                <button onClick={() => moveCat(idx, 1)} className="text-gray-300 hover:text-gray-500 leading-none">
-                  <ArrowDown size={10} />
-                </button>
-              </div>
+          {/* Parent + children tree */}
+          {parents.map((parent, parentIdx) => {
+            const children = getChildren(parent.id, categories);
+            const isExpanded = expandedParents.has(parent.id);
+            const isSelParent = selectedCatId === parent.id;
 
-              <button
-                onClick={() => setSelectedCatId(cat.id)}
-                className="flex-1 min-w-0 text-left px-2 py-2 text-sm flex items-center gap-1.5"
-              >
-                <span className="flex-shrink-0">{cat.emoji}</span>
-                <span className={`flex-1 font-medium truncate ${selectedCatId === cat.id ? "text-orange-600" : "text-gray-700"}`}>
-                  {cat.name}
-                </span>
-                <span className="ml-auto flex-shrink-0 text-xs text-gray-400">{catItemCount(cat.id)}</span>
-              </button>
+            return (
+              <div key={parent.id} className="flex flex-col">
+                {/* Parent row */}
+                <div
+                  className={`group flex items-center rounded-lg transition-all ${isSelParent ? "bg-orange-50" : "hover:bg-gray-50"
+                    }`}
+                >
 
-              {/* Edit/delete */}
-              <div className="flex transition pr-1 gap-0.5">
-                <button
-                  onClick={(e) => { e.stopPropagation(); setEditingCat({ ...cat }); }}
-                  className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition"
-                >
-                  <Pencil size={10} />
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setDeletingCat(cat); }}
-                  className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition"
-                >
-                  <Trash2 size={10} />
-                </button>
+                  {/* Expand toggle */}
+                  <button
+                    onClick={() => toggleExpand(parent.id)}
+                    className={`w-7 h-7 flex items-center justify-center flex-shrink-0 rounded transition text-gray-400 hover:text-gray-600 ${children.length === 0 ? "opacity-0 pointer-events-none" : ""
+                      }`}
+                    title={isExpanded ? "Collapse" : "Expand"}
+                  >
+                    {isExpanded ? (
+                      <ChevronDown size={14} />
+                    ) : (
+                      <ChevronRight size={14} />
+                    )}
+                  </button>
+
+                  {/* Name button */}
+                  <button
+                    onClick={() => setSelectedCatId(parent.id)}
+                    className="flex-1 min-w-0 text-left px-1 py-2 text-sm flex items-center gap-1.5"
+                  >
+                    <span className="flex-shrink-0 text-base">{parent.emoji}</span>
+                    <span
+                      className={`flex-1 font-semibold truncate ${isSelParent ? "text-orange-600" : "text-gray-700"
+                        }`}
+                    >
+                      {parent.name}
+                    </span>
+                    <span className="ml-auto flex-shrink-0 text-xs text-gray-400">
+                      {parentItemCount(parent.id)}
+                    </span>
+                  </button>
+
+                  {/* Edit / delete / add-sub */}
+                  <div className="flex pr-1 gap-0.5 transition">
+                    {/* <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingCat(blankCategory(parent.id));
+                      }}
+                      className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-orange-500 hover:bg-orange-50 transition"
+                      title="Add sub-category"
+                    >
+                      <FolderPlus size={10} />
+                    </button> */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setEditingCat({ ...parent }); }}
+                      className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition"
+                      title="Edit"
+                    >
+                      <Pencil size={10} />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDeletingCat(parent); }}
+                      className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition"
+                      title="Delete"
+                    >
+                      <Trash2 size={10} />
+                    </button>
+                  </div>
+
+                  {/* Up/down arrows — parent only among parents */}
+                  <div className="flex flex-col pr-1 transition">
+                    <button
+                      onClick={() => moveParent(parentIdx, -1)}
+                      className="text-gray-300 hover:text-gray-500 leading-none"
+                      title="Move up"
+                    >
+                      <ArrowUp size={10} />
+                    </button>
+                    <button
+                      onClick={() => moveParent(parentIdx, 1)}
+                      className="text-gray-300 hover:text-gray-500 leading-none"
+                      title="Move down"
+                    >
+                      <ArrowDown size={10} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sub-category rows (only when expanded) */}
+                {isExpanded &&
+                  children.map((child, childIdx) => {
+                    const isSelChild = selectedCatId === child.id;
+                    return (
+                      <div
+                        key={child.id}
+                        className={`group flex items-center rounded-lg ml-5 border-l-2 transition-all ${isSelChild
+                          ? "border-orange-300 bg-orange-50"
+                          : "border-gray-100 hover:bg-gray-50 hover:border-gray-200"
+                          }`}
+                      >
+                        {/* Sub up/down — siblings only */}
+                        <div className="flex flex-col pl-1 transition">
+                          <button
+                            onClick={() => moveChild(parent.id, childIdx, -1)}
+                            className="text-gray-300 hover:text-gray-500 leading-none"
+                            title="Move up"
+                          >
+                            <ArrowUp size={9} />
+                          </button>
+                          <button
+                            onClick={() => moveChild(parent.id, childIdx, 1)}
+                            className="text-gray-300 hover:text-gray-500 leading-none"
+                            title="Move down"
+                          >
+                            <ArrowDown size={9} />
+                          </button>
+                        </div>
+
+                        <button
+                          onClick={() => setSelectedCatId(child.id)}
+                          className="flex-1 min-w-0 text-left px-2 py-1.5 text-[13px] flex items-center gap-1.5"
+                        >
+                          <span className="flex-shrink-0">{child.emoji}</span>
+                          <span
+                            className={`flex-1 font-medium truncate ${isSelChild ? "text-orange-600" : "text-gray-600"
+                              }`}
+                          >
+                            {child.name}
+                          </span>
+                          <span className="ml-auto flex-shrink-0 text-[10px] text-gray-400">
+                            {catItemCount(child.id)}
+                          </span>
+                        </button>
+
+                        <div className="flex pr-1 gap-0.5 transition">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setEditingCat({ ...child }); }}
+                            className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition"
+                            title="Edit"
+                          >
+                            <Pencil size={9} />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDeletingCat(child); }}
+                            className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition"
+                            title="Delete"
+                          >
+                            <Trash2 size={9} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* ── Right: Item list ── */}
@@ -343,28 +564,25 @@ export default function MenuManagementPanel() {
           </div>
 
           {/* Category header when filtered */}
-          {selectedCatId !== "all" && (
+          {selectedCatId !== "all" && selectedCat && (
             <div className="flex flex-wrap gap-2 items-center justify-between mb-4">
               <div className="flex flex-wrap items-center gap-2.5">
                 <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                  <span>{categories.find((c) => c.id === selectedCatId)?.emoji}</span>
-                  <span>{categories.find((c) => c.id === selectedCatId)?.name}</span>
+                  <span>{selectedCat.emoji}</span>
+                  <span>{selectedCat.name}</span>
+                  <span className="hidden md:flex flex-shrink-0 text-[13px] text-gray-400">
+                    ( {selectedCat.parentId ? catItemCount(selectedCat.id) : parentItemCount(selectedCat.id)} )
+                  </span>
                 </h3>
                 <div className="flex md:hidden items-center gap-1">
                   <button
-                    onClick={() => {
-                      const cat = categories.find((c) => c.id === selectedCatId);
-                      if (cat) setEditingCat({ ...cat });
-                    }}
+                    onClick={() => setEditingCat({ ...selectedCat })}
                     className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-500 bg-gray-100 hover:bg-blue-50 transition"
                   >
                     <Pencil size={12} />
                   </button>
                   <button
-                    onClick={() => {
-                      const cat = categories.find((c) => c.id === selectedCatId);
-                      if (cat) setDeletingCat(cat);
-                    }}
+                    onClick={() => setDeletingCat({ ...selectedCat })}
                     className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 bg-gray-100 hover:bg-red-50 transition"
                   >
                     <Trash2 size={12} />
@@ -399,11 +617,18 @@ export default function MenuManagementPanel() {
           {/* Item grid */}
           <div className="space-y-2">
             {displayedItems.map((item) => {
-              const catName = categories.find((c) => c.id === item.categoryId)?.name ?? "—";
+              const itemCat = categories.find((c) => c.id === item.categoryId);
+              const parentCat =
+                itemCat?.parentId
+                  ? categories.find((c) => c.id === itemCat.parentId)
+                  : null;
+              const catLabel = parentCat
+                ? `${parentCat.name} › ${itemCat?.name}`
+                : (itemCat?.name ?? "—");
               return (
                 <div
                   key={item.id}
-                  className="group flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 px-3 sm:px-4 py-3 rounded-xl border border-gray-100 hover:border-orange-200 hover:bg-orange-50/30 transition-all"
+                  className="group flex flex-col xl:flex-row xl:items-center gap-3 sm:gap-4 px-3 sm:px-4 py-3 rounded-xl border border-gray-100 hover:border-orange-200 hover:bg-orange-50/30 transition-all"
                 >
                   <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
                     <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl overflow-hidden border border-gray-100 flex-shrink-0">
@@ -437,7 +662,7 @@ export default function MenuManagementPanel() {
                               className="text-[10px] font-semibold text-amber-700 px-1.5 py-0.5 rounded-full border"
                               title={`${mp.startTime}–${mp.endTime}`}
                               style={{
-                                borderColor: `${tColor}2A`, 
+                                borderColor: `${tColor}2A`,
                                 backgroundColor: `${tColor}1A`,
                                 color: tColor
                               }}
@@ -450,7 +675,7 @@ export default function MenuManagementPanel() {
                       <div className="flex flex-wrap gap-1 mt-1">
                         {selectedCatId === "all" && (
                           <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full font-medium">
-                            {catName}
+                            {catLabel}
                           </span>
                         )}
                         {item.dietary.map((d) => (
@@ -473,7 +698,7 @@ export default function MenuManagementPanel() {
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center justify-between sm:justify-end gap-3 pl-[76px] sm:pl-0">
+                  <div className="flex flex-wrap items-center justify-between xl:justify-end gap-3 pl-[76px] xl:pl-0">
                     {/* Stock badge — click to cycle status quickly */}
                     {(() => {
                       const status = resolveStock(item);
@@ -539,6 +764,7 @@ export default function MenuManagementPanel() {
       {editingCat && (
         <CategoryModal
           cat={editingCat}
+          allCategories={categories}
           isNew={!categories.find((c) => c.id === editingCat.id)}
           onSave={(cat) => {
             if (categories.find((c) => c.id === cat.id)) {
@@ -640,8 +866,29 @@ export default function MenuManagementPanel() {
       {deletingCat && (
         <ConfirmModal
           title="Delete category?"
-          message={`"${deletingCat.name}" and all ${catItemCount(deletingCat.id)} items in it will be permanently deleted.`}
-          onConfirm={() => { deleteCategory(deletingCat.id); setDeletingCat(null); if (selectedCatId === deletingCat.id) setSelectedCatId("all"); }}
+          message={
+            hasChildren(deletingCat, categories)
+              ? `"${deletingCat.name}" has sub-categories. Deleting it will also delete all its sub-categories and their items permanently. Are you sure?`
+              : `"${deletingCat.name}" and all ${catItemCount(deletingCat.id)} items in it will be permanently deleted.`
+          }
+          onConfirm={() => {
+            // Delete children first, then parent
+            if (hasChildren(deletingCat, categories)) {
+              getChildren(deletingCat.id, categories).forEach((child) =>
+                deleteCategory(child.id),
+              );
+            }
+            deleteCategory(deletingCat.id);
+            setDeletingCat(null);
+            if (
+              selectedCatId === deletingCat.id ||
+              categories.find(
+                (c) => c.id === selectedCatId && c.parentId === deletingCat.id,
+              )
+            ) {
+              setSelectedCatId("all");
+            }
+          }}
           onClose={() => setDeletingCat(null)}
         />
       )}
@@ -661,12 +908,45 @@ export default function MenuManagementPanel() {
 // ─── Category Modal ──────────────────────────────────────────────────────────
 
 function CategoryModal({
-  cat, isNew, onSave, onClose,
+  cat, allCategories, isNew, onSave, onClose,
 }: {
-  cat: Category; isNew: boolean; onSave: (c: Category) => void; onClose: () => void;
+  cat: Category; allCategories: Category[]; isNew: boolean; onSave: (c: Category) => void; onClose: () => void;
 }) {
   const [form, setForm] = useState<Category>({ ...cat });
   const EMOJIS = ["🍽️", "🥗", "🍗", "🥩", "🦐", "🍜", "🍛", "🥦", "🧆", "🫓", "🥤", "🍮", "🍰", "🫙", "🍲", "🥘", "🍱", "🥪", "🫔", "🌮"];
+
+  const [isSub, setIsSub] = useState<boolean>(!!cat.parentId);
+  const [parentError, setParentError] = useState<string>("");
+
+  // Parent options = categories that are NOT sub-categories themselves
+  // and are NOT the category being edited (can't be own parent)
+  const parentOptions = allCategories.filter(
+    (c) => !c.parentId && c.id !== cat.id,
+  );
+
+  // Check: if current cat has children, can't convert to sub
+  const catHasChildren = allCategories.some((c) => c.parentId === cat.id);
+
+  function handleToggleSub(wantSub: boolean) {
+    if (wantSub && catHasChildren) {
+      setParentError(
+        "This category has sub-categories. Move them to another parent or remove them first before converting this to a sub-category.",
+      );
+      return;
+    }
+    setParentError("");
+    setIsSub(wantSub);
+    setForm((f) => ({ ...f, parentId: wantSub ? (parentOptions[0]?.id ?? null) : null }));
+  }
+
+  function handleSave() {
+    if (!form.name.trim()) return;
+    if (isSub && !form.parentId) {
+      setParentError("Please select a parent category.");
+      return;
+    }
+    onSave({ ...form, parentId: isSub ? (form.parentId ?? null) : null });
+  }
 
   return (
     <ModalShell title={isNew ? "Add category" : "Edit category"} onClose={onClose}>
@@ -681,6 +961,67 @@ function CategoryModal({
             placeholder="e.g. Desserts"
           />
         </div>
+
+        {/* Sub-category toggle */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-2">
+            Category type
+          </label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => handleToggleSub(false)}
+              className={`flex-1 py-2 rounded-xl border text-xs font-semibold transition-all ${!isSub
+                ? "border-orange-400 bg-orange-50 text-orange-600"
+                : "border-gray-200 text-gray-500 hover:border-gray-300"
+                }`}
+            >
+              <FolderOpen size={13} className="inline mr-1.5 -mt-px" />
+              Parent Category
+            </button>
+            <button
+              type="button"
+              onClick={() => handleToggleSub(true)}
+              className={`flex-1 py-2 rounded-xl border text-xs font-semibold transition-all ${isSub
+                ? "border-orange-400 bg-orange-50 text-orange-600"
+                : "border-gray-200 text-gray-500 hover:border-gray-300"
+                }`}
+            >
+              <FolderMinus size={13} className="inline mr-1.5 -mt-px" />
+              Sub Category
+            </button>
+          </div>
+
+          {parentError && (
+            <p className="mt-2 text-xs text-red-500 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {parentError}
+            </p>
+          )}
+        </div>
+
+        {/* Parent selector (only when sub) */}
+        {isSub && (
+          <div className="relative">
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+              Parent category
+            </label>
+            {parentOptions.length === 0 ? (
+              <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                No parent categories exist yet. Create a parent category first.
+              </p>
+            ) : (
+              <div className="relative group">
+                <CustomSelect
+                  options={parentOptions}
+                  value={form.parentId ?? ""}
+                  onChange={(val) => setForm((f) => ({ ...f, parentId: val }))}
+                />
+              </div>
+
+            )}
+          </div>
+        )}
+
         <div>
           <label className="block text-xs font-semibold text-gray-600 mb-2">Emoji</label>
           <div className="flex flex-wrap gap-2">
@@ -711,14 +1052,84 @@ function CategoryModal({
       <div className="flex gap-3 mt-6">
         <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition">Cancel</button>
         <button
-          onClick={() => form.name.trim() && onSave(form)}
-          disabled={!form.name.trim()}
+          onClick={handleSave}
+          disabled={!form.name.trim() || (isSub && !form.parentId)}
           className="flex-1 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-sm font-semibold transition"
         >
           {isNew ? "Add category" : "Save changes"}
         </button>
       </div>
     </ModalShell>
+  );
+}
+
+function CustomSelect({
+  options,
+  value,
+  onChange
+}: {
+  options: Category[],
+  value: string | null,
+  onChange: (id: string) => void
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Close when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const selected = options.find(o => o.id === value);
+
+  return (
+    <div className="relative" ref={containerRef}>
+      {/* Trigger Button */}
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between border border-gray-200 rounded-xl px-4 py-1.5 text-sm bg-white hover:border-gray-300 focus:outline-none focus:ring-1 focus:ring-orange-400 transition-all text-left"
+      >
+        <span className="truncate flex items-center gap-2">
+          {selected ? (
+            <><span className="text-lg">{selected.emoji}</span> {selected.name}</>
+          ) : (
+            <span className="text-gray-400">Select parent…</span>
+          )}
+        </span>
+        <ChevronDown size={16} className={`text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {/* Options List */}
+      {isOpen && (
+        <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+          <div className="max-h-50 overflow-y-auto scrollbar-hide py-1">
+            {options.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => {
+                  onChange(p.id);
+                  setIsOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-4 py-1.5 text-sm transition-colors hover:bg-orange-50 text-left ${value === p.id ? "bg-orange-50 text-orange-600 font-bold" : "text-gray-700"
+                  }`}
+              >
+                <span className="text-lg flex-shrink-0">{p.emoji}</span>
+                <span className="truncate">{p.name}</span>
+                {value === p.id && <Check size={14} className="ml-auto text-orange-500" />}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -868,15 +1279,11 @@ function ItemModal({
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">Category *</label>
-              <select
+              <CustomSelect
+                options={categories}
                 value={form.categoryId}
-                onChange={(e) => setForm((f) => ({ ...f, categoryId: e.target.value }))}
-                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white"
-              >
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>
-                ))}
-              </select>
+                onChange={(val) => setForm((f) => ({ ...f, categoryId: val }))}
+              />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">Base price ({sym}) *</label>
@@ -971,8 +1378,8 @@ function ItemModal({
                   {/* File upload — stored in Supabase Storage, not as base64
                       in the row (see lib/uploadImage.ts for why). */}
                   <label className={`flex items-center gap-2 w-full py-2 px-3 rounded-lg border border-gray-200 text-xs font-medium transition ${uploading
-                      ? "opacity-60 cursor-wait text-gray-400"
-                      : "cursor-pointer hover:border-orange-300 hover:text-orange-500 text-gray-500"
+                    ? "opacity-60 cursor-wait text-gray-400"
+                    : "cursor-pointer hover:border-orange-300 hover:text-orange-500 text-gray-500"
                     }`}>
                     <Upload size={13} />
                     {uploading ? "Uploading…" : "Upload from device"}
