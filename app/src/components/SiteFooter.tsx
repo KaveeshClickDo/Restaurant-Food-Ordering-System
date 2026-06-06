@@ -77,8 +77,8 @@ export default function SiteFooter() {
         )}
 
         <div className="pt-5 border-t border-zinc-200/70 text-[11.5px] text-zinc-400">
-          <span>{settings.footerCopyright || `© ${new Date().getFullYear()} ${restaurant.name}. All rights reserved.`}</span><br/>
-          <span>Designed by SeekaHost Technologies Ltd.</span>
+          <span>{settings.footerCopyright || `© ${new Date().getFullYear()} ${restaurant.name}. All rights reserved.`} </span> ·
+          <span> Designed by SeekaHost Technologies Ltd.</span>
         </div>
       </div>
     </footer>

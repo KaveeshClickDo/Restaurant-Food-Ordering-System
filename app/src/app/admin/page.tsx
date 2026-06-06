@@ -670,7 +670,7 @@ function AdminPageContent() {
 
       {/* ── Main content (offset by sidebar on desktop) ───────────────────── */}
       <div className={[
-        "flex flex-col flex-1 h-full transition-[padding-left] duration-300 ease-in-out pb-4 w-full",
+        "flex flex-col flex-1 h-full transition-[padding-left] duration-300 ease-in-out pb-2.5 w-full",
         sidebarCollapsed ? "lg:pl-[68px]" : "lg:pl-60",
       ].join(" ")}>
 
@@ -782,9 +782,9 @@ function AdminPageContent() {
         </main>
 
         {/* FOOTER */}
-        <footer className="bg-white border-t border-gray-200 px-4 pt-4 flex-shrink-0 text-center text-[11px] text-gray-400">
-          {settings.footerCopyright || `© ${new Date().getFullYear()} ${settings.restaurant.name}. All rights reserved.`}<br />
-          Designed by SeekaHost Technologies Ltd.
+        <footer className="bg-white border-t border-gray-200 px-4 pt-3 flex-shrink-0 text-center text-[11px] text-gray-400">
+          {settings.footerCopyright || `© ${new Date().getFullYear()} ${settings.restaurant.name}. All rights reserved`} 
+            · Designed by SeekaHost Technologies Ltd.
         </footer>
       </div>
     </div>

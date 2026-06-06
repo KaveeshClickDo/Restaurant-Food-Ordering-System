@@ -16,6 +16,7 @@ import {
   AlertTriangle, RotateCcw, ShieldAlert, Gift, Percent, BadgeDollarSign, Crown,
   Clock, CalendarClock,
 } from "lucide-react";
+import CollectionFooter from "@/components/collection/CollectionFooter";
 
 // ─── Internal types ───────────────────────────────────────────────────────────
 
@@ -1895,10 +1896,7 @@ export default function WaiterPage() {
             </div>
           )}
 
-          <footer className="bg-slate-900 border-t border-slate-800 px-4 py-3 flex-shrink-0 text-center text-[11px] text-gray-500">
-            {appSettings.footerCopyright || `© ${new Date().getFullYear()} ${appSettings.restaurant.name}. All rights reserved.`}<br />
-            Designed by SeekaHost Technologies Ltd.
-          </footer>
+          <CollectionFooter />
         </div>
 
         {/* Last receipt — floats above tables view after payment */}
@@ -2228,10 +2226,7 @@ export default function WaiterPage() {
             )}
           </div>
 
-          <footer className="bg-slate-900 border-t border-slate-800 px-4 py-3 flex-shrink-0 text-center text-[11px] text-gray-500">
-            {appSettings.footerCopyright || `© ${new Date().getFullYear()} ${appSettings.restaurant.name}. All rights reserved.`}<br />
-            Designed by SeekaHost Technologies Ltd.
-          </footer>
+          <CollectionFooter />
         </div>
 
         {/* Discount modal — senior/head waiter only, capped at 100% */}
@@ -2667,10 +2662,7 @@ export default function WaiterPage() {
         />
       )}
 
-      <footer className="bg-slate-900 border-t border-slate-800 px-4 py-3 flex-shrink-0 text-center text-[11px] text-gray-500">
-        {appSettings.footerCopyright || `© ${new Date().getFullYear()} ${appSettings.restaurant.name}. All rights reserved.`}<br />
-        Designed by SeekaHost Technologies Ltd.
-      </footer>
+      <CollectionFooter />
 
     </div>
   );
