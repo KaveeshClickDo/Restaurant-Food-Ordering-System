@@ -143,6 +143,7 @@ const SUB_APP_LINKS: SubAppLink[] = [
   { href: "/pos", label: "POS Terminal", description: "Cashier checkout", icon: Tablet },
   { href: "/kitchen", label: "Kitchen Display", description: "KDS order queue", icon: ChefHat },
   { href: "/waiter", label: "Waiter App", description: "Table service / orders", icon: UtensilsCrossed },
+  { href: "/collection", label: "Collection PickUps", description: "Pickup-facing screen", icon: Store },
   { href: "/customer-display", label: "Customer Display", description: "Counter-facing screen", icon: Monitor },
   { href: "/driver", label: "Driver App", description: "Delivery dispatch view", icon: Truck },
 ];
