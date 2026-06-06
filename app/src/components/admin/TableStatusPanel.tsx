@@ -601,11 +601,11 @@ function FloorPlanEditor({
                   style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}
                   className={`absolute -translate-x-1/2 -translate-y-1/2 touch-none cursor-grab active:cursor-grabbing ${dragId === t.id ? "z-20" : "z-10"}`}
                 >
-                  <div className={`flex flex-col items-center justify-center w-11 h-11 rounded-full border-2 shadow text-[11px] font-bold ${
+                  <div className={`flex flex-col items-center justify-center w-8 h-8 sm:w-11 sm:h-11 rounded-full border-2 shadow text-[9px] sn:text-[11px] font-bold ${
                     t.isVip ? "bg-amber-100 border-amber-400 text-amber-800" : "bg-white border-orange-400 text-orange-700"
                   } ${isSel ? "ring-2 ring-offset-1 ring-blue-400" : ""}`}>
                     {t.isVip && <Crown size={10} className="text-amber-500" />}
-                    <span className="leading-none max-w-[2.4rem] truncate px-0.5">{t.label}</span>
+                    <span className="leading-none max-w-[1.65rem] sm:max-w-[2.4rem] truncate px-0.5">{t.label}</span>
                   </div>
                   {isSel && (
                     <button
@@ -947,7 +947,7 @@ export default function TableStatusPanel() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Grid ↔ Floor-plan toggle */}
           <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
             <button
