@@ -863,35 +863,36 @@ export default function MenuManagementPanel() {
         />
       )}
 
-      {deletingCat && (
-        <ConfirmModal
-          title="Delete category?"
-          message={
-            hasChildren(deletingCat, categories)
-              ? `"${deletingCat.name}" has sub-categories. Deleting it will also delete all its sub-categories and their items permanently. Are you sure?`
-              : `"${deletingCat.name}" and all ${catItemCount(deletingCat.id)} items in it will be permanently deleted.`
-          }
-          onConfirm={() => {
-            // Delete children first, then parent
-            if (hasChildren(deletingCat, categories)) {
-              getChildren(deletingCat.id, categories).forEach((child) =>
-                deleteCategory(child.id),
-              );
+      {deletingCat && (() => {
+        const children = getChildren(deletingCat.id, categories);
+        const hasKids = children.length > 0;
+
+        return (
+          <ConfirmModal
+            title="Delete category?"
+            // 1. Update the message based on the requirement
+            message={
+              hasKids
+                ? `"${deletingCat.name}" cannot be deleted because it contains ${children.length} ${children.length > 1 ? 'sub-categories' : 'sub-category'}. Please move these sub-categories to another parent or remove them first.`
+                : `"${deletingCat.name}" and all ${catItemCount(deletingCat.id)} items in it will be permanently deleted. This action cannot be undone.`
             }
-            deleteCategory(deletingCat.id);
-            setDeletingCat(null);
-            if (
-              selectedCatId === deletingCat.id ||
-              categories.find(
-                (c) => c.id === selectedCatId && c.parentId === deletingCat.id,
-              )
-            ) {
-              setSelectedCatId("all");
-            }
-          }}
-          onClose={() => setDeletingCat(null)}
-        />
-      )}
+            // 2. Pass a disabled prop to the modal button
+            confirmDisabled={hasKids}
+            onConfirm={() => {
+              // We no longer delete children automatically. 
+              // We only delete the target category if it's clear.
+              deleteCategory(deletingCat.id);
+              setDeletingCat(null);
+
+              // Reset selection to "All" if the deleted category was active
+              if (selectedCatId === deletingCat.id) {
+                setSelectedCatId("all");
+              }
+            }}
+            onClose={() => setDeletingCat(null)}
+          />
+        );
+      })()}
 
       {deletingItem && (
         <ConfirmModal
@@ -1974,10 +1975,10 @@ function ItemModal({
 // ─── Confirm Modal ───────────────────────────────────────────────────────────
 
 function ConfirmModal({
-  title, message, onConfirm, onClose,
+  title, message, onConfirm, onClose, confirmDisabled = false,
 }: {
   title: string; message: string;
-  onConfirm: () => void; onClose: () => void;
+  onConfirm: () => void; onClose: () => void; confirmDisabled?: boolean;
 }) {
   return (
     <ModalShell title={title} onClose={onClose}>
@@ -1989,7 +1990,8 @@ function ConfirmModal({
         <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition">Cancel</button>
         <button
           onClick={onConfirm}
-          className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition"
+          disabled={confirmDisabled}
+          className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-white text-sm font-semibold transition"
         >
           Delete
         </button>

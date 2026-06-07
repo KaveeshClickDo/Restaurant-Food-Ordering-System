@@ -1,32 +1,36 @@
 import { Category, MealPeriod, MenuItem } from "@/types";
 
 export const categories: Category[] = [
+  // --- Parent Categories ---
+  { id: "parent-sri-lankan", name: "Sri Lankan Menu", emoji: "🍛" },
+  { id: "parent-japanese", name: "Japanese Menu", emoji: "🍱" },
+  { id: "parent-sushi", name: "Lion Sushi", emoji: "🍣" },
+
   // Sri Lankan categories
-  { id: "starters", name: "Starters - Sri Lankan", emoji: "🥟" },
-  { id: "fried-rice", name: "Fried Rice - Sri Lankan", emoji: "🍚" },
-  { id: "curries", name: "Curries - Sri Lankan", emoji: "🍛" },
-  { id: "devils", name: "Devils - Sri Lankan", emoji: "🍗" },
-  { id: "crab-specials", name: "Crab Specials - Sri Lankan", emoji: "🦀" },
-  { id: "kottu", name: "Kottu - Sri Lankan", emoji: "🥘" },
-  { id: "sides", name: "Sides - Sri Lankan", emoji: "🥗" },
-  { id: "kids-menu", name: "Kids Menu - Sri Lankan", emoji: "🍟" },
-  { id: "desserts", name: "Desserts - Sri Lankan", emoji: "🍰" },
+  { id: "starters", name: "Starters", emoji: "🥟", parentId: "parent-sri-lankan" },
+  { id: "fried-rice", name: "Fried Rice", emoji: "🍚", parentId: "parent-sri-lankan" },
+  { id: "curries", name: "Curries", emoji: "🍛", parentId: "parent-sri-lankan" },
+  { id: "devils", name: "Devils", emoji: "🍗", parentId: "parent-sri-lankan" },
+  { id: "crab-specials", name: "Crab Specials", emoji: "🦀", parentId: "parent-sri-lankan" },
+  { id: "kottu", name: "Kottu", emoji: "🥘", parentId: "parent-sri-lankan" },
+  { id: "sides", name: "Sides", emoji: "🥗", parentId: "parent-sri-lankan" },
+  { id: "kids-menu", name: "Kids Menu", emoji: "🍟", parentId: "parent-sri-lankan" },
+  { id: "desserts", name: "Desserts", emoji: "🍰", parentId: "parent-sri-lankan" },
 
   // Japanese categories
-  { id: "starters-ja", name: "Starters - Japanese", emoji: "🥢" },
-  { id: "tempura", name: "Tempura - Japanese", emoji: "🍤" },
-  { id: "seafood", name: "Seafood - Japanese", emoji: "🦐" },
-  { id: "meats", name: "Meats - Japanese", emoji: "🥩" },
-  { id: "sides-ja", name: "Sides - Japanese", emoji: "🥗" },
-  { id: "donburi", name: "Donburi - Japanese", emoji: "🍱" },
-  { id: "curries-ja", name: "Curries - Japanese", emoji: "🍛" },
-  { id: "teppanyaki", name: "Teppanyaki - Japanese", emoji: "🍜" },
+  { id: "starters-ja", name: "Starters", emoji: "🥢", parentId: "parent-japanese" },
+  { id: "tempura", name: "Tempura", emoji: "🍤", parentId: "parent-japanese" },
+  { id: "seafood", name: "Seafood", emoji: "🦐", parentId: "parent-japanese" },
+  { id: "meats", name: "Meats", emoji: "🥩", parentId: "parent-japanese" },
+  { id: "sides-ja", name: "Sides", emoji: "🥗", parentId: "parent-japanese" },
+  { id: "donburi", name: "Donburi", emoji: "🍱", parentId: "parent-japanese" },
+  { id: "curries-ja", name: "Curries", emoji: "🍛", parentId: "parent-japanese" },
+  { id: "teppanyaki", name: "Teppanyaki", emoji: "🍜", parentId: "parent-japanese" },
 
   // Sushi categories
-  { id: "sushi-rolls", name: "Sushi Rolls", emoji: "🍣" },
-  { id: "temaki", name: "Temaki", emoji: "🌯" },
-  { id: "platters", name: "Platters - Sushi", emoji: "🍱" },
-  { id: "maki", name: "Maki", emoji: "🍥" },
+  { id: "temaki", name: "Temaki", emoji: "🌯", parentId: "parent-sushi" },
+  { id: "platters", name: "Platters", emoji: "🍱", parentId: "parent-sushi" },
+  { id: "maki", name: "Maki", emoji: "🍥", parentId: "parent-sushi" },
 ];
 
 // Two sensible defaults. Admin can rename, edit times, add more periods, or
@@ -815,7 +819,7 @@ export const menuItems: MenuItem[] = [
 
   /* ── SUSHI ROLLS ────────────────────────────── */
   {
-    id: "sr1", categoryId: "sushi-rolls",
+    id: "sr1", categoryId: "parent-sushi",
     name: "Dragon Roll",
     description: "Prawn Tempura, eel, avocado & Mayonnaise, sprinkled with crispy tempura crunches and finished with a drizzle of Unagi sauce.",
     price: 14.95, dietary: [],
@@ -829,7 +833,7 @@ export const menuItems: MenuItem[] = [
     ],
   },
   {
-    id: "sr2", categoryId: "sushi-rolls",
+    id: "sr2", categoryId: "parent-sushi",
     name: "Rainbow Roll",
     description: "Crab stick, avocado, Mayonnaise and thinly sliced salmon, seabass & tuna.",
     price: 15.95, dietary: [],
@@ -843,14 +847,14 @@ export const menuItems: MenuItem[] = [
     ],
   },
   {
-    id: "sr3", categoryId: "sushi-rolls",
+    id: "sr3", categoryId: "parent-sushi",
     name: "Crazy Salmon Roll",
     description: "Salmon avocado filling inside topped with spicy salmon crunch",
     price: 16.95, dietary: [],
     image: "https://assets.dots.live/misteram-public/019dd484-6e92-7323-9c66-0bf8143f155d-826x0.png"
   },
   {
-    id: "sr4", categoryId: "sushi-rolls",
+    id: "sr4", categoryId: "parent-sushi",
     name: "Spider Roll",
     description: "Tempura fried soft shell crab, cucumber and spring onion & flying fish roe.",
     price: 13.95, dietary: [],

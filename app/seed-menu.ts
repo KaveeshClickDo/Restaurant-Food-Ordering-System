@@ -44,12 +44,12 @@ async function main(): Promise<void> {
 
     // ── Categories ─────────────────────────────────────────────────────────
     if (await tableEmpty(client, "categories")) {
-      const rows = menuCategories.map((c, i) => [c.id, c.name, c.emoji ?? "", i]);
-      for (const [id, name, emoji, sort_order] of rows) {
+      const rows = menuCategories.map((c, i) => [c.id, c.name, c.emoji ?? "", i, c.parentId ?? null]);
+      for (const [id, name, emoji, sort_order, parent_id] of rows) {
         await client.query(
-          `insert into categories (id, name, emoji, sort_order)
-           values ($1, $2, $3, $4)`,
-          [id, name, emoji, sort_order],
+          `insert into categories (id, name, emoji, sort_order, parent_id)
+           values ($1, $2, $3, $4, $5)`,
+          [id, name, emoji, sort_order, parent_id],
         );
       }
       summary.push(`categories: seeded ${rows.length}`);
@@ -62,9 +62,9 @@ async function main(): Promise<void> {
       for (const p of mealPeriods) {
         await client.query(
           `insert into meal_periods
-             (id, name, enabled, start_time, end_time, days_of_week, sort_order)
-           values ($1,$2,$3,$4,$5,$6,$7)`,
-          [p.id, p.name, p.enabled, p.startTime, p.endTime, p.daysOfWeek, p.sortOrder],
+             (id, name, enabled, start_time, end_time, days_of_week, sort_order, theme_color)
+           values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [p.id, p.name, p.enabled, p.startTime, p.endTime, p.daysOfWeek, p.sortOrder, p.themeColor],
         );
       }
       summary.push(`meal_periods: seeded ${mealPeriods.length}`);
