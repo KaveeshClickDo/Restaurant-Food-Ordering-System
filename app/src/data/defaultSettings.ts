@@ -96,7 +96,7 @@ export const DEFAULT_SETTINGS: AdminSettings = {
   // Deprecated — kept as an empty array for back-compat with old snapshots.
   // The unified "Pages" panel now manages everything via `customPages`.
   footerPages: [],
-  footerCopyright: `© ${new Date().getFullYear()} ${restaurantInfo.name}. All rights reserved`,
+  footerCopyright: `© ${new Date().getFullYear()} ${restaurantInfo.name}. All rights reserved.`,
   customPages: DEFAULT_PAGES_AS_CUSTOM,
   menuLinks: [],
   colors: DEFAULT_COLORS,

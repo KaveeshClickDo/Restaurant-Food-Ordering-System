@@ -783,7 +783,7 @@ function AdminPageContent() {
 
         {/* FOOTER */}
         <footer className="bg-white border-t border-gray-200 px-4 pt-3 flex-shrink-0 text-center text-[11px] text-gray-400">
-          {settings.footerCopyright || `© ${new Date().getFullYear()} ${settings.restaurant.name}. All rights reserved`} 
+          {settings.footerCopyright || `© ${new Date().getFullYear()} ${settings.restaurant.name}. All rights reserved.`}
             · Designed by SeekaHost Technologies Ltd.
         </footer>
       </div>
