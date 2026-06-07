@@ -54,7 +54,7 @@ const STEPS = ["Date & Time", "Table", "Details"];
 export default function BookPage() {  
   // Settings fetched from the public API
   const [rsSettings, setRsSettings] = useState<{
-    openTime: string; closeTime: string; slotIntervalMinutes: number; maxAdvanceDays: number; maxPartySize: number; enabled: boolean; floorPlanImageUrl?: string;
+    openTime: string; closeTime: string; slotIntervalMinutes: number; maxAdvanceDays: number; maxPartySize: number; enabled: boolean; floorPlanImageUrl?: string; floorPlanMarkerScale?: number;
   } | null>(null);
   const [restaurantName, setRestaurantName] = useState("Reserve a Table");
 
@@ -72,6 +72,7 @@ export default function BookPage() {
   const maxDays = rsSettings?.maxAdvanceDays       ?? 30;
   const maxPS   = rsSettings?.maxPartySize         ?? 10;
   const floorPlanImageUrl = rsSettings?.floorPlanImageUrl ?? "";
+  const floorPlanMarkerScale = rsSettings?.floorPlanMarkerScale ?? 1;
   const slots   = generateSlots(open, close, interval);
 
   const [step,          setStep]          = useState<Step>("datetime");
@@ -347,6 +348,7 @@ export default function BookPage() {
                         tables={mapTables}
                         selectedId={selectedTable?.id ?? null}
                         allowVipSelect={false}
+                        markerScale={floorPlanMarkerScale}
                         onSelect={(t) => setSelectedTable({ id: t.id, label: t.label, seats: t.seats, section: t.section, isVip: t.isVip, vipPrice: t.vipPrice })}
                       />
                       {mapTables.some((t) => t.isVip) && (

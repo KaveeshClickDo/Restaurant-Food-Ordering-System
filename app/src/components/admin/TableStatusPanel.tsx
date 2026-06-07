@@ -476,16 +476,20 @@ function FloorPlanEditor({
   tables,
   imageUrl,
   uploading,
+  markerScale,
   onUpload,
   onRemoveImage,
   onSaveCoords,
+  onMarkerScaleChange,
 }: {
   tables: DiningTable[];
   imageUrl: string;
   uploading: boolean;
+  markerScale: number;
   onUpload: (file: File) => void;
   onRemoveImage: () => void;
   onSaveCoords: (id: string, posX: number | null, posY: number | null) => void;
+  onMarkerScaleChange: (scale: number) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [dragId, setDragId]     = useState<string | null>(null);
@@ -493,6 +497,14 @@ function FloorPlanEditor({
   const [selected, setSelected] = useState<string | null>(null);
   const [err, setErr]           = useState("");
   const moved = useRef(false);
+
+  // Live marker-size preview. Updates instantly while dragging the slider; the
+  // value is persisted to settings (onMarkerScaleChange) only on release.
+  const [scale, setScale] = useState(markerScale);
+  useEffect(() => { setScale(markerScale); }, [markerScale]);
+  const mSize  = Math.round(44 * scale);
+  const mFont  = Math.max(8, Math.round(11 * scale));
+  const mCrown = Math.max(7, Math.round(10 * scale));
 
   function posOf(t: DiningTable): { x: number; y: number } | null {
     if (localPos[t.id]) return localPos[t.id];
@@ -566,6 +578,22 @@ function FloorPlanEditor({
         )}
       </div>
 
+      {/* Table-marker size — admin preference, applies to the customer map too */}
+      {imageUrl && (
+        <div className="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5">
+          <span className="text-xs font-semibold text-gray-600 whitespace-nowrap">Table size</span>
+          <input
+            type="range" min={0.5} max={2.5} step={0.1} value={scale}
+            onChange={(e) => setScale(parseFloat(e.target.value))}
+            onPointerUp={() => onMarkerScaleChange(scale)}
+            onTouchEnd={() => onMarkerScaleChange(scale)}
+            onKeyUp={() => onMarkerScaleChange(scale)}
+            className="flex-1 max-w-xs accent-orange-500 cursor-pointer"
+          />
+          <span className="text-xs text-gray-400 w-10 text-right tabular-nums">{Math.round(scale * 100)}%</span>
+        </div>
+      )}
+
       {err && (
         <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">
           <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
@@ -601,11 +629,13 @@ function FloorPlanEditor({
                   style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}
                   className={`absolute -translate-x-1/2 -translate-y-1/2 touch-none cursor-grab active:cursor-grabbing ${dragId === t.id ? "z-20" : "z-10"}`}
                 >
-                  <div className={`flex flex-col items-center justify-center w-8 h-8 sm:w-11 sm:h-11 rounded-full border-2 shadow text-[9px] sm:text-[11px] font-bold ${
+                  <div
+                    style={{ width: mSize, height: mSize, fontSize: mFont }}
+                    className={`flex flex-col items-center justify-center rounded-full border-2 shadow font-bold ${
                     t.isVip ? "bg-amber-100 border-amber-400 text-amber-800" : "bg-white border-orange-400 text-orange-700"
                   } ${isSel ? "ring-2 ring-offset-1 ring-blue-400" : ""}`}>
-                    {t.isVip && <Crown size={10} className="text-amber-500" />}
-                    <span className="leading-none max-w-[1.65rem] sm:max-w-[2.4rem] truncate px-0.5">{t.label}</span>
+                    {t.isVip && <Crown size={mCrown} className="text-amber-500" />}
+                    <span className="leading-none truncate px-0.5" style={{ maxWidth: mSize - 6 }}>{t.label}</span>
                   </div>
                   {isSel && (
                     <button
@@ -670,7 +700,8 @@ export default function TableStatusPanel() {
   // Grid (cards) vs. Floor Plan (drag-to-place map editor).
   const [view, setView] = useState<"grid" | "map">("grid");
   const [uploadingPlan, setUploadingPlan] = useState(false);
-  const floorPlanImageUrl = settings.reservationSystem?.floorPlanImageUrl ?? "";
+  const floorPlanImageUrl   = settings.reservationSystem?.floorPlanImageUrl ?? "";
+  const floorPlanMarkerScale = settings.reservationSystem?.floorPlanMarkerScale ?? 1;
 
   // Add / edit / delete state
   const [addingTable,   setAddingTable]   = useState(false);
@@ -802,6 +833,10 @@ export default function TableStatusPanel() {
   // merge — updateSettings replaces top-level keys, so spread the existing block).
   function setFloorPlanImageUrl(url: string) {
     updateSettings({ reservationSystem: { ...settings.reservationSystem, floorPlanImageUrl: url } });
+  }
+
+  function setFloorPlanMarkerScale(scale: number) {
+    updateSettings({ reservationSystem: { ...settings.reservationSystem, floorPlanMarkerScale: scale } });
   }
 
   async function handleUploadFloorPlan(file: File) {
@@ -1005,9 +1040,11 @@ export default function TableStatusPanel() {
           tables={allTables}
           imageUrl={floorPlanImageUrl}
           uploading={uploadingPlan}
+          markerScale={floorPlanMarkerScale}
           onUpload={handleUploadFloorPlan}
           onRemoveImage={() => setFloorPlanImageUrl("")}
           onSaveCoords={saveTableCoords}
+          onMarkerScaleChange={setFloorPlanMarkerScale}
         />
       ) : (
       <>

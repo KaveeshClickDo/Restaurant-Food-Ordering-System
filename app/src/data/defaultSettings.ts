@@ -118,6 +118,7 @@ export const DEFAULT_SETTINGS: AdminSettings = {
     blackoutDates: [],
     reviewUrl: "",
     floorPlanImageUrl: "",
+    floorPlanMarkerScale: 1,
   },
   currency: DEFAULT_CURRENCY,
   giftCardSettings: {

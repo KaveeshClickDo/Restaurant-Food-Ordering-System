@@ -451,6 +451,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                       tables={mapTables}
                       selectedId={selectedTable?.id ?? null}
                       currencySymbol={currencySymbol}
+                      markerScale={rs.floorPlanMarkerScale ?? 1}
                       onSelect={(t) => setSelectedTable({ id: t.id, label: t.label, seats: t.seats, section: t.section, isVip: t.isVip, vipPrice: t.vipPrice })}
                     />
                   ) : (

@@ -423,6 +423,7 @@ export interface ReservationSystem {
   blackoutDates: string[];       // "YYYY-MM-DD" dates the restaurant is closed
   reviewUrl?: string;            // Google Maps / TripAdvisor review link
   floorPlanImageUrl?: string;    // public URL of the floor-plan map shown on the booking page (Storage bucket "floor-plan"); empty = no map, booking uses the card list
+  floorPlanMarkerScale?: number; // admin-chosen size multiplier for the table markers on the floor-plan map (1 = default). Applies to the editor + customer map.
 }
 
 export interface WaitlistEntry {

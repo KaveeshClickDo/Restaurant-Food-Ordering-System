@@ -32,6 +32,7 @@ export default function TableMap({
   onSelect,
   currencySymbol = "£",
   allowVipSelect = true,
+  markerScale = 1,
 }: {
   imageUrl: string;
   tables: MapTable[];
@@ -40,8 +41,17 @@ export default function TableMap({
   currencySymbol?: string;
   /** When false, VIP tables are shown highlighted but cannot be selected. */
   allowVipSelect?: boolean;
+  /** Admin size multiplier for the table markers (1 = default). */
+  markerScale?: number;
 }) {
   const placed = tables.filter((t) => t.posX != null && t.posY != null);
+
+  // Marker dimensions scale from the admin preference. Clamped so it can't
+  // disappear or swallow the whole plan.
+  const scale     = Math.min(3, Math.max(0.5, markerScale || 1));
+  const size      = Math.round(40 * scale);
+  const fontSize  = Math.max(8, Math.round(11 * scale));
+  const crownSize = Math.max(7, Math.round(9 * scale));
 
   return (
     <div className="space-y-3">
@@ -81,15 +91,15 @@ export default function TableMap({
               disabled={!selectable}
               onClick={() => selectable && onSelect(t)}
               title={title}
-              style={{ left: `${t.posX! * 100}%`, top: `${t.posY! * 100}%` }}
-              className={`absolute -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-full border-2 shadow-sm text-[10px] sm:text-[11px] font-bold transition ${
+              style={{ left: `${t.posX! * 100}%`, top: `${t.posY! * 100}%`, width: size, height: size, fontSize }}
+              className={`absolute -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center justify-center rounded-full border-2 shadow-sm font-bold transition ${
                 selectable ? "cursor-pointer active:scale-95" : "cursor-not-allowed opacity-90"
               } ${cls}`}
             >
               {t.isVip && t.status !== "booked" && (
-                <Crown size={9} className={selected ? "text-white" : "text-amber-500"} />
+                <Crown size={crownSize} className={selected ? "text-white" : "text-amber-500"} />
               )}
-              <span className="leading-none max-w-[2.2rem] truncate px-0.5">{t.label}</span>
+              <span className="leading-none truncate px-0.5" style={{ maxWidth: size - 6 }}>{t.label}</span>
               {selected && (
                 <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-orange-500 border-2 border-white flex items-center justify-center">
                   <Check size={9} className="text-white" />
