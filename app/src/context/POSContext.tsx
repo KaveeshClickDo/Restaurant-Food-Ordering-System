@@ -318,6 +318,7 @@ export function rowToPOSCategory(
     emoji: (row.emoji as string) ?? "🍽️",
     color: existing?.color ?? "#f97316",
     order: (row.sort_order as number) ?? fallbackIndex,
+    parentId: (row.parent_id as string) ?? null,
   };
 }
 

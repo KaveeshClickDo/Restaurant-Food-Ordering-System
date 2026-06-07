@@ -9,6 +9,7 @@ import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
 import { parseBody }                            from "@/lib/apiValidation";
 import { CategoryCreateSchema, CategoryReorderSchema } from "@/lib/schemas/menu";
+import { validateCategoryParent }               from "@/lib/categoryValidation";
 
 export async function POST(req: NextRequest) {
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
@@ -16,6 +17,10 @@ export async function POST(req: NextRequest) {
   const parsed = await parseBody(req, CategoryCreateSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const body = parsed.data;
+
+  // Enforce the two-level hierarchy server-side (self-parent / nesting / cycles).
+  const parentErr = await validateCategoryParent(body.id, body.parent_id);
+  if (parentErr) return NextResponse.json({ ok: false, error: parentErr }, { status: 400 });
 
   const { error } = await supabaseAdmin.from("categories").insert({
     id: body.id, name: body.name, emoji: body.emoji ?? "",

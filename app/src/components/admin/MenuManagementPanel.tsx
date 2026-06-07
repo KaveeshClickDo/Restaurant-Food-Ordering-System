@@ -13,7 +13,6 @@ import {
   ChevronRight,
   FolderMinus,
   FolderOpen,
-  FolderPlus,
 } from "lucide-react";
 import { resolveStock, stockLabel, LOW_STOCK_THRESHOLD } from "@/lib/stockUtils";
 import { uploadMenuImage, MAX_IMAGE_LABEL } from "@/lib/uploadImage";
@@ -82,11 +81,6 @@ function blankAddOn(): AddOn {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Returns true if `cat` has any direct children in the list */
-function hasChildren(cat: Category, all: Category[]) {
-  return all.some((c) => c.parentId === cat.id);
-}
 
 /** Parent categories, sorted by sort_order */
 function getParents(cats: Category[]) {
@@ -432,18 +426,8 @@ export default function MenuManagementPanel() {
                     </span>
                   </button>
 
-                  {/* Edit / delete / add-sub */}
+                  {/* Edit / delete */}
                   <div className="flex pr-1 gap-0.5 transition">
-                    {/* <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditingCat(blankCategory(parent.id));
-                      }}
-                      className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-orange-500 hover:bg-orange-50 transition"
-                      title="Add sub-category"
-                    >
-                      <FolderPlus size={10} />
-                    </button> */}
                     <button
                       onClick={(e) => { e.stopPropagation(); setEditingCat({ ...parent }); }}
                       className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition"

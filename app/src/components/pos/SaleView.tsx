@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { usePOS } from "@/context/POSContext";
 import { POSProduct, POSSale, getOfferPrice, isOfferActive } from "@/types/pos";
 import { ChevronRight, Search, X, Users, Star, Package, ShoppingCart } from "lucide-react";
@@ -29,6 +29,16 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
   const [customerSearch, setCustomerSearch] = useState("");
 
   const sortedCats = [...categories].sort((a, b) => a.order - b.order);
+
+  // When a parent category is selected, include items from it AND all of its
+  // sub-categories — otherwise a parent whose items live only in sub-categories
+  // would show as an empty tab. Mirrors the customer menu's behaviour.
+  const activeCatIds = useMemo(() => {
+    if (activeCategory === "all") return null;
+    const childIds = categories.filter((c) => c.parentId === activeCategory).map((c) => c.id);
+    return new Set<string>([activeCategory, ...childIds]);
+  }, [activeCategory, categories]);
+
   const filtered = products.filter((p) => {
     if (!p.active) return false;
     // POS = in_store channel. Items admin marked online-only (e.g. an
@@ -36,7 +46,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
     // without channels default to both in the loader, so they stay visible.
     const ch = p.channels;
     if (ch && ch.length > 0 && !ch.includes("in_store")) return false;
-    if (activeCategory !== "all" && p.categoryId !== activeCategory) return false;
+    if (activeCatIds && !activeCatIds.has(p.categoryId)) return false;
     if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });

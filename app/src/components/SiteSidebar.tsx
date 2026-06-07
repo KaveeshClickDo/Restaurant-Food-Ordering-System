@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { UtensilsCrossed, Heart, Receipt, User, CalendarDays, LogOut, ChevronDown, ChevronRight, ChevronUp } from "lucide-react";
+import { UtensilsCrossed, Heart, Receipt, User, CalendarDays, LogOut, ChevronDown, ChevronUp } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import type { Category } from "@/types";
 import { useMemo, useState } from "react";

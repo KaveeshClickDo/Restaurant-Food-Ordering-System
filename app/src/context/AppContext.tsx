@@ -233,7 +233,7 @@ function validateCouponCode(code: string, subtotal: number, coupons: Coupon[], s
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapCategory(row: any): Category {
-  return { id: row.id, name: row.name, emoji: row.emoji, parentId: row.parent_id || null };
+  return { id: row.id, name: row.name, emoji: row.emoji, parentId: row.parent_id || null, sort_order: row.sort_order ?? 0 };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -941,8 +941,11 @@ export function AppProvider({
   // unique constraint". Mirror addMenuItem's pattern: optimistic update first,
   // single fire-and-forget fetch second.
   const addCategory = (cat: Category) => {
-    const row = categoryToRow(cat, categories.length);
-    setCategories((prev) => [...prev, cat]);
+    const order = categories.length;
+    const row = categoryToRow(cat, order);
+    // Stamp sort_order on the optimistic row too — getParents/getChildren sort
+    // by it, so an unset value would float the new category to the top.
+    setCategories((prev) => [...prev, { ...cat, sort_order: order }]);
     fetch("/api/admin/categories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -973,7 +976,11 @@ export function AppProvider({
   };
 
   const reorderCategories = (cats: Category[]) => {
-    setCategories(cats);
+    // Re-stamp sort_order to match the new positions so the optimistic order
+    // sticks — getParents/getChildren sort by sort_order, which would otherwise
+    // revert the reorder (to the stale values) until the next reload.
+    const reindexed = cats.map((c, i) => ({ ...c, sort_order: i }));
+    setCategories(reindexed);
     const rows = cats.map((c, i) => categoryToRow(c, i));
     fetch("/api/admin/categories", {
       method: "PUT",

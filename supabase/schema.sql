@@ -575,6 +575,11 @@ create table if not exists meal_periods (
   created_at    timestamptz not null default now()
 );
 
+-- Backfill for databases created before theme_color existed: `create table if
+-- not exists` above is a no-op on an existing meal_periods table, so the column
+-- must be added explicitly.
+alter table meal_periods add column if not exists theme_color text not null default '#f59e0b';
+
 create table if not exists menu_item_meal_periods (
   menu_item_id    text not null references menu_items(id)   on delete cascade,
   meal_period_id  text not null references meal_periods(id) on delete cascade,

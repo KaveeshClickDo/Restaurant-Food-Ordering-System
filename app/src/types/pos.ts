@@ -223,6 +223,7 @@ export interface POSCategory {
   emoji: string;
   color: string; // hex
   order: number;
+  parentId?: string | null;
 }
 
 export interface POSCartModifier {
