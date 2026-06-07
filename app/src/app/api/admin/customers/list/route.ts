@@ -18,6 +18,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
+import { orderSpendContribution } from "@/lib/customerSpend";
 
 interface AggregateBucket {
   spend: number;
@@ -25,30 +26,48 @@ interface AggregateBucket {
   lastVisit: string | null;   // ISO
 }
 
-// What this order should contribute to lifetime spend.
-// "Total spent" means NET — what the customer paid and we kept — so refunds
-// reduce spend on EVERY order, regardless of channel or fulfillment status
-// (Bug #6: previously only cancelled orders netted out refunds, so a
-// delivered-then-refunded online order kept counting its full gross while a
-// refunded POS sale dropped entirely — two opposite behaviours).
-//   • Cancelled-and-unpaid → no money ever moved, excluded from spend & visits.
-//   • Everything else → net = total - refunded (a fully-refunded order is £0
-//     but still counts as a visit; a partial refund counts the retained part).
+// What this order should contribute to lifetime spend. The rule lives in the
+// shared orderSpendContribution() (src/lib/customerSpend.ts) so admin, POS, and
+// the customer account page can't drift apart. DB rows are snake_case, so map
+// the two payment fields the helper reads.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function spendContribution(o: any): { amount: number; counts: boolean } {
-  const total    = Number(o.total) || 0;
-  const refunded = Number(o.refunded_amount) || 0;
-  if (o.status === "cancelled") {
-    const moneyBearing = o.payment_status === "paid"
-                      || o.payment_status === "partially_refunded"
-                      || o.payment_status === "refunded";
-    if (!moneyBearing) return { amount: 0, counts: false };
-  }
-  return { amount: Math.max(0, total - refunded), counts: true };
+  return orderSpendContribution({
+    status:         o.status,
+    paymentStatus:  o.payment_status,
+    total:          o.total,
+    refundedAmount: o.refunded_amount,
+  });
+}
+
+// A pos_sales row trimmed to what the admin customer history renders. Item
+// lines are normalised to the {name, qty, price} shape OrderLine-style cards
+// use (POS cart items store `quantity`, not `qty`).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapPosSale(s: any) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const items = (Array.isArray(s.items) ? s.items : []).map((i: any) => ({
+    name:  i.name ?? "Item",
+    qty:   Number(i.quantity ?? i.qty) || 1,
+    price: Number(i.price) || 0,
+  }));
+  return {
+    id:            s.id,
+    receiptNo:     s.receipt_no ?? undefined,
+    date:          typeof s.date === "string" ? s.date : new Date(s.date).toISOString(),
+    staffName:     s.staff_name || undefined,
+    tableNumber:   s.table_number ?? undefined,
+    items,
+    total:         Number(s.total) || 0,
+    paymentMethod: s.payment_method || undefined,
+    voided:        s.voided ?? false,
+    voidReason:    s.void_reason || undefined,
+    refundAmount:  s.refund_amount != null ? Number(s.refund_amount) : undefined,
+  };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapCustomer(row: any, orders: any[], agg: AggregateBucket) {
+function mapCustomer(row: any, orders: any[], posSales: any[], agg: AggregateBucket) {
   return {
     id:             row.id,
     name:           row.name,
@@ -72,6 +91,10 @@ function mapCustomer(row: any, orders: any[], agg: AggregateBucket) {
                       ? row.created_at
                       : new Date(row.created_at).toISOString(),
     orders:         orders.map(mapOrder),
+    // In-person POS sales for this customer — admin renders these alongside
+    // online orders so the customer history is all-channel. The "Orders" count
+    // shown in the panel is orders.length + posSales.length.
+    posSales:       posSales.map(mapPosSale),
   };
 }
 
@@ -144,8 +167,9 @@ export async function GET() {
       .order("date", { ascending: false }),
     supabaseAdmin
       .from("pos_sales")
-      .select("customer_id, total, voided, refund_amount, date")
-      .not("customer_id", "is", null),
+      .select("id, receipt_no, customer_id, staff_name, table_number, items, total, payment_method, voided, void_reason, refund_amount, date")
+      .not("customer_id", "is", null)
+      .order("date", { ascending: false }),
   ]);
 
   if (errC) return NextResponse.json({ ok: false, error: errC.message }, { status: 500 });
@@ -159,6 +183,16 @@ export async function GET() {
     const arr = ordersByCustomer.get(o.customer_id) ?? [];
     arr.push(o);
     ordersByCustomer.set(o.customer_id, arr);
+  }
+
+  // Same O(1)-per-customer grouping for POS sales so the all-channel history
+  // doesn't need an N+1 lookup.
+  const posSalesByCustomer = new Map<string, unknown[]>();
+  for (const s of posSales ?? []) {
+    if (!s.customer_id) continue;
+    const arr = posSalesByCustomer.get(s.customer_id) ?? [];
+    arr.push(s);
+    posSalesByCustomer.set(s.customer_id, arr);
   }
 
   // Build the spend / visit / lastVisit aggregate. Both channels are netted of
@@ -200,6 +234,7 @@ export async function GET() {
       mapCustomer(
         c,
         ordersByCustomer.get(c.id) ?? [],
+        posSalesByCustomer.get(c.id) ?? [],
         agg.get(c.id) ?? { spend: 0, visits: 0, lastVisit: null },
       ),
     );
@@ -240,6 +275,9 @@ export async function GET() {
                               : new Date(orphanOrders[0].date).toISOString())
                          : new Date().toISOString(),
       orders:          orphanOrders.map(mapOrder),
+      // Orphaned POS sales aren't tracked here (pos_sales with a null
+      // customer_id are filtered out of the query above), so this is always [].
+      posSales:        [],
     });
   }
 

@@ -19,6 +19,7 @@ import {
 import { useApp } from "@/context/AppContext";
 import { Order, OrderLine, OrderStatus, DeliveryStatus, MenuItem, SavedAddress, AddOn, CartItem } from "@/types";
 import { fullOrderNumber } from "@/lib/orderNumber";
+import { orderSpendContribution } from "@/lib/customerSpend";
 import AuthModal from "@/components/AuthModal";
 import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import { resolveStock } from "@/lib/stockUtils";
@@ -1647,7 +1648,14 @@ function AccountPageContent() {
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
   const activeOrders = orders.filter((o) => !["delivered", "cancelled"].includes(o.status));
-  const totalSpent = orders.filter((o) => o.status !== "cancelled").reduce((s, o) => s + o.total, 0);
+  // Net "total spent" — same rule the admin + POS customer stats use
+  // (src/lib/customerSpend.ts): refunds reduce spend, and a paid-but-not-
+  // refunded cancellation still counts (the customer paid and we kept it),
+  // while an unpaid cancellation contributes nothing. We add this customer's
+  // net POS (in-person) spend (computed server-side in /api/auth/me) so the
+  // figure matches the admin + POS views, which already count both channels.
+  const onlineSpent = orders.reduce((s, o) => s + orderSpendContribution(o).amount, 0);
+  const totalSpent = onlineSpent + (currentUser.posSpend ?? 0);
 
   const itemCounts: Record<string, number> = {};
   orders.forEach((o) => o.items.forEach((i) => { itemCounts[i.name] = (itemCounts[i.name] ?? 0) + i.qty; }));
@@ -1850,7 +1858,7 @@ function AccountPageContent() {
                 <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5">
                   <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
                     <ShoppingBag size={14} className="text-zinc-700 flex-shrink-0" />
-                    <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total orders</span>
+                    <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total online orders</span>
                   </div>
                   <p className="text-lg sm:text-xl font-bold text-zinc-900 tabular-nums">{orders.length}</p>
                 </div>

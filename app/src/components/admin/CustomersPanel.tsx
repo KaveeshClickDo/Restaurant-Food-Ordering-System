@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
-import { Customer, Order, OrderStatus } from "@/types";
+import { Customer, CustomerPosSale, Order, OrderStatus } from "@/types";
 import { fullOrderNumber } from "@/lib/orderNumber";
 import { cleanPhone } from "@/lib/inputUtils";
 import {
@@ -70,6 +70,12 @@ function totalSpent(c: Customer) {
   if (typeof c.totalSpend === "number") return c.totalSpend;
   return c.orders.filter((o) => o.status !== "cancelled").reduce((s, o) => s + o.total, 0);
 }
+// All-channel order count — online orders + in-person POS sales. The admin view
+// shows the combined figure everywhere a count appears (list column, header
+// stat, sorting) so it reflects everything the customer has ever ordered.
+function orderCount(c: Customer) {
+  return c.orders.length + (c.posSales?.length ?? 0);
+}
 function daysSince(iso: string) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
 }
@@ -106,8 +112,11 @@ export default function CustomersPanel() {
 
   // Quick stats
   const totalRevenue = customers.reduce((s, c) => s + totalSpent(c), 0);
-  const totalOrders  = customers.reduce((s, c) => s + c.orders.length, 0);
-  const activeToday  = customers.filter((c) => c.orders.some((o) => daysSince(o.date) === 0)).length;
+  const totalOrders  = customers.reduce((s, c) => s + orderCount(c), 0);
+  const activeToday  = customers.filter((c) =>
+    c.orders.some((o) => daysSince(o.date) === 0) ||
+    (c.posSales ?? []).some((s) => daysSince(s.date) === 0),
+  ).length;
   const allTags = Array.from(new Set(customers.flatMap((c) => c.tags)));
 
   // Sort
@@ -127,7 +136,7 @@ export default function CustomersPanel() {
     list.sort((a, b) => {
       let av: number | string = 0, bv: number | string = 0;
       if (sortKey === "name")   { av = a.name; bv = b.name; }
-      if (sortKey === "orders") { av = a.orders.length; bv = b.orders.length; }
+      if (sortKey === "orders") { av = orderCount(a); bv = orderCount(b); }
       if (sortKey === "spent")  { av = totalSpent(a); bv = totalSpent(b); }
       if (sortKey === "joined") { av = a.createdAt; bv = b.createdAt; }
       if (av < bv) return sortDir === "asc" ? -1 : 1;
@@ -257,7 +266,7 @@ export default function CustomersPanel() {
                       <div className="text-xs text-gray-400">{c.phone}</div>
                     </td>
                     <td className="px-4 py-3.5">
-                      <span className="font-semibold text-gray-900 text-sm">{c.orders.length}</span>
+                      <span className="font-semibold text-gray-900 text-sm">{orderCount(c)}</span>
                     </td>
                     <td className="px-4 py-3.5">
                       <span className="font-bold text-gray-900 text-sm">{sym}{spent.toFixed(2)}</span>
@@ -929,7 +938,15 @@ function CustomerDrawer({
   }
 
   const spent = totalSpent(customer);
-  const sortedOrders = [...customer.orders].sort((a, b) => b.date.localeCompare(a.date));
+  // All-channel history — online orders + in-person POS sales, newest first.
+  type HistoryEntry =
+    | { kind: "online"; date: string; order: Order }
+    | { kind: "pos"; date: string; sale: CustomerPosSale };
+  const historyItems: HistoryEntry[] = [
+    ...customer.orders.map((o): HistoryEntry => ({ kind: "online", date: o.date, order: o })),
+    ...(customer.posSales ?? []).map((s): HistoryEntry => ({ kind: "pos", date: s.date, sale: s })),
+  ].sort((a, b) => b.date.localeCompare(a.date));
+  const totalOrderCount = orderCount(customer);
 
   async function handleResendEmail(order: Order) {
     setEmailToast({ orderId: order.id, state: "sending" });
@@ -1009,7 +1026,7 @@ function CustomerDrawer({
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="bg-orange-50 rounded-xl p-3 text-center">
-                <div className="text-lg md:text-xl font-bold text-orange-600">{customer.orders.length}</div>
+                <div className="text-lg md:text-xl font-bold text-orange-600">{totalOrderCount}</div>
                 <div className="text-[10px] text-orange-400 font-medium">Orders</div>
               </div>
               <div className="bg-green-50 rounded-xl p-3 text-center">
@@ -1223,10 +1240,83 @@ function CustomerDrawer({
           <div className="px-6 py-4">
             <h3 className="font-semibold text-gray-900 text-sm mb-4 flex items-center gap-2">
               <ShoppingBag size={15} className="text-orange-500" />
-              Order history ({customer.orders.length})
+              Order history ({totalOrderCount})
             </h3>
             <div className="space-y-3">
-              {sortedOrders.map((order) => {
+              {historyItems.map((entry) => {
+                // In-person POS sale — rendered as a compact, distinct card
+                // (no online-only actions like status flow / delivery / email).
+                if (entry.kind === "pos") {
+                  const sale = entry.sale;
+                  const isExpanded = expandedOrder === sale.id;
+                  const posBadge = sale.voided
+                    ? { label: "Voided",    className: "bg-red-50 text-red-700 border-red-200",   icon: <Ban size={11} className="text-red-500" /> }
+                    : (sale.refundAmount ?? 0) > 0
+                    ? { label: "Refunded",  className: "bg-teal-50 text-teal-700 border-teal-200", icon: <RotateCcw size={11} className="text-teal-600" /> }
+                    : { label: "Completed", className: "bg-green-50 text-green-700 border-green-200", icon: <CheckCircle2 size={11} className="text-green-600" /> };
+                  return (
+                    <div key={sale.id} className="border border-gray-100 rounded-xl overflow-hidden">
+                      <button
+                        onClick={() => setExpandedOrder(isExpanded ? null : sale.id)}
+                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition"
+                      >
+                        <div className="flex-1 text-left">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-mono text-gray-400 truncate max-w-[140px]">{sale.receiptNo ?? sale.id}</span>
+                            <span className={`flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${posBadge.className}`}>
+                              {posBadge.icon} {posBadge.label}
+                            </span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-indigo-50 text-indigo-600 border border-indigo-100">
+                              🏪 In-store
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1 mt-2">
+                            <span className="text-xs text-gray-500 flex items-center gap-1 mr-2">
+                              <Clock size={10} className="flex-shrink-0" /> {fmtDate(sale.date)} at {fmtTime(sale.date)}
+                            </span>
+                            {sale.tableNumber != null && (
+                              <span className="text-xs text-gray-500 mr-2">Table {sale.tableNumber}</span>
+                            )}
+                            <span className="font-bold text-gray-900 text-sm">{sym}{sale.total.toFixed(2)}</span>
+                          </div>
+                        </div>
+                        <ChevronRight size={15} className={`text-gray-400 flex-shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                      </button>
+
+                      {isExpanded && (
+                        <div className="border-t border-gray-100 px-4 py-4 bg-gray-50/60 space-y-4">
+                          <div>
+                            <p className="text-xs font-semibold text-gray-500 mb-2">Items</p>
+                            <div className="space-y-1">
+                              {sale.items.map((line, idx) => (
+                                <div key={idx} className="flex justify-between text-sm">
+                                  <span className="text-gray-700">{line.qty}× {line.name}</span>
+                                  <span className="text-gray-900 font-medium">{sym}{(line.price * line.qty).toFixed(2)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                            {sale.paymentMethod && <span>Paid by <span className="font-medium text-gray-700 capitalize">{sale.paymentMethod.replace("_", " ")}</span></span>}
+                            {sale.staffName && <span>Served by <span className="font-medium text-gray-700">{sale.staffName}</span></span>}
+                          </div>
+                          {(sale.refundAmount ?? 0) > 0 && (
+                            <div className="bg-teal-50 border border-teal-100 rounded-lg px-3 py-2 text-xs text-teal-700">
+                              Refunded {sym}{(sale.refundAmount ?? 0).toFixed(2)}
+                            </div>
+                          )}
+                          {sale.voided && (
+                            <div className="bg-red-50 border border-red-100 rounded-lg px-3 py-2 text-xs text-red-700">
+                              Voided{sale.voidReason ? ` — ${sale.voidReason}` : ""}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                const order = entry.order;
                 const isExpanded = expandedOrder === order.id;
                 const cfg = STATUS_CONFIG[order.status];
                 return (

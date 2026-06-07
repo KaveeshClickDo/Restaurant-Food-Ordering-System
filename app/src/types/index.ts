@@ -677,6 +677,27 @@ export interface Customer {
   totalSpend?: number;       // computed by API (orders + POS sales)
   visitCount?: number;       // computed
   lastVisit?: string;        // ISO, computed
+  // This customer's in-person POS sales. Returned by /api/admin/customers/list
+  // so admin can see an all-channel order history; the customer site only gets
+  // posSpend (the net total) to fold into "Total spent". Both computed, not stored.
+  posSales?: CustomerPosSale[];
+  posSpend?: number;         // net £ spent at the till (computed), for combining with online spend
+}
+
+// A trimmed view of a pos_sales row for display in the admin customer history.
+// Mirrors the fields CustomersPanel renders — not the full POSSale.
+export interface CustomerPosSale {
+  id: string;
+  receiptNo?: string;
+  date: string;              // ISO
+  staffName?: string;
+  tableNumber?: number;
+  items: { name: string; qty: number; price: number }[];
+  total: number;
+  paymentMethod?: string;
+  voided?: boolean;
+  voidReason?: string;
+  refundAmount?: number;
 }
 
 // ─── Gift cards (code-based / transferable) ──────────────────────────────────

@@ -18,6 +18,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requirePosSession } from "@/lib/posPermissions";
 import { parseBody } from "@/lib/apiValidation";
 import { PosCustomerCreateSchema } from "@/lib/schemas/customer";
+import { orderSpendContribution } from "@/lib/customerSpend";
 
 const POS_WALK_IN_ID = "pos-walk-in";
 
@@ -72,11 +73,10 @@ export async function GET() {
       .neq("id", POS_WALK_IN_ID),
     supabaseAdmin
       .from("orders")
-      .select("customer_id, total, status, date"),
+      .select("customer_id, total, status, payment_status, refunded_amount, date"),
     supabaseAdmin
       .from("pos_sales")
-      .select("customer_id, total, voided, date")
-      .eq("voided", false)
+      .select("customer_id, total, voided, refund_amount, date")
       .not("customer_id", "is", null),
   ]);
 
@@ -84,24 +84,44 @@ export async function GET() {
   if (errO) return NextResponse.json({ ok: false, error: errO.message }, { status: 500 });
   if (errP) return NextResponse.json({ ok: false, error: errP.message }, { status: 500 });
 
+  // POS surface semantics:
+  //   • totalSpend = NET lifetime spend across BOTH channels (online + POS) —
+  //     this is the customer's overall value and matches admin.
+  //   • visitCount / lastVisit = the customer's POS orders ONLY (every till
+  //     transaction, any type, including voided ones — a raw count, the same
+  //     way the online "Total online orders" stat counts every online order).
   const agg = new Map<string, AggregateBucket>();
-  const bump = (cid: string, amount: number, when: string) => {
-    const b = agg.get(cid) ?? { spend: 0, visits: 0, lastVisit: null };
-    b.spend  += amount;
-    b.visits += 1;
-    const iso = typeof when === "string" ? when : new Date(when).toISOString();
-    if (!b.lastVisit || iso > b.lastVisit) b.lastVisit = iso;
-    agg.set(cid, b);
+  const ensure = (cid: string): AggregateBucket => {
+    let b = agg.get(cid);
+    if (!b) { b = { spend: 0, visits: 0, lastVisit: null }; agg.set(cid, b); }
+    return b;
   };
 
+  // Online orders add to spend only (net, money-bearing aware — see
+  // customerSpend.ts: a paid-then-cancelled order still counts, an unpaid
+  // cancellation does not). They are NOT POS visits.
   for (const o of orders ?? []) {
-    if (o.status === "cancelled") continue;
     if (!o.customer_id) continue;
-    bump(o.customer_id, Number(o.total) || 0, o.date as string);
+    const { amount, counts } = orderSpendContribution({
+      status:         o.status,
+      paymentStatus:  o.payment_status,
+      total:          o.total,
+      refundedAmount: o.refunded_amount,
+    });
+    if (!counts) continue;
+    ensure(o.customer_id).spend += amount;
   }
+  // POS sales add to spend (net, skipping reversed-no-money) AND count as the
+  // visit/last-visit metrics.
   for (const s of posSales ?? []) {
     if (!s.customer_id) continue;
-    bump(s.customer_id, Number(s.total) || 0, s.date as string);
+    const b = ensure(s.customer_id);
+    const total  = Number(s.total) || 0;
+    const refund = Number(s.refund_amount) || 0;
+    if (!(s.voided && refund <= 0)) b.spend += Math.max(0, total - refund);
+    b.visits += 1;
+    const iso = typeof s.date === "string" ? s.date : new Date(s.date as string).toISOString();
+    if (!b.lastVisit || iso > b.lastVisit) b.lastVisit = iso;
   }
 
   const result = (customers ?? [])

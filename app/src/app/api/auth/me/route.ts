@@ -50,8 +50,9 @@ function mapOrder(o: any) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function buildCustomer(row: any, orders: any[]) {
+function buildCustomer(row: any, orders: any[], posSpend: number) {
   return {
+    posSpend: parseFloat(posSpend.toFixed(2)),
     id:             row.id,
     name:           row.name,
     email:          row.email,
@@ -93,15 +94,33 @@ export async function GET() {
   // which will reject them with the friendly "account disabled" message.
   if (customerRow.active === false) return unauthorizedJson();
 
-  // Fetch orders in a separate query — avoids dependency on FK constraint
-  const { data: ordersData } = await supabaseAdmin
-    .from("orders")
-    .select("*")
-    .eq("customer_id", session.id)
-    .order("date", { ascending: false });
+  // Fetch orders + this customer's in-person POS sales in parallel. The POS
+  // sales aren't listed on the customer site, but their net total is folded
+  // into "Total spent" so the figure matches admin + POS (which already count
+  // both channels). Same net rule as those endpoints: a reversed sale that
+  // kept no money (voided, no refund) is excluded; everything else is
+  // total − refund.
+  const [{ data: ordersData }, { data: posSalesData }] = await Promise.all([
+    supabaseAdmin
+      .from("orders")
+      .select("*")
+      .eq("customer_id", session.id)
+      .order("date", { ascending: false }),
+    supabaseAdmin
+      .from("pos_sales")
+      .select("total, voided, refund_amount")
+      .eq("customer_id", session.id),
+  ]);
+
+  const posSpend = (posSalesData ?? []).reduce((sum, s) => {
+    const total  = Number(s.total) || 0;
+    const refund = Number(s.refund_amount) || 0;
+    if (s.voided && refund <= 0) return sum; // reversed, no money kept
+    return sum + Math.max(0, total - refund);
+  }, 0);
 
   return NextResponse.json({
     ok:       true,
-    customer: buildCustomer(customerRow, ordersData ?? []),
+    customer: buildCustomer(customerRow, ordersData ?? [], posSpend),
   });
 }
