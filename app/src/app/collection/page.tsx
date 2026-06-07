@@ -73,23 +73,44 @@ export default function CollectionPage() {
   const [markingId, setMarkingId] = useState<string | null>(null);
 
   // Hydrate the staff identity for the header (middleware already gates the route).
+  // Re-checked on a light poll + whenever the tab regains focus so an admin edit
+  // to this member's name/avatar shows up without a manual refresh. A 401 means
+  // the admin changed the PIN/email or deactivated the account (session_version
+  // bumped) — sign the operator out so a revoked session can't keep working.
+  const loadStaff = useCallback(async () => {
+    try {
+      const r = await fetch("/api/collection/auth", { cache: "no-store" });
+      if (r.status === 401) { router.replace("/collection/login"); return; }
+      if (!r.ok) return; // transient blip — keep last-known
+      const d = await r.json() as { ok?: boolean; staff?: { name: string; avatarColor?: string } };
+      if (!d?.ok || !d.staff) return;
+      setStaffName(d.staff.name);
+      if (d.staff.avatarColor) setStaffColor(d.staff.avatarColor);
+    } catch { /* network blip — keep last-known */ }
+  }, [router]);
+
   useEffect(() => {
-    fetch("/api/collection/auth")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { ok?: boolean; staff?: { name: string; avatarColor?: string } } | null) => {
-        if (d?.ok && d.staff) {
-          setStaffName(d.staff.name);
-          if (d.staff.avatarColor) setStaffColor(d.staff.avatarColor);
-        }
-      })
-      .catch(() => {});
-  }, []);
+    loadStaff();
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") loadStaff();
+    }, 15_000);
+    const onVisible = () => { if (document.visibilityState === "visible") loadStaff(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", loadStaff);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", loadStaff);
+    };
+  }, [loadStaff]);
 
   const refresh = useCallback(async (showSpinner = false) => {
     if (showSpinner) setLoading(true);
     try {
       const qs = tab === "history" ? `?view=history&period=${period}` : "?view=active";
       const r = await fetch(`/api/collection/orders${qs}`, { cache: "no-store" });
+      // Session was revoked (PIN/email change or deactivation) → sign out.
+      if (r.status === 401) { router.replace("/collection/login"); return; }
       if (!r.ok) { if (showSpinner) setOrders([]); return; }
       const json = await r.json() as { ok: boolean; orders?: CollectionOrder[] };
       if (json.ok && Array.isArray(json.orders)) setOrders(json.orders);
@@ -98,7 +119,7 @@ export default function CollectionPage() {
     } finally {
       if (showSpinner) setLoading(false);
     }
-  }, [tab, period]);
+  }, [tab, period, router]);
 
   // Refetch on tab/period change; poll the active board while visible.
   useEffect(() => {
