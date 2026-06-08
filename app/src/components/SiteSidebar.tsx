@@ -54,10 +54,14 @@ export default function SiteSidebar({
 
   function toggleExpand(parentId: string) {
     setExpandedParents((prev) => {
-      const next = new Set(prev);
-      if (next.has(parentId)) next.delete(parentId);
-      else next.add(parentId);
-      return next;
+      // 1. If the clicked parent is already expanded, collapse it by returning an empty Set
+      if (prev.has(parentId)) {
+        return new Set();
+      }
+
+      // 2. Otherwise, return a new Set containing ONLY the clicked parent ID.
+      // This automatically collapses any previously open parent.
+      return new Set([parentId]);
     });
   }
 
@@ -194,8 +198,8 @@ export default function SiteSidebar({
                 <button
                   onClick={() => handleParentClick(parent)}
                   className={`w-full flex items-center rounded-xl px-3 py-2 gap-2.5 transition-colors text-left ${parentActive
-                      ? "bg-orange-50 text-orange-700 font-medium"
-                      : "text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50"
+                    ? "bg-orange-50 text-orange-700 font-medium"
+                    : "text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50"
                     }`}
                 >
                   <span className="text-base leading-none flex-shrink-0">{parent.emoji}</span>
@@ -210,9 +214,9 @@ export default function SiteSidebar({
                     </div>
                   )}
 
-                   {isDirectSel && !hasKids && (
-                            <span className="ml-auto w-1.5 h-1.5 rounded-full bg-orange-500 flex-shrink-0" />
-                          )}
+                  {isDirectSel && !hasKids && (
+                    <span className="ml-auto w-1.5 h-1.5 rounded-full bg-orange-500 flex-shrink-0" />
+                  )}
                 </button>
 
                 {/* Children — shown when expanded */}
@@ -225,8 +229,8 @@ export default function SiteSidebar({
                           key={child.id}
                           onClick={() => navigateToCategory(child.id)}
                           className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] transition-colors ${childActive
-                              ? "bg-orange-50 text-orange-700 font-medium"
-                              : "text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50"
+                            ? "bg-orange-50 text-orange-700 font-medium"
+                            : "text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50"
                             }`}
                         >
                           <span className="text-sm leading-none flex-shrink-0">{child.emoji}</span>
