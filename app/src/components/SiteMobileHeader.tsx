@@ -1,13 +1,17 @@
+
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   UtensilsCrossed, Receipt, CalendarDays, User, LogOut,
   Heart, Menu as MenuIcon, X,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import { Category } from "@/types";
 
 const navItems = [
   { href: "/", label: "Menu", Icon: UtensilsCrossed },
@@ -15,6 +19,20 @@ const navItems = [
   { href: "/my-orders", label: "My Orders", Icon: Receipt },
   { href: "/account", label: "Profile", Icon: User },
 ];
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
+
+function getParents(cats: Category[]) {
+  return cats
+    .filter((c) => !c.parentId)
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+}
+
+function getChildren(parentId: string, cats: Category[]) {
+  return cats
+    .filter((c) => c.parentId === parentId)
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+}
 
 export default function SiteMobileHeader({
   onReserve,
@@ -26,6 +44,8 @@ export default function SiteMobileHeader({
   const pathname = usePathname();
   const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Track which parent is expanded (null = none)
+  const [expandedParent, setExpandedParent] = useState<string | null>(null);
 
   const reservationsEnabled = settings.reservationSystem?.enabled ?? false;
 
@@ -33,7 +53,7 @@ export default function SiteMobileHeader({
     .filter((l) => l.location === "header" && l.active)
     .sort((a, b) => a.order - b.order);
 
-  function close() { setDrawerOpen(false); }
+  function close() { setDrawerOpen(false); setExpandedParent(null); }
 
   const navigateToCategory = (id: string) => {
     close();
@@ -44,6 +64,8 @@ export default function SiteMobileHeader({
       window.dispatchEvent(new CustomEvent("setCategory", { detail: id }));
     }
   };
+
+  const parents = useMemo(() => getParents(categories), [categories]);
 
   return (
     <>
@@ -214,13 +236,64 @@ export default function SiteMobileHeader({
               <span className="text-base leading-none">🍽️</span>
               <span>Everything</span>
             </button>
-            {categories.map((cat) => (
-              <button key={cat.id} onClick={() => navigateToCategory(cat.id)}
-                className="w-full flex items-center text-left gap-3 px-3 py-2 rounded-xl text-[13.5px] transition-colors text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50">
-                <span className="text-base leading-none">{cat.emoji}</span>
-                <span>{cat.name}</span>
-              </button>
-            ))}
+            {/* Parent → children tree */}
+            {parents.map((parent) => {
+              const children = getChildren(parent.id, categories);
+              const hasKids = children.length > 0;
+              const isExpanded = expandedParent === parent.id;
+
+              return (
+                <div key={parent.id} className="space-y-0.5">
+                  {/* Row Container */}
+                  <div className="group flex items-center rounded-xl transition-colors hover:bg-zinc-50">
+                    
+                    {/* Main area: Navigates and Closes Drawer */}
+                    <button
+                      onClick={() => navigateToCategory(parent.id)}
+                      className="flex-1 flex items-center gap-2.5 px-3 py-2 text-left min-w-0"
+                    >
+                      <span className="text-base leading-none flex-shrink-0">{parent.emoji}</span>
+                      <span className="text-[13.5px] font-medium text-zinc-500 group-hover:text-zinc-800 truncate">
+                        {parent.name}
+                      </span>
+                    </button>
+
+                    {/* Expand area: Toggles visibility WITHOUT navigating */}
+                    {hasKids && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedParent(isExpanded ? null : parent.id);
+                        }}
+                        className="p-1.5 mr-1 rounded-lg text-zinc-400 bg-zinc-200/40 hover:bg-zinc-200/50 hover:text-zinc-700 transition-colors flex-shrink-0"
+                        aria-label={isExpanded ? "Collapse" : "Expand"}
+                      >
+                        {isExpanded 
+                          ? <ChevronUp size={16} strokeWidth={2.5} /> 
+                          : <ChevronDown size={16} strokeWidth={2.5} />
+                        }
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Children — shown when expanded */}
+                  {hasKids && isExpanded && (
+                    <div className="ml-5 mt-0.5 mb-1 border-l border-zinc-100 pl-2 space-y-0.5 animate-in slide-in-from-top-1 duration-200">
+                      {children.map((child) => (
+                        <button
+                          key={child.id}
+                          onClick={() => navigateToCategory(child.id)}
+                          className="w-full flex items-center text-left gap-2.5 px-2.5 py-1.5 rounded-lg text-[13px] text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 transition-colors"
+                        >
+                          <span className="text-sm leading-none flex-shrink-0">{child.emoji}</span>
+                          <span className="truncate">{child.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </nav>
         </div>
 
