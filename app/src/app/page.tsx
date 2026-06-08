@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Category, MenuItem } from "@/types";
 import { useApp } from "@/context/AppContext";
 import { useRouter } from "next/navigation";
@@ -370,10 +370,10 @@ export default function HomePage() {
   const visibleCategories = categories.filter((cat) => {
     // For a parent: visible if it itself has orderable items OR any child does
     if (!cat.parentId) {
-      const ownItems   = menuItems.filter((i) => i.categoryId === cat.id);
-      const childIds   = categories.filter((c) => c.parentId === cat.id).map((c) => c.id);
+      const ownItems = menuItems.filter((i) => i.categoryId === cat.id);
+      const childIds = categories.filter((c) => c.parentId === cat.id).map((c) => c.id);
       const childItems = menuItems.filter((i) => childIds.includes(i.categoryId));
-      const allItems   = [...ownItems, ...childItems];
+      const allItems = [...ownItems, ...childItems];
       if (allItems.length === 0) return true;           // empty categories stay visible
       return allItems.some(isItemOrderable);
     }
@@ -393,7 +393,7 @@ export default function HomePage() {
   // Filtered items (search + category). Apply meal-period orderability after.
 
   const activeCatIds = effectiveCatIds(activeCat, categories);
-  
+
   const filteredItems = menuItems
     .filter((item) => {
       if (activeCatIds && !activeCatIds.includes(item.categoryId)) return false;
@@ -452,6 +452,44 @@ export default function HomePage() {
     if (activeCat === parentId) return true;
     return categories.find(c => c.id === activeCat)?.parentId === parentId;
   };
+
+  // --- Grouping Logic for Parent View ---
+  const groupedCategorySections = useMemo(() => {
+    if (activeCat === "all" || search) return null;
+
+    // Only group if the currently selected category is a Parent
+    const isParent = activeCategory && !activeCategory.parentId;
+    if (!isParent) return null;
+
+    const sections: Array<{ id: string; name: string; emoji: string; items: MenuItem[] }> = [];
+
+    // 1. Get items belonging directly to the parent
+    const parentItems = items.filter(i => i.categoryId === activeCat);
+    if (parentItems.length > 0) {
+      sections.push({
+        id: activeCat,
+        name: activeCategory.name,
+        emoji: activeCategory.emoji,
+        items: parentItems
+      });
+    }
+
+    // 2. Get children of this parent and their items
+    const children = categories.filter(c => c.parentId === activeCat);
+    children.forEach(child => {
+      const childItems = items.filter(i => i.categoryId === child.id);
+      if (childItems.length > 0) {
+        sections.push({
+          id: child.id,
+          name: child.name,
+          emoji: child.emoji,
+          items: childItems
+        });
+      }
+    });
+
+    return sections;
+  }, [activeCat, activeCategory, categories, items, search]);
 
   return (
     <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: 'var(--brand-bg, #FAFAF9)' }}>
@@ -562,8 +600,8 @@ export default function HomePage() {
                   key={cat.id}
                   onClick={() => setActiveCat(cat.id)}
                   className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all active:scale-95 ${active
-                      ? "bg-orange-500 text-white"
-                      : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                    ? "bg-orange-500 text-white"
+                    : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                     }`}
                 >
                   <span className="text-sm leading-none">{cat.emoji}</span>
@@ -581,8 +619,8 @@ export default function HomePage() {
                   key={sub.id}
                   onClick={() => setActiveCat(sub.id)}
                   className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold border transition-all ${activeCat === sub.id
-                      ? "bg-orange-500 text-white"
-                      : "bg-white border-zinc-200 text-zinc-500"
+                    ? "bg-orange-500 text-white"
+                    : "bg-white border-zinc-200 text-zinc-500"
                     }`}
                 >
                   <span className="text-xs leading-none">{sub.emoji}</span>
@@ -623,7 +661,7 @@ export default function HomePage() {
             </div>
 
             {/* Grid */}
-            <div className="px-6 pb-6 grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="px-6 pb-6">
               {items.length === 0 ? (
                 <div className="col-span-full text-center py-20 text-zinc-400">
                   {search
@@ -631,10 +669,35 @@ export default function HomePage() {
                     : <p className="text-[15px] font-medium">No items in this category</p>
                   }
                 </div>
+              ) : groupedCategorySections ? (
+                /* Grouped View for Parent Category Selection */
+                <div className="space-y-12">
+                  {groupedCategorySections.map((group) => (
+                    <div key={group.id} className="space-y-5">
+                      {group.id !== activeCat && (
+                        <div className="flex items-center gap-2 pb-2">
+                          <span className="text-lg leading-none">{group.emoji}</span>
+                          <h3 className="font-bold text-zinc-800 tracking-tight underline underline-offset-2">{group.name}</h3>
+                          {/* <span className="text-[12px] text-zinc-400 font-medium">
+                          · {group.items.length}
+                        </span> */}
+                        </div>
+                      )}
+
+                      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+                        {group.items.map((item) => (
+                          <FoodCard key={item.id} item={item} onOpen={() => setOpenItem(item)} />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               ) : (
-                items.map((item) => (
-                  <FoodCard key={item.id} item={item} onOpen={() => setOpenItem(item)} />
-                ))
+                <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+                  {items.map((item) => (
+                    <FoodCard key={item.id} item={item} onOpen={() => setOpenItem(item)} />
+                  ))}
+                </div>
               )}
             </div>
           </div>
