@@ -39,6 +39,27 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
     return new Set<string>([activeCategory, ...childIds]);
   }, [activeCategory, categories]);
 
+  // --- Hierarchical Category Logic for Mobile ---    
+  // Filtered lists for the sliders
+  const parentCategories = sortedCats.filter(c => !c.parentId);
+
+  // Determine which parent is currently "active" to show its children
+  const currentActiveObj = sortedCats.find(c => c.id === activeCategory);
+  const activeParentId = currentActiveObj?.parentId || (currentActiveObj && !currentActiveObj.parentId ? currentActiveObj.id : null);
+
+  // Get subcategories belonging to the active parent
+  const subCategoriesOfActive = activeParentId
+    ? sortedCats.filter(c => c.parentId === activeParentId)
+    : [];
+
+  // Helper to check if a parent pill should be highlighted 
+  // (true if parent itself is selected OR one of its children is)
+  const isParentPillActive = (parentId: string) => {
+    if (activeCategory === parentId) return true;
+    return sortedCats.find(c => c.id === activeCategory)?.parentId === parentId;
+  };
+
+
   const filtered = products.filter((p) => {
     if (!p.active) return false;
     // POS = in_store channel. Items admin marked online-only (e.g. an
@@ -122,7 +143,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
             </div>
             <p className="text-slate-400 text-xs mb-2">Discount percentage</p>
             <div className="flex gap-1 sm:gap-2 mb-4">
-              {[5,10,15,20,25,50].map((v) => (
+              {[5, 10, 15, 20, 25, 50].map((v) => (
                 <button key={v} onClick={() => setDiscountInput(v.toString())}
                   className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${discountInput === v.toString() ? "bg-orange-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}>
                   {v}%
@@ -245,23 +266,53 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
           </div>
         </div>
 
-        {/* Category pills */}
-        <div className="bg-slate-900/50 border-b border-slate-700/30 px-4 py-2 flex gap-2 overflow-x-auto scrollbar-hide flex-shrink-0">
-          <button
-            onClick={() => setActiveCategory("all")}
-            className={`flex-shrink-0 px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${activeCategory === "all" ? "bg-orange-500 text-white" : "bg-slate-800 text-slate-400 hover:text-white"}`}
-          >
-            All
-          </button>
-          {sortedCats.map((cat) => (
+        {/* Hierarchical Category Sliders */}
+        <div className="bg-slate-900/50 border-b border-slate-700/30 flex flex-col flex-shrink-0 border-b border-slate-800">
+
+          {/* Row 1: All + Parent Categories */}
+          <div className="px-4 py-2 flex gap-2 overflow-x-auto scrollbar-hide">
             <button
-              key={cat.id}
-              onClick={() => setActiveCategory(cat.id)}
-              className={`flex-shrink-0 flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${activeCategory === cat.id ? "bg-orange-500 text-white" : "bg-slate-800 text-slate-400 hover:text-white"}`}
+              onClick={() => setActiveCategory("all")}
+              className={`flex-shrink-0 px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${activeCategory === "all" ? "bg-orange-500 text-white" : "bg-slate-800 text-slate-400 hover:text-white"}`}
             >
-              {cat.emoji} {cat.name}
+              All
             </button>
-          ))}
+            {parentCategories.map((cat) => {
+              const active = isParentPillActive(cat.id);
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => setActiveCategory(cat.id)}
+                  className={`flex-shrink-0 flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${active ? "bg-orange-500 text-white" : "bg-slate-800 text-slate-400 hover:text-white"}`}
+                >
+                  {cat.emoji} {cat.name}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Row 2: Subcategories (Only visible if the active parent has children) */}
+          {subCategoriesOfActive.length > 0 && (
+            <div className="flex gap-2 px-4 pb-3 overflow-x-auto scrollbar-hide animate-in slide-in-from-top-1 duration-200">
+              {subCategoriesOfActive.map((sub) => {
+                const active = activeCategory === sub.id;
+                return (
+                  <button
+                    key={sub.id}
+                    onClick={() => setActiveCategory(sub.id)}
+                    className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-bold border transition ${active
+                      ? "bg-orange-500 text-white border-orange-500"
+                      : "bg-slate-900/50 border border-slate-700 text-slate-500 hover:text-slate-300"
+                      }`}
+                  >
+                    {sub.emoji && <span className="text-xs">{sub.emoji}</span>}
+                    <span>{sub.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
         </div>
 
         {/* Product grid */}
@@ -278,9 +329,9 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
                 // agree on availability. `isAvailable` honours BOTH track-quantity
                 // (qty <= 0 → OOS) and manual status (stockStatus === "out_of_stock"
                 // → OOS), which the old inline check missed for manual mode.
-                const stockState  = resolveStock(product);
-                const outOfStock  = !isAvailable(product);
-                const lowStock    = stockState === "low_stock" && !outOfStock;
+                const stockState = resolveStock(product);
+                const outOfStock = !isAvailable(product);
+                const lowStock = stockState === "low_stock" && !outOfStock;
                 const isTrackedQty = typeof product.stockQty === "number";
                 const offerPrice = getOfferPrice(product);
                 const hasOffer = isOfferActive(product);
@@ -288,11 +339,11 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
                   const o = product.offer!;
                   if (o?.label?.trim()) return o.label.trim();
                   switch (o?.type) {
-                    case "percent":      return `${o.value}% OFF`;
-                    case "fixed":        return `${settings.currencySymbol}${o.value} OFF`;
-                    case "price":        return "SPECIAL";
-                    case "bogo":         return `BUY ${o.buyQty ?? 1} GET ${o.freeQty ?? 1} FREE`;
-                    case "multibuy":     return `${o.buyQty ?? 2} FOR ${settings.currencySymbol}${o.value}`;
+                    case "percent": return `${o.value}% OFF`;
+                    case "fixed": return `${settings.currencySymbol}${o.value} OFF`;
+                    case "price": return "SPECIAL";
+                    case "bogo": return `BUY ${o.buyQty ?? 1} GET ${o.freeQty ?? 1} FREE`;
+                    case "multibuy": return `${o.buyQty ?? 2} FOR ${settings.currencySymbol}${o.value}`;
                     case "qty_discount": return `${o.minQty ?? 2}+ GET ${o.value}% OFF`;
                     default: return "OFFER";
                   }
@@ -302,13 +353,12 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
                     key={product.id}
                     onClick={() => !outOfStock && handleProductTap(product)}
                     disabled={outOfStock}
-                    className={`relative flex flex-col items-start rounded-2xl border text-left transition-all active:scale-95 overflow-hidden ${
-                      outOfStock
-                        ? "bg-slate-800/30 border-slate-700/30 opacity-50 cursor-not-allowed"
-                        : hasOffer
-                          ? "bg-slate-800 border-amber-500/50 hover:border-amber-400/70 hover:shadow-lg hover:shadow-amber-500/10"
-                          : "bg-slate-800 border-slate-700/50 hover:border-orange-500/60 hover:shadow-lg hover:shadow-orange-500/10"
-                    }`}
+                    className={`relative flex flex-col items-start rounded-2xl border text-left transition-all active:scale-95 overflow-hidden ${outOfStock
+                      ? "bg-slate-800/30 border-slate-700/30 opacity-50 cursor-not-allowed"
+                      : hasOffer
+                        ? "bg-slate-800 border-amber-500/50 hover:border-amber-400/70 hover:shadow-lg hover:shadow-amber-500/10"
+                        : "bg-slate-800 border-slate-700/50 hover:border-orange-500/60 hover:shadow-lg hover:shadow-orange-500/10"
+                      }`}
                   >
                     {/* Image or emoji tile */}
                     {product.imageUrl ? (
@@ -402,7 +452,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
             <div className="flex items-center gap-2">
               <ShoppingCart size={18} />
               <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs">
-                  {cart.reduce((s, l) => s + l.quantity, 0)} <span className="hidden sm:inline">items</span> 
+                {cart.reduce((s, l) => s + l.quantity, 0)} <span className="hidden sm:inline">items</span>
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -422,8 +472,8 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
         {showMobileCart && (
           <div className="md:hidden bg-slate-900 border-b border-slate-800 p-4 flex items-center flex-shrink-0 pt-safe-top">
             <button onClick={() => setShowMobileCart(false)} className="flex items-center gap-2 text-slate-300 hover:text-white font-semibold transition-colors">
-               <X size={18} />
-               <span>Back to Menu</span>
+              <X size={18} />
+              <span>Back to Menu</span>
             </button>
           </div>
         )}
