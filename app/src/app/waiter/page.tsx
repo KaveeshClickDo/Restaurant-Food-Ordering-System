@@ -1742,7 +1742,7 @@ export default function WaiterPage() {
                           <CalendarClock size={12} className={resInfo!.isOverdue ? "text-rose-400" : "text-amber-400"} />
                         </span>
                       )}
-                      <span className={`text-2xl font-black ${occupied ? "text-blue-100" : reservedFree ? "text-amber-100" : "text-white"}`}>
+                      <span className={`text-xl sm:text-2xl font-black line-clamp-1 ${occupied ? "text-blue-100" : reservedFree ? "text-amber-100" : "text-white"}`}>
                         {table.label}
                       </span>
                       <span className={`text-xs mt-1 ${occupied ? "text-blue-300/70" : reservedFree ? "text-amber-300/70" : "text-slate-500"}`}>

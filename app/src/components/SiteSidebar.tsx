@@ -181,7 +181,7 @@ export default function SiteSidebar({
           >
             <span className="text-base leading-none">🍽️</span>
             <span>Everything</span>
-            {pathname === "/" && activeCat === "all" && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-orange-500" />}
+            {pathname === "/" && activeCat === "all" && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-orange-500 flex-shrink-0" />}
           </button>
 
           {/* Parent → children tree */}
