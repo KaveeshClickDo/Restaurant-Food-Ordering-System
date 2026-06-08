@@ -432,6 +432,27 @@ export default function HomePage() {
 
   const activeCategory = categories.find((c) => c.id === activeCat);
 
+
+  // --- Hierarchical Category Logic for Mobile ---    
+  // Filtered lists for the sliders
+  const parentCategories = visibleCategories.filter(c => !c.parentId);
+
+  // Determine which parent is currently "active" to show its children
+  const currentActiveObj = categories.find(c => c.id === activeCat);
+  const activeParentId = currentActiveObj?.parentId || (currentActiveObj && !currentActiveObj.parentId ? currentActiveObj.id : null);
+
+  // Get subcategories belonging to the active parent
+  const subCategoriesOfActive = activeParentId
+    ? visibleCategories.filter(c => c.parentId === activeParentId)
+    : [];
+
+  // Helper to check if a parent pill should be highlighted 
+  // (true if parent itself is selected OR one of its children is)
+  const isParentPillActive = (parentId: string) => {
+    if (activeCat === parentId) return true;
+    return categories.find(c => c.id === activeCat)?.parentId === parentId;
+  };
+
   return (
     <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: 'var(--brand-bg, #FAFAF9)' }}>
 
@@ -518,7 +539,9 @@ export default function HomePage() {
         </header>
 
         {/* Mobile sticky category strip — only shown on the menu screen */}
-        <div className="lg:hidden flex-shrink-0 bg-white border-b border-zinc-100 shadow-sm">
+        <div className="lg:hidden flex-shrink-0 bg-white border-b border-zinc-100 shadow-sm flex flex-col">
+
+          {/* Row 1: Everything + Parent Categories */}
           <div className="flex gap-2 overflow-x-auto scrollbar-hide px-4 py-2.5">
             {/* Everything pill */}
             <button
@@ -531,19 +554,43 @@ export default function HomePage() {
               <span className="text-sm leading-none">🍽️</span>
               <span>Everything</span>
             </button>
-            {visibleCategories.map((cat) => (
-              <button key={cat.id}
-                onClick={() => setActiveCat(cat.id)}
-                className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all active:scale-95 ${activeCat === cat.id
-                  ? "bg-orange-500 text-white"
-                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-                  }`}
-              >
-                <span className="text-sm leading-none">{cat.emoji}</span>
-                <span>{cat.name}</span>
-              </button>
-            ))}
+
+            {parentCategories.map((cat) => {
+              const active = isParentPillActive(cat.id);
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => setActiveCat(cat.id)}
+                  className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all active:scale-95 ${active
+                      ? "bg-orange-500 text-white"
+                      : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                    }`}
+                >
+                  <span className="text-sm leading-none">{cat.emoji}</span>
+                  <span>{cat.name}</span>
+                </button>
+              );
+            })}
           </div>
+
+          {/* Row 2: Sub-categories (Only shown if a parent with children is active) */}
+          {subCategoriesOfActive.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto scrollbar-hide px-4 pb-2.5 -mt-0.5 border-t border-zinc-50 pt-2 animate-in slide-in-from-top-1 duration-200">
+              {subCategoriesOfActive.map((sub) => (
+                <button
+                  key={sub.id}
+                  onClick={() => setActiveCat(sub.id)}
+                  className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold border transition-all ${activeCat === sub.id
+                      ? "bg-orange-500 text-white"
+                      : "bg-white border-zinc-200 text-zinc-500"
+                    }`}
+                >
+                  <span className="text-xs leading-none">{sub.emoji}</span>
+                  <span>{sub.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Scrollable content */}
