@@ -73,21 +73,25 @@ export default function Header() {
                 </div>
 
                 {/* Hygiene badge — desktop only in this row */}
-                <div className="hidden sm:flex items-center gap-1 bg-green-50 border border-green-200 rounded-lg px-2.5 py-1.5 flex-shrink-0">
-                  <Star size={13} className="text-green-600 fill-green-600" />
-                  <span className="text-green-700 font-semibold text-sm whitespace-nowrap">
-                    {restaurant.hygieneRating} Hygiene
-                  </span>
-                </div>
+                {restaurant.hygieneRatingVisible !== false && (
+                  <div className="hidden sm:flex items-center gap-1 bg-green-50 border border-green-200 rounded-lg px-2.5 py-1.5 flex-shrink-0">
+                    <Star size={13} className="text-green-600 fill-green-600" />
+                    <span className="text-green-700 font-semibold text-sm whitespace-nowrap">
+                      {restaurant.hygieneRating} Hygiene
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Auth buttons row */}
               <div className="flex items-center gap-2 mt-2">
                 {/* Hygiene badge — mobile only (inline with auth) */}
-                <div className="flex sm:hidden items-center gap-1 bg-green-50 border border-green-200 rounded-lg px-2 py-1 flex-shrink-0">
-                  <Star size={12} className="text-green-600 fill-green-600" />
-                  <span className="text-green-700 font-semibold text-xs">{restaurant.hygieneRating}</span>
-                </div>
+                {restaurant.hygieneRatingVisible !== false && (
+                  <div className="flex sm:hidden items-center gap-1 bg-green-50 border border-green-200 rounded-lg px-2 py-1 flex-shrink-0">
+                    <Star size={12} className="text-green-600 fill-green-600" />
+                    <span className="text-green-700 font-semibold text-xs">{restaurant.hygieneRating}</span>
+                  </div>
+                )}
 
                 {currentUser ? (
                   <div className="relative">
@@ -191,11 +195,11 @@ export default function Header() {
             </div>
             <div className="flex items-center gap-1.5">
               <ShoppingBag size={14} className="text-orange-500" />
-              <span className="text-xs sm:text-sm">Min order £{restaurant.minOrder.toFixed(2)}</span>
+              <span className="text-xs sm:text-sm">Min order {settings.currency?.symbol ?? "£"}{restaurant.minOrder.toFixed(2)}</span>
             </div>
             {fulfillment === "delivery" && (
               <span className="text-orange-600 font-medium text-xs sm:text-sm">
-                £{restaurant.deliveryFee.toFixed(2)} delivery
+                {settings.currency?.symbol ?? "£"}{restaurant.deliveryFee.toFixed(2)} delivery
               </span>
             )}
           </div>

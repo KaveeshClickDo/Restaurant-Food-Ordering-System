@@ -1,36 +1,58 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   User, Mail, Phone, Calendar, ShoppingBag, TrendingUp, Clock,
   ChevronDown, ChevronUp, Star, Package,
   Edit2, Check, X, RotateCcw, ShoppingCart, AlertCircle, RefreshCw,
-  Heart, Plus, PackageX, MapPin, Home, Briefcase, Trash2, Star as StarIcon, Truck, Gift,
+  Heart, Plus, PackageX, MapPin, Home, Briefcase, Trash2, Star as StarIcon, Truck, Gift, Award, CreditCard,
   Lock, Eye, EyeOff, ShieldCheck,
+  LayoutDashboard,
+  LogOut,
+  Search,
+  Navigation,
+  UtensilsCrossed,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { Order, OrderLine, OrderStatus, DeliveryStatus, MenuItem, SavedAddress, AddOn, CartItem } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
+import { orderSpendContribution } from "@/lib/customerSpend";
 import AuthModal from "@/components/AuthModal";
 import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import { resolveStock } from "@/lib/stockUtils";
+import { isOnChannel, effectiveMenuPrice, getOfferUnitPrice } from "@/lib/menuOfferUtils";
+import MobileBottomNav from "@/components/MobileBottomNav";
+import Cart from "@/components/Cart";
+import { geocode } from "@/lib/useGeocode";
+import { cleanPhone } from "@/lib/inputUtils";
+
+const LocationMap = dynamic(() => import("@/components/maps/LocationMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[200px] w-full bg-zinc-50 rounded-xl flex items-center justify-center text-xs text-zinc-400 border border-zinc-100">
+      Loading map…
+    </div>
+  ),
+});
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<OrderStatus, { label: string; color: string; dot: string }> = {
-  pending:            { label: "Pending",            color: "bg-yellow-100 text-yellow-700", dot: "bg-yellow-500" },
-  confirmed:          { label: "Confirmed",          color: "bg-blue-100 text-blue-700",     dot: "bg-blue-500"   },
-  preparing:          { label: "Preparing",          color: "bg-amber-100 text-amber-700",   dot: "bg-amber-500"  },
-  ready:              { label: "Ready",              color: "bg-purple-100 text-purple-700", dot: "bg-purple-500" },
-  delivered:          { label: "Delivered",          color: "bg-green-100 text-green-700",   dot: "bg-green-500"  },
-  cancelled:          { label: "Cancelled",          color: "bg-red-100 text-red-700",       dot: "bg-red-400"    },
-  refunded:           { label: "Refunded",           color: "bg-teal-100 text-teal-700",     dot: "bg-teal-500"   },
-  partially_refunded: { label: "Partially Refunded", color: "bg-cyan-100 text-cyan-700",     dot: "bg-cyan-500"   },
+  pending: { label: "Pending", color: "bg-yellow-100 text-yellow-700", dot: "bg-yellow-500" },
+  confirmed: { label: "Confirmed", color: "bg-blue-100 text-blue-700", dot: "bg-blue-500" },
+  preparing: { label: "Preparing", color: "bg-amber-100 text-amber-700", dot: "bg-amber-500" },
+  ready: { label: "Ready", color: "bg-purple-100 text-purple-700", dot: "bg-purple-500" },
+  delivered: { label: "Delivered", color: "bg-green-100 text-green-700", dot: "bg-green-500" },
+  cancelled: { label: "Cancelled", color: "bg-red-100 text-red-700", dot: "bg-red-400" },
+  refunded: { label: "Refunded", color: "bg-teal-100 text-teal-700", dot: "bg-teal-500" },
+  partially_refunded: { label: "Partially Refunded", color: "bg-cyan-100 text-cyan-700", dot: "bg-cyan-500" },
 };
 
 // Kitchen-only steps (delivery hands off to driver after "ready")
-const DELIVERY_STEPS:   OrderStatus[] = ["pending", "confirmed", "preparing", "ready"];
+const DELIVERY_STEPS: OrderStatus[] = ["pending", "confirmed", "preparing", "ready"];
 // Collection goes all the way through to "delivered" in the kitchen flow
 const COLLECTION_STEPS: OrderStatus[] = ["pending", "confirmed", "preparing", "ready", "delivered"];
 
@@ -41,19 +63,49 @@ function getReadyLabel(fulfillment: string) {
 // While order.status stays "ready" during the driver leg, these configs override
 // the badge so the customer sees meaningful progress rather than "Ready for Pickup".
 const DELIVERY_STATUS_BADGE: Record<DeliveryStatus, { label: string; color: string; dot: string }> = {
-  assigned:   { label: "Driver Assigned",  color: "bg-amber-100 text-amber-700",   dot: "bg-amber-500"  },
-  picked_up:  { label: "Picked Up",        color: "bg-blue-100 text-blue-700",     dot: "bg-blue-500"   },
-  on_the_way: { label: "On the Way",       color: "bg-indigo-100 text-indigo-700", dot: "bg-indigo-500" },
-  delivered:  { label: "Delivered",        color: "bg-green-100 text-green-700",   dot: "bg-green-500"  },
+  assigned: { label: "Driver Assigned", color: "bg-amber-100 text-amber-700", dot: "bg-amber-500" },
+  picked_up: { label: "Picked Up", color: "bg-blue-100 text-blue-700", dot: "bg-blue-500" },
+  on_the_way: { label: "On the Way", color: "bg-indigo-100 text-indigo-700", dot: "bg-indigo-500" },
+  delivered: { label: "Delivered", color: "bg-green-100 text-green-700", dot: "bg-green-500" },
 };
 
 function StatusBadge({ order }: { order: Order }) {
+  // Refund state takes precedence in the customer's history view. It lives in
+  // paymentStatus (current) but older rows may carry it on status.
+  const refund: OrderStatus | null =
+    order.paymentStatus === "refunded" || order.status === "refunded" ? "refunded"
+      : order.paymentStatus === "partially_refunded" || order.status === "partially_refunded" ? "partially_refunded"
+        : null;
+  // Cancelled-AND-refunded must surface both facts: showing only "Refunded"
+  // hides the cancellation, showing only "Cancelled" hides that the money came
+  // back. Cancelled is the dominant state, so we lead with it.
+  if (order.status === "cancelled") {
+    const cfg = STATUS_CONFIG.cancelled;
+    const label = refund
+      ? `Cancelled · ${refund === "refunded" ? "Refunded" : "Partially Refunded"}`
+      : cfg.label;
+    return (
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${cfg.color}`}>
+        <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+        {label}
+      </span>
+    );
+  }
+  if (refund) {
+    const cfg = STATUS_CONFIG[refund];
+    return (
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${cfg.color}`}>
+        <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+        {cfg.label}
+      </span>
+    );
+  }
   // Delivery orders with an active driver leg: show delivery status instead of
   // order status, because order.status stays "ready" until final delivery.
+  // (Cancelled orders already returned above.)
   if (
     order.fulfillment === "delivery" &&
-    order.deliveryStatus &&
-    order.status !== "cancelled"
+    order.deliveryStatus
   ) {
     const cfg = DELIVERY_STATUS_BADGE[order.deliveryStatus];
     return (
@@ -111,10 +163,10 @@ function OrderTracker({ order }: { order: Order }) {
 const DS_STEPS: DeliveryStatus[] = ["assigned", "picked_up", "on_the_way", "delivered"];
 
 const DS_CONFIG: Record<DeliveryStatus, { label: string; emoji: string; color: string; pulse?: boolean }> = {
-  assigned:   { label: "Driver assigned",    emoji: "🏍️", color: "text-amber-600",  pulse: false },
-  picked_up:  { label: "Order picked up",    emoji: "📦", color: "text-blue-600",   pulse: false },
-  on_the_way: { label: "Driver on the way",  emoji: "🚴", color: "text-indigo-600", pulse: true  },
-  delivered:  { label: "Order delivered",    emoji: "✅", color: "text-green-600",  pulse: false },
+  assigned: { label: "Driver assigned", emoji: "🏍️", color: "text-amber-600", pulse: false },
+  picked_up: { label: "Order picked up", emoji: "📦", color: "text-blue-600", pulse: false },
+  on_the_way: { label: "Driver on the way", emoji: "🚴", color: "text-indigo-600", pulse: true },
+  delivered: { label: "Order delivered", emoji: "✅", color: "text-green-600", pulse: false },
 };
 
 function DeliveryTracker({ order }: { order: Order }) {
@@ -125,12 +177,11 @@ function DeliveryTracker({ order }: { order: Order }) {
   const cfg = DS_CONFIG[ds];
 
   return (
-    <div className={`mt-3 rounded-xl px-3 py-2.5 border ${
-      ds === "on_the_way" ? "bg-indigo-50 border-indigo-200" :
-      ds === "delivered"  ? "bg-green-50 border-green-200"   :
-      ds === "picked_up"  ? "bg-blue-50 border-blue-200"     :
-                            "bg-amber-50 border-amber-200"
-    }`}>
+    <div className={`mt-3 rounded-xl px-3 py-2.5 border ${ds === "on_the_way" ? "bg-indigo-50 border-indigo-200" :
+      ds === "delivered" ? "bg-green-50 border-green-200" :
+        ds === "picked_up" ? "bg-blue-50 border-blue-200" :
+          "bg-amber-50 border-amber-200"
+      }`}>
       <div className="flex items-center gap-2 mb-2">
         <span className="text-sm">{cfg.emoji}</span>
         <span className={`text-xs font-bold ${cfg.color}`}>{cfg.label}</span>
@@ -139,29 +190,29 @@ function DeliveryTracker({ order }: { order: Order }) {
         </span>}
       </div>
       {/* Step dots */}
-      <div className="flex items-center gap-1">
-        {DS_STEPS.map((step, i) => {
-          const done = i <= currentIdx;
-          const active = step === ds;
-          return (
-            <div key={step} className="flex items-center flex-1 last:flex-none">
-              <div className={`w-2 h-2 rounded-full flex-shrink-0 transition-all ${
-                active ? "bg-indigo-500 ring-2 ring-indigo-200 scale-125" :
-                done   ? "bg-indigo-400" : "bg-gray-200"
-              }`} />
-              {i < DS_STEPS.length - 1 && (
-                <div className={`h-0.5 flex-1 mx-0.5 transition-colors ${i < currentIdx ? "bg-indigo-400" : "bg-gray-200"}`} />
-              )}
-            </div>
-          );
-        })}
-      </div>
-      <div className="flex justify-between mt-1">
-        {DS_STEPS.map((step, i) => (
-          <span key={step} className={`text-[9px] font-medium ${i === currentIdx ? "text-indigo-500" : "text-zinc-300"}`}>
-            {DS_CONFIG[step].label.split(" ")[0]}
-          </span>
-        ))}
+      <div className="pb-4 mt-1.5">
+        <div className="flex items-center gap-1">
+          {DS_STEPS.map((step, i) => {
+            const done = i <= currentIdx;
+            const active = step === ds;
+            return (
+              <div key={step} className="flex items-center flex-1 last:flex-none">
+                <div className="relative flex justify-center">
+                  <div className={`w-2 h-2 rounded-full flex-shrink-0 transition-all ${active ? "bg-indigo-500 ring-2 ring-indigo-200 scale-125" :
+                    done ? "bg-indigo-400" : "bg-gray-200"
+                    }`} />
+                  <span className={`absolute top-4 whitespace-nowrap text-[9px] font-medium ${i === currentIdx ? "text-indigo-500" : "text-zinc-300"} ${i === 0 ? "left-0" : i === DS_STEPS.length - 1 ? "right-0" : "left-1/2 -translate-x-1/2"
+                    }`}>
+                    {DS_CONFIG[step].label.split(" ")[0]}
+                  </span>
+                </div>
+                {i < DS_STEPS.length - 1 && (
+                  <div className={`h-0.5 flex-1 mx-0.5 transition-colors ${i < currentIdx ? "bg-indigo-400" : "bg-gray-200"}`} />
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
       {order.driverName && (
         <p className="text-[10px] text-zinc-500 mt-2 flex items-center gap-1">
@@ -235,6 +286,8 @@ function QuickReorder({
   orders: Order[];
   onReorder: (order: Order) => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const eligible = orders
     .filter((o) => o.status === "delivered")
     .slice(0, 3);
@@ -255,28 +308,31 @@ function QuickReorder({
 
       <div className="divide-y divide-gray-50">
         {eligible.map((order) => (
-          <div key={order.id} className="flex items-center gap-3 px-4 sm:px-5 py-3.5 hover:bg-zinc-50 transition">
-            {/* Icon */}
-            <div className="w-9 h-9 sm:w-10 sm:h-10 bg-zinc-50 rounded-xl flex items-center justify-center flex-shrink-0 text-base sm:text-lg">
-              🍛
-            </div>
+          <div key={order.id} className="flex flex-wrap items-center gap-3 px-4 sm:px-5 py-3.5 hover:bg-zinc-50 transition">
+            <div className="flex items-center gap-3">
 
-            {/* Info */}
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-gray-800 truncate">
-                {itemSummary(order.items, 2)}
-              </p>
-              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                <span className="text-xs text-zinc-400">{formatDate(order.date)}</span>
-                <span className="text-zinc-300 text-xs">·</span>
-                <span className="text-xs font-semibold text-zinc-700 tabular-nums">£{order.total.toFixed(2)}</span>
+              {/* Icon */}
+              <div className="w-9 h-9 sm:w-10 sm:h-10 bg-zinc-50 rounded-xl flex items-center justify-center flex-shrink-0 text-base sm:text-lg">
+                🍛
+              </div>
+
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-gray-800 ">
+                  {itemSummary(order.items, 2)}
+                </p>
+                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                  <span className="text-xs text-zinc-400">{formatDate(order.date)}</span>
+                  <span className="text-zinc-300 text-xs">·</span>
+                  <span className="text-xs font-semibold text-zinc-700 tabular-nums">{sym}{order.total.toFixed(2)}</span>
+                </div>
               </div>
             </div>
 
             {/* Re-order button */}
             <button
               onClick={() => onReorder(order)}
-              className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-2.5 rounded-xl transition flex-shrink-0 min-h-[38px]"
+              className="flex ml-auto items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-2.5 rounded-xl transition flex-shrink-0 min-h-[38px]"
             >
               <RotateCcw size={12} />
               <span className="hidden sm:inline">Re-order</span>
@@ -288,7 +344,7 @@ function QuickReorder({
 
       <div className="px-5 py-3 bg-zinc-50 border-t border-zinc-100">
         <p className="text-xs text-zinc-400 flex items-center gap-1.5">
-          <AlertCircle size={11} className="text-zinc-300" />
+          <AlertCircle size={11} className="text-zinc-300 flex-shrink-0" />
           Items are added at current menu prices. Unavailable items are skipped.
         </p>
       </div>
@@ -299,37 +355,46 @@ function QuickReorder({
 // ─── Order Card ───────────────────────────────────────────────────────────────
 
 function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) => void }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [expanded, setExpanded] = useState(false);
-  const isActive = !["delivered", "cancelled", "refunded", "partially_refunded"].includes(order.status);
-  const canReorder = ["delivered", "refunded", "partially_refunded"].includes(order.status);
+  // Refund state lives in paymentStatus (current) or status (legacy rows).
+  const isRefunded =
+    order.paymentStatus === "refunded" || order.paymentStatus === "partially_refunded"
+    || order.status === "refunded" || order.status === "partially_refunded";
+  const isActive = !isRefunded && !["delivered", "cancelled"].includes(order.status);
+  const canReorder = isRefunded || order.status === "delivered";
 
   return (
     <div className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all ${isActive ? "border-zinc-200" : "border-zinc-100"}`}>
       {/* Header row */}
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-start justify-between p-4 sm:p-5 text-left hover:bg-zinc-50 transition"
+        className="w-full text-left hover:bg-zinc-50 transition block p-4 sm:p-5"
       >
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-gray-800 text-sm">#{order.id.slice(0, 8).toUpperCase()}</span>
-            <StatusBadge order={order} />
-            {isActive && (
-              <span className="text-[10px] font-semibold bg-zinc-50 text-zinc-700 border border-zinc-200 rounded-full px-2 py-0.5">
-                Live
-              </span>
-            )}
+        <div className="flex items-start justify-between w-full">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span title={fullOrderNumber(order.id)} className="font-semibold text-gray-800 text-sm truncate max-w-[180px]">{fullOrderNumber(order.id)}</span>
+              <StatusBadge order={order} />
+              {isActive && (
+                <span className="text-[10px] font-semibold bg-zinc-50 text-zinc-700 border border-zinc-200 rounded-full px-2 py-0.5">
+                  Live
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-zinc-400 mt-1">
+              {formatDate(order.date)} at {formatTime(order.date)} · {order.fulfillment === "delivery" ? "Delivery" : "Collection"}
+            </p>
           </div>
-          <p className="text-xs text-zinc-400 mt-1">
-            {formatDate(order.date)} at {formatTime(order.date)} · {order.fulfillment === "delivery" ? "Delivery" : "Collection"}
-          </p>
-          {isActive && <OrderTracker order={order} />}
-          <DeliveryTracker order={order} />
+          <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+            <span className="font-bold text-zinc-900 tabular-nums">{sym}{order.total.toFixed(2)}</span>
+            {expanded ? <ChevronUp size={16} className="text-zinc-400" /> : <ChevronDown size={16} className="text-zinc-400" />}
+          </div>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-          <span className="font-bold text-zinc-900 tabular-nums">£{order.total.toFixed(2)}</span>
-          {expanded ? <ChevronUp size={16} className="text-zinc-400" /> : <ChevronDown size={16} className="text-zinc-400" />}
-        </div>
+
+        {isActive && <OrderTracker order={order} />}
+        <DeliveryTracker order={order} />
       </button>
 
       {/* Expanded detail */}
@@ -341,12 +406,12 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
               <span className="text-zinc-600 min-w-0 flex-1">
                 <span className="font-medium text-gray-800">{item.qty}×</span> {item.name}
               </span>
-              <span className="font-medium text-gray-800 flex-shrink-0 tabular-nums">£{(item.price * item.qty).toFixed(2)}</span>
+              <span className="font-medium text-gray-800 flex-shrink-0 tabular-nums">{sym}{(item.price * item.qty).toFixed(2)}</span>
             </div>
           ))}
           <div className="border-t border-zinc-200 mt-3 pt-3 flex justify-between font-bold text-zinc-900 text-sm">
             <span>Total</span>
-            <span className="tabular-nums">£{order.total.toFixed(2)}</span>
+            <span className="tabular-nums">{sym}{order.total.toFixed(2)}</span>
           </div>
           {order.address && (
             <p className="text-xs text-zinc-400 mt-2 break-words">
@@ -378,15 +443,21 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
 // ─── Favourites Tab ───────────────────────────────────────────────────────────
 
 function FavouritesTab() {
-  const { currentUser, menuItems, toggleFavourite, isOpen, scheduledTime } = useApp();
+  const { currentUser, menuItems, toggleFavourite, isOpen, scheduledTime, settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [modalItem, setModalItem] = useState<MenuItem | null>(null);
 
   const favouriteIds = currentUser?.favourites ?? [];
   const favouriteItems = favouriteIds
     .map((id) => menuItems.find((m) => m.id === id))
-    .filter((m): m is MenuItem => m !== undefined);
+    .filter((m): m is MenuItem => m !== undefined)
+    // Customer site = online channel. Hide favourites admin marked in-store only.
+    .filter((m) => isOnChannel(m, "online"));
 
   const canOrder = isOpen || !!scheduledTime;
+
+  // Check if at least one item in the list has an image
+  const hasAnyImage = favouriteItems.some((item) => !!item.image);
 
   if (favouriteItems.length === 0) {
     return (
@@ -409,14 +480,21 @@ function FavouritesTab() {
 
           return (
             <div key={item.id} className="bg-white rounded-2xl border border-zinc-100 shadow-sm overflow-hidden flex flex-col">
-              {/* Image */}
-              {item.image && (
-                <div className={`relative w-full h-36 overflow-hidden ${outOfStock ? "grayscale opacity-60" : ""}`}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+
+              {/* Image or Placeholder Area */}
+              {hasAnyImage && (
+                <div className={`relative w-full h-36 bg-orange-50 flex items-center justify-center overflow-hidden ${outOfStock ? "grayscale opacity-60" : ""}`}>
+                  {item.image ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                  ) : (
+                    // Placeholder for items without images
+                    <UtensilsCrossed size={48} strokeWidth={1} className="text-zinc-200" />
+                  )}
+
                   <button
                     onClick={() => toggleFavourite(item.id)}
-                    className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-white/90 backdrop-blur-sm hover:bg-white shadow transition"
+                    className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-white/90 backdrop-blur-sm hover:bg-white shadow transition z-10"
                     title="Remove from favourites"
                   >
                     <Heart size={14} className="text-red-500 fill-red-500" />
@@ -439,7 +517,9 @@ function FavouritesTab() {
                       </div>
                     )}
                   </div>
-                  {!item.image && (
+
+                  {/* Only show the inline heart if NO items have an image (fallback to old layout) */}
+                  {!hasAnyImage && (
                     <button
                       onClick={() => toggleFavourite(item.id)}
                       className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full border border-red-200 hover:bg-red-50 transition"
@@ -453,7 +533,14 @@ function FavouritesTab() {
                 <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">{item.description}</p>
 
                 <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-50">
-                  <span className="font-bold text-zinc-900 text-sm">£{item.price.toFixed(2)}</span>
+                  {getOfferUnitPrice(item) !== null ? (
+                    <span className="flex items-baseline gap-1.5">
+                      <span className="font-bold text-orange-600 text-sm">{sym}{getOfferUnitPrice(item)!.toFixed(2)}</span>
+                      <span className="text-xs text-zinc-400 line-through">{sym}{effectiveMenuPrice(item).toFixed(2)}</span>
+                    </span>
+                  ) : (
+                    <span className="font-bold text-zinc-900 text-sm">{sym}{effectiveMenuPrice(item).toFixed(2)}</span>
+                  )}
                   {outOfStock ? (
                     <span className="flex items-center gap-1 text-xs font-semibold text-red-500 bg-red-50 px-3 py-1.5 rounded-xl border border-red-100">
                       <PackageX size={12} /> Unavailable
@@ -462,11 +549,10 @@ function FavouritesTab() {
                     <button
                       disabled={!canOrder}
                       onClick={() => canOrder && setModalItem(item)}
-                      className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition ${
-                        canOrder
-                          ? "bg-orange-500 hover:bg-orange-600 text-white"
-                          : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
-                      }`}
+                      className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition ${canOrder
+                        ? "bg-orange-500 hover:bg-orange-600 text-white"
+                        : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
+                        }`}
                     >
                       <Plus size={12} />
                       Add
@@ -489,26 +575,65 @@ function FavouritesTab() {
 // ─── Addresses Tab ────────────────────────────────────────────────────────────
 
 const LABEL_ICONS: Record<string, React.ReactNode> = {
-  Home:   <Home      size={14} className="text-zinc-700" />,
-  Work:   <Briefcase size={14} className="text-blue-500"   />,
+  Home: <Home size={14} className="text-zinc-700" />,
+  Work: <Briefcase size={14} className="text-blue-500" />,
 };
 
 function getLabelIcon(label: string) {
   return LABEL_ICONS[label] ?? <MapPin size={14} className="text-zinc-400" />;
 }
 
-const EMPTY_FORM: Omit<SavedAddress, "id" | "createdAt" | "isDefault"> = {
+type AddressFormDraft = Omit<SavedAddress, "id" | "createdAt" | "isDefault">;
+
+const EMPTY_FORM: AddressFormDraft = {
   label: "Home", address: "", postcode: "", phone: "", note: "",
 };
 
+/**
+ * How the pin in the address form was last set:
+ *   - "user"       — geolocation, clicked the map, dragged the pin, or loaded
+ *                    from a saved address that already had user-set coords
+ *   - "estimated"  — picked by the debounced geocode-on-type effect
+ *   - null         — no pin yet
+ */
+type AddressPinSource = "user" | "estimated" | null;
+
 function AddressesTab() {
-  const { currentUser, addSavedAddress, updateSavedAddress, deleteSavedAddress, setDefaultAddress } = useApp();
+  const { currentUser, settings, addSavedAddress, updateSavedAddress, deleteSavedAddress, setDefaultAddress } = useApp();
   const [editingId, setEditingId] = useState<string | null>(null); // null = adding new
-  const [showForm,  setShowForm]  = useState(false);
-  const [form,      setForm]      = useState<Omit<SavedAddress, "id" | "createdAt" | "isDefault">>(EMPTY_FORM);
-  const [errors,    setErrors]    = useState<Partial<Record<keyof typeof EMPTY_FORM, string>>>({});
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState<AddressFormDraft>(EMPTY_FORM);
+  const [errors, setErrors] = useState<Partial<Record<keyof AddressFormDraft, string>>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const [saved,     setSaved]     = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [locating, setLocating] = useState(false);
+  const [pinSource, setPinSource] = useState<AddressPinSource>(null);
+  // Live ref to pinSource — the debounced geocode effect re-checks this AFTER
+  // its await, when the closure-captured pinSource would be stale.
+  const pinSourceRef = useRef<AddressPinSource>(null);
+  useEffect(() => { pinSourceRef.current = pinSource; }, [pinSource]);
+
+  // ── Geocode-on-debounce ──────────────────────────────────────────────────
+  // After the user types an address and postcode, drop a draft pin on the map
+  // so they can sanity-check the location and refine it before saving. Skipped
+  // when the customer already placed a pin themselves (their work wins).
+  // NOTE: declared BEFORE the `if (!currentUser)` early return so the hook
+  // call order is stable across renders (rules-of-hooks).
+  useEffect(() => {
+    if (pinSourceRef.current === "user") return;
+    const q = `${form.address}, ${form.postcode}`.trim().replace(/^,\s*/, "").replace(/,\s*$/, "");
+    if (q.length < 6) return;
+    const timer = setTimeout(async () => {
+      const geo = await geocode(q);
+      if (!geo) return;
+      // Skip if the user moved the pin while we were geocoding (live ref —
+      // closure-captured pinSource is stale by this point).
+      if (pinSourceRef.current === "user") return;
+      setForm((f) => ({ ...f, lat: geo.lat, lng: geo.lng }));
+      setPinSource("estimated");
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [form.address, form.postcode]);
 
   if (!currentUser) return null;
   const user = currentUser; // narrowed — safe to use inside closures
@@ -517,9 +642,9 @@ function AddressesTab() {
 
   function validate() {
     const e: Partial<Record<keyof typeof EMPTY_FORM, string>> = {};
-    if (!form.label.trim())   e.label   = "Label is required.";
-    if (!form.address.trim()) e.address  = "Address is required.";
-    if (!form.postcode.trim())e.postcode = "Postcode is required.";
+    if (!form.label.trim()) e.label = "Label is required.";
+    if (!form.address.trim()) e.address = "Address is required.";
+    if (!form.postcode.trim()) e.postcode = "Postcode is required.";
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -528,27 +653,60 @@ function AddressesTab() {
     setEditingId(null);
     setForm(EMPTY_FORM);
     setErrors({});
+    setPinSource(null);
     setShowForm(true);
   }
 
   function openEdit(addr: SavedAddress) {
     setEditingId(addr.id);
-    setForm({ label: addr.label, address: addr.address, postcode: addr.postcode, phone: addr.phone ?? "", note: addr.note ?? "" });
+    setForm({
+      label: addr.label, address: addr.address, postcode: addr.postcode,
+      phone: addr.phone ?? "", note: addr.note ?? "",
+      lat: addr.lat, lng: addr.lng,
+    });
     setErrors({});
+    // A saved address's pin is treated as user-confirmed — the customer placed
+    // it when they originally saved this entry.
+    setPinSource(addr.lat != null && addr.lng != null ? "user" : null);
     setShowForm(true);
   }
 
-  function handleSave() {
+  function detectMyLocation() {
+    if (!navigator.geolocation) return;
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setForm((f) => ({
+          ...f,
+          lat: +pos.coords.latitude.toFixed(6),
+          lng: +pos.coords.longitude.toFixed(6),
+        }));
+        setPinSource("user");
+        setLocating(false);
+      },
+      () => setLocating(false),
+      { timeout: 8000 },
+    );
+  }
+
+  async function handleSave() {
     if (!validate()) return;
+    // If no pin set yet, try to geocode silently from address + postcode.
+    let { lat, lng } = form;
+    if (lat == null || lng == null) {
+      const geo = await geocode(`${form.address}, ${form.postcode}`);
+      if (geo) { lat = geo.lat; lng = geo.lng; }
+    }
     if (editingId) {
       const existing = addresses.find((a) => a.id === editingId)!;
-      updateSavedAddress(user.id, { ...existing, ...form });
+      updateSavedAddress(user.id, { ...existing, ...form, lat, lng });
     } else {
       addSavedAddress(user.id, {
         id: crypto.randomUUID(),
         createdAt: new Date().toISOString(),
         isDefault: addresses.length === 0,
         ...form,
+        lat, lng,
       });
     }
     setShowForm(false);
@@ -562,13 +720,20 @@ function AddressesTab() {
   }
 
   function field(key: keyof typeof EMPTY_FORM, label: string, opts?: { type?: string; placeholder?: string }) {
+    const isPhone = key === "phone";
     return (
       <div>
         <label className="block text-xs font-medium text-zinc-500 mb-1">{label}</label>
         <input
           type={opts?.type ?? "text"}
+          inputMode={isPhone ? "tel" : undefined}
+          autoComplete={isPhone ? "tel" : undefined}
           value={form[key]}
-          onChange={(e) => { setForm((f) => ({ ...f, [key]: e.target.value })); setErrors((er) => ({ ...er, [key]: undefined })); }}
+          onChange={(e) => {
+            const v = isPhone ? cleanPhone(e.target.value) : e.target.value;
+            setForm((f) => ({ ...f, [key]: v }));
+            setErrors((er) => ({ ...er, [key]: undefined }));
+          }}
           placeholder={opts?.placeholder}
           className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition ${errors[key] ? "border-red-400" : "border-zinc-200"}`}
         />
@@ -601,11 +766,10 @@ function AddressesTab() {
                   key={l}
                   type="button"
                   onClick={() => setForm((f) => ({ ...f, label: l }))}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
-                    form.label === l
-                      ? "bg-orange-500 border-orange-500 text-white"
-                      : "border-zinc-200 text-zinc-600 hover:border-zinc-300"
-                  }`}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${form.label === l
+                    ? "bg-orange-500 border-orange-500 text-white"
+                    : "border-zinc-200 text-zinc-600 hover:border-zinc-300"
+                    }`}
                 >
                   {l === "Home" ? <Home size={12} /> : l === "Work" ? <Briefcase size={12} /> : <MapPin size={12} />}
                   {l}
@@ -624,15 +788,80 @@ function AddressesTab() {
             {errors.label && <p className="text-xs text-red-500 mt-1">{errors.label}</p>}
           </div>
 
-          {field("address",  "Full address",  { placeholder: "42 Example Street, London" })}
-          {field("postcode", "Postcode",       { placeholder: "EC1A 1BB" })}
-          {field("phone",    "Phone (optional)", { type: "tel", placeholder: "+44 7700 900000" })}
-          {field("note",     "Delivery note (optional)", { placeholder: "Leave at front door…" })}
+          {field("address", "Full address", { placeholder: "42 Example Street, London" })}
+          {field("postcode", "Postcode", { placeholder: "EC1A 1BB" })}
+          {field("phone", "Phone (optional)", { type: "tel", placeholder: "+44 7700 900000" })}
+          {field("note", "Delivery note (optional)", { placeholder: "Leave at front door…" })}
+
+          {/* Pin on map (optional but helps the driver find you) */}
+          <div>
+            <div className="flex gap-3 items-center justify-between mb-1.5">
+              <label className="text-xs font-medium text-zinc-500">
+                Pin on map <span className="text-zinc-300">(optional — helps the driver find you)</span>
+              </label>
+              <button
+                type="button"
+                onClick={detectMyLocation}
+                disabled={locating}
+                className="text-xs font-semibold text-orange-600 hover:text-orange-700 disabled:opacity-50 flex items-center gap-1"
+              >
+                <Navigation size={11} className={locating ? "animate-spin" : " flex-shrink-0"} />
+                {locating ? "Locating…" : "Use my location"}
+              </button>
+            </div>
+            <LocationMap
+              center={[
+                form.lat ?? settings.restaurant.lat ?? 51.515,
+                form.lng ?? settings.restaurant.lng ?? -0.063,
+              ]}
+              height={200}
+              className="rounded-xl border border-zinc-200"
+              markers={[
+                {
+                  lat: settings.restaurant.lat ?? 51.515,
+                  lng: settings.restaurant.lng ?? -0.063,
+                  color: "#f97316",
+                  tooltip: "Restaurant",
+                },
+                ...(form.lat != null && form.lng != null ? [{
+                  lat: form.lat,
+                  lng: form.lng,
+                  isPrimary: true,
+                  color: "#3b82f6",
+                  tooltip: "Your address",
+                }] : []),
+              ]}
+              clickToMove
+              draggable
+              fitToContent={form.lat != null && form.lng != null}
+              onPrimaryMove={(lat, lng) => {
+                setForm((f) => ({ ...f, lat, lng }));
+                setPinSource("user");
+              }}
+            />
+            {/* Pin-status badge — tells the user whether the visible pin is
+                confirmed or just an automated guess from the typed address. */}
+            {form.lat != null && form.lng != null ? (
+              pinSource === "estimated" ? (
+                <p className="mt-1.5 text-[11px] text-amber-600">
+                  <span className="font-semibold">Pin estimated from your address.</span> Drag to confirm the exact spot.
+                </p>
+              ) : (
+                <p className="mt-1.5 text-[11px] text-green-600">
+                  <span className="font-semibold">Pin set.</span> Drag or click elsewhere to refine.
+                </p>
+              )
+            ) : (
+              <p className="mt-1.5 text-[11px] text-zinc-400">
+                Click the map to drop a pin, or skip — we&apos;ll try to find it from your address when you save.
+              </p>
+            )}
+          </div>
 
           <div className="flex gap-2 pt-1">
             <button
               onClick={handleSave}
-              className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold py-2.5 rounded-xl text-sm transition"
+              className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold px-2 py-2.5 rounded-xl text-sm transition"
             >
               {editingId ? "Update address" : "Save address"}
             </button>
@@ -691,9 +920,21 @@ function AddressesTab() {
                       <Edit2 size={13} />
                     </button>
                     {deleteConfirm === addr.id ? (
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => handleDelete(addr.id)} className="text-xs font-bold text-red-500 hover:text-red-700 px-2 py-1 rounded-lg hover:bg-red-50 transition">Delete</button>
-                        <button onClick={() => setDeleteConfirm(null)} className="text-xs text-zinc-400 hover:text-zinc-600 px-2 py-1 rounded-lg transition">Cancel</button>
+                      <div className="flex items-center gap-1 animate-in fade-in zoom-in-95 duration-200">
+                        <button
+                          onClick={() => handleDelete(addr.id)}
+                          className="w-8 h-8 flex items-center justify-center rounded-lg bg-red-100 hover:bg-red-200 text-red-600 transition"
+                          title="Confirm Delete"
+                        >
+                          <Check size={14} strokeWidth={2.5} />
+                        </button>
+                        <button
+                          onClick={() => setDeleteConfirm(null)}
+                          className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-600 transition"
+                          title="Cancel"
+                        >
+                          <X size={14} strokeWidth={2.5} />
+                        </button>
                       </div>
                     ) : (
                       <button
@@ -750,20 +991,32 @@ function AddressesTab() {
 // ─── Change Password Card ─────────────────────────────────────────────────────
 
 function ChangePasswordCard() {
-  const [open,            setOpen]            = useState(false);
+  const [open, setOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword,     setNewPassword]     = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showCurrent,     setShowCurrent]     = useState(false);
-  const [showNew,         setShowNew]         = useState(false);
-  const [loading,         setLoading]         = useState(false);
-  const [error,           setError]           = useState("");
-  const [success,         setSuccess]         = useState(false);
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+  const submitInFlight = useRef(false);
+
+  const { currentUser } = useApp();
+  // Inline "send reset email" — for signed-in users who don't remember their
+  // current password. Posts to the standard reset endpoint with their known
+  // email so they never leave /account. (The /login forgot flow bounces
+  // signed-in users straight back here, which is why a link there never worked.)
+  const [resetSent, setResetSent] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetError, setResetError] = useState("");
+  const resetInFlight = useRef(false);
 
   function reset() {
     setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
     setShowCurrent(false); setShowNew(false);
     setError(""); setSuccess(false);
+    setResetSent(false); setResetError("");
   }
 
   function handleToggle() {
@@ -773,15 +1026,17 @@ function ChangePasswordCard() {
 
   async function handleSubmit(e: { preventDefault(): void }) {
     e.preventDefault();
+    if (submitInFlight.current) return;
     setError("");
     if (newPassword.length < 6) { setError("New password must be at least 6 characters."); return; }
     if (newPassword !== confirmPassword) { setError("Passwords do not match."); return; }
+    submitInFlight.current = true;
     setLoading(true);
     try {
-      const res  = await fetch("/api/auth/change-password", {
-        method:  "POST",
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ currentPassword, newPassword }),
+        body: JSON.stringify({ currentPassword, newPassword }),
       });
       const json = await res.json() as { ok: boolean; error?: string };
       if (json.ok) {
@@ -794,7 +1049,35 @@ function ChangePasswordCard() {
     } catch {
       setError("Connection error. Please try again.");
     } finally {
+      submitInFlight.current = false;
       setLoading(false);
+    }
+  }
+
+  async function handleSendReset() {
+    if (resetInFlight.current || !currentUser?.email) return;
+    resetInFlight.current = true;
+    setResetError("");
+    setResetLoading(true);
+    try {
+      const res = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: currentUser.email }),
+      });
+      // The endpoint always returns ok:true on success (it never reveals whether
+      // an email is registered), so a non-2xx here means rate-limit or transport.
+      if (res.ok) {
+        setResetSent(true);
+      } else {
+        const json = await res.json().catch(() => null) as { error?: string } | null;
+        setResetError(json?.error ?? "Couldn't send the reset email. Please try again.");
+      }
+    } catch {
+      setResetError("Connection error. Please try again.");
+    } finally {
+      resetInFlight.current = false;
+      setResetLoading(false);
     }
   }
 
@@ -915,12 +1198,26 @@ function ChangePasswordCard() {
                 </button>
               </div>
 
-              <p className="text-center text-xs text-zinc-400">
-                Forgot your password?{" "}
-                <Link href="/login?action=forgot" className="text-zinc-700 font-semibold hover:underline">
-                  Reset via email
-                </Link>
-              </p>
+              {resetSent ? (
+                <p className="text-center text-xs text-green-600">
+                  Reset link sent to <span className="font-semibold">{currentUser?.email}</span>. Check your inbox — it expires in 1 hour.
+                </p>
+              ) : (
+                <p className="text-center text-xs text-zinc-400">
+                  Forgot your current password?{" "}
+                  <button
+                    type="button"
+                    onClick={handleSendReset}
+                    disabled={resetLoading}
+                    className="text-zinc-700 font-semibold hover:underline disabled:opacity-50"
+                  >
+                    {resetLoading ? "Sending…" : "Send password reset email"}
+                  </button>
+                </p>
+              )}
+              {resetError && (
+                <p className="text-center text-xs text-red-500">{resetError}</p>
+              )}
             </form>
           )}
         </div>
@@ -955,7 +1252,7 @@ function ProfileTab() {
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-6">
-        <div className="flex items-center justify-between mb-5">
+        <div className="flex flex-wrap gap-3 items-center justify-between mb-5">
           <h3 className="font-semibold text-zinc-900">Personal details</h3>
           {!editing ? (
             <button
@@ -1017,8 +1314,10 @@ function ProfileTab() {
             {editing ? (
               <input
                 type="tel"
+                inputMode="tel"
+                autoComplete="tel"
                 value={form.phone}
-                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                onChange={(e) => setForm((f) => ({ ...f, phone: cleanPhone(e.target.value) }))}
                 className="w-full border border-zinc-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition"
               />
             ) : (
@@ -1044,6 +1343,163 @@ function ProfileTab() {
   );
 }
 
+// ─── Rewards Tab ──────────────────────────────────────────────────────────────
+// Read-only view of the three balances that ride on the customers row:
+// store credit, loyalty points, gift card balance. Issued via admin refunds
+// (store credit), POS-shared sales (loyalty / gift card) and consumed at the
+// online or POS till on the next order.
+
+interface PurchasedGiftCard {
+  id: string;
+  code: string;
+  initialAmount: number;
+  balance: number;
+  status: "active" | "redeemed" | "voided" | "expired";
+  issuedToEmail?: string;
+  createdAt: string;
+}
+
+function RewardsTab() {
+  const { currentUser, settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
+
+  const [myCards, setMyCards] = useState<PurchasedGiftCard[]>([]);
+  const [loadingCards, setLoadingCards] = useState(true);
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [cardToast, setCardToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!currentUser) { setLoadingCards(false); return; }
+    (async () => {
+      try {
+        const res = await fetch("/api/gift-cards/mine", { cache: "no-store" });
+        const json = await res.json() as { ok: boolean; giftCards?: PurchasedGiftCard[] };
+        if (json.ok) setMyCards(json.giftCards ?? []);
+      } finally {
+        setLoadingCards(false);
+      }
+    })();
+  }, [currentUser]);
+
+  async function resendCard(id: string) {
+    setResendingId(id);
+    setCardToast(null);
+    try {
+      const res = await fetch(`/api/gift-cards/mine/${id}/resend`, { method: "POST" });
+      const json = await res.json() as { ok: boolean; error?: string };
+      setCardToast(json.ok ? "Gift card email resent." : (json.error ?? "Could not resend."));
+    } catch {
+      setCardToast("Connection error.");
+    } finally {
+      setResendingId(null);
+      setTimeout(() => setCardToast(null), 3000);
+    }
+  }
+
+  if (!currentUser) return null;
+
+  const storeCredit = currentUser.storeCredit ?? 0;
+  const loyaltyPoints = currentUser.loyaltyPoints ?? 0;
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+        {/* Store credit */}
+        <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
+          <div className="flex items-start gap-4">
+            <div className="w-11 h-11 bg-teal-50 rounded-2xl flex items-center justify-center flex-shrink-0">
+              <Gift size={20} className="text-teal-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Store credit</p>
+              <p className="text-2xl font-bold text-zinc-900 tabular-nums mt-1">
+                {sym}{storeCredit.toFixed(2)}
+              </p>
+              <p className="text-xs text-zinc-500 mt-1">
+                {storeCredit > 0
+                  ? "Automatically applied at online checkout — you can toggle it off before paying."
+                  : "Issued when an order is refunded as store credit instead of a card return."}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Loyalty points */}
+        <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
+          <div className="flex items-start gap-4">
+            <div className="w-11 h-11 bg-amber-50 rounded-2xl flex items-center justify-center flex-shrink-0">
+              <Award size={20} className="text-amber-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Loyalty points</p>
+              <p className="text-2xl font-bold text-zinc-900 tabular-nums mt-1">
+                {loyaltyPoints.toLocaleString()}
+              </p>
+              <p className="text-xs text-zinc-500 mt-1">
+                {loyaltyPoints > 0
+                  ? "Earned on past orders. Ask staff in-store about redemption."
+                  : "Earned on orders. Your balance shows here as it grows."}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+      {/* Gift cards I've bought */}
+      <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
+        <div className="flex flex-wrap gap-2 items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <CreditCard size={18} className="text-orange-500 flex-shrink-0" />
+            <h3 className="font-semibold text-zinc-900 text-sm">Gift cards I&apos;ve bought</h3>
+          </div>
+          <Link href="/gift-cards" className="text-xs font-semibold text-orange-600 hover:text-orange-700">
+            Buy a gift card →
+          </Link>
+        </div>
+
+        {cardToast && (
+          <div className="text-xs text-zinc-600 bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 mb-3">{cardToast}</div>
+        )}
+
+        {loadingCards ? (
+          <div className="flex items-center gap-2 text-sm text-zinc-400 py-4">
+            <RefreshCw size={14} className="animate-spin" /> Loading…
+          </div>
+        ) : myCards.length === 0 ? (
+          <p className="text-sm text-zinc-400 py-2">
+            You haven&apos;t bought any gift cards yet. <Link href="/gift-cards" className="text-orange-600 font-semibold">Send one to a friend →</Link>
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {myCards.map((c) => (
+              <div key={c.id} className="flex items-center justify-between gap-3 border border-zinc-100 rounded-xl px-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="text-sm font-bold font-mono tracking-wider text-zinc-900 truncate">{c.code}</p>
+                  <p className="text-[11px] text-zinc-400 truncate">
+                    {sym}{c.balance.toFixed(2)} of {sym}{c.initialAmount.toFixed(2)} · {c.issuedToEmail ?? "—"}
+                    {c.status !== "active" && ` · ${c.status}`}
+                  </p>
+                </div>
+                {c.issuedToEmail && c.status !== "voided" && (
+                  <button
+                    onClick={() => void resendCard(c.id)}
+                    disabled={resendingId === c.id}
+                    className="flex items-center gap-1 text-xs font-semibold text-orange-600 hover:text-orange-700 flex-shrink-0 disabled:opacity-50"
+                  >
+                    {resendingId === c.id ? <RefreshCw size={12} className="animate-spin" /> : <Mail size={12} />}
+                    Resend
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AccountPage() {
@@ -1054,22 +1510,27 @@ export default function AccountPage() {
   );
 }
 
-const VALID_TABS = ["orders", "favourites", "addresses", "profile"] as const;
+const VALID_TABS = ["orders", "favourites", "addresses", "rewards", "profile"] as const;
 type TabId = typeof VALID_TABS[number];
 
 function AccountPageContent() {
-  const { currentUser, customers, addToCart, menuItems, refreshCurrentUser } = useApp();
+  const { currentUser, customers, addToCart, menuItems, refreshCurrentUser, settings, logout } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [search, setSearch] = useState("");
+  const [showMobileCart, setShowMobileCart] = useState(false);
+  const [authModal, setAuthModal] = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   const urlTab = searchParams.get("tab");
-  const initialTab: TabId = (VALID_TABS as readonly string[]).includes(urlTab ?? "") ? urlTab as TabId : "orders";
+  const initialTab: TabId = (VALID_TABS as readonly string[]).includes(urlTab ?? "") ? urlTab as TabId : "profile";
 
   const [tab, setTab] = useState<TabId>(initialTab);
 
   function handleTabChange(t: TabId) {
     setTab(t);
-    router.replace(t === "orders" ? "/account" : `/account?tab=${t}`, { scroll: false });
+    router.replace(t === "profile" ? "/account" : `/account?tab=${t}`, { scroll: false });
     window.dispatchEvent(new CustomEvent("account-tab-change", { detail: { tab: t } }));
   }
 
@@ -1093,7 +1554,7 @@ function AccountPageContent() {
   // Poll every 15 s while viewing the orders tab — graceful fallback if Realtime drops.
   useEffect(() => {
     if (!currentUser?.id || tab !== "orders") return;
-    const id = setInterval(() => refreshCurrentUser().catch(() => {}), 15_000);
+    const id = setInterval(() => refreshCurrentUser().catch(() => { }), 15_000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.id, tab]);
@@ -1102,7 +1563,7 @@ function AccountPageContent() {
   useEffect(() => {
     function onVisible() {
       if (document.visibilityState === "visible" && currentUser && tab === "orders") {
-        refreshCurrentUser().catch(() => {});
+        refreshCurrentUser().catch(() => { });
       }
     }
     document.addEventListener("visibilitychange", onVisible);
@@ -1114,7 +1575,7 @@ function AccountPageContent() {
   // Watches both `order.status` (kitchen lifecycle) and `order.deliveryStatus`
   // (driver delivery leg). When either changes in another tab the storage event
   // updates `customers` in AppContext; we surface a contextual banner.
-  const prevStatusMapRef   = useRef<Record<string, OrderStatus>>({});
+  const prevStatusMapRef = useRef<Record<string, OrderStatus>>({});
   const prevDeliveryMapRef = useRef<Record<string, DeliveryStatus | undefined>>({});
 
   useEffect(() => {
@@ -1137,10 +1598,10 @@ function AccountPageContent() {
         const ds = o.deliveryStatus;
         banner =
           ds === "on_the_way" ? "🚴 Your driver is on the way!" :
-          ds === "picked_up"  ? "📦 Your order has been picked up" :
-          ds === "assigned"   ? "🏍️ A driver has been assigned to your order" :
-          ds === "delivered"  ? "✅ Your order has been delivered!" :
-          banner;
+            ds === "picked_up" ? "📦 Your order has been picked up" :
+              ds === "assigned" ? "🏍️ A driver has been assigned to your order" :
+                ds === "delivered" ? "✅ Your order has been delivered!" :
+                  banner;
       }
       prevD[o.id] = o.deliveryStatus;
     });
@@ -1186,8 +1647,15 @@ function AccountPageContent() {
   const orders = [...currentUser.orders].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
-  const activeOrders  = orders.filter((o) => !["delivered", "cancelled"].includes(o.status));
-  const totalSpent    = orders.filter((o) => o.status !== "cancelled").reduce((s, o) => s + o.total, 0);
+  const activeOrders = orders.filter((o) => !["delivered", "cancelled"].includes(o.status));
+  // Net "total spent" — same rule the admin + POS customer stats use
+  // (src/lib/customerSpend.ts): refunds reduce spend, and a paid-but-not-
+  // refunded cancellation still counts (the customer paid and we kept it),
+  // while an unpaid cancellation contributes nothing. We add this customer's
+  // net POS (in-person) spend (computed server-side in /api/auth/me) so the
+  // figure matches the admin + POS views, which already count both channels.
+  const onlineSpent = orders.reduce((s, o) => s + orderSpendContribution(o).amount, 0);
+  const totalSpent = onlineSpent + (currentUser.posSpend ?? 0);
 
   const itemCounts: Record<string, number> = {};
   orders.forEach((o) => o.items.forEach((i) => { itemCounts[i.name] = (itemCounts[i.name] ?? 0) + i.qty; }));
@@ -1206,6 +1674,13 @@ function AccountPageContent() {
         : menuItems.find((m) => m.name.toLowerCase() === line.name.toLowerCase());
 
       if (!menuItem) {
+        skipped.push(line.name);
+        return;
+      }
+
+      // Skip items that are no longer offered on the customer site (admin
+      // moved them to in-store-only since the original order was placed).
+      if (!isOnChannel(menuItem, "online")) {
         skipped.push(line.name);
         return;
       }
@@ -1245,7 +1720,10 @@ function AccountPageContent() {
         }
       }
 
-      const currentPrice = menuItem.price + variationPrice + addOnsTotal;
+      // Online channel: discount the base with any live per-unit offer, and
+      // use the online price override when set. Mirrors ItemCustomizationModal.
+      const offerBase = getOfferUnitPrice(menuItem) ?? effectiveMenuPrice(menuItem);
+      const currentPrice = offerBase + variationPrice + addOnsTotal;
       if (Math.abs(currentPrice - line.price) > 0.005) {
         priceChanged.push(line.name);
       }
@@ -1259,6 +1737,8 @@ function AccountPageContent() {
         selectedVariation,
         selectedAddOns,
         specialInstructions: line.specialInstructions,
+        // Snapshot the offer for cart-level math (bogo/multibuy/qty_discount).
+        ...(menuItem.offer?.active ? { offer: menuItem.offer } : {}),
       });
       added.push(line.name);
     });
@@ -1273,212 +1753,320 @@ function AccountPageContent() {
 
   return (
     <>
-      <div className="max-w-4xl mx-auto px-3 sm:px-4 py-4 sm:py-8 pb-8 sm:pb-12 space-y-4 sm:space-y-6">
-        {/* Profile banner */}
-        <div className="bg-gradient-to-br from-zinc-800 to-zinc-900 rounded-2xl p-4 sm:p-6 text-white shadow-lg">
-          <div className="flex items-center gap-3 sm:gap-4">
-            <div className="w-12 h-12 sm:w-14 sm:h-14 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0">
-              <span className="text-xl sm:text-2xl font-bold text-white">{liveUser.name.charAt(0).toUpperCase()}</span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <h1 className="text-lg sm:text-xl font-bold truncate">{liveUser.name}</h1>
-              <p className="text-zinc-300 text-xs sm:text-sm truncate">{liveUser.email}</p>
-              {liveUser.tags.length > 0 && (
-                <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                  {liveUser.tags.map((tag) => (
-                    <span key={tag} className="text-[10px] font-bold bg-white/20 text-white rounded-full px-2 py-0.5">
-                      {tag}
-                    </span>
-                  ))}
+      <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: 'var(--brand-bg, #FAFAF9)' }}>
+
+        {/* ── Main content area ─────────────────────────────────────────────── */}
+        <div className="flex-1 flex flex-col min-w-0 h-full">
+
+          {/* Top search header */}
+          <header className="hidden lg:flex items-center justify-between gap-3 px-4 md:px-6 py-3.5 border-b border-zinc-200/70 bg-white flex-shrink-0">
+            {/* Mobile: logo */}
+            <div className="lg:hidden flex items-center gap-2 flex-shrink-0">
+              {settings.restaurant.logoImage ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={settings.restaurant.logoImage} alt={settings.restaurant.name}
+                  className="w-8 h-8 rounded-xl object-cover" />
+              ) : (
+                <div className="w-8 h-8 rounded-xl bg-orange-500 text-white flex items-center justify-center text-[14px] font-bold">
+                  {settings.restaurant.name.charAt(0).toUpperCase()}
                 </div>
               )}
             </div>
-          </div>
-        </div>
 
-        {/* Stats */}
-        <div className={`grid gap-3 sm:gap-4 ${(liveUser.storeCredit ?? 0) > 0 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2 sm:grid-cols-3"}`}>
-          <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5">
-            <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
-              <ShoppingBag size={14} className="text-zinc-700 flex-shrink-0" />
-              <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total orders</span>
-            </div>
-            <p className="text-xl sm:text-2xl font-bold text-zinc-900 tabular-nums">{orders.length}</p>
-          </div>
-          <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5">
-            <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
-              <TrendingUp size={14} className="text-zinc-700 flex-shrink-0" />
-              <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total spent</span>
-            </div>
-            <p className="text-xl sm:text-2xl font-bold text-zinc-900 tabular-nums">£{totalSpent.toFixed(2)}</p>
-          </div>
-          {favourite ? (
-            <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5 col-span-2 sm:col-span-1">
-              <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
-                <Star size={14} className="text-zinc-700 flex-shrink-0" />
-                <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Most ordered</span>
-              </div>
-              <p className="text-sm font-bold text-zinc-900 leading-snug line-clamp-2">{favourite}</p>
-            </div>
-          ) : null}
-
-          {/* Store credit stat card — only when balance > 0 */}
-          {(liveUser.storeCredit ?? 0) > 0 && (
-            <div className="bg-teal-500 rounded-2xl p-4 sm:p-5 col-span-2 sm:col-span-1">
-              <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
-                <Gift size={14} className="text-teal-100 flex-shrink-0" />
-                <span className="text-[11px] sm:text-xs font-medium text-teal-100 truncate">Store credit</span>
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-white tabular-nums">£{(liveUser.storeCredit ?? 0).toFixed(2)}</p>
-              <p className="text-[10px] text-teal-200 mt-1">Auto-applied at checkout</p>
-            </div>
-          )}
-        </div>
-
-        {/* Store credit action banner */}
-        {(liveUser.storeCredit ?? 0) > 0 && (
-          <div className="flex items-start gap-3 sm:gap-4 bg-teal-50 border border-teal-200 rounded-2xl px-4 sm:px-5 py-4">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-              <Gift size={16} className="text-white" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-teal-800">
-                You have <span className="text-teal-600 tabular-nums">£{(liveUser.storeCredit ?? 0).toFixed(2)}</span> store credit
-              </p>
-              <p className="text-xs text-teal-600 mt-0.5 leading-relaxed">
-                Automatically applied at checkout. Toggle on/off before paying.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Active orders alert */}
-        {activeOrders.length > 0 && (
-          <div className="flex items-start gap-3 bg-zinc-50 border border-zinc-200 rounded-2xl px-4 sm:px-5 py-3.5 sm:py-4">
-            <Clock size={16} className="text-zinc-700 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-semibold text-zinc-700">
-                {activeOrders.length} active order{activeOrders.length > 1 ? "s" : ""} in progress
-              </p>
-              <p className="text-xs text-zinc-500 mt-0.5">Track your live orders in the Orders tab.</p>
-            </div>
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div className="flex gap-1 bg-zinc-100 p-1 rounded-xl overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-          {(["orders", "favourites", "addresses", "profile"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => handleTabChange(t)}
-              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-[13px] sm:text-sm font-semibold transition-all whitespace-nowrap flex-shrink-0 ${
-                tab === t ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
-              }`}
-            >
-              {t === "orders"     ? <Package  size={14} /> :
-               t === "favourites" ? <Heart    size={14} /> :
-               t === "addresses"  ? <MapPin   size={14} /> :
-                                    <User     size={14} />}
-              {t === "orders"     ? "Orders"     :
-               t === "favourites" ? "Favourites" :
-               t === "addresses"  ? "Addresses"  : "Profile"}
-              {t === "orders" && orders.length > 0 && (
-                <span className="ml-0.5 bg-orange-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                  {orders.length > 99 ? "99+" : orders.length}
-                </span>
+            {/* Search */}
+            <div className="flex-1 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-100 max-w-xl">
+              <Search className="w-4 h-4 text-zinc-400 flex-shrink-0" strokeWidth={1.8} />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search dishes…"
+                className="flex-1 bg-transparent outline-none text-[13.5px] text-zinc-900 placeholder:text-zinc-400"
+              />
+              {search && (
+                <button onClick={() => setSearch("")} className="text-[11px] font-medium text-zinc-400 hover:text-zinc-700 transition-colors">
+                  Clear
+                </button>
               )}
-              {t === "favourites" && (liveUser.favourites?.length ?? 0) > 0 && (
-                <span className="ml-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                  {liveUser.favourites!.length}
-                </span>
-              )}
-              {t === "addresses" && (liveUser.savedAddresses?.length ?? 0) > 0 && (
-                <span className="ml-0.5 bg-blue-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                  {liveUser.savedAddresses!.length}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
+            </div>
 
-        {/* Tab content */}
-        {tab === "orders" && (
-          <div className="space-y-4">
-            {isLoadingOrders && orders.length === 0 ? (
-              /* Skeleton shown while the first server fetch is in-flight */
-              <div className="space-y-3">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 animate-pulse">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="h-4 w-24 bg-zinc-100 rounded-full" />
-                      <div className="h-5 w-20 bg-zinc-100 rounded-full" />
+            {/* Auth / user (desktop) */}
+            <div className="hidden lg:flex items-center gap-2">
+              {currentUser ? (
+                <div className="relative">
+                  <button
+                    onClick={() => setUserMenuOpen((o) => !o)}
+                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 transition-colors"
+                  >
+                    <div className="w-6 h-6 rounded-full bg-orange-500 text-white flex items-center justify-center text-[11px] font-bold">
+                      {currentUser.name?.charAt(0).toUpperCase() ?? "U"}
                     </div>
-                    <div className="h-3 w-40 bg-zinc-100 rounded-full mb-2" />
-                    <div className="h-3 w-28 bg-zinc-100 rounded-full" />
+                    <span className="text-[13px] font-medium text-zinc-700">{currentUser.name?.split(" ")[0]}</span>
+                  </button>
+                  {userMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setUserMenuOpen(false)} />
+                      <div className="absolute right-0 top-full mt-2 w-44 bg-white rounded-xl border border-zinc-200/70 shadow-lg z-20 overflow-hidden py-1">
+                        <Link href="/account" onClick={() => setUserMenuOpen(false)}
+                          className="flex items-center gap-2.5 px-4 py-2.5 text-[13px] text-zinc-700 hover:bg-zinc-50 transition-colors">
+                          <LayoutDashboard className="w-4 h-4" strokeWidth={1.6} />Account
+                        </Link>
+                        <button onClick={() => { logout(); setUserMenuOpen(false); }}
+                          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[13px] text-red-600 hover:bg-red-50 transition-colors">
+                          <LogOut className="w-4 h-4" strokeWidth={1.6} />Sign out
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <button onClick={() => setAuthModal({ open: true, tab: "login" })}
+                  className="px-4 py-2 rounded-xl bg-orange-500 text-white text-[13px] font-medium hover:bg-orange-600 transition-colors">
+                  Sign in
+                </button>
+              )}
+            </div>
+
+          </header>
+          {/* Scrollable content */}
+          <div className="flex-1 overflow-y-auto pb-15">
+
+            <div className="max-w-4xl mx-auto px-3 sm:px-4 py-4 sm:py-8 pb-8 sm:pb-12 space-y-4 sm:space-y-6">
+              {/* Profile banner */}
+              <div className="bg-gradient-to-br from-zinc-800 to-zinc-900 rounded-2xl p-4 sm:p-6 text-white shadow-lg">
+                <div className="flex items-center gap-3 sm:gap-4">
+                  <div className="w-12 h-12 sm:w-14 sm:h-14 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0">
+                    <span className="text-xl sm:text-2xl font-bold text-white">{liveUser.name.charAt(0).toUpperCase()}</span>
                   </div>
+                  <div className="flex-1 min-w-0">
+                    <h1 className="text-lg sm:text-xl font-bold truncate">{liveUser.name}</h1>
+                    <p className="text-zinc-300 text-xs sm:text-sm truncate">{liveUser.email}</p>
+                    {liveUser.tags.length > 0 && (
+                      <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                        {liveUser.tags.map((tag) => (
+                          <span key={tag} className="text-[10px] font-bold bg-white/20 text-white rounded-full px-2 py-0.5">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Stats */}
+              <div className={`grid gap-3 sm:gap-4 ${(liveUser.storeCredit ?? 0) > 0 ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3"}`}>
+                <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5">
+                  <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
+                    <ShoppingBag size={14} className="text-zinc-700 flex-shrink-0" />
+                    <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total online orders</span>
+                  </div>
+                  <p className="text-lg sm:text-xl font-bold text-zinc-900 tabular-nums">{orders.length}</p>
+                </div>
+                <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5">
+                  <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
+                    <TrendingUp size={14} className="text-zinc-700 flex-shrink-0" />
+                    <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total spent</span>
+                  </div>
+                  <p className="text-[17px] sm:text-[19px] font-bold text-zinc-900 tabular-nums">{sym}{totalSpent.toFixed(2)}</p>
+                </div>
+                {favourite ? (
+                  <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5 col-span-2 sm:col-span-1">
+                    <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
+                      <Star size={14} className="text-zinc-700 flex-shrink-0" />
+                      <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Most ordered</span>
+                    </div>
+                    <p className="text-sm font-bold text-zinc-900 leading-snug line-clamp-2">{favourite}</p>
+                  </div>
+                ) : null}
+
+                {/* Store credit stat card — only when balance > 0 */}
+                {(liveUser.storeCredit ?? 0) > 0 && (
+                  <div className="bg-teal-500 rounded-2xl p-4 sm:p-5 col-span-2 sm:col-span-1">
+                    <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
+                      <Gift size={14} className="text-teal-100 flex-shrink-0" />
+                      <span className="text-[11px] sm:text-xs font-medium text-teal-100 truncate">Store credit</span>
+                    </div>
+                    <p className="text-xl sm:text-2xl lg:text-xl font-bold text-white tabular-nums">{sym}{(liveUser.storeCredit ?? 0).toFixed(2)}</p>
+                    <p className="text-[10px] text-teal-200 mt-1">Auto-applied at checkout</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Store credit action banner */}
+              {(liveUser.storeCredit ?? 0) > 0 && (
+                <div className="flex items-start gap-3 sm:gap-4 bg-teal-50 border border-teal-200 rounded-2xl px-4 sm:px-5 py-4">
+                  <div className="w-9 h-9 sm:w-10 sm:h-10 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <Gift size={16} className="text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-teal-800">
+                      You have <span className="text-teal-600 tabular-nums">{sym}{(liveUser.storeCredit ?? 0).toFixed(2)}</span> store credit
+                    </p>
+                    <p className="text-xs text-teal-600 mt-0.5 leading-relaxed">
+                      Automatically applied at checkout. Toggle on/off before paying.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Active orders alert */}
+              {activeOrders.length > 0 && (
+                <div className="flex items-start gap-3 bg-zinc-50 border border-zinc-200 rounded-2xl px-4 sm:px-5 py-3.5 sm:py-4">
+                  <Clock size={16} className="text-zinc-700 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-zinc-700">
+                      {activeOrders.length} active order{activeOrders.length > 1 ? "s" : ""} in progress
+                    </p>
+                    <p className="text-xs text-zinc-500 mt-0.5">Track your live orders in the Orders tab.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Tabs */}
+              <div className="flex gap-1 bg-zinc-100 p-1 rounded-xl overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+                {(["profile", "orders", "favourites", "addresses", "rewards"] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => handleTabChange(t)}
+                    className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-[13px] sm:text-sm font-semibold transition-all whitespace-nowrap flex-shrink-0 ${tab === t ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
+                      }`}
+                  >
+                    {t === "orders" ? <Package size={14} /> :
+                      t === "favourites" ? <Heart size={14} /> :
+                        t === "addresses" ? <MapPin size={14} /> :
+                          t === "rewards" ? <Award size={14} /> :
+                            <User size={14} />}
+                    {t === "orders" ? "Orders" :
+                      t === "favourites" ? "Favourites" :
+                        t === "addresses" ? "Addresses" :
+                          t === "rewards" ? "Rewards" : "Profile"}
+                    {t === "orders" && orders.length > 0 && (
+                      <span className="ml-0.5 bg-orange-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                        {orders.length > 99 ? "99+" : orders.length}
+                      </span>
+                    )}
+                    {t === "favourites" && (liveUser.favourites?.length ?? 0) > 0 && (
+                      <span className="ml-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                        {liveUser.favourites!.length}
+                      </span>
+                    )}
+                    {t === "addresses" && (liveUser.savedAddresses?.length ?? 0) > 0 && (
+                      <span className="ml-0.5 bg-blue-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                        {liveUser.savedAddresses!.length}
+                      </span>
+                    )}
+                  </button>
                 ))}
               </div>
-            ) : orders.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm py-16 text-center">
-                <ShoppingBag size={40} className="mx-auto text-zinc-200 mb-3" />
-                <p className="font-semibold text-zinc-400">No orders yet</p>
-                <p className="text-sm text-zinc-300 mt-1">Your order history will appear here.</p>
-                <Link href="/" className="mt-4 inline-flex items-center gap-1.5 text-sm text-zinc-700 font-semibold hover:underline">
-                  Browse the menu
-                </Link>
-              </div>
-            ) : (
-              <>
-                {/* Quick re-order section */}
-                <QuickReorder orders={orders} onReorder={handleReorder} />
 
-                {/* Full order history */}
-                <div className="space-y-3">
-                  {orders.map((order) => (
-                    <OrderCard key={order.id} order={order} onReorder={handleReorder} />
-                  ))}
+              {/* Tab content */}
+              {tab === "orders" && (
+                <div className="space-y-4">
+                  {isLoadingOrders && orders.length === 0 ? (
+                    /* Skeleton shown while the first server fetch is in-flight */
+                    <div className="space-y-3">
+                      {[1, 2, 3].map((i) => (
+                        <div key={i} className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 animate-pulse">
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="h-4 w-24 bg-zinc-100 rounded-full" />
+                            <div className="h-5 w-20 bg-zinc-100 rounded-full" />
+                          </div>
+                          <div className="h-3 w-40 bg-zinc-100 rounded-full mb-2" />
+                          <div className="h-3 w-28 bg-zinc-100 rounded-full" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : orders.length === 0 ? (
+                    <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm py-16 text-center">
+                      <ShoppingBag size={40} className="mx-auto text-zinc-200 mb-3" />
+                      <p className="font-semibold text-zinc-400">No orders yet</p>
+                      <p className="text-sm text-zinc-300 mt-1">Your order history will appear here.</p>
+                      <Link href="/" className="mt-4 inline-flex items-center gap-1.5 text-sm text-zinc-700 font-semibold hover:underline">
+                        Browse the menu
+                      </Link>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Quick re-order section */}
+                      <QuickReorder orders={orders} onReorder={handleReorder} />
+
+                      {/* Full order history */}
+                      <div className="space-y-3">
+                        {orders.map((order) => (
+                          <OrderCard key={order.id} order={order} onReorder={handleReorder} />
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
-              </>
+              )}
+
+              {tab === "favourites" && <FavouritesTab />}
+              {tab === "addresses" && <AddressesTab />}
+              {tab === "rewards" && <RewardsTab />}
+              {tab === "profile" && <ProfileTab />}
+            </div>
+
+            {/* Re-order toast */}
+            {reorderToast && (
+              <ReorderToast result={reorderToast} onClose={() => setReorderToast(null)} />
             )}
+
+            {/* Order status update banner (cross-tab real-time sync) */}
+            {updateBanner && !reorderToast && (
+              <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-sm">
+                <div className={`text-white rounded-2xl shadow-2xl px-5 py-4 flex items-center gap-3 ${updateBanner.includes("on the way") ? "bg-indigo-600" :
+                  updateBanner.includes("delivered") ? "bg-green-600" :
+                    updateBanner.includes("picked up") ? "bg-blue-600" :
+                      updateBanner.includes("driver") ? "bg-amber-600" :
+                        "bg-gray-900"
+                  }`}>
+                  <span className="text-lg flex-shrink-0">
+                    {updateBanner.startsWith("🚴") ? "🚴" :
+                      updateBanner.startsWith("📦") ? "📦" :
+                        updateBanner.startsWith("🏍️") ? "🏍️" :
+                          updateBanner.startsWith("✅") ? "✅" : <RefreshCw size={16} />}
+                  </span>
+                  <p className="text-sm font-semibold flex-1">{updateBanner.replace(/^[^ ]+ /, "")}</p>
+                  <button
+                    onClick={() => setUpdateBanner(null)}
+                    className="text-white/60 hover:text-white transition flex-shrink-0"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Mobile Bottom Nav ── */}
+        <MobileBottomNav
+          onCartOpen={() => setShowMobileCart(true)}
+          onAuth={() => setAuthModal({ open: true, tab: "login" })}
+        />
+
+        {/* ── Mobile Cart Drawer ── */}
+        {showMobileCart && (
+          <div className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end">
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowMobileCart(false)} />
+            <div className="relative bg-white rounded-t-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-xl">
+              <Cart
+                onMobileClose={() => setShowMobileCart(false)}
+                onOrderPlaced={() => { setShowMobileCart(false); router.push('/my-orders'); }}
+              />
+            </div>
           </div>
         )}
 
-        {tab === "favourites" && <FavouritesTab />}
-        {tab === "addresses"  && <AddressesTab />}
-        {tab === "profile"    && <ProfileTab />}
+        {authModal.open && (
+          <AuthModal
+            initialTab={authModal.tab}
+            onClose={() => setAuthModal({ open: false, tab: "login" })}
+          />
+        )}
+
       </div>
-
-      {/* Re-order toast */}
-      {reorderToast && (
-        <ReorderToast result={reorderToast} onClose={() => setReorderToast(null)} />
-      )}
-
-      {/* Order status update banner (cross-tab real-time sync) */}
-      {updateBanner && !reorderToast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-sm">
-          <div className={`text-white rounded-2xl shadow-2xl px-5 py-4 flex items-center gap-3 ${
-            updateBanner.includes("on the way") ? "bg-indigo-600" :
-            updateBanner.includes("delivered")  ? "bg-green-600"  :
-            updateBanner.includes("picked up")  ? "bg-blue-600"   :
-            updateBanner.includes("driver")     ? "bg-amber-600"  :
-            "bg-gray-900"
-          }`}>
-            <span className="text-lg flex-shrink-0">
-              {updateBanner.startsWith("🚴") ? "🚴" :
-               updateBanner.startsWith("📦") ? "📦" :
-               updateBanner.startsWith("🏍️") ? "🏍️" :
-               updateBanner.startsWith("✅") ? "✅" : <RefreshCw size={16} />}
-            </span>
-            <p className="text-sm font-semibold flex-1">{updateBanner.replace(/^[^ ]+ /, "")}</p>
-            <button
-              onClick={() => setUpdateBanner(null)}
-              className="text-white/60 hover:text-white transition flex-shrink-0"
-            >
-              <X size={15} />
-            </button>
-          </div>
-        </div>
-      )}
     </>
   );
 }

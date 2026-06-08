@@ -2,13 +2,17 @@
 
 import { useState, useMemo } from "react";
 import { useApp } from "@/context/AppContext";
-import { Customer, DeliveryStatus, Order, OrderStatus } from "@/types";
+import { Customer, DeliveryStatus, Order, OrderStatus, Refund } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
 import {
   Truck, Package, ChefHat, CheckCircle2, Circle, Ban,
   Clock, MapPin, Phone, ShoppingBag, TrendingUp,
   ChevronRight, X, RefreshCw, Bike, Store,
   AlertCircle, Search, Filter, Navigation, RotateCcw,
 } from "lucide-react";
+import { PaymentStatusBadge } from "@/components/admin/PaymentStatusBadge";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import { RefundModal } from "@/components/admin/RefundsPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,14 +26,33 @@ interface RichOrder extends Order {
 
 const ACTIVE_STATUSES: OrderStatus[] = ["pending", "confirmed", "preparing", "ready"];
 
+// A refunded order (full or partial) has left the live delivery workflow and
+// is handled in the Refunds panel. Refund state lives in paymentStatus; older
+// rows may carry it on status. Used to keep refunded orders out of the active
+// kanban and the delivered-based stats, matching pre-fix behaviour (before the
+// refund flow stopped overwriting status with the refund state).
+function isRefundedOrder(o: { status: string; paymentStatus?: string | null }): boolean {
+  return o.paymentStatus === "refunded" || o.paymentStatus === "partially_refunded"
+      || o.status === "refunded" || o.status === "partially_refunded";
+}
+
+// When cancelling an active order, can the operator also issue a refund?
+// Only if money was actually collected (card / online "paid", or a partial
+// refund already happened) and something remains refundable. Unpaid
+// cash-on-delivery orders have nothing to return.
+function isCancelRefundEligible(o: Order): boolean {
+  if (o.paymentStatus !== "paid" && o.paymentStatus !== "partially_refunded") return false;
+  return (o.refundedAmount ?? 0) < o.total - 0.001;
+}
+
 // For delivery orders: admin can only advance up to "ready".
 // The driver then drives the order through to "delivered" via delivery status.
 // For collection orders: admin can advance all the way to "delivered".
 const STATUS_NEXT: Partial<Record<OrderStatus, OrderStatus>> = {
-  pending:   "confirmed",
+  pending: "confirmed",
   confirmed: "preparing",
   preparing: "ready",
-  ready:     "delivered", // only used for collection orders (guarded in advance())
+  ready: "delivered", // only used for collection orders (guarded in advance())
 };
 
 /** Whether the admin can advance this order to the next status */
@@ -112,15 +135,25 @@ const STATUS_CONFIG: Record<OrderStatus, {
   },
 };
 
+// Cancelled-but-refunded must surface both states — a bare "Cancelled" badge
+// hides the fact that the customer's money already went back (QA #37).
+function orderStatusLabel(o: { status: OrderStatus; paymentStatus?: string | null }): string {
+  const base = STATUS_CONFIG[o.status]?.label ?? String(o.status);
+  if (o.status !== "cancelled") return base;
+  if (o.paymentStatus === "refunded")           return "Cancelled · Refunded";
+  if (o.paymentStatus === "partially_refunded") return "Cancelled · Partial refund";
+  return base;
+}
+
 // ─── Delivery leg config ──────────────────────────────────────────────────────
 
 const DS_STEPS: DeliveryStatus[] = ["assigned", "picked_up", "on_the_way", "delivered"];
 
 const DS_CONFIG: Record<DeliveryStatus, { label: string; badge: string; dot: string; pulse?: boolean }> = {
-  assigned:   { label: "Driver assigned",   badge: "bg-amber-50 text-amber-700 border-amber-200",   dot: "bg-amber-500"  },
-  picked_up:  { label: "Picked up",         badge: "bg-blue-50 text-blue-700 border-blue-200",     dot: "bg-blue-500"   },
-  on_the_way: { label: "On the way",        badge: "bg-indigo-50 text-indigo-700 border-indigo-200", dot: "bg-indigo-500", pulse: true },
-  delivered:  { label: "Delivered",         badge: "bg-green-50 text-green-700 border-green-200",  dot: "bg-green-500"  },
+  assigned: { label: "Driver", badge: "bg-amber-50 text-amber-700 border-amber-200", dot: "bg-amber-500" },
+  picked_up: { label: "Picked", badge: "bg-blue-50 text-blue-700 border-blue-200", dot: "bg-blue-500" },
+  on_the_way: { label: "On the way", badge: "bg-indigo-50 text-indigo-700 border-indigo-200", dot: "bg-indigo-500", pulse: true },
+  delivered: { label: "Delivered", badge: "bg-green-50 text-green-700 border-green-200", dot: "bg-green-500" },
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -162,8 +195,8 @@ function StatCard({ label, value, sub, icon, accent = "orange" }: {
 }) {
   const colors = {
     orange: "bg-orange-50 text-orange-500",
-    green:  "bg-green-50 text-green-500",
-    blue:   "bg-blue-50 text-blue-500",
+    green: "bg-green-50 text-green-500",
+    blue: "bg-blue-50 text-blue-500",
     purple: "bg-purple-50 text-purple-500",
   };
   return (
@@ -172,7 +205,7 @@ function StatCard({ label, value, sub, icon, accent = "orange" }: {
         <span className="text-xs text-gray-500 font-medium">{label}</span>
         <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${colors[accent]}`}>{icon}</div>
       </div>
-      <div className="text-2xl font-bold text-gray-900">{value}</div>
+      <div className="text-lg sm:text-xl xl:text-2xl font-bold text-gray-900">{value}</div>
       {sub && <div className="text-xs text-gray-400 mt-0.5">{sub}</div>}
     </div>
   );
@@ -188,6 +221,8 @@ function KanbanCard({
   onCancel: () => void;
   onClick: () => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const cfg = STATUS_CONFIG[order.status];
   const adminCanAdvance = canAdminAdvance(order);
 
@@ -200,21 +235,21 @@ function KanbanCard({
       <div className="px-4 pt-3.5 pb-2.5">
         <div className="flex items-start justify-between gap-2 mb-2">
           <div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs font-mono text-gray-400">#{order.id.slice(-6).toUpperCase()}</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold border flex items-center gap-1 ${
-                order.fulfillment === "delivery"
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span title={fullOrderNumber(order.id)} className="text-xs font-mono text-gray-400 truncate max-w-[140px]">{fullOrderNumber(order.id)}</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold border flex items-center gap-1 ${order.fulfillment === "delivery"
                   ? "bg-blue-50 text-blue-600 border-blue-100"
                   : "bg-teal-50 text-teal-600 border-teal-100"
-              }`}>
+                }`}>
                 {order.fulfillment === "delivery" ? <Bike size={9} /> : <Store size={9} />}
                 {order.fulfillment === "delivery" ? "Delivery" : "Collection"}
               </span>
+              <PaymentStatusBadge status={order.paymentStatus} size="xs" />
             </div>
             <p className="font-semibold text-gray-900 text-sm mt-0.5">{order.customerName}</p>
           </div>
           <div className="text-right flex-shrink-0">
-            <div className="font-bold text-gray-900 text-sm">£{order.total.toFixed(2)}</div>
+            <div className="font-bold text-gray-900 text-sm">{sym}{order.total.toFixed(2)}</div>
             <div className="text-[10px] text-gray-400 flex items-center gap-0.5 justify-end mt-0.5">
               <Clock size={9} /> {timeSince(order.date)}
             </div>
@@ -275,11 +310,14 @@ function KanbanCard({
 
 // ─── Order detail modal ───────────────────────────────────────────────────────
 
-function OrderModal({ order, onClose, onStatusChange }: {
+function OrderModal({ order, onClose, onStatusChange, onRequestCancel }: {
   order: RichOrder;
   onClose: () => void;
   onStatusChange: (status: OrderStatus) => void;
+  onRequestCancel: () => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const cfg = STATUS_CONFIG[order.status];
   const isActive = ACTIVE_STATUSES.includes(order.status);
   const adminCanAdvanceModal = canAdminAdvance(order);
@@ -296,40 +334,42 @@ function OrderModal({ order, onClose, onStatusChange }: {
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-mono text-gray-400">#{order.id.toUpperCase()}</span>
-              <span className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${cfg.badge}`}>
-                {cfg.icon} {cfg.label}
-              </span>
+        <div className="px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-2">
+          <div className="flex flex-wrap gap-2 items-start">
+            <div className="flex flex-col items-start gap-1">
+              <span title={fullOrderNumber(order.id)} className="text-sm font-mono text-gray-400 break-all">{fullOrderNumber(order.id)}</span>
+              <p className="text-xs text-gray-400">{fmtDate(order.date)} at {fmtTime(order.date)}</p>
             </div>
-            <p className="text-xs text-gray-400 mt-0.5">{fmtDate(order.date)} at {fmtTime(order.date)}</p>
+            <span className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${cfg.badge}`}>
+              {cfg.icon} {orderStatusLabel(order)}
+            </span>
           </div>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition">
             <X size={15} />
           </button>
         </div>
 
-        <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
+        <div className="p-5 sm:p-6 space-y-5 max-h-[75vh] overflow-y-auto">
           {/* Customer */}
-          <div className="flex items-center gap-3 bg-gray-50 rounded-xl p-4">
-            <div className="w-10 h-10 bg-gradient-to-br from-orange-400 to-red-400 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
-              {order.customerName.charAt(0)}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-gray-900 text-sm">{order.customerName}</p>
-              <div className="flex flex-wrap gap-3 mt-0.5">
-                <span className="flex items-center gap-1 text-xs text-gray-500">
-                  <Phone size={10} /> {order.customerPhone || "—"}
-                </span>
+          <div className="flex flex-wrap items-center gap-3 bg-gray-50 rounded-xl p-4 justify-between">
+            <div className="flex gap-2 items-center">
+              <div className="w-10 h-10 bg-gradient-to-br from-orange-400 to-orange-600 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                {order.customerName.charAt(0)}
+              </div>
+              <div className="flex flex-col">
+                <p className="font-semibold text-gray-900 text-sm">{order.customerName}</p>
+                <div className="flex flex-wrap gap-3 mt-0.5">
+                  <span className="flex items-center gap-1 text-xs text-gray-500">
+                    <Phone size={10} /> {order.customerPhone || "—"}
+                  </span>
+                </div>
               </div>
             </div>
-            <div className={`text-[11px] px-2.5 py-1 rounded-full font-semibold border flex items-center gap-1 ${
-              order.fulfillment === "delivery"
+
+            <div className={`text-[11px] px-2.5 py-1 rounded-full font-semibold border flex items-center gap-1 ${order.fulfillment === "delivery"
                 ? "bg-blue-50 text-blue-600 border-blue-100"
                 : "bg-teal-50 text-teal-600 border-teal-100"
-            }`}>
+              }`}>
               {order.fulfillment === "delivery" ? <Bike size={11} /> : <Store size={11} />}
               {order.fulfillment === "delivery" ? "Delivery" : "Collection"}
             </div>
@@ -359,39 +399,37 @@ function OrderModal({ order, onClose, onStatusChange }: {
                   Driver: <span className="font-semibold text-gray-800">{order.driverName}</span>
                   {order.deliveryStatus === "on_the_way" && (
                     <span className="ml-1 flex items-center gap-1 text-indigo-600 font-bold">
-                      <Navigation size={10} className="animate-bounce" /> En route
+                      <Navigation size={10} className="animate-bounce" /> End route
                     </span>
                   )}
                 </p>
               )}
               {/* Step progress */}
-              <div className="flex items-center gap-1">
-                {DS_STEPS.map((step, i) => {
-                  const currentIdx = DS_STEPS.indexOf(order.deliveryStatus!);
-                  const done = i <= currentIdx;
-                  const active = step === order.deliveryStatus;
-                  return (
-                    <div key={step} className="flex items-center flex-1 last:flex-none">
-                      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ring-2 transition-all ${
-                        active ? "ring-indigo-300 bg-indigo-500 scale-125" :
-                        done   ? "ring-indigo-100 bg-indigo-400"           : "ring-gray-200 bg-gray-200"
-                      }`} />
-                      {i < DS_STEPS.length - 1 && (
-                        <div className={`h-0.5 flex-1 mx-0.5 ${i < currentIdx ? "bg-indigo-300" : "bg-gray-200"}`} />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="flex justify-between">
-                {DS_STEPS.map((step, i) => {
-                  const currentIdx = DS_STEPS.indexOf(order.deliveryStatus!);
-                  return (
-                    <span key={step} className={`text-[9px] font-medium ${i === currentIdx ? "text-indigo-600" : "text-gray-300"}`}>
-                      {DS_CONFIG[step].label.split(" ")[0]}
-                    </span>
-                  );
-                })}
+              <div className="pb-4">
+                <div className="flex items-center gap-1">
+                  {DS_STEPS.map((step, i) => {
+                    const currentIdx = DS_STEPS.indexOf(order.deliveryStatus!);
+                    const done = i <= currentIdx;
+                    const active = step === order.deliveryStatus;
+                    return (
+                      <div key={step} className="flex items-center flex-1 last:flex-none">
+                        <div className="relative flex justify-center">
+                          <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ring-2 transition-all ${active ? "ring-indigo-300 bg-indigo-500 scale-125" :
+                              done ? "ring-indigo-100 bg-indigo-400" : "ring-gray-200 bg-gray-200"
+                            }`} />
+                          <span className={`absolute top-5 whitespace-nowrap text-[8px] sm:text-[9px] font-medium ${active ? "text-indigo-600" : "text-gray-300"} ${
+                            i === 0 ? "left-0" : i === DS_STEPS.length - 1 ? "right-0" : "left-1/2 -translate-x-1/2"
+                          }`}>
+                            {DS_CONFIG[step].label.split(" ").slice(0, 3).join(" ")}
+                          </span>
+                        </div>
+                        {i < DS_STEPS.length - 1 && (
+                          <div className={`h-0.5 flex-1 mx-0.5 ${i < currentIdx ? "bg-indigo-300" : "bg-gray-200"}`} />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           )}
@@ -400,16 +438,33 @@ function OrderModal({ order, onClose, onStatusChange }: {
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Order items</p>
             <div className="space-y-2">
-              {order.items.map((item, i) => (
-                <div key={i} className="flex justify-between text-sm">
-                  <span className="text-gray-700">{item.qty}× {item.name}</span>
-                  <span className="font-medium text-gray-900">£{(item.price * item.qty).toFixed(2)}</span>
-                </div>
-              ))}
+              {order.items.map((item, i) => {
+                // Prefer the array form; fall back to the legacy singular variation.
+                const variations = (item.selectedVariations?.length
+                  ? item.selectedVariations
+                  : item.selectedVariation ? [item.selectedVariation] : []
+                ).map((v) => v.label).filter(Boolean);
+                const addOns = (item.selectedAddOns ?? []).map((a) => a.name).filter(Boolean);
+                const mods = [...variations, ...addOns];
+                return (
+                  <div key={i} className="flex justify-between gap-3 text-sm">
+                    <div className="min-w-0">
+                      <span className="text-gray-700">{item.qty}× {item.name}</span>
+                      {mods.length > 0 && (
+                        <p className="text-xs text-gray-500 mt-0.5">{mods.join(" · ")}</p>
+                      )}
+                      {item.specialInstructions && (
+                        <p className="text-xs text-amber-600 mt-0.5 italic">📝 {item.specialInstructions}</p>
+                      )}
+                    </div>
+                    <span className="font-medium text-gray-900 flex-shrink-0">{sym}{(item.price * item.qty).toFixed(2)}</span>
+                  </div>
+                );
+              })}
             </div>
             <div className="border-t border-gray-100 mt-3 pt-3 flex justify-between font-bold text-gray-900 text-sm">
               <span>Total</span>
-              <span>£{order.total.toFixed(2)}</span>
+              <span>{sym}{order.total.toFixed(2)}</span>
             </div>
           </div>
 
@@ -422,7 +477,7 @@ function OrderModal({ order, onClose, onStatusChange }: {
           )}
 
           {/* Status progress */}
-          <div>
+          <div className="pb-4">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Progress</p>
             <div className="flex items-center gap-1">
               {FLOW.map((s, i) => {
@@ -430,23 +485,22 @@ function OrderModal({ order, onClose, onStatusChange }: {
                 const current = order.status === s;
                 return (
                   <div key={s} className="flex items-center flex-1 last:flex-none">
-                    <div className={`w-3 h-3 rounded-full flex-shrink-0 ring-2 transition-all ${
-                      current ? "ring-orange-400 bg-orange-500 scale-125" :
-                      done ? "ring-orange-200 bg-orange-400" : "ring-gray-200 bg-gray-200"
-                    }`} />
+                    <div className="relative flex justify-center">
+                      <div className={`w-3 h-3 rounded-full flex-shrink-0 ring-2 transition-all ${current ? "ring-orange-400 bg-orange-500 scale-125" :
+                          done ? "ring-orange-200 bg-orange-400" : "ring-gray-200 bg-gray-200"
+                        }`} />
+                      <span className={`absolute top-6 whitespace-nowrap text-[8px] sm:text-[9px] font-medium ${order.status === s ? "text-orange-500" : "text-gray-300"} ${
+                         i === FLOW.length - 1 ? "-right-3" : "left-1/2 -translate-x-1/2"
+                      }`}>
+                        {STATUS_CONFIG[s].label}
+                      </span>
+                    </div>
                     {i < FLOW.length - 1 && (
                       <div className={`h-0.5 flex-1 mx-0.5 ${done && !current ? "bg-orange-300" : "bg-gray-200"}`} />
                     )}
                   </div>
                 );
               })}
-            </div>
-            <div className="flex justify-between mt-1">
-              {FLOW.map((s) => (
-                <span key={s} className={`text-[9px] font-medium ${order.status === s ? "text-orange-500" : "text-gray-300"}`}>
-                  {STATUS_CONFIG[s].label}
-                </span>
-              ))}
             </div>
           </div>
 
@@ -456,7 +510,7 @@ function OrderModal({ order, onClose, onStatusChange }: {
               {next && (
                 <button
                   onClick={() => { onStatusChange(next); onClose(); }}
-                  className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
+                  className="w-full bg-orange-500 hover:bg-orange-600 text-white text-sm sm:text-base font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
                 >
                   <RefreshCw size={15} />
                   Mark as {STATUS_CONFIG[next].label}
@@ -464,13 +518,13 @@ function OrderModal({ order, onClose, onStatusChange }: {
               )}
               {/* Delivery orders at "ready" are handed off to the driver — admin cannot mark delivered */}
               {!adminCanAdvanceModal && order.status === "ready" && (
-                <div className="w-full flex items-center justify-center gap-2 bg-purple-50 border border-purple-200 text-purple-700 font-semibold py-3 rounded-xl text-sm">
-                  <Truck size={15} />
+                <div className="w-full flex items-center justify-center gap-2 bg-purple-50 border border-purple-200 text-purple-700 font-semibold px-2 py-3 rounded-xl text-xs sm:text-sm">
+                  <Truck size={15} className="flex-shrink-0"/>
                   Awaiting driver pickup — driver will mark as delivered
                 </div>
               )}
               <button
-                onClick={() => { onStatusChange("cancelled"); onClose(); }}
+                onClick={onRequestCancel}
                 className="w-full border-2 border-red-200 text-red-500 hover:bg-red-50 font-semibold py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-sm"
               >
                 <Ban size={14} /> Cancel order
@@ -486,9 +540,12 @@ function OrderModal({ order, onClose, onStatusChange }: {
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 
 export default function DeliveryPanel() {
-  const { customers, updateOrderStatus } = useApp();
+  const { customers, updateOrderStatus, addRefund, settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
 
   const [modalOrder, setModalOrder] = useState<RichOrder | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<RichOrder | null>(null);
+  const [refundCancelTarget, setRefundCancelTarget] = useState<RichOrder | null>(null);
   const [fulfillmentFilter, setFulfillmentFilter] = useState<"all" | "delivery" | "collection">("all");
   const [search, setSearch] = useState("");
 
@@ -506,11 +563,11 @@ export default function DeliveryPanel() {
   );
 
   // Today's stats
-  const todayOrders   = allOrders.filter((o) => isToday(o.date));
-  const activeOrders  = allOrders.filter((o) => ACTIVE_STATUSES.includes(o.status));
-  const todayRevenue  = todayOrders.filter((o) => o.status === "delivered").reduce((s, o) => s + o.total, 0);
+  const todayOrders = allOrders.filter((o) => isToday(o.date));
+  const activeOrders = allOrders.filter((o) => ACTIVE_STATUSES.includes(o.status) && !isRefundedOrder(o));
+  const todayRevenue = todayOrders.filter((o) => o.status === "delivered" && !isRefundedOrder(o)).reduce((s, o) => s + o.total, 0);
   const deliveryCount = activeOrders.filter((o) => o.fulfillment === "delivery").length;
-  const todayDelivered = todayOrders.filter((o) => o.status === "delivered").length;
+  const todayDelivered = todayOrders.filter((o) => o.status === "delivered" && !isRefundedOrder(o)).length;
 
   // Helpers to mutate — emails are sent server-side by /api/admin/orders/[id]/status
   function advance(order: RichOrder) {
@@ -522,9 +579,30 @@ export default function DeliveryPanel() {
     }
   }
 
-  function cancel(order: RichOrder) {
+  // Actually performs the cancellation. Only called after the operator confirms
+  // in the dialog, which warns that a paid order is not auto-refunded.
+  function confirmCancel(order: RichOrder) {
     const cust = customers.find((c: Customer) => c.id === order.customerId);
     if (cust) updateOrderStatus(cust.id, order.id, "cancelled");
+    setCancelTarget(null);
+  }
+
+  // Refund + cancel: issue the refund (which sets status to "cancelled" in the
+  // same atomic write, so it can't race the cancel) then run the normal cancel
+  // so the customer still gets the cancellation email. Both write "cancelled",
+  // so the second call is idempotent.
+  function refundAndCancel(order: RichOrder, fields: Omit<Refund, "id" | "processedAt" | "processedBy">) {
+    const cust = customers.find((c: Customer) => c.id === order.customerId);
+    if (!cust) { setRefundCancelTarget(null); return; }
+    const refund: Refund = {
+      ...fields,
+      id: crypto.randomUUID(),
+      processedAt: new Date().toISOString(),
+      processedBy: "Admin",
+    };
+    addRefund(cust.id, order.id, refund, "cancelled");
+    updateOrderStatus(cust.id, order.id, "cancelled");
+    setRefundCancelTarget(null);
   }
 
   function changeStatus(order: RichOrder, status: OrderStatus) {
@@ -536,25 +614,41 @@ export default function DeliveryPanel() {
   const filteredActive = useMemo(() => {
     const q = search.toLowerCase();
     return allOrders.filter((o) => {
-      if (!ACTIVE_STATUSES.includes(o.status)) return false;
+      if (!ACTIVE_STATUSES.includes(o.status) || isRefundedOrder(o)) return false;
       if (fulfillmentFilter !== "all" && o.fulfillment !== fulfillmentFilter) return false;
       if (q && !o.customerName.toLowerCase().includes(q) && !o.id.toLowerCase().includes(q)) return false;
       return true;
     });
   }, [allOrders, fulfillmentFilter, search]);
 
-  // Completed today (delivered + cancelled)
+  // Completed today (delivered + cancelled). Refunded orders are handled in the
+  // Refunds panel and stay out of here, as they did before the refund flow
+  // stopped overwriting status.
   const completedToday = useMemo(() =>
     allOrders
-      .filter((o) => isToday(o.date) && (o.status === "delivered" || o.status === "cancelled"))
+      .filter((o) => isToday(o.date) && !isRefundedOrder(o) && (o.status === "delivered" || o.status === "cancelled"))
       .sort((a, b) => b.date.localeCompare(a.date)),
     [allOrders]
   );
 
   return (
     <div className="space-y-6">
+      {/* Header — mirrors POS / Dine-in monitor panels. The "Today / Ongoing"
+          qualifier matches what the panel actually shows: the kanban lists
+          ongoing orders of any date, the "Completed today" table below is
+          today-only. */}
+      <div className="flex items-center gap-2">
+        <div className="w-9 h-9 rounded-xl bg-orange-50 text-orange-500 flex items-center justify-center">
+          <Truck size={18} />
+        </div>
+        <div className="flex flex-col leading-snug">
+          <h2 className="font-bold text-gray-900 text-lg leading-tight">Online Orders · Today / Ongoing</h2>
+          <span className="text-[11px] font-semibold text-gray-400 mt-0.5">Live · ongoing orders &amp; today&apos;s completed</span>
+        </div>
+      </div>
+
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard
           label="Active orders"
           value={activeOrders.length}
@@ -578,7 +672,7 @@ export default function DeliveryPanel() {
         />
         <StatCard
           label="Revenue today"
-          value={`£${todayRevenue.toFixed(2)}`}
+          value={`${sym}${todayRevenue.toFixed(2)}`}
           sub="delivered orders only"
           icon={<TrendingUp size={16} />}
           accent="purple"
@@ -593,11 +687,10 @@ export default function DeliveryPanel() {
             <button
               key={f}
               onClick={() => setFulfillmentFilter(f)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition capitalize ${
-                fulfillmentFilter === f
+              className={`flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition capitalize ${fulfillmentFilter === f
                   ? "bg-orange-500 text-white shadow-sm"
                   : "text-gray-500 hover:text-gray-700"
-              }`}
+                }`}
             >
               {f === "delivery" && <Bike size={11} />}
               {f === "collection" && <Store size={11} />}
@@ -665,7 +758,7 @@ export default function DeliveryPanel() {
                         key={order.id}
                         order={order}
                         onAdvance={() => advance(order)}
-                        onCancel={() => cancel(order)}
+                        onCancel={() => setCancelTarget(order)}
                         onClick={() => setModalOrder(order)}
                       />
                     ))
@@ -708,19 +801,18 @@ export default function DeliveryPanel() {
                       className="hover:bg-gray-50/50 transition-colors cursor-pointer"
                       onClick={() => setModalOrder(order)}
                     >
-                      <td className="px-4 py-3 text-xs font-mono text-gray-400">
-                        #{order.id.slice(-6).toUpperCase()}
+                      <td title={fullOrderNumber(order.id)} className="px-4 py-3 text-xs font-mono text-gray-400 truncate max-w-[120px]">
+                        {fullOrderNumber(order.id)}
                       </td>
                       <td className="px-4 py-3">
                         <p className="text-sm font-medium text-gray-900">{order.customerName}</p>
                         <p className="text-[11px] text-gray-400">{order.customerPhone}</p>
                       </td>
                       <td className="px-4 py-3 hidden sm:table-cell">
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border flex items-center gap-1 w-fit ${
-                          order.fulfillment === "delivery"
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border flex items-center gap-1 w-fit ${order.fulfillment === "delivery"
                             ? "bg-blue-50 text-blue-600 border-blue-100"
                             : "bg-teal-50 text-teal-600 border-teal-100"
-                        }`}>
+                          }`}>
                           {order.fulfillment === "delivery" ? <Bike size={9} /> : <Store size={9} />}
                           {order.fulfillment === "delivery" ? "Delivery" : "Collection"}
                         </span>
@@ -729,7 +821,7 @@ export default function DeliveryPanel() {
                         {itemsSummary(order.items)}
                       </td>
                       <td className="px-4 py-3 font-bold text-gray-900 text-sm">
-                        £{order.total.toFixed(2)}
+                        {sym}{order.total.toFixed(2)}
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap hidden sm:table-cell">
                         {fmtTime(order.date)}
@@ -754,6 +846,61 @@ export default function DeliveryPanel() {
           order={modalOrder}
           onClose={() => setModalOrder(null)}
           onStatusChange={(status) => changeStatus(modalOrder, status)}
+          onRequestCancel={() => { setCancelTarget(modalOrder); setModalOrder(null); }}
+        />
+      )}
+
+      {/* Cancel confirmation — when the order is paid it offers a one-step
+          "refund + cancel"; otherwise a plain cancel. */}
+      {(() => {
+        const eligible = !!cancelTarget && isCancelRefundEligible(cancelTarget);
+        return (
+          <ConfirmDialog
+            open={!!cancelTarget}
+            title={`Cancel order ${cancelTarget ? fullOrderNumber(cancelTarget.id) : ""}?`}
+            tone="danger"
+            confirmLabel={eligible ? "Cancel without refund" : "Cancel order"}
+            cancelLabel="Keep order"
+            message={
+              <div className="space-y-3">
+                <p>This marks the order as cancelled and notifies the customer.</p>
+                {eligible ? (
+                  <>
+                    <p className="text-red-300 font-medium">
+                      This order is paid ({sym}{cancelTarget!.total.toFixed(2)}). Cancelling on
+                      its own does <span className="font-bold">not</span> return the money.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => { const t = cancelTarget; setCancelTarget(null); setRefundCancelTarget(t); }}
+                      className="w-full flex items-center justify-center gap-2 bg-teal-500 hover:bg-teal-400 text-white text-sm font-bold px-2 py-2.5 rounded-lg transition"
+                    >
+                      <RotateCcw size={14} className="flex-shrink-0"/> Refund + cancel order
+                    </button>
+                    <p className="text-xs text-gray-500">
+                      Or use “Cancel without refund” below to cancel and handle the refund later
+                      from the Refunds panel.
+                    </p>
+                  </>
+                ) : (
+                  <p>This action cannot be undone.</p>
+                )}
+              </div>
+            }
+            onConfirm={() => { if (cancelTarget) confirmCancel(cancelTarget); }}
+            onCancel={() => setCancelTarget(null)}
+          />
+        );
+      })()}
+
+      {/* Refund + cancel: reuses the Refunds panel modal, then cancels on submit */}
+      {refundCancelTarget && (
+        <RefundModal
+          order={refundCancelTarget}
+          customerName={refundCancelTarget.customerName}
+          cancelAfter
+          onClose={() => setRefundCancelTarget(null)}
+          onSubmit={(fields) => refundAndCancel(refundCancelTarget, fields)}
         />
       )}
     </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { useApp } from "@/context/AppContext";
 import { DeliveryZone } from "@/types";
 import {
@@ -9,98 +10,19 @@ import {
   Info, AlertCircle,
 } from "lucide-react";
 
+const DeliveryZoneMap = dynamic(() => import("./DeliveryZoneMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm h-[420px] flex items-center justify-center text-sm text-gray-400">
+      Loading map…
+    </div>
+  ),
+});
+
 const PRESET_COLORS = [
   "#f97316", "#3b82f6", "#a855f7", "#10b981",
   "#ef4444", "#f59e0b", "#06b6d4", "#ec4899",
 ];
-
-// ─── Zone Map (SVG) ───────────────────────────────────────────────────────────
-
-function ZoneMap({ zones, restaurantLat, restaurantLng }: {
-  zones: DeliveryZone[];
-  restaurantLat: number;
-  restaurantLng: number;
-}) {
-  const enabled = zones.filter((z) => z.enabled).sort((a, b) => b.maxRadiusKm - a.maxRadiusKm);
-  const maxKm = enabled.length ? Math.max(...enabled.map((z) => z.maxRadiusKm)) : 15;
-  const CX = 110, CY = 110, MAX_R = 95;
-
-  function r(km: number) { return (km / maxKm) * MAX_R; }
-
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <MapPin size={15} className="text-orange-500" />
-        <h3 className="font-semibold text-gray-900 text-sm">Coverage map</h3>
-        <span className="ml-auto text-xs text-gray-400">{restaurantLat.toFixed(4)}, {restaurantLng.toFixed(4)}</span>
-      </div>
-
-      <svg viewBox="0 0 220 220" className="w-full max-w-[220px] mx-auto block">
-        {/* Background */}
-        <circle cx={CX} cy={CY} r={MAX_R + 5} fill="#f9fafb" stroke="#e5e7eb" strokeWidth="1" />
-
-        {/* Zone rings — outermost first so inner ones paint on top */}
-        {enabled.map((zone) => (
-          <g key={zone.id}>
-            <circle cx={CX} cy={CY} r={r(zone.maxRadiusKm)} fill={zone.color} opacity={0.18} />
-            <circle cx={CX} cy={CY} r={r(zone.maxRadiusKm)} fill="none" stroke={zone.color} strokeWidth="1.5" strokeDasharray="4 2" opacity={0.6} />
-            {/* Erase inner zone from this ring */}
-            {zone.minRadiusKm > 0 && (
-              <circle cx={CX} cy={CY} r={r(zone.minRadiusKm)} fill="#f9fafb" />
-            )}
-          </g>
-        ))}
-
-        {/* Compass ticks */}
-        {[0, 90, 180, 270].map((deg) => {
-          const rad = (deg - 90) * Math.PI / 180;
-          const x1 = CX + (MAX_R + 2) * Math.cos(rad);
-          const y1 = CY + (MAX_R + 2) * Math.sin(rad);
-          const x2 = CX + (MAX_R + 7) * Math.cos(rad);
-          const y2 = CY + (MAX_R + 7) * Math.sin(rad);
-          return <line key={deg} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#d1d5db" strokeWidth="1" />;
-        })}
-
-        {/* Distance labels on edge */}
-        {enabled.map((zone) => (
-          <text
-            key={zone.id + "-label"}
-            x={CX + r(zone.maxRadiusKm) * Math.cos(-Math.PI / 4)}
-            y={CY + r(zone.maxRadiusKm) * Math.sin(-Math.PI / 4) - 3}
-            fontSize="7"
-            fill={zone.color}
-            fontWeight="600"
-            textAnchor="middle"
-          >
-            {zone.maxRadiusKm}km
-          </text>
-        ))}
-
-        {/* Restaurant pin */}
-        <circle cx={CX} cy={CY} r={6} fill="#f97316" stroke="white" strokeWidth="2" />
-        <circle cx={CX} cy={CY} r={2} fill="white" />
-        <text x={CX} y={CY + 15} textAnchor="middle" fontSize="8" fill="#374151" fontWeight="600">
-          Restaurant
-        </text>
-      </svg>
-
-      {/* Legend */}
-      <div className="mt-3 space-y-1.5">
-        {enabled.map((zone) => (
-          <div key={zone.id} className="flex items-center gap-2 text-xs text-gray-600">
-            <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: zone.color }} />
-            <span className="font-medium">{zone.name}</span>
-            <span className="text-gray-400">{zone.minRadiusKm}–{zone.maxRadiusKm} km</span>
-            <span className="ml-auto font-semibold text-gray-700">£{zone.fee.toFixed(2)}</span>
-          </div>
-        ))}
-        {enabled.length === 0 && (
-          <p className="text-xs text-gray-400 text-center py-2">No active zones</p>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ─── Zone Card ────────────────────────────────────────────────────────────────
 
@@ -111,7 +33,14 @@ function ZoneCard({
   onUpdate: (z: DeliveryZone) => void;
   onDelete: () => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [editing, setEditing] = useState(false);
+  // Inline two-step delete confirm — matches the pattern used by the driver /
+  // waiter / coupon row cards. Deleting a zone is destructive (it can't be
+  // undone and changes which addresses the store delivers to), so a stray
+  // trash-icon click shouldn't action immediately.
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [draft, setDraft] = useState({
     name: zone.name,
     minRadiusKm: zone.minRadiusKm,
@@ -132,25 +61,26 @@ function ZoneCard({
   return (
     <div className={`rounded-2xl border-2 transition-colors ${zone.enabled ? "border-gray-100 bg-white" : "border-dashed border-gray-200 bg-gray-50/60"}`}>
       {/* Header row */}
-      <div className="flex items-center gap-3 px-4 py-3.5">
-        <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: zone.color }} />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className={`font-semibold text-sm ${zone.enabled ? "text-gray-900" : "text-gray-400"}`}>
-              {zone.name}
-            </span>
-            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${
-              zone.enabled ? "bg-green-50 text-green-700 border-green-200" : "bg-gray-100 text-gray-400 border-gray-200"
-            }`}>
-              {zone.enabled ? "Active" : "Disabled"}
-            </span>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3.5">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: zone.color }} />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className={`font-semibold text-sm ${zone.enabled ? "text-gray-900" : "text-gray-400"}`}>
+                {zone.name}
+              </span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${zone.enabled ? "bg-green-50 text-green-700 border-green-200" : "bg-gray-100 text-gray-400 border-gray-200"
+                }`}>
+                {zone.enabled ? "Active" : "Disabled"}
+              </span>
+            </div>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {zone.minRadiusKm}–{zone.maxRadiusKm} km &nbsp;·&nbsp; {sym}{zone.fee.toFixed(2)} delivery
+            </p>
           </div>
-          <p className="text-xs text-gray-400 mt-0.5">
-            {zone.minRadiusKm}–{zone.maxRadiusKm} km &nbsp;·&nbsp; £{zone.fee.toFixed(2)} delivery
-          </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center justify-center sm:justify-end gap-2 flex-shrink-0 mt-2 sm:mt-0 pt-2 sm:pt-0 border-t sm:border-0 border-gray-100">
           <button
             onClick={() => onUpdate({ ...zone, enabled: !zone.enabled })}
             className={`transition-colors ${zone.enabled ? "text-green-500 hover:text-green-600" : "text-gray-300 hover:text-gray-400"}`}
@@ -163,12 +93,31 @@ function ZoneCard({
           >
             <Pencil size={13} />
           </button>
-          <button
-            onClick={onDelete}
-            className="w-8 h-8 flex items-center justify-center rounded-xl bg-gray-100 hover:bg-red-100 hover:text-red-500 text-gray-500 transition"
-          >
-            <Trash2 size={13} />
-          </button>
+          {confirmDelete ? (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={onDelete}
+                className="text-xs bg-red-500 hover:bg-red-600 text-white font-bold px-2.5 py-1.5 rounded-xl transition"
+              >
+                Confirm
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-400 transition"
+                aria-label="Keep zone"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="w-8 h-8 flex items-center justify-center rounded-xl bg-gray-100 hover:bg-red-100 hover:text-red-500 text-gray-500 transition"
+              aria-label="Delete zone"
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -204,7 +153,7 @@ function ZoneCard({
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1.5">Fee (£)</label>
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5">Fee ({sym})</label>
               <input
                 type="number" min="0" step="0.10"
                 value={draft.fee}
@@ -331,7 +280,7 @@ function PaymentDistanceRules() {
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+      <div className="px-5 py-4 border-b border-gray-100 flex flex-wrap items-center gap-2">
         <Ruler size={15} className="text-orange-500" />
         <h3 className="font-semibold text-gray-900 text-sm">Payment method distance rules</h3>
         <span className="ml-2 text-xs text-gray-400">Restrict which methods appear at checkout based on delivery distance</span>
@@ -365,14 +314,14 @@ function PaymentDistanceRules() {
 
               {/* Range inputs — only shown when restricted */}
               {range.restricted && (
-                <div className="flex items-center gap-3 pl-9">
-                  <div className="flex items-center gap-2 flex-1">
+                <div className="flex flex-wrap items-center gap-3 pl-4 sm:pl-9">
+                  <div className="flex items-center gap-2 ">
                     <span className="text-xs text-gray-500 whitespace-nowrap">Min km</span>
                     <input
                       type="number" min="0" step="0.5" max={range.maxKm}
                       value={range.minKm}
                       onChange={(e) => updatePaymentMethod({ ...method, deliveryRange: { ...range, minKm: Number(e.target.value) } })}
-                      className="w-20 px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                      className="w-10 sm:w-20 px-3 py-1.5 border border-gray-200 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
                     />
                   </div>
                   <span className="text-gray-300">—</span>
@@ -382,7 +331,7 @@ function PaymentDistanceRules() {
                       type="number" min={range.minKm} step="0.5" max={maxZoneKm}
                       value={range.maxKm}
                       onChange={(e) => updatePaymentMethod({ ...method, deliveryRange: { ...range, maxKm: Number(e.target.value) } })}
-                      className="w-20 px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                      className="w-10 sm:w-20 px-3 py-1.5 border border-gray-200 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
                     />
                   </div>
                   <span className="text-xs text-gray-400 whitespace-nowrap">
@@ -401,7 +350,8 @@ function PaymentDistanceRules() {
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 
 export default function DeliveryZonesPanel() {
-  const { settings, addDeliveryZone, updateDeliveryZone, deleteDeliveryZone } = useApp();
+  const { settings, updateSettings, addDeliveryZone, updateDeliveryZone, deleteDeliveryZone } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const zones = [...settings.deliveryZones].sort((a, b) => a.maxRadiusKm - b.maxRadiusKm);
   const [showAdd, setShowAdd] = useState(false);
   const [newZone, setNewZone] = useState({ name: "", minRadiusKm: 0, maxRadiusKm: 5, fee: 2.99, color: PRESET_COLORS[zones.length % PRESET_COLORS.length] });
@@ -427,27 +377,50 @@ export default function DeliveryZonesPanel() {
   const activeCount = zones.filter((z) => z.enabled).length;
   const { restaurant } = settings;
 
+  // Misconfiguration guard: zones won't apply at checkout if the restaurant
+  // itself isn't pinned on the map. The server rejects orders in this state to
+  // avoid silently charging the default fee while the customer was shown a
+  // zone fee, so we surface it loudly here so the admin can fix it.
+  const restaurantCoordsMissing =
+    typeof restaurant.lat !== "number" || typeof restaurant.lng !== "number";
+  const showConfigWarning = activeCount > 0 && restaurantCoordsMissing;
+
   return (
     <div className="space-y-6">
+      {showConfigWarning && (
+        <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-2xl px-4 py-3 shadow-sm">
+          <AlertCircle size={18} className="text-red-600 flex-shrink-0 mt-0.5" />
+          <div className="text-sm text-red-800">
+            <p className="font-semibold mb-1">Delivery zones can&apos;t apply yet</p>
+            <p className="text-xs leading-relaxed">
+              You have {activeCount} active zone{activeCount !== 1 ? "s" : ""}, but the restaurant&apos;s own
+              location isn&apos;t pinned on the map. Until you set it below, the server can&apos;t compute
+              delivery distances — <span className="font-semibold">delivery orders will be rejected</span> at
+              checkout. Drop a pin on the map (or use &quot;Use my current location&quot;) to fix this.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
           <p className="text-xs text-gray-500 font-medium mb-1">Active zones</p>
-          <p className="text-2xl font-bold text-gray-900">{activeCount}</p>
+          <p className="text-xl sm:text-2xl font-bold text-gray-900">{activeCount}</p>
           <p className="text-xs text-gray-400">of {zones.length} configured</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
           <p className="text-xs text-gray-500 font-medium mb-1">Max radius</p>
-          <p className="text-2xl font-bold text-gray-900">
+          <p className="text-xl sm:text-2xl font-bold text-gray-900">
             {zones.length ? Math.max(...zones.map((z) => z.maxRadiusKm)) : 0} km
           </p>
           <p className="text-xs text-gray-400">furthest delivery zone</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 col-span-2 sm:col-span-1">
           <p className="text-xs text-gray-500 font-medium mb-1">Fee range</p>
-          <p className="text-2xl font-bold text-gray-900">
+          <p className="text-xl sm:text-2xl font-bold text-gray-900">
             {zones.length
-              ? `£${Math.min(...zones.map((z) => z.fee)).toFixed(2)}–£${Math.max(...zones.map((z) => z.fee)).toFixed(2)}`
+              ? `${sym}${Math.min(...zones.map((z) => z.fee)).toFixed(2)}–${sym}${Math.max(...zones.map((z) => z.fee)).toFixed(2)}`
               : "—"}
           </p>
           <p className="text-xs text-gray-400">across all zones</p>
@@ -457,18 +430,28 @@ export default function DeliveryZonesPanel() {
       {/* Main grid: location card + map side by side */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <RestaurantLocationCard />
-        <ZoneMap zones={zones} restaurantLat={restaurant.lat ?? 51.515} restaurantLng={restaurant.lng ?? -0.063} />
+        <DeliveryZoneMap
+          zones={zones}
+          lat={restaurant.lat ?? 51.515}
+          lng={restaurant.lng ?? -0.063}
+          onLocationChange={(lat, lng) =>
+            updateSettings({ restaurant: { ...restaurant, lat, lng } })
+          }
+        />
       </div>
 
       {/* Zone list */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
-          <MapPin size={15} className="text-orange-500" />
-          <h3 className="font-semibold text-gray-900 text-sm">Delivery zones</h3>
+        <div className="px-5 py-4 border-b border-gray-100 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-row gap-3">
+            <MapPin size={15} className="text-orange-500" />
+            <h3 className="font-semibold text-gray-900 text-sm">Delivery zones</h3>
+          </div>
           <span className="text-xs text-gray-400">{zones.length} zone{zones.length !== 1 ? "s" : ""} defined</span>
+
           <button
             onClick={() => setShowAdd((v) => !v)}
-            className="ml-auto flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition"
+            className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition"
           >
             <Plus size={13} /> Add zone
           </button>
@@ -502,7 +485,7 @@ export default function DeliveryZonesPanel() {
                   className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white transition" />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Fee (£)</label>
+                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Fee ({sym})</label>
                 <input type="number" min="0" step="0.10" value={newZone.fee}
                   onChange={(e) => setNewZone((d) => ({ ...d, fee: Number(e.target.value) }))}
                   className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white transition" />

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useApp } from "@/context/AppContext";
 import type { ReservationCustomer } from "@/types";
 import {
   Users, Search, Mail, Phone, CalendarDays, Tag, FileDown,
@@ -35,8 +35,8 @@ const PRESET_TAGS = ["VIP", "Regular", "Birthday", "Anniversary", "Vegetarian", 
 
 // ─── CSV export ───────────────────────────────────────────────────────────────
 
-function exportCsv(customers: ReservationCustomer[]) {
-  const header = ["Name", "Email", "Phone", "Reservations", "Online Orders", "Total Spend (£)", "First Activity", "Last Order", "Last Reservation", "Marketing Opt-in", "Tags", "Notes"];
+function exportCsv(customers: ReservationCustomer[], sym: string) {
+  const header = ["Name", "Email", "Phone", "Reservations", "Online Orders", `Total Spend (${sym})`, "First Activity", "Last Order", "Last Reservation", "Marketing Opt-in", "Tags", "Notes"];
   const rows = customers.map((c) => [
     c.name,
     c.email,
@@ -109,7 +109,7 @@ function HistoryRow({ r }: { r: HistoryEntry }) {
 
 // ─── Customer card ────────────────────────────────────────────────────────────
 
-function CustomerCard({ customer, onSave }: {
+function CustomerCard({ customer, onSave, sym }: { sym: string;
   customer: ReservationCustomer;
   onSave: (id: string, patch: { notes?: string; tags?: string[]; marketingOptIn?: boolean }) => Promise<void>;
 }) {
@@ -141,12 +141,20 @@ function CustomerCard({ customer, onSave }: {
     if (!expanded) loadHistory();
   }
 
+  const saveInFlight = useRef(false);
+
   async function save() {
+    if (saveInFlight.current) return;
+    saveInFlight.current = true;
     setSaving(true);
-    await onSave(customer.id, { notes, tags, marketingOptIn: optIn });
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    try {
+      await onSave(customer.id, { notes, tags, marketingOptIn: optIn });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } finally {
+      saveInFlight.current = false;
+      setSaving(false);
+    }
   }
 
   function addTag(tag: string) {
@@ -199,7 +207,7 @@ function CustomerCard({ customer, onSave }: {
               <span className="flex items-center gap-1 text-blue-600"><ShoppingBag size={10} />{customer.orderCount} order{customer.orderCount !== 1 ? "s" : ""}</span>
             )}
             {customer.totalSpend > 0 && (
-              <span className="flex items-center gap-1 text-emerald-600"><TrendingUp size={10} />£{customer.totalSpend.toFixed(2)} spent</span>
+              <span className="flex items-center gap-1 text-emerald-600"><TrendingUp size={10} />{sym}{customer.totalSpend.toFixed(2)} spent</span>
             )}
             {(customer.lastOrderAt || customer.lastVisitAt) && (
               <span className="flex items-center gap-1">
@@ -220,7 +228,7 @@ function CustomerCard({ customer, onSave }: {
         <div className="border-t border-gray-100 px-5 py-4 space-y-5 bg-gray-50/50">
 
           {/* Marketing opt-in toggle */}
-          <div className="flex items-center justify-between bg-white rounded-xl border border-gray-100 px-4 py-3">
+          <div className="flex items-start justify-between bg-white rounded-xl border border-gray-100 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-gray-800">Marketing Communications</p>
               <p className="text-xs text-gray-400 mt-0.5">Customer has agreed to receive offers and promotions</p>
@@ -268,12 +276,12 @@ function CustomerCard({ customer, onSave }: {
                 onChange={(e) => setTagInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(tagInput); } }}
                 placeholder="Custom tag…"
-                className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400 transition"
+                className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400 transition"
               />
               <button
                 onClick={() => addTag(tagInput)}
                 disabled={!tagInput.trim()}
-                className="flex items-center gap-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:text-orange-600 hover:border-orange-300 transition disabled:opacity-40"
+                className="flex shrink-0 items-center gap-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:text-orange-600 hover:border-orange-300 transition disabled:opacity-40"
               >
                 <Plus size={13} /> Add
               </button>
@@ -318,7 +326,7 @@ function CustomerCard({ customer, onSave }: {
                   <div className="text-xs text-gray-400">order{customer.orderCount !== 1 ? "s" : ""} placed</div>
                 </div>
                 <div>
-                  <div className="text-lg font-bold text-emerald-700">£{customer.totalSpend.toFixed(2)}</div>
+                  <div className="text-lg font-bold text-emerald-700">{sym}{customer.totalSpend.toFixed(2)}</div>
                   <div className="text-xs text-gray-400">total spend</div>
                 </div>
                 {customer.lastOrderAt && (
@@ -356,6 +364,8 @@ function CustomerCard({ customer, onSave }: {
 // ─── Main panel ───────────────────────────────────────────────────────────────
 
 export default function ReservationCustomersPanel() {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [customers,    setCustomers]    = useState<ReservationCustomer[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [search,       setSearch]       = useState("");
@@ -363,27 +373,44 @@ export default function ReservationCustomersPanel() {
   const [filterOptIn,  setFilterOptIn]  = useState(false);
   const [filterOrders, setFilterOrders] = useState(false);
 
-  const fetchCustomers = useCallback(async () => {
-    setLoading(true);
+  // Snapshot of last server response so the silent poll can skip setState
+  // when nothing changed (Bug #25 — otherwise every 10s tick re-renders the
+  // entire guest list and any expanded customer card visibly flickers).
+  const lastDataKey = useRef<string>("");
+
+  // isInitial=true shows the spinner (mount, manual refresh). Default silent so
+  // background polls don't tear down the visible list.
+  const fetchCustomers = useCallback(async (isInitial = false) => {
+    if (isInitial) setLoading(true);
     try {
       const res  = await fetch("/api/admin/reservation-customers");
       const json = await res.json() as { ok: boolean; customers?: ReservationCustomer[] };
-      if (json.ok) setCustomers(json.customers ?? []);
+      if (json.ok) {
+        const next = json.customers ?? [];
+        const key = JSON.stringify(next);
+        if (key !== lastDataKey.current) {
+          lastDataKey.current = key;
+          setCustomers(next);
+        }
+      }
     } catch (err) {
       console.error("ReservationCustomersPanel fetch:", err);
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   }, []);
 
-  useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
+  useEffect(() => { fetchCustomers(true); }, [fetchCustomers]);
 
+  // Poll every 10 s — anon supabase realtime no longer fires after RLS revoke.
+  // Silent (default) so the list doesn't flicker on each tick. Skip when
+  // the tab is hidden to avoid waking idle background sessions.
   useEffect(() => {
-    const ch = supabase
-      .channel("reservation-customers-admin")
-      .on("postgres_changes", { event: "*", schema: "public", table: "reservation_customers" }, fetchCustomers)
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
+    const id = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      fetchCustomers();
+    }, 10_000);
+    return () => clearInterval(id);
   }, [fetchCustomers]);
 
   async function handleSave(
@@ -435,26 +462,32 @@ export default function ReservationCustomersPanel() {
     <div className="space-y-5">
 
       {/* Header */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-4 flex items-center gap-4">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+                <div className="flex flex-row gap-3">
+
         <div className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center flex-shrink-0">
           <Users size={20} className="text-purple-600" />
         </div>
         <div className="flex-1 min-w-0">
           <h2 className="font-bold text-gray-900">Guest Profiles</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Guest profiles from anonymous (no-account) checkouts and reservation check-ins.
+          </p>
           <p className="text-xs text-gray-400 mt-0.5">
             {customers.length} guests · {optInCount} opted in for marketing
           </p>
         </div>
+        </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
-            onClick={() => exportCsv(filtered)}
+            onClick={() => exportCsv(filtered, sym)}
             disabled={filtered.length === 0}
             className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-600 hover:text-gray-800 hover:border-gray-300 transition disabled:opacity-40"
           >
             <FileDown size={14} /> Export CSV
           </button>
           <button
-            onClick={fetchCustomers}
+            onClick={() => fetchCustomers(true)}
             disabled={loading}
             className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300 transition"
           >
@@ -469,7 +502,7 @@ export default function ReservationCustomersPanel() {
         {[
           { label: "Total guests",      value: customers.length,                                                    bg: "bg-gray-50",    border: "border-gray-200",   text: "text-gray-800"   },
           { label: "Online orders",     value: customers.reduce((s, c) => s + (c.orderCount ?? 0), 0),             bg: "bg-blue-50",    border: "border-blue-200",   text: "text-blue-700"   },
-          { label: "Total revenue",     value: `£${customers.reduce((s, c) => s + (c.totalSpend ?? 0), 0).toFixed(2)}`, bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-700" },
+          { label: "Total revenue",     value: `${sym}${customers.reduce((s, c) => s + (c.totalSpend ?? 0), 0).toFixed(2)}`, bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-700" },
           { label: "Marketing opt-in",  value: optInCount,                                                          bg: "bg-green-50",   border: "border-green-200",  text: "text-green-700"  },
         ].map((s) => (
           <div key={s.label} className={`${s.bg} border ${s.border} rounded-xl p-3.5`}>
@@ -546,7 +579,7 @@ export default function ReservationCustomersPanel() {
       ) : (
         <div className="space-y-3">
           {filtered.map((c) => (
-            <CustomerCard key={c.id} customer={c} onSave={handleSave} />
+            <CustomerCard key={c.id} customer={c} onSave={handleSave} sym={sym} />
           ))}
         </div>
       )}

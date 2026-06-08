@@ -8,6 +8,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { requireWaiterAuth } from "@/lib/waiterAuth";
+import { getWaiterSession } from "@/lib/auth";
+import { parseBody } from "@/lib/apiValidation";
+import { WaiterRefundSchema } from "@/lib/schemas/waiter";
 
 interface RefundRecord {
   id: string;
@@ -21,27 +25,29 @@ interface RefundRecord {
 }
 
 export async function POST(req: NextRequest) {
-  let body: {
-    orderIds?: string[];
-    refundAmount?: number;   // total amount to refund (across all orders combined)
-    refundMethod?: "cash" | "card";
-    reason?: string;
-    refundedBy?: string;
-  };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
+  const unauth = await requireWaiterAuth();
+  if (unauth) return unauth;
+  const session = await getWaiterSession();
+  if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-  const { orderIds, refundAmount, refundMethod, reason, refundedBy } = body;
+  const parsed = await parseBody(req, WaiterRefundSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  // F-INS-5: refundedBy in body is ignored — server stamps the actor from
+  // the session-bound waiter row so the audit trail can't be forged.
+  const { orderIds, refundAmount, refundMethod, reason } = parsed.data;
 
-  if (!Array.isArray(orderIds) || orderIds.length === 0) {
-    return NextResponse.json({ ok: false, error: "orderIds is required." }, { status: 400 });
+  // Refunds are a senior / head-waiter privilege. The client hides the action
+  // for regular waiters, but enforce it server-side too so a forged request
+  // can't bypass the role gate (AUTH_AUDIT 06-F12 elevation).
+  const { data: waiterRow } = await supabaseAdmin
+    .from("waiters").select("name, role").eq("id", session.id).maybeSingle();
+  if (waiterRow?.role !== "senior") {
+    return NextResponse.json(
+      { ok: false, error: "Only senior staff can process refunds." },
+      { status: 403 },
+    );
   }
-  if (typeof refundAmount !== "number" || refundAmount <= 0) {
-    return NextResponse.json({ ok: false, error: "refundAmount must be a positive number." }, { status: 400 });
-  }
-  if (!reason?.trim()) {
-    return NextResponse.json({ ok: false, error: "reason is required." }, { status: 400 });
-  }
+  const actorName = waiterRow?.name ?? "Staff";
 
   // Fetch the current orders to get totals and existing refund records
   const { data: orders, error: fetchErr } = await supabaseAdmin
@@ -64,7 +70,7 @@ export async function POST(req: NextRequest) {
   const isFullRefund = refundAmount >= grandTotal - 0.001; // tolerance for float rounding
   const newStatus = isFullRefund ? "refunded" : "partially_refunded";
   const processedAt = new Date().toISOString();
-  const processedBy = refundedBy?.trim() ?? "Staff";
+  const processedBy = actorName;
 
   // Distribute refund proportionally across orders
   // Each order gets: its_total / grand_total * refundAmount
@@ -79,7 +85,7 @@ export async function POST(req: NextRequest) {
       orderId:     o.id,
       amount:      roundedShare,
       type:        isFullRefund ? "full" : "partial",
-      reason:      reason!.trim(),
+      reason:      reason,
       method:      refundMethod ?? "cash",
       processedAt,
       processedBy,

@@ -2,6 +2,15 @@
 
 Read-only audit results for the Single-Restaurant-Food-Ordering-System project. Each markdown file documents findings for one audit step. **No code changes happen during audits** — these files are evidence we'll later use to plan refactors.
 
+> **Heads-up — partially superseded as of 2026-05-12.**
+>
+> Steps 1–6 of the [AUTH_AUDIT.md](../AUTH_AUDIT.md) remediation plan have been applied. As part of that work:
+>
+> - The 8 fragmented `supabase/*_migration.sql` files were consolidated into a single canonical `supabase/schema.sql`. Links and line references in [07-service-role-key.md](./07-service-role-key.md) and [12-query-efficiency.md](./12-query-efficiency.md) (and the file-list table in [01-folder-structure.md](./01-folder-structure.md)) now point at deleted files — the *content* still exists in `schema.sql`, but the specific line numbers in those audits are stale.
+> - Every 🔴 critical / 🔴 high finding in [06-auth-authorization.md](./06-auth-authorization.md) has been closed. See the **2026-05-12 remediation** section at the top of [AUTH_AUDIT.md](../AUTH_AUDIT.md) for the closed-vs-open table.
+>
+> These audits remain a useful **historical record** of the codebase state when they were written. Read them for context and rationale; for current-state questions, prefer `AUTH_AUDIT.md` and `supabase/schema.sql`.
+
 ## Phases
 
 1. **Phase 1 — Inventory & structure**

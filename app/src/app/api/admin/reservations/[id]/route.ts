@@ -16,14 +16,17 @@ import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
 import { sendReservationEmailServer }           from "@/lib/emailServer";
 import type { EmailTemplateEvent }              from "@/types";
+import { parseBody }                            from "@/lib/apiValidation";
+import { ReservationStatusSchema }              from "@/lib/schemas/reservation";
 
-const VALID_STATUSES = new Set([
-  "pending", "confirmed", "checked_in", "checked_out", "cancelled", "no_show",
-]);
-
+// Every status transition that should notify the guest. Keeping this in one
+// place is what lets the admin and POS PUT routes stay in lockstep — both
+// derive their emails from this single map.
 const STATUS_EMAIL_MAP: Partial<Record<string, EmailTemplateEvent>> = {
-  confirmed:  "reservation_update",
-  cancelled:  "reservation_cancellation",
+  confirmed:   "reservation_update",
+  cancelled:   "reservation_cancellation",
+  checked_in:  "reservation_check_in",
+  checked_out: "reservation_review_request",
 };
 
 // Build the DB update payload for a given status transition
@@ -42,16 +45,9 @@ export async function PUT(
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
   const { id } = await params;
 
-  let body: { status?: string };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  if (!body.status || !VALID_STATUSES.has(body.status)) {
-    return NextResponse.json(
-      { ok: false, error: `status must be one of: ${[...VALID_STATUSES].join(", ")}.` },
-      { status: 400 },
-    );
-  }
+  const parsed = await parseBody(req, ReservationStatusSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data;
 
   const updatePayload = buildUpdatePayload(body.status);
 
@@ -82,23 +78,6 @@ export async function PUT(
     ]);
 
     if (resRow) {
-      // Review request email on check-out
-      if (body.status === "checked_out" && settingsRow?.data) {
-        sendReservationEmailServer("reservation_review_request", {
-          id:             resRow.id,
-          customer_name:  resRow.customer_name,
-          customer_email: resRow.customer_email,
-          customer_phone: resRow.customer_phone ?? "",
-          date:           resRow.date,
-          time:           resRow.time,
-          table_label:    resRow.table_label,
-          party_size:     resRow.party_size,
-          status:         resRow.status,
-          note:           resRow.note,
-          section:        resRow.section ?? "",
-        }, settingsRow.data).catch(console.error);
-      }
-
       // Customer upsert (check-in/out)
       if (body.status === "checked_in" || body.status === "checked_out") {
         const email = (resRow.customer_email as string)?.trim().toLowerCase();

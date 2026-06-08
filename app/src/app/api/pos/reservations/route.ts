@@ -1,107 +1,113 @@
 /**
- * POST /api/pos/reservations
- * Creates a walk-in or phone reservation from the POS terminal.
- * Skips the availability check — staff can see the room.
- * No admin cookie required; POS is an internal staff terminal.
+ * GET  /api/pos/reservations — list reservations (with optional date filter).
+ * POST /api/pos/reservations — create a walk-in or phone reservation.
+ *
+ * Both require a POS session. The admin Reservations panel uses
+ * /api/admin/reservations. The GET replaces the direct
+ * `supabase.from("reservations")` reads in POS components.
  */
 
 import { NextRequest, NextResponse }  from "next/server";
 import { supabaseAdmin }              from "@/lib/supabaseAdmin";
-import { sendReservationEmailServer } from "@/lib/emailServer";
+import { getPosSession, unauthorizedJson } from "@/lib/auth";
+import { parseBody }                  from "@/lib/apiValidation";
+import { ReservationPosSchema }       from "@/lib/schemas/reservation";
+import { createReservation }          from "@/lib/reservations";
+
+export async function GET(req: NextRequest) {
+  const pos = await getPosSession();
+  if (!pos) return unauthorizedJson();
+
+  const { searchParams } = new URL(req.url);
+  const date  = searchParams.get("date");
+  const from  = searchParams.get("from");
+  const to    = searchParams.get("to");
+  const limit = Math.min(Number(searchParams.get("limit") ?? 500), 2000);
+
+  let q = supabaseAdmin
+    .from("reservations")
+    .select("*")
+    .order("date", { ascending: true })
+    .order("time", { ascending: true })
+    .limit(limit);
+
+  if (date) q = q.eq("date", date);
+  if (from) q = q.gte("date", from);
+  if (to)   q = q.lte("date", to);
+
+  const { data, error } = await q;
+  if (error) {
+    console.error("pos/reservations GET:", error.message);
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
+  return NextResponse.json({ ok: true, reservations: data ?? [] });
+}
 
 export async function POST(req: NextRequest) {
-  let body: {
-    tableId?: string; tableLabel?: string; tableSeats?: number; section?: string;
-    date?: string; time?: string; partySize?: number;
-    customerName?: string; customerEmail?: string; customerPhone?: string;
-    note?: string; source?: string;
-  };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
+  const pos = await getPosSession();
+  if (!pos) return unauthorizedJson();
 
+  const parsed = await parseBody(req, ReservationPosSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const {
     tableId, tableLabel, tableSeats, section,
     date, time, partySize, customerName, customerEmail, customerPhone,
-    note, source = "walk-in",
-  } = body;
+    note, source, paymentMethod,
+  } = parsed.data;
 
-  if (!tableId || !tableLabel || !date || !time || !partySize || !customerName) {
+  // Load settings (slot duration + email templates) and the table itself — we
+  // read VIP price from the live row, never trusting a client-supplied amount.
+  const [{ data: settingsRow }, { data: tableRow }] = await Promise.all([
+    supabaseAdmin.from("app_settings").select("data").limit(1).single(),
+    supabaseAdmin
+      .from("dining_tables")
+      .select("id, label, seats, section, is_vip, vip_price")
+      .eq("id", tableId)
+      .maybeSingle(),
+  ]);
+  const slotDuration: number = settingsRow?.data?.reservationSystem?.slotDurationMinutes ?? 90;
+
+  // VIP tables require the booking fee to be collected (cash/card at the till —
+  // no gateway). Validate against the live table record so a non-VIP table
+  // can't be charged and a VIP table can't be booked fee-free.
+  const isVip   = !!tableRow?.is_vip && Number(tableRow.vip_price ?? 0) > 0;
+  const vipFee  = isVip ? Number(tableRow!.vip_price ?? 0) : 0;
+  if (isVip && !paymentMethod) {
     return NextResponse.json(
-      { ok: false, error: "tableId, tableLabel, date, time, partySize and customerName are required." },
+      { ok: false, error: "This is a VIP table — collect the booking fee (cash or card) before confirming." },
       { status: 400 },
     );
   }
 
-  const id           = crypto.randomUUID();
-  const cancel_token = crypto.randomUUID();
-  const now          = new Date().toISOString();
-  const isWalkIn     = source === "walk-in";
+  const isWalkIn = source === "walk-in";
+  const result = await createReservation(
+    {
+      tableId,
+      // Prefer the live table record; fall back to the client values if the
+      // lookup missed (table just created / cache lag).
+      tableLabel:    tableRow?.label ?? tableLabel,
+      tableSeats:    tableRow?.seats ?? tableSeats ?? 0,
+      section:       tableRow?.section ?? section ?? "",
+      customerName,
+      customerEmail,
+      customerPhone,
+      date, time, partySize,
+      status:        isWalkIn ? "checked_in" : "pending",
+      note:          note ?? null,
+      source,
+      vipFee,
+      paymentStatus: isVip ? "paid" : "none",
+      paymentMethod: isVip ? paymentMethod : null,
+      paymentRef:    isVip && paymentMethod ? `pos:${paymentMethod}` : null,
+      slotDurationMinutes: slotDuration,
+    },
+    settingsRow?.data ?? null,
+    req.headers.get("origin") ?? req.nextUrl.origin,
+  );
 
-  const row: Record<string, unknown> = {
-    id,
-    table_id:       tableId,
-    table_label:    tableLabel,
-    table_seats:    tableSeats ?? 0,
-    section:        section ?? "",
-    customer_name:  customerName.trim(),
-    customer_email: customerEmail?.trim().toLowerCase() ?? "",
-    customer_phone: customerPhone?.trim() ?? "",
-    date,
-    time,
-    party_size:     partySize,
-    status:         isWalkIn ? "checked_in" : "pending",
-    note:           note?.trim() ?? null,
-    source,
-    created_at:     now,
-  };
-
-  // Walk-ins are already here — mark the time immediately
-  if (isWalkIn) row.checked_in_at = now;
-
-  // Try with cancel_token; fall back gracefully if column not yet migrated
-  let { error } = await supabaseAdmin.from("reservations").insert({ ...row, cancel_token });
-  if (error?.message?.includes("cancel_token") || error?.message?.includes("source")) {
-    const { error: retry } = await supabaseAdmin.from("reservations").insert(row);
-    error = retry ?? null;
+  if (!result.ok) {
+    console.error("pos/reservations POST:", result.error);
+    return NextResponse.json({ ok: false, error: result.error }, { status: result.status ?? 500 });
   }
-  if (error) {
-    console.error("pos/reservations POST:", error.message);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  }
-
-  // Upsert guest profile when email is provided
-  const email = customerEmail?.trim().toLowerCase();
-  if (email) {
-    const { data: existing } = await supabaseAdmin
-      .from("reservation_customers").select("id, first_visit_at").eq("email", email).single();
-    if (existing) {
-      await supabaseAdmin.from("reservation_customers").update({
-        name: customerName.trim(), phone: customerPhone?.trim() ?? "",
-        updated_at: now,
-        ...(existing.first_visit_at ? {} : { first_visit_at: now }),
-      }).eq("email", email);
-    } else {
-      await supabaseAdmin.from("reservation_customers").insert({
-        email, name: customerName.trim(), phone: customerPhone?.trim() ?? "",
-        visit_count: 0, first_visit_at: now, created_at: now, updated_at: now,
-      });
-    }
-  }
-
-  // Confirmation email for phone bookings (walk-ins are already present)
-  if (source === "phone" && email) {
-    const { data: settingsRow } = await supabaseAdmin.from("app_settings").select("data").limit(1).single();
-    if (settingsRow?.data) {
-      sendReservationEmailServer("reservation_confirmation", {
-        id, customer_name: customerName.trim(),
-        customer_email: email,
-        customer_phone: customerPhone?.trim() ?? "",
-        date, time, table_label: tableLabel,
-        party_size: partySize, status: "pending",
-        note: note ?? null, section: section ?? "", cancel_token,
-      }, settingsRow.data, req.headers.get("origin") ?? req.nextUrl.origin).catch(console.error);
-    }
-  }
-
-  return NextResponse.json({ ok: true, reservationId: id });
+  return NextResponse.json({ ok: true, reservationId: result.reservationId });
 }

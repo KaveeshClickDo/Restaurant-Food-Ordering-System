@@ -1,4 +1,4 @@
-import type { WeekSchedule } from "@/types";
+import type { MealPeriod, WeekSchedule } from "@/types";
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -55,6 +55,47 @@ export function getNextOpenTime(
     return openMs;
   }
 
+  return null;
+}
+
+/**
+ * Returns true iff the given meal period is currently active:
+ *   enabled === true, today's weekday is in daysOfWeek, and `now` falls inside
+ *   [startTime, endTime). Handles windows that cross midnight (start > end).
+ */
+export function isMealPeriodActive(period: MealPeriod, now: Date = new Date()): boolean {
+  if (!period.enabled) return false;
+  if (!period.daysOfWeek?.includes(now.getDay())) return false;
+  if (!period.startTime || !period.endTime || period.startTime === period.endTime) return false;
+  const mins = minutesOf(now);
+  const s = parseTime(period.startTime);
+  const e = parseTime(period.endTime);
+  const start = s.h * 60 + s.m;
+  const end = e.h * 60 + e.m;
+  return start <= end ? mins >= start && mins < end : mins >= start || mins < end;
+}
+
+/**
+ * For a meal period that isn't currently active, returns a short human
+ * label of when it'll next open ("today 17:00", "tomorrow 07:00", "Mon 07:00").
+ * Returns null if the period is disabled or has no valid days.
+ */
+export function nextActivationLabel(period: MealPeriod, now: Date = new Date()): string | null {
+  if (!period.enabled || !period.daysOfWeek?.length) return null;
+  for (let offset = 0; offset <= 7; offset++) {
+    const d = new Date(now);
+    d.setDate(d.getDate() + offset);
+    if (!period.daysOfWeek.includes(d.getDay())) continue;
+    const s = parseTime(period.startTime);
+    d.setHours(s.h, s.m, 0, 0);
+    if (d.getTime() <= now.getTime()) continue;
+    const todayStr = now.toDateString();
+    const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
+    const timeStr = period.startTime;
+    if (d.toDateString() === todayStr) return `today ${timeStr}`;
+    if (d.toDateString() === tomorrow.toDateString()) return `tomorrow ${timeStr}`;
+    return `${DAY_NAMES[d.getDay()].slice(0, 3)} ${timeStr}`;
+  }
   return null;
 }
 

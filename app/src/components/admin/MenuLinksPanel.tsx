@@ -15,7 +15,6 @@ type Location = "header" | "footer";
 interface PageOption {
   label: string;
   href: string;
-  group: "Custom Pages" | "Footer Pages";
 }
 
 // ── Add-link form ─────────────────────────────────────────────────────────────
@@ -61,20 +60,11 @@ function AddLinkForm({
           onChange={(e) => handleSelectChange(e.target.value)}
           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white"
         >
-          {/* Group by type */}
-          {(["Custom Pages", "Footer Pages"] as const).map((group) => {
-            const grouped = available.filter((o) => o.group === group);
-            if (!grouped.length) return null;
-            return (
-              <optgroup key={group} label={group}>
-                {grouped.map((o) => (
-                  <option key={o.href} value={o.href}>
-                    {o.label} ({o.href})
-                  </option>
-                ))}
-              </optgroup>
-            );
-          })}
+          {available.map((o) => (
+            <option key={o.href} value={o.href}>
+              {o.label} ({o.href})
+            </option>
+          ))}
         </select>
       </div>
 
@@ -283,7 +273,7 @@ function MenuSection({
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
       {/* Section header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 bg-orange-50 rounded-xl flex items-center justify-center flex-shrink-0">
             <Icon size={17} className="text-orange-500" />
@@ -355,15 +345,11 @@ export default function MenuLinksPanel() {
   const { settings, updateSettings } = useApp();
   const links: MenuLink[] = settings.menuLinks ?? [];
 
-  // Build the page pool from published custom pages + footer pages
-  const pageOptions: PageOption[] = [
-    ...(settings.customPages ?? [])
-      .filter((p) => p.published)
-      .map((p) => ({ label: p.title, href: `/${p.slug}`, group: "Custom Pages" as const })),
-    ...(settings.footerPages ?? [])
-      .filter((p) => p.enabled)
-      .map((p) => ({ label: p.title, href: `/${p.slug}`, group: "Footer Pages" as const })),
-  ];
+  // Build the page pool from published custom pages. Footer Pages have been
+  // merged into Custom Pages — there is now a single unified "Pages" source.
+  const pageOptions: PageOption[] = (settings.customPages ?? [])
+    .filter((p) => p.published)
+    .map((p) => ({ label: p.title, href: `/${p.slug}` }));
 
   function handleSectionChange(location: Location, updated: MenuLink[]) {
     // Merge this location's updated links with the other location's links unchanged
@@ -378,7 +364,7 @@ export default function MenuLinksPanel() {
     <div className="space-y-6">
       {/* Info callout */}
       <div className="bg-blue-50 border border-blue-100 rounded-xl px-5 py-4 text-sm text-blue-700">
-        <strong>How it works:</strong> Add published custom pages or enabled footer pages to either menu. Drag the up/down arrows to reorder, click the eye icon to show/hide a link, and click a label to rename it. Changes apply instantly on the frontend.
+        <strong>How it works:</strong> Add published pages to either menu. Drag the up/down arrows to reorder, click the eye icon to show/hide a link, and click a label to rename it. Changes apply instantly on the frontend.
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">

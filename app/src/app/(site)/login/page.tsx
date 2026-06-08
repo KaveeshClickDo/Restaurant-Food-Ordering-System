@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useApp } from "@/context/AppContext";
@@ -8,6 +8,10 @@ import {
   User, Mail, Phone, Lock, Eye, EyeOff, ChevronLeft,
   AlertCircle, CheckCircle, Loader2, KeyRound,
 } from "lucide-react";
+import {
+  LoginSchema, RegisterSchema, ResetPasswordRequestSchema, ResetPasswordConfirmSchema,
+} from "@/lib/schemas/auth";
+import { cleanPhone, formErrorMessage } from "@/lib/inputUtils";
 
 type Tab = "login" | "register" | "forgot" | "reset";
 
@@ -29,6 +33,7 @@ function LoginContent() {
   const [error,    setError]    = useState("");
   const [success,  setSuccess]  = useState("");
   const [isAuthError, setIsAuthError] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
 
   const [loginForm,    setLoginForm]    = useState({ email: "", password: "" });
   const [registerForm, setRegisterForm] = useState({ name: "", email: "", phone: "", password: "", confirm: "" });
@@ -40,8 +45,10 @@ function LoginContent() {
   });
 
   useEffect(() => {
-    if (currentUser) router.replace("/account");
-  }, [currentUser, router]);
+    // A signed-in user clicking a reset link from their email must be allowed to
+    // set a new password here — don't bounce them to /account in that case.
+    if (currentUser && searchParams.get("action") !== "reset") router.replace("/account");
+  }, [currentUser, router, searchParams]);
 
   function switchTab(t: Tab) {
     setTab(t); setError(""); setSuccess(""); setShowPwd(false); setIsAuthError(false);
@@ -54,10 +61,20 @@ function LoginContent() {
 
   async function handleLogin(e: { preventDefault(): void }) {
     e.preventDefault();
-    setError(""); setIsAuthError(false); setLoading(true);
+    setError(""); setIsAuthError(false);
+    const check = LoginSchema.safeParse(loginForm);
+    if (!check.success) { setError(formErrorMessage(check.error)); return; }
+    setLoading(true);
     try {
-      const ok = await login(loginForm.email, loginForm.password);
-      if (!ok) { setError("Incorrect email or password."); setIsAuthError(true); }
+      const result = await login(check.data.email, check.data.password);
+      if (!result.ok) {
+        if (result.needsVerification) {
+          setVerificationEmail(result.email ?? loginForm.email);
+        } else {
+          setError(result.error ?? "Incorrect email or password.");
+          setIsAuthError(true);
+        }
+      }
     } catch {
       setError("Connection error. Please try again.");
     } finally {
@@ -69,13 +86,23 @@ function LoginContent() {
     e.preventDefault();
     setError("");
     if (registerForm.password !== registerForm.confirm) { setError("Passwords do not match."); return; }
-    if (registerForm.password.length < 6) { setError("Password must be at least 6 characters."); return; }
+    const check = RegisterSchema.omit({ id: true, createdAt: true }).safeParse({
+      name:     registerForm.name,
+      email:    registerForm.email,
+      phone:    registerForm.phone || undefined,
+      password: registerForm.password,
+    });
+    if (!check.success) { setError(formErrorMessage(check.error)); return; }
     setLoading(true);
     try {
       const result = await register(
-        registerForm.name, registerForm.email, registerForm.phone, registerForm.password,
+        check.data.name, check.data.email, check.data.phone ?? "", check.data.password,
       );
-      if (!result.success) setError(result.error ?? "Registration failed.");
+      if (!result.success) {
+        setError(result.error ?? "Registration failed.");
+      } else if (result.needsVerification) {
+        setVerificationEmail(result.email ?? registerForm.email);
+      }
     } catch {
       setError("Connection error. Please try again.");
     } finally {
@@ -83,38 +110,70 @@ function LoginContent() {
     }
   }
 
+  // Double-submit guards — synchronous ref-flag plus the `loading` state so
+  // both rapid clicks and slow-network repeat-clicks are dropped.
+  const resendInFlight = useRef(false);
+  const forgotInFlight = useRef(false);
+  const resetInFlight  = useRef(false);
+
+  async function handleResendVerification() {
+    if (resendInFlight.current) return;
+    if (!verificationEmail) return;
+    resendInFlight.current = true;
+    try {
+      await fetch("/api/auth/resend-verification", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: verificationEmail }),
+      }).catch(() => {});
+    } finally {
+      resendInFlight.current = false;
+    }
+  }
+
   async function handleForgot(e: { preventDefault(): void }) {
     e.preventDefault();
-    setError(""); setLoading(true);
+    if (forgotInFlight.current) return;
+    setError("");
+    const check = ResetPasswordRequestSchema.safeParse({ email: forgotEmail });
+    if (!check.success) { setError(formErrorMessage(check.error)); return; }
+    forgotInFlight.current = true;
+    setLoading(true);
     try {
       await fetch("/api/auth/reset-password", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: forgotEmail.trim() }),
+        body: JSON.stringify({ email: check.data.email }),
       });
       setSuccess("sent");
     } catch {
       setError("Connection error. Please try again.");
     } finally {
+      forgotInFlight.current = false;
       setLoading(false);
     }
   }
 
   async function handleReset(e: { preventDefault(): void }) {
     e.preventDefault();
+    if (resetInFlight.current) return;
     setError("");
     if (resetForm.password !== resetForm.confirm) { setError("Passwords do not match."); return; }
-    if (resetForm.password.length < 6) { setError("Password must be at least 6 characters."); return; }
+    const check = ResetPasswordConfirmSchema.safeParse({
+      email: resetForm.email, token: resetForm.token, password: resetForm.password,
+    });
+    if (!check.success) { setError(formErrorMessage(check.error)); return; }
+    resetInFlight.current = true;
     setLoading(true);
     try {
       const res  = await fetch("/api/auth/reset-password/confirm", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: resetForm.email, token: resetForm.token, password: resetForm.password }),
+        body: JSON.stringify(check.data),
       });
       const json = await res.json() as { ok: boolean; error?: string };
       if (json.ok) { setSuccess("done"); } else { setError(json.error ?? "Invalid or expired reset link."); }
     } catch {
       setError("Connection error. Please try again.");
     } finally {
+      resetInFlight.current = false;
       setLoading(false);
     }
   }
@@ -133,8 +192,31 @@ function LoginContent() {
 
       <div className="bg-white rounded-2xl w-full max-w-md shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.06)] border border-zinc-200/70 overflow-hidden">
 
+        {/* Verification pending — shown after register or 403 needsVerification.
+            Replaces the tab bar + form entirely until dismissed. */}
+        {verificationEmail && (
+          <div className="p-8 text-center space-y-4">
+            <CheckCircle size={48} className="text-green-500 mx-auto" />
+            <h2 className="text-lg font-semibold text-zinc-900">Check your inbox</h2>
+            <p className="text-sm text-zinc-500 leading-relaxed">
+              We&apos;ve sent a verification link to{" "}
+              <strong className="text-zinc-700">{verificationEmail}</strong>.
+              Click the link to finish creating your account — it expires in 24 hours.
+            </p>
+            <button type="button" onClick={handleResendVerification}
+              className="text-sm text-orange-500 hover:text-orange-600 font-semibold transition">
+              Resend verification email
+            </button>
+            <button type="button"
+              onClick={() => { setVerificationEmail(null); switchTab("login"); }}
+              className="block w-full mt-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-semibold py-2.5 rounded-xl text-sm transition">
+              Back to sign in
+            </button>
+          </div>
+        )}
+
         {/* Tab bar */}
-        {(tab === "login" || tab === "register") && (
+        {!verificationEmail && (tab === "login" || tab === "register") && (
           <div className="flex border-b border-zinc-100">
             {(["login", "register"] as const).map((t) => (
               <button key={t} onClick={() => switchTab(t)}
@@ -148,7 +230,7 @@ function LoginContent() {
         )}
 
         {/* Back header (forgot / reset) */}
-        {(tab === "forgot" || tab === "reset") && (
+        {!verificationEmail && (tab === "forgot" || tab === "reset") && (
           <div className="flex items-center gap-3 px-6 pt-5 pb-1">
             <button onClick={() => switchTab("login")}
               className="w-8 h-8 flex items-center justify-center rounded-xl text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition">
@@ -163,7 +245,7 @@ function LoginContent() {
           </div>
         )}
 
-        <div className="p-6">
+        {!verificationEmail && <div className="p-6">
 
           {/* Login form */}
           {tab === "login" && (
@@ -233,8 +315,8 @@ function LoginContent() {
                   placeholder="jane@example.com" className={inputCls} />
               </Field>
               <Field label="Phone (optional)" icon={<Phone size={15} />}>
-                <input type="tel" value={registerForm.phone}
-                  onChange={(e) => setRegisterForm((f) => ({ ...f, phone: e.target.value }))}
+                <input type="tel" inputMode="tel" autoComplete="tel" value={registerForm.phone}
+                  onChange={(e) => setRegisterForm((f) => ({ ...f, phone: cleanPhone(e.target.value) }))}
                   placeholder="+44 7700 900000" className={inputCls} />
               </Field>
               <Field label="Password" icon={<Lock size={15} />}>
@@ -357,7 +439,7 @@ function LoginContent() {
               </form>
             )
           )}
-        </div>
+        </div>}
       </div>
 
       {currentUser && (

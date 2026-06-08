@@ -1,15 +1,16 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
-import { useApp }   from "@/context/AppContext";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useApp } from "@/context/AppContext";
 import type { Reservation, ReservationStatus } from "@/types";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import {
   CalendarDays, Clock, Users, UtensilsCrossed, CheckCircle2, XCircle,
   AlertTriangle, Trash2, RefreshCw, MapPin, ChevronDown, Loader2,
   ToggleLeft, ToggleRight, Settings2, Search, Mail, Phone,
-  LogIn, LogOut, UserPlus, Ban, Star, Link, ExternalLink,
+  LogIn, LogOut, UserPlus, Ban, Star, Link, ExternalLink, Crown,
 } from "lucide-react";
+import { cleanPhone } from "@/lib/inputUtils";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -31,17 +32,46 @@ function fmtTs(iso: string | undefined): string {
   return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
+// Local-date helpers (not UTC) so users east of UTC don't see yesterday
 function todayStr(): string {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function maxDateStr(days: number): string {
+  const d = new Date(); d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function nowLocalMins(): number { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); }
+function toMins(t: string): number { const [h, m] = t.split(":").map(Number); return h * 60 + m; }
+function isSlotPast(slot: string, date: string): boolean {
+  return date === todayStr() && toMins(slot) <= nowLocalMins();
+}
+function generateSlots(open: string, close: string, interval: number): string[] {
+  const out: string[] = [];
+  for (let t = toMins(open); t < toMins(close); t += interval) {
+    out.push(`${Math.floor(t / 60).toString().padStart(2, "0")}:${(t % 60).toString().padStart(2, "0")}`);
+  }
+  return out;
+}
+// Walk-ins are seated NOW, so they belong to the in-progress slot (the last
+// slot whose start time is at/before the current time), not the next future
+// one. e.g. at 6:38pm with 30-min slots this returns 6:30, not 7:00. Falls
+// back to the first slot when the restaurant hasn't opened yet.
+function currentSlot(slots: string[]): string {
+  const now = nowLocalMins();
+  for (let i = slots.length - 1; i >= 0; i--) {
+    if (toMins(slots[i]) <= now) return slots[i];
+  }
+  return slots[0] ?? "";
 }
 
 const STATUS_CONFIG: Record<ReservationStatus, { label: string; dotClass: string; badgeClass: string }> = {
-  pending:     { label: "Pending",    dotClass: "bg-amber-400",  badgeClass: "bg-amber-50   text-amber-700  border-amber-200"  },
-  confirmed:   { label: "Confirmed",  dotClass: "bg-green-500",  badgeClass: "bg-green-50   text-green-700  border-green-200"  },
-  checked_in:  { label: "Checked in", dotClass: "bg-blue-500",   badgeClass: "bg-blue-50    text-blue-700   border-blue-200"   },
-  checked_out: { label: "Checked out",dotClass: "bg-teal-500",   badgeClass: "bg-teal-50    text-teal-700   border-teal-200"   },
-  cancelled:   { label: "Cancelled",  dotClass: "bg-red-400",    badgeClass: "bg-red-50     text-red-700    border-red-200"    },
-  no_show:     { label: "No show",    dotClass: "bg-gray-400",   badgeClass: "bg-gray-100   text-gray-600   border-gray-300"   },
+  pending: { label: "Pending", dotClass: "bg-amber-400", badgeClass: "bg-amber-50   text-amber-700  border-amber-200" },
+  confirmed: { label: "Confirmed", dotClass: "bg-green-500", badgeClass: "bg-green-50   text-green-700  border-green-200" },
+  checked_in: { label: "Checked in", dotClass: "bg-blue-500", badgeClass: "bg-blue-50    text-blue-700   border-blue-200" },
+  checked_out: { label: "Checked out", dotClass: "bg-teal-500", badgeClass: "bg-teal-50    text-teal-700   border-teal-200" },
+  cancelled: { label: "Cancelled", dotClass: "bg-red-400", badgeClass: "bg-red-50     text-red-700    border-red-200" },
+  no_show: { label: "No show", dotClass: "bg-gray-400", badgeClass: "bg-gray-100   text-gray-600   border-gray-300" },
 };
 
 // ─── Settings form ────────────────────────────────────────────────────────────
@@ -50,18 +80,18 @@ function ReservationSettings() {
   const { settings, updateSettings } = useApp();
   const rs = settings.reservationSystem;
   const [saving, setSaving] = useState(false);
-  const [saved,  setSaved]  = useState(false);
+  const [saved, setSaved] = useState(false);
   const [newBlackout, setNewBlackout] = useState("");
   const [embedCopied, setEmbedCopied] = useState(false);
 
   const [form, setForm] = useState({
     slotDurationMinutes: rs.slotDurationMinutes,
-    maxAdvanceDays:      rs.maxAdvanceDays,
-    openTime:            rs.openTime,
-    closeTime:           rs.closeTime,
+    maxAdvanceDays: rs.maxAdvanceDays,
+    openTime: rs.openTime,
+    closeTime: rs.closeTime,
     slotIntervalMinutes: rs.slotIntervalMinutes,
-    maxPartySize:        rs.maxPartySize ?? 10,
-    reviewUrl:           rs.reviewUrl   ?? "",
+    maxPartySize: rs.maxPartySize ?? 10,
+    reviewUrl: rs.reviewUrl ?? "",
   });
 
   async function save() {
@@ -100,30 +130,30 @@ function ReservationSettings() {
   const numInput = (key: "slotDurationMinutes" | "maxAdvanceDays" | "slotIntervalMinutes" | "maxPartySize", min: number, max: number) => (
     <input type="number" min={min} max={max} value={form[key] as number}
       onChange={(e) => setForm((p) => ({ ...p, [key]: parseInt(e.target.value, 10) || min }))}
-      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400 transition" />
+      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-[13px] sm:text-sm focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400 transition" />
   );
 
   const timeInput = (key: "openTime" | "closeTime") => (
     <input type="time" value={form[key]}
       onChange={(e) => setForm((p) => ({ ...p, [key]: e.target.value }))}
-      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400 transition" />
+      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-[13px] sm:text-sm focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400 transition" />
   );
 
   return (
     <div className="space-y-4">
       {/* Booking config */}
       <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-4">
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-center gap-2 mb-2">
           <Settings2 size={15} className="text-orange-500" />
           <h3 className="text-sm font-bold text-gray-800">Booking Settings</h3>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          {field("Opening time",        timeInput("openTime"))}
-          {field("Closing time",        timeInput("closeTime"))}
+          {field("Opening time", timeInput("openTime"))}
+          {field("Closing time", timeInput("closeTime"))}
           {field("Slot interval (min)", numInput("slotIntervalMinutes", 15, 120))}
           {field("Slot duration (min)", numInput("slotDurationMinutes", 30, 360))}
-          {field("Max advance (days)",  numInput("maxAdvanceDays", 1, 365))}
-          {field("Max party size",      numInput("maxPartySize", 1, 50))}
+          {field("Max advance (days)", numInput("maxAdvanceDays", 1, 365))}
+          {field("Max party size", numInput("maxPartySize", 1, 50))}
         </div>
         {/* Review URL */}
         <div>
@@ -217,15 +247,29 @@ function ReservationCard({
   onStatusChange: (id: string, status: ReservationStatus) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }) {
+  const { settings } = useApp();
+  const currencySymbol = settings.currency?.symbol ?? "£";
   const cfg = STATUS_CONFIG[res.status];
   const [actioning, setActioning] = useState(false);
   const [menuOpen,  setMenuOpen]  = useState(false);
+  // Two-step confirmation for destructive actions (cancel-the-booking and
+  // delete-the-row). Other status changes — check-in, check-out, confirm,
+  // mark no-show — are reversible and stay one-click.
+  const [confirmIntent, setConfirmIntent] = useState<"cancel" | "delete" | null>(null);
 
   async function doAction(fn: () => Promise<void>) {
     setActioning(true);
     setMenuOpen(false);
     await fn();
     setActioning(false);
+  }
+
+  function runConfirmedAction() {
+    if (!confirmIntent) return;
+    const intent = confirmIntent;
+    setConfirmIntent(null);
+    if (intent === "cancel") doAction(() => onStatusChange(res.id, "cancelled"));
+    else doAction(() => onDelete(res.id));
   }
 
   const isActive    = res.status === "pending" || res.status === "confirmed";
@@ -257,22 +301,32 @@ function ReservationCard({
           <AlertTriangle size={12} /> Possible no-show — booking time has passed
         </div>
       )}
-      <div className="flex items-start justify-between gap-3">
-
+      
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 sm:gap-3">
         {/* Left info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border ${cfg.badgeClass}`}>
+            <span
+              className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border ${cfg.badgeClass}`}
+            >
               <span className={`w-1.5 h-1.5 rounded-full ${cfg.dotClass}`} />
               {cfg.label}
             </span>
             {srcInfo && (
-              <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border ${srcInfo.cls}`}>
-                {res.source === "walk-in" ? <UserPlus size={10} /> : res.source === "phone" ? <Phone size={10} /> : null}
+              <span
+                className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border ${srcInfo.cls}`}
+              >
+                {res.source === "walk-in" ? (
+                  <UserPlus size={10} />
+                ) : res.source === "phone" ? (
+                  <Phone size={10} />
+                ) : null}
                 {srcInfo.label}
               </span>
             )}
-            <span className="text-xs text-gray-400 font-mono">{res.id.slice(0, 8).toUpperCase()}</span>
+            <span className="text-xs text-gray-400 font-mono">
+              {res.id.slice(0, 8).toUpperCase()}
+            </span>
             {res.checkedInAt && (
               <span className="text-xs text-blue-600 font-medium flex items-center gap-1">
                 <LogIn size={11} /> {fmtTs(res.checkedInAt)}
@@ -285,32 +339,52 @@ function ReservationCard({
             )}
           </div>
 
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-700">
-            <span className="flex items-center gap-1.5 font-semibold">
+          <div className="mt-3 sm:mt-2 flex flex-wrap gap-x-4 gap-y-2 text-sm text-gray-700">
+            <span className="flex items-center gap-1.5 font-semibold whitespace-nowrap">
               <CalendarDays size={13} className="text-orange-500" />
               {fmtDate(res.date)}
             </span>
-            <span className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1.5 whitespace-nowrap">
               <Clock size={13} className="text-orange-500" />
               {fmt12(res.time)}
             </span>
-            <span className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1.5 whitespace-nowrap">
               <Users size={13} className="text-orange-500" />
               {res.partySize} {res.partySize === 1 ? "guest" : "guests"}
             </span>
-            <span className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1.5 whitespace-nowrap">
               <UtensilsCrossed size={13} className="text-orange-500" />
               {res.tableLabel}
-              {res.section ? <span className="text-gray-400">· {res.section}</span> : null}
+              {res.section ? (
+                <span className="text-gray-400">· {res.section}</span>
+              ) : null}
             </span>
+            {(res.vipFee ?? 0) > 0 && (
+              <span className="flex items-center gap-1.5 whitespace-nowrap text-amber-700" title={res.paymentMethod ? `Paid by ${res.paymentMethod}` : undefined}>
+                <Crown size={13} className="text-amber-500" />
+                {currencySymbol}{(res.vipFee ?? 0).toFixed(2)}
+                {res.paymentStatus === "paid" && (
+                  <span className="text-[10px] font-bold uppercase bg-green-100 text-green-700 px-1.5 py-0.5 rounded">Paid</span>
+                )}
+              </span>
+            )}
           </div>
 
-          <div className="mt-2 space-y-0.5 text-xs text-gray-500">
-            <div className="font-semibold text-gray-700 text-sm">{res.customerName}</div>
-            <div className="flex items-center gap-1.5">
-              <Mail size={11} />
-              <a href={`mailto:${res.customerEmail}`} className="hover:text-orange-600 transition">{res.customerEmail}</a>
+          <div className="mt-3 sm:mt-2 space-y-1 sm:space-y-0.5 text-xs text-gray-500">
+            <div className="font-semibold text-gray-700 text-sm">
+              {res.customerName}
             </div>
+            {res.customerEmail && (
+              <div className="flex items-center gap-1.5">
+                <Mail size={11} />
+                <a
+                  href={`mailto:${res.customerEmail}`}
+                  className="hover:text-orange-600 transition"
+                >
+                  {res.customerEmail}
+                </a>
+              </div>
+            )}
             {res.customerPhone && (
               <div className="flex items-center gap-1.5">
                 <Phone size={11} />
@@ -325,8 +399,7 @@ function ReservationCard({
           </div>
         </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:flex-shrink-0 mt-3 sm:mt-0 pt-3 sm:pt-0 border-t border-gray-100 sm:border-0">
           {actioning ? (
             <Loader2 size={16} className="animate-spin text-gray-400" />
           ) : (
@@ -361,8 +434,11 @@ function ReservationCard({
                 </button>
                 {menuOpen && (
                   <>
-                    <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-                    <div className="absolute right-0 top-8 z-20 bg-white border border-gray-200 rounded-xl shadow-lg py-1 min-w-[170px]">
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setMenuOpen(false)}
+                    />
+                    <div className="absolute left-0 sm:left-auto sm:right-0 top-10 z-20 bg-white border border-gray-200 rounded-xl shadow-lg py-1 min-w-[170px]">
                       {res.status === "pending" && (
                         <button
                           onClick={() => doAction(() => onStatusChange(res.id, "confirmed"))}
@@ -381,7 +457,7 @@ function ReservationCard({
                       )}
                       {(isActive || isCheckedIn) && (
                         <button
-                          onClick={() => doAction(() => onStatusChange(res.id, "cancelled"))}
+                          onClick={() => { setMenuOpen(false); setConfirmIntent("cancel"); }}
                           className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition"
                         >
                           <XCircle size={14} /> Cancel
@@ -389,7 +465,7 @@ function ReservationCard({
                       )}
                       <div className="border-t border-gray-100 my-1" />
                       <button
-                        onClick={() => doAction(() => onDelete(res.id))}
+                        onClick={() => { setMenuOpen(false); setConfirmIntent("delete"); }}
                         className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition"
                       >
                         <Trash2 size={14} /> Delete
@@ -402,6 +478,22 @@ function ReservationCard({
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmIntent !== null}
+        tone="danger"
+        title={confirmIntent === "delete" ? "Delete this reservation?" : "Cancel this reservation?"}
+        message={
+          confirmIntent === "delete"
+            ? `${res.customerName}'s booking on ${res.date} at ${res.time} will be permanently removed from the system.`
+            : `${res.customerName}'s booking on ${res.date} at ${res.time} will be marked as cancelled and the table will be released.`
+        }
+        confirmLabel={confirmIntent === "delete" ? "Delete" : "Cancel booking"}
+        cancelLabel={confirmIntent === "delete" ? "Keep" : "Keep booking"}
+        busy={actioning}
+        onConfirm={runConfirmedAction}
+        onCancel={() => setConfirmIntent(null)}
+      />
     </div>
   );
 }
@@ -422,6 +514,9 @@ export default function ReservationsPanel() {
   const [togglingEnabled, setTogglingEnabled] = useState(false);
 
   // Walk-in / phone booking modal
+  const allSlots   = generateSlots(rs.openTime ?? "12:00", rs.closeTime ?? "22:00", rs.slotIntervalMinutes ?? 30);
+  const firstSlot  = allSlots.find((s) => !isSlotPast(s, todayStr())) ?? allSlots[0] ?? "12:00";
+
   const [showAddModal,  setShowAddModal]  = useState(false);
   const [addSource,     setAddSource]     = useState<"walk-in" | "phone">("walk-in");
   const [addName,       setAddName]       = useState("");
@@ -430,37 +525,148 @@ export default function ReservationsPanel() {
   const [addParty,      setAddParty]      = useState(2);
   const [addTableId,    setAddTableId]    = useState("");
   const [addDate,       setAddDate]       = useState(todayStr());
-  const [addTime,       setAddTime]       = useState("12:00");
+  const [addTime,       setAddTime]       = useState(firstSlot);
   const [addNote,       setAddNote]       = useState("");
+  const [addPayMethod,  setAddPayMethod]  = useState<"cash" | "card">("cash");
   const [addSaving,     setAddSaving]     = useState(false);
   const [addError,      setAddError]      = useState("");
+  const [addBookedIds,  setAddBookedIds]  = useState<Set<string>>(new Set());
+  // Walk-in only: tableId → next booking time. These tables are still pickable
+  // (a walk-in can be seated) but show a "booked HH:MM" warning so staff decide.
+  const [addUpcoming,   setAddUpcoming]   = useState<Record<string, string>>({});
+  const [addLoadingTbl, setAddLoadingTbl] = useState(false);
 
-  const fetchReservations = useCallback(async () => {
-    setLoading(true);
+  // Fetch which tables are already booked at the chosen date/time. Reuses the
+  // public availability endpoint (no auth required) — same data the customer
+  // and POS flows use, so admin sees the same conflicts.
+  const fetchAddTables = useCallback(async (date: string, time: string, party: number, allowPast = false) => {
+    if (!date || !time || !party) return;
+    setAddLoadingTbl(true);
+    try {
+      // allowPast=1 for walk-ins: the slot is the current (slightly past) one,
+      // and occupancy is judged by who's physically at the table right now.
+      const res  = await fetch(`/api/reservations/availability?date=${date}&time=${time}&partySize=${party}${allowPast ? "&allowPast=1" : ""}`);
+      const json = await res.json() as { ok: boolean; bookedTableIds?: string[]; upcomingByTable?: Record<string, string> };
+      setAddBookedIds(new Set(json.ok ? (json.bookedTableIds ?? []) : []));
+      setAddUpcoming(json.ok ? (json.upcomingByTable ?? {}) : {});
+    } catch {
+      setAddBookedIds(new Set());
+      setAddUpcoming({});
+    } finally { setAddLoadingTbl(false); }
+  }, []);
+
+  // Re-fetch booked-IDs whenever date/time/party changes while the modal is
+  // open. Walk-ins use the in-progress slot (which counts as "past"), so skip
+  // the past-slot guard for them — they're being seated now.
+  useEffect(() => {
+    if (!showAddModal) return;
+    setAddTableId("");
+    setAddBookedIds(new Set());
+    setAddUpcoming({});
+    if (addTime && (addSource === "walk-in" || !isSlotPast(addTime, addDate))) {
+      fetchAddTables(addDate, addTime, addParty, addSource === "walk-in");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addDate, addTime, addParty, showAddModal, addSource]);
+
+  // Silent poll while the modal is open — keeps the booked-table set in
+  // sync if someone else creates/cancels a reservation at the same slot.
+  // Skips the loading spinner so the UI doesn't flicker every tick.
+  useEffect(() => {
+    if (!showAddModal) return;
+    const id = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      if (!addDate || !addTime) return;
+      if (addSource !== "walk-in" && isSlotPast(addTime, addDate)) return;
+      const allowPast = addSource === "walk-in" ? "&allowPast=1" : "";
+      fetch(`/api/reservations/availability?date=${addDate}&time=${addTime}&partySize=${addParty}${allowPast}`)
+        .then((r) => r.json())
+        .then((json: { ok: boolean; bookedTableIds?: string[]; upcomingByTable?: Record<string, string> }) => {
+          if (json.ok) {
+            setAddBookedIds(new Set(json.bookedTableIds ?? []));
+            setAddUpcoming(json.upcomingByTable ?? {});
+          }
+        })
+        .catch(() => {});
+    }, 5_000);
+    return () => clearInterval(id);
+  }, [showAddModal, addDate, addTime, addParty, addSource]);
+
+  // Auto-advance time when date changes to today and current slot is past.
+  // Walk-ins are exempt — they intentionally sit on the in-progress slot.
+  useEffect(() => {
+    if (addSource === "walk-in") return;
+    if (isSlotPast(addTime, addDate)) {
+      const next = allSlots.find((s) => !isSlotPast(s, addDate));
+      if (next) setAddTime(next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addDate]);
+
+  // Walk-ins are seated right now — force date to today and time to the
+  // in-progress slot whenever the source toggle is set to walk-in.
+  useEffect(() => {
+    if (!showAddModal || addSource !== "walk-in") return;
+    setAddDate(todayStr());
+    setAddTime(currentSlot(allSlots));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addSource, showAddModal]);
+
+  function openAddModal() {
+    const today = todayStr();
+    const slot = currentSlot(allSlots);
+    setAddSource("walk-in"); setAddDate(today); setAddTime(slot);
+    setAddParty(2); setAddTableId("");
+    setAddName(""); setAddEmail(""); setAddPhone(""); setAddNote("");
+    setAddBookedIds(new Set()); setAddError(""); setAddSaving(false);
+    setShowAddModal(true);
+  }
+
+  // isInitial=true shows the spinner (mount, filter change, manual refresh).
+  // Default silent so background polls don't tear down the visible list.
+  // Snapshot of the last server response, JSON-encoded. Bug #25 — without
+  // this, the silent background poll calls setReservations with a fresh
+  // array reference on every tick even when the data hasn't changed, which
+  // re-renders the entire list and visibly flickers child components.
+  const lastDataKey = useRef<string>("");
+
+  const fetchReservations = useCallback(async (isInitial = false) => {
+    if (isInitial) setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (filterDate)   params.set("from", filterDate);
+      if (filterDate) params.set("from", filterDate);
       if (filterStatus) params.set("status", filterStatus);
-      const res  = await fetch(`/api/admin/reservations?${params}`);
+      const res = await fetch(`/api/admin/reservations?${params}`);
       const json = await res.json() as { ok: boolean; reservations?: Reservation[]; error?: string };
-      if (json.ok) setReservations(json.reservations ?? []);
+      if (json.ok) {
+        const next = json.reservations ?? [];
+        const key = JSON.stringify(next);
+        // Skip the state update entirely if the payload is byte-identical to
+        // the last one — React would otherwise re-render the whole list for
+        // an array reference that holds the same contents.
+        if (key !== lastDataKey.current) {
+          lastDataKey.current = key;
+          setReservations(next);
+        }
+      }
     } catch (err) {
       console.error("ReservationsPanel fetch:", err);
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   }, [filterDate, filterStatus]);
 
-  useEffect(() => { fetchReservations(); }, [fetchReservations]);
+  useEffect(() => { fetchReservations(true); }, [fetchReservations]);
 
+  // Poll every 8 s — anon supabase realtime no longer fires after RLS revoke.
+  // Silent (default) so the list doesn't flicker on each tick. Skip polls
+  // when the tab is hidden to avoid waking idle sessions.
   useEffect(() => {
-    const channel = supabase
-      .channel("reservations-admin")
-      .on("postgres_changes", { event: "*", schema: "public", table: "reservations" }, () => {
-        fetchReservations();
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    const id = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      fetchReservations();
+    }, 8_000);
+    return () => clearInterval(id);
   }, [fetchReservations]);
 
   async function toggleEnabled() {
@@ -470,70 +676,122 @@ export default function ReservationsPanel() {
     setTogglingEnabled(false);
   }
 
+  // Per-row guards so a double-click on the same row's status/delete only fires once.
+  const statusInFlight = useRef<Set<string>>(new Set());
+  const deleteInFlight = useRef<Set<string>>(new Set());
+  const addInFlight = useRef(false);
+
   async function handleStatusChange(id: string, status: ReservationStatus) {
-    const res = await fetch(`/api/admin/reservations/${id}`, {
-      method:  "PUT",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ status }),
-    });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({})) as { error?: string };
-      console.error("ReservationsPanel status change:", j.error);
+    if (statusInFlight.current.has(id)) return;
+    statusInFlight.current.add(id);
+    try {
+      const res = await fetch(`/api/admin/reservations/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({})) as { error?: string };
+        console.error("ReservationsPanel status change:", j.error);
+      }
+      // Optimistic update — includes timestamp approximation
+      setReservations((prev) =>
+        prev.map((r) => {
+          if (r.id !== id) return r;
+          const now = new Date().toISOString();
+          return {
+            ...r,
+            status,
+            ...(status === "checked_in" ? { checkedInAt: now } : {}),
+            ...(status === "checked_out" ? { checkedOutAt: now } : {}),
+          };
+        })
+      );
+    } finally {
+      statusInFlight.current.delete(id);
     }
-    // Optimistic update — includes timestamp approximation
-    setReservations((prev) =>
-      prev.map((r) => {
-        if (r.id !== id) return r;
-        const now = new Date().toISOString();
-        return {
-          ...r,
-          status,
-          ...(status === "checked_in"  ? { checkedInAt:  now } : {}),
-          ...(status === "checked_out" ? { checkedOutAt: now } : {}),
-        };
-      })
-    );
   }
 
   async function handleDelete(id: string) {
+    if (deleteInFlight.current.has(id)) return;
     if (!confirm("Delete this reservation? This cannot be undone.")) return;
-    const res = await fetch(`/api/admin/reservations/${id}`, { method: "DELETE" });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({})) as { error?: string };
-      console.error("ReservationsPanel delete:", j.error);
-      return;
+    deleteInFlight.current.add(id);
+    try {
+      const res = await fetch(`/api/admin/reservations/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({})) as { error?: string };
+        console.error("ReservationsPanel delete:", j.error);
+        return;
+      }
+      setReservations((prev) => prev.filter((r) => r.id !== id));
+    } finally {
+      deleteInFlight.current.delete(id);
     }
-    setReservations((prev) => prev.filter((r) => r.id !== id));
   }
 
   async function handleAddBooking(e: React.FormEvent) {
     e.preventDefault();
     if (!addTableId) { setAddError("Please select a table."); return; }
-    setAddSaving(true); setAddError("");
-    const table = settings.diningTables?.find((t) => t.id === addTableId);
-    const res = await fetch("/api/admin/reservations", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        tableId: addTableId, tableLabel: table?.label ?? addTableId,
-        tableSeats: table?.seats ?? 0, section: table?.section ?? "",
-        date: addDate, time: addTime, partySize: addParty,
-        customerName: addName.trim(), customerEmail: addEmail.trim(),
-        customerPhone: addPhone.trim(), note: addNote.trim(),
-        source: addSource,
-        status: addSource === "walk-in" ? "checked_in" : "pending",
-      }),
-    });
-    const json = await res.json() as { ok: boolean; error?: string };
-    if (json.ok) {
-      setShowAddModal(false);
-      setAddName(""); setAddEmail(""); setAddPhone(""); setAddNote("");
-      setAddParty(2); setAddTableId(""); setAddSource("walk-in");
-      setAddDate(todayStr()); setAddTime("12:00");
-      fetchReservations();
-    } else {
-      setAddError(json.error ?? "Failed to create booking.");
+    if (!addName.trim()) { setAddError("Guest name is required."); return; }
+    // Phone bookings always need a callback number — that's how staff reach
+    // the guest if the booking needs to be confirmed or changed.
+    if (addSource === "phone" && !addPhone.trim()) {
+      setAddError("Phone number is required for phone bookings.");
+      return;
     }
-    setAddSaving(false);
+
+    const table = settings.diningTables?.find((t) => t.id === addTableId);
+    if (!table) { setAddError("Selected table no longer exists. Refresh and try again."); return; }
+
+    // Soft-warn: seating a walk-in on a table that's booked again soon. Allowed,
+    // but confirm so staff are aware the next party is coming.
+    if (addSource === "walk-in" && addUpcoming[addTableId]) {
+      const ok = window.confirm(
+        `Table ${table.label} is booked again at ${fmt12(addUpcoming[addTableId])}. ` +
+        `Seat this walk-in anyway?`
+      );
+      if (!ok) return;
+    }
+
+    // Soft-warn: party exceeds table capacity. Admin can pull chairs / merge
+    // tables, so we allow override after explicit confirmation (mirrors POS).
+    if (table.seats < addParty) {
+      const ok = window.confirm(
+        `Table ${table.label} seats ${table.seats}, but the party is ${addParty}. ` +
+        `Extra chairs or a combined table will be needed. Continue?`
+      );
+      if (!ok) return;
+    }
+
+    if (addInFlight.current) return;
+    addInFlight.current = true;
+    setAddSaving(true); setAddError("");
+    try {
+      const res = await fetch("/api/admin/reservations", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tableId: addTableId,
+          date: addDate, time: addTime, partySize: addParty,
+          customerName: addName.trim(), customerEmail: addEmail.trim(),
+          customerPhone: addPhone.trim(), note: addNote.trim(),
+          source: addSource,
+          // Sent only for VIP tables; the server ignores it for normal tables.
+          ...(table.isVip && (table.vipPrice ?? 0) > 0 ? { paymentMethod: addPayMethod } : {}),
+        }),
+      });
+      const json = await res.json() as { ok: boolean; error?: string };
+      if (json.ok) {
+        setShowAddModal(false);
+        fetchReservations();
+      } else {
+        setAddError(json.error ?? "Failed to create booking.");
+      }
+    } catch {
+      setAddError("Network error — please try again.");
+    } finally {
+      addInFlight.current = false;
+      setAddSaving(false);
+    }
   }
 
   const filtered = reservations.filter((r) => {
@@ -549,12 +807,12 @@ export default function ReservationsPanel() {
   });
 
   const stats = {
-    total:      reservations.length,
-    pending:    reservations.filter((r) => r.status === "pending").length,
-    confirmed:  reservations.filter((r) => r.status === "confirmed").length,
-    checkedIn:  reservations.filter((r) => r.status === "checked_in").length,
+    total: reservations.length,
+    pending: reservations.filter((r) => r.status === "pending").length,
+    confirmed: reservations.filter((r) => r.status === "confirmed").length,
+    checkedIn: reservations.filter((r) => r.status === "checked_in").length,
     checkedOut: reservations.filter((r) => r.status === "checked_out").length,
-    cancelled:  reservations.filter((r) => r.status === "cancelled" || r.status === "no_show").length,
+    cancelled: reservations.filter((r) => r.status === "cancelled" || r.status === "no_show").length,
   };
 
   return (
@@ -594,7 +852,7 @@ export default function ReservationsPanel() {
             {showSettings ? "Hide settings" : "Configure booking settings"}
           </button>
           <button
-            onClick={() => setShowAddModal(true)}
+            onClick={openAddModal}
             className="flex items-center gap-1.5 text-xs font-semibold text-white bg-orange-500 hover:bg-orange-600 px-3 py-1.5 rounded-xl transition"
           >
             <UserPlus size={13} /> Add Walk-in / Phone Booking
@@ -605,14 +863,14 @@ export default function ReservationsPanel() {
       {showSettings && <ReservationSettings />}
 
       {/* Stats row */}
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
         {[
-          { label: "Total",       value: stats.total,      bg: "bg-gray-50",   border: "border-gray-200",  text: "text-gray-800"  },
-          { label: "Pending",     value: stats.pending,    bg: "bg-amber-50",  border: "border-amber-200", text: "text-amber-700" },
-          { label: "Confirmed",   value: stats.confirmed,  bg: "bg-green-50",  border: "border-green-200", text: "text-green-700" },
-          { label: "Dining",      value: stats.checkedIn,  bg: "bg-blue-50",   border: "border-blue-200",  text: "text-blue-700"  },
-          { label: "Done",        value: stats.checkedOut, bg: "bg-teal-50",   border: "border-teal-200",  text: "text-teal-700"  },
-          { label: "Cancelled",   value: stats.cancelled,  bg: "bg-red-50",    border: "border-red-200",   text: "text-red-600"   },
+          { label: "Total", value: stats.total, bg: "bg-gray-50", border: "border-gray-200", text: "text-gray-800" },
+          { label: "Pending", value: stats.pending, bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-700" },
+          { label: "Confirmed", value: stats.confirmed, bg: "bg-green-50", border: "border-green-200", text: "text-green-700" },
+          { label: "Dining", value: stats.checkedIn, bg: "bg-blue-50", border: "border-blue-200", text: "text-blue-700" },
+          { label: "Done", value: stats.checkedOut, bg: "bg-teal-50", border: "border-teal-200", text: "text-teal-700" },
+          { label: "Cancelled", value: stats.cancelled, bg: "bg-red-50", border: "border-red-200", text: "text-red-600" },
         ].map((s) => (
           <div key={s.label} className={`${s.bg} border ${s.border} rounded-xl p-3`}>
             <div className={`text-xl font-bold ${s.text}`}>{s.value}</div>
@@ -667,7 +925,7 @@ export default function ReservationsPanel() {
           />
         </div>
         <button
-          onClick={fetchReservations}
+          onClick={() => fetchReservations(true)}
           disabled={loading}
           className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300 transition"
         >
@@ -704,95 +962,276 @@ export default function ReservationsPanel() {
         </div>
       )}
 
-      {/* Walk-in / Phone booking modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowAddModal(false)} />
-          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <div className="flex items-center gap-2">
-                <UserPlus size={16} className="text-orange-500" />
-                <h3 className="font-bold text-gray-900">Add Booking</h3>
-              </div>
-              <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-600 transition">
-                <XCircle size={20} />
-              </button>
-            </div>
-            <form onSubmit={handleAddBooking} className="p-5 space-y-4 overflow-y-auto max-h-[75vh]">
-              {/* Source toggle */}
-              <div className="flex rounded-xl border border-gray-200 overflow-hidden">
-                {(["walk-in", "phone"] as const).map((s) => (
-                  <button key={s} type="button" onClick={() => setAddSource(s)}
-                    className={`flex-1 py-2 text-sm font-semibold transition ${addSource === s ? "bg-orange-500 text-white" : "text-gray-500 hover:bg-gray-50"}`}>
-                    {s === "walk-in" ? "Walk-in (check in now)" : "Phone booking"}
-                  </button>
-                ))}
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Date <span className="text-red-400">*</span></label>
-                  <input type="date" required value={addDate} onChange={(e) => setAddDate(e.target.value)}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
+      {showAddModal && (() => {
+        // Derived per-render state for the modal
+        const activeTables = (settings.diningTables ?? []).filter((t) => t.active);
+        const tablesBySection: Record<string, typeof activeTables> = {};
+        for (const t of activeTables) {
+          (tablesBySection[t.section || "Other"] = tablesBySection[t.section || "Other"] ?? []).push(t);
+        }
+        // Walk-ins are seated at the current (slightly past) slot, so the
+        // past-slot guard doesn't apply to them — only to future phone bookings.
+        const slotPast = addSource !== "walk-in" && isSlotPast(addTime, addDate);
+        const isBlackout = (rs.blackoutDates ?? []).includes(addDate);
+        const maxParty = rs.maxPartySize ?? 10;
+        const partyTooLarge = addParty > maxParty;
+        const phoneMissing = addSource === "phone" && !addPhone.trim();
+        const canSubmit = !addSaving && !!addTableId && !!addName.trim() && !slotPast && !isBlackout && !partyTooLarge && !phoneMissing;
+        const selectedAddTable = activeTables.find((t) => t.id === addTableId);
+        const addTableIsVip = !!selectedAddTable?.isVip && (selectedAddTable.vipPrice ?? 0) > 0;
+        const currencySymbol = settings.currency?.symbol ?? "£";
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowAddModal(false)} />
+            <div className="relative w-full sm:max-w-2xl bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[95dvh] overflow-hidden">
+
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <UserPlus size={16} className="text-orange-500" />
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-sm">Add Booking</h3>
+                    <p className="text-xs text-gray-400">Walk-in or phone reservation</p>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Time <span className="text-red-400">*</span></label>
-                  <input type="time" required value={addTime} onChange={(e) => setAddTime(e.target.value)}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Table <span className="text-red-400">*</span></label>
-                <select required value={addTableId} onChange={(e) => setAddTableId(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition">
-                  <option value="">Select a table…</option>
-                  {(settings.diningTables ?? []).filter((t) => t.active).map((t) => (
-                    <option key={t.id} value={t.id}>{t.label} — {t.section} ({t.seats} seats)</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Party size</label>
-                <input type="number" min={1} max={50} value={addParty} onChange={(e) => setAddParty(parseInt(e.target.value) || 1)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Guest name <span className="text-red-400">*</span></label>
-                <input type="text" required value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="Jane Smith"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Email <span className="text-gray-300 font-normal normal-case">(optional)</span></label>
-                <input type="email" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} placeholder="jane@example.com"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Phone</label>
-                <input type="tel" value={addPhone} onChange={(e) => setAddPhone(e.target.value)} placeholder="+44 7700 900123"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Note</label>
-                <textarea rows={2} value={addNote} onChange={(e) => setAddNote(e.target.value)} placeholder="Allergies, special requests…"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:border-orange-400 transition" />
-              </div>
-              {addError && (
-                <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">
-                  <AlertTriangle size={14} /> {addError}
-                </div>
-              )}
-              <div className="flex gap-3 pt-1">
-                <button type="button" onClick={() => setShowAddModal(false)}
-                  className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 transition">Cancel</button>
-                <button type="submit" disabled={addSaving}
-                  className="flex-1 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold text-sm transition flex items-center justify-center gap-2">
-                  {addSaving ? <Loader2 size={14} className="animate-spin" /> : null}
-                  {addSaving ? "Saving…" : addSource === "walk-in" ? "Check In Now" : "Create Booking"}
+                <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-600 transition">
+                  <XCircle size={20} />
                 </button>
               </div>
-            </form>
+
+              <form onSubmit={handleAddBooking} className="overflow-y-auto flex-1 p-5 space-y-5">
+
+                {/* Source toggle */}
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Source</p>
+                  <div className="flex rounded-xl border border-gray-200 overflow-hidden">
+                    {(["walk-in", "phone"] as const).map((s) => (
+                      <button key={s} type="button" onClick={() => setAddSource(s)}
+                        className={`flex-1 py-2 text-[13px] sm:text-sm font-semibold transition ${addSource === s ? "bg-orange-500 text-white" : "text-gray-500 hover:bg-gray-50"}`}>
+                        {s === "walk-in" ? "Walk-in (check in now)" : "Phone booking"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Date + party. Date column is hidden for walk-ins — they're
+                    seated now, so a "Seating now" pill replaces it. */}
+                <div className={`grid gap-4 ${addSource === "phone" ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
+                  {addSource === "phone" && (
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Date <span className="text-red-400">*</span></label>
+                      <input type="date" required value={addDate}
+                        min={todayStr()} max={maxDateStr(rs.maxAdvanceDays ?? 30)}
+                        onChange={(e) => setAddDate(e.target.value)}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Guests <span className="text-red-400">*</span></label>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => setAddParty((p) => Math.max(1, p - 1))}
+                        className="w-9 h-9 flex-shrink-0 rounded-full border border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-500 font-bold transition flex items-center justify-center">−</button>
+                      <span className="text-gray-900 font-bold text-lg w-8 text-center">{addParty}</span>
+                      <button type="button" onClick={() => setAddParty((p) => Math.min(maxParty, p + 1))}
+                        className="w-9 h-9 flex-shrink-0 rounded-full border border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-500 font-bold transition flex items-center justify-center">+</button>
+                      <span className="text-xs text-gray-400 ml-1">max {maxParty}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {addSource === "walk-in" && (
+                  <div className="flex items-center gap-2 bg-orange-50 border border-orange-200 rounded-xl px-3 py-2.5 text-sm text-orange-800">
+                    <Clock size={14} className="flex-shrink-0" />
+                    Seating now · <strong>{fmt12(addTime)}</strong>
+                  </div>
+                )}
+
+                {/* Blackout warning — only relevant for future phone bookings */}
+                {addSource === "phone" && isBlackout && (
+                  <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">
+                    <Ban size={14} className="flex-shrink-0" />
+                    Restaurant is closed on this date — booking cannot be created.
+                  </div>
+                )}
+
+                {/* Time slot picker — only shown for phone bookings */}
+                {addSource === "phone" && (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Time <span className="text-red-400">*</span></label>
+                    <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
+                      {allSlots.map((slot) => {
+                        const past = isSlotPast(slot, addDate);
+                        const selected = addTime === slot;
+                        return (
+                          <button key={slot} type="button" disabled={past}
+                            onClick={() => !past && setAddTime(slot)}
+                            title={past ? "Time has passed" : undefined}
+                            className={`py-2 rounded-lg text-xs font-semibold border transition ${past
+                                ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed line-through"
+                                : selected
+                                  ? "bg-orange-500 text-white border-orange-500"
+                                  : "bg-white text-gray-600 border-gray-200 hover:border-orange-300 hover:text-orange-600"
+                              }`}>{fmt12(slot)}</button>
+                        );
+                      })}
+                    </div>
+                    {allSlots.every((s) => isSlotPast(s, addDate)) && (
+                      <p className="text-xs text-amber-600 mt-2">All slots for today have passed — select a future date.</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Table picker — section grouped, with reserved/undersized states */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                    Table <span className="text-red-400">*</span>
+                  </label>
+                  {activeTables.length === 0 ? (
+                    <p className="text-sm text-gray-400 py-2">No active tables — add tables in Waiters & Tables → Tables.</p>
+                  ) : addLoadingTbl ? (
+                    <div className="flex items-center gap-2 text-gray-500 text-sm py-2">
+                      <Loader2 size={14} className="animate-spin text-orange-500" /> Checking table availability…
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {Object.entries(tablesBySection).map(([sec, tbls]) => (
+                        <div key={sec}>
+                          {sec && <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">{sec}</p>}
+                          <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                            {tbls.map((t) => {
+                              const sel = addTableId === t.id;
+                              const isBooked = addBookedIds.has(t.id);   // physically occupied → hard block
+                              const upcomingTime = addUpcoming[t.id];     // booked again soon → warn, still pickable
+                              const isBookedSoon = !isBooked && !!upcomingTime;
+                              const isUndersized = t.seats < addParty;
+                              const isVipT = !!t.isVip && (t.vipPrice ?? 0) > 0;
+                              const baseCls = "relative py-2 rounded-lg text-xs font-semibold border transition flex flex-col items-center leading-tight";
+                              const cls = isBooked
+                                ? `${baseCls} bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed line-through`
+                                : sel
+                                  ? (isUndersized || isBookedSoon)
+                                    ? `${baseCls} bg-amber-500 text-white border-amber-500`
+                                    : `${baseCls} bg-orange-500 text-white border-orange-500`
+                                  : isBookedSoon
+                                    ? `${baseCls} bg-amber-50 text-amber-800 border-amber-300 hover:border-amber-500`
+                                    : isUndersized
+                                      ? `${baseCls} bg-amber-50 text-amber-700 border-amber-200 hover:border-amber-400`
+                                      : `${baseCls} bg-white text-gray-700 border-gray-200 hover:border-orange-300 hover:text-orange-600`;
+                              return (
+                                <button
+                                  key={t.id}
+                                  type="button"
+                                  disabled={isBooked}
+                                  title={
+                                    isBooked ? (addSource === "walk-in" ? "Occupied right now" : "Already reserved at this time") :
+                                      (isBookedSoon ? `Booked again at ${fmt12(upcomingTime)} — seat a walk-in only if it'll be free in time. ` : "") +
+                                      (isVipT ? `VIP table — ${currencySymbol}${(t.vipPrice ?? 0).toFixed(2)} booking fee. ` : "") +
+                                      (isUndersized ? `Seats ${t.seats} — party of ${addParty} (will need extra chairs)` : `Seats ${t.seats}`)
+                                  }
+                                  onClick={() => setAddTableId(t.id)}
+                                  className={cls}
+                                >
+                                  {isVipT && !isBooked && (
+                                    <Crown size={10} className={`absolute top-1 right-1 ${sel ? "text-white" : "text-amber-500"}`} />
+                                  )}
+                                  <span>{t.label}</span>
+                                  <span className="text-[9px] font-normal opacity-75">
+                                    {isBooked
+                                      ? (addSource === "walk-in" ? "occupied" : "reserved")
+                                      : isBookedSoon
+                                        ? `booked ${fmt12(upcomingTime)}`
+                                        : `seats ${t.seats}`}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                      {/* Legend */}
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-[10px] text-gray-500">
+                        <span className="flex items-center gap-1">
+                          <span className="w-2.5 h-2.5 rounded-sm bg-white border border-gray-300" /> free
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Crown size={10} className="text-amber-500" /> VIP (fee)
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="w-2.5 h-2.5 rounded-sm bg-amber-50 border border-amber-300" /> too small / booked soon (warn)
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="w-2.5 h-2.5 rounded-sm bg-gray-100 border border-gray-300" /> occupied now (blocked)
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Guest details */}
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Guest details</p>
+                  <input type="text" required value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="Full name *"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
+                  <input type="email" autoComplete="off" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} placeholder="Email (optional)"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
+                  <input type="tel" inputMode="tel" autoComplete="off" required={addSource === "phone"} value={addPhone} onChange={(e) => setAddPhone(cleanPhone(e.target.value))}
+                    placeholder={addSource === "phone" ? "Phone *" : "Phone (optional)"}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
+                  <textarea rows={2} value={addNote} onChange={(e) => setAddNote(e.target.value)} placeholder="Notes (allergies, special requests…)"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:border-orange-400 transition" />
+                </div>
+
+                {/* VIP booking fee — recorded cash/card (no gateway on admin) */}
+                {addTableIsVip && (
+                  <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold text-amber-800 flex items-center gap-1.5">
+                        <Crown size={14} className="text-amber-500" /> VIP booking fee
+                      </span>
+                      <span className="text-base font-bold text-amber-900">{currencySymbol}{(selectedAddTable!.vipPrice ?? 0).toFixed(2)}</span>
+                    </div>
+                    <p className="text-[11px] text-amber-700">Non-refundable. Record how the guest paid.</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(["cash", "card"] as const).map((m) => (
+                        <button
+                          key={m} type="button"
+                          onClick={() => setAddPayMethod(m)}
+                          className={`py-2 rounded-lg text-sm font-semibold border transition ${
+                            addPayMethod === m
+                              ? "bg-amber-500 text-white border-amber-400"
+                              : "bg-white text-gray-700 border-gray-200 hover:border-amber-400"
+                          }`}
+                        >
+                          {m === "cash" ? "Cash" : "Card"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {addError && (
+                  <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">
+                    <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" /> {addError}
+                  </div>
+                )}
+              </form>
+
+              {/* Footer */}
+              <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-gray-100 flex-shrink-0">
+                <button type="button" onClick={() => setShowAddModal(false)}
+                  className="text-gray-500 hover:text-gray-700 text-sm font-semibold transition">Cancel</button>
+                <button type="button" onClick={(e) => handleAddBooking(e as unknown as React.FormEvent)} disabled={!canSubmit}
+                  className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition">
+                  {addSaving ? <><Loader2 size={14} className="animate-spin" /> Saving…</> :
+                    addTableIsVip ? <><CheckCircle2 size={14} /> Record {currencySymbol}{(selectedAddTable!.vipPrice ?? 0).toFixed(2)} &amp; Book</> :
+                    addSource === "walk-in" ? <><LogIn size={14} /> Check In Now</> : <><CheckCircle2 size={14} /> Create Booking</>}
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

@@ -34,26 +34,33 @@ export default function POSLoginPage() {
     setError("");
   }
 
+  const [submitting, setSubmitting] = useState(false);
+
   function pressDigit(d: string) {
-    if (pin.length >= 4) return;
+    if (pin.length >= 6 || submitting) return;
     const next = pin + d;
     setPin(next);
-    if (next.length === 4) {
+    if (next.length === 6) {
       // Auto-submit
       setTimeout(() => attemptLogin(next), 100);
     }
   }
 
-  function attemptLogin(p: string) {
-    if (!selectedStaff) return;
-    const ok = login(selectedStaff.id, p);
-    if (ok) {
-      router.push("/pos");
-    } else {
-      setShaking(true);
-      setError("Incorrect PIN. Please try again.");
-      setPin("");
-      setTimeout(() => setShaking(false), 600);
+  async function attemptLogin(p: string) {
+    if (!selectedStaff || submitting) return;
+    setSubmitting(true);
+    try {
+      const ok = await login(selectedStaff.id, p);
+      if (ok) {
+        router.push("/pos");
+      } else {
+        setShaking(true);
+        setError("Incorrect PIN. Please try again.");
+        setPin("");
+        setTimeout(() => setShaking(false), 600);
+      }
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -70,7 +77,7 @@ export default function POSLoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 select-none">
+    <div className=" bg-slate-950 flex flex-col items-center justify-center p-6 select-none h-full ">
       {/* Brand */}
       <div className="flex items-center gap-3 mb-10">
         <div className="w-12 h-12 bg-orange-500 rounded-2xl flex items-center justify-center shadow-lg shadow-orange-500/30">
@@ -85,27 +92,40 @@ export default function POSLoginPage() {
       {!selectedStaff ? (
         // ── Staff selector ────────────────────────────────────────────────
         <div className="w-full max-w-lg">
-          <p className="text-center text-slate-400 text-sm mb-6">Select your profile to continue</p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            {activeStaff.map((member) => (
-              <button
-                key={member.id}
-                onClick={() => selectStaff(member)}
-                className="flex flex-col items-center gap-3 p-6 rounded-2xl bg-slate-800/60 border border-slate-700/50 hover:border-orange-500/60 hover:bg-slate-800 active:scale-95 transition-all duration-150 group"
-              >
-                <div
-                  className="w-16 h-16 rounded-2xl flex items-center justify-center text-white font-bold text-xl shadow-lg group-hover:scale-105 transition-transform"
-                  style={{ backgroundColor: member.avatarColor }}
-                >
-                  {getInitials(member.name)}
-                </div>
-                <div className="text-center">
-                  <p className="text-white font-semibold text-sm">{member.name}</p>
-                  <p className="text-slate-400 text-xs capitalize mt-0.5">{member.role}</p>
-                </div>
-              </button>
-            ))}
-          </div>
+          {activeStaff.length === 0 ? (
+            <div className="text-center bg-slate-900/60 border border-slate-800 rounded-2xl p-8 space-y-3">
+              <Lock size={28} className="text-slate-500 mx-auto" />
+              <h2 className="text-white font-semibold">POS not configured</h2>
+              <p className="text-slate-400 text-sm leading-relaxed">
+                No active staff accounts are set up yet.
+                Ask your admin to add POS staff under <span className="text-slate-200">Admin → POS Staff</span>.
+              </p>
+            </div>
+          ) : (
+            <>
+              <p className="text-center text-slate-400 text-sm mb-6">Select your profile to continue</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                {activeStaff.map((member) => (
+                  <button
+                    key={member.id}
+                    onClick={() => selectStaff(member)}
+                    className="flex flex-col items-center gap-3 p-6 rounded-2xl bg-slate-800/60 border border-slate-700/50 hover:border-orange-500/60 hover:bg-slate-800 active:scale-95 transition-all duration-150 group"
+                  >
+                    <div
+                      className="w-16 h-16 rounded-2xl flex items-center justify-center text-white font-bold text-xl shadow-lg group-hover:scale-105 transition-transform"
+                      style={{ backgroundColor: member.avatarColor }}
+                    >
+                      {getInitials(member.name)}
+                    </div>
+                    <div className="text-center">
+                      <p className="text-white font-semibold text-sm">{member.name}</p>
+                      <p className="text-slate-400 text-xs capitalize mt-0.5">{member.role}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
           <p className="text-center text-slate-600 text-xs mt-8">
             {settings.location} · POS v1.0
           </p>
@@ -134,8 +154,8 @@ export default function POSLoginPage() {
           </div>
 
           {/* PIN dots */}
-          <div className={`flex justify-center gap-4 mb-6 ${shaking ? "animate-[shake_0.5s_ease-in-out]" : ""}`}>
-            {[0,1,2,3].map((i) => (
+          <div className={`flex justify-center gap-3 mb-6 ${shaking ? "animate-[shake_0.5s_ease-in-out]" : ""}`}>
+            {[0,1,2,3,4,5].map((i) => (
               <div
                 key={i}
                 className={`w-4 h-4 rounded-full border-2 transition-all duration-150 ${

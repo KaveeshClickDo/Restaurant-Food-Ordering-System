@@ -8,13 +8,14 @@
  */
 
 import type { AdminSettings, Customer, EmailTemplate, EmailTemplateEvent, Order } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
 
 // ─── Variable registry ────────────────────────────────────────────────────────
 
 export interface VarDef {
   name: string;
   label: string;
-  group: "Customer" | "Order" | "Restaurant" | "Reservation" | "Branding";
+  group: "Customer" | "Order" | "Restaurant" | "Reservation" | "Branding" | "Gift Card";
   preview: string; // value used in the template preview
 }
 
@@ -32,6 +33,7 @@ export const TEMPLATE_VARS: VarDef[] = [
   { name: "delivery_address",    label: "Delivery address",    group: "Order",       preview: "42 Example St, London" },
   { name: "payment_method",      label: "Payment method",      group: "Order",       preview: "Cash on Delivery" },
   { name: "estimated_time",      label: "Estimated time (min)", group: "Order",      preview: "30–45" },
+  { name: "delivery_code",       label: "Delivery confirmation code (delivery only)", group: "Order", preview: "<i>(styled PIN block — only for delivery orders)</i>" },
   // Restaurant
   { name: "restaurant_name",     label: "Restaurant name",     group: "Restaurant",  preview: "Your Restaurant" },
   { name: "restaurant_phone",    label: "Restaurant phone",    group: "Restaurant",  preview: "020 7123 4567" },
@@ -48,6 +50,13 @@ export const TEMPLATE_VARS: VarDef[] = [
   { name: "reservation_note",    label: "Special note",        group: "Reservation", preview: "Window seat preferred" },
   { name: "cancel_link",         label: "Cancel booking link", group: "Reservation", preview: "https://yourdomain.com/reservation/token" },
   { name: "review_url",          label: "Review link (Google/TripAdvisor)", group: "Reservation", preview: "https://g.page/r/yourplaceid/review" },
+  // Gift card (only for gift_card_delivered event)
+  { name: "gift_code",            label: "Gift card code",        group: "Gift Card", preview: "GC-7K9X-LM3P-WT2Q" },
+  { name: "gift_amount",          label: "Gift card amount",      group: "Gift Card", preview: "£50.00" },
+  { name: "gift_recipient_name",  label: "Recipient name",        group: "Gift Card", preview: "Alex" },
+  { name: "gift_sender_name",     label: "Sender / buyer name",   group: "Gift Card", preview: "Jane Smith" },
+  { name: "personal_message",     label: "Personal message",      group: "Gift Card", preview: "Happy birthday — enjoy a nice meal on me!" },
+  { name: "gift_expires_at",      label: "Expiry date",           group: "Gift Card", preview: "11 Apr 2027" },
   // Branding
   { name: "brand_color",        label: "Brand primary color (hex)", group: "Branding", preview: "#f97316" },
   { name: "brand_color_light",  label: "Brand light tint (hex)",   group: "Branding", preview: "#fff7ed" },
@@ -74,7 +83,9 @@ export const EVENT_CONFIGS: EventConfig[] = [
   { event: "reservation_confirmation",   name: "Reservation Confirmed",    description: "Sent when a customer books a table",             color: "bg-teal-100",    textColor: "text-teal-700",    emoji: "📅" },
   { event: "reservation_update",         name: "Reservation Update",       description: "Sent when admin confirms or changes the status", color: "bg-blue-100",    textColor: "text-blue-700",    emoji: "🔄" },
   { event: "reservation_cancellation",   name: "Reservation Cancelled",    description: "Sent when a reservation is cancelled",           color: "bg-rose-100",    textColor: "text-rose-700",    emoji: "🚫" },
+  { event: "reservation_check_in",       name: "Guest Checked In",         description: "Sent when staff check the guest in (welcome)",   color: "bg-sky-100",     textColor: "text-sky-700",     emoji: "🪑" },
   { event: "reservation_review_request", name: "Post-Visit Review Request",description: "Sent automatically when a guest checks out",     color: "bg-yellow-100",  textColor: "text-yellow-700",  emoji: "⭐" },
+  { event: "gift_card_delivered",        name: "Gift Card Delivered",      description: "Sent to the recipient when a gift card is purchased", color: "bg-purple-100", textColor: "text-purple-700", emoji: "🎁" },
 ];
 
 // ─── Default templates ────────────────────────────────────────────────────────
@@ -85,7 +96,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
   {
     event: "order_confirmation",
     name: "Order Confirmation",
-    subject: "Your order is confirmed — {{order_id}}",
+    subject: "Your order is received — {{order_id}}",
     body: `<h2 style="color:{{brand_color}};margin:0 0 16px 0">Thank you for your order! 🎉</h2>
 <p>Hi <strong>{{customer_name}}</strong>,</p>
 <p>We've received your order and it's being processed. Here's a summary:</p>
@@ -96,6 +107,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
   <strong>Fulfillment:</strong> {{fulfillment_type}}<br>
   <strong>Payment:</strong> {{payment_method}}
 </p>
+{{delivery_code}}
 <h3 style="color:#374151;margin:20px 0 10px 0;font-size:15px">Your items:</h3>
 {{order_items}}
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
@@ -107,7 +119,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
   {
     event: "order_confirmed",
     name: "Order Confirmed",
-    subject: "Your order has been confirmed — {{restaurant_name}}",
+    subject: "Your order has been confirmed — {{order_id}}",
     body: `<h2 style="color:{{brand_color}};margin:0 0 16px 0">Order Confirmed ✅</h2>
 <p>Hi <strong>{{customer_name}}</strong>,</p>
 <p>Your order <strong>{{order_id}}</strong> has been confirmed and our team is getting started.</p>
@@ -145,7 +157,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
   {
     event: "order_delivered",
     name: "Order Delivered",
-    subject: "Your order has been delivered — enjoy! 🚀",
+    subject: "Your order has been delivered — {{order_id}}",
     body: `<h2 style="color:#059669;margin:0 0 16px 0">Order Delivered! 🚀</h2>
 <p>Hi <strong>{{customer_name}}</strong>,</p>
 <p>Your order <strong>{{order_id}}</strong> has been delivered. We hope you enjoy your meal!</p>
@@ -184,6 +196,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
   <strong>Table:</strong> {{table_label}}<br>
   <strong>Party size:</strong> {{party_size}} guests
 </p>
+{{booking_fee_receipt}}
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
 <p style="color:#6b7280;font-size:14px">Please arrive on time. If your plans change, contact us at <strong>{{restaurant_phone}}</strong>.</p>
 <p style="color:#6b7280;font-size:13px">Need to cancel? <a href="{{cancel_link}}" style="color:{{brand_color}}">Click here to cancel your booking</a>.</p>
@@ -228,7 +241,26 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
 <p>If you have questions or would like to make a new booking, please contact us at <strong>{{restaurant_phone}}</strong>.</p>
 <p>We hope to see you again soon.</p>`,
-    enabled: false,
+    enabled: true,
+    lastModified: new Date(0).toISOString(),
+  },
+  {
+    event: "reservation_check_in",
+    name: "Guest Checked In",
+    subject: "Welcome — you're seated at {{table_label}}",
+    body: `<h2 style="color:{{brand_color}};margin:0 0 16px 0">Welcome to {{restaurant_name}}! 🪑</h2>
+<p>Hi <strong>{{customer_name}}</strong>,</p>
+<p>We've got you seated and we hope you enjoy your visit.</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
+<p>
+  <strong>Table:</strong> {{table_label}}<br>
+  <strong>Party size:</strong> {{party_size}} guests<br>
+  <strong>Booking Reference:</strong> {{booking_ref}}
+</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
+<p style="color:#6b7280;font-size:14px">If you need anything during your visit, please let a member of our team know.</p>
+<p>Enjoy your meal!</p>`,
+    enabled: true,
     lastModified: new Date(0).toISOString(),
   },
   {
@@ -244,7 +276,34 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
 </div>
 <p style="color:#6b7280;font-size:14px">Your feedback helps us improve and lets other guests know what to expect. Thank you for your support!</p>
 <p>We look forward to welcoming you back soon.</p>`,
-    enabled: false,
+    enabled: true,
+    lastModified: new Date(0).toISOString(),
+  },
+  {
+    event: "gift_card_delivered",
+    name: "Gift Card Delivered",
+    subject: "🎁 You've received a gift card from {{gift_sender_name}}",
+    body: `<h2 style="color:{{brand_color}};margin:0 0 16px 0">You've received a gift card! 🎁</h2>
+<p>Hi <strong>{{gift_recipient_name}}</strong>,</p>
+<p><strong>{{gift_sender_name}}</strong> has sent you a gift card to <strong>{{restaurant_name}}</strong>.</p>
+{{personal_message}}
+<div style="background:{{brand_color_light}};border:2px dashed {{brand_color}};border-radius:14px;padding:24px;text-align:center;margin:24px 0">
+  <p style="margin:0 0 6px 0;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:1px">Gift card value</p>
+  <p style="margin:0 0 18px 0;font-size:32px;font-weight:700;color:{{brand_color}};letter-spacing:1px">{{gift_amount}}</p>
+  <p style="margin:0 0 4px 0;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:1px">Your code</p>
+  <p style="margin:0;font-family:'Courier New',monospace;font-size:22px;font-weight:700;letter-spacing:2px;color:#111827">{{gift_code}}</p>
+</div>
+<h3 style="color:#374151;margin:20px 0 10px 0;font-size:15px">How to use it</h3>
+<ul style="color:#6b7280;font-size:14px;line-height:1.7;padding-left:20px;margin:0">
+  <li>Apply the code at checkout on our website — it works for delivery and collection orders.</li>
+  <li>Or quote the code in person at the till — it can be used at any of our payment surfaces.</li>
+  <li>Partial use is fine — any unused balance stays on the code for next time.</li>
+  <li>Expires on <strong>{{gift_expires_at}}</strong>.</li>
+</ul>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
+<p style="color:#6b7280;font-size:14px">Questions? Call us at <strong>{{restaurant_phone}}</strong> or reply to this email.</p>
+<p>Enjoy your meal at <strong>{{restaurant_name}}</strong>!</p>`,
+    enabled: true,
     lastModified: new Date(0).toISOString(),
   },
 ];
@@ -288,13 +347,14 @@ export function buildVarMap(
   settings: AdminSettings,
 ): Record<string, string> {
   const primaryColor = settings.colors?.primaryColor ?? "#f97316";
+  const sym = settings.currency?.symbol || "£";
 
   const itemsHtml = order.items
     .map(
       (i) =>
         `<tr>
           <td style="padding:6px 8px;border-bottom:1px solid #f3f4f6">${i.name} × ${i.qty}</td>
-          <td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;text-align:right;white-space:nowrap">£${(i.price * i.qty).toFixed(2)}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;text-align:right;white-space:nowrap">${sym}${(i.price * i.qty).toFixed(2)}</td>
         </tr>`,
     )
     .join("");
@@ -306,28 +366,28 @@ export function buildVarMap(
   let totalsHtml = `
     <tr>
       <td style="padding:8px 8px 4px;font-weight:600;color:#374151;border-top:2px solid #e5e7eb">Subtotal</td>
-      <td style="padding:8px 8px 4px;text-align:right;font-weight:600;color:#374151;border-top:2px solid #e5e7eb">£${subtotalAmt.toFixed(2)}</td>
+      <td style="padding:8px 8px 4px;text-align:right;font-weight:600;color:#374151;border-top:2px solid #e5e7eb">${sym}${subtotalAmt.toFixed(2)}</td>
     </tr>`;
 
   if (order.deliveryFee && order.deliveryFee > 0) {
     totalsHtml += `
     <tr>
       <td style="padding:4px 8px;color:#6b7280">Delivery fee</td>
-      <td style="padding:4px 8px;text-align:right;color:#6b7280">£${order.deliveryFee.toFixed(2)}</td>
+      <td style="padding:4px 8px;text-align:right;color:#6b7280">${sym}${order.deliveryFee.toFixed(2)}</td>
     </tr>`;
   }
   if (order.serviceFee && order.serviceFee > 0) {
     totalsHtml += `
     <tr>
       <td style="padding:4px 8px;color:#6b7280">Service fee</td>
-      <td style="padding:4px 8px;text-align:right;color:#6b7280">£${order.serviceFee.toFixed(2)}</td>
+      <td style="padding:4px 8px;text-align:right;color:#6b7280">${sym}${order.serviceFee.toFixed(2)}</td>
     </tr>`;
   }
   if (order.couponDiscount && order.couponDiscount > 0) {
     totalsHtml += `
     <tr>
       <td style="padding:4px 8px;color:#16a34a;font-weight:600">Coupon (${order.couponCode ?? ""})</td>
-      <td style="padding:4px 8px;text-align:right;color:#16a34a;font-weight:600">−£${order.couponDiscount.toFixed(2)}</td>
+      <td style="padding:4px 8px;text-align:right;color:#16a34a;font-weight:600">−${sym}${order.couponDiscount.toFixed(2)}</td>
     </tr>`;
   }
   if (order.vatAmount && order.vatAmount > 0) {
@@ -337,13 +397,30 @@ export function buildVarMap(
     totalsHtml += `
     <tr>
       <td style="padding:4px 8px;color:${vatColor};font-weight:600">${vatLabel}</td>
-      <td style="padding:4px 8px;text-align:right;color:${vatColor};font-weight:600">${vatPrefix}£${order.vatAmount.toFixed(2)}</td>
+      <td style="padding:4px 8px;text-align:right;color:${vatColor};font-weight:600">${vatPrefix}${sym}${order.vatAmount.toFixed(2)}</td>
+    </tr>`;
+  }
+  // Payment reductions — store credit + gift card lower the amount actually
+  // charged. Without these rows the breakdown shows an unexplained gap between
+  // the subtotal/fees and the (smaller) Total.
+  if (order.storeCreditUsed && order.storeCreditUsed > 0) {
+    totalsHtml += `
+    <tr>
+      <td style="padding:4px 8px;color:#0d9488;font-weight:600">Store credit applied</td>
+      <td style="padding:4px 8px;text-align:right;color:#0d9488;font-weight:600">−${sym}${order.storeCreditUsed.toFixed(2)}</td>
+    </tr>`;
+  }
+  if (order.giftCardUsed && order.giftCardUsed > 0) {
+    totalsHtml += `
+    <tr>
+      <td style="padding:4px 8px;color:#7c3aed;font-weight:600">Gift card applied</td>
+      <td style="padding:4px 8px;text-align:right;color:#7c3aed;font-weight:600">−${sym}${order.giftCardUsed.toFixed(2)}</td>
     </tr>`;
   }
   totalsHtml += `
     <tr style="background:#f9fafb">
-      <td style="padding:8px;font-weight:700;font-size:15px;color:#111827;border-top:2px solid #e5e7eb">Total</td>
-      <td style="padding:8px;text-align:right;font-weight:700;font-size:15px;color:#111827;border-top:2px solid #e5e7eb">£${order.total.toFixed(2)}</td>
+      <td style="padding:8px;font-weight:700;font-size:15px;color:#111827;border-top:2px solid #e5e7eb">${(order.giftCardUsed ?? 0) > 0 || (order.storeCreditUsed ?? 0) > 0 ? "Total paid" : "Total"}</td>
+      <td style="padding:8px;text-align:right;font-weight:700;font-size:15px;color:#111827;border-top:2px solid #e5e7eb">${sym}${order.total.toFixed(2)}</td>
     </tr>`;
 
   const vatNote = order.vatAmount && order.vatAmount > 0 && order.vatInclusive
@@ -383,13 +460,13 @@ export function buildVarMap(
     delivery_address:   escHtml(order.address     ?? ""),
     payment_method:     escHtml(order.paymentMethod ?? ""),
     // System-generated or admin-supplied — safe as-is.
-    order_id:           order.id.toUpperCase(),
+    order_id:           fullOrderNumber(order.id),
     order_date:         new Date(order.date).toLocaleString("en-GB", {
       day: "2-digit", month: "short", year: "numeric",
       hour: "2-digit", minute: "2-digit",
     }),
     order_items:        orderItemsTable,   // server-built HTML — do not escape
-    order_total:        `£${order.total.toFixed(2)}`,
+    order_total:        `${sym}${order.total.toFixed(2)}`,
     order_status:       order.status,
     fulfillment_type:   order.fulfillment === "delivery" ? "Delivery" : "Collection",
     restaurant_name:    settings.restaurant.name,
@@ -397,9 +474,29 @@ export function buildVarMap(
     restaurant_address: restAddr,
     estimated_time:     estTime,
     order_vat:          buildVatString(order.vatAmount, order.vatInclusive, settings),
+    // Pre-built HTML block — only populated for delivery orders that have a
+    // delivery_code on the row. Server-built, so safe to inline unescaped.
+    delivery_code:      buildDeliveryCodeBlock(order.deliveryCode, primaryColor),
     brand_color:        primaryColor,       // hex — used in style attributes, not escaped
     brand_color_light:  brandColorLight(primaryColor),
   };
+}
+
+/** Build the styled HTML block shown to the customer when a delivery PIN
+ *  exists on the order. Returns "" for collection / dine-in (or any order
+ *  where the code is missing) so the template renders cleanly. The code
+ *  itself is shown in monospace so each digit is unambiguous. */
+function buildDeliveryCodeBlock(
+  code: string | undefined,
+  primaryColor: string,
+): string {
+  if (!code) return "";
+  return `
+<div style="margin:20px 0;padding:16px;border:2px dashed ${primaryColor};border-radius:12px;background:#fff7ed;text-align:center">
+  <p style="margin:0 0 4px 0;font-size:11px;font-weight:700;letter-spacing:1.5px;color:#6b7280;text-transform:uppercase">Delivery confirmation code</p>
+  <p style="margin:0;font-family:'Courier New',monospace;font-size:28px;font-weight:800;letter-spacing:6px;color:#111827">${escHtml(code)}</p>
+  <p style="margin:6px 0 0 0;font-size:12px;color:#6b7280">Tell this code to the driver to confirm delivery.</p>
+</div>`;
 }
 
 function buildVatString(
@@ -409,8 +506,9 @@ function buildVatString(
 ): string {
   const tax = settings.taxSettings;
   if (!tax?.enabled || !vatAmount || vatAmount <= 0) return "";
+  const sym = settings.currency?.symbol || "£";
   const mode = vatInclusive ? `incl. ${tax.rate}% VAT` : `${tax.rate}% VAT`;
-  return `£${vatAmount.toFixed(2)} (${mode})`;
+  return `${sym}${vatAmount.toFixed(2)} (${mode})`;
 }
 
 /** Replace {{variable}} placeholders with actual values. */
@@ -421,6 +519,7 @@ export function applyVars(template: string, vars: Record<string, string>): strin
 /** Build the preview var map using dummy data (no real order needed). */
 export function buildPreviewVarMap(settings: AdminSettings): Record<string, string> {
   const primaryColor = settings.colors?.primaryColor ?? "#f97316";
+  const sym = settings.currency?.symbol || "£";
 
   const restAddr = [
     settings.restaurant.addressLine1,
@@ -444,15 +543,15 @@ export function buildPreviewVarMap(settings: AdminSettings): Record<string, stri
   let previewTotals = `
     <tr>
       <td style="padding:8px 8px 4px;font-weight:600;color:#374151;border-top:2px solid #e5e7eb">Subtotal</td>
-      <td style="padding:8px 8px 4px;text-align:right;font-weight:600;color:#374151;border-top:2px solid #e5e7eb">£${previewSubtotal.toFixed(2)}</td>
+      <td style="padding:8px 8px 4px;text-align:right;font-weight:600;color:#374151;border-top:2px solid #e5e7eb">${sym}${previewSubtotal.toFixed(2)}</td>
     </tr>
     <tr>
       <td style="padding:4px 8px;color:#6b7280">Delivery fee</td>
-      <td style="padding:4px 8px;text-align:right;color:#6b7280">£${previewDelivery.toFixed(2)}</td>
+      <td style="padding:4px 8px;text-align:right;color:#6b7280">${sym}${previewDelivery.toFixed(2)}</td>
     </tr>
     <tr>
       <td style="padding:4px 8px;color:#6b7280">Service fee (${settings.restaurant.serviceFee}%)</td>
-      <td style="padding:4px 8px;text-align:right;color:#6b7280">£${previewService.toFixed(2)}</td>
+      <td style="padding:4px 8px;text-align:right;color:#6b7280">${sym}${previewService.toFixed(2)}</td>
     </tr>`;
   if (previewVatEnabled && previewVatAmt > 0) {
     const vatLabel  = previewInclusive ? `VAT incl. (${previewVatRate}%)` : `VAT (${previewVatRate}%)`;
@@ -461,13 +560,13 @@ export function buildPreviewVarMap(settings: AdminSettings): Record<string, stri
     previewTotals += `
     <tr>
       <td style="padding:4px 8px;color:${vatColor};font-weight:600">${vatLabel}</td>
-      <td style="padding:4px 8px;text-align:right;color:${vatColor};font-weight:600">${vatPrefix}£${previewVatAmt.toFixed(2)}</td>
+      <td style="padding:4px 8px;text-align:right;color:${vatColor};font-weight:600">${vatPrefix}${sym}${previewVatAmt.toFixed(2)}</td>
     </tr>`;
   }
   previewTotals += `
     <tr style="background:#f9fafb">
       <td style="padding:8px;font-weight:700;font-size:15px;color:#111827;border-top:2px solid #e5e7eb">Total</td>
-      <td style="padding:8px;text-align:right;font-weight:700;font-size:15px;color:#111827;border-top:2px solid #e5e7eb">£${previewTotal.toFixed(2)}</td>
+      <td style="padding:8px;text-align:right;font-weight:700;font-size:15px;color:#111827;border-top:2px solid #e5e7eb">${sym}${previewTotal.toFixed(2)}</td>
     </tr>`;
 
   const previewVatNote = previewVatEnabled && previewVatAmt > 0 && previewInclusive
@@ -481,8 +580,8 @@ export function buildPreviewVarMap(settings: AdminSettings): Record<string, stri
         <th style="padding:6px 8px;text-align:right;font-weight:600;color:#374151">Price</th>
       </tr></thead>
       <tbody>
-        <tr><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6">Chicken Tikka Masala × 2</td><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;text-align:right">£11.98</td></tr>
-        <tr><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6">Garlic Naan × 1</td><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;text-align:right">£2.99</td></tr>
+        <tr><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6">Chicken Tikka Masala × 2</td><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;text-align:right">${sym}11.98</td></tr>
+        <tr><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6">Garlic Naan × 1</td><td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;text-align:right">${sym}2.99</td></tr>
       </tbody>
       <tfoot>${previewTotals}</tfoot>
     </table>${previewVatNote}`;
@@ -493,7 +592,7 @@ export function buildPreviewVarMap(settings: AdminSettings): Record<string, stri
     order_id:           "ORD-A1B2C3D4",
     order_date:         "11 Apr 2026, 12:34",
     order_items:        itemsTable,
-    order_total:        `£${previewTotal.toFixed(2)}`,
+    order_total:        `${sym}${previewTotal.toFixed(2)}`,
     order_status:       "confirmed",
     fulfillment_type:   "Delivery",
     delivery_address:   "42 Example Street, London, E1 6RF",
@@ -505,6 +604,8 @@ export function buildPreviewVarMap(settings: AdminSettings): Record<string, stri
     order_vat: previewVatEnabled && previewVatAmt > 0
       ? buildVatString(previewVatAmt, previewInclusive, settings)
       : "",
+    // Preview always shows the block populated (it represents the delivery flow).
+    delivery_code:     buildDeliveryCodeBlock("4729", primaryColor),
     brand_color:       primaryColor,
     brand_color_light: brandColorLight(primaryColor),
   };
@@ -582,9 +683,10 @@ export function buildEmailDocument(
 // ─── Send helpers ─────────────────────────────────────────────────────────────
 
 /**
- * Low-level send: POSTs to the /api/email route.
- * SMTP credentials are read from server-side env vars in the API route —
- * they must NOT be passed from the browser.
+ * Low-level send: POSTs to the admin-only /api/admin/email route. This helper
+ * is only ever invoked from admin surfaces (Email Templates "Send test",
+ * Customers "Resend"); POS operators call /api/email directly. SMTP credentials
+ * are read from server-side env vars in the API route — never from the browser.
  */
 export async function sendEmailViaApi(params: {
   to: string;
@@ -592,7 +694,7 @@ export async function sendEmailViaApi(params: {
   html: string;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch("/api/email", {
+    const res = await fetch("/api/admin/email", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify(params),
@@ -618,6 +720,11 @@ export interface ReservationEmailData {
   note?: string | null;
   section?: string;
   cancel_token?: string;  // used to build the self-service cancel link
+  // VIP booking fee receipt — populated only for VIP-table reservations. Drives
+  // the "booking fee paid" line in the confirmation email (the bill).
+  vip_fee?: number;
+  payment_status?: string;   // "none" | "paid"
+  payment_method?: string;   // "stripe" | "paypal" | "cash" | "card"
 }
 
 /** Build variable map from a real reservation row + settings. */
@@ -650,6 +757,22 @@ export function buildReservationVarMap(
     ? `${siteUrl}/reservation/${res.cancel_token}`
     : "";
 
+  // VIP booking-fee receipt block. Only rendered when a fee was actually
+  // charged; collapses to an empty string for normal (free) reservations so the
+  // {{booking_fee_receipt}} placeholder leaves no trace in those emails.
+  const sym = settings.currency?.symbol ?? "£";
+  const feeAmount = Number(res.vip_fee ?? 0);
+  const methodLabel: Record<string, string> = {
+    stripe: "Card", paypal: "PayPal", cash: "Cash", card: "Card",
+  };
+  const feePaid = feeAmount > 0 && res.payment_status === "paid";
+  const bookingFeeReceipt = feePaid
+    ? `<div style="background:${brandColorLight(primaryColor)};border-left:4px solid ${primaryColor};padding:14px 16px;margin:18px 0;border-radius:6px;color:#374151">
+         <div style="font-weight:700;margin-bottom:4px">VIP booking fee — paid</div>
+         <div>Table ${escHtml(res.table_label)} · ${sym}${feeAmount.toFixed(2)}${res.payment_method ? ` · ${methodLabel[res.payment_method] ?? escHtml(res.payment_method)}` : ""}</div>
+       </div>`
+    : "";
+
   return {
     customer_name:      escHtml(res.customer_name),
     customer_email:     escHtml(res.customer_email),
@@ -667,6 +790,47 @@ export function buildReservationVarMap(
     review_url:         (settings.reservationSystem as { reviewUrl?: string })?.reviewUrl ?? "",
     brand_color:        primaryColor,
     brand_color_light:  brandColorLight(primaryColor),
+    // VIP booking fee receipt — empty string for free reservations.
+    booking_fee:        feeAmount > 0 ? `${sym}${feeAmount.toFixed(2)}` : "",
+    booking_fee_receipt: bookingFeeReceipt,
+  };
+}
+
+/**
+ * Dummy variable map for the gift card template preview pane. Mirrors what
+ * sendGiftCardDeliveredEmail builds at send time, but with sample values so
+ * the admin sees a realistic preview when editing the gift_card_delivered
+ * template. `personal_message` is rendered as the same styled blockquote the
+ * real sender uses, so the editor preview matches what recipients receive.
+ */
+export function buildGiftCardPreviewVarMap(settings: AdminSettings): Record<string, string> {
+  const primaryColor = settings.colors?.primaryColor ?? "#f97316";
+  const primaryColorLt = brandColorLight(primaryColor);
+  const sym            = settings.currency?.symbol ?? "£";
+
+  const restAddr = [
+    settings.restaurant.addressLine1,
+    settings.restaurant.city,
+    settings.restaurant.postcode,
+  ].filter(Boolean).join(", ");
+
+  const sampleMessage = "Happy birthday — enjoy a nice meal on me!";
+  const personalBlock = `<div style="background:${primaryColorLt};border-left:4px solid ${primaryColor};padding:14px 16px;margin:18px 0;border-radius:6px;font-style:italic;color:#374151">"${sampleMessage}"</div>`;
+
+  return {
+    customer_name:       "Alex",
+    customer_email:      "alex@example.com",
+    gift_code:           "GC-7K9X-LM3P-WT2Q",
+    gift_amount:         `${sym}50.00`,
+    gift_recipient_name: "Alex",
+    gift_sender_name:    "Jane Smith",
+    personal_message:    personalBlock,
+    gift_expires_at:     "11 Apr 2027",
+    restaurant_name:     settings.restaurant.name,
+    restaurant_phone:    settings.restaurant.phone,
+    restaurant_address:  restAddr,
+    brand_color:         primaryColor,
+    brand_color_light:   primaryColorLt,
   };
 }
 
@@ -697,6 +861,8 @@ export function buildReservationPreviewVarMap(settings: AdminSettings): Record<s
     review_url:         (settings.reservationSystem as { reviewUrl?: string })?.reviewUrl ?? "https://g.page/r/review",
     brand_color:        primaryColor,
     brand_color_light:  brandColorLight(primaryColor),
+    booking_fee:        "",
+    booking_fee_receipt: "",
   };
 }
 

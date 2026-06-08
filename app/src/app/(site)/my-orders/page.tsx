@@ -1,0 +1,485 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useApp } from "@/context/AppContext";
+import { useRouter } from "next/navigation";
+import {
+    Receipt,
+    PackageX,
+    Navigation,
+    RotateCcw,
+    ChefHat,
+    Bike,
+    ShoppingBag,
+    CheckCheck,
+    X,
+    Pin,
+    Search,
+    LayoutDashboard,
+    LogOut,
+} from "lucide-react";
+import AuthModal from "@/components/AuthModal";
+import type { Order } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
+import Link from "next/link";
+import Cart from "@/components/Cart";
+import MobileBottomNav from "@/components/MobileBottomNav";
+
+// ── Track order modal ───────────────────────────────────────────────
+function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void }) {
+    const { settings } = useApp();
+    const sym = settings.currency?.symbol ?? "£";
+    const isDelivery = order.fulfillment === "delivery";
+    const STEPS: { key: string; label: string; icon: React.ReactNode }[] = [
+        { key: "pending", label: "Order received", icon: <Receipt className="w-4 h-4" strokeWidth={1.8} /> },
+        { key: "preparing", label: "In the kitchen", icon: <ChefHat className="w-4 h-4" strokeWidth={1.8} /> },
+        {
+            key: "ready",
+            label: isDelivery ? "On the way" : "Ready to collect",
+            icon: isDelivery
+                ? <Bike className="w-4 h-4" strokeWidth={1.8} />
+                : <ShoppingBag className="w-4 h-4" strokeWidth={1.8} />,
+        },
+        { key: "delivered", label: isDelivery ? "Delivered" : "Collected", icon: <CheckCheck className="w-4 h-4" strokeWidth={2} /> },
+    ];
+
+    const statusIndex: Record<string, number> = {
+        pending: 0, confirmed: 1, preparing: 1, ready: 2, delivered: 3,
+    };
+    const currentStep = statusIndex[order.status] ?? 0;
+
+    const itemSummary = order.items.map((i) => `${i.qty}× ${i.name}`).join(", ");
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+            <div className="relative w-full sm:max-w-md bg-white sm:rounded-3xl rounded-t-3xl overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto">
+
+                {/* Header */}
+                <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-100">
+                    <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400">Tracking order</p>
+                        <p title={fullOrderNumber(order.id)} className="text-[15px] font-bold text-zinc-900 mt-0.5 truncate">{fullOrderNumber(order.id)}</p>
+                    </div>
+                    <button onClick={onClose} className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-500 hover:bg-zinc-200 transition-colors">
+                        <X className="w-4 h-4" strokeWidth={2} />
+                    </button>
+                </div>
+
+                {/* Route visualization */}
+                <div className="px-3 sm:px-5 py-6 bg-stone-50">
+                    <div className="relative flex items-center justify-between">
+                        {/* Line */}
+                        <div className="absolute left-6 right-6 top-5 h-0.5 bg-zinc-200 z-0" />
+                        <div
+                            className="absolute left-6 top-5 h-0.5 bg-orange-500 z-0 transition-all duration-700"
+                            style={{ width: `${(currentStep / 3) * 100}%`, maxWidth: "calc(100% - 3rem)" }}
+                        />
+                        {/* Steps */}
+                        {STEPS.map((step, i) => (
+                            <div key={step.key} className="relative z-10 flex flex-col items-center gap-1.5" style={{ width: "25%" }}>
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-500 ${i <= currentStep
+                                    ? "bg-orange-500 text-white shadow-lg shadow-orange-500/30"
+                                    : "bg-white border-2 border-zinc-200 text-zinc-400"
+                                    }`}>
+                                    {step.icon}
+                                </div>
+                                <p className={`text-[10px] font-medium text-center leading-tight transition-colors ${i <= currentStep ? "text-orange-600" : "text-zinc-400"
+                                    }`}>
+                                    {step.label}
+                                </p>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Driver info */}
+                {order.driverName && (
+                    <div className="mx-5 mt-4 flex items-center gap-3 bg-zinc-50 rounded-2xl p-3.5">
+                        <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold text-[16px] flex-shrink-0">
+                            {order.driverName.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-[11px] text-zinc-400 leading-none mb-0.5">Your driver</p>
+                            <p className="text-[14px] font-semibold text-zinc-800">{order.driverName}</p>
+                        </div>
+                        <Navigation className="w-5 h-5 text-orange-500" strokeWidth={1.8} />
+                    </div>
+                )}
+
+                {/* Delivery confirmation code. Only shown for delivery orders that
+                 *  haven't been delivered yet — once delivered the code has been
+                 *  used. Same value the customer received by email, mirrored here
+                 *  in case the email was missed or deleted. */}
+                {order.fulfillment === "delivery"
+                  && order.deliveryCode
+                  && order.status !== "delivered"
+                  && order.status !== "cancelled"
+                  && order.status !== "refunded"
+                  && order.paymentStatus !== "refunded" && (
+                    <div className="mx-5 mt-3 rounded-2xl p-4 text-center border-2 border-dashed border-orange-300 bg-orange-50">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-orange-700 mb-1">
+                            Delivery confirmation code
+                        </p>
+                        <p className="font-mono font-extrabold text-[28px] tracking-[0.4em] text-zinc-900 leading-none my-2">
+                            {order.deliveryCode}
+                        </p>
+                        <p className="text-[11.5px] text-zinc-600 leading-snug">
+                            Show or read this to your driver to confirm delivery.
+                        </p>
+                    </div>
+                )}
+
+                {/* Order details */}
+                <div className="px-5 py-4 space-y-3">
+                    <div className="bg-zinc-50 rounded-2xl p-4">
+                        <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400 mb-2">Order summary</p>
+                        <p className="text-[13px] text-zinc-700 leading-relaxed">{itemSummary}</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2.5">
+                        <div className="bg-zinc-50 rounded-2xl p-3.5">
+                            <p className="text-[10px] text-zinc-400 mb-1">Total</p>
+                            <p className="text-[15px] font-bold text-zinc-900 tabular-nums">{sym}{order.total.toFixed(2)}</p>
+                        </div>
+                        <div className="bg-zinc-50 rounded-2xl p-3.5">
+                            <p className="text-[10px] text-zinc-400 mb-1">Type</p>
+                            <p className="text-[14px] font-semibold text-zinc-800 capitalize">{order.fulfillment}</p>
+                        </div>
+                    </div>
+
+                    {order.address && (
+                        <div className="flex items-start gap-2.5 bg-zinc-50 rounded-2xl p-3.5">
+                            <Pin className="w-4 h-4 text-zinc-400 flex-shrink-0 mt-0.5" strokeWidth={1.8} />
+                            <p className="text-[13px] text-zinc-700 leading-snug">{order.address}</p>
+                        </div>
+                    )}
+                </div>
+
+                <div className="pb-6" />
+            </div>
+        </div>
+    );
+}
+
+// ── Main Page ───────────────────────────────────────────────────────────────
+export default function MyOrdersPage() {
+    const { currentUser, addToCart, settings, refreshCurrentUser, logout } = useApp();
+    const sym = settings.currency?.symbol ?? "£";
+    const router = useRouter();
+    const [search, setSearch] = useState("");
+    const [trackingOrder, setTrackingOrder] = useState<Order | null>(null);
+    const [authModal, setAuthModal] = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
+    const [userMenuOpen, setUserMenuOpen] = useState(false);
+    const [showMobileCart, setShowMobileCart] = useState(false);
+
+    const ACTIVE_STATUSES = new Set(["pending", "confirmed", "preparing", "ready"]);
+    // A refunded order (full or partial) is no longer "active", even when its
+    // fulfillment status is still mid-pipeline. Refund state lives in
+    // paymentStatus; older rows may still carry it on status.
+    const isRefunded = (o: Order) =>
+        o.paymentStatus === "refunded" || o.paymentStatus === "partially_refunded"
+        || o.status === "refunded" || o.status === "partially_refunded";
+    const displayOrders = currentUser?.orders ?? [];
+    const hasActiveOrders = displayOrders.some((o) => ACTIVE_STATUSES.has(o.status) && !isRefunded(o));
+
+    // Refresh immediately on mount so switching to this screen always shows fresh data.
+    useEffect(() => {
+        if (currentUser) refreshCurrentUser().catch(() => { });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentUser?.id]);
+
+    // Poll every 15 s while active orders exist — graceful fallback if Realtime is unreliable.
+    useEffect(() => {
+        if (!currentUser?.id || !hasActiveOrders) return;
+        const id = setInterval(() => refreshCurrentUser().catch(() => { }), 15_000);
+        return () => clearInterval(id);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentUser?.id, hasActiveOrders]);
+
+    // Re-fetch when the browser tab becomes visible again.
+    useEffect(() => {
+        function onVisible() {
+            if (document.visibilityState === "visible" && currentUser) {
+                refreshCurrentUser().catch(() => { });
+            }
+        }
+        document.addEventListener("visibilitychange", onVisible);
+        return () => document.removeEventListener("visibilitychange", onVisible);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentUser?.id]);
+
+    const allOrders = [...displayOrders].sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+    const activeOrders = allOrders.filter((o) => ACTIVE_STATUSES.has(o.status) && !isRefunded(o));
+    const pastOrders = allOrders.filter((o) => !ACTIVE_STATUSES.has(o.status) || isRefunded(o));
+
+    const activeLabel = (order: Order): string => {
+        switch (order.status) {
+            case "pending": return "Order received";
+            case "confirmed": return "Confirmed";
+            case "preparing": return "In the kitchen";
+            case "ready": return order.fulfillment === "delivery" ? "Out for delivery" : "Ready to collect / pick up";
+            default: return order.status;
+        }
+    };
+
+    return (
+        <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: '#f5f5f3' }}>
+
+            {/* ── Main content area ─────────────────────────────────────────────── */}
+            <div className="flex-1 flex flex-col min-w-0 h-full">
+
+                {/* Top search header */}
+                <header className="hidden lg:flex items-center justify-between gap-3 px-4 md:px-6 py-3.5 border-b border-zinc-200/70 bg-white flex-shrink-0">
+                    {/* Mobile: logo */}
+                    <div className="lg:hidden flex items-center gap-2 flex-shrink-0">
+                        {settings.restaurant.logoImage ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img src={settings.restaurant.logoImage} alt={settings.restaurant.name}
+                                className="w-8 h-8 rounded-xl object-cover" />
+                        ) : (
+                            <div className="w-8 h-8 rounded-xl bg-orange-500 text-white flex items-center justify-center text-[14px] font-bold">
+                                {settings.restaurant.name.charAt(0).toUpperCase()}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Search */}
+                    <div className="flex-1 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-100 max-w-xl">
+                        <Search className="w-4 h-4 text-zinc-400 flex-shrink-0" strokeWidth={1.8} />
+                        <input
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Search dishes…"
+                            className="flex-1 bg-transparent outline-none text-[13.5px] text-zinc-900 placeholder:text-zinc-400"
+                        />
+                        {search && (
+                            <button onClick={() => setSearch("")} className="text-[11px] font-medium text-zinc-400 hover:text-zinc-700 transition-colors">
+                                Clear
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Auth / user (desktop) */}
+                    <div className="hidden lg:flex items-center gap-2">
+                        {currentUser ? (
+                            <div className="relative">
+                                <button
+                                    onClick={() => setUserMenuOpen((o) => !o)}
+                                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 transition-colors"
+                                >
+                                    <div className="w-6 h-6 rounded-full bg-orange-500 text-white flex items-center justify-center text-[11px] font-bold">
+                                        {currentUser.name?.charAt(0).toUpperCase() ?? "U"}
+                                    </div>
+                                    <span className="text-[13px] font-medium text-zinc-700">{currentUser.name?.split(" ")[0]}</span>
+                                </button>
+                                {userMenuOpen && (
+                                    <>
+                                        <div className="fixed inset-0 z-10" onClick={() => setUserMenuOpen(false)} />
+                                        <div className="absolute right-0 top-full mt-2 w-44 bg-white rounded-xl border border-zinc-200/70 shadow-lg z-20 overflow-hidden py-1">
+                                            <Link href="/account" onClick={() => setUserMenuOpen(false)}
+                                                className="flex items-center gap-2.5 px-4 py-2.5 text-[13px] text-zinc-700 hover:bg-zinc-50 transition-colors">
+                                                <LayoutDashboard className="w-4 h-4" strokeWidth={1.6} />Account
+                                            </Link>
+                                            <button onClick={() => { logout(); setUserMenuOpen(false); }}
+                                                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[13px] text-red-600 hover:bg-red-50 transition-colors">
+                                                <LogOut className="w-4 h-4" strokeWidth={1.6} />Sign out
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        ) : (
+                            <button onClick={() => setAuthModal({ open: true, tab: "login" })}
+                                className="px-4 py-2 rounded-xl bg-orange-500 text-white text-[13px] font-medium hover:bg-orange-600 transition-colors">
+                                Sign in
+                            </button>
+                        )}
+                    </div>
+
+                </header>
+
+                {/* Scrollable content */}
+                <div className="flex-1 overflow-y-auto pb-15">
+
+                    <div className="min-h-full pb-10" style={{ backgroundColor: "#f5f5f3" }}>
+                        <div className="px-5 pt-7 pb-2">
+                            <h1 className="text-[28px] font-extrabold text-zinc-900 tracking-tight leading-tight">My Orders</h1>
+                            <p className="text-[13.5px] text-zinc-500 mt-1">Recent activity from your kitchen.</p>
+                        </div>
+
+                        {!currentUser ? (
+                            <div className="mx-5 mt-6 bg-white rounded-3xl p-8 flex flex-col items-center gap-4 text-center shadow-sm">
+                                <div className="w-14 h-14 rounded-2xl bg-zinc-100 flex items-center justify-center">
+                                    <Receipt className="w-7 h-7 text-zinc-400" strokeWidth={1.4} />
+                                </div>
+                                <p className="text-[13.5px] text-zinc-500">Sign in to see your order history</p>
+                                <button onClick={() => setAuthModal({ open: true, tab: "login" })}
+                                    className="px-6 py-2.5 rounded-full bg-zinc-900 hover:bg-zinc-700 text-white text-[13.5px] font-semibold transition-colors">
+                                    Sign in
+                                </button>
+                            </div>
+
+                        ) : displayOrders.length === 0 ? (
+                            <div className="mx-5 mt-6 bg-white rounded-3xl p-8 flex flex-col items-center gap-3 text-center shadow-sm">
+                                <div className="w-14 h-14 rounded-2xl bg-zinc-100 flex items-center justify-center">
+                                    <PackageX className="w-7 h-7 text-zinc-400" strokeWidth={1.4} />
+                                </div>
+                                <p className="text-[13.5px] text-zinc-500">No orders yet — your order history will appear here.</p>
+                            </div>
+
+                        ) : (
+                            <>
+                                {activeOrders.length > 0 && (
+                                    <div className="mx-5 mt-4 space-y-3">
+                                        {activeOrders.map((activeOrder) => (
+                                            <div key={activeOrder.id} className="bg-zinc-900 rounded-3xl p-5 shadow-lg">
+                                                <div className="flex items-center gap-1.5 mb-4">
+                                                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                                                    <span className="text-[11px] font-bold uppercase tracking-widest text-green-400">In Progress</span>
+                                                </div>
+                                                <p title={fullOrderNumber(activeOrder.id)} className="text-[13px] text-zinc-400 mb-0.5 truncate">Order {fullOrderNumber(activeOrder.id)}</p>
+                                                <p className="text-[18px] font-bold text-white leading-snug mb-3">
+                                                    {activeLabel(activeOrder)}
+                                                </p>
+                                                <p className="text-[12.5px] text-zinc-400 leading-relaxed mb-5 line-clamp-2">
+                                                    {activeOrder.items.map((i) => `${i.qty}× ${i.name}`).join(", ")}
+                                                </p>
+
+                                                {/* Compact delivery code pill — same value the customer got by
+                                                 *  email. Surfaced here so they don't need to dig for it when the
+                                                 *  driver arrives. Only for delivery orders that aren't completed. */}
+                                                {activeOrder.fulfillment === "delivery" && activeOrder.deliveryCode && (
+                                                    <div className="mb-4 rounded-2xl border border-orange-400/40 bg-orange-500/10 px-3.5 py-2.5 flex items-center gap-3">
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="text-[9.5px] font-bold uppercase tracking-[0.18em] text-orange-300 leading-none mb-1">
+                                                                Driver code
+                                                            </p>
+                                                            <p className="text-[11px] text-zinc-300 leading-snug">
+                                                                Tell this to your driver
+                                                            </p>
+                                                        </div>
+                                                        <p className="font-mono font-extrabold text-[20px] tracking-[0.3em] text-white leading-none">
+                                                            {activeOrder.deliveryCode}
+                                                        </p>
+                                                    </div>
+                                                )}
+
+                                                <div className="flex flex-wrap gap-1 items-center justify-between">
+                                                    <span className="text-[16px] font-bold text-white tabular-nums">{sym}{activeOrder.total.toFixed(2)}</span>
+                                                    <button
+                                                        onClick={() => setTrackingOrder(activeOrder)}
+                                                        className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-white text-zinc-900 text-[13px] font-bold hover:bg-zinc-100 transition-colors active:scale-[0.98]"
+                                                    >
+                                                        <Navigation className="w-3.5 h-3.5" strokeWidth={2} />
+                                                        Track order
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {pastOrders.length > 0 && (
+                                    <div className="px-5 mt-6">
+                                        <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400 mb-3">Past orders</p>
+                                        <div className="space-y-3 max-w-lg">
+                                            {pastOrders.map((order) => {
+                                                const dateStr = new Date(order.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+                                                const itemSummary = order.items.slice(0, 2).map((i) => `${i.qty}× ${i.name}`).join(", ")
+                                                    + (order.items.length > 2 ? ` +${order.items.length - 2} more` : "");
+                                                // Refund state can sit on paymentStatus (current) or status (legacy).
+                                                const refundLabel =
+                                                    order.paymentStatus === "refunded" || order.status === "refunded"
+                                                        ? "refunded"
+                                                        : order.paymentStatus === "partially_refunded" || order.status === "partially_refunded"
+                                                            ? "partially refunded"
+                                                            : null;
+                                                const isCancelled = order.status === "cancelled" || refundLabel !== null;
+                                                // A cancelled-AND-refunded order must surface both facts — showing
+                                                // only "cancelled" hides from the customer that their money came back.
+                                                const pastLabel =
+                                                    order.status === "cancelled"
+                                                        ? (refundLabel ? `cancelled · ${refundLabel}` : "cancelled")
+                                                        : refundLabel ?? "Delivered";
+                                                return (
+                                                    <div key={order.id} className="bg-white rounded-3xl p-5 shadow-sm">
+                                                        <div className="flex items-start justify-between gap-2 mb-2">
+                                                            <p className="text-[12px] text-zinc-400">{dateStr}</p>
+                                                            <span className={`text-[10.5px] font-bold uppercase tracking-wider ${isCancelled ? "text-red-400" : "text-zinc-400"}`}>
+                                                                {pastLabel}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-[14px] font-semibold text-zinc-900 leading-snug mb-3 line-clamp-2">{itemSummary}</p>
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-[15px] font-bold text-zinc-900 tabular-nums">{sym}{order.total.toFixed(2)}</span>
+                                                            <button
+                                                                onClick={() => {
+                                                                    order.items.forEach((line) => {
+                                                                        addToCart({
+                                                                            id: crypto.randomUUID(),
+                                                                            menuItemId: line.menuItemId ?? line.name,
+                                                                            name: line.name,
+                                                                            price: line.price,
+                                                                            quantity: line.qty,
+                                                                            selectedVariation: line.selectedVariation,
+                                                                            selectedAddOns: line.selectedAddOns,
+                                                                            specialInstructions: line.specialInstructions,
+                                                                        });
+                                                                    });
+                                                                    router.push("/");
+                                                                }}
+                                                                className="flex items-center gap-1 text-[13px] font-semibold text-orange-500 hover:text-orange-600 transition-colors"
+                                                            >
+                                                                <RotateCcw className="w-3.5 h-3.5" strokeWidth={2} />
+                                                                Reorder
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                            </>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* ── Mobile Bottom Nav ── */}
+            <MobileBottomNav
+                onCartOpen={() => setShowMobileCart(true)}
+                onAuth={() => setAuthModal({ open: true, tab: "login" })}
+            />
+
+            {/* ── Mobile Cart Drawer ── */}
+            {showMobileCart && (
+                <div className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end">
+                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowMobileCart(false)} />
+                    <div className="relative bg-white rounded-t-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-xl">
+                        <Cart
+                            onMobileClose={() => setShowMobileCart(false)}
+                            onOrderPlaced={() => { setShowMobileCart(false); router.push('/my-orders'); }}
+                        />
+                    </div>
+                </div>
+            )}
+
+
+            {trackingOrder && (
+                <TrackOrderModal order={trackingOrder} onClose={() => setTrackingOrder(null)} />
+            )}
+
+            {authModal.open && (
+                <AuthModal
+                    initialTab={authModal.tab}
+                    onClose={() => setAuthModal({ open: false, tab: "login" })}
+                />
+            )}
+
+        </div>
+    );
+}

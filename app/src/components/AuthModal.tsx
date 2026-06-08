@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { X, User, Mail, Phone, Lock, Eye, EyeOff, AlertCircle } from "lucide-react";
+import { X, User, Mail, Phone, Lock, Eye, EyeOff, AlertCircle, CheckCircle2 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import { LoginSchema, RegisterSchema } from "@/lib/schemas/auth";
+import { cleanPhone, formErrorMessage } from "@/lib/inputUtils";
 
 interface Props {
   initialTab?: "login" | "register";
@@ -25,16 +27,23 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
   const [loginForm,    setLoginForm]    = useState({ email: "", password: "" });
   const [registerForm, setRegisterForm] = useState({ name: "", email: "", phone: "", password: "", confirm: "" });
 
+  const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
+
   async function handleLogin(e: { preventDefault(): void }) {
     e.preventDefault();
-    setError(""); setIsAuthError(false); setLoading(true);
+    setError(""); setIsAuthError(false);
+    const check = LoginSchema.safeParse(loginForm);
+    if (!check.success) { setError(formErrorMessage(check.error)); return; }
+    setLoading(true);
     try {
-      const ok = await login(loginForm.email, loginForm.password);
-      if (ok) {
+      const result = await login(check.data.email, check.data.password);
+      if (result.ok) {
         onClose();
         onSuccess?.();
+      } else if (result.needsVerification) {
+        setVerificationEmail(result.email ?? loginForm.email);
       } else {
-        setError("Incorrect email or password.");
+        setError(result.error ?? "Incorrect email or password.");
         setIsAuthError(true);
       }
     } catch {
@@ -48,11 +57,24 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
     e.preventDefault();
     setError("");
     if (registerForm.password !== registerForm.confirm) { setError("Passwords do not match."); return; }
-    if (registerForm.password.length < 6) { setError("Password must be at least 6 characters."); return; }
+    const check = RegisterSchema.omit({ id: true, createdAt: true }).safeParse({
+      name:     registerForm.name,
+      email:    registerForm.email,
+      phone:    registerForm.phone || undefined,
+      password: registerForm.password,
+    });
+    if (!check.success) { setError(formErrorMessage(check.error)); return; }
     setLoading(true);
     try {
-      const result = await register(registerForm.name, registerForm.email, registerForm.phone, registerForm.password);
-      if (result.success) { onClose(); onSuccess?.(); } else { setError(result.error ?? "Registration failed."); }
+      const result = await register(check.data.name, check.data.email, check.data.phone ?? "", check.data.password);
+      if (result.success && result.needsVerification) {
+        setVerificationEmail(result.email ?? registerForm.email);
+      } else if (result.success) {
+        onClose();
+        onSuccess?.();
+      } else {
+        setError(result.error ?? "Registration failed.");
+      }
     } catch {
       setError("Connection error. Please try again.");
     } finally {
@@ -75,6 +97,23 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
 
   const inputCls = "w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition";
 
+  const resendInFlight = useRef(false);
+
+  async function handleResendVerification() {
+    if (resendInFlight.current) return;
+    if (!verificationEmail) return;
+    resendInFlight.current = true;
+    try {
+      await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: verificationEmail }),
+      }).catch(() => {});
+    } finally {
+      resendInFlight.current = false;
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
@@ -87,6 +126,35 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
         >
           <X size={16} />
         </button>
+
+        {/* Verification pending panel — shown after register or when login
+            returns 403 needsVerification. Replaces the form entirely. */}
+        {verificationEmail && (
+          <div className="p-8 text-center space-y-4">
+            <CheckCircle2 size={48} className="text-orange-500 mx-auto" />
+            <h2 className="text-lg font-semibold text-gray-900">Check your inbox</h2>
+            <p className="text-sm text-gray-500 leading-relaxed">
+              We&apos;ve sent a verification link to <strong className="text-gray-700">{verificationEmail}</strong>.
+              Click the link to finish creating your account — it expires in 24 hours.
+            </p>
+            <button
+              type="button"
+              onClick={handleResendVerification}
+              className="text-sm text-orange-500 hover:text-orange-600 font-semibold transition"
+            >
+              Resend verification email
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="block w-full mt-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2.5 rounded-xl text-sm transition"
+            >
+              Close
+            </button>
+          </div>
+        )}
+
+        {!verificationEmail && <>
 
         {/* Checkout context banner */}
         {subtitle && (
@@ -259,8 +327,8 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
                 <div className="relative">
                   <Phone size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                   <input
-                    type="tel" value={registerForm.phone}
-                    onChange={(e) => setRegisterForm((f) => ({ ...f, phone: e.target.value }))}
+                    type="tel" inputMode="tel" autoComplete="tel" value={registerForm.phone}
+                    onChange={(e) => setRegisterForm((f) => ({ ...f, phone: cleanPhone(e.target.value) }))}
                     placeholder="+44 7700 900000" className={inputCls}
                   />
                 </div>
@@ -322,6 +390,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
             </form>
           )}
         </div>
+        </>}
       </div>
     </div>
   );

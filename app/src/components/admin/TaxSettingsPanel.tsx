@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { TaxSettings } from "@/types";
 import {
-  Receipt, CheckCircle, ToggleLeft, ToggleRight,
+  Receipt, CheckCircle,
   AlertTriangle, Info, ShoppingCart, Tag,
 } from "lucide-react";
 
@@ -22,7 +22,7 @@ function Toggle({
       onClick={onToggle}
       role="switch"
       aria-checked={enabled}
-      className={`relative inline-flex items-center ${track} rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-1 ${
+      className={`relative flex-shrink-0 inline-flex items-center ${track} rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-1 ${
         enabled ? "bg-green-500" : "bg-gray-300"
       }`}
     >
@@ -40,6 +40,8 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 // ─── Live preview card ────────────────────────────────────────────────────────
 
 function TaxPreview({ draft }: { draft: TaxSettings }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const exampleSubtotal = 25.00;
   const exampleDelivery = 2.99;
   const exampleService  = 1.25;
@@ -61,7 +63,7 @@ function TaxPreview({ draft }: { draft: TaxSettings }) {
     }
   }
 
-  const fmt = (n: number) => `£${n.toFixed(2)}`;
+  const fmt = (n: number) => `${sym}${n.toFixed(2)}`;
 
   return (
     <div className="bg-gray-900 rounded-2xl p-4">
@@ -156,7 +158,7 @@ export default function TaxSettingsPanel() {
     <div className="space-y-5">
       {/* Panel header */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+        <div className="px-5 sm:px-6 py-4 border-b border-gray-100 flex items-center gap-3">
           <div className="w-9 h-9 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
             <Receipt size={18} className="text-blue-600" />
           </div>
@@ -170,7 +172,7 @@ export default function TaxSettingsPanel() {
 
         <div className="grid lg:grid-cols-2 gap-0">
           {/* ── Form ────────────────────────────────────────────────────────── */}
-          <div className="p-6 space-y-7">
+          <div className="p-5 sm:p-6 space-y-7">
 
             {/* Master toggle */}
             <div>
@@ -204,7 +206,8 @@ export default function TaxSettingsPanel() {
                     max="100"
                     step="0.1"
                     value={draft.rate}
-                    onChange={(e) => patch({ rate: parseFloat(e.target.value) || 0 })}
+                    placeholder="e.g. 20 for 20%"
+                    onChange={(e) => patch({ rate: parseFloat(e.target.value) })}
                     className={`w-full px-4 pr-10 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition ${
                       rateError ? "border-red-400 bg-red-50" : "border-gray-200"
                     }`}
@@ -226,7 +229,7 @@ export default function TaxSettingsPanel() {
             {/* Tax mode */}
             <div className={draft.enabled ? "" : "opacity-40 pointer-events-none"}>
               <SectionLabel>Tax Mode</SectionLabel>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-3">
                 {/* Inclusive */}
                 <button
                   onClick={() => patch({ inclusive: true })}

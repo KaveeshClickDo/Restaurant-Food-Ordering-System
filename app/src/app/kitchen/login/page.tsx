@@ -27,7 +27,7 @@ function PinPad({ value, onChange }: { value: string; onChange: (v: string) => v
             key={k + i}
             onClick={() => {
               if (k === "⌫") onChange(value.slice(0, -1));
-              else if (value.length < 4) onChange(value + k);
+              else if (value.length < 6) onChange(value + k);
             }}
             className={`h-16 rounded-2xl text-2xl font-bold transition-all active:scale-95 select-none ${
               k === "⌫"
@@ -99,7 +99,7 @@ export default function KitchenLoginPage() {
   );
 
   useEffect(() => {
-    if (pin.length === 4) submitPin(pin);
+    if (pin.length === 6) submitPin(pin);
   }, [pin, submitPin]);
 
   function selectStaff(s: Omit<KitchenStaff, "pin">) {
@@ -119,7 +119,7 @@ export default function KitchenLoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 gap-8">
+    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 gap-8 h-full">
       {/* Branding */}
       <div className="text-center">
         <div className="w-16 h-16 bg-orange-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -151,11 +151,11 @@ export default function KitchenLoginPage() {
                 >
                   {initials(s.name)}
                 </div>
-                <div className="text-left">
-                  <p className="text-white font-bold">{s.name}</p>
-                  <p className="text-slate-400 text-xs">{roleLabel(s.role)}</p>
+                <div className="text-left flex-1 min-w-0">
+                  <p className="text-white font-bold truncate">{s.name}</p>
+                  <p className="text-slate-400 text-xs truncate">{roleLabel(s.role)}</p>
                 </div>
-                <ChevronRight size={16} className="text-slate-500 ml-auto" />
+                <ChevronRight size={16} className="text-slate-500 ml-auto flex-shrink-0" />
               </button>
             ))
           )}
@@ -178,15 +178,15 @@ export default function KitchenLoginPage() {
             >
               {initials(target?.name ?? "")}
             </div>
-            <div>
-              <p className="text-white font-semibold">{target?.name}</p>
-              <p className="text-slate-400 text-xs">{target ? roleLabel(target.role) : ""}</p>
+            <div className="text-left flex-1 min-w-0">
+              <p className="text-white font-semibold truncate">{target?.name}</p>
+              <p className="text-slate-400 text-xs truncate">{target ? roleLabel(target.role) : ""}</p>
             </div>
           </div>
 
           {/* PIN dots */}
-          <div className={`flex justify-center gap-4 ${pinError ? "animate-bounce" : ""}`}>
-            {[0, 1, 2, 3].map((i) => (
+          <div className={`flex justify-center gap-3 ${pinError ? "animate-bounce" : ""}`}>
+            {[0, 1, 2, 3, 4, 5].map((i) => (
               <div
                 key={i}
                 className={`w-4 h-4 rounded-full border-2 transition-all ${

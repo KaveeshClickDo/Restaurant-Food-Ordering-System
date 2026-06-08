@@ -3,36 +3,31 @@
 import { useState, useCallback } from "react";
 import { useApp } from "@/context/AppContext";
 import type { ColorSettings } from "@/types";
-import { generateShades, hslToHex, hexToHsl } from "@/lib/colorUtils";
+import { generateShades } from "@/lib/colorUtils";
 import { Palette, RotateCcw, Check, ShoppingBag, Star, Flame } from "lucide-react";
 
 // ─── Defaults ────────────────────────────────────────────────────────────────
 
 const DEFAULTS: ColorSettings = {
-  primaryColor:    "#f97316",
-  backgroundColor: "#f9fafb",
+  primaryColor:    "#18181B",
+  backgroundColor: "#FFFFFF",
 };
 
 // ─── Preset themes ────────────────────────────────────────────────────────────
 
 const PRESETS: { name: string; primary: string; bg: string }[] = [
-  { name: "Orange",  primary: "#f97316", bg: "#f9fafb" },
-  { name: "Red",     primary: "#ef4444", bg: "#fafafa" },
-  { name: "Rose",    primary: "#f43f5e", bg: "#fafafa" },
-  { name: "Violet",  primary: "#8b5cf6", bg: "#fafafa" },
-  { name: "Blue",    primary: "#3b82f6", bg: "#f8fafc" },
-  { name: "Teal",    primary: "#14b8a6", bg: "#f0fdfa" },
-  { name: "Emerald", primary: "#10b981", bg: "#f0fdf4" },
-  { name: "Slate",   primary: "#475569", bg: "#f8fafc" },
+  { name: "Orange",   primary: "#f97316", bg: "#f9fafb" },
+  { name: "Red",      primary: "#ef4444", bg: "#fafafa" },
+  { name: "Rose",     primary: "#f43f5e", bg: "#fafafa" },
+  { name: "Violet",   primary: "#8b5cf6", bg: "#fafafa" },
+  { name: "Blue",     primary: "#3b82f6", bg: "#f8fafc" },
+  { name: "Teal",     primary: "#14b8a6", bg: "#f0fdfa" },
+  { name: "Emerald",  primary: "#10b981", bg: "#f0fdf4" },
+  { name: "Slate",    primary: "#475569", bg: "#f8fafc" },
+  { name: "Obsidian", primary: "#18181B", bg: "#FFFFFF" },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Lighten a hex color by `amount` lightness points (0-100). */
-function lighten(hex: string, amount: number): string {
-  const [h, s, l] = hexToHsl(hex);
-  return hslToHex(h, s, Math.min(l + amount, 98));
-}
 
 /** Return true if the hex represents a "light" color (use dark text on it). */
 function isLight(hex: string): boolean {
@@ -113,6 +108,8 @@ function ColorInput({ label, hint, value, onChange }: ColorInputProps) {
 // ─── LivePreview ──────────────────────────────────────────────────────────────
 
 function LivePreview({ draft, name }: { draft: ColorSettings; name: string }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const shades = generateShades(draft.primaryColor) ?? {};
   const p500 = shades["500"] ?? draft.primaryColor;
   const p600 = shades["600"] ?? draft.primaryColor;
@@ -125,7 +122,7 @@ function LivePreview({ draft, name }: { draft: ColorSettings; name: string }) {
   return (
     <div className="rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
       {/* Simulated header */}
-      <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between"
+      <div className="px-4 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0"
            style={{ backgroundColor: "#ffffff" }}>
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg flex items-center justify-center"
@@ -157,9 +154,9 @@ function LivePreview({ draft, name }: { draft: ColorSettings; name: string }) {
         </div>
 
         {/* Sample item card */}
-        <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex items-start gap-3">
+        <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex items-start gap-3 relative">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <p className="text-sm font-semibold text-gray-900">Chicken Tikka Masala</p>
               <span className="flex items-center gap-0.5 text-[11px] font-medium px-1.5 py-0.5 rounded-full border"
                     style={{ color: p600, backgroundColor: p50, borderColor: p200 }}>
@@ -170,7 +167,7 @@ function LivePreview({ draft, name }: { draft: ColorSettings; name: string }) {
             <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">
               Tender chicken in a rich, creamy tomato sauce
             </p>
-            <p className="text-sm font-bold text-gray-900 mt-1.5">£12.95</p>
+            <p className="text-sm font-bold text-gray-900 mt-1.5">{sym}12.95</p>
           </div>
           <div className="flex flex-col items-center gap-1.5 flex-shrink-0">
             <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center text-xl">
@@ -184,7 +181,7 @@ function LivePreview({ draft, name }: { draft: ColorSettings; name: string }) {
         </div>
 
         {/* Sample buttons row */}
-        <div className="flex items-center gap-2 mt-3">
+        <div className="flex flex-wrap items-center gap-2 mt-3">
           <button className="flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-xl"
                   style={{ backgroundColor: p500, color: btnText }}>
             <ShoppingBag size={12} />

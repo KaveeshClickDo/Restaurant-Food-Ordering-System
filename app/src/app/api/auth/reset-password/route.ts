@@ -9,7 +9,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHmac, randomBytes }   from "crypto";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import { sendEmailDirect, fetchBrandPrimaryColor } from "@/lib/emailServer";
+import { emailConfigured }          from "@/lib/emailSender";
 import { RESET_TOKEN_TTL_MS }        from "@/lib/auth";
+import { parseBody }                 from "@/lib/apiValidation";
+import { rateLimit }                  from "@/lib/rateLimit";
+import { ResetPasswordRequestSchema } from "@/lib/schemas/auth";
 
 function hashToken(token: string): string {
   const secret = (process.env.AUTH_JWT_SECRET ?? process.env.ADMIN_JWT_SECRET ?? "").trim();
@@ -17,17 +21,15 @@ function hashToken(token: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  let body: { email?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 });
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const { limited } = rateLimit(`reset-pw:${ip}`, 3, 60_000);
+  if (limited) {
+    return NextResponse.json({ ok: false, error: "Too many requests. Please wait a minute." }, { status: 429 });
   }
 
-  const email = body.email?.trim().toLowerCase();
-  if (!email) {
-    return NextResponse.json({ ok: false, error: "Email is required." }, { status: 400 });
-  }
+  const parsed = await parseBody(req, ResetPasswordRequestSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const email = parsed.data.email.toLowerCase();
 
   // Always respond with ok: true — never reveal if email exists
   const { data } = await supabaseAdmin
@@ -50,7 +52,7 @@ export async function POST(req: NextRequest) {
   const siteUrl  = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
   const resetUrl = `${siteUrl}/login?action=reset&token=${rawToken}&email=${encodeURIComponent(email)}`;
 
-  if (process.env.SMTP_HOST) {
+  if (emailConfigured()) {
     const brandColor = await fetchBrandPrimaryColor();
     const result = await sendEmailDirect(
       email,
@@ -73,7 +75,7 @@ export async function POST(req: NextRequest) {
     );
     if (!result.ok) console.error("[reset-password] email failed:", result.error);
   } else {
-    console.log("[reset-password] Reset URL (no SMTP):", resetUrl);
+    console.log("[reset-password] Reset URL (no email provider configured):", resetUrl);
   }
 
   return NextResponse.json({ ok: true });

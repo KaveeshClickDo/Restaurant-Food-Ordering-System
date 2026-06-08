@@ -11,10 +11,10 @@ import {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatValue(coupon: Coupon) {
+function formatValue(coupon: Coupon, sym: string) {
   return coupon.type === "percentage"
     ? `${coupon.value}% off`
-    : `£${coupon.value.toFixed(2)} off`;
+    : `${sym}${coupon.value.toFixed(2)} off`;
 }
 
 function couponStatus(coupon: Coupon): "active" | "inactive" | "expired" | "exhausted" {
@@ -99,6 +99,8 @@ function CouponForm({
   onSave: (data: Omit<Coupon, "id" | "usageCount" | "createdAt">) => void;
   onCancel: () => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [form, setForm] = useState<FormState>(blankForm(initial));
   const [error, setError] = useState("");
 
@@ -176,7 +178,7 @@ function CouponForm({
           <div className="flex gap-2">
             {([
               { value: "percentage", label: "Percentage", icon: <Percent size={13} /> },
-              { value: "fixed",      label: "Fixed (£)",  icon: <PoundSterling size={13} /> },
+              { value: "fixed",      label: `Fixed (${sym})`,  icon: <PoundSterling size={13} /> },
             ] as const).map(({ value, label, icon }) => (
               <button
                 key={value}
@@ -196,11 +198,11 @@ function CouponForm({
         {/* Discount value */}
         <div>
           <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-            Discount Value * {form.type === "percentage" ? "(0–100%)" : "(£)"}
+            Discount Value * {form.type === "percentage" ? "(0–100%)" : `(${sym})`}
           </label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
-              {form.type === "percentage" ? "%" : "£"}
+              {form.type === "percentage" ? "%" : sym}
             </span>
             <input
               type="number"
@@ -217,9 +219,9 @@ function CouponForm({
 
         {/* Minimum order */}
         <div>
-          <label className="block text-xs font-semibold text-gray-600 mb-1.5">Minimum Order Amount (£)</label>
+          <label className="block text-xs font-semibold text-gray-600 mb-1.5">Minimum Order Amount ({sym})</label>
           <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">£</span>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">{sym}</span>
             <input
               type="number"
               min="0"
@@ -295,6 +297,8 @@ function CouponRow({
   onDelete: () => void;
   onToggle: (active: boolean) => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [editing,    setEditing]    = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [expanded,  setExpanded]   = useState(false);
@@ -305,9 +309,10 @@ function CouponRow({
       status === "active" ? "border-gray-100 bg-white" : "border-dashed border-gray-200 bg-gray-50/60"
     }`}>
       {/* Main row */}
-      <div className="flex items-center gap-3 px-4 py-3.5">
-        {/* Icon */}
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3.5">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          {/* Icon */}
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
           coupon.type === "percentage" ? "bg-orange-100" : "bg-blue-100"
         }`}>
           {coupon.type === "percentage"
@@ -321,12 +326,12 @@ function CouponRow({
             <span className="font-mono font-bold text-gray-900 tracking-wider text-sm">{coupon.code}</span>
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
               coupon.type === "percentage" ? "bg-orange-50 text-orange-600" : "bg-blue-50 text-blue-600"
-            }`}>{formatValue(coupon)}</span>
+            }`}>{formatValue(coupon, sym)}</span>
             <StatusBadge coupon={coupon} />
           </div>
           <div className="flex items-center gap-3 mt-1 text-xs text-gray-400 flex-wrap">
             {coupon.minOrderAmount > 0 && (
-              <span>Min £{coupon.minOrderAmount.toFixed(2)}</span>
+              <span>Min {sym}{coupon.minOrderAmount.toFixed(2)}</span>
             )}
             <span className="flex items-center gap-1">
               {coupon.usageLimit > 0
@@ -340,9 +345,10 @@ function CouponRow({
             )}
           </div>
         </div>
+        </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center justify-center sm:justify-end gap-2 flex-shrink-0 mt-2 sm:mt-0 pt-2 sm:pt-0 border-t sm:border-0 border-gray-100">
           {/* Active toggle */}
           <button
             onClick={() => onToggle(!coupon.active)}
@@ -375,8 +381,8 @@ function CouponRow({
         <div className="border-t border-gray-100 px-4 py-3 bg-gray-50/50 flex items-center justify-between gap-4 flex-wrap">
           <div className="flex gap-6 text-xs text-gray-600 flex-wrap">
             <span><span className="font-semibold">Type:</span> {coupon.type === "percentage" ? "Percentage" : "Fixed amount"}</span>
-            <span><span className="font-semibold">Value:</span> {formatValue(coupon)}</span>
-            <span><span className="font-semibold">Min order:</span> {coupon.minOrderAmount > 0 ? `£${coupon.minOrderAmount.toFixed(2)}` : "None"}</span>
+            <span><span className="font-semibold">Value:</span> {formatValue(coupon, sym)}</span>
+            <span><span className="font-semibold">Min order:</span> {coupon.minOrderAmount > 0 ? `${sym}${coupon.minOrderAmount.toFixed(2)}` : "None"}</span>
             <span><span className="font-semibold">Limit:</span> {coupon.usageLimit > 0 ? `${coupon.usageLimit} uses` : "Unlimited"}</span>
             <span><span className="font-semibold">Used:</span> {coupon.usageCount} times</span>
             <span><span className="font-semibold">Expires:</span> {fmtDate(coupon.expiryDate)}</span>

@@ -1,16 +1,45 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "@/context/AppContext";
-import { Category, MenuItem, Variation, AddOn } from "@/types";
+import { Category, MealPeriod, MenuItem, Variation, AddOn, MenuItemOffer } from "@/types";
 import {
   ChefHat, Plus, Pencil, Trash2, Search,
   GripVertical, X, Check, AlertTriangle, Flame, Tag,
   ArrowUp, ArrowDown, ImagePlus, Link, Upload,
-  Package, PackageX, PackageMinus, Minus,
+  Package, PackageX, PackageMinus, Minus, Clock,
+  ToggleLeft, ToggleRight, Loader2,
+  ChevronDown,
+  ChevronRight,
+  FolderMinus,
+  FolderOpen,
 } from "lucide-react";
 import { resolveStock, stockLabel, LOW_STOCK_THRESHOLD } from "@/lib/stockUtils";
+import { uploadMenuImage, MAX_IMAGE_LABEL } from "@/lib/uploadImage";
 import type { StockStatus } from "@/types";
+
+// Bug #2 — POS / admin field parity. A small handful of preset accent
+// colours so admin can pick the same POS tile colour without reaching
+// for a colour picker. Mirrors PRESET_COLORS in pos/settings/_helpers.ts.
+const POS_PRESET_COLORS = [
+  "#f97316", "#8b5cf6", "#f59e0b", "#06b6d4", "#10b981", "#ec4899", "#3b82f6",
+  "#ef4444", "#84cc16", "#14b8a6", "#a855f7", "#f43f5e",
+];
+
+// Curated preset colors specifically for Meal Periods (morning yellows,
+// evening purples, fresh greens, dinner reds).
+const MEAL_PERIOD_COLORS = [
+  "#fcd34d", // Sunny Morning (Breakfast)
+  "#f59e0b", // Warm Amber (Brunch)
+  "#f97316", // Bright Orange (Lunch)
+  "#ef4444", // Deep Red (Dinner)
+  "#8b5cf6", // Violet (Late Night)
+  "#3b82f6", // Blue (Afternoon/Drinks)
+  "#10b981", // Emerald (Healthy/Vegan)
+  "#84cc16", // Lime (Salads)
+];
+
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const DIETARY_OPTIONS = ["vegetarian", "vegan", "halal", "gluten-free"] as const;
 
@@ -32,21 +61,39 @@ function blankItem(categoryId: string): MenuItem {
     price: 0,
     dietary: [],
     popular: false,
+    active: true,                  // Bug #2 — defaults to visible on the menu
     variations: [],
     addOns: [],
+    channels: ["in_store", "online"], // admin items default to both channels
   };
 }
 
-function blankCategory(): Category {
-  return { id: crypto.randomUUID(), name: "", emoji: "🍽️" };
+function blankCategory(parentId?: string): Category {
+  return { id: crypto.randomUUID(), name: "", emoji: "🍽️", parentId: parentId ?? null };
 }
 
 function blankVariation(): Variation {
-  return { id: crypto.randomUUID(), name: "", options: [{ id: crypto.randomUUID(), label: "", price: 0 }] };
+  return { id: crypto.randomUUID(), name: "", required: true, options: [{ id: crypto.randomUUID(), label: "", price: 0 }] };
 }
 
 function blankAddOn(): AddOn {
   return { id: crypto.randomUUID(), name: "", price: 0 };
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Parent categories, sorted by sort_order */
+function getParents(cats: Category[]) {
+  return cats
+    .filter((c) => !c.parentId)
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+}
+
+/** Sub-categories of a given parent, sorted by sort_order */
+function getChildren(parentId: string, cats: Category[]) {
+  return cats
+    .filter((c) => c.parentId === parentId)
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 }
 
 // ─── Main Component ──────────────────────────────────────────────────────────
@@ -55,35 +102,120 @@ export default function MenuManagementPanel() {
   const {
     categories, menuItems,
     addCategory, updateCategory, deleteCategory, reorderCategories,
-    addMenuItem, updateMenuItem, deleteMenuItem,
+    addMenuItem, updateMenuItem, updateMenuItemStock, deleteMenuItem,
+    mealPeriods, addMealPeriod, updateMealPeriod, deleteMealPeriod,
+    settings,
   } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
+
+  const [editingPeriod, setEditingPeriod] = useState<MealPeriod | null>(null);
+  const [deletingPeriod, setDeletingPeriod] = useState<MealPeriod | null>(null);
 
   const [selectedCatId, setSelectedCatId] = useState<string | "all">("all");
+  const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
   const [editingCat, setEditingCat] = useState<Category | null>(null);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [deletingCat, setDeletingCat] = useState<Category | null>(null);
   const [deletingItem, setDeletingItem] = useState<MenuItem | null>(null);
 
-  // Filtered items
-  const displayedItems = menuItems.filter((item) => {
-    const matchesCat = selectedCatId === "all" || item.categoryId === selectedCatId;
-    const matchesSearch =
-      !search ||
-      item.name.toLowerCase().includes(search.toLowerCase()) ||
-      item.description.toLowerCase().includes(search.toLowerCase());
-    return matchesCat && matchesSearch;
-  });
+  const parents = useMemo(() => getParents(categories), [categories]);
+
+  // Items shown in main panel
+  const displayedItems = useMemo(() => {
+    // When a parent is selected, show items from it AND all its children
+    const effectiveCatIds =
+      selectedCatId === "all"
+        ? null
+        : [
+          selectedCatId,
+          ...categories
+            .filter((c) => c.parentId === selectedCatId)
+            .map((c) => c.id),
+        ];
+
+    return menuItems.filter((item) => {
+      const matchesCat =
+        !effectiveCatIds || effectiveCatIds.includes(item.categoryId);
+      const matchesSearch =
+        !search ||
+        item.name.toLowerCase().includes(search.toLowerCase()) ||
+        item.description.toLowerCase().includes(search.toLowerCase());
+      return matchesCat && matchesSearch;
+    });
+  }, [menuItems, selectedCatId, categories, search]);
 
   const catItemCount = (catId: string) => menuItems.filter((i) => i.categoryId === catId).length;
 
-  function moveCat(idx: number, dir: -1 | 1) {
-    const next = [...categories];
-    const swap = idx + dir;
-    if (swap < 0 || swap >= next.length) return;
-    [next[idx], next[swap]] = [next[swap], next[idx]];
-    reorderCategories(next);
+  // Count items in parent + all its children
+  const parentItemCount = (parentId: string) => {
+    const childIds = categories
+      .filter((c) => c.parentId === parentId)
+      .map((c) => c.id);
+    return menuItems.filter(
+      (i) => i.categoryId === parentId || childIds.includes(i.categoryId),
+    ).length;
+  };
+
+  function toggleExpand(parentId: string) {
+    setExpandedParents((prev) => {
+      const next = new Set(prev);
+      if (next.has(parentId)) next.delete(parentId);
+      else next.add(parentId);
+      return next;
+    });
   }
+
+  // ── Reorder helpers ──────────────────────────────────────────────────────
+
+  /** Move a parent category up/down among other parent categories only */
+  function moveParent(idx: number, dir: -1 | 1) {
+    const currentParents = getParents(categories);
+    const swap = idx + dir;
+    if (swap < 0 || swap >= currentParents.length) return;
+
+    // Build new full list preserving children positions
+    const newParents = [...currentParents];
+    [newParents[idx], newParents[swap]] = [newParents[swap], newParents[idx]];
+
+    // Reconstruct full ordered list: parents with their children interleaved
+    const ordered: Category[] = [];
+    newParents.forEach((p) => {
+      ordered.push(p);
+      ordered.push(...getChildren(p.id, categories));
+    });
+    reorderCategories(ordered);
+  }
+
+  /** Move a sub-category up/down among siblings of the same parent only */
+  function moveChild(parentId: string, idx: number, dir: -1 | 1) {
+    const siblings = getChildren(parentId, categories);
+    const swap = idx + dir;
+    if (swap < 0 || swap >= siblings.length) return;
+
+    const newSiblings = [...siblings];
+    [newSiblings[idx], newSiblings[swap]] = [newSiblings[swap], newSiblings[idx]];
+
+    // Merge back into full list
+    const siblingIds = new Set(newSiblings.map((s) => s.id));
+    const others = categories.filter((c) => !siblingIds.has(c.id));
+
+    // Insert sorted siblings back in place
+    const ordered: Category[] = [];
+    getParents(others).forEach((p) => {
+      ordered.push(p);
+      if (p.id === parentId) {
+        ordered.push(...newSiblings);
+      } else {
+        ordered.push(...getChildren(p.id, others));
+      }
+    });
+    reorderCategories(ordered);
+  }
+
+  // ── Category selected label ──────────────────────────────────────────────
+
+  const selectedCat = categories.find((c) => c.id === selectedCatId);
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -121,15 +253,87 @@ export default function MenuManagementPanel() {
         </button>
       </div>
 
+      {/* Meal periods — time-bounded sections on the customer menu. Tag items
+          to one or more periods in the item editor; customers see each section
+          only during its window. */}
+      <div className="px-6 py-3 border-b border-gray-100 bg-amber-50/40">
+        <div className="flex flex-wrap gap-2 items-center justify-between mb-3">
+          <span className="text-sm font-medium text-amber-900 flex items-center gap-1.5">
+            <Clock size={14} /> Meal periods
+            <span className="text-xs text-amber-700/70 font-normal mt-1">
+              ({mealPeriods.length})
+            </span>
+          </span>
+          <button
+            onClick={() => setEditingPeriod({
+              id: "", name: "", enabled: true,
+              startTime: "12:00", endTime: "15:00",
+              daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+              sortOrder: mealPeriods.length,
+              themeColor: "#f59e0b",
+            })}
+            className="flex items-center gap-1 text-xs font-semibold text-amber-800 hover:text-amber-900 bg-white px-2 py-1 rounded-lg border border-amber-200"
+          >
+            <Plus size={12} /> Add meal period
+          </button>
+        </div>
+        {mealPeriods.length === 0 ? (
+          <p className="text-xs text-amber-700/70 italic">
+            No meal periods defined. Add one to show a time-based section (e.g. Breakfast, Dinner) on the customer menu.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {mealPeriods.map((p) => (
+              <div
+                key={p.id}
+                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border bg-white`}
+                style={{ borderColor: p.enabled ? p.themeColor : '#e5e7eb', opacity: p.enabled ? 1 : 0.6 }}
+              >
+                <button
+                  onClick={() => updateMealPeriod(p.id, { enabled: !p.enabled })}
+                  className={`relative w-7 h-4 rounded-full transition-colors flex-shrink-0`}
+                  style={{ backgroundColor: p.enabled ? p.themeColor : '#d1d5db' }}
+                  aria-label={p.enabled ? `Disable ${p.name}` : `Enable ${p.name}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${p.enabled ? "translate-x-3" : ""}`} />
+                </button>
+                <div className="text-xs">
+                  <span className="font-semibold text-gray-800">{p.name}</span>
+                  <span className="text-gray-500 ml-1.5">{p.startTime}–{p.endTime}</span>
+                  {p.daysOfWeek.length < 7 && (
+                    <span className="text-gray-400 ml-1.5">
+                      ({p.daysOfWeek.map((d) => DAY_LABELS[d]).join(" ")})
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => setEditingPeriod(p)}
+                  className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition"
+                  title="Edit"
+                >
+                  <Pencil size={11} />
+                </button>
+                <button
+                  onClick={() => setDeletingPeriod(p)}
+                  className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition"
+                  title="Delete"
+                >
+                  <Trash2 size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="flex flex-col md:flex-row md:divide-x divide-gray-100 min-h-[500px]">
         {/* Mobile: horizontal category selector */}
         <div className="md:hidden overflow-x-auto scrollbar-hide border-b border-gray-100">
           <div className="flex gap-2 px-4 py-3 min-w-max">
             <button
               onClick={() => setSelectedCatId("all")}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap flex-shrink-0 transition ${
-                selectedCatId === "all" ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600"
-              }`}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap flex-shrink-0 transition ${selectedCatId === "all" ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600"
+                }`}
             >
               All <span className="opacity-70">({menuItems.length})</span>
             </button>
@@ -137,9 +341,8 @@ export default function MenuManagementPanel() {
               <button
                 key={cat.id}
                 onClick={() => setSelectedCatId(cat.id)}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap flex-shrink-0 transition ${
-                  selectedCatId === cat.id ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600"
-                }`}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap flex-shrink-0 transition ${selectedCatId === cat.id ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600"
+                  }`}
               >
                 {cat.emoji} {cat.name}
               </button>
@@ -152,8 +355,9 @@ export default function MenuManagementPanel() {
             </button>
           </div>
         </div>
+
         {/* ── Left: Category sidebar ── */}
-        <div className="hidden md:block w-56 flex-shrink-0 p-3 space-y-0.5">
+        <div className="hidden md:block w-60 xl:w-70 flex-shrink-0 p-3 space-y-0.5">
           <div className="flex items-center justify-between px-2 pb-2">
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Categories</span>
             <button
@@ -168,62 +372,165 @@ export default function MenuManagementPanel() {
           {/* All items */}
           <button
             onClick={() => setSelectedCatId("all")}
-            className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all flex items-center justify-between ${
-              selectedCatId === "all"
-                ? "bg-orange-50 text-orange-600"
-                : "text-gray-600 hover:bg-gray-50"
-            }`}
+            className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all flex items-center justify-between ${selectedCatId === "all"
+              ? "bg-orange-50 text-orange-600"
+              : "text-gray-600 hover:bg-gray-50"
+              }`}
           >
             <span>All items</span>
             <span className="text-xs text-gray-400">{menuItems.length}</span>
           </button>
 
-          {/* Category list */}
-          {categories.map((cat, idx) => (
-            <div
-              key={cat.id}
-              className={`group flex items-center rounded-lg transition-all ${
-                selectedCatId === cat.id ? "bg-orange-50" : "hover:bg-gray-50"
-              }`}
-            >
-              {/* Reorder arrows */}
-              <div className="flex flex-col pl-1 md:opacity-0 md:group-hover:opacity-100 transition">
-                <button onClick={() => moveCat(idx, -1)} className="text-gray-300 hover:text-gray-500 leading-none">
-                  <ArrowUp size={10} />
-                </button>
-                <button onClick={() => moveCat(idx, 1)} className="text-gray-300 hover:text-gray-500 leading-none">
-                  <ArrowDown size={10} />
-                </button>
-              </div>
+          {/* Parent + children tree */}
+          {parents.map((parent, parentIdx) => {
+            const children = getChildren(parent.id, categories);
+            const isExpanded = expandedParents.has(parent.id);
+            const isSelParent = selectedCatId === parent.id;
 
-              <button
-                onClick={() => setSelectedCatId(cat.id)}
-                className="flex-1 text-left px-2 py-2 text-sm flex items-center gap-1.5"
-              >
-                <span>{cat.emoji}</span>
-                <span className={`font-medium truncate ${selectedCatId === cat.id ? "text-orange-600" : "text-gray-700"}`}>
-                  {cat.name}
-                </span>
-                <span className="ml-auto text-xs text-gray-400">{catItemCount(cat.id)}</span>
-              </button>
+            return (
+              <div key={parent.id} className="flex flex-col">
+                {/* Parent row */}
+                <div
+                  className={`group flex items-center rounded-lg transition-all ${isSelParent ? "bg-orange-50" : "hover:bg-gray-50"
+                    }`}
+                >
 
-              {/* Edit/delete */}
-              <div className="flex md:opacity-0 md:group-hover:opacity-100 transition pr-1 gap-0.5">
-                <button
-                  onClick={(e) => { e.stopPropagation(); setEditingCat({ ...cat }); }}
-                  className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition"
-                >
-                  <Pencil size={10} />
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setDeletingCat(cat); }}
-                  className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition"
-                >
-                  <Trash2 size={10} />
-                </button>
+                  {/* Expand toggle */}
+                  <button
+                    onClick={() => toggleExpand(parent.id)}
+                    className={`w-7 h-7 flex items-center justify-center flex-shrink-0 rounded transition text-gray-400 hover:text-gray-600 ${children.length === 0 ? "opacity-0 pointer-events-none" : ""
+                      }`}
+                    title={isExpanded ? "Collapse" : "Expand"}
+                  >
+                    {isExpanded ? (
+                      <ChevronDown size={14} />
+                    ) : (
+                      <ChevronRight size={14} />
+                    )}
+                  </button>
+
+                  {/* Name button */}
+                  <button
+                    onClick={() => setSelectedCatId(parent.id)}
+                    className="flex-1 min-w-0 text-left px-1 py-2 text-sm flex items-center gap-1.5"
+                  >
+                    <span className="flex-shrink-0 text-base">{parent.emoji}</span>
+                    <span
+                      className={`flex-1 font-semibold truncate ${isSelParent ? "text-orange-600" : "text-gray-700"
+                        }`}
+                    >
+                      {parent.name}
+                    </span>
+                    <span className="ml-auto flex-shrink-0 text-xs text-gray-400">
+                      {parentItemCount(parent.id)}
+                    </span>
+                  </button>
+
+                  {/* Edit / delete */}
+                  <div className="flex pr-1 gap-0.5 transition">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setEditingCat({ ...parent }); }}
+                      className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition"
+                      title="Edit"
+                    >
+                      <Pencil size={10} />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDeletingCat(parent); }}
+                      className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition"
+                      title="Delete"
+                    >
+                      <Trash2 size={10} />
+                    </button>
+                  </div>
+
+                  {/* Up/down arrows — parent only among parents */}
+                  <div className="flex flex-col pr-1 transition">
+                    <button
+                      onClick={() => moveParent(parentIdx, -1)}
+                      className="text-gray-300 hover:text-gray-500 leading-none"
+                      title="Move up"
+                    >
+                      <ArrowUp size={10} />
+                    </button>
+                    <button
+                      onClick={() => moveParent(parentIdx, 1)}
+                      className="text-gray-300 hover:text-gray-500 leading-none"
+                      title="Move down"
+                    >
+                      <ArrowDown size={10} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sub-category rows (only when expanded) */}
+                {isExpanded &&
+                  children.map((child, childIdx) => {
+                    const isSelChild = selectedCatId === child.id;
+                    return (
+                      <div
+                        key={child.id}
+                        className={`group flex items-center rounded-lg ml-5 border-l-2 transition-all ${isSelChild
+                          ? "border-orange-300 bg-orange-50"
+                          : "border-gray-100 hover:bg-gray-50 hover:border-gray-200"
+                          }`}
+                      >
+                        {/* Sub up/down — siblings only */}
+                        <div className="flex flex-col pl-1 transition">
+                          <button
+                            onClick={() => moveChild(parent.id, childIdx, -1)}
+                            className="text-gray-300 hover:text-gray-500 leading-none"
+                            title="Move up"
+                          >
+                            <ArrowUp size={9} />
+                          </button>
+                          <button
+                            onClick={() => moveChild(parent.id, childIdx, 1)}
+                            className="text-gray-300 hover:text-gray-500 leading-none"
+                            title="Move down"
+                          >
+                            <ArrowDown size={9} />
+                          </button>
+                        </div>
+
+                        <button
+                          onClick={() => setSelectedCatId(child.id)}
+                          className="flex-1 min-w-0 text-left px-2 py-1.5 text-[13px] flex items-center gap-1.5"
+                        >
+                          <span className="flex-shrink-0">{child.emoji}</span>
+                          <span
+                            className={`flex-1 font-medium truncate ${isSelChild ? "text-orange-600" : "text-gray-600"
+                              }`}
+                          >
+                            {child.name}
+                          </span>
+                          <span className="ml-auto flex-shrink-0 text-[10px] text-gray-400">
+                            {catItemCount(child.id)}
+                          </span>
+                        </button>
+
+                        <div className="flex pr-1 gap-0.5 transition">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setEditingCat({ ...child }); }}
+                            className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition"
+                            title="Edit"
+                          >
+                            <Pencil size={9} />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDeletingCat(child); }}
+                            className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition"
+                            title="Delete"
+                          >
+                            <Trash2 size={9} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* ── Right: Item list ── */}
@@ -241,18 +548,38 @@ export default function MenuManagementPanel() {
           </div>
 
           {/* Category header when filtered */}
-          {selectedCatId !== "all" && (
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                <span>{categories.find((c) => c.id === selectedCatId)?.emoji}</span>
-                <span>{categories.find((c) => c.id === selectedCatId)?.name}</span>
-              </h3>
+          {selectedCatId !== "all" && selectedCat && (
+            <div className="flex flex-wrap gap-2 items-center justify-between mb-4">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                  <span>{selectedCat.emoji}</span>
+                  <span>{selectedCat.name}</span>
+                  <span className="hidden md:flex flex-shrink-0 text-[13px] text-gray-400">
+                    ( {selectedCat.parentId ? catItemCount(selectedCat.id) : parentItemCount(selectedCat.id)} )
+                  </span>
+                </h3>
+                <div className="flex md:hidden items-center gap-1">
+                  <button
+                    onClick={() => setEditingCat({ ...selectedCat })}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-500 bg-gray-100 hover:bg-blue-50 transition"
+                  >
+                    <Pencil size={12} />
+                  </button>
+                  <button
+                    onClick={() => setDeletingCat({ ...selectedCat })}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 bg-gray-100 hover:bg-red-50 transition"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              </div>
               <button
                 onClick={() => setEditingItem(blankItem(selectedCatId))}
                 className="flex items-center gap-1.5 text-xs text-orange-500 hover:text-orange-700 font-medium transition"
               >
                 <Plus size={13} />
-                Add to category
+                <span className="hidden sm:inline">Add to category</span>
+                <span className="sm:hidden">Add Item</span>
               </button>
             </div>
           )}
@@ -274,108 +601,141 @@ export default function MenuManagementPanel() {
           {/* Item grid */}
           <div className="space-y-2">
             {displayedItems.map((item) => {
-              const catName = categories.find((c) => c.id === item.categoryId)?.name ?? "—";
+              const itemCat = categories.find((c) => c.id === item.categoryId);
+              const parentCat =
+                itemCat?.parentId
+                  ? categories.find((c) => c.id === itemCat.parentId)
+                  : null;
+              const catLabel = parentCat
+                ? `${parentCat.name} › ${itemCat?.name}`
+                : (itemCat?.name ?? "—");
               return (
                 <div
                   key={item.id}
-                  className="group flex items-center gap-4 px-4 py-3 rounded-xl border border-gray-100 hover:border-orange-200 hover:bg-orange-50/30 transition-all"
+                  className="group flex flex-col xl:flex-row xl:items-center gap-3 sm:gap-4 px-3 sm:px-4 py-3 rounded-xl border border-gray-100 hover:border-orange-200 hover:bg-orange-50/30 transition-all"
                 >
-                  <div className="w-14 h-14 rounded-xl overflow-hidden border border-gray-100 flex-shrink-0">
-                    {item.image ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full bg-gray-50 flex items-center justify-center text-gray-300">
-                        <ImagePlus size={18} />
+                  <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+                    <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl overflow-hidden border border-gray-100 flex-shrink-0">
+                      {item.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full bg-gray-50 flex items-center justify-center text-gray-300">
+                          <ImagePlus size={18} />
+                        </div>
+                      )}
+                    </div>
+                    <GripVertical size={14} className="text-gray-300 flex-shrink-0" />
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <span className="font-semibold text-gray-900 text-sm mr-1">{item.name}</span>
+                        {item.popular && (
+                          <span className="flex items-center gap-0.5 text-[10px] font-semibold text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded-full border border-orange-200">
+                            <Flame size={9} /> Popular
+                          </span>
+                        )}
+                        {(item.mealPeriodIds ?? []).map((mpId) => {
+                          const mp = mealPeriods.find((p) => p.id === mpId);
+                          if (!mp) return null;
+                          const tColor = mp.themeColor || "#f59e0b";
+
+                          return (
+                            <span
+                              key={mpId}
+                              className="text-[10px] font-semibold text-amber-700 px-1.5 py-0.5 rounded-full border"
+                              title={`${mp.startTime}–${mp.endTime}`}
+                              style={{
+                                borderColor: `${tColor}2A`,
+                                backgroundColor: `${tColor}1A`,
+                                color: tColor
+                              }}
+                            >
+                              <Clock size={9} className="inline -mt-px mr-0.5" /> {mp.name}
+                            </span>
+                          );
+                        })}
                       </div>
-                    )}
-                  </div>
-                  <GripVertical size={14} className="text-gray-300 flex-shrink-0" />
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-gray-900 text-sm">{item.name}</span>
-                      {item.popular && (
-                        <span className="flex items-center gap-0.5 text-[10px] font-semibold text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded-full border border-orange-200">
-                          <Flame size={9} /> Popular
-                        </span>
-                      )}
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {selectedCatId === "all" && (
+                          <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full font-medium">
+                            {catLabel}
+                          </span>
+                        )}
+                        {item.dietary.map((d) => (
+                          <span key={d} className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${DIETARY_COLORS[d] ?? "bg-gray-100 text-gray-500"}`}>
+                            {d}
+                          </span>
+                        ))}
+                        {(item.variations?.length ?? 0) > 0 && (
+                          <span className="text-[10px] px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full border border-blue-200 font-medium">
+                            {item.variations!.length} variation{item.variations!.length > 1 ? "s" : ""}
+                          </span>
+                        )}
+                        {(item.addOns?.length ?? 0) > 0 && (
+                          <span className="text-[10px] px-2 py-0.5 bg-violet-50 text-violet-600 rounded-full border border-violet-200 font-medium">
+                            {item.addOns!.length} add-on{item.addOns!.length > 1 ? "s" : ""}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{item.description}</p>
                     </div>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {selectedCatId === "all" && (
-                        <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full font-medium">
-                          {catName}
-                        </span>
-                      )}
-                      {item.dietary.map((d) => (
-                        <span key={d} className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${DIETARY_COLORS[d] ?? "bg-gray-100 text-gray-500"}`}>
-                          {d}
-                        </span>
-                      ))}
-                      {(item.variations?.length ?? 0) > 0 && (
-                        <span className="text-[10px] px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full border border-blue-200 font-medium">
-                          {item.variations!.length} variation{item.variations!.length > 1 ? "s" : ""}
-                        </span>
-                      )}
-                      {(item.addOns?.length ?? 0) > 0 && (
-                        <span className="text-[10px] px-2 py-0.5 bg-violet-50 text-violet-600 rounded-full border border-violet-200 font-medium">
-                          {item.addOns!.length} add-on{item.addOns!.length > 1 ? "s" : ""}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{item.description}</p>
                   </div>
 
-                  {/* Stock badge — click to cycle status quickly */}
-                  {(() => {
-                    const status = resolveStock(item);
-                    const isTracked = typeof item.stockQty === "number";
-                    const cycleStatus = (e: React.MouseEvent) => {
-                      e.stopPropagation();
-                      if (isTracked) return; // tracked items: edit via modal
-                      const next: StockStatus =
-                        status === "in_stock"    ? "out_of_stock"
-                        : status === "out_of_stock" ? "low_stock"
-                        : "in_stock";
-                      updateMenuItem({ ...item, stockStatus: next });
-                    };
-                    return (
-                      <button
-                        onClick={cycleStatus}
-                        title={isTracked ? `${item.stockQty} units tracked` : "Click to cycle status"}
-                        className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold border transition-all ${
-                          status === "out_of_stock"
+                  <div className="flex flex-wrap items-center justify-between xl:justify-end gap-3 pl-[76px] xl:pl-0">
+                    {/* Stock badge — click to cycle status quickly */}
+                    {(() => {
+                      const status = resolveStock(item);
+                      const isTracked = typeof item.stockQty === "number";
+                      const cycleStatus = (e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        if (isTracked) return; // tracked items: edit via modal
+                        const next: StockStatus =
+                          status === "in_stock" ? "out_of_stock"
+                            : status === "out_of_stock" ? "low_stock"
+                              : "in_stock";
+                        // Route through the dedicated stock endpoint so this
+                        // quick-toggle doesn't drag the rest of the item's
+                        // (possibly stale) form fields back into the DB.
+                        updateMenuItemStock(item.id, { mode: "manual", stockStatus: next });
+                      };
+                      return (
+                        <button
+                          onClick={cycleStatus}
+                          title={isTracked ? `${item.stockQty} units tracked` : "Click to cycle status"}
+                          className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold border transition-all ${status === "out_of_stock"
                             ? "bg-red-50 border-red-200 text-red-600 hover:bg-red-100"
                             : status === "low_stock"
-                            ? "bg-amber-50 border-amber-200 text-amber-600 hover:bg-amber-100"
-                            : "bg-green-50 border-green-200 text-green-600 hover:bg-green-100"
-                        } ${isTracked ? "cursor-default" : "cursor-pointer"}`}
+                              ? "bg-amber-50 border-amber-200 text-amber-600 hover:bg-amber-100"
+                              : "bg-green-50 border-green-200 text-green-600 hover:bg-green-100"
+                            } ${isTracked ? "cursor-default" : "cursor-pointer"}`}
+                        >
+                          {status === "out_of_stock" ? <PackageX size={9} /> : status === "low_stock" ? <PackageMinus size={9} /> : <Package size={9} />}
+                          {isTracked ? `${item.stockQty} left` : stockLabel(status)}
+                        </button>
+                      );
+                    })()}
+
+                    <span className="font-bold text-gray-900 text-sm flex-shrink-0">
+                      {sym}{item.price.toFixed(2)}
+                    </span>
+
+                    <div className="flex items-center gap-1 flex-shrink-0 transition">
+                      <button
+                        onClick={() => setEditingItem({ ...item, variations: item.variations ?? [], addOns: item.addOns ?? [] })}
+                        className="w-6 h-6 md:w-8 md:h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition"
+                        title="Edit item"
                       >
-                        {status === "out_of_stock" ? <PackageX size={9} /> : status === "low_stock" ? <PackageMinus size={9} /> : <Package size={9} />}
-                        {isTracked ? `${item.stockQty} left` : stockLabel(status)}
+                        <Pencil size={14} />
                       </button>
-                    );
-                  })()}
-
-                  <span className="font-bold text-gray-900 text-sm flex-shrink-0">
-                    £{item.price.toFixed(2)}
-                  </span>
-
-                  <div className="flex items-center gap-1 flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 transition">
-                    <button
-                      onClick={() => setEditingItem({ ...item, variations: item.variations ?? [], addOns: item.addOns ?? [] })}
-                      className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition"
-                      title="Edit item"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    <button
-                      onClick={() => setDeletingItem(item)}
-                      className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition"
-                      title="Delete item"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                      <button
+                        onClick={() => setDeletingItem(item)}
+                        className="w-6 h-6 md:w-8 md:h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition"
+                        title="Delete item"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -388,6 +748,7 @@ export default function MenuManagementPanel() {
       {editingCat && (
         <CategoryModal
           cat={editingCat}
+          allCategories={categories}
           isNew={!categories.find((c) => c.id === editingCat.id)}
           onSave={(cat) => {
             if (categories.find((c) => c.id === cat.id)) {
@@ -405,11 +766,54 @@ export default function MenuManagementPanel() {
         <ItemModal
           item={editingItem}
           categories={categories}
+          mealPeriods={mealPeriods}
           isNew={!menuItems.find((i) => i.id === editingItem.id)}
+          existingNames={menuItems
+            .filter((i) => i.id !== editingItem.id)
+            .map((i) => i.name.trim().toLowerCase())}
           onSave={(item) => {
-            if (menuItems.find((i) => i.id === item.id)) {
+            // `editingItem` is the snapshot taken when the modal opened — we
+            // diff against THIS, not against `menuItems.find(...)`. Live
+            // realtime updates can drop the counter mid-edit (a customer's
+            // sale fires during the admin's session), and diffing against the
+            // moving target would re-write the form's stale value and undo
+            // the sale.
+            const snapshot = editingItem;
+            const isExistingItem = !!menuItems.find((i) => i.id === item.id);
+            if (isExistingItem) {
+              // General fields go through the standard PUT — the route strips
+              // stock fields, so the live counter is safe from a stale form.
               updateMenuItem(item);
+
+              // Stock writes go through the dedicated endpoint, but ONLY when
+              // the admin actually changed something in the stock tab. Without
+              // this guard, every menu edit (name, price, image) would
+              // re-write the counter and clobber any sales since the form
+              // was opened.
+              const wasTracked = typeof snapshot.stockQty === "number";
+              const nowTracked = typeof item.stockQty === "number";
+              const qtyChanged = wasTracked !== nowTracked
+                || (nowTracked && item.stockQty !== snapshot.stockQty);
+              const statusChanged = !nowTracked
+                && (item.stockStatus ?? "in_stock") !== (snapshot.stockStatus ?? "in_stock");
+              if (qtyChanged && nowTracked) {
+                updateMenuItemStock(item.id, { mode: "qty", stockQty: Number(item.stockQty) });
+              } else if (qtyChanged && !nowTracked) {
+                // Switched off track-quantity → adopt whichever manual status the
+                // form shows (defaults to in_stock for a fresh switch).
+                updateMenuItemStock(item.id, {
+                  mode: "manual",
+                  stockStatus: (item.stockStatus ?? "in_stock") as "in_stock" | "low_stock" | "out_of_stock",
+                });
+              } else if (statusChanged) {
+                updateMenuItemStock(item.id, {
+                  mode: "manual",
+                  stockStatus: item.stockStatus as "in_stock" | "low_stock" | "out_of_stock",
+                });
+              }
             } else {
+              // New item — POST includes stock fields atomically. No separate
+              // stock PUT needed (and the PUT would race the insert).
               addMenuItem(item);
             }
             setEditingItem(null);
@@ -418,14 +822,61 @@ export default function MenuManagementPanel() {
         />
       )}
 
-      {deletingCat && (
-        <ConfirmModal
-          title="Delete category?"
-          message={`"${deletingCat.name}" and all ${catItemCount(deletingCat.id)} items in it will be permanently deleted.`}
-          onConfirm={() => { deleteCategory(deletingCat.id); setDeletingCat(null); if (selectedCatId === deletingCat.id) setSelectedCatId("all"); }}
-          onClose={() => setDeletingCat(null)}
+      {editingPeriod && (
+        <MealPeriodModal
+          period={editingPeriod}
+          isNew={!editingPeriod.id}
+          onSave={async (p) => {
+            if (!editingPeriod.id) {
+              await addMealPeriod(p);
+            } else {
+              await updateMealPeriod(editingPeriod.id, p);
+            }
+            setEditingPeriod(null);
+          }}
+          onClose={() => setEditingPeriod(null)}
         />
       )}
+
+      {deletingPeriod && (
+        <ConfirmModal
+          title="Delete meal period?"
+          message={`"${deletingPeriod.name}" will be removed. Items tagged to only this period will become anytime items.`}
+          onConfirm={async () => { await deleteMealPeriod(deletingPeriod.id); setDeletingPeriod(null); }}
+          onClose={() => setDeletingPeriod(null)}
+        />
+      )}
+
+      {deletingCat && (() => {
+        const children = getChildren(deletingCat.id, categories);
+        const hasKids = children.length > 0;
+
+        return (
+          <ConfirmModal
+            title="Delete category?"
+            // 1. Update the message based on the requirement
+            message={
+              hasKids
+                ? `"${deletingCat.name}" cannot be deleted because it contains ${children.length} ${children.length > 1 ? 'sub-categories' : 'sub-category'}. Please move these sub-categories to another parent or remove them first.`
+                : `"${deletingCat.name}" and all ${catItemCount(deletingCat.id)} items in it will be permanently deleted. This action cannot be undone.`
+            }
+            // 2. Pass a disabled prop to the modal button
+            confirmDisabled={hasKids}
+            onConfirm={() => {
+              // We no longer delete children automatically. 
+              // We only delete the target category if it's clear.
+              deleteCategory(deletingCat.id);
+              setDeletingCat(null);
+
+              // Reset selection to "All" if the deleted category was active
+              if (selectedCatId === deletingCat.id) {
+                setSelectedCatId("all");
+              }
+            }}
+            onClose={() => setDeletingCat(null)}
+          />
+        );
+      })()}
 
       {deletingItem && (
         <ConfirmModal
@@ -442,12 +893,45 @@ export default function MenuManagementPanel() {
 // ─── Category Modal ──────────────────────────────────────────────────────────
 
 function CategoryModal({
-  cat, isNew, onSave, onClose,
+  cat, allCategories, isNew, onSave, onClose,
 }: {
-  cat: Category; isNew: boolean; onSave: (c: Category) => void; onClose: () => void;
+  cat: Category; allCategories: Category[]; isNew: boolean; onSave: (c: Category) => void; onClose: () => void;
 }) {
   const [form, setForm] = useState<Category>({ ...cat });
-  const EMOJIS = ["🍽️","🥗","🍗","🥩","🦐","🍜","🍛","🥦","🧆","🫓","🥤","🍮","🍰","🫙","🍲","🥘","🍱","🥪","🫔","🌮"];
+  const EMOJIS = ["🍽️", "🥗", "🍗", "🥩", "🦐", "🍜", "🍛", "🥦", "🧆", "🫓", "🥤", "🍮", "🍰", "🫙", "🍲", "🥘", "🍱", "🥪", "🫔", "🌮"];
+
+  const [isSub, setIsSub] = useState<boolean>(!!cat.parentId);
+  const [parentError, setParentError] = useState<string>("");
+
+  // Parent options = categories that are NOT sub-categories themselves
+  // and are NOT the category being edited (can't be own parent)
+  const parentOptions = allCategories.filter(
+    (c) => !c.parentId && c.id !== cat.id,
+  );
+
+  // Check: if current cat has children, can't convert to sub
+  const catHasChildren = allCategories.some((c) => c.parentId === cat.id);
+
+  function handleToggleSub(wantSub: boolean) {
+    if (wantSub && catHasChildren) {
+      setParentError(
+        "This category has sub-categories. Move them to another parent or remove them first before converting this to a sub-category.",
+      );
+      return;
+    }
+    setParentError("");
+    setIsSub(wantSub);
+    setForm((f) => ({ ...f, parentId: wantSub ? (parentOptions[0]?.id ?? null) : null }));
+  }
+
+  function handleSave() {
+    if (!form.name.trim()) return;
+    if (isSub && !form.parentId) {
+      setParentError("Please select a parent category.");
+      return;
+    }
+    onSave({ ...form, parentId: isSub ? (form.parentId ?? null) : null });
+  }
 
   return (
     <ModalShell title={isNew ? "Add category" : "Edit category"} onClose={onClose}>
@@ -462,6 +946,67 @@ function CategoryModal({
             placeholder="e.g. Desserts"
           />
         </div>
+
+        {/* Sub-category toggle */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-2">
+            Category type
+          </label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => handleToggleSub(false)}
+              className={`flex-1 py-2 rounded-xl border text-xs font-semibold transition-all ${!isSub
+                ? "border-orange-400 bg-orange-50 text-orange-600"
+                : "border-gray-200 text-gray-500 hover:border-gray-300"
+                }`}
+            >
+              <FolderOpen size={13} className="inline mr-1.5 -mt-px" />
+              Parent Category
+            </button>
+            <button
+              type="button"
+              onClick={() => handleToggleSub(true)}
+              className={`flex-1 py-2 rounded-xl border text-xs font-semibold transition-all ${isSub
+                ? "border-orange-400 bg-orange-50 text-orange-600"
+                : "border-gray-200 text-gray-500 hover:border-gray-300"
+                }`}
+            >
+              <FolderMinus size={13} className="inline mr-1.5 -mt-px" />
+              Sub Category
+            </button>
+          </div>
+
+          {parentError && (
+            <p className="mt-2 text-xs text-red-500 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {parentError}
+            </p>
+          )}
+        </div>
+
+        {/* Parent selector (only when sub) */}
+        {isSub && (
+          <div className="relative">
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+              Parent category
+            </label>
+            {parentOptions.length === 0 ? (
+              <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                No parent categories exist yet. Create a parent category first.
+              </p>
+            ) : (
+              <div className="relative group">
+                <CustomSelect
+                  options={parentOptions}
+                  value={form.parentId ?? ""}
+                  onChange={(val) => setForm((f) => ({ ...f, parentId: val }))}
+                />
+              </div>
+
+            )}
+          </div>
+        )}
+
         <div>
           <label className="block text-xs font-semibold text-gray-600 mb-2">Emoji</label>
           <div className="flex flex-wrap gap-2">
@@ -469,9 +1014,8 @@ function CategoryModal({
               <button
                 key={e}
                 onClick={() => setForm((f) => ({ ...f, emoji: e }))}
-                className={`w-9 h-9 rounded-xl text-lg flex items-center justify-center border-2 transition-all ${
-                  form.emoji === e ? "border-orange-400 bg-orange-50" : "border-transparent hover:border-gray-200"
-                }`}
+                className={`w-9 h-9 rounded-xl text-lg flex items-center justify-center border-2 transition-all ${form.emoji === e ? "border-orange-400 bg-orange-50" : "border-transparent hover:border-gray-200"
+                  }`}
               >
                 {e}
               </button>
@@ -493,8 +1037,8 @@ function CategoryModal({
       <div className="flex gap-3 mt-6">
         <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition">Cancel</button>
         <button
-          onClick={() => form.name.trim() && onSave(form)}
-          disabled={!form.name.trim()}
+          onClick={handleSave}
+          disabled={!form.name.trim() || (isSub && !form.parentId)}
           className="flex-1 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-sm font-semibold transition"
         >
           {isNew ? "Add category" : "Save changes"}
@@ -504,16 +1048,103 @@ function CategoryModal({
   );
 }
 
+function CustomSelect({
+  options,
+  value,
+  onChange
+}: {
+  options: Category[],
+  value: string | null,
+  onChange: (id: string) => void
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Close when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const selected = options.find(o => o.id === value);
+
+  return (
+    <div className="relative" ref={containerRef}>
+      {/* Trigger Button */}
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between border border-gray-200 rounded-xl px-4 py-1.5 text-sm bg-white hover:border-gray-300 focus:outline-none focus:ring-1 focus:ring-orange-400 transition-all text-left"
+      >
+        <span className="truncate flex items-center gap-2">
+          {selected ? (
+            <><span className="text-lg">{selected.emoji}</span> {selected.name}</>
+          ) : (
+            <span className="text-gray-400">Select parent…</span>
+          )}
+        </span>
+        <ChevronDown size={16} className={`text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {/* Options List */}
+      {isOpen && (
+        <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+          <div className="max-h-50 overflow-y-auto scrollbar-hide py-1">
+            {options.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => {
+                  onChange(p.id);
+                  setIsOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-4 py-1.5 text-sm transition-colors hover:bg-orange-50 text-left ${value === p.id ? "bg-orange-50 text-orange-600 font-bold" : "text-gray-700"
+                  }`}
+              >
+                <span className="text-lg flex-shrink-0">{p.emoji}</span>
+                <span className="truncate">{p.name}</span>
+                {value === p.id && <Check size={14} className="ml-auto text-orange-500" />}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Item Modal ──────────────────────────────────────────────────────────────
 
 function ItemModal({
-  item, categories, isNew, onSave, onClose,
+  item, categories, mealPeriods, isNew, existingNames, onSave, onClose,
 }: {
-  item: MenuItem; categories: Category[]; isNew: boolean;
-  onSave: (i: MenuItem) => void; onClose: () => void;
+  item: MenuItem; categories: Category[]; mealPeriods: MealPeriod[]; isNew: boolean;
+  existingNames: string[]; onSave: (i: MenuItem) => void; onClose: () => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [form, setForm] = useState<MenuItem>({ ...item });
-  const [tab, setTab] = useState<"basic" | "variations" | "addons" | "stock">("basic");
+  const [tab, setTab] = useState<"basic" | "channels" | "variations" | "addons" | "offer" | "stock">("basic");
+  const [imgError, setImgError] = useState("");
+  const [uploading, setUploading] = useState(false);
+
+  const channels = form.channels ?? ["in_store", "online"];
+  const onOnline = channels.includes("online");
+  const onInStore = channels.includes("in_store");
+  function toggleChannel(ch: "in_store" | "online") {
+    setForm((f) => {
+      const cur = f.channels ?? ["in_store", "online"];
+      const has = cur.includes(ch);
+      // Keep at least one channel selected.
+      const next = has ? cur.filter((c) => c !== ch) : [...cur, ch];
+      return { ...f, channels: next.length > 0 ? next : cur };
+    });
+  }
 
   function toggleDietary(d: string) {
     setForm((f) => ({
@@ -575,35 +1206,42 @@ function ItemModal({
     setForm((f) => ({ ...f, addOns: (f.addOns ?? []).filter((_, i) => i !== idx) }));
   }
 
-  const isValid = form.name.trim() && form.price >= 0 && form.categoryId;
+  // Duplicate-name guard (case-insensitive). `existingNames` already excludes
+  // the item being edited, so renaming an item to its own name is fine. The
+  // server enforces this too (POST /api/admin/menu) — this is the friendly
+  // inline version so the admin sees it before the optimistic add.
+  const nameTaken = !!form.name.trim() && existingNames.includes(form.name.trim().toLowerCase());
+  const isValid = form.name.trim() && form.price >= 0 && form.categoryId && !nameTaken;
 
   return (
     <ModalShell title={isNew ? "Add menu item" : "Edit menu item"} onClose={onClose} wide>
       {/* Tabs */}
-      <div className="flex gap-1 mb-5 bg-gray-100 rounded-xl p-1">
-        {(["basic", "variations", "addons", "stock"] as const).map((t) => (
+      <div className="flex flex-wrap gap-1 mb-5 bg-gray-100 rounded-xl p-1">
+        {(["basic", "channels", "variations", "addons", "offer", "stock"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`flex-1 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${
-              tab === t ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-            }`}
+            className={`flex sm:flex-1 min-w-[13vw] sm:min-w-0 sm:items-center whitespace-nowrap px-3 justify-center py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${tab === t ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+              }`}
           >
-            {t === "addons" ? "Add-ons" : t.charAt(0).toUpperCase() + t.slice(1)}
+            {t === "addons" ? "Add-ons" : t === "channels" ? "Channels" : t.charAt(0).toUpperCase() + t.slice(1)}
             {t === "variations" && (form.variations?.length ?? 0) > 0 && (
-              <span className="ml-1 bg-orange-100 text-orange-600 rounded-full px-1.5 text-[10px]">
+              <span className="ml-1 bg-orange-100 text-orange-600 rounded-full px-1.5 text-[10px] items-center justify-center flex">
                 {form.variations!.length}
               </span>
             )}
             {t === "addons" && (form.addOns?.length ?? 0) > 0 && (
-              <span className="ml-1 bg-violet-100 text-violet-600 rounded-full px-1.5 text-[10px]">
+              <span className="ml-1 bg-violet-100 text-violet-600 rounded-full px-1.5 text-[10px] items-center justify-center flex">
                 {form.addOns!.length}
               </span>
             )}
+            {t === "offer" && form.offer?.active && (
+              <span className="ml-1 bg-amber-100 text-amber-700 rounded-full px-1.5 text-[10px]">ON</span>
+            )}
             {t === "stock" && (() => {
               const s = resolveStock(form);
-              if (s === "out_of_stock") return <span className="ml-1 bg-red-100 text-red-600 rounded-full px-1.5 text-[10px]">OOS</span>;
-              if (s === "low_stock") return <span className="ml-1 bg-amber-100 text-amber-600 rounded-full px-1.5 text-[10px]">Low</span>;
+              if (s === "out_of_stock") return <span className="ml-1 bg-red-100 text-red-600 rounded-full px-1.5 text-[10px] items-center justify-center flex">OOS</span>;
+              if (s === "low_stock") return <span className="ml-1 bg-amber-100 text-amber-600 rounded-full px-1.5 text-[10px] items-center justify-center flex">Low</span>;
               return null;
             })()}
           </button>
@@ -626,27 +1264,67 @@ function ItemModal({
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">Category *</label>
-              <select
+              <CustomSelect
+                options={categories}
                 value={form.categoryId}
-                onChange={(e) => setForm((f) => ({ ...f, categoryId: e.target.value }))}
-                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white"
-              >
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>
-                ))}
-              </select>
+                onChange={(val) => setForm((f) => ({ ...f, categoryId: val }))}
+              />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Base price (£) *</label>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Base price ({sym}) *</label>
               <input
                 type="number"
                 min="0"
                 step="0.50"
                 value={form.price}
-                onChange={(e) => setForm((f) => ({ ...f, price: parseFloat(e.target.value) || 0 }))}
+                placeholder="0.00"
+                onChange={(e) => setForm((f) => ({ ...f, price: e.target.value === "" ? ("" as unknown as number) : parseFloat(e.target.value) }))}
+                onBlur={() => {
+                  if (form.price === ("" as unknown as number) || isNaN(Number(form.price))) {
+                    setForm((f) => ({ ...f, price: 0 }));
+                  }
+                }}
                 className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
               />
             </div>
+
+            {/* Bug #2 — POS / admin field parity. Cost + SKU live here so the
+                admin sees the same margin / inventory data the POS records.
+                Margin is computed live to mirror the POS edit modal. */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Cost ({sym})</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.cost ?? ""}
+                onChange={(e) => setForm((f) => ({ ...f, cost: e.target.value === "" ? undefined : parseFloat(e.target.value) || 0 }))}
+                placeholder="0.00"
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">SKU</label>
+              <input
+                value={form.sku ?? ""}
+                onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value || undefined }))}
+                placeholder="Optional"
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              />
+            </div>
+            {/* Live margin preview */}
+            {form.price > 0 && typeof form.cost === "number" && form.cost >= 0 && (
+              <div className="sm:col-span-2 bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5 flex items-center justify-between">
+                <span className="text-xs font-semibold text-gray-500">Margin</span>
+                <span className="text-sm font-bold text-green-600">
+                  {Math.round(((form.price - form.cost) / form.price) * 100)}%
+                  <span className="text-gray-400 font-normal ml-1.5 text-xs">
+                    ({sym}{(form.price - form.cost).toFixed(2)})
+                  </span>
+                </span>
+              </div>
+            )}
+
             <div className="sm:col-span-2">
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">Description</label>
               <textarea
@@ -682,28 +1360,45 @@ function ItemModal({
                       placeholder="Paste image URL…"
                     />
                   </div>
-                  {/* File upload */}
-                  <label className="flex items-center gap-2 cursor-pointer w-full py-2 px-3 rounded-lg border border-gray-200 hover:border-orange-300 hover:text-orange-500 text-gray-500 text-xs font-medium transition">
+                  {/* File upload — stored in Supabase Storage, not as base64
+                      in the row (see lib/uploadImage.ts for why). */}
+                  <label className={`flex items-center gap-2 w-full py-2 px-3 rounded-lg border border-gray-200 text-xs font-medium transition ${uploading
+                    ? "opacity-60 cursor-wait text-gray-400"
+                    : "cursor-pointer hover:border-orange-300 hover:text-orange-500 text-gray-500"
+                    }`}>
                     <Upload size={13} />
-                    Upload from device
+                    {uploading ? "Uploading…" : "Upload from device"}
                     <input
                       type="file"
                       accept="image/*"
                       className="hidden"
-                      onChange={(e) => {
+                      disabled={uploading}
+                      onChange={async (e) => {
                         const file = e.target.files?.[0];
+                        e.target.value = ""; // let the same file be re-picked after an error
                         if (!file) return;
-                        const reader = new FileReader();
-                        reader.onload = (ev) => {
-                          setForm((f) => ({ ...f, image: ev.target?.result as string }));
-                        };
-                        reader.readAsDataURL(file);
+                        setImgError("");
+                        setUploading(true);
+                        try {
+                          const url = await uploadMenuImage(file);
+                          setForm((f) => ({ ...f, image: url }));
+                        } catch (err) {
+                          setImgError(err instanceof Error ? err.message : "Upload failed.");
+                        } finally {
+                          setUploading(false);
+                        }
                       }}
                     />
                   </label>
+                  <p className="text-[11px] text-gray-400">Max {MAX_IMAGE_LABEL}. JPG, PNG, WebP, GIF or AVIF.</p>
+                  {imgError && (
+                    <p className="text-[11px] text-red-500 flex items-start gap-1">
+                      <AlertTriangle size={12} className="mt-px flex-shrink-0" /> {imgError}
+                    </p>
+                  )}
                   {form.image && (
                     <button
-                      onClick={() => setForm((f) => ({ ...f, image: undefined }))}
+                      onClick={() => { setForm((f) => ({ ...f, image: undefined })); setImgError(""); }}
                       className="text-xs text-red-400 hover:text-red-600 transition"
                     >
                       × Remove image
@@ -714,6 +1409,74 @@ function ItemModal({
             </div>
           </div>
 
+          {/* Bug #2 — POS tile branding (emoji + accent colour). These are
+              used by the POS sale grid when no image is set, and never
+              displayed on the customer menu. Kept here so the admin can
+              configure them in one place. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">POS tile emoji</label>
+              <div className="flex items-center gap-2">
+                <input
+                  value={form.emoji ?? ""}
+                  maxLength={4}
+                  onChange={(e) => setForm((f) => ({ ...f, emoji: e.target.value || undefined }))}
+                  placeholder="🍽️"
+                  className="w-20 text-center text-xl border border-gray-200 rounded-xl px-2 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                />
+                <span className="text-xs text-gray-400">Shown on the POS tile when no image is set.</span>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">POS tile colour</label>
+              <div className="flex flex-wrap gap-1.5 items-center">
+                {POS_PRESET_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setForm((f) => ({ ...f, color: c }))}
+                    className="w-6 h-6 rounded-md transition-all"
+                    style={{
+                      backgroundColor: c,
+                      outline: form.color === c ? `2px solid #1f2937` : "none",
+                      outlineOffset: "2px",
+                    }}
+                    aria-label={`Pick colour ${c}`}
+                  />
+                ))}
+                <input
+                  type="color"
+                  value={form.color ?? "#fed7aa"}
+                  onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))}
+                  className="w-7 h-7 rounded cursor-pointer border border-gray-200"
+                  aria-label="Custom colour"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Active toggle — Bug #2. POS hides inactive items from the sale
+              grid; the customer menu also respects this. Defaults to true. */}
+          <label className="flex items-center gap-3 cursor-pointer">
+            <button
+              type="button"
+              onClick={() => setForm((f) => ({ ...f, active: !(f.active ?? true) }))}
+              className="transition-colors"
+              aria-label="Toggle active"
+            >
+              {(form.active ?? true)
+                ? <ToggleRight size={28} className="text-green-500" />
+                : <ToggleLeft size={28} className="text-gray-400" />}
+            </button>
+            <div>
+              <span className="text-sm font-medium text-gray-700">
+                {(form.active ?? true) ? "Item is active" : "Item is hidden"}
+              </span>
+              <p className="text-xs text-gray-400">
+                When off, this item is hidden from the customer menu and the POS sale grid.
+              </p>
+            </div>
+          </label>
+
           {/* Dietary */}
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-2">Dietary tags</label>
@@ -722,11 +1485,10 @@ function ItemModal({
                 <button
                   key={d}
                   onClick={() => toggleDietary(d)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium border-2 transition-all capitalize ${
-                    form.dietary.includes(d)
-                      ? "border-orange-400 bg-orange-50 text-orange-700"
-                      : "border-gray-200 text-gray-500 hover:border-gray-300"
-                  }`}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium border-2 transition-all capitalize ${form.dietary.includes(d)
+                    ? "border-orange-400 bg-orange-50 text-orange-700"
+                    : "border-gray-200 text-gray-500 hover:border-gray-300"
+                    }`}
                 >
                   {form.dietary.includes(d) && <Check size={10} className="inline mr-1" />}
                   {d}
@@ -750,6 +1512,120 @@ function ItemModal({
               <span className="text-xs text-gray-400">Shows a &quot;Popular&quot; badge on the menu</span>
             </div>
           </label>
+
+        </div>
+      )}
+
+      {/* ── Channels & Pricing tab ── */}
+      {tab === "channels" && (
+        <div className="space-y-6">
+          {/* Channel toggles */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-2">Where this item appears</label>
+            <p className="text-xs text-gray-400 mb-3">
+              At least one channel is required. Use this to keep delivery-unsuitable
+              items (fries, alcohol) in-store only, or run online-exclusive deals.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => toggleChannel("in_store")}
+                className={`flex items-start gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all ${onInStore ? "border-orange-400 bg-orange-50" : "border-gray-200 hover:border-gray-300"
+                  }`}
+              >
+                <span className={`w-5 h-5 rounded-md border-2 flex-shrink-0 flex items-center justify-center mt-0.5 ${onInStore ? "bg-orange-500 border-orange-500" : "border-gray-300"
+                  }`}>
+                  {onInStore && <Check size={11} className="text-white" strokeWidth={3} />}
+                </span>
+                <span>
+                  <span className={`block text-sm font-semibold ${onInStore ? "text-orange-700" : "text-gray-700"}`}>Show in store</span>
+                  <span className="block text-[11px] text-gray-400 leading-tight">POS counter + waiter (dine-in)</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleChannel("online")}
+                className={`flex items-start gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all ${onOnline ? "border-orange-400 bg-orange-50" : "border-gray-200 hover:border-gray-300"
+                  }`}
+              >
+                <span className={`w-5 h-5 rounded-md border-2 flex-shrink-0 flex items-center justify-center mt-0.5 ${onOnline ? "bg-orange-500 border-orange-500" : "border-gray-300"
+                  }`}>
+                  {onOnline && <Check size={11} className="text-white" strokeWidth={3} />}
+                </span>
+                <span>
+                  <span className={`block text-sm font-semibold ${onOnline ? "text-orange-700" : "text-gray-700"}`}>Show online</span>
+                  <span className="block text-[11px] text-gray-400 leading-tight">Customer delivery + collection site</span>
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* Online price override — only meaningful when the online channel is on */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+              Online price override ({sym})
+            </label>
+            <p className="text-xs text-gray-400 mb-2">
+              Leave blank to use the base price ({sym}{form.price.toFixed(2)}). Set a
+              higher value to absorb delivery commission, or a lower one for an online deal.
+            </p>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              disabled={!onOnline}
+              value={form.priceOnline ?? ""}
+              onChange={(e) => setForm((f) => ({
+                ...f,
+                priceOnline: e.target.value === "" ? undefined : (parseFloat(e.target.value) || 0),
+              }))}
+              placeholder={onOnline ? `${form.price.toFixed(2)} (base)` : "Enable 'Show online' first"}
+              className="w-full sm:w-48 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:bg-gray-50 disabled:text-gray-400"
+            />
+          </div>
+
+          {/* Meal periods — online-only concept, moved out of the Basic tab */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Availability (online menu)</label>
+            <p className="text-xs text-gray-400 mb-2">
+              Pick which meal periods this item shows up in on the customer site. Leave
+              blank to show it anytime. POS and waiter ignore meal periods.
+            </p>
+            {mealPeriods.length === 0 ? (
+              <p className="text-xs text-gray-400 italic">
+                No meal periods defined yet. Add one in the &quot;Meal periods&quot; bar at the top to tag items.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {mealPeriods.map((mp) => {
+                  const checked = (form.mealPeriodIds ?? []).includes(mp.id);
+                  return (
+                    <button
+                      key={mp.id}
+                      onClick={() => setForm((f) => {
+                        const next = new Set(f.mealPeriodIds ?? []);
+                        if (next.has(mp.id)) next.delete(mp.id); else next.add(mp.id);
+                        return { ...f, mealPeriodIds: Array.from(next) };
+                      })}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border-2 transition-all ${checked
+                        ? ""
+                        : "border-gray-200 text-gray-500 hover:border-gray-300"
+                        }`}
+                      style={checked ? {
+                        borderColor: mp.themeColor,
+                        backgroundColor: `${mp.themeColor}1A`,
+                        color: mp.themeColor
+                      } : undefined}
+                    >
+                      {checked && <Check size={10} />}
+                      <span>{mp.name}</span>
+                      <span className="text-gray-400 font-normal">{mp.startTime}–{mp.endTime}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -757,56 +1633,75 @@ function ItemModal({
       {tab === "variations" && (
         <div className="space-y-4">
           <p className="text-xs text-gray-500">
-            Variations let customers choose between options (e.g. spice level, size). Each variation shows as a required radio group.
+            Variations let customers choose between options (e.g. spice level, size). Variations can be marked required or optional.
           </p>
-          {(form.variations ?? []).map((v, vi) => (
-            <div key={v.id} className="border border-gray-200 rounded-xl p-4 space-y-3">
-              <div className="flex items-center gap-3">
-                <input
-                  value={v.name}
-                  onChange={(e) => updateVariation(vi, { name: e.target.value })}
-                  className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                  placeholder="Variation name (e.g. Spice level)"
-                />
-                <button onClick={() => removeVariation(vi)} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition">
-                  <Trash2 size={14} />
-                </button>
-              </div>
-              <div className="space-y-2 pl-2">
-                {v.options.map((opt, oi) => (
-                  <div key={opt.id} className="flex items-center gap-2">
-                    <span className="text-gray-300">›</span>
+          {(form.variations ?? []).map((v, vi) => {
+            // Treat older variations that pre-date the `required` field as required (backward compat).
+            const isRequired = v.required !== false;
+            return (
+              <div key={v.id} className="border border-gray-200 rounded-xl p-4 space-y-3">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <input
+                    value={v.name}
+                    onChange={(e) => updateVariation(vi, { name: e.target.value })}
+                    className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                    placeholder="Variation name (e.g. Spice level)"
+                  />
+                  <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 cursor-pointer select-none whitespace-nowrap">
                     <input
-                      value={opt.label}
-                      onChange={(e) => updateVariationOption(vi, oi, { label: e.target.value })}
-                      className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                      placeholder="Option label"
+                      type="checkbox"
+                      checked={isRequired}
+                      onChange={(e) => updateVariation(vi, { required: e.target.checked })}
+                      className="w-4 h-4 rounded border-gray-300 text-orange-500 focus:ring-orange-400"
                     />
-                    <div className="relative w-24">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">+£</span>
+                    Required
+                  </label>
+                  <button onClick={() => removeVariation(vi)} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+                <div className="space-y-2 pl-2">
+                  {v.options.map((opt, oi) => (
+                    <div key={opt.id} className="flex items-center gap-2">
+                      <span className="text-gray-300">›</span>
                       <input
-                        type="number"
-                        min="0"
-                        step="0.25"
-                        value={opt.price}
-                        onChange={(e) => updateVariationOption(vi, oi, { price: parseFloat(e.target.value) || 0 })}
-                        className="w-full pl-7 pr-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                        value={opt.label}
+                        onChange={(e) => updateVariationOption(vi, oi, { label: e.target.value })}
+                        className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                        placeholder="Option label"
                       />
+                      <div className="relative w-24">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">+{sym}</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.25"
+                          value={opt.price}
+                          placeholder="0.00"
+                          onChange={(e) => updateVariationOption(vi, oi, { price: e.target.value === "" ? ("" as unknown as number) : parseFloat(e.target.value) })}
+                          onBlur={() => {
+                            if (opt.price === ("" as unknown as number) || isNaN(Number(opt.price))) {
+                              updateVariationOption(vi, oi, { price: 0 });
+                            }
+                          }}
+                          className="w-full pl-7 pr-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                        />
+                      </div>
+                      <button onClick={() => removeVariationOption(vi, oi)} className="text-gray-300 hover:text-red-400 transition">
+                        <X size={13} />
+                      </button>
                     </div>
-                    <button onClick={() => removeVariationOption(vi, oi)} className="text-gray-300 hover:text-red-400 transition">
-                      <X size={13} />
-                    </button>
-                  </div>
-                ))}
-                <button
-                  onClick={() => addVariationOption(vi)}
-                  className="text-xs text-orange-500 hover:text-orange-700 font-medium flex items-center gap-1 ml-4 mt-1"
-                >
-                  <Plus size={11} /> Add option
-                </button>
+                  ))}
+                  <button
+                    onClick={() => addVariationOption(vi)}
+                    className="text-xs text-orange-500 hover:text-orange-700 font-medium flex items-center gap-1 ml-4 mt-1"
+                  >
+                    <Plus size={11} /> Add option
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           <button
             onClick={addVariation}
             className="w-full py-2.5 rounded-xl border-2 border-dashed border-gray-200 text-sm text-gray-500 hover:border-orange-300 hover:text-orange-500 transition flex items-center justify-center gap-2"
@@ -828,17 +1723,23 @@ function ItemModal({
               <input
                 value={ao.name}
                 onChange={(e) => updateAddOn(ai, { name: e.target.value })}
-                className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                 placeholder="Add-on name"
               />
               <div className="relative w-24">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">+£</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">+{sym}</span>
                 <input
                   type="number"
                   min="0"
                   step="0.25"
                   value={ao.price}
-                  onChange={(e) => updateAddOn(ai, { price: parseFloat(e.target.value) || 0 })}
+                  placeholder="0.00"
+                  onChange={(e) => updateAddOn(ai, { price: e.target.value === "" ? ("" as unknown as number) : parseFloat(e.target.value) })}
+                  onBlur={() => {
+                    if (ao.price === ("" as unknown as number) || isNaN(Number(ao.price))) {
+                      updateAddOn(ai, { price: 0 });
+                    }
+                  }}
                   className="w-full pl-7 pr-2 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                 />
               </div>
@@ -856,6 +1757,18 @@ function ItemModal({
         </div>
       )}
 
+      {/* ── Offer tab — Bug #2 (admin / POS field parity) ─────────────────
+          Six offer types mirror the POS edit modal so a discount configured
+          in either editor is visible (and identically rendered) in both. */}
+      {tab === "offer" && (
+        <OfferEditor
+          offer={form.offer}
+          price={form.price}
+          currencySymbol={sym}
+          onChange={(o) => setForm((f) => ({ ...f, offer: o }))}
+        />
+      )}
+
       {/* ── Stock tab ── */}
       {tab === "stock" && (
         <div className="space-y-5">
@@ -865,11 +1778,10 @@ function ItemModal({
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => setForm((f) => ({ ...f, stockQty: undefined }))}
-                className={`flex items-center gap-2 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all text-left ${
-                  typeof form.stockQty !== "number"
-                    ? "border-orange-400 bg-orange-50 text-orange-700"
-                    : "border-gray-200 text-gray-500 hover:border-gray-300"
-                }`}
+                className={`flex items-center gap-2 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all text-left ${typeof form.stockQty !== "number"
+                  ? "border-orange-400 bg-orange-50 text-orange-700"
+                  : "border-gray-200 text-gray-500 hover:border-gray-300"
+                  }`}
               >
                 <Package size={15} className="flex-shrink-0" />
                 <div>
@@ -879,11 +1791,10 @@ function ItemModal({
               </button>
               <button
                 onClick={() => setForm((f) => ({ ...f, stockQty: typeof f.stockQty === "number" ? f.stockQty : 10 }))}
-                className={`flex items-center gap-2 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all text-left ${
-                  typeof form.stockQty === "number"
-                    ? "border-orange-400 bg-orange-50 text-orange-700"
-                    : "border-gray-200 text-gray-500 hover:border-gray-300"
-                }`}
+                className={`flex items-center gap-2 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all text-left ${typeof form.stockQty === "number"
+                  ? "border-orange-400 bg-orange-50 text-orange-700"
+                  : "border-gray-200 text-gray-500 hover:border-gray-300"
+                  }`}
               >
                 <PackageMinus size={15} className="flex-shrink-0" />
                 <div>
@@ -905,26 +1816,24 @@ function ItemModal({
                     <button
                       key={s}
                       onClick={() => setForm((f) => ({ ...f, stockStatus: s }))}
-                      className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl border-2 transition-all ${
-                        active
-                          ? s === "out_of_stock" ? "border-red-400 bg-red-50"
-                          : s === "low_stock"    ? "border-amber-400 bg-amber-50"
-                          :                        "border-green-400 bg-green-50"
-                          : "border-gray-200 hover:border-gray-300"
-                      }`}
+                      className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl border-2 transition-all ${active
+                        ? s === "out_of_stock" ? "border-red-400 bg-red-50"
+                          : s === "low_stock" ? "border-amber-400 bg-amber-50"
+                            : "border-green-400 bg-green-50"
+                        : "border-gray-200 hover:border-gray-300"
+                        }`}
                     >
                       {s === "out_of_stock"
                         ? <PackageX size={18} className={active ? "text-red-500" : "text-gray-400"} />
                         : s === "low_stock"
-                        ? <PackageMinus size={18} className={active ? "text-amber-500" : "text-gray-400"} />
-                        : <Package size={18} className={active ? "text-green-500" : "text-gray-400"} />}
-                      <span className={`text-[11px] font-semibold leading-tight text-center ${
-                        active
-                          ? s === "out_of_stock" ? "text-red-600"
-                          : s === "low_stock"    ? "text-amber-600"
-                          :                        "text-green-600"
-                          : "text-gray-500"
-                      }`}>
+                          ? <PackageMinus size={18} className={active ? "text-amber-500" : "text-gray-400"} />
+                          : <Package size={18} className={active ? "text-green-500" : "text-gray-400"} />}
+                      <span className={`text-[11px] font-semibold leading-tight text-center ${active
+                        ? s === "out_of_stock" ? "text-red-600"
+                          : s === "low_stock" ? "text-amber-600"
+                            : "text-green-600"
+                        : "text-gray-500"
+                        }`}>
                         {stockLabel(s)}
                       </span>
                     </button>
@@ -967,28 +1876,26 @@ function ItemModal({
               {(() => {
                 const s = resolveStock(form);
                 return (
-                  <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${
-                    s === "out_of_stock" ? "bg-red-50 border-red-100"
+                  <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${s === "out_of_stock" ? "bg-red-50 border-red-100"
                     : s === "low_stock" ? "bg-amber-50 border-amber-100"
-                    : "bg-green-50 border-green-100"
-                  }`}>
+                      : "bg-green-50 border-green-100"
+                    }`}>
                     {s === "out_of_stock"
                       ? <PackageX size={16} className="text-red-500 flex-shrink-0" />
                       : s === "low_stock"
-                      ? <PackageMinus size={16} className="text-amber-500 flex-shrink-0" />
-                      : <Package size={16} className="text-green-500 flex-shrink-0" />}
+                        ? <PackageMinus size={16} className="text-amber-500 flex-shrink-0" />
+                        : <Package size={16} className="text-green-500 flex-shrink-0" />}
                     <div>
-                      <p className={`text-sm font-semibold ${
-                        s === "out_of_stock" ? "text-red-700"
+                      <p className={`text-sm font-semibold ${s === "out_of_stock" ? "text-red-700"
                         : s === "low_stock" ? "text-amber-700"
-                        : "text-green-700"
-                      }`}>{stockLabel(s)}</p>
+                          : "text-green-700"
+                        }`}>{stockLabel(s)}</p>
                       <p className="text-xs text-gray-500 mt-0.5">
                         {s === "out_of_stock"
                           ? "Item will show as Unavailable and cannot be added to cart."
                           : s === "low_stock"
-                          ? `Quantity is at or below the low-stock threshold (${LOW_STOCK_THRESHOLD} units). A "Low stock" badge will appear.`
-                          : "Item is available for purchase on the menu."}
+                            ? `Quantity is at or below the low-stock threshold (${LOW_STOCK_THRESHOLD} units). A "Low stock" badge will appear.`
+                            : "Item is available for purchase on the menu."}
                       </p>
                     </div>
                   </div>
@@ -1003,11 +1910,10 @@ function ItemModal({
                     <button
                       key={n}
                       onClick={() => setForm((f) => ({ ...f, stockQty: n }))}
-                      className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
-                        form.stockQty === n
-                          ? "bg-orange-500 text-white border-orange-500"
-                          : "border-gray-200 text-gray-500 hover:border-orange-300 hover:text-orange-600"
-                      }`}
+                      className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${form.stockQty === n
+                        ? "bg-orange-500 text-white border-orange-500"
+                        : "border-gray-200 text-gray-500 hover:border-orange-300 hover:text-orange-600"
+                        }`}
                     >
                       {n === 0 ? "0 (OOS)" : n}
                     </button>
@@ -1029,6 +1935,13 @@ function ItemModal({
         </div>
       )}
 
+      {nameTaken && (
+        <div className="flex items-start gap-2 mt-4 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl">
+          <AlertTriangle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-red-600">A menu item named <strong>{form.name.trim()}</strong> already exists. Choose a different name.</p>
+        </div>
+      )}
+
       <div className="flex gap-3 mt-6 pt-4 border-t border-gray-100">
         <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition">Cancel</button>
         <button
@@ -1046,10 +1959,10 @@ function ItemModal({
 // ─── Confirm Modal ───────────────────────────────────────────────────────────
 
 function ConfirmModal({
-  title, message, onConfirm, onClose,
+  title, message, onConfirm, onClose, confirmDisabled = false,
 }: {
   title: string; message: string;
-  onConfirm: () => void; onClose: () => void;
+  onConfirm: () => void; onClose: () => void; confirmDisabled?: boolean;
 }) {
   return (
     <ModalShell title={title} onClose={onClose}>
@@ -1061,12 +1974,481 @@ function ConfirmModal({
         <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition">Cancel</button>
         <button
           onClick={onConfirm}
-          className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition"
+          disabled={confirmDisabled}
+          className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-white text-sm font-semibold transition"
         >
           Delete
         </button>
       </div>
     </ModalShell>
+  );
+}
+
+// ─── Meal Period Modal ───────────────────────────────────────────────────────
+
+function MealPeriodModal({
+  period, isNew, onSave, onClose,
+}: {
+  period: MealPeriod;
+  isNew: boolean;
+  onSave: (p: Omit<MealPeriod, "id">) => Promise<void> | void;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState<MealPeriod>({ ...period });
+  const [saving, setSaving] = useState(false);
+  const isValid = form.name.trim() && form.startTime && form.endTime && form.daysOfWeek.length > 0;
+
+  async function handleSave() {
+    if (!isValid || saving) return;
+    setSaving(true);
+    try {
+      await onSave({
+        name: form.name.trim(),
+        enabled: form.enabled,
+        startTime: form.startTime,
+        endTime: form.endTime,
+        daysOfWeek: form.daysOfWeek,
+        sortOrder: form.sortOrder,
+        themeColor: form.themeColor,
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function toggleDay(day: number) {
+    setForm((f) => ({
+      ...f,
+      daysOfWeek: f.daysOfWeek.includes(day)
+        ? f.daysOfWeek.filter((d) => d !== day)
+        : [...f.daysOfWeek, day].sort(),
+    }));
+  }
+
+  return (
+    <ModalShell title={isNew ? "Add meal period" : "Edit meal period"} onClose={onClose}>
+      <div className="space-y-4">
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1">Name</label>
+          <input
+            value={form.name}
+            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            placeholder="Breakfast, Lunch, Sunday Brunch…"
+            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Start</label>
+            <input
+              type="time"
+              value={form.startTime}
+              onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))}
+              className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">End</label>
+            <input
+              type="time"
+              value={form.endTime}
+              onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))}
+              className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-2">Days of week</label>
+          <div className="flex flex-wrap gap-1.5">
+            {DAY_LABELS.map((label, day) => {
+              const active = form.daysOfWeek.includes(day);
+              return (
+                <button
+                  key={day}
+                  onClick={() => toggleDay(day)}
+                  className={`w-11 h-9 rounded-lg text-xs font-semibold border-2 transition-all ${active
+                    ? "border-amber-400 bg-amber-50 text-amber-700"
+                    : "border-gray-200 text-gray-400 hover:border-gray-300"
+                    }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Theme Color Picker */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-2">Theme colour</label>
+          <div className="flex flex-wrap gap-2 items-center">
+            {MEAL_PERIOD_COLORS.map((c) => (
+              <button
+                key={c}
+                onClick={() => setForm((f) => ({ ...f, themeColor: c }))}
+                className="w-7 h-7 rounded-md transition-all"
+                style={{
+                  backgroundColor: c,
+                  outline: form.themeColor === c ? `2px solid #1f2937` : "none",
+                  outlineOffset: "2px",
+                }}
+                aria-label={`Pick colour ${c}`}
+              />
+            ))}
+            <input
+              type="color"
+              value={form.themeColor ?? "#f59e0b"}
+              onChange={(e) => setForm((f) => ({ ...f, themeColor: e.target.value }))}
+              className="w-8 h-8 rounded cursor-pointer border border-gray-200"
+              aria-label="Custom colour"
+            />
+          </div>
+          <p className="text-[11px] text-gray-400 mt-1.5">
+            Used to highlight this section on the menu.
+          </p>
+        </div>
+
+        <label className="flex items-center gap-3 cursor-pointer">
+          <div
+            onClick={() => setForm((f) => ({ ...f, enabled: !f.enabled }))}
+            className={`relative w-10 h-6 rounded-full transition-colors ${form.enabled ? "bg-amber-500" : "bg-gray-200"}`}
+          >
+            <span className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.enabled ? "translate-x-4" : ""}`} />
+          </div>
+          <span className="text-sm font-medium text-gray-700">
+            {form.enabled ? "Enabled" : "Disabled"}
+          </span>
+        </label>
+      </div>
+
+      <div className="flex gap-3 mt-6">
+        <button onClick={onClose} disabled={saving} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition">
+          Cancel
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={!isValid || saving}
+          className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:bg-gray-200 disabled:cursor-not-allowed text-white text-sm font-semibold transition flex items-center justify-center gap-2"
+        >
+          {saving && <Loader2 size={14} className="animate-spin" />}
+          {saving ? (isNew ? "Adding…" : "Saving…") : (isNew ? "Add" : "Save")}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ─── Offer editor (Bug #2 — admin / POS field parity) ────────────────────────
+// Mirrors the POS Offer UI in app/src/components/pos/settings/MenuTab.tsx
+// (lines ~612–776). Six offer types share the storage shape — what changes
+// is which inputs are surfaced and which preview string is rendered.
+
+function OfferEditor({
+  offer, price, currencySymbol, onChange,
+}: {
+  offer?: MenuItemOffer;
+  price: number;
+  currencySymbol: string;
+  onChange: (o: MenuItemOffer | undefined) => void;
+}) {
+  const o: MenuItemOffer = offer ?? {
+    type: "percent", value: 0, active: false,
+  };
+  const sym = currencySymbol;
+
+  function patch(p: Partial<MenuItemOffer>) {
+    onChange({ ...o, ...p });
+  }
+
+  // Live preview — matches the POS preview phrasing so the operator sees the
+  // exact same wording on both sides.
+  const previewString = (() => {
+    if (!price) return null;
+    switch (o.type) {
+      case "percent":
+        return o.value ? `${(price * (1 - o.value / 100)).toFixed(2)} per item (was ${price.toFixed(2)})` : null;
+      case "fixed":
+        return o.value ? `${Math.max(0, price - o.value).toFixed(2)} per item (was ${price.toFixed(2)})` : null;
+      case "price":
+        return o.value ? `${o.value.toFixed(2)} per item (was ${price.toFixed(2)})` : null;
+      case "bogo": {
+        if (!o.buyQty || !o.freeQty) return null;
+        return `Buy ${o.buyQty} get ${o.freeQty} free · pay for ${o.buyQty} of every ${o.buyQty + o.freeQty}`;
+      }
+      case "multibuy": {
+        if (!o.buyQty || !o.value) return null;
+        const saving = price * o.buyQty - o.value;
+        return `${o.buyQty} for ${sym}${o.value.toFixed(2)} · save ${sym}${(saving > 0 ? saving : 0).toFixed(2)}`;
+      }
+      case "qty_discount": {
+        if (!o.minQty || !o.value) return null;
+        const discounted = price * (1 - o.value / 100);
+        return `Buy ${o.minQty}+ · ${sym}${discounted.toFixed(2)} each (was ${sym}${price.toFixed(2)})`;
+      }
+      default:
+        return null;
+    }
+  })();
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-gray-500">
+        Configure a discount on this item. Same six offer types are surfaced
+        in the POS so the badge label and pricing math stay consistent
+        across the customer site and the till.
+      </p>
+
+      <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
+        <div>
+          <p className="text-sm font-medium text-gray-800">Offer enabled</p>
+          <p className="text-xs text-gray-500">
+            {o.active ? "Active — badge will show on the menu." : "Disabled — no badge."}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => patch({ active: !o.active })}
+          className="transition-colors"
+          aria-label="Toggle offer"
+        >
+          {o.active
+            ? <ToggleRight size={28} className="text-amber-500" />
+            : <ToggleLeft size={28} className="text-gray-400" />}
+        </button>
+      </div>
+
+      {o.active && (
+        <>
+          {/* Offer type — six buttons mirror the POS grid */}
+          <div className="grid grid-cols-3 gap-1.5">
+            {([
+              ["percent", "% Off"],
+              ["fixed", `${sym} Off`],
+              ["price", "Set Price"],
+              ["bogo", "BOGO"],
+              ["multibuy", "Multi-Buy"],
+              ["qty_discount", "Qty Deal"],
+            ] as [MenuItemOffer["type"], string][]).map(([t, label]) => (
+              <button
+                key={t}
+                onClick={() => patch({ type: t })}
+                className={`py-2 rounded-lg text-xs font-semibold transition-all ${o.type === t ? "bg-amber-400 text-gray-900" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Per-type inputs */}
+          {(o.type === "percent" || o.type === "fixed" || o.type === "price") && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">
+                  {o.type === "percent" ? "Discount %" : o.type === "fixed" ? `Amount off (${sym})` : `Special price (${sym})`}
+                </label>
+                <input
+                  type="number" min="0" step={o.type === "percent" ? "1" : "0.01"}
+                  value={Number.isFinite(o.value) ? o.value : ""}
+                  placeholder="0"
+                  onChange={(e) => patch({ value: e.target.value === "" ? ("" as unknown as number) : parseFloat(e.target.value) })}
+                  onBlur={() => {
+                    if (o.value === ("" as unknown as number) || isNaN(Number(o.value))) {
+                      patch({ value: 0 });
+                    }
+                  }}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Badge label</label>
+                <input
+                  value={o.label ?? ""}
+                  onChange={(e) => patch({ label: e.target.value || undefined })}
+                  placeholder="e.g. Happy Hour"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+            </div>
+          )}
+
+          {o.type === "bogo" && (
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Buy qty</label>
+                <input
+                  type="number" min="1" step="1"
+                  value={o.buyQty ?? ""}
+                  onChange={(e) => patch({ buyQty: e.target.value ? parseInt(e.target.value) : undefined })}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Get free</label>
+                <input
+                  type="number" min="1" step="1"
+                  value={o.freeQty ?? ""}
+                  onChange={(e) => patch({ freeQty: e.target.value ? parseInt(e.target.value) : undefined })}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Badge</label>
+                <input
+                  value={o.label ?? ""}
+                  onChange={(e) => patch({ label: e.target.value || undefined })}
+                  placeholder="BOGOF"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+            </div>
+          )}
+
+          {o.type === "multibuy" && (
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Buy qty</label>
+                <input
+                  type="number" min="2" step="1"
+                  value={o.buyQty ?? ""}
+                  onChange={(e) => patch({ buyQty: e.target.value ? parseInt(e.target.value) : undefined })}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Bundle price ({sym})</label>
+                <input
+                  type="number" min="0" step="0.01"
+                  value={Number.isFinite(o.value) ? o.value : ""}
+                  placeholder="0.00"
+                  onChange={(e) => patch({ value: e.target.value === "" ? ("" as unknown as number) : parseFloat(e.target.value) })}
+                  onBlur={() => {
+                    if (o.value === ("" as unknown as number) || isNaN(Number(o.value))) {
+                      patch({ value: 0 });
+                    }
+                  }}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Badge</label>
+                <input
+                  value={o.label ?? ""}
+                  onChange={(e) => patch({ label: e.target.value || undefined })}
+                  placeholder={`${o.buyQty || 3} for ${sym}${o.value || 10}`}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+            </div>
+          )}
+
+          {o.type === "qty_discount" && (
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Min qty</label>
+                <input
+                  type="number" min="2" step="1"
+                  value={o.minQty ?? ""}
+                  onChange={(e) => patch({ minQty: e.target.value ? parseInt(e.target.value) : undefined })}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Discount %</label>
+                <input
+                  type="number" min="1" max="100" step="1"
+                  value={Number.isFinite(o.value) ? o.value : ""}
+                  placeholder="0"
+                  onChange={(e) => patch({ value: e.target.value === "" ? ("" as unknown as number) : parseFloat(e.target.value) })}
+                  onBlur={() => {
+                    if (o.value === ("" as unknown as number) || isNaN(Number(o.value))) {
+                      patch({ value: 0 });
+                    }
+                  }}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Badge</label>
+                <input
+                  value={o.label ?? ""}
+                  onChange={(e) => patch({ label: e.target.value || undefined })}
+                  placeholder={`${o.minQty || 2}+ save ${o.value || 15}%`}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Date range */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Start date</label>
+              <input
+                type="date"
+                value={o.startDate ?? ""}
+                onChange={(e) => patch({ startDate: e.target.value || undefined })}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">End date</label>
+              <input
+                type="date"
+                value={o.endDate ?? ""}
+                onChange={(e) => patch({ endDate: e.target.value || undefined })}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+            </div>
+          </div>
+
+          {/* Offer channel restriction (model A — single offer, channel-gated) */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Applies to</label>
+            <p className="text-xs text-gray-400 mb-2">
+              Restrict this discount to one channel (e.g. a happy-hour in-store deal,
+              or an online-only promo). Leave both selected to apply everywhere the item appears.
+            </p>
+            <div className="flex gap-2">
+              {(["in_store", "online"] as const).map((ch) => {
+                // undefined / empty channels = "all", so treat as both selected.
+                const selected = !o.channels || o.channels.length === 0 || o.channels.includes(ch);
+                return (
+                  <button
+                    key={ch}
+                    type="button"
+                    onClick={() => {
+                      const cur = (!o.channels || o.channels.length === 0)
+                        ? (["in_store", "online"] as ("in_store" | "online")[])
+                        : [...o.channels];
+                      const has = cur.includes(ch);
+                      let next = has ? cur.filter((c) => c !== ch) : [...cur, ch];
+                      if (next.length === 0) next = cur; // keep at least one
+                      // Both selected → store undefined ("all") to keep data clean.
+                      patch({ channels: next.length === 2 ? undefined : next });
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border-2 transition-all ${selected ? "border-amber-400 bg-amber-50 text-amber-700" : "border-gray-200 text-gray-500 hover:border-gray-300"
+                      }`}
+                  >
+                    {selected && <Check size={10} />}
+                    {ch === "in_store" ? "In store" : "Online"}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {previewString && (
+            <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
+              <Tag size={14} className="text-amber-600 flex-shrink-0" />
+              <span className="text-amber-700 text-xs font-semibold">{previewString}</span>
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 

@@ -8,7 +8,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHmac, randomBytes }   from "crypto";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import { sendEmailDirect, fetchBrandPrimaryColor } from "@/lib/emailServer";
+import { emailConfigured }          from "@/lib/emailSender";
 import { RESET_TOKEN_TTL_MS }        from "@/lib/auth";
+import { rateLimit }                 from "@/lib/rateLimit";
+import { parseBody }                 from "@/lib/apiValidation";
+import { ResetPasswordRequestSchema } from "@/lib/schemas/auth";
 
 function hashToken(rawToken: string): string {
   const secret = (process.env.AUTH_JWT_SECRET ?? process.env.ADMIN_JWT_SECRET ?? "").trim();
@@ -16,14 +20,20 @@ function hashToken(rawToken: string): string {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  let body: { email?: string };
-  try {
-    body = await req.json() as { email?: string };
-  } catch {
-    return NextResponse.json({ ok: true }); // never reveal parse errors on public endpoint
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const { limited } = rateLimit(`driver-reset:${ip}`, 3, 60_000);
+  if (limited) {
+    // Still respond ok to avoid leaking whether the address was throttled —
+    // attacker can't distinguish "rate-limited" from "no such email".
+    return NextResponse.json({ ok: true });
   }
 
-  const email = body.email?.trim().toLowerCase();
+  const parsed = await parseBody(req, ResetPasswordRequestSchema);
+  if (!parsed.ok) {
+    // Malformed body: still respond ok so we never reveal email existence.
+    return NextResponse.json({ ok: true });
+  }
+  const email = parsed.data.email.trim().toLowerCase();
   if (!email) return NextResponse.json({ ok: true });
 
   // Look up driver — silently do nothing if not found
@@ -47,7 +57,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const siteUrl  = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
   const resetUrl = `${siteUrl}/driver/login?action=reset&token=${rawToken}&email=${encodeURIComponent(email)}`;
 
-  if (process.env.SMTP_HOST) {
+  if (emailConfigured()) {
     const brandColor = await fetchBrandPrimaryColor();
     const html = `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a;padding:24px">
@@ -72,7 +82,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       console.error("[driver/reset-password] email failed:", result.error);
     }
   } else {
-    console.log("[driver/reset-password] Reset URL (no SMTP):", resetUrl);
+    console.log("[driver/reset-password] Reset URL (no email provider configured):", resetUrl);
   }
 
   return NextResponse.json({ ok: true });

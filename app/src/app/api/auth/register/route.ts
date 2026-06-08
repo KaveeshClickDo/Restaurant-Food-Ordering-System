@@ -1,9 +1,8 @@
 /**
  * POST /api/auth/register — public customer self-registration.
- * Hashes password with bcrypt, stores it, then sends an email verification link.
- *
- * Column fallback: if auth_migration.sql hasn't been run yet (PGRST204),
- * stores the bcrypt hash in the legacy `password` column and skips verification.
+ * Hashes password with bcrypt, stores it in password_hash, then sends an
+ * email verification link. The legacy plaintext `password` column was
+ * dropped in the latest schema migration — only password_hash is written.
  */
 
 import { NextRequest, NextResponse }  from "next/server";
@@ -12,7 +11,14 @@ import { rateLimit }                  from "@/lib/rateLimit";
 import { createHmac, randomBytes }    from "crypto";
 import { supabaseAdmin }              from "@/lib/supabaseAdmin";
 import { sendEmailDirect, fetchBrandPrimaryColor } from "@/lib/emailServer";
-import { createSessionToken, setSessionCookie, COOKIE_CUSTOMER } from "@/lib/auth";
+import { emailConfigured }        from "@/lib/emailSender";
+import { parseBody }              from "@/lib/apiValidation";
+import { RegisterSchema }         from "@/lib/schemas/auth";
+
+// Issue a session cookie immediately on register only when the auth migration
+// hasn't been applied yet — in that case email_verified doesn't exist and the
+// login route will accept the account regardless. Once the migration is in
+// place, the cookie is withheld until /api/auth/verify-email is hit.
 
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -25,8 +31,8 @@ async function sendVerificationEmail(to: string, name: string, rawToken: string)
   const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
   const link    = `${siteUrl}/verify-email?token=${rawToken}&email=${encodeURIComponent(to)}`;
 
-  if (!process.env.SMTP_HOST) {
-    console.log("[register] Verification URL (no SMTP configured):", link);
+  if (!emailConfigured()) {
+    console.log("[register] Verification URL (no email provider configured):", link);
     return;
   }
 
@@ -62,22 +68,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Too many registration attempts. Please wait a minute." }, { status: 429 });
   }
 
-  let body: { id?: string; name?: string; email?: string; phone?: string; password?: string; createdAt?: string };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  const { id, name, email, phone, password, createdAt } = body;
-
-  // ── Validation ────────────────────────────────────────────────────────────
-  if (!id || !name?.trim() || !email?.trim() || !password) {
-    return NextResponse.json({ ok: false, error: "id, name, email, and password are required." }, { status: 400 });
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-    return NextResponse.json({ ok: false, error: "Invalid email address." }, { status: 400 });
-  }
-  if (password.length < 6) {
-    return NextResponse.json({ ok: false, error: "Password must be at least 6 characters." }, { status: 400 });
-  }
+  const parsed = await parseBody(req, RegisterSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { id, name, email, phone, password, createdAt } = parsed.data;
 
   // ── Duplicate check ───────────────────────────────────────────────────────
   const { data: existing } = await supabaseAdmin
@@ -105,42 +98,25 @@ export async function POST(req: NextRequest) {
   };
 
   // ── Insert ────────────────────────────────────────────────────────────────
-  let migrationRun = true;
-
-  const { error: errFull } = await supabaseAdmin.from("customers").insert({
+  const { error: errInsert } = await supabaseAdmin.from("customers").insert({
     ...baseRow,
-    password:                   "",
     password_hash:              passwordHash,
     email_verified:             false,
     email_verification_token:   hashedToken,
     email_verification_expires: tokenExpires,
   });
 
-  if (errFull) {
-    if (errFull.code === "PGRST204") {
-      migrationRun = false;
-      const { error: errFallback } = await supabaseAdmin.from("customers").insert({
-        ...baseRow,
-        password: passwordHash,
-      });
-      if (errFallback) {
-        console.error("auth/register fallback:", errFallback.message);
-        return NextResponse.json({ ok: false, error: errFallback.message }, { status: 500 });
-      }
-    } else {
-      console.error("auth/register:", errFull.message);
-      return NextResponse.json({ ok: false, error: errFull.message }, { status: 500 });
-    }
+  if (errInsert) {
+    console.error("auth/register:", errInsert.message);
+    return NextResponse.json({ ok: false, error: errInsert.message }, { status: 500 });
   }
 
   // ── Send verification email ───────────────────────────────────────────────
-  if (migrationRun) {
-    await sendVerificationEmail(email.trim().toLowerCase(), name.trim(), rawToken);
-  }
+  await sendVerificationEmail(email.trim().toLowerCase(), name.trim(), rawToken);
 
-  // ── Auto-login ────────────────────────────────────────────────────────────
-  const token = createSessionToken({ id, role: "customer" });
-  const res   = NextResponse.json({ ok: true, emailVerificationSent: migrationRun });
-  setSessionCookie(res, COOKIE_CUSTOMER, token);
-  return res;
+  return NextResponse.json({
+    ok: true,
+    requiresVerification: true,
+    email: email.trim().toLowerCase(),
+  });
 }

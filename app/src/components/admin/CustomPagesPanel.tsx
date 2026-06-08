@@ -66,11 +66,8 @@ export default function CustomPagesPanel() {
   const { settings, updateSettings } = useApp();
   const pages: CustomPage[] = settings.customPages ?? [];
 
-  // Reserved slugs (footer pages + admin routes)
-  const reservedSlugs = new Set([
-    ...(settings.footerPages ?? []).map((p) => p.slug),
-    "admin", "api",
-  ]);
+  // Reserved slugs (admin routes that must never collide with a public page)
+  const reservedSlugs = new Set(["admin", "api"]);
 
   const [selectedId, setSelectedId] = useState<string | null>(
     pages.length > 0 ? pages[0].id : null
@@ -406,7 +403,7 @@ export default function CustomPagesPanel() {
               {/* Delete */}
               {pages.some((p) => p.id === draft.id) ? (
                 deleteConfirm ? (
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs text-red-600 font-medium">Delete this page?</span>
                     <button
                       onClick={deletePage}

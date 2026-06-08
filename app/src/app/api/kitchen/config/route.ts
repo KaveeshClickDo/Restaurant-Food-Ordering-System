@@ -1,34 +1,41 @@
 /**
  * GET /api/kitchen/config
- * Returns kitchen staff without PINs (used by the login page staff selector).
- * No auth required — PINs are never sent to the browser.
+ * Returns active kitchen staff (PINs never returned).
+ * No auth required — the staff list drives the login page tile picker.
  */
 
 import { NextResponse }  from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import type { KitchenStaff } from "@/types";
-
-const DEFAULT_STAFF: Omit<KitchenStaff, "pin">[] = [
-  { id: "k-1", name: "Head Chef",       role: "head_chef",       active: true, avatarColor: "#dc2626", createdAt: "" },
-  { id: "k-2", name: "Sous Chef",       role: "chef",            active: true, avatarColor: "#ea580c", createdAt: "" },
-  { id: "k-3", name: "Kitchen Manager", role: "kitchen_manager", active: true, avatarColor: "#7c3aed", createdAt: "" },
-];
 
 export async function GET() {
   try {
-    const { data: row } = await supabaseAdmin
-      .from("app_settings").select("data").limit(1).single();
+    // `avatar_color` was previously omitted, which is why the kitchen login
+    // tiles rendered with no background colour (the page reads `s.avatarColor`,
+    // and without it the inline style became `backgroundColor: undefined`).
+    // Rows are also mapped snake_case → camelCase to match the KitchenStaff
+    // type the login page consumes (mirrors the waiter config route).
+    const { data } = await supabaseAdmin
+      .from("kitchen_staff")
+      .select("id, name, email, role, active, avatar_color, created_at")
+      .eq("active", true);
 
-    const raw: KitchenStaff[] = row?.data?.kitchenStaff ?? [];
-    const staff = (raw.length ? raw : DEFAULT_STAFF as KitchenStaff[])
-      .filter((s) => s.active)
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      .map(({ pin: _, ...safe }) => safe);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const staff = (data ?? []).map((r: any) => ({
+      id:          r.id,
+      name:        r.name,
+      email:       r.email,
+      role:        r.role,
+      active:      r.active,
+      avatarColor: r.avatar_color,
+      createdAt:   typeof r.created_at === "string"
+                     ? r.created_at
+                     : new Date(r.created_at).toISOString(),
+    }));
 
     return NextResponse.json({ ok: true, staff });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unexpected error";
     console.error("[kitchen/config]", message);
-    return NextResponse.json({ ok: true, staff: DEFAULT_STAFF });
+    return NextResponse.json({ ok: false, error: "Failed to load config." }, { status: 500 });
   }
 }

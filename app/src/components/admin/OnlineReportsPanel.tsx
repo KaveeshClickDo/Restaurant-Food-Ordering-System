@@ -1,12 +1,28 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
+import { useApp } from "@/context/AppContext";
+import { fullOrderNumber } from "@/lib/orderNumber";
 import {
   TrendingUp, ShoppingBag, RotateCcw, Percent, CreditCard,
   Download, Printer, RefreshCw, CalendarDays, ChevronDown,
-  ArrowUpRight, ArrowDownRight, Minus,
+  ArrowUpRight, ArrowDownRight, Minus, Crown,
 } from "lucide-react";
+
+interface VipFeeRow {
+  id: string;
+  created_at: string;
+  vip_fee: number;
+  payment_method: string | null;
+}
+
+// A VIP booking fee is "online" when it was paid through a gateway
+// (Stripe/PayPal) and "pos" when collected as cash/card at the till or by
+// admin. This mirrors the order source split so the fee lands on the same
+// sub-tab as the orders it belongs with.
+function vipFeeSource(f: VipFeeRow): "online" | "pos" {
+  return f.payment_method === "stripe" || f.payment_method === "paypal" ? "online" : "pos";
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -20,17 +36,20 @@ interface RawOrder {
   vat_amount:       number | null;
   vat_inclusive:    boolean | null;
   payment_method:   string | null;
+  // Required so cancelled-but-paid orders still appear in the audit
+  // (otherwise their revenue and refunds silently disappear from finance).
+  payment_status:   string | null;
   customer_id:      string;
   items:            { name: string; qty: number; price: number }[];
 }
 
 type Preset = "today" | "yesterday" | "7d" | "30d" | "month" | "lastMonth" | "year" | "custom";
-type Source  = "all" | "online" | "pos";
+type Source  = "all" | "online" | "pos" | "dine-in";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const fmtCur = (n: number) =>
-  "£" + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+const fmtCur = (n: number, sym = "£") =>
+  sym + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
 const pct = (n: number, d: number) =>
   d === 0 ? "0%" : (n / d * 100).toFixed(1) + "%";
@@ -77,19 +96,47 @@ function fmtPresetLabel(p: Preset): string {
            month:"This Month", lastMonth:"Last Month", year:"This Year", custom:"Custom" }[p];
 }
 
+// Waiter dine-in orders are written to the orders table with fulfillment
+// "dine-in" (and the shared pos-walk-in customer). Classify them on their own
+// so reports can break out table service from counter sales.
+function isDineIn(o: RawOrder) {
+  return o.fulfillment === "dine-in";
+}
+
+// POS counter (walk-in till) sales — the pos-walk-in customer / "pos" payment
+// method, EXCLUDING dine-in (which shares the same customer id). isDineIn wins.
 function isPOS(o: RawOrder) {
+  if (isDineIn(o)) return false;
   return o.customer_id === "pos-walk-in" || String(o.payment_method ?? "").toLowerCase() === "pos";
+}
+
+// Online = anything that isn't counter POS or dine-in.
+function orderSource(o: RawOrder): Exclude<Source, "all"> {
+  if (isDineIn(o)) return "dine-in";
+  if (isPOS(o))    return "pos";
+  return "online";
 }
 
 function isActive(o: RawOrder) {
   return o.status !== "cancelled";
 }
 
+// Did money actually move through this order? True for any non-cancelled
+// row, plus cancelled rows that were paid (so paid-then-cancelled appears
+// in revenue, and any refund on it appears in refunds — the audit shows
+// both legs of a real money movement instead of dropping them entirely).
+function isMoneyBearing(o: RawOrder) {
+  if (o.status !== "cancelled") return true;
+  return o.payment_status === "paid"
+      || o.payment_status === "partially_refunded"
+      || o.payment_status === "refunded";
+}
+
 // Group daily totals for the bar chart
 function groupByDay(orders: RawOrder[]): { label: string; revenue: number; count: number }[] {
   const map = new Map<string, { revenue: number; count: number }>();
   for (const o of orders) {
-    if (!isActive(o)) continue;
+    if (!isMoneyBearing(o)) continue;
     const key = o.date.slice(0, 10);
     const cur = map.get(key) ?? { revenue: 0, count: 0 };
     map.set(key, { revenue: cur.revenue + o.total, count: cur.count + 1 });
@@ -106,7 +153,7 @@ function groupByMonth(orders: RawOrder[]): { label: string; revenue: number; cou
   const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const map = new Map<string, { revenue: number; count: number }>();
   for (const o of orders) {
-    if (!isActive(o)) continue;
+    if (!isMoneyBearing(o)) continue;
     const d = new Date(o.date);
     const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2,"0")}`;
     const cur = map.get(key) ?? { revenue: 0, count: 0 };
@@ -138,20 +185,20 @@ function StatCard({
 }) {
   const TrendIcon = trend === "up" ? ArrowUpRight : trend === "down" ? ArrowDownRight : Minus;
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm flex flex-col gap-3">
-      <div className="flex items-center justify-between">
+    <div className="bg-white rounded-2xl border border-gray-100 p-3 sm:p-5 shadow-sm flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-1">
         <span className="text-sm font-medium text-gray-500">{label}</span>
-        <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${accent}`}>
-          <Icon size={16} className="text-white" />
+        <div className={`w-7 h-7 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0 ${accent}`}>
+          <Icon size={16} className="text-white flex-shrink-0" />
         </div>
       </div>
       <div>
-        <p className="text-2xl font-black text-gray-900 tracking-tight">{value}</p>
+        <p className="text-lg sm:text-xl md:text-2xl font-black text-gray-900 tracking-tight">{value}</p>
         {sub && (
           <p className={`text-xs font-medium mt-1 flex items-center gap-1 ${
             trend === "up" ? "text-emerald-600" : trend === "down" ? "text-red-500" : "text-gray-400"
           }`}>
-            {trend && <TrendIcon size={11} />}
+            {trend && <TrendIcon size={11} className="flex-shrink-0"/>}
             {sub}
           </p>
         )}
@@ -160,7 +207,7 @@ function StatCard({
   );
 }
 
-function BarChart({ data }: { data: { label: string; revenue: number; count: number }[] }) {
+function BarChart({ data, sym }: { data: { label: string; revenue: number; count: number }[]; sym: string }) {
   if (!data.length) return (
     <div className="h-40 flex items-center justify-center text-gray-300 text-sm">
       No orders in this period
@@ -188,7 +235,7 @@ function BarChart({ data }: { data: { label: string; revenue: number; count: num
           <g key={t}>
             <line x1={pad.l} y1={y} x2={W - pad.r} y2={y} stroke="#f3f4f6" strokeWidth={1} />
             <text x={pad.l - 6} y={y + 4} textAnchor="end" fontSize={10} fill="#9ca3af">
-              {v >= 1000 ? `£${(v / 1000).toFixed(1)}k` : `£${Math.round(v)}`}
+              {v >= 1000 ? `${sym}${(v / 1000).toFixed(1)}k` : `${sym}${Math.round(v)}`}
             </text>
           </g>
         );
@@ -203,7 +250,7 @@ function BarChart({ data }: { data: { label: string; revenue: number; count: num
         return (
           <g key={i}>
             <rect x={x} y={y} width={barW} height={bH} rx={3} fill="#f97316" opacity={0.85}>
-              <title>{d.label} · {fmtCur(d.revenue)} · {d.count} order{d.count !== 1 ? "s" : ""}</title>
+              <title>{d.label} · {fmtCur(d.revenue, sym)} · {d.count} order{d.count !== 1 ? "s" : ""}</title>
             </rect>
             {showLabel && (
               <text x={x + barW / 2} y={H - 6} textAnchor="middle" fontSize={9} fill="#6b7280">
@@ -227,12 +274,18 @@ function HBar({ label, value, total, color, fmt }: {
   const width = total === 0 ? 0 : Math.round((value / total) * 100);
   const display = fmt ? fmt(value) : String(value);
   return (
-    <div className="flex items-center gap-3">
-      <span className="text-sm text-gray-600 w-32 flex-shrink-0 truncate">{label}</span>
-      <div className="flex-1 bg-gray-100 rounded-full h-2.5 overflow-hidden">
+    <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3">
+      <div className="flex justify-between items-center sm:w-32 sm:flex-shrink-0">
+        <span className="text-sm text-gray-600 truncate">{label}</span>
+        <div className="sm:hidden text-right flex-shrink-0 pl-2">
+          <span className="text-sm font-semibold text-gray-800">{display}</span>
+          <span className="text-xs text-gray-400 ml-1.5">{width}%</span>
+        </div>
+      </div>
+      <div className="w-full sm:flex-1 bg-gray-100 rounded-full h-2.5 overflow-hidden">
         <div className={`${color} h-full rounded-full transition-all duration-500`} style={{ width: `${width}%` }} />
       </div>
-      <div className="text-right flex-shrink-0 w-28">
+      <div className="hidden sm:block text-right flex-shrink-0 w-28">
         <span className="text-sm font-semibold text-gray-800">{display}</span>
         <span className="text-xs text-gray-400 ml-1.5">{width}%</span>
       </div>
@@ -250,11 +303,18 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function OnlineReportsPanel() {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
+  const cur = (n: number) => fmtCur(n, sym);
   const [preset,      setPreset]      = useState<Preset>("30d");
   const [customStart, setCustomStart] = useState("");
   const [customEnd,   setCustomEnd]   = useState("");
   const [source,      setSource]      = useState<Source>("all");
   const [orders,      setOrders]      = useState<RawOrder[]>([]);
+  // VIP booking fees collected online (Stripe / PayPal). Tracked separately
+  // from orders because they're not in the orders table — they live on the
+  // reservations row.
+  const [vipFees,     setVipFees]     = useState<VipFeeRow[]>([]);
   const [loading,     setLoading]     = useState(false);
   const [lastFetched, setLastFetched] = useState<Date | null>(null);
   const [showPresetMenu, setShowPresetMenu] = useState(false);
@@ -272,45 +332,90 @@ export default function OnlineReportsPanel() {
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("orders")
-      .select("id, date, status, total, fulfillment, refunded_amount, vat_amount, vat_inclusive, payment_method, customer_id, items")
-      .gte("date", startDate.toISOString())
-      .lte("date", endDate.toISOString())
-      .order("date", { ascending: true });
-
-    if (!error && data) {
-      setOrders(data as RawOrder[]);
+    try {
+      // Recompute the window at call time rather than reusing the memoized
+      // [startDate, endDate] (which is frozen until the preset/custom dates
+      // change). For live presets (today / 7d / 30d / month / year) the upper
+      // bound otherwise stayed pinned to the mount instant, so a sale placed
+      // afterwards never showed on Refresh — only after a remount (navigating
+      // away and back). yesterday / lastMonth / custom are date-anchored, so
+      // getPresetRange returns the same fixed range and they're unaffected.
+      const [from, to] = (preset === "custom" && customStart && customEnd)
+        ? [new Date(customStart + "T00:00:00"), new Date(customEnd + "T23:59:59")]
+        : getPresetRange(preset);
+      const params = new URLSearchParams({
+        from:  from.toISOString(),
+        to:    to.toISOString(),
+        limit: "10000",
+      });
+      const feeParams = new URLSearchParams({
+        source: "all",
+        from:   from.toISOString(),
+        to:     to.toISOString(),
+      });
+      const [ordersRes, feesRes] = await Promise.all([
+        fetch(`/api/admin/orders?${params}`, { cache: "no-store" }),
+        fetch(`/api/admin/booking-fees?${feeParams}`, { cache: "no-store" }),
+      ]);
+      if (ordersRes.ok) {
+        const json = await ordersRes.json() as { ok: boolean; orders?: RawOrder[] };
+        if (json.ok && json.orders) setOrders(json.orders);
+      }
+      if (feesRes.ok) {
+        const json = await feesRes.json() as { ok: boolean; fees?: VipFeeRow[] };
+        setVipFees(json.ok ? (json.fees ?? []) : []);
+      }
       setLastFetched(new Date());
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  }, [startDate, endDate]);
+  }, [preset, customStart, customEnd]);
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
   // ── Filter by source ───────────────────────────────────────────────────────
 
   const filtered = useMemo(() => {
-    if (source === "online") return orders.filter((o) => !isPOS(o));
-    if (source === "pos")    return orders.filter((o) => isPOS(o));
-    return orders;
+    if (source === "all") return orders;
+    return orders.filter((o) => orderSource(o) === source);
   }, [orders, source]);
+
+  // VIP booking fees that belong on the current source tab. Dine-in has no
+  // reservation fees; "all" shows both online and POS fees. These are folded
+  // into Gross/Net revenue and the revenue chart so the headline numbers match.
+  const vipFeesForSource = useMemo(() => {
+    if (source === "dine-in") return [];
+    if (source === "all")     return vipFees;
+    return vipFees.filter((f) => vipFeeSource(f) === source);
+  }, [vipFees, source]);
+  const vipFeeTotal = useMemo(
+    () => vipFeesForSource.reduce((s, f) => s + Number(f.vip_fee ?? 0), 0),
+    [vipFeesForSource],
+  );
 
   // ── Computed metrics ───────────────────────────────────────────────────────
 
   const metrics = useMemo(() => {
-    const active    = filtered.filter(isActive);
-    const cancelled = filtered.filter((o) => o.status === "cancelled");
-    const revenue   = active.reduce((s, o) => s + o.total, 0);
-    const refunds   = active.reduce((s, o) => s + (o.refunded_amount ?? 0), 0);
-    const vat       = active.reduce((s, o) => s + (o.vat_amount ?? 0), 0);
+    // active        = operational view (excludes all cancelled)
+    // moneyBearing  = audit view (excludes only unpaid cancellations).
+    // Revenue, refunds, vat, AOV and payment-method splits use the audit
+    // view so paid-then-cancelled orders aren't silently dropped from the
+    // financial picture. Order count, fulfilment split etc. keep the
+    // operational view — "completed orders" still means non-cancelled.
+    const active       = filtered.filter(isActive);
+    const moneyBearing = filtered.filter(isMoneyBearing);
+    const cancelled    = filtered.filter((o) => o.status === "cancelled");
+    const revenue   = moneyBearing.reduce((s, o) => s + o.total, 0);
+    const refunds   = moneyBearing.reduce((s, o) => s + (o.refunded_amount ?? 0), 0);
+    const vat       = moneyBearing.reduce((s, o) => s + (o.vat_amount ?? 0), 0);
     const netRev    = revenue - refunds;
     const count     = active.length;
-    const aov       = count === 0 ? 0 : revenue / count;
+    const aov       = moneyBearing.length === 0 ? 0 : revenue / moneyBearing.length;
 
-    // Payment methods
+    // Payment methods — audit view so a paid-then-cancelled card order
+    // still attributes its revenue to "card" rather than vanishing.
     const payMap = new Map<string, { revenue: number; count: number }>();
-    for (const o of active) {
+    for (const o of moneyBearing) {
       const key = o.payment_method || "Unknown";
       const cur = payMap.get(key) ?? { revenue: 0, count: 0 };
       payMap.set(key, { revenue: cur.revenue + o.total, count: cur.count + 1 });
@@ -336,32 +441,134 @@ export default function OnlineReportsPanel() {
              cancelledCount: cancelled.length };
   }, [filtered]);
 
+  // Headline revenue includes VIP booking fees (non-refundable, so they add to
+  // both gross and net). Order count / AOV stay order-only — a fee isn't an order.
+  const grossRevenue = metrics.revenue + vipFeeTotal;
+  const netRevenue   = metrics.netRev + vipFeeTotal;
+
   // ── Chart data ─────────────────────────────────────────────────────────────
 
   const chartData = useMemo(() => {
+    // Fold VIP fees into the time series as money-bearing points so the chart
+    // total matches the Gross Revenue KPI.
+    const feeAsOrders = vipFeesForSource.map((f) => ({
+      id: f.id, date: f.created_at, status: "confirmed", total: Number(f.vip_fee ?? 0),
+      fulfillment: "booking", refunded_amount: 0, vat_amount: 0, vat_inclusive: false,
+      payment_method: f.payment_method, payment_status: "paid", customer_id: "", items: [],
+    })) as RawOrder[];
+    const combined = [...filtered, ...feeAsOrders];
     const days = dateRangeDays(startDate, endDate);
-    return days > 90 ? groupByMonth(filtered) : groupByDay(filtered);
-  }, [filtered, startDate, endDate]);
+    return days > 90 ? groupByMonth(combined) : groupByDay(combined);
+  }, [filtered, vipFeesForSource, startDate, endDate]);
 
   // ── Export CSV ─────────────────────────────────────────────────────────────
 
   function exportCSV() {
-    const rows = [
-      ["Date", "Order ID", "Status", "Source", "Fulfilment", "Total (£)", "Refunded (£)", "VAT (£)", "Net (£)", "Payment Method"],
-      ...filtered.map((o) => [
+    // Escape one CSV cell: wrap in quotes, double any inner quotes
+    const esc = (v: unknown): string => {
+      const s = v === null || v === undefined ? "" : String(v);
+      return `"${s.replace(/"/g, '""')}"`;
+    };
+    const row = (cells: unknown[]) => cells.map(esc).join(",");
+    const EOL = "\r\n";
+
+    const restaurantName = settings.restaurant?.name ?? "Restaurant";
+    const rangeLabel = `${startDate.toLocaleDateString("en-GB")} - ${endDate.toLocaleDateString("en-GB")}`;
+    const sourceLabel =
+      source === "all"     ? "All sources" :
+      source === "online"  ? "Online orders only" :
+      source === "pos"     ? "POS counter orders only" :
+                             "Dine-in orders only";
+    const refundRate = pct(metrics.refunds, metrics.revenue);
+    const totalOrders = metrics.count + metrics.cancelledCount;
+
+    const lines: string[] = [];
+
+    // Header
+    lines.push(`# Finance Report - ${restaurantName} - ${rangeLabel}`);
+    lines.push(`# Source: ${sourceLabel}`);
+    lines.push("");
+
+    // Summary
+    lines.push("## Summary");
+    lines.push(row(["Gross Revenue (incl. VIP fees)", grossRevenue.toFixed(2)]));
+    lines.push(row(["Net Revenue (incl. VIP fees)", netRevenue.toFixed(2)]));
+    lines.push(row(["Order Revenue", metrics.revenue.toFixed(2)]));
+    lines.push(row(["VIP Booking Fees", vipFeeTotal.toFixed(2)]));
+    lines.push(row(["Total Orders", totalOrders]));
+    lines.push(row(["Average Order Value", metrics.aov.toFixed(2)]));
+    lines.push(row(["Total Refunds", metrics.refunds.toFixed(2)]));
+    lines.push(row(["Refund Rate", refundRate]));
+    lines.push(row(["VAT Collected", metrics.vat.toFixed(2)]));
+    lines.push("");
+
+    // Payment methods
+    lines.push("## Payment Methods");
+    lines.push(row(["Method", "Order Count", `Amount (${sym})`, "Percentage"]));
+    for (const pm of metrics.payMethods) {
+      lines.push(row([pm.method, pm.count, pm.revenue.toFixed(2), pct(pm.revenue, metrics.revenue)]));
+    }
+    lines.push("");
+
+    // Order status breakdown
+    lines.push("## Order Status Breakdown");
+    lines.push(row(["Status", "Count", "Percentage"]));
+    for (const st of metrics.statuses) {
+      lines.push(row([st.status, st.count, pct(st.count, filtered.length)]));
+    }
+    lines.push("");
+
+    // Fulfillment split
+    lines.push("## Fulfillment Split");
+    lines.push(row(["Type", "Count", "Percentage"]));
+    lines.push(row(["delivery", metrics.delivery, pct(metrics.delivery, metrics.count)]));
+    lines.push(row(["collection", metrics.collection, pct(metrics.collection, metrics.count)]));
+    lines.push("");
+
+    // Revenue over time
+    lines.push("## Revenue Over Time");
+    lines.push(row(["Period", `Revenue (${sym})`, "Order Count"]));
+    for (const d of chartData) {
+      lines.push(row([d.label, d.revenue.toFixed(2), d.count]));
+    }
+    lines.push("");
+
+    // Refunds detail
+    const refundedOrders = filtered.filter((o) => (o.refunded_amount ?? 0) > 0);
+    if (refundedOrders.length > 0) {
+      lines.push("## Refunds Detail");
+      lines.push(row(["Date", "Order ID", "Status", `Order Total (${sym})`, `Refunded (${sym})`]));
+      for (const o of refundedOrders) {
+        lines.push(row([
+          new Date(o.date).toLocaleDateString("en-GB"),
+          o.id,
+          o.status,
+          o.total.toFixed(2),
+          (o.refunded_amount ?? 0).toFixed(2),
+        ]));
+      }
+      lines.push("");
+    }
+
+    // Orders
+    lines.push("## Orders");
+    lines.push(row(["Date", "Order ID", "Status", "Source", "Fulfillment", `Total (${sym})`, `Refunded (${sym})`, `VAT (${sym})`, `Net (${sym})`, "Payment Method"]));
+    for (const o of filtered) {
+      lines.push(row([
         new Date(o.date).toLocaleDateString("en-GB"),
         o.id,
         o.status,
-        isPOS(o) ? "POS" : "Online",
+        orderSource(o) === "pos" ? "POS" : orderSource(o) === "dine-in" ? "Dine-in" : "Online",
         o.fulfillment,
         o.total.toFixed(2),
         (o.refunded_amount ?? 0).toFixed(2),
         (o.vat_amount ?? 0).toFixed(2),
         (o.total - (o.refunded_amount ?? 0)).toFixed(2),
         o.payment_method ?? "",
-      ]),
-    ];
-    const csv  = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
+      ]));
+    }
+
+    const csv  = lines.join(EOL);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
@@ -378,8 +585,20 @@ export default function OnlineReportsPanel() {
   return (
     <div className="space-y-6">
 
+      {/* ── Print-only header ─────────────────────────────────────────────── */}
+      <div className="print-only">
+        <h1 style={{ fontSize: "20pt", fontWeight: 800, margin: 0 }}>
+          Finance Report — {settings.restaurant?.name ?? "Restaurant"}
+        </h1>
+        <p style={{ fontSize: "11pt", margin: "4pt 0 0", color: "#444" }}>
+          {fmtPresetLabel(preset)} · {startDate.toLocaleDateString("en-GB")} – {endDate.toLocaleDateString("en-GB")} ·{" "}
+          {source === "all" ? "All sources" : source === "online" ? "Online orders only" : "POS orders only"}
+        </p>
+        <hr style={{ margin: "10pt 0", border: "none", borderTop: "1px solid #999" }} />
+      </div>
+
       {/* ── Controls ──────────────────────────────────────────────────────── */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex flex-wrap items-center gap-3">
+      <div className="no-print bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex flex-wrap items-center gap-3">
 
         {/* Preset picker */}
         <div className="relative">
@@ -419,18 +638,18 @@ export default function OnlineReportsPanel() {
 
         {/* Custom date inputs */}
         {preset === "custom" && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-300" />
-            <span className="text-gray-400 text-sm">→</span>
+              className="px-3 py-2 rounded-xl border border-gray-200 text-xs sm:text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-300" />
+            <span className="text-gray-400 text-xs sm:text-sm">→</span>
             <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-300" />
+              className="px-3 py-2 rounded-xl border border-gray-200 text-xs sm:text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-300" />
           </div>
         )}
 
         {/* Source filter */}
-        <div className="flex rounded-xl border border-gray-200 overflow-hidden text-sm font-medium">
-          {(["all", "online", "pos"] as Source[]).map((s) => (
+        <div className="flex rounded-xl border border-gray-200 overflow-hidden text-[13px] sm:text-sm font-medium">
+          {(["all", "online", "pos", "dine-in"] as Source[]).map((s) => (
             <button
               key={s}
               onClick={() => setSource(s)}
@@ -440,7 +659,7 @@ export default function OnlineReportsPanel() {
                   : "bg-white text-gray-600 hover:bg-gray-50"
               }`}
             >
-              {s === "all" ? "All Orders" : s === "online" ? "Online" : "POS"}
+              {s === "all" ? "All" : s === "online" ? "Online" : s === "pos" ? "POS" : "Dine-in"}
             </button>
           ))}
         </div>
@@ -455,21 +674,21 @@ export default function OnlineReportsPanel() {
           <button
             onClick={fetchOrders}
             disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-100 transition disabled:opacity-40"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-[13px] sm:text-sm font-medium text-gray-600 hover:bg-gray-100 transition disabled:opacity-40"
           >
             <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
             Refresh
           </button>
           <button
             onClick={exportCSV}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-orange-500 text-white text-sm font-semibold hover:bg-orange-600 transition"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-orange-500 text-white text-[13px] sm:text-sm font-semibold hover:bg-orange-600 transition"
           >
             <Download size={13} />
             CSV
           </button>
           <button
             onClick={() => window.print()}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-800 text-white text-sm font-semibold hover:bg-gray-700 transition"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-800 text-white text-[13px] sm:text-sm font-semibold hover:bg-gray-700 transition"
           >
             <Printer size={13} />
             Print
@@ -481,15 +700,17 @@ export default function OnlineReportsPanel() {
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         <StatCard
           label="Gross Revenue"
-          value={fmtCur(metrics.revenue)}
-          sub={`${metrics.count} order${metrics.count !== 1 ? "s" : ""} · avg ${fmtCur(metrics.aov)}`}
+          value={cur(grossRevenue)}
+          sub={vipFeeTotal > 0
+            ? `${metrics.count} order${metrics.count !== 1 ? "s" : ""} + ${cur(vipFeeTotal)} VIP fees`
+            : `${metrics.count} order${metrics.count !== 1 ? "s" : ""} · avg ${cur(metrics.aov)}`}
           icon={TrendingUp}
           accent="bg-orange-500"
         />
         <StatCard
           label="Net Revenue"
-          value={fmtCur(metrics.netRev)}
-          sub={`After ${fmtCur(metrics.refunds)} in refunds`}
+          value={cur(netRevenue)}
+          sub={`After ${cur(metrics.refunds)} in refunds`}
           icon={TrendingUp}
           accent="bg-emerald-500"
           trend={metrics.refunds > 0 ? "down" : "neutral"}
@@ -503,14 +724,14 @@ export default function OnlineReportsPanel() {
         />
         <StatCard
           label="Average Order"
-          value={fmtCur(metrics.aov)}
+          value={cur(metrics.aov)}
           sub={`Over ${metrics.count} order${metrics.count !== 1 ? "s" : ""}`}
           icon={CreditCard}
           accent="bg-violet-500"
         />
         <StatCard
           label="Total Refunds"
-          value={fmtCur(metrics.refunds)}
+          value={cur(metrics.refunds)}
           sub={pct(metrics.refunds, metrics.revenue) + " refund rate"}
           icon={RotateCcw}
           accent="bg-red-500"
@@ -518,24 +739,36 @@ export default function OnlineReportsPanel() {
         />
         <StatCard
           label="VAT Collected"
-          value={fmtCur(metrics.vat)}
+          value={cur(metrics.vat)}
           sub={pct(metrics.vat, metrics.revenue) + " of gross revenue"}
           icon={Percent}
           accent="bg-indigo-500"
         />
+        {/* VIP booking fees for the selected source. Already included in Gross
+            Revenue above — this card breaks out how much of it was booking fees.
+            Hidden on Dine-in (no reservation fees there). */}
+        {source !== "dine-in" && (
+          <StatCard
+            label="VIP Booking Fees"
+            value={cur(vipFeeTotal)}
+            sub={`${vipFeesForSource.length} reservation${vipFeesForSource.length !== 1 ? "s" : ""} · ${source === "all" ? "online + POS" : source === "online" ? "online" : "POS"}`}
+            icon={Crown}
+            accent="bg-amber-500"
+          />
+        )}
       </div>
 
       {/* ── Revenue over time ──────────────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-start sm:items-center justify-between gap-1 mb-4">
           <div>
             <h3 className="font-bold text-gray-900">Revenue over time</h3>
-            <p className="text-xs text-gray-400 mt-0.5">
+            <p className="text-xs text-gray-400 mt-0.5 ">
               {days > 90 ? "Monthly" : "Daily"} totals · {days} day{days !== 1 ? "s" : ""}
             </p>
           </div>
-          <span className="text-xs font-semibold px-2.5 py-1 bg-orange-50 text-orange-600 rounded-lg">
-            {fmtCur(metrics.revenue)} total
+          <span className="text-xs font-semibold px-2.5 py-1 bg-orange-50 text-orange-600 rounded-lg whitespace-nowrap">
+            {cur(grossRevenue)} total
           </span>
         </div>
         {loading ? (
@@ -543,15 +776,15 @@ export default function OnlineReportsPanel() {
             <RefreshCw size={20} className="animate-spin text-gray-300" />
           </div>
         ) : (
-          <BarChart data={chartData} />
+          <BarChart data={chartData} sym={sym} />
         )}
       </div>
 
       {/* ── Breakdowns ────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
         {/* Order status */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 space-y-4">
           <h3 className="font-bold text-gray-900">Orders by status</h3>
           {metrics.statuses.length === 0 ? (
             <p className="text-sm text-gray-400">No data</p>
@@ -572,7 +805,7 @@ export default function OnlineReportsPanel() {
         </div>
 
         {/* Payment methods */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 space-y-4">
           <h3 className="font-bold text-gray-900">Payment methods</h3>
           {metrics.payMethods.length === 0 ? (
             <p className="text-sm text-gray-400">No data</p>
@@ -585,7 +818,7 @@ export default function OnlineReportsPanel() {
                   value={revenue}
                   total={metrics.revenue}
                   color={["bg-orange-400","bg-blue-400","bg-violet-400","bg-emerald-400","bg-pink-400"][i % 5]}
-                  fmt={fmtCur}
+                  fmt={cur}
                 />
               ))}
               <div className="pt-2 border-t border-gray-100">
@@ -600,7 +833,7 @@ export default function OnlineReportsPanel() {
         </div>
 
         {/* VAT breakdown */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 space-y-4">
           <h3 className="font-bold text-gray-900">VAT / Tax breakdown</h3>
           <div className="space-y-3">
             {[
@@ -608,12 +841,12 @@ export default function OnlineReportsPanel() {
               { label: "VAT Collected",     value: metrics.vat,              color: "bg-indigo-400" },
               { label: "Net (ex-VAT)",      value: metrics.revenue - metrics.vat, color: "bg-emerald-400" },
             ].map(({ label, value, color }) => (
-              <HBar key={label} label={label} value={value} total={metrics.revenue} color={color} fmt={fmtCur} />
+              <HBar key={label} label={label} value={value} total={metrics.revenue} color={color} fmt={cur} />
             ))}
           </div>
           <div className="mt-2 bg-indigo-50 rounded-xl p-3">
             <p className="text-xs text-indigo-700 font-semibold">VAT Due to HMRC</p>
-            <p className="text-xl font-black text-indigo-800 mt-0.5">{fmtCur(metrics.vat)}</p>
+            <p className="text-xl font-black text-indigo-800 mt-0.5">{cur(metrics.vat)}</p>
             <p className="text-xs text-indigo-600 mt-1">
               {pct(metrics.vat, metrics.revenue)} of gross · based on declared VAT per order
             </p>
@@ -659,9 +892,9 @@ export default function OnlineReportsPanel() {
         const refunded = filtered.filter((o) => (o.refunded_amount ?? 0) > 0);
         return (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-wrap gap-1 items-center justify-between mb-4">
               <h3 className="font-bold text-gray-900">Refunds detail</h3>
-              <span className="text-sm font-semibold text-red-600">{fmtCur(metrics.refunds)} total refunded</span>
+              <span className="text-sm font-semibold text-red-600">{cur(metrics.refunds)} total refunded</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -670,7 +903,7 @@ export default function OnlineReportsPanel() {
                     <th className="pb-2 pr-4 font-semibold">Date</th>
                     <th className="pb-2 pr-4 font-semibold">Order ID</th>
                     <th className="pb-2 pr-4 font-semibold">Status</th>
-                    <th className="pb-2 pr-4 font-semibold text-right">Order Total</th>
+                    <th className="pb-2 pr-4 font-semibold text-right whitespace-nowrap">Order Total</th>
                     <th className="pb-2 font-semibold text-right">Refunded</th>
                   </tr>
                 </thead>
@@ -680,17 +913,17 @@ export default function OnlineReportsPanel() {
                       <td className="py-2.5 pr-4 text-gray-500">
                         {new Date(o.date).toLocaleDateString("en-GB")}
                       </td>
-                      <td className="py-2.5 pr-4 font-mono text-xs text-gray-500">
-                        #{o.id.slice(-8).toUpperCase()}
+                      <td title={fullOrderNumber(o.id)} className="py-2.5 pr-4 font-mono text-xs text-gray-500 truncate max-w-[160px]">
+                        {fullOrderNumber(o.id)}
                       </td>
                       <td className="py-2.5 pr-4">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold text-white ${STATUS_COLORS[o.status] ?? "bg-gray-400"}`}>
+                        <span className={`inline-flex whitespace-nowrap items-center px-2 py-0.5 rounded-full text-xs font-semibold text-white ${STATUS_COLORS[o.status] ?? "bg-gray-400"}`}>
                           {o.status.replace("_", " ")}
                         </span>
                       </td>
-                      <td className="py-2.5 pr-4 text-right font-semibold">{fmtCur(o.total)}</td>
+                      <td className="py-2.5 pr-4 text-right font-semibold whitespace-nowrap">{cur(o.total)}</td>
                       <td className="py-2.5 text-right font-semibold text-red-600">
-                        −{fmtCur(o.refunded_amount ?? 0)}
+                        −{cur(o.refunded_amount ?? 0)}
                       </td>
                     </tr>
                   ))}
@@ -698,7 +931,7 @@ export default function OnlineReportsPanel() {
                 <tfoot>
                   <tr className="border-t border-gray-200">
                     <td colSpan={4} className="pt-3 text-right text-sm font-bold text-gray-700">Total refunded</td>
-                    <td className="pt-3 text-right font-black text-red-600">{fmtCur(metrics.refunds)}</td>
+                    <td className="pt-3 text-right font-black text-red-600">{cur(metrics.refunds)}</td>
                   </tr>
                 </tfoot>
               </table>
@@ -710,12 +943,12 @@ export default function OnlineReportsPanel() {
       {/* ── Summary footer ────────────────────────────────────────────────── */}
       <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-5 text-white">
         <h3 className="font-bold text-sm text-gray-300 uppercase tracking-widest mb-4">Period Summary</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { label: "Gross Revenue",   value: fmtCur(metrics.revenue) },
-            { label: "Total Refunds",   value: fmtCur(metrics.refunds) },
-            { label: "VAT Due",         value: fmtCur(metrics.vat) },
-            { label: "Net Revenue",     value: fmtCur(metrics.netRev) },
+            { label: "Gross Revenue",   value: cur(grossRevenue) },
+            { label: "Total Refunds",   value: cur(metrics.refunds) },
+            { label: "VAT Due",         value: cur(metrics.vat) },
+            { label: "Net Revenue",     value: cur(netRevenue) },
           ].map(({ label, value }) => (
             <div key={label}>
               <p className="text-xs text-gray-400 font-medium">{label}</p>

@@ -1,20 +1,24 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
-import { useSearchParams }               from "next/navigation";
-import Link                              from "next/link";
-import { CheckCircle2, XCircle, Loader2, Mail } from "lucide-react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams }            from "next/navigation";
+import Link                                       from "next/link";
+import { CheckCircle2, XCircle, Loader2, Mail }   from "lucide-react";
 
 type State = "verifying" | "success" | "already" | "error";
 
 function VerifyEmailContent() {
-  const params = useSearchParams();
+  const params  = useSearchParams();
+  const router  = useRouter();
   const [state, setState] = useState<State>("verifying");
   const [error, setError] = useState("");
+  // Track the email so the ResendButton can request a fresh link without a session
+  const verifyEmail = useRef<string | null>(null);
 
   useEffect(() => {
     const token = params.get("token");
     const email = params.get("email");
+    verifyEmail.current = email;
 
     if (!token || !email) {
       setState("error");
@@ -30,13 +34,19 @@ function VerifyEmailContent() {
       .then((json: { ok: boolean; alreadyVerified?: boolean; error?: string }) => {
         if (json.ok) {
           setState(json.alreadyVerified ? "already" : "success");
+          // Fresh verification sets a session cookie server-side. Send the
+          // customer to /account so AppContext reloads via /api/auth/me and
+          // they land already signed in.
+          if (!json.alreadyVerified) {
+            setTimeout(() => router.push("/account"), 1200);
+          }
         } else {
           setState("error");
           setError(json.error ?? "Verification failed.");
         }
       })
       .catch(() => { setState("error"); setError("Connection error. Please try again."); });
-  }, [params]);
+  }, [params, router]);
 
   return (
     <div className="bg-white rounded-2xl border border-zinc-200/70 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.06)] p-8 w-full max-w-sm text-center space-y-4">
@@ -77,7 +87,7 @@ function VerifyEmailContent() {
           <h1 className="text-xl font-semibold text-zinc-900 tracking-tight">Verification failed</h1>
           <p className="text-red-500 text-sm">{error}</p>
           <p className="text-zinc-400 text-xs">Links expire after 24 hours.</p>
-          <ResendButton />
+          <ResendButton email={verifyEmail.current} />
           <Link href="/" className="block text-sm text-zinc-400 hover:text-zinc-600 transition mt-1">
             Back to menu
           </Link>
@@ -87,17 +97,27 @@ function VerifyEmailContent() {
   );
 }
 
-function ResendButton() {
+function ResendButton({ email }: { email: string | null }) {
   const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const inFlight = useRef(false);
 
   async function handleResend() {
+    if (inFlight.current) return;
+    if (!email) { setState("error"); return; }
+    inFlight.current = true;
     setState("sending");
     try {
-      const res  = await fetch("/api/auth/resend-verification", { method: "POST" });
+      const res  = await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
       const json = await res.json() as { ok: boolean };
       setState(json.ok ? "sent" : "error");
     } catch {
       setState("error");
+    } finally {
+      inFlight.current = false;
     }
   }
 

@@ -1,43 +1,64 @@
 /**
  * GET /api/waiter/config
- * Returns waiter staff (without PINs) and dining tables from app_settings.
- * Falls back to seed defaults when no settings exist yet.
+ * Returns active waiter staff (for the /waiter login tile picker) and
+ * active dining tables. The tile-picker view is public — no payroll fields
+ * (`hourly_rate`, `email`, `created_at`) are ever returned here. Payroll PII is
+ * managed in the admin Waiters panel (/api/admin/waiters); a signed-in waiter
+ * reads their own profile via /api/auth/waiter/me.
  */
 
-import { NextResponse }   from "next/server";
-import { supabaseAdmin }  from "@/lib/supabaseAdmin";
-import type { WaiterStaff, DiningTable } from "@/types";
-
-const DEFAULT_WAITERS: Omit<WaiterStaff, "pin">[] = [
-  { id: "w-1", name: "Head Waiter", role: "senior", active: true, avatarColor: "#7c3aed", createdAt: "" },
-  { id: "w-2", name: "Alex",        role: "waiter",  active: true, avatarColor: "#0891b2", createdAt: "" },
-  { id: "w-3", name: "Sophie",      role: "waiter",  active: true, avatarColor: "#16a34a", createdAt: "" },
-];
-
-const DEFAULT_TABLES: DiningTable[] = [
-  ...Array.from({ length: 6 },  (_, i) => ({ id: `t-${i+1}`,  number: i+1,  label: `T${i+1}`, seats: i < 2 ? 2 : 4, section: "Main Hall", active: true })),
-  ...Array.from({ length: 4 },  (_, i) => ({ id: `t-${i+7}`,  number: i+7,  label: `T${i+7}`, seats: 4,             section: "Terrace",   active: true })),
-  ...Array.from({ length: 2 },  (_, i) => ({ id: `t-${i+11}`, number: i+11, label: `B${i+1}`, seats: 2,             section: "Bar",       active: true })),
-];
+import { NextResponse }  from "next/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function GET() {
   try {
-    const { data: row } = await supabaseAdmin
-      .from("app_settings").select("data").limit(1).single();
+    const [{ data: waiterRows }, { data: tableRows }] = await Promise.all([
+      supabaseAdmin
+        .from("waiters")
+        .select("id, name, role, active, avatar_color")
+        .eq("active", true),
+      supabaseAdmin
+        .from("dining_tables")
+        .select("id, label, number, seats, section, active, sort_order, is_vip, vip_price")
+        .eq("active", true)
+        .order("sort_order", { ascending: true }),
+    ]);
 
-    const raw: WaiterStaff[] = row?.data?.waiters ?? [];
-    // Strip PINs before returning — the auth endpoint handles PIN validation
-    const waiters = (raw.length ? raw : DEFAULT_WAITERS as WaiterStaff[])
-      .filter((w) => w.active)
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      .map(({ pin: _, ...safe }) => safe);
+    // Map DB rows (snake_case) to the camelCase shape the /waiter UI reads —
+    // notably `avatarColor`, which the login tiles use for the avatar colour.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const waiters = (waiterRows ?? []).map((w: any) => ({
+      id:          w.id,
+      name:        w.name,
+      role:        w.role ?? "waiter",
+      active:      w.active,
+      avatarColor: w.avatar_color,
+    }));
 
-    const tables: DiningTable[] = (row?.data?.diningTables ?? DEFAULT_TABLES).filter((t: DiningTable) => t.active);
+    // Map dining_tables snake_case → camelCase so the waiter UI's table.isVip /
+    // table.vipPrice checks work (the grid renders the crown + amber styling
+    // off these flags).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tables = (tableRows ?? []).map((t: any) => ({
+      id:        t.id,
+      label:     t.label,
+      number:    t.number ?? null,
+      seats:     t.seats,
+      section:   t.section ?? "",
+      active:    t.active,
+      sortOrder: t.sort_order ?? 0,
+      isVip:     t.is_vip ?? false,
+      vipPrice:  Number(t.vip_price ?? 0),
+    }));
 
-    return NextResponse.json({ ok: true, waiters, tables });
+    return NextResponse.json({
+      ok: true,
+      waiters,
+      tables,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unexpected error";
     console.error("[waiter/config]", message);
-    return NextResponse.json({ ok: true, waiters: DEFAULT_WAITERS, tables: DEFAULT_TABLES });
+    return NextResponse.json({ ok: false, error: "Failed to load config." }, { status: 500 });
   }
 }

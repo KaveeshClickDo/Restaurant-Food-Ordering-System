@@ -220,14 +220,15 @@ function LogoRow({ logo, isFirst, isLast, onUpdate, onMove, onDelete }: LogoRowP
   const [imgError, setImgError] = useState(false);
 
   return (
-    <div className={`flex items-start gap-3 p-4 transition-colors rounded-xl ${
+    <div className={`flex flex-col sm:flex-row sm:items-center gap-3 p-4 transition-colors rounded-xl ${
       logo.enabled ? "bg-white" : "bg-gray-50 opacity-60"
     }`}>
       {/* Thumbnail */}
-      <div className="w-16 h-12 rounded-lg bg-gray-900 flex items-center justify-center
-                      flex-shrink-0 overflow-hidden border border-gray-100">
-        {!imgError && logo.imageUrl ? (
-          /* eslint-disable-next-line @next/next/no-img-element */
+      <div className="flex items-center gap-3 sm:w-auto w-full">
+        <div className="w-16 h-12 rounded-lg bg-gray-900 flex items-center justify-center
+                        flex-shrink-0 overflow-hidden border border-gray-100">
+          {!imgError && logo.imageUrl ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
           <img
             src={logo.imageUrl}
             alt={logo.label}
@@ -235,8 +236,61 @@ function LogoRow({ logo, isFirst, isLast, onUpdate, onMove, onDelete }: LogoRowP
             onError={() => setImgError(true)}
           />
         ) : (
-          <ImageIcon size={14} className="text-gray-600" />
-        )}
+            <ImageIcon size={14} className="text-gray-600" />
+          )}
+        </div>
+
+        {/* Mobile controls (visible only on small screens next to thumbnail) */}
+        <div className="flex items-center gap-1 sm:hidden ml-auto">
+          <button
+            onClick={() => onUpdate({ enabled: !logo.enabled })}
+            title={logo.enabled ? "Hide in footer" : "Show in footer"}
+            className={`w-8 h-8 flex items-center justify-center rounded-lg transition ${
+              logo.enabled
+                ? "text-green-600 hover:bg-green-50"
+                : "text-gray-400 hover:bg-gray-100"
+            }`}
+          >
+            {logo.enabled ? <Eye size={15} /> : <EyeOff size={15} />}
+          </button>
+          
+          {confirmDelete ? (
+            <button
+              onClick={onDelete}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-white bg-red-500 hover:bg-red-600 transition"
+              title="Confirm Delete"
+            >
+              <Check size={14} />
+            </button>
+          ) : (
+            <button
+              onClick={() => { setConfirmDelete(true); setTimeout(() => setConfirmDelete(false), 3000); }}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition"
+              title="Delete logo"
+            >
+              <Trash2 size={15} />
+            </button>
+          )}
+
+          <div className="flex gap-0.5 ml-1 bg-gray-50 border border-gray-200 rounded-lg p-0.5">
+            <button
+              onClick={() => onMove("up")}
+              disabled={isFirst}
+              className="w-7 h-7 flex items-center justify-center rounded text-gray-400
+                         hover:bg-gray-200 hover:text-gray-700 disabled:opacity-30 transition"
+            >
+              <ChevronUp size={14} />
+            </button>
+            <button
+              onClick={() => onMove("down")}
+              disabled={isLast}
+              className="w-7 h-7 flex items-center justify-center rounded text-gray-400
+                         hover:bg-gray-200 hover:text-gray-700 disabled:opacity-30 transition"
+            >
+              <ChevronDown size={14} />
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Fields */}
@@ -264,8 +318,8 @@ function LogoRow({ logo, isFirst, isLast, onUpdate, onMove, onDelete }: LogoRowP
         </div>
       </div>
 
-      {/* Controls */}
-      <div className="flex items-center gap-1 flex-shrink-0">
+      {/* Desktop Controls (hidden on mobile) */}
+      <div className="hidden sm:flex items-center gap-1 flex-shrink-0">
         {/* Reorder */}
         <div className="flex flex-col gap-0.5">
           <button

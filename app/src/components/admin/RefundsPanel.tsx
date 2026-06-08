@@ -3,11 +3,13 @@
 import { useState, useMemo } from "react";
 import { useApp } from "@/context/AppContext";
 import type { Order, Refund, RefundMethod } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
 import {
   RotateCcw, Search, ChevronDown, ChevronUp, X,
   AlertCircle, CheckCircle2, Clock, DollarSign,
   FileText, CreditCard, Banknote, Gift,
 } from "lucide-react";
+import { PaymentStatusBadge, StripeIntentLink } from "@/components/admin/PaymentStatusBadge";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -38,6 +40,11 @@ const METHOD_CONFIG: Record<RefundMethod, { label: string; icon: React.ReactNode
     icon: <Banknote size={14} />,
     desc: "Hand cash back in person",
   },
+  gift_card: {
+    label: "Gift card",
+    icon: <Gift size={14} />,
+    desc: "Return to the gift card balance used at checkout",
+  },
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -50,22 +57,78 @@ function fmtDate(iso: string) {
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
-function fmtAmt(n: number) {
-  return `£${n.toFixed(2)}`;
+function fmtAmt(n: number, sym = "£") {
+  return `${sym}${n.toFixed(2)}`;
 }
 
-type EligibleFilter = "all" | "delivered" | "partially_refunded" | "refunded";
+type EligibleFilter = "all" | "in_progress" | "delivered" | "cancelled" | "partially_refunded" | "refunded";
+
+/**
+ * Is this order eligible to appear in the Refunds panel?
+ *
+ * Three distinct cases:
+ *   1. Card-paid orders — refundable from the moment Stripe captured the
+ *      charge, regardless of fulfillment status. The kitchen might reject it,
+ *      the customer might cancel, the item might be out of stock. The money
+ *      has been taken and the gateway lets us return it.
+ *   2. Cash orders — only refundable after delivery (`status='delivered'`),
+ *      because the cashier hasn't actually collected the money until then.
+ *   3. Cancelled orders on which money already flowed — admin may still need
+ *      to issue (or top up) a refund. Unpaid cash cancellations are excluded:
+ *      no money was ever collected so there's nothing to return.
+ */
+function isRefundEligible(o: Order): boolean {
+  if (o.paymentStatus === "paid")               return true;
+  if (o.paymentStatus === "partially_refunded") return true;
+  if (o.paymentStatus === "refunded")           return true;
+  if (o.status === "cancelled") return false;
+  // Pre-Stripe cash-only path — delivered orders remain refundable.
+  return o.status === "delivered"
+      || o.status === "partially_refunded"
+      || o.status === "refunded";
+}
+
+/**
+ * Is this an online order? This panel is "Online Refunds" — POS counter sales
+ * (handled by the cashier via /pos void+refund) and dine-in (handled by the
+ * waiter via /pos dine-in actions) must NOT appear here, even when the POS
+ * mirror order has refund fields stamped. Identifiers:
+ *   • dine-in waiter orders → fulfillment === "dine-in"
+ *   • POS counter sales     → note prefixed "[POS]" by the sales writer
+ */
+function isOnlineOrder(o: Order): boolean {
+  if (o.fulfillment === "dine-in") return false;
+  if ((o.note ?? "").startsWith("[POS]")) return false;
+  return true;
+}
+
+/**
+ * The refund state of an order, independent of fulfillment.
+ *
+ * Source of truth is `paymentStatus`, which the admin refund flow sets while
+ * leaving `status` to track fulfillment. We also honour a refund state stamped
+ * onto `status` so two other cases still read correctly here:
+ *   • legacy rows refunded before payment_status carried the refund state, and
+ *   • POS dine-in refunds, which write the refund state to `status`.
+ */
+function refundState(o: Order): "refunded" | "partially_refunded" | null {
+  if (o.paymentStatus === "refunded"           || o.status === "refunded")           return "refunded";
+  if (o.paymentStatus === "partially_refunded" || o.status === "partially_refunded") return "partially_refunded";
+  return null;
+}
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
   const cfg: Record<string, string> = {
     delivered:           "bg-green-100 text-green-700",
+    cancelled:           "bg-red-100 text-red-700",
     partially_refunded:  "bg-amber-100 text-amber-700",
     refunded:            "bg-teal-100 text-teal-700",
   };
   const label: Record<string, string> = {
     delivered:           "Delivered",
+    cancelled:           "Cancelled",
     partially_refunded:  "Partially Refunded",
     refunded:            "Refunded",
   };
@@ -79,28 +142,30 @@ function StatusBadge({ status }: { status: string }) {
 // ─── Refund history row ───────────────────────────────────────────────────────
 
 function RefundHistoryRow({ refund }: { refund: Refund }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const method = METHOD_CONFIG[refund.method];
   return (
     <div className="flex items-start justify-between gap-4 py-2.5 border-t border-gray-50 first:border-t-0">
       <div className="flex items-start gap-2 min-w-0">
-        <div className="w-7 h-7 rounded-lg bg-teal-50 flex items-center justify-center flex-shrink-0 text-teal-600 mt-0.5">
+        <div className="w-7 h-7 hidden sm:flex rounded-lg bg-teal-50 items-center justify-center flex-shrink-0 text-teal-600">
           <RotateCcw size={13} />
         </div>
         <div className="min-w-0">
           <p className="text-sm font-semibold text-gray-800">
-            {refund.type === "full" ? "Full refund" : "Partial refund"} — {fmtAmt(refund.amount)}
+            {refund.type === "full" ? "Full refund" : "Partial refund"} — {fmtAmt(refund.amount, sym)}
           </p>
           <p className="text-xs text-gray-500 mt-0.5">{refund.reason}</p>
           {refund.note && (
             <p className="text-xs text-gray-400 mt-0.5 italic">{refund.note}</p>
           )}
-          <p className="text-[10px] text-gray-400 mt-1 flex items-center gap-1">
+          <p className="text-[10px] text-gray-400 mt-1 flex items-center gap-1 shrink-0">
             {method.icon}
             {method.label} · {fmtDate(refund.processedAt)} at {fmtTime(refund.processedAt)} · by {refund.processedBy}
           </p>
         </div>
       </div>
-      <span className="text-sm font-bold text-teal-700 flex-shrink-0">{fmtAmt(refund.amount)}</span>
+      <span className="text-sm font-bold text-teal-700 flex-shrink-0">{fmtAmt(refund.amount, sym)}</span>
     </div>
   );
 }
@@ -116,11 +181,13 @@ function OrderRefundCard({
   customerName: string;
   onProcess: (order: Order, customerName: string) => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [expanded, setExpanded] = useState(false);
   const refunds = order.refunds ?? [];
   const refundedAmount = order.refundedAmount ?? 0;
   const refundable = Math.max(0, order.total - refundedAmount);
-  const isFullyRefunded = order.status === "refunded";
+  const isFullyRefunded = refundState(order) === "refunded";
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -128,10 +195,11 @@ function OrderRefundCard({
       <div className="px-5 py-4 flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-mono text-xs text-gray-400 font-semibold">
-              #{order.id.slice(0, 8).toUpperCase()}
+            <span title={fullOrderNumber(order.id)} className="font-mono text-xs text-gray-400 font-semibold truncate max-w-[180px]">
+              {fullOrderNumber(order.id)}
             </span>
             <StatusBadge status={order.status} />
+            <PaymentStatusBadge status={order.paymentStatus} size="xs" />
             {refunds.length > 0 && (
               <span className="text-[10px] font-semibold bg-teal-50 text-teal-600 border border-teal-100 rounded-full px-2 py-0.5">
                 {refunds.length} refund{refunds.length > 1 ? "s" : ""}
@@ -143,16 +211,21 @@ function OrderRefundCard({
             {fmtDate(order.date)} · {order.fulfillment === "delivery" ? "Delivery" : "Collection"}
             {order.paymentMethod && ` · ${order.paymentMethod}`}
           </p>
+          {order.stripePaymentIntentId && (
+            <p className="text-[10px] text-gray-400 mt-0.5">
+              Stripe: <StripeIntentLink paymentIntentId={order.stripePaymentIntentId} />
+            </p>
+          )}
         </div>
 
         {/* Amounts */}
         <div className="text-right flex-shrink-0">
-          <p className="text-base font-extrabold text-gray-900">{fmtAmt(order.total)}</p>
+          <p className="text-base font-extrabold text-gray-900">{fmtAmt(order.total, sym)}</p>
           {refundedAmount > 0 && (
-            <p className="text-xs text-teal-600 font-semibold">{fmtAmt(refundedAmount)} refunded</p>
+            <p className="text-xs text-teal-600 font-semibold">{fmtAmt(refundedAmount, sym)} refunded</p>
           )}
           {!isFullyRefunded && refundable > 0 && (
-            <p className="text-xs text-gray-400">{fmtAmt(refundable)} refundable</p>
+            <p className="text-xs text-gray-400">{fmtAmt(refundable, sym)} refundable</p>
           )}
         </div>
       </div>
@@ -200,19 +273,38 @@ function OrderRefundCard({
 
 // ─── Refund modal ─────────────────────────────────────────────────────────────
 
-function RefundModal({
+export function RefundModal({
   order,
   customerName,
   onClose,
   onSubmit,
+  cancelAfter = false,
 }: {
   order: Order;
   customerName: string;
   onClose: () => void;
   onSubmit: (refund: Omit<Refund, "id" | "processedAt" | "processedBy">) => void;
+  /**
+   * When true the modal is being used by the Delivery panel's "refund + cancel"
+   * flow: the order will be cancelled once the refund is confirmed. Only the
+   * labelling changes — the caller owns the actual cancel.
+   */
+  cancelAfter?: boolean;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const refundedAmount = order.refundedAmount ?? 0;
+  // Money budget — what can go back to card / cash / store credit.
   const maxRefundable = Math.max(0, order.total - refundedAmount);
+  // Gift-card budget — capped at the amount paid by gift card minus any prior
+  // gift-card refunds. Independent of the money budget (separate track on the
+  // server), so a gift-card refund stays possible even after the card is fully
+  // refunded.
+  const giftCardUsed = order.giftCardUsed ?? 0;
+  const priorGiftRefunds = (order.refunds ?? [])
+    .filter((r) => r.method === "gift_card")
+    .reduce((s, r) => s + (r.amount ?? 0), 0);
+  const maxGiftRefundable = Math.max(0, giftCardUsed - priorGiftRefunds);
 
   const [amount, setAmount]     = useState(maxRefundable.toFixed(2));
   const [reason, setReason]     = useState("");
@@ -221,11 +313,22 @@ function RefundModal({
   const [errors, setErrors]     = useState<Record<string, string>>({});
 
   const amountNum = parseFloat(amount) || 0;
+  // The cap depends on which track the chosen method belongs to.
+  const effectiveMax = method === "gift_card" ? maxGiftRefundable : maxRefundable;
+
+  function setMethodAndClamp(m: RefundMethod) {
+    setMethod(m);
+    const max = m === "gift_card" ? maxGiftRefundable : maxRefundable;
+    // Re-default the amount to the new track's max so the input isn't stuck on
+    // a value that's invalid for the newly-selected method.
+    setAmount(max.toFixed(2));
+    setErrors((prev) => { const n = { ...prev }; delete n.amount; return n; });
+  }
 
   function validate() {
     const e: Record<string, string> = {};
-    if (!amount || amountNum <= 0) e.amount = "Enter a refund amount greater than £0.";
-    if (amountNum > maxRefundable) e.amount = `Maximum refundable is ${fmtAmt(maxRefundable)}.`;
+    if (!amount || amountNum <= 0) e.amount = `Enter a refund amount greater than ${sym}0.`;
+    if (amountNum > effectiveMax) e.amount = `Maximum refundable is ${fmtAmt(effectiveMax, sym)}.`;
     if (!reason) e.reason = "Select a reason for this refund.";
     return e;
   }
@@ -236,7 +339,7 @@ function RefundModal({
     onSubmit({
       orderId:  order.id,
       amount:   amountNum,
-      type:     amountNum >= maxRefundable ? "full" : "partial",
+      type:     amountNum >= effectiveMax ? "full" : "partial",
       reason,
       method,
       note:     note.trim() || undefined,
@@ -249,14 +352,14 @@ function RefundModal({
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
 
         {/* Header */}
-        <div className="bg-teal-500 px-6 py-5 flex items-start justify-between gap-4">
+        <div className="bg-teal-500 px-5 sm:px-6 py-5 flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
               <RotateCcw size={18} className="text-white" />
-              <h2 className="text-white font-bold text-lg">Process Refund</h2>
+              <h2 className="text-white font-bold text-base sm:text-lg">{cancelAfter ? "Refund & Cancel Order" : "Process Refund"}</h2>
             </div>
-            <p className="text-teal-100 text-sm mt-0.5">
-              #{order.id.slice(0, 8).toUpperCase()} · {customerName}
+            <p title={fullOrderNumber(order.id)} className="text-teal-100 text-sm mt-0.5 truncate">
+              {fullOrderNumber(order.id)} · {customerName}
             </p>
           </div>
           <button onClick={onClose} className="text-teal-200 hover:text-white transition mt-0.5">
@@ -264,41 +367,48 @@ function RefundModal({
           </button>
         </div>
 
-        <div className="px-6 py-5 space-y-5 max-h-[70vh] overflow-y-auto">
+        <div className="px-5 sm:px-6 py-5 space-y-5 max-h-[60vh] sm:max-h-[70vh] overflow-y-auto">
+
+          {cancelAfter && (
+            <div className="flex items-start gap-2 bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-600">
+              <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />
+              <span>This order will be <span className="font-bold">cancelled</span> once the refund is confirmed.</span>
+            </div>
+          )}
 
           {/* Order summary */}
-          <div className="bg-gray-50 rounded-xl px-4 py-3 grid grid-cols-3 gap-3 text-center">
+          <div className="bg-gray-50 rounded-xl sm:px-4 py-3 grid grid-cols-2 sm:grid-cols-3 gap-3 text-center">
             <div>
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Order total</p>
-              <p className="text-sm font-extrabold text-gray-900 mt-0.5">{fmtAmt(order.total)}</p>
+              <p className="text-sm font-extrabold text-gray-900 mt-0.5">{fmtAmt(order.total, sym)}</p>
             </div>
             <div>
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Already refunded</p>
-              <p className="text-sm font-extrabold text-teal-600 mt-0.5">{fmtAmt(refundedAmount)}</p>
+              <p className="text-sm font-extrabold text-teal-600 mt-0.5">{fmtAmt(refundedAmount, sym)}</p>
             </div>
-            <div>
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Refundable</p>
-              <p className="text-sm font-extrabold text-gray-900 mt-0.5">{fmtAmt(maxRefundable)}</p>
+            <div className="col-span-2 sm:col-span-1">
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{method === "gift_card" ? "Gift card" : "Refundable"}</p>
+              <p className="text-sm font-extrabold text-gray-900 mt-0.5">{fmtAmt(effectiveMax, sym)}</p>
             </div>
           </div>
 
           {/* Amount */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="flex flex-wrap gap-0.5 items-center justify-between mb-1.5">
               <label className="text-sm font-semibold text-gray-700">Refund amount</label>
               <button
-                onClick={() => { setAmount(maxRefundable.toFixed(2)); setErrors((e) => ({ ...e, amount: "" })); }}
+                onClick={() => { setAmount(effectiveMax.toFixed(2)); setErrors((e) => ({ ...e, amount: "" })); }}
                 className="text-xs text-teal-600 hover:text-teal-700 font-semibold"
               >
-                Full refund ({fmtAmt(maxRefundable)})
+                Full refund ({fmtAmt(effectiveMax, sym)})
               </button>
             </div>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">£</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">{sym}</span>
               <input
                 type="number"
                 min="0.01"
-                max={maxRefundable}
+                max={effectiveMax}
                 step="0.01"
                 value={amount}
                 onChange={(e) => { setAmount(e.target.value); setErrors((prev) => ({ ...prev, amount: "" })); }}
@@ -311,9 +421,9 @@ function RefundModal({
                 <AlertCircle size={11} /> {errors.amount}
               </p>
             )}
-            {amountNum > 0 && amountNum <= maxRefundable && (
+            {amountNum > 0 && amountNum <= effectiveMax && (
               <p className="text-xs text-gray-400 mt-1">
-                {amountNum >= maxRefundable ? "Full refund" : `Partial refund — ${fmtAmt(maxRefundable - amountNum)} remaining`}
+                {amountNum >= effectiveMax ? "Full refund" : `Partial refund — ${fmtAmt(effectiveMax - amountNum, sym)} remaining`}
               </p>
             )}
           </div>
@@ -326,9 +436,9 @@ function RefundModal({
               onChange={(e) => { setReason(e.target.value); setErrors((prev) => ({ ...prev, reason: "" })); }}
               className={`w-full px-3 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 bg-white ${errors.reason ? "border-red-400" : "border-gray-200"}`}
             >
-              <option value="">Select a reason…</option>
+              <option className="text-sm sm:text-base" value="">Select a reason…</option>
               {REFUND_REASONS.map((r) => (
-                <option key={r} value={r}>{r}</option>
+                <option className="text-sm sm:text-base" key={r} value={r}>{r}</option>
               ))}
             </select>
             {errors.reason && (
@@ -342,31 +452,54 @@ function RefundModal({
           <div>
             <label className="text-sm font-semibold text-gray-700 block mb-2">Refund method</label>
             <div className="space-y-2">
-              {(Object.entries(METHOD_CONFIG) as [RefundMethod, typeof METHOD_CONFIG[RefundMethod]][]).map(([key, cfg]) => (
-                <label
-                  key={key}
-                  className={`flex items-start gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition ${
-                    method === key
-                      ? "border-teal-400 bg-teal-50"
-                      : "border-gray-200 hover:border-gray-300"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="refund-method"
-                    value={key}
-                    checked={method === key}
-                    onChange={() => setMethod(key)}
-                    className="mt-0.5 accent-teal-500"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-semibold flex items-center gap-1.5 ${method === key ? "text-teal-700" : "text-gray-700"}`}>
-                      {cfg.icon} {cfg.label}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-0.5">{cfg.desc}</p>
-                  </div>
-                </label>
-              ))}
+              {(Object.entries(METHOD_CONFIG) as [RefundMethod, typeof METHOD_CONFIG[RefundMethod]][])
+                // The "gift_card" method only makes sense when the order was
+                // actually paid (partly) with a gift card — otherwise there's
+                // no card balance to credit back.
+                .filter(([key]) => key !== "gift_card" || (order.giftCardUsed ?? 0) > 0)
+                .map(([key, cfg]) => {
+                // When the order was paid with a Stripe card, the "original
+                // payment" choice will actually call stripe.refunds.create()
+                // and reverse the charge. Surface that explicitly so the
+                // admin knows it's a real gateway action, not a manual note.
+                const isOriginal = key === "original_payment";
+                const isStripeReversal = isOriginal && !!order.stripePaymentIntentId;
+                const desc = isStripeReversal
+                  ? "Reverses the Stripe charge via the gateway and refunds the customer's card."
+                  : isOriginal && order.paymentMethod?.toLowerCase().includes("cash")
+                    ? "Recorded only — there's no card to refund (paid in cash)."
+                    : cfg.desc;
+                return (
+                  <label
+                    key={key}
+                    className={`flex items-start gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition ${
+                      method === key
+                        ? "border-teal-400 bg-teal-50"
+                        : "border-gray-200 hover:border-gray-300"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="refund-method"
+                      value={key}
+                      checked={method === key}
+                      onChange={() => setMethodAndClamp(key)}
+                      className="mt-0.5 accent-teal-500"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-semibold flex flex-wrap items-center gap-1.5 flex-shrink-0 ${method === key ? "text-teal-700" : "text-gray-700"}`}>
+                        {cfg.icon} {cfg.label}
+                        {isStripeReversal && (
+                          <span className="text-[9px] font-bold bg-indigo-100 text-indigo-700 rounded-full px-1.5 py-0.5">
+                            Via Stripe
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5">{desc}</p>
+                    </div>
+                  </label>
+                );
+              })}
             </div>
           </div>
 
@@ -386,13 +519,13 @@ function RefundModal({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex gap-3">
+        <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex flex-wrap gap-3">
           <button
             onClick={handleSubmit}
-            className="flex-1 bg-teal-500 hover:bg-teal-400 active:bg-teal-600 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
+            className="flex-1 px-3 bg-teal-500 hover:bg-teal-400 active:bg-teal-600 text-sm sm:text-base text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
           >
-            <RotateCcw size={15} />
-            Confirm refund {amountNum > 0 && amountNum <= maxRefundable ? `of ${fmtAmt(amountNum)}` : ""}
+            <RotateCcw size={15} className="flex-shrink-0" />
+            {cancelAfter ? "Refund & cancel order" : `Confirm refund ${amountNum > 0 && amountNum <= effectiveMax ? `of ${fmtAmt(amountNum, sym)}` : ""}`}
           </button>
           <button
             onClick={onClose}
@@ -425,36 +558,56 @@ function SuccessToast({ message, onClose }: { message: string; onClose: () => vo
 // ─── Main panel ───────────────────────────────────────────────────────────────
 
 export default function RefundsPanel() {
-  const { customers, addRefund } = useApp();
+  const { customers, addRefund, settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
 
   const [search,      setSearch]      = useState("");
   const [filter,      setFilter]      = useState<EligibleFilter>("all");
   const [modalOrder,  setModalOrder]  = useState<{ order: Order; customerName: string } | null>(null);
   const [toast,       setToast]       = useState<string | null>(null);
 
-  // Flatten all eligible orders across all customers
-  const eligibleStatuses = new Set(["delivered", "partially_refunded", "refunded"]);
-
+  // Flatten all eligible orders across all customers — see isRefundEligible.
+  // POS counter / dine-in orders are excluded — this panel is online-only.
   const allEligible = useMemo(() => {
     return customers.flatMap((c) =>
       c.orders
-        .filter((o) => eligibleStatuses.has(o.status))
+        .filter(isOnlineOrder)
+        .filter(isRefundEligible)
         .map((o) => ({ order: o, customerName: c.name, customerId: c.id }))
     ).sort((a, b) => new Date(b.order.date).getTime() - new Date(a.order.date).getTime());
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customers]);
 
   // Stats
+  // Refund state is read via refundState() — order.status is the fulfillment state.
   const totalRefunded     = allEligible.reduce((s, { order }) => s + (order.refundedAmount ?? 0), 0);
-  const fullRefundCount   = allEligible.filter(({ order }) => order.status === "refunded").length;
-  const partialCount      = allEligible.filter(({ order }) => order.status === "partially_refunded").length;
-  const refundableCount   = allEligible.filter(({ order }) => order.status !== "refunded").length;
+  const fullRefundCount   = allEligible.filter(({ order }) => refundState(order) === "refunded").length;
+  const partialCount      = allEligible.filter(({ order }) => refundState(order) === "partially_refunded").length;
+  const refundableCount   = allEligible.filter(({ order }) => refundState(order) !== "refunded").length;
 
   // Filtered + searched
   const displayed = allEligible.filter(({ order, customerName }) => {
+    // Two independent axes:
+    //   • Fulfillment tabs ("in_progress" / "delivered") read order.status —
+    //     where the order is in the kitchen / delivery pipeline.
+    //   • Refund tabs ("partially_refunded" / "refunded") read refundState(),
+    //     which is independent of fulfillment.
+    // A delivered order that was later refunded therefore correctly appears in
+    // *both* "Delivered" and its refund tab. "in_progress" still excludes the
+    // refund states stamped onto status so legacy/POS rows (whose status was
+    // overwritten) don't leak into the pipeline view.
     const matchFilter =
-      filter === "all" ||
-      order.status === filter;
+      filter === "all"
+        ? true
+        : filter === "in_progress"
+          ? order.status !== "delivered" &&
+            order.status !== "cancelled" &&
+            order.status !== "refunded" &&
+            order.status !== "partially_refunded"
+          : filter === "delivered"
+            ? order.status === "delivered"
+            : filter === "cancelled"
+              ? order.status === "cancelled"
+              : refundState(order) === filter;
     const q = search.toLowerCase();
     const matchSearch =
       !q ||
@@ -475,13 +628,15 @@ export default function RefundsPanel() {
     };
     addRefund(customerId, order.id, refund);
     setModalOrder(null);
-    setToast(`Refund of £${fields.amount.toFixed(2)} processed successfully.`);
+    setToast(`Refund of ${sym}${fields.amount.toFixed(2)} processed successfully.`);
     setTimeout(() => setToast(null), 4000);
   }
 
   const FILTER_OPTIONS: { value: EligibleFilter; label: string }[] = [
     { value: "all",                label: "All eligible" },
+    { value: "in_progress",        label: "Paid (in progress)" },
     { value: "delivered",          label: "Delivered" },
+    { value: "cancelled",          label: "Cancelled" },
     { value: "partially_refunded", label: "Partially refunded" },
     { value: "refunded",           label: "Fully refunded" },
   ];
@@ -490,19 +645,19 @@ export default function RefundsPanel() {
     <div className="space-y-6">
 
       {/* ── Stats ──────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Total refunded",     value: fmtAmt(totalRefunded), icon: <DollarSign size={18} />, color: "text-teal-600 bg-teal-50 border-teal-100" },
+          { label: "Total refunded",     value: fmtAmt(totalRefunded, sym), icon: <DollarSign size={18} />, color: "text-teal-600 bg-teal-50 border-teal-100" },
           { label: "Full refunds",        value: fullRefundCount,        icon: <RotateCcw size={18} />,  color: "text-blue-600 bg-blue-50 border-blue-100"  },
           { label: "Partial refunds",     value: partialCount,           icon: <Clock size={18} />,      color: "text-amber-600 bg-amber-50 border-amber-100"},
           { label: "Still refundable",    value: refundableCount,        icon: <FileText size={18} />,   color: "text-orange-600 bg-orange-50 border-orange-100" },
         ].map(({ label, value, icon, color }) => (
-          <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 flex items-center gap-4">
-            <div className={`w-10 h-10 rounded-xl border flex items-center justify-center flex-shrink-0 ${color}`}>
+          <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 sm:px-5 py-4 flex flex-col sm:flex-row md:flex-col xl:flex-row items-start sm:items-center md:items-start xl:items-center gap-3 sm:gap-4">
+            <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl border flex items-center justify-center flex-shrink-0 ${color}`}>
               {icon}
             </div>
             <div>
-              <p className="text-xl font-extrabold text-gray-900">{value}</p>
+              <p className="text-lg sm:text-xl font-extrabold text-gray-900">{value}</p>
               <p className="text-xs text-gray-400 font-medium mt-0.5">{label}</p>
             </div>
           </div>
@@ -510,8 +665,8 @@ export default function RefundsPanel() {
       </div>
 
       {/* ── Search + filter ────────────────────────────────────────────────── */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3 flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3 flex flex-wrap gap-3">
+        <div className="relative flex-1 sm:flex min-w-[200px]">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
@@ -546,7 +701,7 @@ export default function RefundsPanel() {
           <p className="text-sm mt-1">
             {search || filter !== "all"
               ? "Try adjusting your search or filter."
-              : "Refundable orders appear here once orders are delivered."}
+              : "Paid card orders show up here immediately. Cash orders appear once they're marked delivered. Cancelled-but-paid orders remain visible so any outstanding refund can still be issued."}
           </p>
         </div>
       ) : (

@@ -1,14 +1,20 @@
 /**
- * GET  /api/admin/reservations          — list reservations (filtered)
- * POST /api/admin/reservations          — create walk-in or phone reservation (skips availability check)
+ * GET  /api/admin/reservations  — list reservations (filtered)
+ * POST /api/admin/reservations  — create walk-in or phone reservation.
+ *
+ * Validation matches the POS path: looks up the table server-side, hard-blocks
+ * double-booking at the same time, rejects blackout/past dates and oversized
+ * parties. Capacity is intentionally not enforced — admins can pull chairs.
  * Both require admin session cookie.
  */
 
 import { NextRequest, NextResponse }            from "next/server";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
-import { sendReservationEmailServer }           from "@/lib/emailServer";
-import type { Reservation }                     from "@/types";
+import type { Reservation, ReservationSystem }  from "@/types";
+import { parseBody }                            from "@/lib/apiValidation";
+import { ReservationAdminSchema }               from "@/lib/schemas/reservation";
+import { createReservation }                    from "@/lib/reservations";
 
 function mapRow(row: Record<string, unknown>): Reservation {
   return {
@@ -30,6 +36,10 @@ function mapRow(row: Record<string, unknown>): Reservation {
     checkedOutAt:  row.checked_out_at as string | undefined,
     source:        row.source         as string | undefined,
     cancelToken:   row.cancel_token   as string | undefined,
+    vipFee:        row.vip_fee        != null ? Number(row.vip_fee) : undefined,
+    paymentStatus: row.payment_status as Reservation["paymentStatus"],
+    paymentMethod: row.payment_method as string | undefined,
+    paymentRef:    row.payment_ref    as string | undefined,
   };
 }
 
@@ -64,96 +74,93 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
 
-  let body: {
-    tableId?: string; tableLabel?: string; tableSeats?: number; section?: string;
-    date?: string; time?: string; partySize?: number;
-    customerName?: string; customerEmail?: string; customerPhone?: string;
-    note?: string; source?: string; status?: string;
-  };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
+  const parsed = await parseBody(req, ReservationAdminSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const {
-    tableId, tableLabel, tableSeats, section,
-    date, time, partySize, customerName, customerEmail, customerPhone,
-    note, source = "walk-in", status = "checked_in",
-  } = body;
+    tableId, date, time, partySize, customerName, customerEmail, customerPhone,
+    note, source, paymentMethod,
+  } = parsed.data;
 
-  if (!tableId || !tableLabel || !date || !time || !partySize || !customerName) {
+  // Reject past slots — 5 min grace for slow submissions. Walk-ins are exempt:
+  // they're seated at the current in-progress slot, which is intentionally a few
+  // minutes in the past (mirrors the POS route, which has no past-slot guard).
+  if (source !== "walk-in" && new Date(`${date}T${time}`).getTime() < Date.now() - 5 * 60 * 1000) {
     return NextResponse.json(
-      { ok: false, error: "tableId, tableLabel, date, time, partySize and customerName are required." },
+      { ok: false, error: "This time slot has already passed. Please select a future time." },
       { status: 400 },
     );
   }
 
-  const id           = crypto.randomUUID();
-  const cancel_token = crypto.randomUUID();
-  const now          = new Date().toISOString();
+  // Load settings + verify the table exists. Use server-side table data for
+  // label/seats/section/VIP price — never trust client values.
+  const [{ data: settingsRow }, { data: tableRow }] = await Promise.all([
+    supabaseAdmin.from("app_settings").select("data").limit(1).single(),
+    supabaseAdmin
+      .from("dining_tables")
+      .select("id, label, seats, section, active, is_vip, vip_price")
+      .eq("id", tableId)
+      .maybeSingle(),
+  ]);
 
-  const row: Record<string, unknown> = {
-    id,
-    table_id:       tableId,
-    table_label:    tableLabel,
-    table_seats:    tableSeats ?? 0,
-    section:        section ?? "",
-    customer_name:  customerName.trim(),
-    customer_email: customerEmail?.trim().toLowerCase() ?? "",
-    customer_phone: customerPhone?.trim() ?? "",
-    date,
-    time,
-    party_size:     partySize,
-    status,
-    note:           note?.trim() ?? null,
-    source,
-    cancel_token,
-    created_at:     now,
-  };
+  const rs: ReservationSystem = settingsRow?.data?.reservationSystem ?? {} as ReservationSystem;
+  const slotDuration: number  = rs.slotDurationMinutes ?? 90;
+  const maxPartySize: number  = rs.maxPartySize ?? 20;
+  const blackoutDates: string[] = rs.blackoutDates ?? [];
 
-  if (status === "checked_in") row.checked_in_at = now;
-
-  const { error } = await supabaseAdmin.from("reservations").insert(row);
-  if (error) {
-    console.error("admin/reservations POST:", error.message);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (!tableRow || !tableRow.active) {
+    return NextResponse.json({ ok: false, error: "Table not found or inactive." }, { status: 400 });
+  }
+  if (partySize > maxPartySize) {
+    return NextResponse.json(
+      { ok: false, error: `Party size exceeds the restaurant maximum of ${maxPartySize}.` },
+      { status: 400 },
+    );
+  }
+  if (blackoutDates.includes(date)) {
+    return NextResponse.json(
+      { ok: false, error: "Restaurant is closed on this date (blackout). Remove the blackout in Settings or pick another date." },
+      { status: 400 },
+    );
   }
 
-  // Upsert guest profile for walk-ins that have an email
-  if (customerEmail) {
-    const email = customerEmail.trim().toLowerCase();
-    const { data: existing } = await supabaseAdmin
-      .from("reservation_customers")
-      .select("id, first_visit_at")
-      .eq("email", email)
-      .single();
-
-    if (existing) {
-      await supabaseAdmin.from("reservation_customers").update({
-        name: customerName.trim(), phone: customerPhone?.trim() ?? "",
-        updated_at: now,
-        ...(existing.first_visit_at ? {} : { first_visit_at: now }),
-      }).eq("email", email);
-    } else {
-      await supabaseAdmin.from("reservation_customers").insert({
-        email, name: customerName.trim(), phone: customerPhone?.trim() ?? "",
-        visit_count: 0, first_visit_at: now, created_at: now, updated_at: now,
-      });
-    }
+  // VIP tables require the (non-refundable) booking fee, collected as cash/card
+  // here — same model as POS, no payment gateway on the admin surface.
+  const isVip  = !!tableRow.is_vip && Number(tableRow.vip_price ?? 0) > 0;
+  const vipFee = isVip ? Number(tableRow.vip_price ?? 0) : 0;
+  if (isVip && !paymentMethod) {
+    return NextResponse.json(
+      { ok: false, error: "This is a VIP table — record the booking fee (cash or card) before confirming." },
+      { status: 400 },
+    );
   }
 
-  // Send confirmation email for phone bookings (walk-ins are already here)
-  if (source === "phone" && customerEmail) {
-    const { data: settingsRow } = await supabaseAdmin.from("app_settings").select("data").limit(1).single();
-    if (settingsRow?.data) {
-      sendReservationEmailServer("reservation_confirmation", {
-        id, customer_name: customerName.trim(),
-        customer_email: customerEmail.trim().toLowerCase(),
-        customer_phone: customerPhone?.trim() ?? "",
-        date, time, table_label: tableLabel,
-        party_size: partySize, status, note: note ?? null,
-        section: section ?? "", cancel_token,
-      }, settingsRow.data, req.headers.get("origin") ?? req.nextUrl.origin).catch(console.error);
-    }
-  }
+  const isWalkIn = source === "walk-in";
+  const result = await createReservation(
+    {
+      tableId:       tableRow.id,
+      tableLabel:    tableRow.label,
+      tableSeats:    tableRow.seats,
+      section:       tableRow.section ?? "",
+      customerName,
+      customerEmail,
+      customerPhone,
+      date, time, partySize,
+      status:        isWalkIn ? "checked_in" : "pending",
+      note:          note ?? null,
+      source,
+      vipFee,
+      paymentStatus: isVip ? "paid" : "none",
+      paymentMethod: isVip ? paymentMethod : null,
+      paymentRef:    isVip && paymentMethod ? `admin:${paymentMethod}` : null,
+      slotDurationMinutes: slotDuration,
+    },
+    settingsRow?.data ?? null,
+    req.headers.get("origin") ?? req.nextUrl.origin,
+  );
 
-  return NextResponse.json({ ok: true, reservationId: id });
+  if (!result.ok) {
+    console.error("admin/reservations POST:", result.error);
+    return NextResponse.json({ ok: false, error: result.error }, { status: result.status ?? 500 });
+  }
+  return NextResponse.json({ ok: true, reservationId: result.reservationId });
 }
