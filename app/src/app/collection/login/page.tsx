@@ -65,6 +65,15 @@ export default function CollectionLoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const pinShakeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // If already signed in, skip the login flow and go straight to /collection.
+  // The GET does a DB-backed session check, so a stale/expired cookie simply
+  // leaves the form in place instead of redirecting.
+  useEffect(() => {
+    fetch("/api/collection/auth")
+      .then((r) => { if (r.ok) router.replace("/collection"); })
+      .catch(() => {});
+  }, [router]);
+
   useEffect(() => {
     fetch("/api/collection/config")
       .then((r) => r.json())

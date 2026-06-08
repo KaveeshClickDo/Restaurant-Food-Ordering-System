@@ -57,6 +57,15 @@ export default function KitchenLoginPage() {
   const [submitting,  setSubmitting]  = useState(false);
   const pinShakeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // If already signed in, skip the login flow and go straight to /kitchen.
+  // The GET does a DB-backed session check, so a stale/expired cookie simply
+  // leaves the form in place instead of redirecting.
+  useEffect(() => {
+    fetch("/api/kitchen/auth")
+      .then((r) => { if (r.ok) router.replace("/kitchen"); })
+      .catch(() => {});
+  }, [router]);
+
   // Load staff list on mount
   useEffect(() => {
     fetch("/api/kitchen/config")

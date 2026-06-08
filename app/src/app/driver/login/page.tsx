@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams }    from "next/navigation";
 import Link                              from "next/link";
 import { useApp }                        from "@/context/AppContext";
@@ -48,8 +48,16 @@ function DriverLoginInner() {
   const [resetDone,     setResetDone]     = useState(false);
   const [resetError,    setResetError]    = useState("");
 
-  // Redirect handled by middleware (valid driver_session cookie → /driver).
-  // No client-side redirect here to avoid a stale-localStorage redirect loop.
+  // If already signed in, skip the form and go straight to /driver. The /me
+  // endpoint does a DB-backed session check (not localStorage), so a stale or
+  // expired cookie simply leaves the form in place — no redirect loop. Skipped
+  // while handling a password-reset link so that flow isn't interrupted.
+  useEffect(() => {
+    if (urlAction === "reset") return;
+    fetch("/api/auth/driver/me")
+      .then((r) => { if (r.ok) router.replace("/driver"); })
+      .catch(() => {});
+  }, [urlAction, router]);
 
   // ── Login submit ─────────────────────────────────────────────────────────
   async function handleLogin(e: { preventDefault(): void }) {

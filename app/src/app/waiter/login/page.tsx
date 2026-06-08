@@ -63,6 +63,23 @@ export default function WaiterLoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const pinShakeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // If already signed in, skip the login flow and go straight to /waiter.
+  // The /me endpoint does a DB-backed session check, so a stale/expired cookie
+  // simply leaves the form in place instead of redirecting.
+  useEffect(() => {
+    fetch("/api/auth/waiter/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { ok: boolean; waiter?: unknown } | null) => {
+        if (d?.ok && d.waiter) {
+          // Mirror the profile into sessionStorage so the /waiter header renders
+          // instantly, matching the post-login path.
+          try { sessionStorage.setItem("waiter_session", JSON.stringify(d.waiter)); } catch { /* ignore */ }
+          router.replace("/waiter");
+        }
+      })
+      .catch(() => {});
+  }, [router]);
+
   // Load active staff for the tile picker.
   useEffect(() => {
     fetch("/api/waiter/config")
