@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, ShieldCheck } from "lucide-react";
 
 /**
  * Dedicated admin login. Middleware redirects /admin/* here whenever the
@@ -11,16 +11,17 @@ import { ShieldCheck } from "lucide-react";
  */
 export default function AdminLoginPage() {
   const router = useRouter();
+  const [showPwd, setShowPwd] = useState(false);
   const [password, setPassword] = useState("");
-  const [error, setError]       = useState("");
-  const [loading, setLoading]   = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const inFlight = useRef(false);
 
   // If already signed in, skip the form.
   useEffect(() => {
     fetch("/api/admin/auth")
       .then((r) => { if (r.ok) router.replace("/admin"); })
-      .catch(() => {});
+      .catch(() => { });
   }, [router]);
 
   async function handleLogin(e: React.FormEvent) {
@@ -64,15 +65,18 @@ export default function AdminLoginPage() {
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1.5">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => { setPassword(e.target.value); setError(""); }}
-              placeholder="••••••••"
-              autoFocus
-              required
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition"
-            />
+            <div className="relative">
+              <input
+                type={showPwd ? "text" : "password"}
+                value={password}
+                onChange={(e) => { setPassword(e.target.value); setError(""); }}
+                placeholder="••••••••"
+                autoFocus
+                required
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition"
+              />
+              <EyeToggle show={showPwd} onToggle={() => setShowPwd((v) => !v)} />
+            </div>
           </div>
           {error && <p className="text-red-400 text-xs">{error}</p>}
           <button
@@ -90,5 +94,14 @@ export default function AdminLoginPage() {
         )}
       </div>
     </div>
+  );
+}
+
+function EyeToggle({ show, onToggle }: { show: boolean; onToggle: () => void }) {
+  return (
+    <button type="button" onClick={onToggle} tabIndex={-1}
+      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition">
+      {show ? <EyeOff size={15} /> : <Eye size={15} />}
+    </button>
   );
 }

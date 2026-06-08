@@ -5,6 +5,8 @@ import { usePOS } from "@/context/POSContext";
 import { POSStaff } from "@/types/pos";
 import {
   UserPlus, Clock, Timer, ToggleRight, ToggleLeft, Pencil, Trash2, X, ClockIcon,
+  EyeOff,
+  Eye,
 } from "lucide-react";
 import { fmtTime, getInitials } from "./_utils";
 
@@ -13,6 +15,7 @@ export default function StaffView() {
     clockEntries, clockIn, clockOut, isClocked, currentStaff, settings } = usePOS();
   const sym = settings.currencySymbol;
   const [showAdd, setShowAdd] = useState(false);
+  const [showPwd, setShowPwd] = useState(false);
   const [newStaff, setNewStaff] = useState({ name: "", email: "", role: "cashier" as "admin" | "manager" | "cashier", pin: "", hourlyRate: "" });
   const COLORS = ["#7c3aed", "#0891b2", "#16a34a", "#dc2626", "#ea580c", "#0284c7", "#9333ea", "#be185d"];
   const [, tick] = useState(0);
@@ -49,7 +52,7 @@ export default function StaffView() {
     setClockBusy(true);
     try {
       if (currentlyClocked) await clockOut(staffId);
-      else                  await clockIn(staffId);
+      else await clockIn(staffId);
     } finally {
       clockInFlight.current = false;
       setClockBusy(false);
@@ -205,8 +208,8 @@ export default function StaffView() {
                     </button>
                   ) : (
                     <span className={`ml-auto px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 ${clocked
-                        ? "bg-green-500/10 text-green-400 border border-green-500/20"
-                        : "bg-slate-600/40 text-slate-400 border border-slate-600"
+                      ? "bg-green-500/10 text-green-400 border border-green-500/20"
+                      : "bg-slate-600/40 text-slate-400 border border-slate-600"
                       }`}>
                       <span className={`w-1.5 h-1.5 rounded-full ${clocked ? "bg-green-400 animate-pulse" : "bg-slate-500"}`} />
                       {clocked ? "Clocked in" : "Off"}
@@ -234,8 +237,8 @@ export default function StaffView() {
                     <div className="flex flex-wrap items-center gap-2">
                       <p className={`text-sm font-semibold ${member.active ? "text-white" : "text-slate-500"}`}>{member.name}</p>
                       <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold capitalize ${member.role === "admin" ? "bg-purple-500/20 text-purple-400" :
-                          member.role === "manager" ? "bg-blue-500/20 text-blue-400" :
-                            "bg-slate-600 text-slate-400"
+                        member.role === "manager" ? "bg-blue-500/20 text-blue-400" :
+                          "bg-slate-600 text-slate-400"
                         }`}>{member.role}</span>
                     </div>
                     <p className="text-slate-400 text-xs mt-0.5">{member.email} · PIN: ••••••</p>
@@ -351,8 +354,12 @@ export default function StaffView() {
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">6-digit PIN *</label>
-                <input type="password" maxLength={6} value={newStaff.pin} onChange={(e) => setNewStaff((p) => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="••••••"
-                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+                <div className="relative">
+                  <input type={showPwd ? "text" : "password"} maxLength={6} value={newStaff.pin} onChange={(e) => setNewStaff((p) => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="••••••"
+                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+                  <EyeToggle show={showPwd} onToggle={() => setShowPwd((v) => !v)} />
+                </div>
+
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">Hourly Rate ({sym})</label>
@@ -397,7 +404,7 @@ export default function StaffView() {
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">6-digit PIN</label>
-                <input type="password" maxLength={6} value={editDraft.pin} onChange={(e) => setEditDraft((p) => ({ ...p, pin: e.target.value.replace(/\D/g,"") }))} placeholder="Leave blank to keep current"
+                <input type="password" maxLength={6} value={editDraft.pin} onChange={(e) => setEditDraft((p) => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="Leave blank to keep current"
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
               </div>
               <div>
@@ -434,5 +441,14 @@ export default function StaffView() {
         </div>
       )}
     </div>
+  );
+}
+
+function EyeToggle({ show, onToggle }: { show: boolean; onToggle: () => void }) {
+  return (
+    <button type="button" onClick={onToggle} tabIndex={-1}
+      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition">
+      {show ? <EyeOff size={15} /> : <Eye size={15} />}
+    </button>
   );
 }
