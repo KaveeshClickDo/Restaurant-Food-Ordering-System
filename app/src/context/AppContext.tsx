@@ -717,7 +717,6 @@ export function AppProvider({
       // are never partially overwritten, which would cause "cannot read property of undefined" crashes.
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "app_settings" },
         ({ new: row }) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           setSettings((prev) => {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const next = buildSettingsFromData((row as any).data ?? null);
@@ -847,6 +846,11 @@ export function AppProvider({
       });
 
     return () => { supabase.removeChannel(channel); };
+    // Mount-only: the channel must be subscribed exactly once for the
+    // component's lifetime. refreshDiningTables is a stable useCallback([]),
+    // so it never actually changes; it's also declared after this effect,
+    // so listing it in the deps would hit the temporal dead zone at render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Color theme injection ──────────────────────────────────────────────────
