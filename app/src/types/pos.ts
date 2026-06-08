@@ -84,28 +84,14 @@ export interface POSModifier {
 }
 
 // ─── Offers ──────────────────────────────────────────────────────────────────
+// The canonical offer types now live in src/types/index.ts as MenuItemOffer
+// (shared between admin and POS). POSOffer is kept as an alias so existing
+// POS-only imports continue to compile.
 
-export type POSOfferType =
-  | "percent"       // simple % off per unit
-  | "fixed"         // fixed £ off per unit
-  | "price"         // override to a special price per unit
-  | "bogo"          // buy X get Y free
-  | "multibuy"      // buy X for £Y (bundle price)
-  | "qty_discount"; // buy ≥ minQty, get value% off each
+import type { MenuItemOffer, MenuItemOfferType } from "@/types";
 
-export interface POSOffer {
-  type: POSOfferType;
-  value: number;        // % for percent/qty_discount; £ for fixed/price/multibuy
-  label?: string;       // custom badge text, e.g. "Happy Hour"
-  active: boolean;
-  startDate?: string;   // YYYY-MM-DD (inclusive)
-  endDate?: string;     // YYYY-MM-DD (inclusive)
-  // BOGO
-  buyQty?: number;      // items to buy (bogo, multibuy)
-  freeQty?: number;     // items free (bogo)
-  // Qty discount
-  minQty?: number;      // minimum quantity to trigger (qty_discount)
-}
+export type POSOfferType = MenuItemOfferType;
+export type POSOffer    = MenuItemOffer;
 
 /** Check if the offer's date window is currently active. */
 function offerDateOk(o: POSOffer): boolean {
@@ -116,12 +102,22 @@ function offerDateOk(o: POSOffer): boolean {
 }
 
 /**
+ * The POS / waiter surface is always the `in_store` channel. An offer applies
+ * here only if it has no channel restriction (undefined / empty = everywhere)
+ * or explicitly includes `in_store`. This stops an online-only offer
+ * (channels: ['online']) from discounting a till sale.
+ */
+function offerAppliesInStore(o: POSOffer): boolean {
+  return !o.channels || o.channels.length === 0 || o.channels.includes("in_store");
+}
+
+/**
  * For simple per-unit offers (percent, fixed, price) returns the discounted unit price.
  * Returns null for cart-level offers (bogo, multibuy, qty_discount) — those are handled by cartLineTotal.
  */
 export function getOfferPrice(product: POSProduct): number | null {
   const o = product.offer;
-  if (!o?.active || !offerDateOk(o)) return null;
+  if (!o?.active || !offerDateOk(o) || !offerAppliesInStore(o)) return null;
   switch (o.type) {
     case "percent": return parseFloat(Math.max(0, product.price * (1 - o.value / 100)).toFixed(2));
     case "fixed":   return parseFloat(Math.max(0, product.price - o.value).toFixed(2));
@@ -131,12 +127,12 @@ export function getOfferPrice(product: POSProduct): number | null {
 }
 
 /**
- * Returns true if the product has an offer that is active today.
- * Works for ALL offer types (including cart-level ones).
+ * Returns true if the product has an offer that is active today AND applies on
+ * the in-store channel. Works for ALL offer types (including cart-level ones).
  */
 export function isOfferActive(product: POSProduct): boolean {
   const o = product.offer;
-  return !!(o?.active && offerDateOk(o));
+  return !!(o?.active && offerDateOk(o) && offerAppliesInStore(o));
 }
 
 /**
@@ -145,7 +141,7 @@ export function isOfferActive(product: POSProduct): boolean {
  */
 export function cartLineTotal(item: POSCartItem): number {
   const o = item.offer;
-  if (!o?.active || !offerDateOk(o)) return item.price * item.quantity;
+  if (!o?.active || !offerDateOk(o) || !offerAppliesInStore(o)) return item.price * item.quantity;
 
   switch (o.type) {
     case "bogo": {
@@ -181,6 +177,13 @@ export function cartLineSaving(item: POSCartItem): number {
   return parseFloat(Math.max(0, full - actual).toFixed(2));
 }
 
+// POSProduct stays a distinct interface (it carries POS-only display state
+// like `modifiers` and uses `imageUrl` instead of `image`) but now also
+// surfaces the shared admin fields so a POSProduct round-trips losslessly
+// when the same row is read/written by the admin Menu Management panel.
+// See `app/src/types/index.ts → MenuItem` for the canonical model.
+import type { Variation, AddOn, StockStatus } from "@/types";
+
 export interface POSProduct {
   id: string;
   categoryId: string;
@@ -191,13 +194,27 @@ export interface POSProduct {
   imageUrl?: string; // custom image (URL or base64 data URI)
   color: string; // tile accent color (hex)
   modifiers?: POSModifier[];
+  /** Admin-side variations[] — required radio groups. Mirror of MenuItem.variations. */
+  variations?: Variation[];
+  /** Admin-side add-ons[] — optional multi-select. Mirror of MenuItem.addOns. */
+  addOns?: AddOn[];
+  /** Dietary tags (e.g. "vegan", "gluten-free"). Mirror of MenuItem.dietary. */
+  dietary?: string[];
   sku?: string;
   stockQty?: number;
+  /** Manual status override — used when stockQty is not set. */
+  stockStatus?: StockStatus;
   trackStock: boolean;
   active: boolean;
   popular?: boolean;
   cost?: number; // cost price for margin tracking
   offer?: POSOffer;
+  /** Channel split — POS filters its sale grid by `in_store`. Defaults to
+   *  both channels for legacy rows so they stay visible. */
+  channels?: ("in_store" | "online")[];
+  /** Online-price override — POS never uses this directly (it always charges
+   *  `price`) but carries it through so bulk sync doesn't drop the value. */
+  priceOnline?: number;
 }
 
 export interface POSCategory {
@@ -206,6 +223,7 @@ export interface POSCategory {
   emoji: string;
   color: string; // hex
   order: number;
+  parentId?: string | null;
 }
 
 export interface POSCartModifier {
@@ -233,7 +251,7 @@ export interface POSSplitPayment {
   amount: number;
 }
 
-export type POSPaymentMethod = "cash" | "card" | "split";
+export type POSPaymentMethod = "cash" | "card" | "split" | "gift_card";
 
 export interface POSSale {
   id: string;
@@ -254,6 +272,7 @@ export interface POSSale {
   staffId: string;
   staffName: string;
   customerId?: string;
+  giftCard?: { code: string; amount: number };
   customerName?: string;
   tableNumber?: number;
   date: string; // ISO
@@ -263,20 +282,14 @@ export interface POSSale {
   refundAmount?: number;                   // amount refunded
 }
 
-export interface POSCustomer {
-  id: string;
-  name: string;
-  email?: string;
-  phone?: string;
-  loyaltyPoints: number;
-  giftCardBalance: number;
-  totalSpend: number;
-  visitCount: number;
-  lastVisit?: string; // ISO
-  tags: string[];
-  notes?: string;
-  createdAt: string;
-}
+// Bug #11 — POS customers are no longer a distinct local-only type. The
+// `customers` table is now the single source of truth for both admin and
+// POS, so POSCustomer is just an alias for the shared Customer interface.
+// All POS code that reads `c.loyaltyPoints`, `c.totalSpend` etc. should use
+// the `?? 0` fallback because computed fields can be undefined for rows
+// that pre-date the migration.
+import type { Customer } from "@/types";
+export type POSCustomer = Customer;
 
 export interface POSSettings {
   businessName: string;

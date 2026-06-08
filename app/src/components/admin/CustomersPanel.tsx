@@ -1,8 +1,11 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
-import { Customer, Order, OrderStatus } from "@/types";
+import { Customer, CustomerPosSale, Order, OrderStatus } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
+import { cleanPhone } from "@/lib/inputUtils";
 import {
   sendEmailViaApi, buildVarMap, applyVars, buildEmailDocument,
 } from "@/lib/emailTemplates";
@@ -12,6 +15,8 @@ import {
   CheckCircle2, ChefHat, Package, Truck, Ban,
   Circle, RefreshCw, Receipt, Printer, Send,
   CheckCheck, AlertCircle, RotateCcw,
+  Gift, Award, FileText, Save,
+  Trash2, Key, Pencil, Loader2, ShieldCheck, ExternalLink, AlertTriangle, UserCog,
 } from "lucide-react";
 
 // ─── Status config ────────────────────────────────────────────────────────────
@@ -27,6 +32,16 @@ const STATUS_CONFIG: Record<OrderStatus, { label: string; className: string; ico
   partially_refunded: { label: "Partially Refunded", className: "bg-cyan-50 text-cyan-700 border-cyan-200",   icon: <RotateCcw size={11} className="text-cyan-600" /> },
 };
 
+// Cancelled-but-refunded must surface both states — a bare "Cancelled" badge
+// hides the fact that the customer's money already went back (QA #37).
+function orderStatusLabel(o: { status: OrderStatus; paymentStatus?: string | null }): string {
+  const base = STATUS_CONFIG[o.status]?.label ?? String(o.status);
+  if (o.status !== "cancelled") return base;
+  if (o.paymentStatus === "refunded")           return "Cancelled · Refunded";
+  if (o.paymentStatus === "partially_refunded") return "Cancelled · Partial refund";
+  return base;
+}
+
 const ORDER_STATUS_FLOW: OrderStatus[] = ["pending", "confirmed", "preparing", "ready", "delivered"];
 
 const TAG_COLORS: Record<string, string> = {
@@ -35,6 +50,11 @@ const TAG_COLORS: Record<string, string> = {
   New:      "bg-green-100 text-green-700 border-green-200",
   Inactive: "bg-gray-100 text-gray-500 border-gray-200",
 };
+
+// Preset tags one-tap-toggleable in both the admin Customers drawer and the
+// POS CustomersView. Stays in sync with the POS list so both surfaces present
+// the same vocabulary.
+const PRESET_TAGS = ["VIP", "Regular", "Halal", "Vegan", "Vegetarian", "Gluten-Free", "Allergy", "Staff"];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -45,7 +65,16 @@ function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 function totalSpent(c: Customer) {
+  // Bug #11 — prefer the API-computed totalSpend (covers POS sales too)
+  // when present; fall back to summing online orders for older snapshots.
+  if (typeof c.totalSpend === "number") return c.totalSpend;
   return c.orders.filter((o) => o.status !== "cancelled").reduce((s, o) => s + o.total, 0);
+}
+// All-channel order count — online orders + in-person POS sales. The admin view
+// shows the combined figure everywhere a count appears (list column, header
+// stat, sorting) so it reflects everything the customer has ever ordered.
+function orderCount(c: Customer) {
+  return c.orders.length + (c.posSales?.length ?? 0);
 }
 function daysSince(iso: string) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
@@ -60,7 +89,7 @@ function StatCard({ label, value, sub, icon }: { label: string; value: string | 
         <span className="text-xs text-gray-500 font-medium">{label}</span>
         <div className="text-orange-400">{icon}</div>
       </div>
-      <div className="text-2xl font-bold text-gray-900">{value}</div>
+      <div className="text-lg sm:text-xl xl:text-2xl font-bold text-gray-900">{value}</div>
       {sub && <div className="text-xs text-gray-400 mt-0.5">{sub}</div>}
     </div>
   );
@@ -72,7 +101,9 @@ type SortKey = "name" | "orders" | "spent" | "joined";
 type SortDir = "asc" | "desc";
 
 export default function CustomersPanel() {
-  const { customers, updateOrderStatus } = useApp();
+  const { customers, updateOrderStatus, addCustomer, settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
+  const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("spent");
@@ -81,8 +112,11 @@ export default function CustomersPanel() {
 
   // Quick stats
   const totalRevenue = customers.reduce((s, c) => s + totalSpent(c), 0);
-  const totalOrders  = customers.reduce((s, c) => s + c.orders.length, 0);
-  const activeToday  = customers.filter((c) => c.orders.some((o) => daysSince(o.date) === 0)).length;
+  const totalOrders  = customers.reduce((s, c) => s + orderCount(c), 0);
+  const activeToday  = customers.filter((c) =>
+    c.orders.some((o) => daysSince(o.date) === 0) ||
+    (c.posSales ?? []).some((s) => daysSince(s.date) === 0),
+  ).length;
   const allTags = Array.from(new Set(customers.flatMap((c) => c.tags)));
 
   // Sort
@@ -102,7 +136,7 @@ export default function CustomersPanel() {
     list.sort((a, b) => {
       let av: number | string = 0, bv: number | string = 0;
       if (sortKey === "name")   { av = a.name; bv = b.name; }
-      if (sortKey === "orders") { av = a.orders.length; bv = b.orders.length; }
+      if (sortKey === "orders") { av = orderCount(a); bv = orderCount(b); }
       if (sortKey === "spent")  { av = totalSpent(a); bv = totalSpent(b); }
       if (sortKey === "joined") { av = a.createdAt; bv = b.createdAt; }
       if (av < bv) return sortDir === "asc" ? -1 : 1;
@@ -129,11 +163,11 @@ export default function CustomersPanel() {
   return (
     <div className="space-y-5">
       {/* Stats row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Total customers"  value={customers.length}         sub={`${activeToday} active today`}    icon={<Users size={18} />} />
         <StatCard label="Total orders"     value={totalOrders}              sub="all time"                          icon={<ShoppingBag size={18} />} />
-        <StatCard label="Total revenue"    value={`£${totalRevenue.toFixed(2)}`} sub="delivered orders only"      icon={<TrendingUp size={18} />} />
-        <StatCard label="Avg. order value" value={`£${totalOrders ? (totalRevenue / totalOrders).toFixed(2) : "0.00"}`} sub="per order"  icon={<Star size={18} />} />
+        <StatCard label="Total revenue"    value={`${sym}${totalRevenue.toFixed(2)}`} sub="delivered orders only"      icon={<TrendingUp size={18} />} />
+        <StatCard label="Avg. order value" value={`${sym}${totalOrders ? (totalRevenue / totalOrders).toFixed(2) : "0.00"}`} sub="per order"  icon={<Star size={18} />} />
       </div>
 
       {/* Table card */}
@@ -178,6 +212,13 @@ export default function CustomersPanel() {
               className="pl-8 pr-4 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition w-full sm:w-52"
             />
           </div>
+
+          <button
+            onClick={() => setShowAdd(true)}
+            className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex-shrink-0"
+          >
+            <UserCog size={14} /> Add Customer
+          </button>
         </div>
 
         {/* Table */}
@@ -185,7 +226,7 @@ export default function CustomersPanel() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/60">
-                <th className="text-left px-5 py-3"><SortBtn k="name">Customer</SortBtn></th>
+                <th className="text-left px-5 py-3 min-w-[150px]"><SortBtn k="name">Customer</SortBtn></th>
                 <th className="text-left px-4 py-3 hidden md:table-cell"><span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Contact</span></th>
                 <th className="text-left px-4 py-3"><SortBtn k="orders">Orders</SortBtn></th>
                 <th className="text-left px-4 py-3"><SortBtn k="spent">Spent</SortBtn></th>
@@ -207,9 +248,9 @@ export default function CustomersPanel() {
                 const spent = totalSpent(c);
                 return (
                   <tr key={c.id} className="hover:bg-orange-50/20 transition-colors group">
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-3.5">
                       <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-red-400 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
                           {c.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
                         </div>
                         <div>
@@ -225,10 +266,10 @@ export default function CustomersPanel() {
                       <div className="text-xs text-gray-400">{c.phone}</div>
                     </td>
                     <td className="px-4 py-3.5">
-                      <span className="font-semibold text-gray-900 text-sm">{c.orders.length}</span>
+                      <span className="font-semibold text-gray-900 text-sm">{orderCount(c)}</span>
                     </td>
                     <td className="px-4 py-3.5">
-                      <span className="font-bold text-gray-900 text-sm">£{spent.toFixed(2)}</span>
+                      <span className="font-bold text-gray-900 text-sm">{sym}{spent.toFixed(2)}</span>
                     </td>
                     <td className="px-4 py-3.5 hidden lg:table-cell text-sm text-gray-500">{fmtDate(c.createdAt)}</td>
                     <td className="px-4 py-3.5 hidden sm:table-cell">
@@ -243,7 +284,7 @@ export default function CustomersPanel() {
                     <td className="px-4 py-3.5">
                       <button
                         onClick={() => setSelectedCustomer(c)}
-                        className="flex items-center gap-1 text-xs text-orange-500 hover:text-orange-700 font-medium transition sm:opacity-0 sm:group-hover:opacity-100"
+                        className="flex items-center gap-1 text-xs text-orange-400 group-hover:text-orange-800 font-medium transition"
                       >
                         View <ChevronRight size={13} />
                       </button>
@@ -255,6 +296,31 @@ export default function CustomersPanel() {
           </table>
         </div>
       </div>
+
+      {/* Add customer modal */}
+      {showAdd && (
+        <AddCustomerModal
+          existingEmails={customers.map((c) => c.email.toLowerCase())}
+          onClose={() => setShowAdd(false)}
+          onCreate={async (data) => {
+            const newCustomer: Customer = {
+              id:             `cust-${crypto.randomUUID()}`,
+              name:           data.name.trim(),
+              email:          data.email.trim().toLowerCase(),
+              phone:          data.phone.trim(),
+              createdAt:      new Date().toISOString(),
+              tags:           [],
+              orders:         [],
+              favourites:     [],
+              savedAddresses: [],
+              storeCredit:    0,
+              emailVerified:  true,
+              active:         true,
+            };
+            await addCustomer(newCustomer, data.password.trim() || undefined);
+          }}
+        />
+      )}
 
       {/* Customer detail drawer */}
       {selectedCustomer && (
@@ -279,6 +345,140 @@ export default function CustomersPanel() {
   );
 }
 
+// ─── Add customer modal ───────────────────────────────────────────────────────
+
+function AddCustomerModal({
+  existingEmails,
+  onCreate,
+  onClose,
+}: {
+  existingEmails: string[];
+  onCreate: (data: { name: string; email: string; phone: string; password: string }) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "" });
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  function set(k: keyof typeof form, v: string) {
+    setForm((f) => ({ ...f, [k]: v }));
+    setError("");
+  }
+
+  function validate(): string | null {
+    if (!form.name.trim()) return "Name is required.";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) return "Enter a valid email address.";
+    if (existingEmails.includes(form.email.trim().toLowerCase())) return "A customer with this email already exists.";
+    if (form.password && form.password.length < 6) return "Password must be at least 6 characters.";
+    return null;
+  }
+
+  async function handleSubmit() {
+    if (saving) return;
+    const v = validate();
+    if (v) { setError(v); return; }
+    setSaving(true);
+    try {
+      await onCreate(form);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to add customer.");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-9 h-9 rounded-xl bg-orange-100 flex items-center justify-center">
+              <UserCog size={18} className="text-orange-600" />
+            </div>
+            <h2 className="font-bold text-gray-900">Add customer</h2>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition text-gray-500">
+            <X size={15} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Full name</label>
+            <input
+              value={form.name}
+              onChange={(e) => set("name", e.target.value)}
+              placeholder="Jane Smith"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Email address</label>
+            <input
+              type="email"
+              autoComplete="off"
+              value={form.email}
+              onChange={(e) => set("email", e.target.value)}
+              placeholder="jane@example.com"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">
+              Phone <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <input
+              inputMode="tel"
+              value={form.phone}
+              onChange={(e) => set("phone", cleanPhone(e.target.value))}
+              placeholder="+44 7700 900000"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">
+              Password <span className="text-gray-400 font-normal">(optional — lets them sign in)</span>
+            </label>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={form.password}
+              onChange={(e) => set("password", e.target.value)}
+              placeholder="Min. 6 characters"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+            />
+            <p className="text-[11px] text-gray-400 mt-1">
+              Leave blank to create the account without a password — set one later from the customer, or they can use “Forgot password”.
+            </p>
+          </div>
+
+          {error && (
+            <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+              <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-red-700">{error}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="px-6 py-4 border-t border-gray-100 flex gap-3">
+          <button onClick={onClose} disabled={saving} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition">
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={saving}
+            className="flex-1 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white text-sm font-bold transition flex items-center justify-center gap-2"
+          >
+            {saving && <Loader2 size={14} className="animate-spin" />}
+            {saving ? "Adding…" : "Add customer"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Pure print helper (no DOM ref required) ──────────────────────────────────
 
 function buildPrintHtml(
@@ -286,6 +486,7 @@ function buildPrintHtml(
   customer: Customer,
   rs: { showLogo: boolean; logoUrl: string; restaurantName: string; phone: string; website: string; email: string; vatNumber: string; thankYouMessage: string; customMessage: string },
   restaurantAddress: string,
+  sym: string,
 ): string {
   const subtotal     = order.items.reduce((s, l) => s + l.price * l.qty, 0);
   const deliveryFee  = order.deliveryFee  ?? 0;
@@ -298,7 +499,7 @@ function buildPrintHtml(
 <html>
 <head>
   <meta charset="utf-8"/>
-  <title>Receipt #${order.id.slice(-8).toUpperCase()}</title>
+  <title>Receipt ${fullOrderNumber(order.id)}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:'Courier New',monospace;font-size:12px;color:#111;background:#fff;padding:16px}
@@ -323,7 +524,7 @@ function buildPrintHtml(
   ${rs.vatNumber ? `<div class="c sm">VAT: ${rs.vatNumber}</div>`   : ""}
   <div class="d"></div>
   <div class="c b">RECEIPT</div>
-  <div class="c sm">#${order.id.slice(-8).toUpperCase()}</div>
+  <div class="c sm" style="word-break:break-all">${fullOrderNumber(order.id)}</div>
   <div class="c sm">${fmtDate(order.date)} at ${fmtTime(order.date)}</div>
   <div class="d"></div>
   <div class="row"><span>Customer:</span><span>${customer.name}</span></div>
@@ -331,15 +532,15 @@ function buildPrintHtml(
   ${order.address     ? `<div class="row"><span>Address:</span><span style="text-align:right;max-width:180px">${order.address}</span></div>` : ""}
   ${order.scheduledTime ? `<div class="row"><span>Scheduled:</span><span>${order.scheduledTime}</span></div>` : ""}
   <div class="d"></div>
-  ${order.items.map((l) => `<div class="row"><span>${l.qty}x ${l.name}</span><span>£${(l.price * l.qty).toFixed(2)}</span></div>`).join("")}
+  ${order.items.map((l) => `<div class="row"><span>${l.qty}x ${l.name}</span><span>${sym}${(l.price * l.qty).toFixed(2)}</span></div>`).join("")}
   <div class="d"></div>
-  <div class="row"><span>Subtotal</span><span>£${subtotal.toFixed(2)}</span></div>
-  ${order.fulfillment === "delivery" ? `<div class="row"><span>Delivery fee</span><span>£${deliveryFee.toFixed(2)}</span></div>` : ""}
-  ${serviceFee > 0 ? `<div class="row"><span>Service fee</span><span>£${serviceFee.toFixed(2)}</span></div>` : ""}
-  ${couponDisc > 0 ? `<div class="row" style="color:#16a34a;font-weight:600"><span>Coupon (${order.couponCode ?? ""})</span><span>-£${couponDisc.toFixed(2)}</span></div>` : ""}
-  ${vatAmt > 0 ? `<div class="row" style="color:${vatInclusive ? "#9ca3af" : "#ea580c"};font-weight:600"><span>${vatInclusive ? "Incl. VAT" : "VAT"}</span><span>${vatInclusive ? "" : "+"}£${vatAmt.toFixed(2)}</span></div>` : ""}
+  <div class="row"><span>Subtotal</span><span>${sym}${subtotal.toFixed(2)}</span></div>
+  ${order.fulfillment === "delivery" ? `<div class="row"><span>Delivery fee</span><span>${sym}${deliveryFee.toFixed(2)}</span></div>` : ""}
+  ${serviceFee > 0 ? `<div class="row"><span>Service fee</span><span>${sym}${serviceFee.toFixed(2)}</span></div>` : ""}
+  ${couponDisc > 0 ? `<div class="row" style="color:#16a34a;font-weight:600"><span>Coupon (${order.couponCode ?? ""})</span><span>-${sym}${couponDisc.toFixed(2)}</span></div>` : ""}
+  ${vatAmt > 0 ? `<div class="row" style="color:${vatInclusive ? "#9ca3af" : "#ea580c"};font-weight:600"><span>${vatInclusive ? "Incl. VAT" : "VAT"}</span><span>${vatInclusive ? "" : "+"}${sym}${vatAmt.toFixed(2)}</span></div>` : ""}
   <div class="d"></div>
-  <div class="tot"><span>TOTAL</span><span>£${order.total.toFixed(2)}</span></div>
+  <div class="tot"><span>TOTAL</span><span>${sym}${order.total.toFixed(2)}</span></div>
   ${vatAmt > 0 && vatInclusive ? `<div class="c sm" style="margin-top:3px">Prices include VAT</div>` : ""}
   ${order.paymentMethod ? `<div class="row" style="margin-top:6px"><span>Payment:</span><span>${order.paymentMethod}</span></div>` : ""}
   <div class="row"><span>Status:</span><span>${order.status.charAt(0).toUpperCase() + order.status.slice(1)}</span></div>
@@ -364,6 +565,7 @@ function ReceiptModal({
   onClose: () => void;
 }) {
   const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const { restaurant, receiptSettings: rs } = settings;
   const restaurantAddress = [restaurant.addressLine1, restaurant.city, restaurant.postcode].filter(Boolean).join(", ");
 
@@ -373,9 +575,11 @@ function ReceiptModal({
   const couponDisc  = order.couponDiscount ?? 0;
   const vatAmt      = order.vatAmount     ?? 0;
   const vatRate     = settings.taxSettings?.rate ?? 0;
+  const storeCreditUsed = order.storeCreditUsed ?? 0;
+  const giftCardUsed    = order.giftCardUsed    ?? 0;
 
   function handlePrint() {
-    const html = buildPrintHtml(order, customer, rs, restaurantAddress);
+    const html = buildPrintHtml(order, customer, rs, restaurantAddress, sym);
     const win  = window.open("", "_blank", "width=420,height=720");
     if (!win) return;
     win.document.write(html);
@@ -391,7 +595,7 @@ function ReceiptModal({
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-center gap-2">
             <Receipt size={16} className="text-orange-500" />
-            <h2 className="font-bold text-gray-900 text-sm">Receipt #{order.id.slice(-8).toUpperCase()}</h2>
+            <h2 title={`Receipt ${fullOrderNumber(order.id)}`} className="font-bold text-gray-900 text-sm truncate">Receipt {fullOrderNumber(order.id)}</h2>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -426,7 +630,7 @@ function ReceiptModal({
 
           <div className="text-center space-y-0.5">
             <p className="font-bold text-sm">RECEIPT</p>
-            <p className="text-gray-500">#{order.id.slice(-8).toUpperCase()}</p>
+            <p title={fullOrderNumber(order.id)} className="text-gray-500 break-all">{fullOrderNumber(order.id)}</p>
             <p className="text-gray-500">{fmtDate(order.date)} at {fmtTime(order.date)}</p>
           </div>
 
@@ -461,7 +665,7 @@ function ReceiptModal({
             {order.items.map((line, i) => (
               <div key={i} className="flex justify-between">
                 <span>{line.qty}× {line.name}</span>
-                <span className="font-medium">£{(line.price * line.qty).toFixed(2)}</span>
+                <span className="font-medium">{sym}{(line.price * line.qty).toFixed(2)}</span>
               </div>
             ))}
           </div>
@@ -470,28 +674,40 @@ function ReceiptModal({
 
           <div className="space-y-1">
             <div className="flex justify-between text-gray-500">
-              <span>Subtotal</span><span>£{subtotal.toFixed(2)}</span>
+              <span>Subtotal</span><span>{sym}{subtotal.toFixed(2)}</span>
             </div>
             {order.fulfillment === "delivery" && (
               <div className="flex justify-between text-gray-500">
-                <span>Delivery fee</span><span>£{deliveryFee.toFixed(2)}</span>
+                <span>Delivery fee</span><span>{sym}{deliveryFee.toFixed(2)}</span>
               </div>
             )}
             {serviceFee > 0 && (
               <div className="flex justify-between text-gray-500">
-                <span>Service fee</span><span>£{serviceFee.toFixed(2)}</span>
+                <span>Service fee</span><span>{sym}{serviceFee.toFixed(2)}</span>
               </div>
             )}
             {couponDisc > 0 && (
               <div className="flex justify-between text-green-700 font-semibold">
                 <span>Coupon ({order.couponCode})</span>
-                <span>−£{couponDisc.toFixed(2)}</span>
+                <span>−{sym}{couponDisc.toFixed(2)}</span>
               </div>
             )}
             {vatAmt > 0 && (
               <div className={`flex justify-between font-semibold ${order.vatInclusive ? "text-gray-400" : "text-orange-600"}`}>
                 <span>{order.vatInclusive ? `Incl. VAT (${vatRate}%)` : `VAT (${vatRate}%)`}</span>
-                <span>{order.vatInclusive ? `£${vatAmt.toFixed(2)}` : `+£${vatAmt.toFixed(2)}`}</span>
+                <span>{order.vatInclusive ? `${sym}${vatAmt.toFixed(2)}` : `+${sym}${vatAmt.toFixed(2)}`}</span>
+              </div>
+            )}
+            {storeCreditUsed > 0 && (
+              <div className="flex justify-between text-blue-600 font-semibold">
+                <span>Store credit applied</span>
+                <span>−{sym}{storeCreditUsed.toFixed(2)}</span>
+              </div>
+            )}
+            {giftCardUsed > 0 && (
+              <div className="flex justify-between text-purple-600 font-semibold">
+                <span>Gift card applied</span>
+                <span>−{sym}{giftCardUsed.toFixed(2)}</span>
               </div>
             )}
           </div>
@@ -499,7 +715,7 @@ function ReceiptModal({
           <div className="border-t border-dashed border-gray-300" />
 
           <div className="flex justify-between font-bold text-base">
-            <span>TOTAL</span><span>£{order.total.toFixed(2)}</span>
+            <span>TOTAL</span><span>{sym}{order.total.toFixed(2)}</span>
           </div>
           {vatAmt > 0 && order.vatInclusive && (
             <p className="text-[10px] text-gray-400 text-right">Prices include {vatRate}% VAT</p>
@@ -516,7 +732,7 @@ function ReceiptModal({
               <div className="flex justify-between">
                 <span className="text-gray-500">Status</span>
                 <span className={`font-semibold ${STATUS_CONFIG[order.status].className.split(" ").find((c) => c.startsWith("text-")) ?? "text-gray-900"}`}>
-                  {STATUS_CONFIG[order.status].label}
+                  {orderStatusLabel(order)}
                 </span>
               </div>
             </div>
@@ -550,13 +766,187 @@ function CustomerDrawer({
   onClose: () => void;
   onStatusChange: (cid: string, oid: string, status: OrderStatus) => void;
 }) {
-  const { settings } = useApp();
+  const router = useRouter();
+  const { settings, loadAllCustomers } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
   const [emailToast, setEmailToast] = useState<{ orderId: string; state: "sending" | "sent" | "error" } | null>(null);
 
+  // ── Bug #11 — POS-shared editable fields. Loyalty points + store credit
+  // are display-only (driven by the system); gift card balance is gone with
+  // the move to code-based gift cards. `tags` + `notes` are admin-editable
+  // and the values are visible at the till on the next customer-list refresh.
+  const [tags,       setTags]       = useState<string[]>(customer.tags ?? []);
+  const [customTag,  setCustomTag]  = useState("");
+  const [notes,      setNotes]      = useState<string>(customer.notes ?? "");
+  const [posSaving,  setPosSaving]  = useState(false);
+  const [posMessage, setPosMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+
+  function toggleTag(tag: string) {
+    setTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
+  }
+  function addCustomTag() {
+    const t = customTag.trim();
+    if (!t || tags.includes(t)) { setCustomTag(""); return; }
+    setTags((prev) => [...prev, t]);
+    setCustomTag("");
+  }
+
+  // ── Account management state ─────────────────────────────────────────────
+  // The "Deleted customer" pseudo-row (id "__deleted__") surfaces orphan
+  // orders for audit only; none of these controls apply to it.
+  const isDeletedRow = customer.id === "__deleted__";
+  const [active,           setActive]           = useState<boolean>(customer.active ?? true);
+  const [savingActive,     setSavingActive]     = useState(false);
+  const [actionToast,      setActionToast]      = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [editProfileOpen,  setEditProfileOpen]  = useState(false);
+  const [passwordOpen,     setPasswordOpen]     = useState(false);
+  const [deleteOpen,       setDeleteOpen]       = useState(false);
+  const [deleteConfirming, setDeleteConfirming] = useState(false);
+  const [resetSending,     setResetSending]     = useState(false);
+  const [activeOrders,     setActiveOrders]     = useState<{ id: string; status: string }[] | null>(null);
+  const toggleInFlight = useRef(false);
+  const deleteInFlight = useRef(false);
+  const resetInFlight  = useRef(false);
+
+  function flashToast(kind: "ok" | "error", text: string) {
+    setActionToast({ kind, text });
+    setTimeout(() => setActionToast(null), 3000);
+  }
+
+  async function savePosFields() {
+    setPosSaving(true);
+    setPosMessage(null);
+    try {
+      // Tags + notes are the editable fields from this panel — loyalty +
+      // store credit are display-only, gift cards are code-based. Both
+      // columns live on the customers row and are visible at the POS too.
+      const res = await fetch(`/api/admin/customers/${customer.id}`, {
+        method:  "PUT",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ tags, notes }),
+      });
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        setPosMessage({ kind: "error", text: json.error ?? "Failed to save" });
+      } else {
+        setPosMessage({ kind: "ok", text: "Saved" });
+        await loadAllCustomers();
+      }
+    } catch (err) {
+      setPosMessage({ kind: "error", text: err instanceof Error ? err.message : "Network error" });
+    }
+    setPosSaving(false);
+    setTimeout(() => setPosMessage(null), 2500);
+  }
+
+  // ── Toggle active ────────────────────────────────────────────────────────
+  async function toggleActive() {
+    if (toggleInFlight.current) return;
+    toggleInFlight.current = true;
+    setSavingActive(true);
+    // Optimistic update — revert on failure.
+    const next = !active;
+    setActive(next);
+    try {
+      const res = await fetch(`/api/admin/customers/${customer.id}`, {
+        method:  "PUT",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ active: next }),
+      });
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        setActive(!next);
+        flashToast("error", json.error ?? "Failed to update status.");
+      } else {
+        flashToast("ok", next ? "Account enabled." : "Account disabled.");
+        await loadAllCustomers();
+      }
+    } catch {
+      setActive(!next);
+      flashToast("error", "Connection error.");
+    } finally {
+      toggleInFlight.current = false;
+      setSavingActive(false);
+    }
+  }
+
+  // ── Send reset email ─────────────────────────────────────────────────────
+  async function sendResetEmail() {
+    if (resetInFlight.current) return;
+    if (!customer.email) { flashToast("error", "No email address on file."); return; }
+    resetInFlight.current = true;
+    setResetSending(true);
+    try {
+      const res = await fetch(`/api/admin/customers/${customer.id}/send-reset`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ email: customer.email }),
+      });
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        flashToast("error", json.error ?? "Failed to send reset email.");
+      } else {
+        flashToast("ok", `Reset link sent to ${customer.email}.`);
+      }
+    } catch {
+      flashToast("error", "Connection error.");
+    } finally {
+      resetInFlight.current = false;
+      setResetSending(false);
+    }
+  }
+
+  // ── Delete ───────────────────────────────────────────────────────────────
+  async function confirmDelete() {
+    if (deleteInFlight.current) return;
+    deleteInFlight.current = true;
+    setDeleteConfirming(true);
+    setActiveOrders(null);
+    try {
+      const res = await fetch(`/api/admin/customers/${customer.id}`, { method: "DELETE" });
+      const json = await res.json().catch(() => ({})) as {
+        ok?: boolean;
+        error?: string;
+        activeOrders?: { id: string; status: string }[];
+      };
+      if (json.ok) {
+        flashToast("ok", `${customer.name} deleted.`);
+        await loadAllCustomers();
+        setDeleteOpen(false);
+        onClose();
+      } else if (res.status === 409 && json.activeOrders?.length) {
+        // Swap the confirm dialog into the blocking active-orders view.
+        setActiveOrders(json.activeOrders);
+      } else {
+        flashToast("error", json.error ?? "Failed to delete.");
+      }
+    } catch {
+      flashToast("error", "Connection error.");
+    } finally {
+      deleteInFlight.current = false;
+      setDeleteConfirming(false);
+    }
+  }
+
+  function goToDelivery() {
+    setDeleteOpen(false);
+    setActiveOrders(null);
+    onClose();
+    router.push("/admin?tab=online-orders");
+  }
+
   const spent = totalSpent(customer);
-  const sortedOrders = [...customer.orders].sort((a, b) => b.date.localeCompare(a.date));
+  // All-channel history — online orders + in-person POS sales, newest first.
+  type HistoryEntry =
+    | { kind: "online"; date: string; order: Order }
+    | { kind: "pos"; date: string; sale: CustomerPosSale };
+  const historyItems: HistoryEntry[] = [
+    ...customer.orders.map((o): HistoryEntry => ({ kind: "online", date: o.date, order: o })),
+    ...(customer.posSales ?? []).map((s): HistoryEntry => ({ kind: "pos", date: s.date, sale: s })),
+  ].sort((a, b) => b.date.localeCompare(a.date));
+  const totalOrderCount = orderCount(customer);
 
   async function handleResendEmail(order: Order) {
     setEmailToast({ orderId: order.id, state: "sending" });
@@ -594,19 +984,24 @@ function CustomerDrawer({
       <div className="absolute right-0 top-0 bottom-0 w-full max-w-xl bg-white shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="px-6 py-5 border-b border-gray-100 flex items-start justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-400 to-red-400 flex items-center justify-center text-white text-xl font-bold shadow-lg">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white text-xl font-bold shadow-lg">
               {customer.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
             </div>
             <div>
               <h2 className="font-bold text-gray-900 text-lg">{customer.name}</h2>
-              <p className="text-sm text-gray-500">Customer since {fmtDate(customer.createdAt)}</p>
-              <div className="flex gap-1.5 mt-1">
+              <p className="text-[12px] sm:text-sm text-gray-500">Customer since {fmtDate(customer.createdAt)}</p>
+              <div className="flex gap-1.5 mt-1 flex-wrap">
                 {customer.tags.map((t) => (
                   <span key={t} className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${TAG_COLORS[t] ?? "bg-gray-100 text-gray-500"}`}>
                     {t}
                   </span>
                 ))}
+                {!isDeletedRow && !active && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full border font-medium bg-gray-100 text-gray-600 border-gray-200">
+                    Disabled
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -618,7 +1013,7 @@ function CustomerDrawer({
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto">
           {/* Contact + stats */}
-          <div className="px-6 py-4 grid grid-cols-2 gap-4 border-b border-gray-100">
+          <div className="px-6 py-4 grid grid-cols-1 sm:grid-cols-2 gap-4 border-b border-gray-100">
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm text-gray-600">
                 <Mail size={14} className="text-gray-400 flex-shrink-0" />
@@ -631,24 +1026,297 @@ function CustomerDrawer({
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="bg-orange-50 rounded-xl p-3 text-center">
-                <div className="text-xl font-bold text-orange-600">{customer.orders.length}</div>
+                <div className="text-lg md:text-xl font-bold text-orange-600">{totalOrderCount}</div>
                 <div className="text-[10px] text-orange-400 font-medium">Orders</div>
               </div>
               <div className="bg-green-50 rounded-xl p-3 text-center">
-                <div className="text-xl font-bold text-green-600">£{spent.toFixed(0)}</div>
+                <div className="text-lg md:text-xl font-bold text-green-600">{sym}{spent.toFixed(0)}</div>
                 <div className="text-[10px] text-green-500 font-medium">Spent</div>
               </div>
             </div>
           </div>
 
+          {/* ── Account actions ──────────────────────────────────────────────
+              Suppressed for the synthetic "__deleted__" pseudo-row that the
+              list endpoint emits to keep orphan orders visible. */}
+          {!isDeletedRow && (
+            <div className="px-6 py-4 border-b border-gray-100 space-y-3">
+              <h3 className="font-semibold text-gray-900 text-sm flex flex-wrap items-center gap-2">
+                <UserCog size={15} className="text-orange-500" />
+                Account
+                {actionToast && (
+                  <span className={`text-[11px] font-medium ml-auto px-2 py-0.5 rounded-full ${
+                    actionToast.kind === "ok"
+                      ? "bg-green-50 text-green-700 border border-green-200"
+                      : "bg-red-50 text-red-700 border border-red-200"
+                  }`}>
+                    {actionToast.text}
+                  </span>
+                )}
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {/* Edit profile */}
+                <button
+                  onClick={() => setEditProfileOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:text-blue-600 transition"
+                >
+                  <Pencil size={11} /> Edit Profile
+                </button>
+
+                {/* Active toggle */}
+                <button
+                  onClick={() => void toggleActive()}
+                  disabled={savingActive}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition disabled:opacity-60 ${
+                    active
+                      ? "bg-white text-gray-700 border-gray-200 hover:border-amber-300 hover:text-amber-600"
+                      : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
+                  }`}
+                  title={active ? "Disable login for this customer" : "Re-enable login"}
+                >
+                  {savingActive
+                    ? <Loader2 size={11} className="animate-spin" />
+                    : <ShieldCheck size={11} />}
+                  {active ? "Disable Account" : "Enable Account"}
+                </button>
+
+                {/* Change password */}
+                <button
+                  onClick={() => setPasswordOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-white text-gray-700 border-gray-200 hover:border-orange-300 hover:text-orange-600 transition"
+                >
+                  <Key size={11} /> Change Password
+                </button>
+
+                {/* Send reset email */}
+                <button
+                  onClick={() => void sendResetEmail()}
+                  disabled={resetSending || !customer.email}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-white text-gray-700 border-gray-200 hover:border-purple-300 hover:text-purple-600 transition disabled:opacity-50"
+                  title={customer.email ? "Email a one-time reset link" : "No email on file"}
+                >
+                  {resetSending
+                    ? <Loader2 size={11} className="animate-spin" />
+                    : <Send size={11} />}
+                  Send Password Reset Email
+                </button>
+
+                {/* Delete */}
+                <button
+                  onClick={() => setDeleteOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-white text-red-600 border-red-200 hover:bg-red-50 transition ml-auto"
+                >
+                  <Trash2 size={11} /> Delete
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Balances + notes (Bug #11) ──────────────────────────────────
+              Store credit + loyalty points are read-only — their balances
+              are driven by the system (refunds for store credit, future
+              order-completion accrual for loyalty), so a manual editor would
+              just create drift from the audit trail. Gift cards are now
+              code-based (Admin > Gift Cards) — the old account-bound balance
+              field was unused by the new flow and has been dropped. Notes
+              stay editable for staff dietary / preference jotting. */}
+          {!isDeletedRow && (
+          <div className="px-6 py-4 border-b border-gray-100 space-y-3">
+            <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+              <Award size={15} className="text-orange-500" />
+              Balances &amp; Notes
+              <span className="text-[10px] font-normal text-gray-400 ml-auto">shared with POS</span>
+            </h3>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-col sm:flex-row items-center justify-between bg-teal-50 border border-teal-100 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2 text-xs text-teal-700 min-w-0">
+                  <Gift size={13} className="text-teal-500 flex-shrink-0" />
+                  <span className="font-semibold">Store credit</span>
+                </div>
+                <span className="text-sm font-bold text-teal-700 tabular-nums flex-shrink-0">
+                  {sym}{(customer.storeCredit ?? 0).toFixed(2)}
+                </span>
+              </div>
+              <div className="flex flex-col sm:flex-row items-center justify-between bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2 text-xs text-amber-700 min-w-0">
+                  <Award size={13} className="text-amber-500 flex-shrink-0" />
+                  <span className="font-semibold truncate">Loyalty points</span>
+                </div>
+                <span className="text-sm font-bold text-amber-700 tabular-nums flex-shrink-0">
+                  {(customer.loyaltyPoints ?? 0).toLocaleString()}
+                </span>
+              </div>
+            </div>
+
+            {/* Tags — preset toggles + custom add. Mirrors the POS CustomersView
+                vocabulary so a tag added at the till is recognised here, and
+                vice versa. */}
+            <div>
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide flex items-center gap-1">Tags</label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {PRESET_TAGS.map((t) => {
+                  const active = tags.includes(t);
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => toggleTag(t)}
+                      className={`text-[11px] px-2.5 py-1 rounded-full border font-medium transition ${
+                        active
+                          ? (TAG_COLORS[t] ?? "bg-orange-500 text-white border-orange-500")
+                          : "bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-300"
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Custom tag input */}
+              <div className="flex gap-2 mb-2">
+                <input
+                  type="text"
+                  value={customTag}
+                  onChange={(e) => setCustomTag(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustomTag(); } }}
+                  placeholder="Custom tag…"
+                  className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-800 placeholder-gray-400 outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition"
+                />
+                <button
+                  type="button"
+                  onClick={addCustomTag}
+                  disabled={!customTag.trim()}
+                  className="px-3 rounded-lg bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 text-white text-xs font-semibold transition"
+                >
+                  Add
+                </button>
+              </div>
+              {/* Active custom tags — non-preset chips with remove */}
+              {tags.filter((t) => !PRESET_TAGS.includes(t)).length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {tags.filter((t) => !PRESET_TAGS.includes(t)).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => toggleTag(t)}
+                      title="Remove tag"
+                      className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full border font-medium bg-gray-100 text-gray-700 border-gray-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition"
+                    >
+                      {t} <X size={10} />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="text-xs text-gray-500 mb-1 flex items-center gap-1"><FileText size={11} /> Notes</label>
+              <textarea
+                rows={2}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Dietary requirements, preferences, allergies…"
+                className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent resize-none"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={savePosFields}
+                disabled={posSaving}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-orange-500 hover:bg-orange-600 text-white transition disabled:opacity-50"
+              >
+                <Save size={12} /> {posSaving ? "Saving…" : "Save tags & notes"}
+              </button>
+              {posMessage && (
+                <span className={`text-xs ${posMessage.kind === "ok" ? "text-green-600" : "text-red-600"}`}>
+                  {posMessage.text}
+                </span>
+              )}
+            </div>
+          </div>
+          )}
+
           {/* Order history */}
           <div className="px-6 py-4">
             <h3 className="font-semibold text-gray-900 text-sm mb-4 flex items-center gap-2">
               <ShoppingBag size={15} className="text-orange-500" />
-              Order history ({customer.orders.length})
+              Order history ({totalOrderCount})
             </h3>
             <div className="space-y-3">
-              {sortedOrders.map((order) => {
+              {historyItems.map((entry) => {
+                // In-person POS sale — rendered as a compact, distinct card
+                // (no online-only actions like status flow / delivery / email).
+                if (entry.kind === "pos") {
+                  const sale = entry.sale;
+                  const isExpanded = expandedOrder === sale.id;
+                  const posBadge = sale.voided
+                    ? { label: "Voided",    className: "bg-red-50 text-red-700 border-red-200",   icon: <Ban size={11} className="text-red-500" /> }
+                    : (sale.refundAmount ?? 0) > 0
+                    ? { label: "Refunded",  className: "bg-teal-50 text-teal-700 border-teal-200", icon: <RotateCcw size={11} className="text-teal-600" /> }
+                    : { label: "Completed", className: "bg-green-50 text-green-700 border-green-200", icon: <CheckCircle2 size={11} className="text-green-600" /> };
+                  return (
+                    <div key={sale.id} className="border border-gray-100 rounded-xl overflow-hidden">
+                      <button
+                        onClick={() => setExpandedOrder(isExpanded ? null : sale.id)}
+                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition"
+                      >
+                        <div className="flex-1 text-left">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-mono text-gray-400 truncate max-w-[140px]">{sale.receiptNo ?? sale.id}</span>
+                            <span className={`flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${posBadge.className}`}>
+                              {posBadge.icon} {posBadge.label}
+                            </span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-indigo-50 text-indigo-600 border border-indigo-100">
+                              🏪 In-store
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1 mt-2">
+                            <span className="text-xs text-gray-500 flex items-center gap-1 mr-2">
+                              <Clock size={10} className="flex-shrink-0" /> {fmtDate(sale.date)} at {fmtTime(sale.date)}
+                            </span>
+                            {sale.tableNumber != null && (
+                              <span className="text-xs text-gray-500 mr-2">Table {sale.tableNumber}</span>
+                            )}
+                            <span className="font-bold text-gray-900 text-sm">{sym}{sale.total.toFixed(2)}</span>
+                          </div>
+                        </div>
+                        <ChevronRight size={15} className={`text-gray-400 flex-shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                      </button>
+
+                      {isExpanded && (
+                        <div className="border-t border-gray-100 px-4 py-4 bg-gray-50/60 space-y-4">
+                          <div>
+                            <p className="text-xs font-semibold text-gray-500 mb-2">Items</p>
+                            <div className="space-y-1">
+                              {sale.items.map((line, idx) => (
+                                <div key={idx} className="flex justify-between text-sm">
+                                  <span className="text-gray-700">{line.qty}× {line.name}</span>
+                                  <span className="text-gray-900 font-medium">{sym}{(line.price * line.qty).toFixed(2)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                            {sale.paymentMethod && <span>Paid by <span className="font-medium text-gray-700 capitalize">{sale.paymentMethod.replace("_", " ")}</span></span>}
+                            {sale.staffName && <span>Served by <span className="font-medium text-gray-700">{sale.staffName}</span></span>}
+                          </div>
+                          {(sale.refundAmount ?? 0) > 0 && (
+                            <div className="bg-teal-50 border border-teal-100 rounded-lg px-3 py-2 text-xs text-teal-700">
+                              Refunded {sym}{(sale.refundAmount ?? 0).toFixed(2)}
+                            </div>
+                          )}
+                          {sale.voided && (
+                            <div className="bg-red-50 border border-red-100 rounded-lg px-3 py-2 text-xs text-red-700">
+                              Voided{sale.voidReason ? ` — ${sale.voidReason}` : ""}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                const order = entry.order;
                 const isExpanded = expandedOrder === order.id;
                 const cfg = STATUS_CONFIG[order.status];
                 return (
@@ -660,9 +1328,9 @@ function CustomerDrawer({
                     >
                       <div className="flex-1 text-left">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-mono text-gray-400">#{order.id.slice(-6).toUpperCase()}</span>
+                          <span title={fullOrderNumber(order.id)} className="text-xs font-mono text-gray-400 truncate max-w-[140px]">{fullOrderNumber(order.id)}</span>
                           <span className={`flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${cfg.className}`}>
-                            {cfg.icon} {cfg.label}
+                            {cfg.icon} {orderStatusLabel(order)}
                           </span>
                           <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
                             order.fulfillment === "delivery"
@@ -672,11 +1340,11 @@ function CustomerDrawer({
                             {order.fulfillment === "delivery" ? "🚚 Delivery" : "🏪 Collection"}
                           </span>
                         </div>
-                        <div className="flex items-center gap-3 mt-1">
-                          <span className="text-xs text-gray-500 flex items-center gap-1">
-                            <Clock size={10} /> {fmtDate(order.date)} at {fmtTime(order.date)}
+                        <div className="flex flex-wrap items-center gap-1 mt-2">
+                          <span className="text-xs text-gray-500 flex items-center gap-1 mr-2">
+                            <Clock size={10} className="flex-shrink-0" /> {fmtDate(order.date)} at {fmtTime(order.date)}
                           </span>
-                          <span className="font-bold text-gray-900 text-sm">£{order.total.toFixed(2)}</span>
+                          <span className="font-bold text-gray-900 text-sm">{sym}{order.total.toFixed(2)}</span>
                         </div>
                       </div>
                       <ChevronRight size={15} className={`text-gray-400 flex-shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
@@ -692,7 +1360,7 @@ function CustomerDrawer({
                             {order.items.map((line, idx) => (
                               <div key={idx} className="flex justify-between text-sm">
                                 <span className="text-gray-700">{line.qty}× {line.name}</span>
-                                <span className="text-gray-900 font-medium">£{(line.price * line.qty).toFixed(2)}</span>
+                                <span className="text-gray-900 font-medium">{sym}{(line.price * line.qty).toFixed(2)}</span>
                               </div>
                             ))}
                           </div>
@@ -821,6 +1489,316 @@ function CustomerDrawer({
           onClose={() => setReceiptOrder(null)}
         />
       )}
+
+      {/* Edit profile modal */}
+      {editProfileOpen && (
+        <EditProfileModal
+          customer={customer}
+          onClose={() => setEditProfileOpen(false)}
+          onSaved={async () => {
+            await loadAllCustomers();
+            flashToast("ok", "Profile updated.");
+            setEditProfileOpen(false);
+            onClose();
+          }}
+          onError={(msg) => flashToast("error", msg)}
+        />
+      )}
+
+      {/* Change password modal */}
+      {passwordOpen && (
+        <ChangePasswordModal
+          customer={customer}
+          onClose={() => setPasswordOpen(false)}
+          onSaved={() => {
+            flashToast("ok", "Password updated.");
+            setPasswordOpen(false);
+          }}
+          onError={(msg) => flashToast("error", msg)}
+        />
+      )}
+
+      {/* Delete confirmation / active-orders block */}
+      {deleteOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl p-5 sm:p-6 max-w-sm w-full border border-gray-100">
+            {activeOrders ? (
+              <>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
+                    <AlertTriangle size={18} className="text-amber-500" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900">Cannot delete customer</h3>
+                    <p className="text-xs text-gray-500">Active orders must be resolved first.</p>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-700 mb-3">
+                  <strong>{customer.name}</strong> has {activeOrders.length} active order{activeOrders.length === 1 ? "" : "s"}.
+                  Cancel or complete {activeOrders.length === 1 ? "it" : "them"} before deleting.
+                </p>
+                <div className="bg-gray-50 border border-gray-100 rounded-xl divide-y divide-gray-100 mb-5 max-h-48 overflow-y-auto">
+                  {activeOrders.map((o) => (
+                    <div key={o.id} className="flex items-center justify-between px-3 py-2 text-xs">
+                      <span className="font-mono text-gray-800 truncate">#{o.id}</span>
+                      <span className="inline-flex items-center font-bold uppercase tracking-wide text-amber-700 bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-full">
+                        {o.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setDeleteOpen(false); setActiveOrders(null); }}
+                    className="flex px-6 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition items-center"
+                  >
+                    Close
+                  </button>
+                  <button
+                    onClick={goToDelivery}
+                    className="flex-1 px-2 sm:px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold transition flex items-center justify-center gap-1.5"
+                  >
+                    Go to Online Orders <ExternalLink size={13} className="flex-shrink-0" />
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center">
+                    <Trash2 size={18} className="text-red-500" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900">Delete customer</h3>
+                    <p className="text-xs text-gray-500">This action cannot be undone.</p>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-700 mb-5">
+                  Are you sure you want to delete <strong>{customer.name}</strong>?
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setDeleteOpen(false)}
+                    className="flex-1 px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => void confirmDelete()}
+                    disabled={deleteConfirming}
+                    className="flex-1 px-4 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition disabled:opacity-60"
+                  >
+                    {deleteConfirming ? <Loader2 size={15} className="animate-spin mx-auto" /> : "Delete"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── EditProfileModal ─────────────────────────────────────────────────────────
+
+function EditProfileModal({
+  customer, onClose, onSaved, onError,
+}: {
+  customer: Customer;
+  onClose: () => void;
+  onSaved: () => void | Promise<void>;
+  onError: (msg: string) => void;
+}) {
+  const [name,    setName]    = useState(customer.name);
+  const [email,   setEmail]   = useState(customer.email);
+  const [phone,   setPhone]   = useState(customer.phone ?? "");
+  const [errors,  setErrors]  = useState<Record<string, string>>({});
+  const [saving,  setSaving]  = useState(false);
+  const inFlight = useRef(false);
+
+  function validate(): boolean {
+    const e: Record<string, string> = {};
+    if (!name.trim())  e.name  = "Name is required.";
+    if (!email.trim()) e.email = "Email is required.";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  }
+
+  async function handleSubmit(ev: React.FormEvent) {
+    ev.preventDefault();
+    if (inFlight.current) return;
+    if (!validate()) return;
+    inFlight.current = true;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/customers/${customer.id}`, {
+        method:  "PUT",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ name, email, phone }),
+      });
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        onError(json.error ?? "Failed to update profile.");
+      } else {
+        await onSaved();
+      }
+    } catch {
+      onError("Connection error.");
+    } finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-100">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <h3 className="font-bold text-gray-900 text-base">Edit profile</h3>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
+            <X size={16} />
+          </button>
+        </div>
+        <form onSubmit={(e) => void handleSubmit(e)} className="px-6 py-5 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className={`w-full bg-gray-50 border rounded-xl px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition ${errors.name ? "border-red-300 bg-red-50" : "border-gray-200"}`}
+            />
+            {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className={`w-full bg-gray-50 border rounded-xl px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition ${errors.email ? "border-red-300 bg-red-50" : "border-gray-200"}`}
+            />
+            {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email}</p>}
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Phone</label>
+            <input
+              type="tel"
+              inputMode="tel"
+              autoComplete="off"
+              value={phone}
+              onChange={(e) => setPhone(cleanPhone(e.target.value))}
+              placeholder="+44 7700 900000"
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
+            />
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">
+              Cancel
+            </button>
+            <button type="submit" disabled={saving} className="flex-1 px-4 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold transition disabled:opacity-60 flex items-center justify-center gap-2">
+              {saving && <Loader2 size={14} className="animate-spin" />}
+              Save Changes
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── ChangePasswordModal ──────────────────────────────────────────────────────
+
+function ChangePasswordModal({
+  customer, onClose, onSaved, onError,
+}: {
+  customer: Customer;
+  onClose: () => void;
+  onSaved: () => void;
+  onError: (msg: string) => void;
+}) {
+  const [value,   setValue]   = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error,   setError]   = useState("");
+  const [saving,  setSaving]  = useState(false);
+  const inFlight = useRef(false);
+
+  async function handleSubmit(ev: React.FormEvent) {
+    ev.preventDefault();
+    if (inFlight.current) return;
+    setError("");
+    if (value.length < 6)  { setError("Password must be at least 6 characters."); return; }
+    if (value !== confirm) { setError("Passwords do not match."); return; }
+    inFlight.current = true;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/customers/${customer.id}/set-password`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ password: value }),
+      });
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        const msg = json.error ?? "Failed to update password.";
+        setError(msg);
+        onError(msg);
+      } else {
+        onSaved();
+      }
+    } catch {
+      setError("Connection error.");
+      onError("Connection error.");
+    } finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-100">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <h3 className="font-bold text-gray-900 text-base">Change password</h3>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
+            <X size={16} />
+          </button>
+        </div>
+        <form onSubmit={(e) => void handleSubmit(e)} className="px-6 py-5 space-y-4">
+          <p className="text-sm text-gray-600">Set a new password for {customer.name}.</p>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">New password</label>
+            <input
+              type="password"
+              autoFocus
+              value={value}
+              onChange={(e) => { setValue(e.target.value); setError(""); }}
+              placeholder="Min 6 characters"
+              className={`w-full bg-gray-50 border rounded-xl px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition ${error ? "border-red-300 bg-red-50" : "border-gray-200"}`}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Confirm password</label>
+            <input
+              type="password"
+              value={confirm}
+              onChange={(e) => { setConfirm(e.target.value); setError(""); }}
+              placeholder="Repeat new password"
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
+            />
+            {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">
+              Cancel
+            </button>
+            <button type="submit" disabled={saving} className="flex-1 px-4 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold transition disabled:opacity-60 flex items-center justify-center gap-2">
+              {saving && <Loader2 size={14} className="animate-spin" />}
+              Update Password
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

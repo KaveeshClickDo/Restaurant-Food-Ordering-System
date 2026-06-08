@@ -2,32 +2,65 @@
 
 import { useApp } from "@/context/AppContext";
 import { resolveStock } from "@/lib/stockUtils";
-import { Heart, UtensilsCrossed, Plus, Search, LayoutDashboard, LogOut } from "lucide-react";
+import { isOnChannel, effectiveMenuPrice, getOfferUnitPrice } from "@/lib/menuOfferUtils";
+import { isMealPeriodActive, nextActivationLabel } from "@/lib/scheduleUtils";
+import { Heart, UtensilsCrossed, Plus, Search, LayoutDashboard, LogOut, Clock } from "lucide-react";
 import AuthModal from "@/components/AuthModal";
 import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { MenuItem } from "@/types";
 import { useRouter } from "next/navigation";
-import CartPanel from "@/components/CartPanel";
+import Cart from "@/components/Cart";
 import MobileBottomNav from "@/components/MobileBottomNav";
 
 export default function FavouritesPage() {
     const router = useRouter();
     const [search, setSearch] = useState("");
     const [showMobileCart, setShowMobileCart] = useState(false);
-    const { currentUser, menuItems, settings, isOpen, toggleFavourite, logout } = useApp();
+    const { currentUser, menuItems, mealPeriods, settings, isOpen, toggleFavourite, logout } = useApp();
+    const sym = settings.currency?.symbol ?? "£";
     const [authModal, setAuthModal] = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
     const [openItem, setOpenItem] = useState<MenuItem | null>(null);
     const [userMenuOpen, setUserMenuOpen] = useState(false);
 
+    // Tick to re-evaluate "is this item's meal period active?" every 30s
+    // so favourites flip from greyed-out → orderable as windows open.
+    const [nowTick, setNowTick] = useState(0);
+    useEffect(() => {
+      const t = setInterval(() => setNowTick((n) => n + 1), 30_000);
+      return () => clearInterval(t);
+    }, []);
+    void nowTick;
+
     const favIds = new Set(currentUser?.favourites ?? []);
+    // Bug #23 — keep favourited items visible even when admin has disabled
+    // the online channel for them; just disable ordering and show a clear
+    // "Not available online" badge instead of silently removing the card.
+    // Items deleted from the menu naturally drop out (favIds.has won't match
+    // any row in menuItems).
     const favItems = menuItems.filter((m) => favIds.has(m.id));
+
+    // For each favourited item, figure out if it's currently orderable based
+    // on its meal-period tags. Items with no tags are always orderable.
+    function mealPeriodAvailability(item: MenuItem): { orderable: boolean; label: string | null } {
+      const tags = item.mealPeriodIds ?? [];
+      if (tags.length === 0) return { orderable: true, label: null };
+      const tagged = mealPeriods.filter((p) => tags.includes(p.id));
+      if (tagged.some((p) => isMealPeriodActive(p))) return { orderable: true, label: null };
+      // Build "Available 07:00–11:30" or "Available from tomorrow 07:00" hint.
+      const enabledTagged = tagged.filter((p) => p.enabled);
+      if (enabledTagged.length === 0) return { orderable: false, label: "Currently unavailable" };
+      const next = enabledTagged
+        .map((p) => ({ p, label: nextActivationLabel(p) }))
+        .filter((x) => x.label)[0];
+      return { orderable: false, label: next ? `Available ${next.label}` : "Currently unavailable" };
+    }
 
     return (
         <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: 'var(--brand-bg, #FAFAF9)' }}>
 
-            
+
             {/* ── Main content area ─────────────────────────────────────────────── */}
             <div className="flex-1 flex flex-col min-w-0 h-full">
                 {/* Top search header */}
@@ -102,7 +135,7 @@ export default function FavouritesPage() {
 
 
                 {/* Scrollable content */}
-                <div className="flex-1 overflow-y-auto pb-28 lg:pb-8">
+                <div className="flex-1 overflow-y-auto pb-15">
                     <div className="flex flex-col px-4 sm:px-6 py-6">
                         <div className="flex items-center justify-between mb-1">
                             <h2 className="font-semibold text-[22px] text-zinc-900 tracking-tight">Favourites</h2>
@@ -144,15 +177,30 @@ export default function FavouritesPage() {
                                 {favItems.map((item) => {
                                     const stockStatus = resolveStock(item);
                                     const outOfStock = stockStatus === "out_of_stock";
-                                    const canAdd = (isOpen || !!settings.restaurant) && !outOfStock;
+                                    const mp = mealPeriodAvailability(item);
+                                    // Item exists but admin has removed the online channel — keep
+                                    // it on the list so the customer doesn't silently lose their
+                                    // saved favourite, but block ordering until it's re-enabled.
+                                    const offlineOnly = !isOnChannel(item, "online");
+                                    // Stock check wins if both apply; meal-period
+                                    // unavailability shows the time hint instead.
+                                    const dimmed = outOfStock || !mp.orderable || offlineOnly;
+                                    const canAdd = (isOpen || !!settings.restaurant) && !outOfStock && mp.orderable && !offlineOnly;
+                                    const buttonLabel = outOfStock
+                                      ? "Unavailable"
+                                      : offlineOnly
+                                        ? "Not available online"
+                                        : !mp.orderable
+                                          ? (mp.label ?? "Currently unavailable")
+                                          : "Add to order";
                                     return (
-                                        <div key={item.id} className="bg-white rounded-2xl border border-zinc-200/70 shadow-sm overflow-hidden group">
+                                        <div key={item.id} className="bg-white rounded-2xl border border-zinc-200/70 shadow-sm overflow-hidden group flex flex-col">
                                             {/* Image */}
-                                            <div className="relative h-[160px] bg-orange-50 overflow-hidden">
+                                            <div className="relative h-[160px] bg-orange-50 overflow-hidden flex-shrink-0">
                                                 {item.image ? (
                                                     /* eslint-disable-next-line @next/next/no-img-element */
                                                     <img src={item.image} alt={item.name}
-                                                        className={`absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03] ${outOfStock ? "grayscale opacity-50" : ""}`}
+                                                        className={`absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03] ${dimmed ? "grayscale opacity-50" : ""}`}
                                                     />
                                                 ) : (
                                                     <div className="w-full h-full flex items-center justify-center">
@@ -167,24 +215,43 @@ export default function FavouritesPage() {
                                                 >
                                                     <Heart className="w-3.5 h-3.5" strokeWidth={2} fill="currentColor" />
                                                 </button>
+                                                {!outOfStock && !mp.orderable && mp.label && (
+                                                    <span className="absolute bottom-2.5 left-2.5 flex items-center gap-1 bg-white/95 backdrop-blur-sm text-amber-700 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-amber-200 shadow-sm">
+                                                        <Clock className="w-3 h-3" /> {mp.label}
+                                                    </span>
+                                                )}
+                                                {!outOfStock && offlineOnly && (
+                                                    <span className="absolute bottom-2.5 left-2.5 flex items-center gap-1 bg-white/95 backdrop-blur-sm text-zinc-600 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-zinc-200 shadow-sm">
+                                                        Not available online
+                                                    </span>
+                                                )}
                                             </div>
                                             {/* Body */}
-                                            <div className="p-4">
-                                                <div className="flex items-start justify-between gap-2 mb-1">
-                                                    <h3 className="font-medium text-[15px] leading-snug text-zinc-900">{item.name}</h3>
-                                                    <span className="font-semibold text-[15px] text-zinc-900 tabular-nums flex-shrink-0">£{item.price.toFixed(2)}</span>
+                                            <div className="p-4 flex-1 flex flex-col">
+                                                <div className="flex flex-col flex-1">
+                                                    <div className="flex items-start justify-between gap-2 mb-1">
+                                                        <h3 className="font-medium text-[15px] leading-snug text-zinc-900">{item.name}</h3>
+                                                        {getOfferUnitPrice(item) !== null ? (
+                                                            <span className="flex-shrink-0 tabular-nums text-right">
+                                                                <span className="font-semibold text-[15px] text-orange-600">{sym}{getOfferUnitPrice(item)!.toFixed(2)}</span>
+                                                                <span className="block text-[11px] text-zinc-400 line-through">{sym}{effectiveMenuPrice(item).toFixed(2)}</span>
+                                                            </span>
+                                                        ) : (
+                                                            <span className="font-semibold text-[15px] text-zinc-900 tabular-nums flex-shrink-0">{sym}{effectiveMenuPrice(item).toFixed(2)}</span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-[12.5px] text-zinc-500 leading-snug line-clamp-2 mb-3">{item.description}</p>
                                                 </div>
-                                                <p className="text-[12.5px] text-zinc-500 leading-snug line-clamp-2 mb-3">{item.description}</p>
                                                 <button
                                                     disabled={!canAdd}
                                                     onClick={() => setOpenItem(item)}
-                                                    className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[13px] font-semibold transition-all active:scale-[0.98] ${canAdd
+                                                    className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[13px] font-semibold transition-all mt-auto active:scale-[0.98] ${canAdd
                                                         ? "bg-orange-500 hover:bg-orange-600 text-white"
                                                         : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
                                                         }`}
                                                 >
-                                                    <Plus className="w-4 h-4" strokeWidth={2.5} />
-                                                    {outOfStock ? "Unavailable" : "Add to order"}
+                                                    {canAdd && <Plus className="w-4 h-4" strokeWidth={2.5} />}
+                                                    {buttonLabel}
                                                 </button>
                                             </div>
                                         </div>
@@ -193,7 +260,7 @@ export default function FavouritesPage() {
                             </div>
                         )}
                     </div>
-                
+
                 </div>
             </div>
 
@@ -208,7 +275,7 @@ export default function FavouritesPage() {
                 <div className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end">
                     <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowMobileCart(false)} />
                     <div className="relative bg-white rounded-t-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-xl">
-                        <CartPanel
+                        <Cart
                             onMobileClose={() => setShowMobileCart(false)}
                             onOrderPlaced={() => { setShowMobileCart(false); router.push('/my-orders'); }}
                         />
@@ -228,5 +295,6 @@ export default function FavouritesPage() {
             )}
 
         </div>
+       
     );
 }

@@ -1,94 +1,132 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useApp } from "@/context/AppContext";
-import { Trash2, Plus, Minus, ShoppingCart, ChevronRight, CalendarDays, X } from "lucide-react";
+import {
+  ShoppingBag, Trash2, X, Minus, Plus, CalendarDays, ChevronRight, AlertTriangle,
+} from "lucide-react";
+import AuthModal from "@/components/AuthModal";
+import CheckoutModal from "@/components/CheckoutModal";
+import ScheduleOrderModal from "@/components/ScheduleOrderModal";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { computeTax, taxSurcharge } from "@/lib/taxUtils";
-import { useState } from "react";
-import CheckoutModal from "./CheckoutModal";
-import ScheduleOrderModal from "./ScheduleOrderModal";
+import { cartLineTotal } from "@/lib/menuOfferUtils";
+import { isMealPeriodActive } from "@/lib/scheduleUtils";
 
-export default function Cart() {
-  const { cart, updateQty, clearCart, cartTotal, settings, fulfillment, isOpen, scheduledTime, setScheduledTime } = useApp();
+interface CartProps {
+  onMobileClose?: () => void;
+  onOrderPlaced?: () => void;
+}
+
+export default function Cart({ onMobileClose, onOrderPlaced }: CartProps) {
+  const { cart, updateQty, clearCart, cartTotal, menuItems, mealPeriods, settings, fulfillment, isOpen, scheduledTime, setScheduledTime, currentUser } = useApp();
   const [showCheckout, setShowCheckout] = useState(false);
+  const [showAuth,     setShowAuth]     = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+
+  // Tick every 30s so meal-period orderability re-evaluates as windows roll over.
+  const [, setNowTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setNowTick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Lines whose item is currently outside its meal-period window.
+  // Anytime items (no tags) and items missing from the catalogue are skipped.
+  const activeMealPeriodIds = new Set(
+    mealPeriods.filter((p) => isMealPeriodActive(p)).map((p) => p.id),
+  );
+  const blockedLines = cart.filter((line) => {
+    const item = menuItems.find((m) => m.id === line.menuItemId);
+    if (!item) return false;
+    const tags = item.mealPeriodIds ?? [];
+    if (tags.length === 0) return false;
+    return !tags.some((id) => activeMealPeriodIds.has(id));
+  });
+  const hasBlockedLines = blockedLines.length > 0;
 
   const { minOrder, deliveryFee, serviceFee } = settings.restaurant;
+  const sym = settings.currency?.symbol ?? "£";
   const delivery   = fulfillment === "delivery" ? deliveryFee : 0;
   const service    = cartTotal * (serviceFee / 100);
   const tax        = computeTax(cartTotal, settings);
   const grandTotal = cartTotal + delivery + service + taxSurcharge(tax);
-  const shortfall = minOrder - cartTotal;
-  // Allow checkout when: min order met AND (store is open OR a future slot is scheduled)
-  const canCheckout = cartTotal >= minOrder && cart.length > 0 && (isOpen || !!scheduledTime);
+  const shortfall  = minOrder - cartTotal;
+  const canCheckout = cartTotal >= minOrder && cart.length > 0 && (isOpen || !!scheduledTime) && !hasBlockedLines;
 
   return (
     <>
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
+      <div className="flex flex-col h-full bg-white w-full">
         {/* Header */}
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <ShoppingCart size={18} className="text-orange-500" />
-            <h2 className="font-bold text-gray-900">Your order</h2>
+        <div className="px-5 py-4 border-b border-zinc-100 flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-2.5">
+            <ShoppingBag className="w-[17px] h-[17px] text-zinc-700" strokeWidth={1.6} />
+            <h2 className="font-semibold text-[14.5px] text-zinc-900 tracking-tight">Your order</h2>
+            {cart.length > 0 && (
+              <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center tabular-nums">
+                {cart.reduce((s, i) => s + i.quantity, 0)}
+              </span>
+            )}
           </div>
-          {cart.length > 0 && (
-            <button
-              onClick={clearCart}
-              className="text-xs text-gray-400 hover:text-red-500 transition flex items-center gap-1"
-            >
-              <Trash2 size={12} />
-              Clear
-            </button>
-          )}
+          <div className="flex items-center gap-1">
+            {cart.length > 0 && (
+              <button onClick={() => setShowClearConfirm(true)} className="p-1.5 rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Clear cart">
+                <Trash2 className="w-3.5 h-3.5" strokeWidth={1.8} />
+              </button>
+            )}
+            {onMobileClose && (
+              <button onClick={onMobileClose} className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors lg:hidden">
+                <X className="w-3.5 h-3.5" strokeWidth={2} />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Items */}
         <div className="flex-1 overflow-y-auto">
           {cart.length === 0 ? (
-            <div className="text-center py-10 px-4">
-              <ShoppingCart size={36} className="mx-auto text-gray-200 mb-3" />
-              <p className="text-sm font-medium text-gray-400">Your basket is empty</p>
-              <p className="text-xs text-gray-300 mt-1">Add some delicious items!</p>
+            <div className="flex flex-col items-center justify-center h-full py-14 px-5 text-center">
+              <ShoppingBag className="w-10 h-10 text-zinc-200 mb-3" strokeWidth={1.2} />
+              <p className="text-[13.5px] font-medium text-zinc-400">Your basket is empty</p>
+              <p className="text-[12px] text-zinc-300 mt-1">Add items to get started</p>
+              {!isOpen && !scheduledTime && (
+                <button
+                  onClick={() => setShowSchedule(true)}
+                  className="mt-5 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-orange-50 border border-orange-200 hover:bg-orange-100 text-orange-700 text-[12.5px] font-semibold transition-all"
+                >
+                  <CalendarDays className="w-3.5 h-3.5" strokeWidth={1.8} />
+                  Order for later
+                </button>
+              )}
             </div>
           ) : (
-            <ul className="divide-y divide-gray-50">
+            <ul>
               {cart.map((item) => (
-                <li key={item.id} className="px-5 py-3 flex items-start gap-3">
+                <li key={item.id} className="px-5 py-3.5 flex items-start gap-3 border-b border-zinc-50">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 leading-snug">{item.name}</p>
+                    <p className="text-[13.5px] font-semibold text-zinc-900 leading-snug">{item.name}</p>
                     {item.selectedAddOns && item.selectedAddOns.length > 0 && (
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        + {item.selectedAddOns.map((a) => a.name).join(", ")}
-                      </p>
+                      <p className="text-[11.5px] text-zinc-400 mt-0.5">+ {item.selectedAddOns.map((a) => a.name).join(", ")}</p>
                     )}
                     {item.specialInstructions && (
-                      <p className="text-xs text-orange-500 mt-0.5 italic">
-                        &ldquo;{item.specialInstructions}&rdquo;
-                      </p>
+                      <p className="text-[11.5px] text-zinc-500 mt-0.5 italic">&ldquo;{item.specialInstructions}&rdquo;</p>
                     )}
-                    <p className="text-xs text-gray-500 mt-1">£{item.price.toFixed(2)} each</p>
+                    <p className="text-[12px] text-zinc-400 mt-1">{sym}{item.price.toFixed(2)} each</p>
                   </div>
-
-                  {/* Qty controls */}
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <button
-                      onClick={() => updateQty(item.id, item.quantity - 1)}
-                      className="w-8 h-8 rounded-full border border-gray-200 flex items-center justify-center hover:border-red-300 hover:text-red-500 active:bg-red-50 transition"
-                    >
-                      <Minus size={13} />
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <button onClick={() => updateQty(item.id, item.quantity - 1)}
+                      className="w-7 h-7 rounded-full border border-zinc-200 flex items-center justify-center text-zinc-500 hover:border-zinc-400 hover:text-zinc-800 transition-colors">
+                      <Minus className="w-3 h-3" strokeWidth={2} />
                     </button>
-                    <span className="text-sm font-bold text-gray-900 w-4 text-center">
-                      {item.quantity}
-                    </span>
-                    <button
-                      onClick={() => updateQty(item.id, item.quantity + 1)}
-                      className="w-8 h-8 rounded-full border border-orange-300 text-orange-500 flex items-center justify-center hover:bg-orange-500 hover:text-white active:bg-orange-600 active:text-white transition"
-                    >
-                      <Plus size={13} />
+                    <span className="text-[11px] font-bold text-zinc-900 w-6 text-center tabular-nums">{item.quantity}</span>
+                    <button onClick={() => updateQty(item.id, item.quantity + 1)}
+                      className="w-7 h-7 rounded-full border border-zinc-200 flex items-center justify-center text-zinc-500 hover:border-orange-500 hover:bg-orange-500 hover:text-white transition-colors">
+                      <Plus className="w-3 h-3" strokeWidth={2} />
                     </button>
                   </div>
-
-                  <span className="text-sm font-bold text-gray-900 flex-shrink-0 w-14 text-right">
-                    £{(item.price * item.quantity).toFixed(2)}
+                  <span className="text-[13px] font-bold text-zinc-900 flex-shrink-0 whitespace-nowrap text-right tabular-nums">
+                    {sym}{cartLineTotal(item).toFixed(2)}
                   </span>
                 </li>
               ))}
@@ -96,116 +134,158 @@ export default function Cart() {
           )}
         </div>
 
-        {/* Totals */}
+        {/* Totals + actions */}
         {cart.length > 0 && (
-          <div className="px-5 py-4 border-t border-gray-100 space-y-2">
-            <div className="flex justify-between text-sm text-gray-600">
-              <span>Subtotal</span>
-              <span>£{cartTotal.toFixed(2)}</span>
+          <div className="flex-shrink-0 border-t border-zinc-100">
+            <div className="px-5 py-4 space-y-2">
+              <div className="flex justify-between text-[13px] text-zinc-500">
+                <span>Subtotal</span><span className="tabular-nums">{sym}{cartTotal.toFixed(2)}</span>
+              </div>
+              {fulfillment === "delivery" && delivery > 0 && (
+                <div className="flex justify-between text-[13px] text-zinc-500">
+                  <span>Delivery fee</span><span className="tabular-nums">{sym}{delivery.toFixed(2)}</span>
+                </div>
+              )}
+              {fulfillment === "collection" && (
+                <div className="flex justify-between text-[13px] text-zinc-500">
+                  <span>Collection</span><span className="text-emerald-600 font-medium">Free</span>
+                </div>
+              )}
+              {serviceFee > 0 && (
+                <div className="flex justify-between text-[13px] text-zinc-500">
+                  <span>Service fee ({serviceFee}%)</span><span className="tabular-nums">{sym}{service.toFixed(2)}</span>
+                </div>
+              )}
+              {tax.enabled && tax.showBreakdown && tax.vatAmount > 0 && (
+                <div className="flex justify-between text-[12px] font-semibold text-zinc-400">
+                  <span>{tax.label}</span>
+                  <span className="tabular-nums">{tax.inclusive ? "" : "+"} {sym}{tax.vatAmount.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-semibold text-[14px] text-zinc-900 pt-2 border-t border-zinc-100">
+                <span>Total</span><span className="tabular-nums">{sym}{grandTotal.toFixed(2)}</span>
+              </div>
+              {tax.enabled && tax.inclusive && tax.showBreakdown && (
+                <p className="text-[10px] text-zinc-400 text-right">Prices include {tax.rate}% VAT</p>
+              )}
             </div>
-            {fulfillment === "delivery" && (
-              <div className="flex justify-between text-sm text-gray-600">
-                <span>Delivery fee</span>
-                <span>£{delivery.toFixed(2)}</span>
+
+            {/* Min order warning */}
+            {cartTotal < minOrder && (
+              <div className="px-5 pb-3">
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-[11.5px] text-amber-700 font-medium">
+                  Add {sym}{shortfall.toFixed(2)} more to reach the {sym}{minOrder.toFixed(2)} minimum
+                </div>
               </div>
             )}
-            <div className="flex justify-between text-sm text-gray-600">
-              <span>Service fee ({serviceFee}%)</span>
-              <span>£{service.toFixed(2)}</span>
-            </div>
-            {tax.enabled && tax.showBreakdown && tax.vatAmount > 0 && (
-              <div className={`flex justify-between text-xs font-semibold ${
-                tax.inclusive ? "text-gray-400" : "text-orange-600"
-              }`}>
-                <span>{tax.label}</span>
-                <span>{tax.inclusive ? `£${tax.vatAmount.toFixed(2)}` : `+£${tax.vatAmount.toFixed(2)}`}</span>
+
+            {/* Scheduled time strip */}
+            {scheduledTime && (
+              <div className="px-5 pb-3">
+                <div className="flex items-center gap-2 bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2">
+                  <CalendarDays className="w-3.5 h-3.5 text-zinc-600 flex-shrink-0" strokeWidth={1.8} />
+                  <p className="text-[11.5px] text-zinc-700 font-medium flex-1 min-w-0 truncate">{scheduledTime}</p>
+                  <button
+                    onClick={() => setShowSchedule(true)}
+                    className="text-[10px] text-zinc-500 hover:text-zinc-800 font-semibold underline flex-shrink-0 transition-colors"
+                  >
+                    Change
+                  </button>
+                  <button onClick={() => setScheduledTime(null)} className="text-zinc-400 hover:text-zinc-700 transition-colors" title="Cancel scheduled order">
+                    <X className="w-3 h-3" strokeWidth={2} />
+                  </button>
+                </div>
               </div>
             )}
-            <div className="flex justify-between font-bold text-gray-900 pt-2 border-t border-gray-100">
-              <span>Total</span>
-              <span>£{grandTotal.toFixed(2)}</span>
-            </div>
-            {tax.enabled && tax.inclusive && tax.showBreakdown && (
-              <p className="text-[10px] text-gray-400 text-right">Prices include {tax.rate}% VAT</p>
+
+            {/* Schedule for later when closed */}
+            {!isOpen && !scheduledTime && (
+              <div className="px-5 pb-3">
+                <button onClick={() => setShowSchedule(true)}
+                  className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-zinc-300 hover:border-zinc-500 text-zinc-500 hover:text-zinc-800 rounded-xl py-2.5 text-[12px] font-semibold transition-all">
+                  <CalendarDays className="w-3.5 h-3.5" strokeWidth={1.8} />
+                  Schedule for later
+                </button>
+              </div>
             )}
-          </div>
-        )}
 
-        {/* Shortfall warning */}
-        {cart.length > 0 && cartTotal < minOrder && (
-          <div className="px-5 pb-3">
-            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700 font-medium">
-              Add £{shortfall.toFixed(2)} more to reach the minimum order of £{minOrder.toFixed(2)}
-            </div>
-          </div>
-        )}
-
-        {/* Scheduled time strip */}
-        {scheduledTime && (
-          <div className="px-5 pb-3">
-            <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-              <CalendarDays size={13} className="text-green-600 flex-shrink-0" />
-              <p className="text-xs text-green-700 font-semibold flex-1 min-w-0 truncate">
-                {scheduledTime}
-              </p>
-              <button
-                onClick={() => setShowSchedule(true)}
-                className="text-[10px] text-green-600 hover:text-green-800 font-semibold underline flex-shrink-0"
-              >
-                Change
-              </button>
-              <button
-                onClick={() => setScheduledTime(null)}
-                className="text-green-400 hover:text-green-700 flex-shrink-0 transition"
-                title="Cancel scheduled order"
-              >
-                <X size={12} />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* "Order for later" prompt when store is closed and no time is set */}
-        {!isOpen && !scheduledTime && cart.length > 0 && (
-          <div className="px-5 pb-3">
-            <button
-              onClick={() => setShowSchedule(true)}
-              className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-orange-300 hover:border-orange-500 text-orange-600 hover:text-orange-700 rounded-xl py-2.5 text-xs font-semibold transition-all"
-            >
-              <CalendarDays size={13} />
-              Schedule this order for later
-            </button>
-          </div>
-        )}
-
-        {/* Checkout button */}
-        <div className="px-5 pb-5">
-          <button
-            disabled={!canCheckout}
-            onClick={() => setShowCheckout(true)}
-            className={`w-full py-3.5 rounded-xl font-bold text-sm flex items-center justify-between px-5 transition-all ${
-              canCheckout
-                ? "bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white"
-                : "bg-gray-100 text-gray-400 cursor-not-allowed"
-            }`}
-          >
-            <span>{scheduledTime ? "Schedule order" : "Go to checkout"}</span>
-            {canCheckout && (
-              <span className="flex items-center gap-1">
-                £{grandTotal.toFixed(2)}
-                <ChevronRight size={16} />
-              </span>
+            {/* Meal-period blocker — surfaces lines that can't be ordered right now. */}
+            {hasBlockedLines && (
+              <div className="px-5 pb-3">
+                <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200 text-[12px] text-amber-800">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold mb-1">
+                      {blockedLines.length === 1
+                        ? "1 item isn't available right now."
+                        : `${blockedLines.length} items aren't available right now.`}
+                    </p>
+                    <p className="text-amber-700 mb-2">Remove them to continue, or come back during their serving hours.</p>
+                    <ul className="space-y-1">
+                      {blockedLines.map((line) => (
+                        <li key={line.id} className="flex items-center justify-between gap-2 bg-white/60 rounded-lg px-2 py-1">
+                          <span className="truncate">{line.name}</span>
+                          <button
+                            onClick={() => updateQty(line.id, 0)}
+                            className="text-amber-700 hover:text-amber-900 font-semibold text-[11px] flex-shrink-0"
+                          >
+                            Remove
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
             )}
-          </button>
-        </div>
+
+            {/* Checkout button */}
+            <div className="px-5 pb-5">
+              <button
+                disabled={!canCheckout}
+                onClick={() => currentUser ? setShowCheckout(true) : setShowAuth(true)}
+                className={`w-full py-3.5 rounded-xl font-semibold text-[14px] flex items-center justify-between px-5 transition-all ${
+                  canCheckout
+                    ? "bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white"
+                    : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
+                }`}
+              >
+                <span>{scheduledTime ? "Schedule order" : "Go to checkout"}</span>
+                {canCheckout && (
+                  <span className="flex items-center gap-1 tabular-nums">
+                    {sym}{grandTotal.toFixed(2)} <ChevronRight className="w-4 h-4" strokeWidth={2} />
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
+      {showAuth && (
+        <AuthModal
+          onClose={() => setShowAuth(false)}
+          onSuccess={() => setShowCheckout(true)}
+          subtitle="Sign in or create an account to place your order — your basket will be saved."
+        />
+      )}
       {showCheckout && (
-        <CheckoutModal onClose={() => setShowCheckout(false)} />
+        <CheckoutModal
+          onClose={() => setShowCheckout(false)}
+          onOrderPlaced={() => { onMobileClose?.(); onOrderPlaced?.(); }}
+        />
       )}
-      {showSchedule && (
-        <ScheduleOrderModal onClose={() => setShowSchedule(false)} />
-      )}
+      {showSchedule && <ScheduleOrderModal onClose={() => setShowSchedule(false)} />}
+
+      <ConfirmDialog
+        open={showClearConfirm}
+        title="Clear your basket?"
+        message="All items will be removed. This cannot be undone."
+        confirmLabel="Clear basket"
+        tone="danger"
+        onConfirm={() => { clearCart(); setShowClearConfirm(false); }}
+        onCancel={() => setShowClearConfirm(false)}
+      />
     </>
   );
 }

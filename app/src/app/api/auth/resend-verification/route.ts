@@ -1,14 +1,25 @@
 /**
  * POST /api/auth/resend-verification
  * Generates a fresh verification token and re-sends the email.
- * Requires the customer to be logged in (reads session cookie).
+ *
+ * Two modes:
+ *  - Logged-in: uses the customer session cookie (existing flow, e.g. clicking
+ *    "Resend" in the in-app verification banner).
+ *  - Logged-out: looks the customer up by an `email` field in the body,
+ *    rate-limited per IP. Used by the verify-email page after a fresh
+ *    registration when the link has expired and the user is not yet signed in.
+ *
+ * To avoid email-enumeration leaks, the logged-out path returns 200 regardless
+ * of whether the email is registered.
  */
 
-import { NextResponse }               from "next/server";
+import { NextRequest, NextResponse }  from "next/server";
 import { createHmac, randomBytes }    from "crypto";
 import { supabaseAdmin }              from "@/lib/supabaseAdmin";
 import { sendEmailDirect, fetchBrandPrimaryColor } from "@/lib/emailServer";
-import { getCustomerSession, unauthorizedJson } from "@/lib/auth";
+import { emailConfigured }        from "@/lib/emailSender";
+import { getCustomerSession }         from "@/lib/auth";
+import { rateLimit }                  from "@/lib/rateLimit";
 
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -17,20 +28,50 @@ function hashToken(raw: string): string {
   return createHmac("sha256", secret).update(raw).digest("hex");
 }
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   const session = await getCustomerSession();
-  if (!session) return unauthorizedJson();
 
-  const { data, error } = await supabaseAdmin
+  // F-PU-10: rate-limit BOTH paths. The previous version only throttled the
+  // logged-out branch, so a signed-in attacker holding any valid session
+  // could spam verification mail to their own account (or to whatever email
+  // the customer record holds) indefinitely.
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const bucketKey = session ? `resend-verify:session:${session.id}` : `resend-verify:ip:${ip}`;
+  const { limited } = rateLimit(bucketKey, session ? 3 : 5, 60_000);
+  if (limited) {
+    return NextResponse.json({ ok: false, error: "Too many requests. Please wait a minute." }, { status: 429 });
+  }
+
+  let customerLookup: { id: string } | { email: string } | null = null;
+
+  if (session) {
+    customerLookup = { id: session.id };
+  } else {
+    let body: { email?: string } = {};
+    try { body = await req.json(); } catch { /* empty body OK */ }
+    const email = body.email?.trim().toLowerCase();
+    // Always return 200 in the logged-out path so we don't leak whether the
+    // email is registered. Silently no-op when the input is missing/invalid.
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return NextResponse.json({ ok: true });
+    }
+    customerLookup = { email };
+  }
+
+  const query = supabaseAdmin
     .from("customers")
-    .select("id, name, email, email_verified")
-    .eq("id", session.id)
-    .single();
+    .select("id, name, email, email_verified");
+  const { data, error } = "id" in customerLookup
+    ? await query.eq("id", customerLookup.id).maybeSingle()
+    : await query.eq("email", customerLookup.email).maybeSingle();
 
   if (error?.code === "PGRST204") {
-    return NextResponse.json({ ok: false, error: "Email verification not set up yet. Run the auth migration first." }, { status: 503 });
+    return NextResponse.json({ ok: false, error: "Email verification not set up yet. Apply supabase/schema.sql first." }, { status: 503 });
   }
-  if (error || !data) return unauthorizedJson();
+  // Logged-out path: silently succeed if the email isn't in the table
+  if (!data) {
+    return NextResponse.json({ ok: true });
+  }
   if (data.email_verified) return NextResponse.json({ ok: true, alreadyVerified: true });
 
   const rawToken    = randomBytes(32).toString("hex");
@@ -45,8 +86,8 @@ export async function POST() {
   const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
   const link    = `${siteUrl}/verify-email?token=${rawToken}&email=${encodeURIComponent(data.email)}`;
 
-  if (!process.env.SMTP_HOST) {
-    console.log("[resend-verification] Verify URL:", link);
+  if (!emailConfigured()) {
+    console.log("[resend-verification] Verify URL (no email provider configured):", link);
   } else {
     const brandColor = await fetchBrandPrimaryColor();
     const result = await sendEmailDirect(

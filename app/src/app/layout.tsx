@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { AppProvider } from "@/context/AppContext";
 import { restaurantInfo } from "@/data/restaurant";
+import { DEFAULT_COLORS } from "@/data/defaultSettings";
 import { buildColorCss } from "@/lib/colorUtils";
 import type { SeoSettings } from "@/types";
 
@@ -57,13 +58,20 @@ export async function generateMetadata(): Promise<Metadata> {
   const ogImage     = seo?.ogImage?.trim()         || "";
   const siteUrl     = seo?.siteUrl?.trim()         || SITE_URL;
   const faviconUrl  = seo?.faviconUrl?.trim()      || "";
+  const faviconVer  = seo?.faviconVersion?.trim()  || "";
+  const isDataUrl   = faviconUrl.startsWith("data:");
+  const versionedFavicon = faviconUrl && faviconVer
+    ? (isDataUrl
+        ? `${faviconUrl}#v=${encodeURIComponent(faviconVer)}`
+        : `${faviconUrl}${faviconUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(faviconVer)}`)
+    : faviconUrl;
 
   return {
     metadataBase: new URL(siteUrl),
     title,
     description,
     keywords,
-    ...(faviconUrl && { icons: { icon: faviconUrl } }),
+    ...(versionedFavicon && { icons: { icon: versionedFavicon } }),
     alternates: {
       canonical: siteUrl,
     },
@@ -89,13 +97,10 @@ export async function generateMetadata(): Promise<Metadata> {
 
 async function getColorCss(data: Record<string, unknown> | null): Promise<string> {
   const colors = data?.colors as { primaryColor?: string; backgroundColor?: string } | undefined;
-  if (colors?.primaryColor) {
-    return buildColorCss(
-      colors.primaryColor.trim(),
-      (colors.backgroundColor ?? "#f9fafb").trim(),
-    );
-  }
-  return "";
+  return buildColorCss(
+    (colors?.primaryColor ?? DEFAULT_COLORS.primaryColor).trim(),
+    (colors?.backgroundColor ?? DEFAULT_COLORS.backgroundColor).trim(),
+  );
 }
 
 // ── Inline fallback script ────────────────────────────────────────────────────
@@ -111,7 +116,15 @@ export default async function RootLayout({
 }>) {
   const data     = await getDbSettings();
   const colorCss = await getColorCss(data);
-  const faviconUrl = (data?.seo as Partial<SeoSettings> | undefined)?.faviconUrl?.trim() ?? "";
+  const seoData    = data?.seo as Partial<SeoSettings> | undefined;
+  const faviconUrl = seoData?.faviconUrl?.trim() ?? "";
+  const faviconVer = seoData?.faviconVersion?.trim() ?? "";
+  const isDataUrl  = faviconUrl.startsWith("data:");
+  const faviconHref = faviconUrl && faviconVer
+    ? (isDataUrl
+        ? `${faviconUrl}#v=${encodeURIComponent(faviconVer)}`
+        : `${faviconUrl}${faviconUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(faviconVer)}`)
+    : faviconUrl;
 
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
@@ -119,8 +132,9 @@ export default async function RootLayout({
         {/*
          * Custom favicon — injected server-side so it's present from byte 1.
          * SeoHead will also update it client-side when the admin changes it.
+         * The id lets SeoHead find/replace the server-rendered tag deterministically.
          */}
-        {faviconUrl && <link rel="icon" href={faviconUrl} />}
+        {faviconUrl && <link id="sg-favicon" rel="icon" href={faviconHref} />}
 
         {/*
          * Primary: server-rendered brand CSS injected directly into the HTML.

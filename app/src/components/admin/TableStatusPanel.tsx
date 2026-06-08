@@ -1,25 +1,32 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
-import { useApp }   from "@/context/AppContext";
-import type { Reservation, ReservationStatus } from "@/types";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useApp } from "@/context/AppContext";
+import type { Reservation, DiningTable } from "@/types";
+import { uploadFloorPlanImage, floorPlanSizeError } from "@/lib/uploadImage";
 import {
   UtensilsCrossed, Users, Clock, LogIn, LogOut,
-  Loader2, RefreshCw, CheckCircle2, CalendarDays,
+  Loader2, RefreshCw, CheckCircle2, XCircle, CalendarDays,
+  Plus, Pencil, Trash2, AlertCircle, X, Save, EyeOff, Crown,
+  ImagePlus, Map as MapIcon, LayoutGrid,
 } from "lucide-react";
+
+// One unified panel for both live table status AND CRUD. Each card shows the
+// current state (free / reserved / occupied / done / inactive) plus admin
+// actions (edit / toggle active / delete). Inactive tables are dimmed and
+// don't carry a live state — they're hidden from the customer flow.
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type TableState = "free" | "reserved" | "occupied" | "done";
+type LiveState = "free" | "reserved" | "occupied" | "done";
+type TableState = LiveState | "inactive";
 
 interface TableInfo {
-  id: string;
-  label: string;
-  seats: number;
-  section: string;
+  // Wraps the DB row with the live state resolved from today's reservations.
+  // Cards consume `table` for actions (edit/delete) and `state` for the badge.
+  table: DiningTable;
   state: TableState;
-  reservation?: Reservation;  // current or next relevant reservation
+  reservation?: Reservation;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -44,26 +51,239 @@ const STATE_STYLES: Record<TableState, {
   label: string;
   dot: string;
 }> = {
-  free:     { card: "bg-white border-gray-200",        badge: "bg-gray-100 text-gray-500",          label: "Free",     dot: "bg-gray-300"  },
-  reserved: { card: "bg-amber-50 border-amber-300",    badge: "bg-amber-100 text-amber-700",        label: "Reserved", dot: "bg-amber-400" },
-  occupied: { card: "bg-blue-50 border-blue-400",      badge: "bg-blue-100 text-blue-700",          label: "Occupied", dot: "bg-blue-500"  },
-  done:     { card: "bg-teal-50 border-teal-300",      badge: "bg-teal-100 text-teal-700",          label: "Done",     dot: "bg-teal-500"  },
+  free:     { card: "bg-white border-gray-200",       badge: "bg-gray-100 text-gray-500",   label: "Free",     dot: "bg-gray-300"  },
+  reserved: { card: "bg-amber-50 border-amber-300",   badge: "bg-amber-100 text-amber-700", label: "Reserved", dot: "bg-amber-400" },
+  occupied: { card: "bg-blue-50 border-blue-400",     badge: "bg-blue-100 text-blue-700",   label: "Occupied", dot: "bg-blue-500"  },
+  done:     { card: "bg-teal-50 border-teal-300",     badge: "bg-teal-100 text-teal-700",   label: "Done",     dot: "bg-teal-500"  },
+  inactive: { card: "bg-gray-50 border-gray-200 opacity-60", badge: "bg-gray-200 text-gray-500", label: "Inactive", dot: "bg-gray-400" },
 };
 
-// ─── Table card ───────────────────────────────────────────────────────────────
+// ─── Table Form (Add / Edit) ──────────────────────────────────────────────────
+
+const EMPTY_TABLE: Omit<DiningTable, "id" | "number"> = {
+  label: "", seats: 4, section: "Main Hall", active: true, isVip: false, vipPrice: 0,
+};
+
+const SECTIONS = ["Main Hall", "Terrace", "Bar", "Private Dining", "Garden"];
+
+function TableForm({
+  initial,
+  existingLabels,
+  onSave,
+  onCancel,
+}: {
+  initial?: Partial<typeof EMPTY_TABLE>;
+  /** Labels of OTHER tables (excluding the one being edited) — used to block duplicates. */
+  existingLabels: string[];
+  onSave: (data: typeof EMPTY_TABLE) => Promise<void> | void;
+  onCancel: () => void;
+}) {
+  const { settings } = useApp();
+  const currencySymbol = settings.currency?.symbol ?? "£";
+  const [form, setForm]     = useState({ ...EMPTY_TABLE, ...initial });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const inFlight = useRef(false);
+
+  function set<K extends keyof typeof EMPTY_TABLE>(k: K, v: (typeof EMPTY_TABLE)[K]) {
+    setForm((f) => ({ ...f, [k]: v }));
+    setErrors((e) => { const n = { ...e }; delete n[k as string]; return n; });
+  }
+
+  function validate(): boolean {
+    const e: Record<string, string> = {};
+    const trimmedLabel = form.label.trim();
+    if (!trimmedLabel)        e.label   = "Label is required.";
+    if (!form.section.trim()) e.section = "Section is required.";
+    if (form.seats < 1)       e.seats   = "Must have at least 1 seat.";
+    if (trimmedLabel && existingLabels.some((l) => l.trim().toLowerCase() === trimmedLabel.toLowerCase())) {
+      e.label = "Another table already uses this label.";
+    }
+    if (form.isVip && !((form.vipPrice ?? 0) > 0)) {
+      e.vipPrice = "A VIP table needs a booking fee greater than 0.";
+    }
+    if (Object.keys(e).length) { setErrors(e); return false; }
+    return true;
+  }
+
+  async function handleSubmit(ev: React.FormEvent) {
+    ev.preventDefault();
+    if (inFlight.current) return;
+    if (!validate()) return;
+    inFlight.current = true;
+    setSaving(true);
+    try {
+      await onSave({ ...form, label: form.label.trim(), section: form.section.trim() });
+    } finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="col-span-2 sm:col-span-1">
+          <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Table Label</label>
+          <input
+            value={form.label}
+            onChange={(e) => set("label", e.target.value)}
+            placeholder="e.g. T1, Bar 2, Terrace A"
+            className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
+          />
+          {errors.label && <p className="text-red-500 text-xs mt-1">{errors.label}</p>}
+        </div>
+
+        <div className="col-span-2 sm:col-span-1">
+          <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Seats</label>
+          <input
+            type="number" min={1} max={20}
+            value={form.seats}
+            onChange={(e) => set("seats", parseInt(e.target.value) || 1)}
+            className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
+          />
+          {errors.seats && <p className="text-red-500 text-xs mt-1">{errors.seats}</p>}
+        </div>
+
+        <div className="col-span-2">
+          <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Section</label>
+          <div className="flex gap-2 flex-wrap mb-2">
+            {SECTIONS.map((s) => (
+              <button
+                key={s} type="button"
+                onClick={() => set("section", s)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition border ${
+                  form.section === s
+                    ? "bg-orange-500 text-white border-orange-500"
+                    : "bg-gray-50 text-gray-600 border-gray-200 hover:border-gray-300"
+                }`}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+          <input
+            value={form.section}
+            onChange={(e) => set("section", e.target.value)}
+            placeholder="Or type a custom section…"
+            className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
+          />
+          {errors.section && <p className="text-red-500 text-xs mt-1">{errors.section}</p>}
+        </div>
+      </div>
+
+      <label className="flex items-center gap-2 cursor-pointer">
+        <div
+          onClick={() => set("active", !form.active)}
+          className={`w-9 h-5 rounded-full transition relative flex-shrink-0 ${form.active ? "bg-green-500" : "bg-gray-300"}`}
+        >
+          <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.active ? "translate-x-4" : "translate-x-0.5"}`} />
+        </div>
+        <span className="text-sm text-gray-700">{form.active ? "Active" : "Inactive"}</span>
+      </label>
+
+      {/* VIP table — premium styling + a non-refundable booking fee charged at
+          reservation time. Turning it off clears the fee. */}
+      <div className={`rounded-xl border p-3 transition ${form.isVip ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <div
+            onClick={() => set("isVip", !form.isVip)}
+            className={`w-9 h-5 rounded-full transition relative flex-shrink-0 ${form.isVip ? "bg-amber-500" : "bg-gray-300"}`}
+          >
+            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.isVip ? "translate-x-4" : "translate-x-0.5"}`} />
+          </div>
+          <span className="text-sm text-gray-700 flex items-center gap-1.5">
+            <Crown size={14} className={form.isVip ? "text-amber-500" : "text-gray-400"} />
+            VIP table
+          </span>
+        </label>
+
+        {form.isVip && (
+          <div className="mt-3">
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Booking fee</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">{currencySymbol}</span>
+              <input
+                type="number" min={0} step="0.01"
+                value={form.vipPrice ?? 0}
+                placeholder="0.00"
+                onChange={(e) => set("vipPrice", e.target.value === "" ? ("" as unknown as number) : parseFloat(e.target.value))}
+                onBlur={() => {
+                  if (form.vipPrice === ("" as unknown as number) || isNaN(Number(form.vipPrice))) {
+                    set("vipPrice", 0);
+                  }
+                }}
+                className="w-full bg-white border border-gray-200 rounded-xl pl-7 pr-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition"
+              />
+            </div>
+            <p className="text-[11px] text-gray-500 mt-1">Charged (non-refundable) when this table is reserved.</p>
+            {errors.vipPrice && <p className="text-red-500 text-xs mt-1">{errors.vipPrice}</p>}
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-2 pt-1">
+        <button
+          type="submit"
+          disabled={saving}
+          className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
+        >
+          <Save size={14} /> {saving ? "Saving…" : "Save"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={saving}
+          className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 text-gray-700 text-sm font-semibold px-4 py-2 rounded-lg transition border border-gray-200"
+        >
+          <X size={14} /> Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// ─── Unified table card ───────────────────────────────────────────────────────
 
 function TableCard({
-  table,
+  info,
   onCheckIn,
   onCheckOut,
+  onEdit,
+  onToggleActive,
+  onAskDelete,
+  isEditing,
+  isDeleting,
+  existingLabelsForEdit,
+  onSaveEdit,
+  onCancelEdit,
+  onConfirmDelete,
+  onCancelDelete,
 }: {
-  table: TableInfo;
-  onCheckIn:  (resId: string) => Promise<void>;
-  onCheckOut: (resId: string) => Promise<void>;
+  info: TableInfo;
+  onCheckIn:       (resId: string) => Promise<void>;
+  onCheckOut:      (resId: string) => Promise<void>;
+  onEdit:          (table: DiningTable) => void;
+  onToggleActive:  (table: DiningTable) => Promise<void>;
+  onAskDelete:     (table: DiningTable) => void;
+  isEditing:       boolean;
+  isDeleting:      boolean;
+  existingLabelsForEdit: string[];
+  onSaveEdit:      (data: Omit<DiningTable, "id" | "number">) => Promise<void>;
+  onCancelEdit:    () => void;
+  onConfirmDelete: () => Promise<void>;
+  onCancelDelete:  () => void;
 }) {
   const [actioning, setActioning] = useState(false);
-  const s = STATE_STYLES[table.state];
-  const res = table.reservation;
+  const { settings } = useApp();
+  const currencySymbol = settings.currency?.symbol ?? "£";
+  const { table, state, reservation: res } = info;
+  const s = STATE_STYLES[state];
+  const vipChip = table.isVip ? (
+    <span className="inline-flex items-center gap-1 text-amber-700">
+      <Crown size={11} className="text-amber-500" /> VIP · {currencySymbol}{(table.vipPrice ?? 0).toFixed(2)}
+    </span>
+  ) : null;
 
   async function act(fn: () => Promise<void>) {
     setActioning(true);
@@ -71,27 +291,80 @@ function TableCard({
     setActioning(false);
   }
 
+  // EDIT MODE: Use a floating Absolute Popover here
+  // This prevents the tall edit form from stretching the other cards in the grid row.
+  if (isEditing) {
+    return (
+      <div className="relative h-full w-full">
+        {/* Invisible ghost card: Allows the grid row height to size naturally based on the OTHER normal cards */}
+        <div className="opacity-0 pointer-events-none h-full rounded-2xl border-2 p-4">
+          <div className="h-24 w-full"></div>
+        </div>
+
+        {/* Floating Edit Form: Hovers over the grid, overlapping downwards smoothly */}
+        <div className="absolute top-0 left-0 w-full z-30 rounded-2xl border-2 border-gray-200 bg-white p-4 h-fit">
+          <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2 text-sm">
+            <Pencil size={14} /> Edit {table.label}
+          </h4>
+          <TableForm
+            initial={table}
+            existingLabels={existingLabelsForEdit}
+            onSave={onSaveEdit}
+            onCancel={onCancelEdit}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Delete confirmation swaps the card into a destructive prompt.
+  if (isDeleting) {
+    return (
+      <div className="rounded-2xl border-2 border-red-200 bg-red-50 p-4 flex items-center gap-3">
+        <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
+        <p className="text-red-700 text-sm flex-1">Remove table <strong>{table.label}</strong>?</p>
+        <button
+          onClick={() => void onConfirmDelete()}
+          className="bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition"
+        >
+          Delete
+        </button>
+        <button onClick={onCancelDelete} className="text-gray-400 hover:text-gray-600">
+          <X size={14} />
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className={`rounded-2xl border-2 p-4 flex flex-col gap-3 transition ${s.card}`}>
+    <div className={`rounded-2xl border-2 p-3 sm:p-4 flex flex-col gap-3 transition h-full ${s.card}`}>
       {/* Table header */}
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2.5 sm:gap-2">
         <div>
           <div className="flex items-center gap-2">
-            <UtensilsCrossed size={14} className="text-orange-500" />
+            {table.isVip
+              ? <Crown size={14} className="text-amber-500" />
+              : <UtensilsCrossed size={14} className="text-orange-500" />}
             <span className="font-bold text-gray-900 text-base">{table.label}</span>
           </div>
-          <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+          <div className="flex sm:hidden items-center gap-3 mt-1 text-xs text-gray-500">
             <span className="flex items-center gap-1"><Users size={11} /> {table.seats} seats</span>
             {table.section && <span>{table.section}</span>}
+            {vipChip}
           </div>
         </div>
-        <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${s.badge}`}>
+        <span className={`inline-flex text-center items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full ${s.badge}`}>
           <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
           {s.label}
         </span>
       </div>
+      <div className="hidden sm:flex items-center gap-3 mt-1 text-xs text-gray-500">
+        <span className="flex items-center gap-1"><Users size={11} /> {table.seats} seats</span>
+        {table.section && <span>{table.section}</span>}
+        {vipChip}
+      </div>
 
-      {/* Reservation detail */}
+      {/* Reservation detail (only when there is one) */}
       {res && (
         <div className="bg-white/70 rounded-xl px-3 py-2 space-y-1">
           <p className="font-semibold text-gray-800 text-sm truncate">{res.customerName}</p>
@@ -115,40 +388,292 @@ function TableCard({
         </div>
       )}
 
-      {/* Quick actions */}
+      {/* Status action row (check-in / check-out) */}
       {actioning ? (
-        <div className="flex justify-center py-1">
+        <div className="flex justify-center py-1 mt-auto">
           <Loader2 size={16} className="animate-spin text-gray-400" />
         </div>
       ) : (
-        <div className="flex gap-2">
-          {table.state === "reserved" && res && (
+        <div className="flex gap-2 mt-auto">
+          {state === "reserved" && res && (
             <button
               onClick={() => act(() => onCheckIn(res.id))}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-blue-500 hover:bg-blue-600 active:scale-95 text-white text-xs font-semibold py-2 rounded-xl transition-all"
+              className="w-full flex items-center justify-center gap-1.5 bg-blue-500 hover:bg-blue-600 active:scale-95 text-white text-xs font-semibold py-2 rounded-xl transition-all"
             >
               <LogIn size={13} /> Check In
             </button>
           )}
-          {table.state === "occupied" && res && (
+          {state === "occupied" && res && (
             <button
               onClick={() => act(() => onCheckOut(res.id))}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-teal-500 hover:bg-teal-600 active:scale-95 text-white text-xs font-semibold py-2 rounded-xl transition-all"
+              className="w-full flex items-center justify-center gap-1.5 bg-teal-500 hover:bg-teal-600 active:scale-95 text-white text-xs font-semibold py-2 rounded-xl transition-all"
             >
               <LogOut size={13} /> Check Out
             </button>
           )}
-          {table.state === "free" && (
-            <div className="flex-1 flex items-center justify-center gap-1.5 text-gray-400 text-xs py-2">
+          {state === "occupied" && !res && (
+            // Seated walk-in (active order, no reservation) — frees when the
+            // waiter settles the bill, so there's no check-out here.
+            <div className="w-full flex items-center justify-center gap-1.5 text-blue-500 text-xs py-1">
+              <UtensilsCrossed size={13} /> In service
+            </div>
+          )}
+          {state === "free" && (
+            <div className="w-full flex items-center justify-center gap-1.5 text-gray-400 text-xs py-1">
               <CheckCircle2 size={13} /> Available
             </div>
           )}
-          {table.state === "done" && (
-            <div className="flex-1 flex items-center justify-center gap-1.5 text-teal-600 text-xs py-2">
+          {state === "done" && (
+            <div className="w-full flex items-center justify-center gap-1.5 text-teal-600 text-xs py-1">
               <CheckCircle2 size={13} /> Freed
             </div>
           )}
+          {state === "inactive" && (
+            <div className="w-full flex items-center justify-center gap-1.5 text-gray-400 text-xs py-1">
+              <EyeOff size={13} /> Hidden from the floor
+            </div>
+          )}
         </div>
+      )}
+
+      {/* Admin action footer — edit / toggle active / delete */}
+      <div className="flex items-center justify-end gap-1 pt-1 border-t border-black/5">
+        <button
+          onClick={() => act(() => onToggleActive(table))}
+          title={table.active ? "Deactivate" : "Activate"}
+          className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-black/5 transition"
+        >
+          {table.active
+            ? <CheckCircle2 size={14} className="text-green-500" />
+            : <XCircle      size={14} className="text-gray-400"  />
+          }
+        </button>
+        <button
+          onClick={() => onEdit(table)}
+          title="Edit table"
+          className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-blue-50 transition"
+        >
+          <Pencil size={13} className="text-gray-500 hover:text-blue-600" />
+        </button>
+        <button
+          onClick={() => onAskDelete(table)}
+          title="Delete table"
+          className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-50 transition"
+        >
+          <Trash2 size={13} className="text-gray-500 hover:text-red-600" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Floor-plan editor ──────────────────────────────────────────────────────
+// Upload a floor-plan image and drag each active table onto it. Positions are
+// saved as a 0..1 fraction of the image so they scale to any screen on the
+// customer booking map. Tables left in the tray simply don't appear on the map.
+
+function FloorPlanEditor({
+  tables,
+  imageUrl,
+  uploading,
+  markerScale,
+  onUpload,
+  onRemoveImage,
+  onSaveCoords,
+  onMarkerScaleChange,
+}: {
+  tables: DiningTable[];
+  imageUrl: string;
+  uploading: boolean;
+  markerScale: number;
+  onUpload: (file: File) => void;
+  onRemoveImage: () => void;
+  onSaveCoords: (id: string, posX: number | null, posY: number | null) => void;
+  onMarkerScaleChange: (scale: number) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dragId, setDragId]     = useState<string | null>(null);
+  const [localPos, setLocalPos] = useState<Record<string, { x: number; y: number }>>({});
+  const [selected, setSelected] = useState<string | null>(null);
+  const [err, setErr]           = useState("");
+  const moved = useRef(false);
+
+  // Live marker-size preview. Updates instantly while dragging the slider; the
+  // value is persisted to settings (onMarkerScaleChange) only on release.
+  const [scale, setScale] = useState(markerScale);
+  useEffect(() => { setScale(markerScale); }, [markerScale]);
+  const mSize  = Math.round(44 * scale);
+  const mFont  = Math.max(8, Math.round(11 * scale));
+  const mCrown = Math.max(7, Math.round(10 * scale));
+
+  function posOf(t: DiningTable): { x: number; y: number } | null {
+    if (localPos[t.id]) return localPos[t.id];
+    if (t.posX != null && t.posY != null) return { x: t.posX, y: t.posY };
+    return null;
+  }
+
+  const active   = tables.filter((t) => t.active);
+  const placed   = active.filter((t) => posOf(t) !== null);
+  const unplaced = active.filter((t) => posOf(t) === null);
+
+  function clientToNorm(clientX: number, clientY: number) {
+    const rect = containerRef.current!.getBoundingClientRect();
+    return {
+      x: Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)),
+      y: Math.min(1, Math.max(0, (clientY - rect.top) / rect.height)),
+    };
+  }
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";               // allow re-selecting the same file
+    if (!file) return;
+    const sizeErr = floorPlanSizeError(file);
+    if (sizeErr) { setErr(sizeErr); return; }
+    setErr("");
+    onUpload(file);
+  }
+
+  // Pointer-capture keeps move/up on the grabbed marker even if the cursor
+  // outruns it. moved guards a click-without-drag from saving a no-op.
+  function onMarkerDown(e: React.PointerEvent, id: string) {
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setDragId(id);
+    setSelected(id);
+    moved.current = false;
+  }
+  function onMarkerMove(e: React.PointerEvent, id: string) {
+    if (dragId !== id) return;
+    moved.current = true;
+    setLocalPos((p) => ({ ...p, [id]: clientToNorm(e.clientX, e.clientY) }));
+  }
+  function onMarkerUp(e: React.PointerEvent, id: string) {
+    if (dragId !== id) return;
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    setDragId(null);
+    const pos = localPos[id];
+    if (moved.current && pos) onSaveCoords(id, pos.x, pos.y);
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-xl cursor-pointer transition">
+          {uploading ? <Loader2 size={15} className="animate-spin" /> : <ImagePlus size={15} />}
+          {imageUrl ? "Replace image" : "Upload floor plan"}
+          <input type="file" accept="image/*" className="hidden" onChange={handleFile} disabled={uploading} />
+        </label>
+        {imageUrl && (
+          <button
+            onClick={onRemoveImage}
+            className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-red-600 hover:border-red-200 transition"
+          >
+            <Trash2 size={14} /> Remove image
+          </button>
+        )}
+        {imageUrl && (
+          <span className="text-xs text-gray-400 ml-auto">{placed.length} placed · {unplaced.length} to place</span>
+        )}
+      </div>
+
+      {/* Table-marker size — admin preference, applies to the customer map too */}
+      {imageUrl && (
+        <div className="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5">
+          <span className="text-xs font-semibold text-gray-600 whitespace-nowrap">Table size</span>
+          <input
+            type="range" min={0.5} max={2.5} step={0.1} value={scale}
+            onChange={(e) => setScale(parseFloat(e.target.value))}
+            onPointerUp={() => onMarkerScaleChange(scale)}
+            onTouchEnd={() => onMarkerScaleChange(scale)}
+            onKeyUp={() => onMarkerScaleChange(scale)}
+            className="flex-1 max-w-xs accent-orange-500 cursor-pointer"
+          />
+          <span className="text-xs text-gray-400 w-10 text-right tabular-nums">{Math.round(scale * 100)}%</span>
+        </div>
+      )}
+
+      {err && (
+        <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">
+          <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
+          <span className="flex-1">{err}</span>
+          <button onClick={() => setErr("")} className="text-red-500 hover:text-red-700 transition"><X size={14} /></button>
+        </div>
+      )}
+
+      {!imageUrl ? (
+        <div className="flex flex-col items-center py-16 gap-3 bg-white rounded-2xl border-2 border-dashed border-gray-200 text-center">
+          <MapIcon size={32} className="text-gray-300" />
+          <p className="font-semibold text-gray-600">No floor plan yet</p>
+          <p className="text-sm text-gray-400 max-w-xs">Upload a picture or diagram of your dining room, then drag your tables onto it. Customers will see it when booking.</p>
+        </div>
+      ) : (
+        <>
+          {/* Canvas — centered and height-capped so a large upload doesn't dominate
+              the panel. The ref box is inline-block so it shrinks to the rendered
+              image, keeping the percentage-based marker coordinates aligned to it. */}
+          <div className="flex justify-center">
+          <div ref={containerRef} className="relative inline-block max-w-full rounded-2xl overflow-hidden border border-gray-200 bg-gray-50 select-none">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={imageUrl} alt="Floor plan" className="block w-auto h-auto max-w-full max-h-[60vh] pointer-events-none" draggable={false} />
+            {placed.map((t) => {
+              const p = posOf(t)!;
+              const isSel = selected === t.id;
+              return (
+                <div
+                  key={t.id}
+                  onPointerDown={(e) => onMarkerDown(e, t.id)}
+                  onPointerMove={(e) => onMarkerMove(e, t.id)}
+                  onPointerUp={(e) => onMarkerUp(e, t.id)}
+                  style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}
+                  className={`absolute -translate-x-1/2 -translate-y-1/2 touch-none cursor-grab active:cursor-grabbing ${dragId === t.id ? "z-20" : "z-10"}`}
+                >
+                  <div
+                    style={{ width: mSize, height: mSize, fontSize: mFont }}
+                    className={`flex flex-col items-center justify-center rounded-full border-2 shadow font-bold ${
+                    t.isVip ? "bg-amber-100 border-amber-400 text-amber-800" : "bg-white border-orange-400 text-orange-700"
+                  } ${isSel ? "ring-2 ring-offset-1 ring-blue-400" : ""}`}>
+                    {t.isVip && <Crown size={mCrown} className="text-amber-500" />}
+                    <span className="leading-none truncate px-0.5" style={{ maxWidth: mSize - 6 }}>{t.label}</span>
+                  </div>
+                  {isSel && (
+                    <button
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => { setSelected(null); setLocalPos((p2) => { const n = { ...p2 }; delete n[t.id]; return n; }); onSaveCoords(t.id, null, null); }}
+                      title="Remove from map"
+                      className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow"
+                    >
+                      <X size={11} />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          </div>
+          <p className="text-xs text-gray-400">Drag a table to reposition it. Tap a placed table, then ✕ to take it off the map.</p>
+
+          {/* Unplaced tray */}
+          {unplaced.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Tables not on the map</p>
+              <div className="flex flex-wrap gap-2">
+                {unplaced.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => { setSelected(t.id); onSaveCoords(t.id, 0.5, 0.5); }}
+                    className="flex items-center gap-1.5 border border-dashed border-gray-300 rounded-xl px-3 py-1.5 text-sm text-gray-600 hover:border-orange-400 hover:text-orange-600 transition"
+                  >
+                    {t.isVip && <Crown size={12} className="text-amber-500" />}
+                    <Plus size={12} /> {t.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-gray-400 mt-1.5">Click a table to drop it on the centre of the plan, then drag it where it belongs.</p>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -157,67 +682,259 @@ function TableCard({
 // ─── Main panel ───────────────────────────────────────────────────────────────
 
 export default function TableStatusPanel() {
-  const { settings } = useApp();
-  const tables = (settings.diningTables ?? []).filter((t) => t.active);
+  const { settings, updateSettings } = useApp();
+
+  // The full DB list (including inactive tables) is the source of truth for
+  // the unified card grid. Each mutation re-fetches and pushes the fresh list
+  // into AppContext so other consumers (ReservationsPanel, POS, etc.) live-
+  // update without a page refresh.
+  const [allTables, setAllTables] = useState<DiningTable[]>([]);
 
   const [reservations, setReservations] = useState<Reservation[]>([]);
-  const [loading,      setLoading]      = useState(true);
-  const [filterSection,setFilterSection]= useState("");
+  // Table ids occupied by an active dine-in order (seated walk-in, no reservation
+  // row) — merged into the live state so this panel matches the waiter grid.
+  const [orderOccupiedIds, setOrderOccupiedIds] = useState<Set<string>>(new Set());
+  const [loadingRes, setLoadingRes] = useState(true);
+  const [filterSection, setFilterSection] = useState("");
 
-  const sections = [...new Set(tables.map((t) => t.section).filter(Boolean))];
+  // Grid (cards) vs. Floor Plan (drag-to-place map editor).
+  const [view, setView] = useState<"grid" | "map">("grid");
+  const [uploadingPlan, setUploadingPlan] = useState(false);
+  const floorPlanImageUrl   = settings.reservationSystem?.floorPlanImageUrl ?? "";
+  const floorPlanMarkerScale = settings.reservationSystem?.floorPlanMarkerScale ?? 1;
 
-  const fetchToday = useCallback(async () => {
-    setLoading(true);
+  // Add / edit / delete state
+  const [addingTable,   setAddingTable]   = useState(false);
+  const [editingTable,  setEditingTable]  = useState<DiningTable | null>(null);
+  const [deletingTable, setDeletingTable] = useState<string | null>(null);
+  const [tableError,    setTableError]    = useState<string>("");
+  const tableRowInFlight = useRef<Set<string>>(new Set());
+
+  const refreshTables = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/dining-tables");
+      if (!res.ok) return;
+      const json = await res.json() as { ok: boolean; tables?: DiningTable[] };
+      if (json.ok) {
+        const fresh = json.tables ?? [];
+        setAllTables(fresh);
+        updateSettings({ diningTables: fresh });
+      }
+    } catch { /* ignore — UI keeps last good list */ }
+  }, [updateSettings]);
+
+  // Snapshot of last server response so silent polls can skip setState when
+  // nothing changed. Was the actual cause of the "page refreshing all the
+  // time" flicker in Bug #25 — the Refresh button icon was spinning every 8s
+  // because setLoadingRes(true) fired on every poll tick.
+  const lastResKey = useRef<string>("");
+
+  const fetchToday = useCallback(async (isInitial = false) => {
+    // Only show the spinner on mount / manual refresh, not on background polls.
+    if (isInitial) setLoadingRes(true);
     try {
       const params = new URLSearchParams({ from: todayStr(), to: todayStr() });
-      const res  = await fetch(`/api/admin/reservations?${params}`);
+      // Reservations + live order-occupancy in parallel; handled independently.
+      const [res, occRes] = await Promise.all([
+        fetch(`/api/admin/reservations?${params}`),
+        fetch(`/api/admin/table-occupancy`),
+      ]);
       const json = await res.json() as { ok: boolean; reservations?: Reservation[] };
-      if (json.ok) setReservations(json.reservations ?? []);
+      if (json.ok) {
+        const next = json.reservations ?? [];
+        const key = JSON.stringify(next);
+        if (key !== lastResKey.current) {
+          lastResKey.current = key;
+          setReservations(next);
+        }
+      }
+      if (occRes.ok) {
+        const occ = await occRes.json() as { ok: boolean; occupiedTableIds?: string[] };
+        if (occ.ok && Array.isArray(occ.occupiedTableIds)) {
+          setOrderOccupiedIds(new Set(occ.occupiedTableIds));
+        }
+      }
     } catch (err) {
       console.error("TableStatusPanel fetch:", err);
     } finally {
-      setLoading(false);
+      if (isInitial) setLoadingRes(false);
     }
   }, []);
 
-  useEffect(() => { fetchToday(); }, [fetchToday]);
+  useEffect(() => { refreshTables(); fetchToday(true); }, [refreshTables, fetchToday]);
 
+  // Poll every 8 s — anon supabase realtime no longer fires after RLS revoke.
+  // Silent (no spinner flicker) and skipped when the tab is hidden.
   useEffect(() => {
-    const ch = supabase
-      .channel("table-status-panel")
-      .on("postgres_changes", { event: "*", schema: "public", table: "reservations" }, fetchToday)
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
+    const id = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      fetchToday();
+    }, 8_000);
+    return () => clearInterval(id);
   }, [fetchToday]);
 
-  async function handleCheckIn(resId: string) {
-    await fetch(`/api/admin/reservations/${resId}`, {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "checked_in" }),
+  // ── Tables CRUD ─────────────────────────────────────────────────────────────
+
+  async function handleAddTable(data: Omit<DiningTable, "id" | "number">) {
+    setTableError("");
+    const res = await fetch("/api/admin/dining-tables", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(data),
     });
-    setReservations((prev) =>
-      prev.map((r) => r.id === resId ? { ...r, status: "checked_in", checkedInAt: new Date().toISOString() } : r)
-    );
+    const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+    if (res.ok && json.ok) {
+      await refreshTables();
+      setAddingTable(false);
+    } else {
+      setTableError(json.error ?? "Failed to add table.");
+    }
+  }
+
+  async function handleEditTable(data: Omit<DiningTable, "id" | "number">) {
+    if (!editingTable) return;
+    setTableError("");
+    const res = await fetch(`/api/admin/dining-tables/${editingTable.id}`, {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(data),
+    });
+    const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+    if (res.ok && json.ok) {
+      await refreshTables();
+      setEditingTable(null);
+    } else {
+      setTableError(json.error ?? "Failed to update table.");
+    }
+  }
+
+  async function handleDeleteTable(id: string) {
+    if (tableRowInFlight.current.has(id)) return;
+    tableRowInFlight.current.add(id);
+    setTableError("");
+    try {
+      const res = await fetch(`/api/admin/dining-tables/${id}`, { method: "DELETE" });
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (res.ok && json.ok) {
+        await refreshTables();
+        setDeletingTable(null);
+      } else {
+        setTableError(json.error ?? "Failed to delete table.");
+        setDeletingTable(null);
+      }
+    } finally {
+      tableRowInFlight.current.delete(id);
+    }
+  }
+
+  // ── Floor-plan editor ───────────────────────────────────────────────────────
+
+  // Persist the floor-plan image URL into reservationSystem settings (shallow
+  // merge — updateSettings replaces top-level keys, so spread the existing block).
+  function setFloorPlanImageUrl(url: string) {
+    updateSettings({ reservationSystem: { ...settings.reservationSystem, floorPlanImageUrl: url } });
+  }
+
+  function setFloorPlanMarkerScale(scale: number) {
+    updateSettings({ reservationSystem: { ...settings.reservationSystem, floorPlanMarkerScale: scale } });
+  }
+
+  async function handleUploadFloorPlan(file: File) {
+    setTableError("");
+    setUploadingPlan(true);
+    try {
+      const url = await uploadFloorPlanImage(file);
+      setFloorPlanImageUrl(url);
+    } catch (err) {
+      setTableError(err instanceof Error ? err.message : "Failed to upload floor plan.");
+    } finally {
+      setUploadingPlan(false);
+    }
+  }
+
+  // Save a table's map position (or null/null to take it off the map). Optimistic
+  // local update first, then PATCH; refresh syncs context so the customer map and
+  // other panels pick up the change.
+  async function saveTableCoords(id: string, posX: number | null, posY: number | null) {
+    setAllTables((prev) => prev.map((t) => (t.id === id ? { ...t, posX, posY } : t)));
+    try {
+      const res = await fetch(`/api/admin/dining-tables/${id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ posX, posY }),
+      });
+      if (!res.ok) setTableError("Failed to save table position.");
+    } catch {
+      setTableError("Failed to save table position.");
+    } finally {
+      refreshTables();
+    }
+  }
+
+  async function toggleTableActive(table: DiningTable) {
+    if (tableRowInFlight.current.has(table.id)) return;
+    tableRowInFlight.current.add(table.id);
+    try {
+      const res = await fetch(`/api/admin/dining-tables/${table.id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ active: !table.active }),
+      });
+      if (res.ok) await refreshTables();
+    } finally {
+      tableRowInFlight.current.delete(table.id);
+    }
+  }
+
+  // ── Reservation actions ─────────────────────────────────────────────────────
+
+  const actionInFlight = useRef<Set<string>>(new Set());
+
+  async function handleCheckIn(resId: string) {
+    if (actionInFlight.current.has(resId)) return;
+    actionInFlight.current.add(resId);
+    try {
+      await fetch(`/api/admin/reservations/${resId}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "checked_in" }),
+      });
+      setReservations((prev) =>
+        prev.map((r) => r.id === resId ? { ...r, status: "checked_in", checkedInAt: new Date().toISOString() } : r)
+      );
+    } finally {
+      actionInFlight.current.delete(resId);
+    }
   }
 
   async function handleCheckOut(resId: string) {
-    await fetch(`/api/admin/reservations/${resId}`, {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "checked_out" }),
-    });
-    setReservations((prev) =>
-      prev.map((r) => r.id === resId ? { ...r, status: "checked_out", checkedOutAt: new Date().toISOString() } : r)
-    );
+    if (actionInFlight.current.has(resId)) return;
+    actionInFlight.current.add(resId);
+    try {
+      await fetch(`/api/admin/reservations/${resId}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "checked_out" }),
+      });
+      setReservations((prev) =>
+        prev.map((r) => r.id === resId ? { ...r, status: "checked_out", checkedOutAt: new Date().toISOString() } : r)
+      );
+    } finally {
+      actionInFlight.current.delete(resId);
+    }
   }
 
-  // Build table state from today's reservations
-  function resolveTableInfo(tableId: string): Pick<TableInfo, "state" | "reservation"> {
+  // ── Resolve a live state for each table ─────────────────────────────────────
+
+  function resolveLive(tableId: string): { state: LiveState; reservation?: Reservation } {
     // Priority: occupied > reserved > done > free
     const occupied = reservations.find((r) => r.tableId === tableId && r.status === "checked_in");
     if (occupied) return { state: "occupied", reservation: occupied };
 
+    // Seated walk-in (active dine-in order, no reservation row) is also occupied
+    // — no reservation, so the card shows occupied without a check-out action.
+    if (orderOccupiedIds.has(tableId)) return { state: "occupied" };
+
     const reserved = reservations.find(
-      (r) => r.tableId === tableId && (r.status === "pending" || r.status === "confirmed")
+      (r) => r.tableId === tableId && (r.status === "pending" || r.status === "confirmed"),
     );
     if (reserved) return { state: "reserved", reservation: reserved };
 
@@ -227,54 +944,119 @@ export default function TableStatusPanel() {
     return { state: "free" };
   }
 
-  const tableInfoList: TableInfo[] = tables
+  const tableInfoList: TableInfo[] = allTables
     .filter((t) => !filterSection || t.section === filterSection)
-    .map((t) => ({
-      id:      t.id,
-      label:   t.label,
-      seats:   t.seats,
-      section: t.section,
-      ...resolveTableInfo(t.id),
-    }));
+    .map((t) => {
+      if (!t.active) {
+        return { table: t, state: "inactive" as TableState };
+      }
+      const { state, reservation } = resolveLive(t.id);
+      return { table: t, state, reservation };
+    });
+
+  const sections = [...new Set(allTables.map((t) => t.section).filter(Boolean))];
 
   const counts = {
     free:     tableInfoList.filter((t) => t.state === "free").length,
     reserved: tableInfoList.filter((t) => t.state === "reserved").length,
     occupied: tableInfoList.filter((t) => t.state === "occupied").length,
     done:     tableInfoList.filter((t) => t.state === "done").length,
+    inactive: tableInfoList.filter((t) => t.state === "inactive").length,
   };
 
   return (
     <div className="space-y-5">
 
       {/* Header */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-4 flex items-center gap-4">
-        <div className="w-10 h-10 bg-orange-50 rounded-xl flex items-center justify-center flex-shrink-0">
-          <UtensilsCrossed size={20} className="text-orange-500" />
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-row gap-3">
+          <div className="w-10 h-10 bg-orange-50 rounded-xl flex items-center justify-center flex-shrink-0">
+            <UtensilsCrossed size={20} className="text-orange-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="font-bold text-gray-900">Tables</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {allTables.length} total · {counts.occupied} occupied · {counts.reserved} reserved · {counts.free} free
+              {counts.inactive > 0 && ` · ${counts.inactive} inactive`}
+            </p>
+          </div>
         </div>
-        <div className="flex-1 min-w-0">
-          <h2 className="font-bold text-gray-900">Table Status</h2>
-          <p className="text-xs text-gray-400 mt-0.5">
-            Live occupancy for today · {counts.occupied} occupied · {counts.reserved} reserved · {counts.free} free
-          </p>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Grid ↔ Floor-plan toggle */}
+          <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
+            <button
+              onClick={() => setView("grid")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition ${
+                view === "grid" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              <LayoutGrid size={14} /> Grid
+            </button>
+            <button
+              onClick={() => setView("map")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition ${
+                view === "map" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              <MapIcon size={14} /> Floor Plan
+            </button>
+          </div>
+          {view === "grid" && (
+            <button
+              onClick={() => fetchToday(true)}
+              disabled={loadingRes}
+              className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300 transition"
+            >
+              <RefreshCw size={14} className={loadingRes ? "animate-spin" : ""} />
+              Refresh
+            </button>
+          )}
+          {view === "grid" && !addingTable && !editingTable && (
+            <button
+              onClick={() => setAddingTable(true)}
+              className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-xl transition shadow-sm shadow-orange-200"
+            >
+              <Plus size={15} /> Add Table
+            </button>
+          )}
         </div>
-        <button
-          onClick={fetchToday}
-          disabled={loading}
-          className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300 transition"
-        >
-          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-          Refresh
-        </button>
       </div>
 
+      {/* Inline error banner (shared by both views) */}
+      {tableError && (
+        <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">
+          <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
+          <span className="flex-1">{tableError}</span>
+          <button onClick={() => setTableError("")} className="text-red-500 hover:text-red-700 transition">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Floor-plan editor view */}
+      {view === "map" ? (
+        <FloorPlanEditor
+          tables={allTables}
+          imageUrl={floorPlanImageUrl}
+          uploading={uploadingPlan}
+          markerScale={floorPlanMarkerScale}
+          onUpload={handleUploadFloorPlan}
+          onRemoveImage={() => setFloorPlanImageUrl("")}
+          onSaveCoords={saveTableCoords}
+          onMarkerScaleChange={setFloorPlanMarkerScale}
+        />
+      ) : (
+      <>
+      {/* Grid view */}
+
       {/* Stats strip */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Free",     value: counts.free,     bg: "bg-gray-50",   border: "border-gray-200",  text: "text-gray-800"  },
-          { label: "Reserved", value: counts.reserved, bg: "bg-amber-50",  border: "border-amber-200", text: "text-amber-700" },
-          { label: "Occupied", value: counts.occupied, bg: "bg-blue-50",   border: "border-blue-200",  text: "text-blue-700"  },
-          { label: "Done",     value: counts.done,     bg: "bg-teal-50",   border: "border-teal-200",  text: "text-teal-700"  },
+          { label: "Free",     value: counts.free,     bg: "bg-gray-50",  border: "border-gray-200",  text: "text-gray-800"  },
+          { label: "Reserved", value: counts.reserved, bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-700" },
+          { label: "Occupied", value: counts.occupied, bg: "bg-blue-50",  border: "border-blue-200",  text: "text-blue-700"  },
+          { label: "Done",     value: counts.done,     bg: "bg-teal-50",  border: "border-teal-200",  text: "text-teal-700"  },
         ].map((s) => (
           <div key={s.label} className={`${s.bg} border ${s.border} rounded-xl p-3.5`}>
             <div className={`text-2xl font-bold ${s.text}`}>{s.value}</div>
@@ -285,7 +1067,7 @@ export default function TableStatusPanel() {
 
       {/* Legend + section filter */}
       <div className="flex items-center gap-3 flex-wrap">
-        {(["free", "reserved", "occupied", "done"] as TableState[]).map((st) => (
+        {(["free", "reserved", "occupied", "done", "inactive"] as TableState[]).map((st) => (
           <span key={st} className="flex items-center gap-1.5 text-xs text-gray-500">
             <span className={`w-2 h-2 rounded-full ${STATE_STYLES[st].dot}`} />
             {STATE_STYLES[st].label}
@@ -303,28 +1085,56 @@ export default function TableStatusPanel() {
         )}
       </div>
 
-      {/* Table grid */}
-      {loading ? (
-        <div className="flex justify-center py-16">
-          <Loader2 size={28} className="animate-spin text-orange-500" />
+      {/* Add form */}
+      {addingTable && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2 text-sm">
+            <UtensilsCrossed size={15} className="text-orange-500" /> New Table
+          </h3>
+          <TableForm
+            existingLabels={allTables.map((t) => t.label)}
+            onSave={handleAddTable}
+            onCancel={() => setAddingTable(false)}
+          />
         </div>
-      ) : tableInfoList.length === 0 ? (
+      )}
+
+      {/* Unified table grid */}
+      {allTables.length === 0 ? (
         <div className="flex flex-col items-center py-16 gap-3 bg-white rounded-2xl border border-gray-200">
           <CalendarDays size={32} className="text-gray-300" />
-          <p className="font-semibold text-gray-600">No active tables configured</p>
-          <p className="text-sm text-gray-400">Add tables in Staff &amp; Tables → Dining Tables.</p>
+          <p className="font-semibold text-gray-600">No tables yet</p>
+          <p className="text-sm text-gray-400">Click <strong>Add Table</strong> to create your first one.</p>
+        </div>
+      ) : tableInfoList.length === 0 ? (
+        <div className="flex flex-col items-center py-16 gap-3 bg-white rounded-2xl border border-gray-200 text-center">
+          <CalendarDays size={32} className="text-gray-300" />
+          <p className="font-semibold text-gray-600">No tables in this section</p>
+          <p className="text-sm text-gray-400">Pick another section or clear the filter.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-          {tableInfoList.map((t) => (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 max-w-sm mx-auto sm:max-w-none">
+          {tableInfoList.map((info) => (
             <TableCard
-              key={t.id}
-              table={t}
+              key={info.table.id}
+              info={info}
               onCheckIn={handleCheckIn}
               onCheckOut={handleCheckOut}
+              onEdit={(t) => { setEditingTable(t); setAddingTable(false); }}
+              onToggleActive={toggleTableActive}
+              onAskDelete={(t) => setDeletingTable(t.id)}
+              isEditing={editingTable?.id === info.table.id}
+              isDeleting={deletingTable === info.table.id}
+              existingLabelsForEdit={allTables.filter((t) => t.id !== info.table.id).map((t) => t.label)}
+              onSaveEdit={handleEditTable}
+              onCancelEdit={() => setEditingTable(null)}
+              onConfirmDelete={() => handleDeleteTable(info.table.id)}
+              onCancelDelete={() => setDeletingTable(null)}
             />
           ))}
         </div>
+      )}
+      </>
       )}
     </div>
   );

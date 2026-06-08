@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import {
   CalendarDays, Clock, Users, UtensilsCrossed, CheckCircle2,
@@ -62,7 +62,11 @@ export default function ReservationTokenPage() {
       .finally(() => setLoading(false));
   }, [token]);
 
+  const cancelInFlight = useRef(false);
+
   async function handleCancel() {
+    if (cancelInFlight.current) return;
+    cancelInFlight.current = true;
     setCancelling(true);
     setError("");
     try {
@@ -77,6 +81,7 @@ export default function ReservationTokenPage() {
     } catch {
       setError("Network error. Please try again.");
     } finally {
+      cancelInFlight.current = false;
       setCancelling(false);
     }
   }
@@ -85,7 +90,7 @@ export default function ReservationTokenPage() {
 
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center py-10">
         <Loader2 size={32} className="animate-spin text-zinc-600" />
       </div>
     );
@@ -93,7 +98,7 @@ export default function ReservationTokenPage() {
 
   if (notFound) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 px-4 text-center">
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 px-4 text-center h-full py-8">
         <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
           <AlertTriangle size={28} className="text-red-500" />
         </div>

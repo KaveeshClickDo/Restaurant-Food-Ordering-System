@@ -71,7 +71,7 @@ export default function ScheduleOrderModal({ onClose }: Props) {
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                   Date
                 </p>
-                <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+                <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-2 -mx-5 px-5">
                   {days.map((d) => (
                     <button
                       key={d.dateStr}

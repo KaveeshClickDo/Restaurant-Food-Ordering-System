@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { MenuItem } from "@/types";
+import { Category, MenuItem } from "@/types";
 import { useApp } from "@/context/AppContext";
 import { useRouter } from "next/navigation";
 import {
@@ -16,10 +16,13 @@ import ScheduleOrderModal from "@/components/ScheduleOrderModal";
 import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import ReservationModal from "@/components/ReservationModal";
 import SiteFooter from "@/components/SiteFooter";
+import MealPeriodSection from "@/components/MealPeriodSection";
+import { isMealPeriodActive } from "@/lib/scheduleUtils";
 import { resolveStock } from "@/lib/stockUtils";
+import { isOfferActive, getOfferUnitPrice, offerBadgeLabel, effectiveMenuPrice, isOnChannel } from "@/lib/menuOfferUtils";
 import { getNextOpenTime, formatNextOpen } from "@/lib/scheduleUtils";
 import MobileBottomNav from "@/components/MobileBottomNav";
-import CartPanel from "@/components/CartPanel";
+import Cart from "@/components/Cart";
 import SiteSidebar from "@/components/SiteSidebar";
 
 // ── Dietary badge map ───────────────────────────────────────────────────────
@@ -29,11 +32,21 @@ const DIET_SHORT: Record<string, string> = {
 
 // ── Individual food card (grid layout) ─────────────────────────────────────
 function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
-  const { isOpen, scheduledTime, currentUser, isFavourite, toggleFavourite } = useApp();
+  const { isOpen, scheduledTime, currentUser, isFavourite, toggleFavourite, settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const stockStatus = resolveStock(item);
   const outOfStock = stockStatus === "out_of_stock";
+  const lowStock = stockStatus === "low_stock";
   const canAdd = (isOpen || !!scheduledTime) && !outOfStock;
   const faved = isFavourite(item.id);
+
+  // Offer pricing — per-unit discounted price for badge + strikethrough.
+  // Cart-level offers (bogo/multibuy/qty_discount) don't change the per-unit
+  // shelf price, but we still show the badge so customers know there's a
+  // deal in the cart.
+  const offerOn = isOfferActive(item);
+  const discountedBase = getOfferUnitPrice(item);
+  const offerLabel = offerBadgeLabel(item);
 
   return (
     <div
@@ -44,6 +57,7 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
       {/* Image */}
       <div className="relative h-[180px] bg-orange-50 overflow-hidden">
         {item.image ? (
+          // eslint-disable-next-line @next/next/no-img-element -- admin-uploaded URLs from arbitrary hosts; next/image can't pre-register remotePatterns
           <img
             src={item.image}
             alt={item.name}
@@ -54,14 +68,32 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
             <UtensilsCrossed className="w-10 h-10 text-zinc-300" strokeWidth={1.2} />
           </div>
         )}
-        {item.popular && !outOfStock && (
-          <span className="absolute top-2.5 left-2.5 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-orange-500/90 text-white backdrop-blur-sm">
-            Popular
-          </span>
+        {/* Popular + offer badges sit side by side in a flex row so an item
+            that is both popular and on offer shows both, without overlapping. */}
+        {!outOfStock && (item.popular || (offerOn && offerLabel)) && (
+          <div className="absolute top-2.5 left-2.5 flex items-center gap-1">
+            {item.popular && (
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-orange-500/90 text-white backdrop-blur-sm">
+                Popular
+              </span>
+            )}
+            {offerOn && offerLabel && (
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-orange-500/95 text-white backdrop-blur-sm shadow-sm">
+                {offerLabel}
+              </span>
+            )}
+          </div>
         )}
         {outOfStock && (
           <span className="absolute top-2.5 left-2.5 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-zinc-100 text-zinc-500">
             Unavailable
+          </span>
+        )}
+        {/* Low-stock urgency — only when running low (qty ≤ threshold). Bottom-left
+            so it never collides with the popular/offer (top-left) or heart (top-right). */}
+        {lowStock && !outOfStock && (
+          <span className="absolute bottom-2.5 left-2.5 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-amber-500/95 text-white backdrop-blur-sm shadow-sm">
+            {typeof item.stockQty === "number" ? `Only ${item.stockQty} left` : "Low stock"}
           </span>
         )}
 
@@ -71,8 +103,8 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
             onClick={(e) => { e.stopPropagation(); toggleFavourite(item.id); }}
             aria-label={faved ? "Remove from favourites" : "Save to favourites"}
             className={`absolute top-2.5 right-2.5 w-8 h-8 rounded-full flex items-center justify-center shadow-md transition-all duration-200 ${faved
-                ? "bg-red-500 text-white scale-100"
-                : "bg-white/90 text-zinc-400 opacity-0 group-hover:opacity-100 hover:text-red-500"
+              ? "bg-red-500 text-white scale-100"
+              : "bg-white/90 text-zinc-400 hover:text-red-500"
               }`}
           >
             <Heart className="w-3.5 h-3.5" strokeWidth={2} fill={faved ? "currentColor" : "none"} />
@@ -103,9 +135,20 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
             ))}
           </div>
         )}
-        <span className="font-semibold text-[17px] text-zinc-900 tracking-tight tabular-nums">
-          £{item.price.toFixed(2)}
-        </span>
+        {discountedBase !== null ? (
+          <span className="inline-flex items-baseline gap-1.5 tabular-nums">
+            <span className="font-semibold text-[17px] text-orange-600 tracking-tight">
+              {sym}{discountedBase.toFixed(2)}
+            </span>
+            <span className="text-[12px] text-zinc-400 line-through">
+              {sym}{effectiveMenuPrice(item).toFixed(2)}
+            </span>
+          </span>
+        ) : (
+          <span className="font-semibold text-[17px] text-zinc-900 tracking-tight tabular-nums">
+            {sym}{effectiveMenuPrice(item).toFixed(2)}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -122,15 +165,16 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
     : null;
 
   const isDelivery = fulfillment === "delivery";
+  const sym = settings.currency?.symbol ?? "£";
   const estTime = isDelivery ? restaurant.deliveryTime : restaurant.collectionTime;
   const feeLabel = isDelivery
-    ? (restaurant.deliveryFee > 0 ? `£${restaurant.deliveryFee.toFixed(2)} fee` : "Free delivery")
+    ? (restaurant.deliveryFee > 0 ? `From ${sym}${restaurant.deliveryFee.toFixed(2)} fee` : "Free delivery")
     : "Free · no fee";
 
   return (
     <>
-      <div className="mx-6 mt-6 mb-6 rounded-2xl overflow-hidden bg-white border border-zinc-200/70 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.04)]">
-        <div className="relative px-8 py-7 flex items-center gap-7 bg-orange-50 overflow-hidden">
+      <div className="mx-5 md:mx-6 mt-6 mb-6 rounded-2xl overflow-hidden bg-white border border-zinc-200/70 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.04)]">
+        <div className="relative px-6 md:px-8 py-7 flex items-center gap-7 bg-orange-50 overflow-hidden">
           {/* Cover image or dot pattern background */}
           {restaurant.coverImage ? (
             <>
@@ -173,8 +217,8 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
               <button
                 onClick={() => setFulfillment("delivery")}
                 className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold transition-all duration-200 ${isDelivery
-                    ? "bg-orange-500 text-white shadow-sm"
-                    : "text-zinc-500 hover:text-zinc-800"
+                  ? "bg-orange-500 text-white shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-800"
                   }`}
               >
                 <Bike className="w-3.5 h-3.5" strokeWidth={1.8} />
@@ -183,8 +227,8 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
               <button
                 onClick={() => setFulfillment("collection")}
                 className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold transition-all duration-200 ${!isDelivery
-                    ? "bg-orange-500 text-white shadow-sm"
-                    : "text-zinc-500 hover:text-zinc-800"
+                  ? "bg-orange-500 text-white shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-800"
                   }`}
               >
                 <ShoppingBag className="w-3.5 h-3.5" strokeWidth={1.8} />
@@ -194,12 +238,16 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
 
             {/* Stats — contextual to selected mode */}
             <div className="flex flex-wrap items-center gap-4 text-[12.5px] text-zinc-600">
-              <span className="inline-flex items-center gap-1.5">
-                <Star className="w-3.5 h-3.5" strokeWidth={2} fill="currentColor" />
-                <span className="font-semibold">{restaurant.hygieneRating}</span>
-                <span className="text-zinc-400">· hygiene</span>
-              </span>
-              <span className="w-1 h-1 rounded-full bg-zinc-300" />
+              {restaurant.hygieneRatingVisible !== false && (
+                <>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Star className="w-3.5 h-3.5" strokeWidth={2} fill="currentColor" />
+                    <span className="font-semibold">{restaurant.hygieneRating}</span>
+                    <span className="text-zinc-400">· hygiene</span>
+                  </span>
+                  <span className="w-1 h-1 rounded-full bg-zinc-300" />
+                </>
+              )}
               <span className="inline-flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5" strokeWidth={1.8} />
                 <span className="font-medium">{estTime} min</span>
@@ -229,13 +277,15 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
 
         {/* Closed banner — only when store is shut */}
         {!isOpen && (
-          <div className="flex items-center gap-3 px-6 py-3.5 bg-red-50 border-t border-red-100">
-            <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" strokeWidth={1.8} />
-            <p className="flex-1 text-[12.5px] text-red-700 font-medium min-w-0">
-              {nextOpen
-                ? <>We&apos;re closed · Opens {formatNextOpen(nextOpen)}</>
-                : "We're not accepting orders right now"}
-            </p>
+          <div className="flex flex-wrap justify-between items-center gap-3 px-6 py-3.5 bg-red-50 border-t border-red-100">
+            <div className="flex gap-2 ">
+              <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" strokeWidth={1.8} />
+              <p className="flex-1 text-[12.5px] text-red-700 font-medium min-w-0">
+                {nextOpen
+                  ? <>We&apos;re closed · Opens {formatNextOpen(nextOpen)}</>
+                  : "We're not accepting orders right now"}
+              </p>
+            </div>
             {nextOpen && (
               <button
                 onClick={() => setShowSchedule(true)}
@@ -254,10 +304,19 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
   );
 }
 
+/** All category ids that should show when `activeCat` is selected.
+ *  If a parent is selected → include its children too.
+ *  If a child is selected → just that child. */
+function effectiveCatIds(activeCat: string, cats: Category[]): string[] | null {
+  if (activeCat === "all") return null;
+  const childIds = cats.filter((c) => c.parentId === activeCat).map((c) => c.id);
+  return [activeCat, ...childIds];
+}
+
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function HomePage() {
   const {
-    categories, menuItems, settings,
+    categories, menuItems: allMenuItems, mealPeriods, settings,
     isOpen, currentUser, logout
   } = useApp();
 
@@ -279,15 +338,97 @@ export default function HomePage() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [showReservation, setShowReservation] = useState(false);
 
-  // Filtered items
-  const items = menuItems.filter((item) => {
-    if (activeCat !== "all" && item.categoryId !== activeCat) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      if (!item.name.toLowerCase().includes(q) && !item.description.toLowerCase().includes(q)) return false;
+  // ── Meal-period awareness ────────────────────────────────────────────────
+  // Tick re-renders the page every 30s so meal-period sections appear/disappear
+  // as windows open and close while the tab stays open.
+  const [nowTick, setNowTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setNowTick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Customer site = `online` channel. Hide items admin marked in-store-only.
+  // Legacy items (no channels field set) default to both channels in the
+  // mapper, so they stay visible.
+  const menuItems = allMenuItems.filter((m) => isOnChannel(m, "online"));
+
+  const activeMealPeriods = mealPeriods.filter((p) => isMealPeriodActive(p));
+  const activeMealPeriodIds = new Set(activeMealPeriods.map((p) => p.id));
+
+  /** True iff this item is orderable right now. Anytime items (no tags) always
+   *  orderable; tagged items need at least one of their periods currently active. */
+  const isItemOrderable = (item: MenuItem) => {
+    const tags = item.mealPeriodIds ?? [];
+    if (tags.length === 0) return true;
+    return tags.some((id) => activeMealPeriodIds.has(id));
+  };
+
+  // Categories visible to the customer — hide any category whose only items
+  // are currently non-orderable (e.g. a category full of dinner-only items
+  // during breakfast). Empty categories stay visible.
+
+  const visibleCategories = categories.filter((cat) => {
+    // For a parent: visible if it itself has orderable items OR any child does
+    if (!cat.parentId) {
+      const ownItems   = menuItems.filter((i) => i.categoryId === cat.id);
+      const childIds   = categories.filter((c) => c.parentId === cat.id).map((c) => c.id);
+      const childItems = menuItems.filter((i) => childIds.includes(i.categoryId));
+      const allItems   = [...ownItems, ...childItems];
+      if (allItems.length === 0) return true;           // empty categories stay visible
+      return allItems.some(isItemOrderable);
     }
-    return true;
+    // For a sub-category: same logic as before
+    const catItems = menuItems.filter((i) => i.categoryId === cat.id);
+    if (catItems.length === 0) return true;
+    return catItems.some(isItemOrderable);
   });
+
+  // If the customer was on a category that just became hidden (window closed
+  // or admin disabled), snap them back to "all".
+  useEffect(() => {
+    if (activeCat === "all") return;
+    if (!visibleCategories.some((c) => c.id === activeCat)) setActiveCat("all");
+  }, [activeCat, visibleCategories]);
+
+  // Filtered items (search + category). Apply meal-period orderability after.
+
+  const activeCatIds = effectiveCatIds(activeCat, categories);
+  
+  const filteredItems = menuItems
+    .filter((item) => {
+      if (activeCatIds && !activeCatIds.includes(item.categoryId)) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        if (!item.name.toLowerCase().includes(q) && !item.description.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    })
+    .filter(isItemOrderable);
+
+  // Show dedicated meal-period sections only on the default "Everything" view
+  // with no search/filter active. Otherwise the customer is drilling into
+  // something specific and we keep the layout flat.
+  const isBrowsingAll = activeCat === "all" && !search;
+  const sectionsToShow = isBrowsingAll
+    ? activeMealPeriods
+      .map((p) => ({
+        period: p,
+        items: filteredItems.filter((i) => (i.mealPeriodIds ?? []).includes(p.id)),
+      }))
+      .filter(({ items }) => items.length > 0)
+    : [];
+
+  const itemsInAnySection = new Set(sectionsToShow.flatMap((s) => s.items.map((i) => i.id)));
+
+  // Main grid: anytime items + tagged items not currently shown in a section.
+  // When sectionsToShow is empty (search/filter view), the grid is everything
+  // orderable; when sections exist, those items move into them.
+  const items = filteredItems.filter((i) => !itemsInAnySection.has(i.id));
+
+  const visibleTotal = filteredItems.length;
+  // We reference nowTick in render so re-renders keep the section state in
+  // sync with wall-clock time (eslint also stops complaining about an unused var).
+  void nowTick;
 
   const activeCategory = categories.find((c) => c.id === activeCat);
 
@@ -300,6 +441,7 @@ export default function HomePage() {
         setCat={setActiveCat}
         onAuth={() => setAuthModal({ open: true, tab: "login" })}
         onReserve={() => setShowReservation(true)}
+        categories={visibleCategories}
       />
 
       {/* ── Main content area ─────────────────────────────────────────────── */}
@@ -312,25 +454,25 @@ export default function HomePage() {
             {settings.restaurant.logoImage ? (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img src={settings.restaurant.logoImage} alt={settings.restaurant.name}
-                className="w-8 h-8 rounded-xl object-cover" />
+                className="w-9 h-9 rounded-xl object-cover" />
             ) : (
-              <div className="w-8 h-8 rounded-xl bg-orange-500 text-white flex items-center justify-center text-[14px] font-bold">
+              <div className="w-9 h-9 rounded-xl bg-orange-500 text-white flex items-center justify-center text-[14px] font-bold">
                 {settings.restaurant.name.charAt(0).toUpperCase()}
               </div>
             )}
           </div>
 
           {/* Search */}
-          <div className="flex-1 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-100 max-w-xl">
+          <div className="flex-1 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-100 max-w-xl min-w-0">
             <Search className="w-4 h-4 text-zinc-400 flex-shrink-0" strokeWidth={1.8} />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search dishes…"
-              className="flex-1 bg-transparent outline-none text-[13.5px] text-zinc-900 placeholder:text-zinc-400"
+              className="flex-1 min-w-0 bg-transparent outline-none text-[13.5px] text-zinc-900 placeholder:text-zinc-400"
             />
             {search && (
-              <button onClick={() => setSearch("")} className="text-[11px] font-medium text-zinc-400 hover:text-zinc-700 transition-colors">
+              <button onClick={() => setSearch("")} className="text-[11px] font-medium text-zinc-400 hover:text-zinc-700 transition-colors flex-shrink-0">
                 Clear
               </button>
             )}
@@ -382,19 +524,19 @@ export default function HomePage() {
             <button
               onClick={() => setActiveCat("all")}
               className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all active:scale-95 ${activeCat === "all"
-                  ? "bg-orange-500 text-white"
-                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                ? "bg-orange-500 text-white"
+                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                 }`}
             >
               <span className="text-sm leading-none">🍽️</span>
               <span>Everything</span>
             </button>
-            {categories.map((cat) => (
+            {visibleCategories.map((cat) => (
               <button key={cat.id}
                 onClick={() => setActiveCat(cat.id)}
                 className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all active:scale-95 ${activeCat === cat.id
-                    ? "bg-orange-500 text-white"
-                    : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                  ? "bg-orange-500 text-white"
+                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                   }`}
               >
                 <span className="text-sm leading-none">{cat.emoji}</span>
@@ -405,32 +547,51 @@ export default function HomePage() {
         </div>
 
         {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto pb-28 lg:pb-8">
-          <Hero isOpen={isOpen} onReserve={() => setShowReservation(true)} />
+        <div className="flex-1 flex flex-col overflow-y-auto pb-15 lg:pb-0 h-full">
+          <div className="flex-1">
 
-          {/* Category header */}
-          <div className="px-6 mb-5 flex items-center justify-between">
-            <h2 className="font-semibold tracking-tight text-[20px] text-zinc-900">
-              {activeCat === "all" ? "Everything" : (activeCategory?.name ?? "Menu")}
-              <span className="ml-2 text-[13px] font-normal text-zinc-400 tabular-nums">· {items.length}</span>
-            </h2>
-          </div>
+            <Hero isOpen={isOpen} onReserve={() => setShowReservation(true)} />
 
-          {/* Grid */}
-          <div className="px-6 pb-6 grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
-            {items.length === 0 ? (
-              <div className="col-span-full text-center py-20 text-zinc-400">
-                {search
-                  ? <><p className="text-[15px] font-medium">No dishes found for &ldquo;{search}&rdquo;</p><p className="text-[13px] mt-1">Try a different search term</p></>
-                  : <p className="text-[15px] font-medium">No items in this category</p>
-                }
+            {/* Meal-period sections — one per currently-active period, only
+                on the default "Everything" view (no search, no category filter). */}
+            {sectionsToShow.length > 0 && (
+              <div className="px-6 mb-5 space-y-4">
+                {sectionsToShow.map(({ period, items: sectionItems }) => (
+                  <MealPeriodSection
+                    key={period.id}
+                    period={period}
+                    categories={categories}
+                    items={sectionItems}
+                  />
+                ))}
               </div>
-            ) : (
-              items.map((item) => (
-                <FoodCard key={item.id} item={item} onOpen={() => setOpenItem(item)} />
-              ))
             )}
+
+            {/* Category header */}
+            <div className="px-6 mb-5 flex items-center justify-between">
+              <h2 className="font-semibold tracking-tight text-[20px] text-zinc-900">
+                {activeCat === "all" ? "Everything" : (activeCategory?.name ?? "Menu")}
+                <span className="ml-2 text-[13px] font-normal text-zinc-400 tabular-nums">· {visibleTotal}</span>
+              </h2>
+            </div>
+
+            {/* Grid */}
+            <div className="px-6 pb-6 grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+              {items.length === 0 ? (
+                <div className="col-span-full text-center py-20 text-zinc-400">
+                  {search
+                    ? <><p className="text-[15px] font-medium">No dishes found for &ldquo;{search}&rdquo;</p><p className="text-[13px] mt-1">Try a different search term</p></>
+                    : <p className="text-[15px] font-medium">No items in this category</p>
+                  }
+                </div>
+              ) : (
+                items.map((item) => (
+                  <FoodCard key={item.id} item={item} onOpen={() => setOpenItem(item)} />
+                ))
+              )}
+            </div>
           </div>
+
 
           {/* Render SiteFooter */}
           <div className="mt-8">
@@ -440,8 +601,8 @@ export default function HomePage() {
       </div>
 
       {/* ── Right cart panel (desktop lg+) ───────────────────────────────── */}
-      <aside className="hidden lg:flex w-auto flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
-        <CartPanel onOrderPlaced={() => router.push('/my-orders')} />
+      <aside className="hidden lg:flex w-[310px] xl:w-[350px] flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
+        <Cart onOrderPlaced={() => router.push('/my-orders')} />
       </aside>
 
       {/* ── Mobile bottom nav ─────────────────────────────────────────────── */}
@@ -455,7 +616,7 @@ export default function HomePage() {
         <div className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowMobileCart(false)} />
           <div className="relative bg-white rounded-t-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-xl">
-            <CartPanel
+            <Cart
               onMobileClose={() => setShowMobileCart(false)}
               onOrderPlaced={() => { setShowMobileCart(false); router.push('/my-orders'); }}
             />

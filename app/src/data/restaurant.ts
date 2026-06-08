@@ -6,6 +6,7 @@ export const restaurantInfo: RestaurantInfo = {
   coverImage: "https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=1400&q=80",
   logoImage: "https://images.unsplash.com/photo-1567521464027-f127ff144326?w=200&q=80",
   hygieneRating: 5,
+  hygieneRatingVisible: true,
   deliveryTime: 30,
   collectionTime: 15,
   minOrder: 12.00,

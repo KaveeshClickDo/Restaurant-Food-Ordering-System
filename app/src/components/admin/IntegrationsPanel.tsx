@@ -101,66 +101,70 @@ function MethodRow({
   return (
     <div className={`rounded-2xl border-2 transition-colors ${method.enabled ? "border-gray-100 bg-white" : "border-dashed border-gray-200 bg-gray-50/60"}`}>
       {/* Main row */}
-      <div className="flex items-center gap-3 px-4 py-3.5">
-        {/* Drag handle + reorder */}
-        <div className="flex flex-col gap-0.5 flex-shrink-0">
-          <button onClick={onMoveUp} disabled={isFirst} className="text-gray-300 hover:text-gray-500 disabled:opacity-20 disabled:cursor-not-allowed transition">
-            <ChevronUp size={13} />
-          </button>
-          <GripVertical size={14} className="text-gray-300 mx-auto" />
-          <button onClick={onMoveDown} disabled={isLast} className="text-gray-300 hover:text-gray-500 disabled:opacity-20 disabled:cursor-not-allowed transition">
-            <ChevronDown size={13} />
-          </button>
-        </div>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3.5">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          {/* Drag handle + reorder */}
+          <div className="flex flex-col gap-0.5 flex-shrink-0">
+            <button onClick={onMoveUp} disabled={isFirst} className="text-gray-300 hover:text-gray-500 disabled:opacity-20 disabled:cursor-not-allowed transition">
+              <ChevronUp size={13} />
+            </button>
+            <GripVertical size={14} className="text-gray-300 mx-auto" />
+            <button onClick={onMoveDown} disabled={isLast} className="text-gray-300 hover:text-gray-500 disabled:opacity-20 disabled:cursor-not-allowed transition">
+              <ChevronDown size={13} />
+            </button>
+          </div>
 
-        {/* Icon */}
-        <div className={`flex-shrink-0 transition-opacity ${method.enabled ? "opacity-100" : "opacity-40"}`}>
-          {getIcon(method.id)}
-        </div>
+          {/* Icon */}
+          <div className={`flex-shrink-0 transition-opacity ${method.enabled ? "opacity-100" : "opacity-40"}`}>
+            {getIcon(method.id)}
+          </div>
 
-        {/* Name + description */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className={`font-semibold text-sm ${method.enabled ? "text-gray-900" : "text-gray-400"}`}>
-              {method.name}
-            </span>
-            {method.builtIn && (
-              <span className="text-[10px] bg-gray-100 text-gray-400 rounded-full px-2 py-0.5 font-medium">Built-in</span>
+          {/* Name + description */}
+          <div className="flex-1 min-w-0 flex flex-col justify-center">
+            <div className="flex items-center gap-2">
+              <span className={`font-semibold text-sm ${method.enabled ? "text-gray-900" : "text-gray-400"}`}>
+                {method.name}
+              </span>
+              {method.builtIn && (
+                <span className="text-[10px] bg-gray-100 text-gray-400 rounded-full px-2 py-0.5 font-medium">Built-in</span>
+              )}
+            </div>
+            <p className="text-xs text-gray-400 truncate mt-0.5">{method.description}</p>
+            {method.adminNote && (
+              <p className="text-[11px] text-orange-500 mt-0.5">📋 {method.adminNote}</p>
+            )}
+            {method.deliveryRange.restricted && (
+              <p className="text-[11px] text-blue-500 mt-0.5 flex items-center gap-1">
+                <Ruler size={10} /> {method.deliveryRange.minKm}–{method.deliveryRange.maxKm} km only
+              </p>
             )}
           </div>
-          <p className="text-xs text-gray-400 truncate mt-0.5">{method.description}</p>
-          {method.adminNote && (
-            <p className="text-[11px] text-orange-500 mt-0.5">📋 {method.adminNote}</p>
-          )}
-          {method.deliveryRange.restricted && (
-            <p className="text-[11px] text-blue-500 mt-0.5 flex items-center gap-1">
-              <Ruler size={10} /> {method.deliveryRange.minKm}–{method.deliveryRange.maxKm} km only
-            </p>
-          )}
         </div>
 
-        {/* Status badge */}
-        <div className="flex-shrink-0 hidden sm:flex items-center gap-1.5">
-          {method.enabled ? (
-            <span className="flex items-center gap-1.5 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-full px-2.5 py-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> Active
-            </span>
-          ) : (
-            <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 bg-gray-100 border border-gray-200 rounded-full px-2.5 py-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-gray-300" /> Disconnected
-            </span>
-          )}
-        </div>
+        <div className="flex items-center justify-between sm:justify-end gap-3 flex-shrink-0 mt-2 sm:mt-0 pt-3 sm:pt-0 border-t sm:border-0 border-gray-100">
+          {/* Status badge */}
+          <div className="flex items-center gap-1.5">
+            {method.enabled ? (
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-full px-2.5 py-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> Active
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 bg-gray-100 border border-gray-200 rounded-full px-2.5 py-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-gray-300" /> Disconnected
+              </span>
+            )}
+          </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <Toggle enabled={method.enabled} onToggle={onToggle} />
-          <button
-            onClick={() => setEditing((v) => !v)}
-            className="w-8 h-8 flex items-center justify-center rounded-xl bg-gray-100 hover:bg-orange-100 hover:text-orange-600 text-gray-500 transition"
-          >
-            <Pencil size={13} />
-          </button>
+          {/* Actions */}
+          <div className="flex items-center gap-2">
+            <Toggle enabled={method.enabled} onToggle={onToggle} />
+            <button
+              onClick={() => setEditing((v) => !v)}
+              className="w-8 h-8 flex items-center justify-center rounded-xl bg-gray-100 hover:bg-orange-100 hover:text-orange-600 text-gray-500 transition"
+            >
+              <Pencil size={13} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -212,14 +216,14 @@ function MethodRow({
               </button>
             </div>
             {draft.rangeRestricted && (
-              <div className="flex items-center gap-3 mt-2">
+              <div className="flex flex-wrap items-center gap-3 mt-2">
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-500 whitespace-nowrap">Min km</span>
                   <input
                     type="number" min="0" step="0.5" max={draft.rangeMax}
                     value={draft.rangeMin}
                     onChange={(e) => setDraft((d) => ({ ...d, rangeMin: Number(e.target.value) }))}
-                    className="w-20 px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white transition"
+                    className="w-10 sm:w-20 px-3 py-1.5 border border-gray-200 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white transition"
                   />
                 </div>
                 <span className="text-gray-300">—</span>
@@ -229,7 +233,7 @@ function MethodRow({
                     type="number" min={draft.rangeMin} step="0.5"
                     value={draft.rangeMax}
                     onChange={(e) => setDraft((d) => ({ ...d, rangeMax: Number(e.target.value) }))}
-                    className="w-20 px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white transition"
+                    className="w-10 sm:w-20 px-3 py-1.5 border border-gray-200 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white transition"
                   />
                 </div>
                 <span className="text-xs text-gray-400">km from restaurant</span>
@@ -344,7 +348,7 @@ function PaymentMethodsTab() {
 
 function EnvVarRow({ name, description }: { name: string; description: string }) {
   return (
-    <div className="flex items-start gap-3 py-3 border-b border-gray-50 last:border-0">
+    <div className="flex flex-wrap items-start gap-3 py-3 border-b border-gray-50 last:border-0">
       <code className="text-xs font-mono font-semibold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-lg whitespace-nowrap flex-shrink-0 mt-0.5">
         {name}
       </code>
@@ -385,9 +389,15 @@ function ApiKeysTab() {
           <EnvVarRow name="SMTP_PORT"            description="SMTP port — 587 for STARTTLS (default), 465 for SSL" />
           <EnvVarRow name="SMTP_USER"            description="SMTP username / sender address" />
           <EnvVarRow name="SMTP_PASS"            description="SMTP password or app-specific password" />
-          <EnvVarRow name="STRIPE_SECRET_KEY"    description="Stripe secret key (sk_live_… or sk_test_…)" />
-          <EnvVarRow name="PAYPAL_CLIENT_ID"     description="PayPal REST API client ID" />
-          <EnvVarRow name="SUPABASE_SERVICE_ROLE_KEY" description="Supabase service-role key — used by server API routes only" />
+          <EnvVarRow name="STRIPE_SECRET_KEY"             description="Stripe secret key (sk_live_… or sk_test_…)" />
+          <EnvVarRow name="STRIPE_WEBHOOK_SECRET"         description="Webhook signing secret (whsec_…) from Stripe Dashboard → Webhooks" />
+          <EnvVarRow name="NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY" description="Stripe publishable key (pk_live_… or pk_test_…) — public, sent to the browser" />
+          <EnvVarRow name="APPLE_PAY_DOMAIN_ASSOCIATION"      description="Apple Pay domain verification file contents (optional)" />
+          <EnvVarRow name="NEXT_PUBLIC_PAYPAL_CLIENT_ID"      description="PayPal REST API client ID — public, sent to the browser" />
+          <EnvVarRow name="PAYPAL_CLIENT_SECRET"              description="PayPal REST API secret — server-side only" />
+          <EnvVarRow name="PAYPAL_WEBHOOK_ID"                 description="PayPal webhook ID from Developer Dashboard → Webhooks" />
+          <EnvVarRow name="PAYPAL_ENV"                        description="PayPal environment — 'sandbox' for testing, 'live' for production" />
+          <EnvVarRow name="SUPABASE_SERVICE_ROLE_KEY"         description="Supabase service-role key — used by server API routes only" />
         </div>
       </div>
 
@@ -506,7 +516,7 @@ function PrinterTab() {
         return;
       }
       const bytes  = buildTestReceipt(previewSettings);
-      const result = await sendToPrinter(bytes, draft.ip.trim(), draft.port);
+      const result = await sendToPrinter(bytes, draft.ip.trim(), draft.port, "/api/admin/print");
       if (result.ok) { setTestState("success"); setTimeout(() => setTestState("idle"), 5000); }
       else           { setTestState("error"); setTestError(result.error ?? "Unknown error"); }
       return;
@@ -589,7 +599,7 @@ function PrinterTab() {
 
       {/* Configuration form */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-gray-100 flex gap-2 items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-orange-50 rounded-xl flex items-center justify-center">
               <Printer size={15} className="text-orange-500" />
@@ -600,7 +610,7 @@ function PrinterTab() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 font-medium">{draft.enabled ? "Enabled" : "Disabled"}</span>
+            <span className="hidden sm:flex text-xs text-gray-500 font-medium">{draft.enabled ? "Enabled" : "Disabled"}</span>
             <button
               onClick={() => setDraft((d) => ({ ...d, enabled: !d.enabled }))}
               className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors focus:outline-none ${
@@ -912,7 +922,7 @@ export default function IntegrationsPanel() {
             <button
               key={id}
               onClick={() => setTab(id)}
-              className={`flex items-center gap-2 px-1 py-3.5 mr-6 text-sm font-medium border-b-2 transition-all ${
+              className={`flex items-center gap-2 px-1 py-3.5 mr-6 text-sm font-medium border-b-2 flex-shrink-0 transition-all ${
                 tab === id
                   ? "border-orange-500 text-orange-600"
                   : "border-transparent text-gray-400 hover:text-gray-700"

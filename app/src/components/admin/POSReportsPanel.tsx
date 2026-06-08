@@ -4,16 +4,62 @@ import { useState, useEffect, useMemo } from "react";
 import {
   TrendingUp, Receipt, BarChart3, Users, Percent, BadgeDollarSign,
   Download, RefreshCw, Tag, CreditCard, Banknote, Shuffle,
-  Trophy, Package, ChevronUp, ChevronDown, AlertTriangle,
+  Trophy, Package, ChevronUp, ChevronDown, AlertTriangle, RotateCcw, Crown,
 } from "lucide-react";
-import { POSSale, POSProduct } from "@/types/pos";
 
-// ─── localStorage helpers ────────────────────────────────────────────────────
+interface VipFeeRow {
+  id: string;
+  created_at: string;
+  vip_fee: number;
+  payment_method: string | null;
+  customer_name: string | null;
+  customer_email: string | null;
+  customer_phone: string | null;
+  table_label: string | null;
+  date: string | null;
+  time: string | null;
+}
+import { POSSale, POSProduct } from "@/types/pos";
+import { useApp } from "@/context/AppContext";
+
+// ─── localStorage helper (still used for POS products — cost data lives only
+// on the admin's browser cache today; menu_items table has no `cost` column
+// yet, so cost / margin numbers are best-effort until that column is added).
 
 function loadPOS<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   try { return JSON.parse(localStorage.getItem(key) ?? "null") ?? fallback; }
   catch { return fallback; }
+}
+
+// Fetch all POS sales from the DB. The pos_sales table is the source of
+// truth — every terminal POSTs through /api/pos/sales, so reports here
+// aggregate across all tills regardless of which device the admin is on.
+async function fetchAllSales(): Promise<POSSale[]> {
+  try {
+    // no-store: without it the browser serves the cached sales response, so
+    // the Refresh button spins but the numbers never change.
+    const res = await fetch("/api/admin/pos-sales?limit=5000", { cache: "no-store" });
+    if (!res.ok) return [];
+    const json = await res.json() as { ok: boolean; sales?: POSSale[] };
+    return json.ok && Array.isArray(json.sales) ? json.sales : [];
+  } catch {
+    return [];
+  }
+}
+
+// VIP booking fees collected at the till (cash/card, no gateway). Lives on the
+// reservations row, not in pos_sales — fetch separately and surface as its own
+// revenue line in POS reports.
+async function fetchPosVipFees(): Promise<VipFeeRow[]> {
+  try {
+    const res = await fetch("/api/admin/booking-fees?source=pos&limit=2000", { cache: "no-store" });
+    if (!res.ok) return [];
+    const json = await res.json() as { ok: boolean; fees?: VipFeeRow[] };
+    return json.ok && Array.isArray(json.fees) ? json.fees : [];
+  } catch {
+    return [];
+  }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -42,8 +88,13 @@ const PERIODS: { id: Period; label: string }[] = [
 function getDateRange(period: Period, customStart: string, customEnd: string): [Date, Date] {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // Upper bound for open-ended periods is the END of today, not the current
+  // instant. Using `now` froze the range at page-load time, so a sale rung up
+  // afterwards fell past endDate and never appeared — even after Refresh
+  // re-fetched it (QA: "refresh button works but content not updated").
+  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
   switch (period) {
-    case "today":     return [today, now];
+    case "today":     return [today, endOfToday];
     case "yesterday": {
       const y = new Date(today); y.setDate(y.getDate() - 1);
       const ye = new Date(today); ye.setMilliseconds(-1);
@@ -51,13 +102,13 @@ function getDateRange(period: Period, customStart: string, customEnd: string): [
     }
     case "week": {
       const w = new Date(today); w.setDate(w.getDate() - 6);
-      return [w, now];
+      return [w, endOfToday];
     }
-    case "month": return [new Date(today.getFullYear(), today.getMonth(), 1), now];
-    case "last30": { const l = new Date(today); l.setDate(l.getDate() - 29); return [l, now]; }
+    case "month": return [new Date(today.getFullYear(), today.getMonth(), 1), endOfToday];
+    case "last30": { const l = new Date(today); l.setDate(l.getDate() - 29); return [l, endOfToday]; }
     case "custom": return [
       customStart ? new Date(customStart) : new Date(0),
-      customEnd   ? new Date(customEnd + "T23:59:59") : now,
+      customEnd   ? new Date(customEnd + "T23:59:59") : endOfToday,
     ];
   }
 }
@@ -91,7 +142,7 @@ function buildHourlyBuckets(sales: POSSale[]) {
 
 // CSV export
 function exportCSV(sales: POSSale[], sym: string) {
-  const header = ["Receipt No","Date","Time","Staff","Customer","Items","Subtotal","Discount","VAT","Tip","Total","Payment","Voided","Void Reason"].join(",");
+  const header = ["Receipt No","Date","Time","Staff","Customer","Items",`Subtotal (${sym})`,`Discount (${sym})`,`VAT (${sym})`,`Tip (${sym})`,`Total (${sym})`,"Payment","Voided","Void Reason"].join(",");
   const rows = sales.map((s) => [
     s.receiptNo,
     fmtDate(s.date),
@@ -128,7 +179,7 @@ function KpiCard({ label, value, sub, icon: Icon, color, bg }: {
       <div className={`w-10 h-10 ${bg} rounded-xl flex items-center justify-center mb-3`}>
         <Icon size={20} className={color} />
       </div>
-      <p className={`text-2xl font-bold ${color}`}>{value}</p>
+      <p className={`text-lg sm:text-xl md:text-2xl font-bold ${color}`}>{value}</p>
       {sub && <p className="text-gray-400 text-xs mt-0.5">{sub}</p>}
       <p className="text-gray-500 text-xs mt-1">{label}</p>
     </div>
@@ -138,10 +189,13 @@ function KpiCard({ label, value, sub, icon: Icon, color, bg }: {
 // ─── Main Component ────────────────────────────────────────────────────────────
 
 export default function POSReportsPanel() {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [sales, setSales]       = useState<POSSale[]>([]);
   const [products, setProducts] = useState<POSProduct[]>([]);
-  const [sym, setSym]           = useState("£");
+  const [vipFees, setVipFees]   = useState<VipFeeRow[]>([]);
   const [loaded, setLoaded]     = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [period, setPeriod]         = useState<Period>("today");
   const [customStart, setCustomStart] = useState("");
@@ -155,18 +209,34 @@ export default function POSReportsPanel() {
   const [sortDir, setSortDir]       = useState<"desc" | "asc">("desc");
   const [showVoided, setShowVoided] = useState(false);
 
-  // Load from localStorage on client
+  // Sales come from the DB (pos_sales table) so reports aggregate across all
+  // tills. Products are still read from localStorage because the cost field
+  // isn't in the menu_items DB schema yet — see comment on loadPOS above.
   useEffect(() => {
-    setSales(loadPOS<POSSale[]>("pos_sales", []));
-    setProducts(loadPOS<POSProduct[]>("pos_products", []));
-    const s = loadPOS<{ currencySymbol?: string }>("pos_settings", {});
-    setSym(s.currencySymbol ?? "£");
-    setLoaded(true);
+    let cancelled = false;
+    (async () => {
+      const [fetched, fees] = await Promise.all([fetchAllSales(), fetchPosVipFees()]);
+      if (!cancelled) {
+        setSales(fetched);
+        setVipFees(fees);
+        setProducts(loadPOS<POSProduct[]>("pos_products", []));
+        setLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
-  function refresh() {
-    setSales(loadPOS<POSSale[]>("pos_sales", []));
-    setProducts(loadPOS<POSProduct[]>("pos_products", []));
+  async function refresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      const [fetched, fees] = await Promise.all([fetchAllSales(), fetchPosVipFees()]);
+      setSales(fetched);
+      setVipFees(fees);
+      setProducts(loadPOS<POSProduct[]>("pos_products", []));
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   // ── Date range ──────────────────────────────────────────────────────────────
@@ -184,6 +254,17 @@ export default function POSReportsPanel() {
 
   const filtered = useMemo(() => inRange.filter((s) => !s.voided), [inRange]);
 
+  // VIP booking fees collected at the till in the same date window.
+  const vipFeesInRange = useMemo(() =>
+    vipFees.filter((f) => {
+      const d = new Date(f.created_at);
+      return d >= startDate && d <= endDate;
+    }), [vipFees, startDate, endDate]);
+  const vipFeesTotal = useMemo(
+    () => vipFeesInRange.reduce((s, f) => s + Number(f.vip_fee ?? 0), 0),
+    [vipFeesInRange],
+  );
+
   // ── KPIs ────────────────────────────────────────────────────────────────────
   const revenue       = filtered.reduce((s, x) => s + x.total, 0);
   const taxCollected  = filtered.reduce((s, x) => s + x.taxAmount, 0);
@@ -191,6 +272,12 @@ export default function POSReportsPanel() {
   const discountTotal = filtered.reduce((s, x) => s + x.discountAmount, 0);
   const avgOrder      = filtered.length > 0 ? revenue / filtered.length : 0;
   const voidedCount   = inRange.filter((s) => s.voided).length;
+  // Bug #1b: refunds were silently hidden — voided sales were dropped from
+  // `filtered` and there was no separate refund total. Compute from the voided
+  // slice so admin can see how much money went back out.
+  const refundedSales = inRange.filter((s) => s.voided && (s.refundAmount ?? 0) > 0);
+  const refundedTotal = refundedSales.reduce((sum, s) => sum + (s.refundAmount ?? 0), 0);
+  const refundedCount = refundedSales.length;
 
   // Cost / margin
   const costMap: Record<string, number> = {};
@@ -271,17 +358,18 @@ export default function POSReportsPanel() {
         <div>
           <h2 className="text-xl font-bold text-gray-900">POS Finance Reports</h2>
           <p className="text-gray-500 text-sm mt-0.5">
-            {filtered.length} transactions · {fmtCur(revenue, sym)} revenue
+            {filtered.length} transactions · {fmtCur(revenue + vipFeesTotal, sym)} revenue
+            {vipFeesInRange.length > 0 && <span className="ml-1 text-amber-500">(incl. {fmtCur(vipFeesTotal, sym)} VIP fees)</span>}
             {voidedCount > 0 && <span className="ml-2 text-red-400">({voidedCount} voided)</span>}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={refresh}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-colors">
-            <RefreshCw size={14} /> Refresh
+          <button onClick={refresh} disabled={refreshing}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 text-gray-600 text-[13px] sm:text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} /> Refresh
           </button>
           <button onClick={() => exportCSV(showVoided ? inRange : filtered, sym)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-sm font-semibold transition-colors">
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-[13px] sm:text-sm font-semibold transition-colors">
             <Download size={14} /> Export CSV
           </button>
         </div>
@@ -316,31 +404,94 @@ export default function POSReportsPanel() {
       </div>
 
       {/* ── Empty state ───────────────────────────────────────────────────── */}
-      {filtered.length === 0 && (
+      {filtered.length === 0 && vipFeesInRange.length === 0 && (
         <div className="bg-white border border-gray-100 rounded-2xl p-12 text-center shadow-sm">
           <BarChart3 size={36} className="mx-auto text-gray-300 mb-3" />
           <p className="text-gray-500 font-medium">No sales found for this period</p>
-          <p className="text-gray-400 text-sm mt-1">Sales recorded on the POS will appear here.</p>
+          <p className="text-gray-400 text-sm mt-1">Sales and VIP booking fees recorded on the POS will appear here.</p>
         </div>
       )}
 
-      {filtered.length > 0 && (
+      {(filtered.length > 0 || vipFeesInRange.length > 0) && (
         <>
           {/* ── KPI cards ──────────────────────────────────────────────────── */}
-          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-            <KpiCard label="Total Revenue"    value={fmtCur(revenue, sym)}       sub={`${filtered.length} txns`}           icon={TrendingUp}      color="text-green-600"  bg="bg-green-50" />
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
+            <KpiCard label="Total Revenue"    value={fmtCur(revenue + vipFeesTotal, sym)} sub={vipFeesTotal > 0 ? `${filtered.length} sales + ${fmtCur(vipFeesTotal, sym)} VIP fees` : `${filtered.length} txns`} icon={TrendingUp} color="text-green-600"  bg="bg-green-50" />
             <KpiCard label="Average Order"    value={fmtCur(avgOrder, sym)}       sub={`${filtered.length} sales`}         icon={Receipt}         color="text-blue-600"   bg="bg-blue-50" />
             <KpiCard label="Gross Profit"     value={fmtCur(grossProfit, sym)}    sub={`Margin ${fmtPct(marginPct)}`}      icon={BarChart3}       color="text-purple-600" bg="bg-purple-50" />
             <KpiCard label="VAT Collected"    value={fmtCur(taxCollected, sym)}   sub="excl. voided"                       icon={Percent}         color="text-amber-600"  bg="bg-amber-50" />
+            <KpiCard label="VIP Booking Fees" value={fmtCur(vipFeesTotal, sym)}   sub={`${vipFeesInRange.length} reservation${vipFeesInRange.length === 1 ? "" : "s"} · till`} icon={Crown} color="text-amber-700" bg="bg-amber-50" />
             <KpiCard label="Tips"             value={fmtCur(tipsTotal, sym)}      sub="staff tips"                         icon={BadgeDollarSign} color="text-pink-600"   bg="bg-pink-50" />
             <KpiCard label="Discounts Given"  value={fmtCur(discountTotal, sym)}  sub="reductions applied"                 icon={Tag}             color="text-red-600"    bg="bg-red-50" />
+            <KpiCard label="Refunded"         value={fmtCur(refundedTotal, sym)}  sub={`${refundedCount} txn${refundedCount === 1 ? "" : "s"}`} icon={RotateCcw} color="text-teal-600"  bg="bg-teal-50" />
           </div>
+
+          {/* ── VIP booking fees — detail with reserved customers ──────────── */}
+          {vipFeesInRange.length > 0 && (
+            <div className="bg-white border border-amber-200 rounded-2xl shadow-sm overflow-hidden">
+              <div className="px-5 py-4 border-b border-amber-100 bg-amber-50/60 flex items-center justify-between">
+                <h3 className="text-gray-900 font-semibold text-sm flex items-center gap-2">
+                  <Crown size={16} className="text-amber-500" /> VIP Booking Fees — Reserved Customers
+                </h3>
+                <span className="text-sm font-bold text-amber-800">{fmtCur(vipFeesTotal, sym)} · {vipFeesInRange.length}</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 text-left">
+                      <th className="px-5 py-3 text-xs text-gray-500 font-semibold">Booked</th>
+                      <th className="px-5 py-3 text-xs text-gray-500 font-semibold">Customer</th>
+                      <th className="px-5 py-3 text-xs text-gray-500 font-semibold">Contact</th>
+                      <th className="px-5 py-3 text-xs text-gray-500 font-semibold">Table</th>
+                      <th className="px-5 py-3 text-xs text-gray-500 font-semibold">Reserved for</th>
+                      <th className="px-5 py-3 text-xs text-gray-500 font-semibold">Method</th>
+                      <th className="px-5 py-3 text-xs text-gray-500 font-semibold text-right">Fee</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {[...vipFeesInRange]
+                      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                      .map((f) => (
+                      <tr key={f.id} className="hover:bg-amber-50/40 transition-colors">
+                        <td className="px-5 py-3 text-gray-600 text-xs whitespace-nowrap">
+                          {fmtDate(f.created_at)}<br />
+                          <span className="text-gray-400">{fmtTime(f.created_at)}</span>
+                        </td>
+                        <td className="px-5 py-3 text-gray-800 font-medium whitespace-nowrap">{f.customer_name || "Guest"}</td>
+                        <td className="px-5 py-3 text-gray-500 text-xs">
+                          {f.customer_email && <div className="truncate max-w-[180px]">{f.customer_email}</div>}
+                          {f.customer_phone && <div>{f.customer_phone}</div>}
+                          {!f.customer_email && !f.customer_phone && <span>—</span>}
+                        </td>
+                        <td className="px-5 py-3 text-gray-700 whitespace-nowrap">{f.table_label || "—"}</td>
+                        <td className="px-5 py-3 text-gray-500 text-xs whitespace-nowrap">
+                          {f.date ? `${f.date}${f.time ? ` · ${f.time}` : ""}` : "—"}
+                        </td>
+                        <td className="px-5 py-3">
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${
+                            f.payment_method === "cash" ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"
+                          }`}>{f.payment_method ?? "—"}</span>
+                        </td>
+                        <td className="px-5 py-3 text-right font-semibold text-amber-700 whitespace-nowrap">{fmtCur(Number(f.vip_fee ?? 0), sym)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-amber-50/60 border-t-2 border-amber-200">
+                      <td colSpan={6} className="px-5 py-3 text-xs font-semibold text-gray-600">Total VIP booking fees</td>
+                      <td className="px-5 py-3 text-right font-bold text-amber-800">{fmtCur(vipFeesTotal, sym)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* ── Tab bar ────────────────────────────────────────────────────── */}
           <div className="flex gap-1.5 bg-gray-100 p-1 rounded-xl">
             {(["overview","items","staff","transactions"] as ReportTab[]).map((t) => (
               <button key={t} onClick={() => setTab(t)}
-                className={`flex-1 py-2 rounded-lg text-xs font-semibold capitalize transition-all ${
+                className={`flex-1 px-1 py-2 rounded-lg text-xs font-semibold capitalize transition-all ${
                   tab === t ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
                 }`}>
                 {t === "transactions" ? "Transactions" : t.charAt(0).toUpperCase() + t.slice(1)}
@@ -442,17 +593,21 @@ export default function POSReportsPanel() {
                 </h3>
                 <table className="w-full text-sm">
                   <tbody className="divide-y divide-gray-50">
-                    {[
+                    {([
                       ["Gross Sales (subtotal)",   fmtCur(filtered.reduce((s,x)=>s+x.subtotal,0), sym),  "text-gray-900"],
                       ["Discounts Applied",        `–${fmtCur(discountTotal, sym)}`,                      "text-red-600"],
                       ["Net Sales",               fmtCur(revenue - tipsTotal - taxCollected, sym),        "text-gray-900"],
                       ["VAT Collected",            fmtCur(taxCollected, sym),                             "text-amber-600"],
                       ["Tips",                    fmtCur(tipsTotal, sym),                                 "text-pink-600"],
-                      ["Total Revenue",           fmtCur(revenue, sym),                                   "font-bold text-gray-900"],
+                      ["Sales Revenue",           fmtCur(revenue, sym),                                   "text-gray-900"],
+                      ...(vipFeesTotal > 0
+                        ? [["VIP Booking Fees",    fmtCur(vipFeesTotal, sym),                             "text-amber-700"] as [string, string, string]]
+                        : []),
+                      ["Total Revenue",           fmtCur(revenue + vipFeesTotal, sym),                    "font-bold text-gray-900"],
                       ["Estimated COGS",          `–${fmtCur(totalCost, sym)}`,                            "text-gray-500"],
                       ["Gross Profit",            fmtCur(grossProfit, sym),                               "font-semibold text-green-700"],
                       ["Gross Margin",            fmtPct(marginPct),                                      "text-purple-600"],
-                    ].map(([label, value, cls]) => (
+                    ] as [string, string, string][]).map(([label, value, cls]) => (
                       <tr key={label}>
                         <td className="py-2 text-gray-500">{label}</td>
                         <td className={`py-2 text-right ${cls}`}>{value}</td>
@@ -513,7 +668,7 @@ export default function POSReportsPanel() {
               ) : (
                 <div className="divide-y divide-gray-50">
                   {staffPerf.map((s, i) => (
-                    <div key={s.name} className="px-5 py-4 flex items-center gap-4">
+                    <div key={s.name} className="px-5 py-4 flex flex-wrap items-center gap-4">
                       <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
                         i === 0 ? "bg-amber-400 text-white" : "bg-gray-100 text-gray-500"
                       }`}>
@@ -587,9 +742,9 @@ export default function POSReportsPanel() {
                           {fmtDate(sale.date)}<br />
                           <span className="text-gray-400">{fmtTime(sale.date)}</span>
                         </td>
-                        <td className="px-5 py-3 text-gray-700">{sale.staffName}</td>
-                        <td className="px-5 py-3 text-gray-500 text-xs">{sale.customerName ?? "—"}</td>
-                        <td className="px-5 py-3 text-gray-500 text-xs">{sale.items.length} item{sale.items.length !== 1 ? "s" : ""}</td>
+                        <td className="px-5 py-3 text-gray-700 whitespace-nowrap">{sale.staffName}</td>
+                        <td className="px-5 py-3 text-gray-500 text-xs whitespace-nowrap">{sale.customerName ?? "—"}</td>
+                        <td className="px-5 py-3 text-gray-500 text-xs whitespace-nowrap">{sale.items.length} item{sale.items.length !== 1 ? "s" : ""}</td>
                         <td className="px-5 py-3">
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${
                             sale.paymentMethod === "cash" ? "bg-green-100 text-green-700" :

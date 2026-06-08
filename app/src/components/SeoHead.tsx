@@ -55,21 +55,38 @@ export default function SeoHead({ settings }: { settings: AdminSettings }) {
   // Browsers cache favicons aggressively, so we manipulate the DOM directly
   // rather than relying on React's hoisted <link> reconciliation.
   useEffect(() => {
-    const faviconUrl = seo.faviconUrl?.trim() ?? "";
-    if (faviconUrl === prevFav.current) return;
-    prevFav.current = faviconUrl;
+    const faviconUrl     = seo.faviconUrl?.trim()     ?? "";
+    const faviconVersion = seo.faviconVersion?.trim() ?? "";
+    // Cache-bust key includes the version so a re-uploaded icon retriggers the swap.
+    const key = `${faviconUrl}|${faviconVersion}`;
+    if (key === prevFav.current) return;
+    prevFav.current = key;
 
-    // Remove any existing dynamic favicon links added by this component
-    document.head.querySelectorAll("link[data-sg-favicon]").forEach((el) => el.remove());
+    // Remove any existing dynamic favicon links added by this component AND
+    // any server-rendered favicon links so the browser is forced to re-read.
+    document.head
+      .querySelectorAll('link[data-sg-favicon], link[rel="icon"], link[rel="shortcut icon"]')
+      .forEach((el) => el.remove());
 
     if (!faviconUrl) return;
 
+    // For external (non-data) URLs append ?v=<version> to bust the HTTP cache.
+    // For data URLs the cache-bust query is ignored by the browser but the
+    // fresh <link> element with a distinct href string is enough to force a swap.
+    const isDataUrl = faviconUrl.startsWith("data:");
+    const href = faviconVersion
+      ? (isDataUrl
+          ? `${faviconUrl}#v=${encodeURIComponent(faviconVersion)}`
+          : `${faviconUrl}${faviconUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(faviconVersion)}`)
+      : faviconUrl;
+
     const link = document.createElement("link");
     link.rel  = "icon";
-    link.href = faviconUrl;
+    link.href = href;
     link.setAttribute("data-sg-favicon", "true");
+    if (faviconVersion) link.setAttribute("data-version", faviconVersion);
     document.head.appendChild(link);
-  }, [seo.faviconUrl]);
+  }, [seo.faviconUrl, seo.faviconVersion]);
 
   const title       = seo.metaTitle?.trim()       || "";
   const description = seo.metaDescription?.trim() || "";

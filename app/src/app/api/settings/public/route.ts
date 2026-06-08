@@ -31,6 +31,8 @@ export async function GET() {
       slotDurationMinutes: rs.slotDurationMinutes  ?? 90,
       maxAdvanceDays:      rs.maxAdvanceDays        ?? 30,
       maxPartySize:        rs.maxPartySize          ?? 10,
+      floorPlanImageUrl:   rs.floorPlanImageUrl     ?? "",
+      floorPlanMarkerScale: rs.floorPlanMarkerScale ?? 1,
     },
   });
 }

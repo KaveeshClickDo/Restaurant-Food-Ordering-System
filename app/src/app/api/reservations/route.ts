@@ -8,6 +8,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import type { DiningTable, ReservationSystem } from "@/types";
 import { sendReservationEmailServer }          from "@/lib/emailServer";
+import { rateLimit }                  from "@/lib/rateLimit";
+import { parseBody }                  from "@/lib/apiValidation";
+import { ReservationPublicSchema }    from "@/lib/schemas/reservation";
+import { getOrderOccupiedTableIds }   from "@/lib/tableOccupancy";
 
 function toMins(time: string): number {
   const [h, m] = time.split(":").map(Number);
@@ -15,28 +19,21 @@ function toMins(time: string): number {
 }
 
 export async function POST(req: NextRequest) {
-  let body: {
-    tableId?: string;
-    date?: string;
-    time?: string;
-    partySize?: number;
-    customerName?: string;
-    customerEmail?: string;
-    customerPhone?: string;
-    note?: string;
-    source?: string;
-  };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  const { tableId, date, time, partySize, customerName, customerEmail, customerPhone, note, source } = body;
-
-  if (!tableId || !date || !time || !partySize || !customerName || !customerEmail) {
+  // Per-IP rate limit — 5 bookings per minute. Public booking endpoint, no
+  // auth gate, so this is the only thing stopping a bot from flooding the
+  // slot table with fake reservations.
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const { limited } = rateLimit(`reservation:${ip}`, 5, 60_000);
+  if (limited) {
     return NextResponse.json(
-      { ok: false, error: "tableId, date, time, partySize, customerName, and customerEmail are required." },
-      { status: 400 },
+      { ok: false, error: "Too many booking requests. Please wait a minute and try again." },
+      { status: 429 },
     );
   }
+
+  const parsed = await parseBody(req, ReservationPublicSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { tableId, date, time, partySize, customerName, customerEmail, customerPhone, note, source } = parsed.data;
 
   // Reject past slots — 5-minute buffer for slow submissions
   if (new Date(`${date}T${time}`).getTime() < Date.now() - 5 * 60 * 1000) {
@@ -46,20 +43,35 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Load settings to get table info + slot duration
-  const { data: settingsRow } = await supabaseAdmin
-    .from("app_settings").select("data").limit(1).single();
+  // Load settings (for slot duration + email templates) and the specific
+  // dining table being booked. Tables live in their own DB table.
+  const [{ data: settingsRow }, { data: tableRow }] = await Promise.all([
+    supabaseAdmin.from("app_settings").select("data").limit(1).single(),
+    supabaseAdmin
+      .from("dining_tables")
+      .select("id, label, seats, section, active, is_vip, vip_price")
+      .eq("id", tableId)
+      .maybeSingle(),
+  ]);
 
-  const tables: DiningTable[]  = settingsRow?.data?.diningTables ?? [];
   const rs: ReservationSystem  = settingsRow?.data?.reservationSystem ?? {};
   const slotDuration: number   = rs.slotDurationMinutes ?? 90;
 
-  const table = tables.find((t) => t.id === tableId && t.active);
+  const table = tableRow && tableRow.active ? (tableRow as DiningTable) : null;
   if (!table) {
     return NextResponse.json({ ok: false, error: "Table not found or inactive." }, { status: 400 });
   }
   if (table.seats < partySize) {
     return NextResponse.json({ ok: false, error: "Party size exceeds table capacity." }, { status: 400 });
+  }
+  // VIP tables charge a non-refundable booking fee and must go through the
+  // pay-first flow (/api/reservations/intent). Reject them here so a tampered
+  // client can't create a free VIP booking by hitting this endpoint directly.
+  if (tableRow?.is_vip && Number(tableRow.vip_price ?? 0) > 0) {
+    return NextResponse.json(
+      { ok: false, error: "This is a VIP table — the booking fee must be paid to reserve it." },
+      { status: 402 },
+    );
   }
 
   // Re-check availability (race condition protection)
@@ -73,18 +85,30 @@ export async function POST(req: NextRequest) {
   // If the table doesn't exist yet, surface a clear setup error rather than a generic 500
   if (conflictErr && (conflictErr.message?.includes("schema cache") || conflictErr.message?.includes("not found"))) {
     return NextResponse.json(
-      { ok: false, error: "The reservations table has not been created in your database yet. Please run the reservations migration SQL in your Supabase SQL Editor." },
+      { ok: false, error: "The reservations table has not been created in your database yet. Apply supabase/schema.sql in your Supabase SQL Editor." },
       { status: 503 },
     );
   }
 
   const requestedMins = toMins(time);
-  const hasConflict = (conflicts ?? []).some((r) =>
-    r.status === "checked_in" ||
+  // Every status (incl. checked_in) blocks only its own sitting window.
+  const reservationConflict = (conflicts ?? []).some((r) =>
     Math.abs(toMins(r.time as string) - requestedMins) < slotDuration
   );
 
-  if (hasConflict) {
+  // Also block if an active dine-in order (a seated walk-in with no reservation
+  // row) physically occupies this table for an overlapping sitting. Best-effort.
+  let orderConflict = false;
+  if (!reservationConflict) {
+    const occ = await getOrderOccupiedTableIds({
+      date, requestedMins, slotDurationMinutes: slotDuration,
+      slotIntervalMinutes: rs.slotIntervalMinutes, openTime: rs.openTime,
+      tablesByLabel: new Map([[table.label, table.id]]),
+    });
+    orderConflict = occ.ids.has(table.id);
+  }
+
+  if (reservationConflict || orderConflict) {
     return NextResponse.json(
       { ok: false, error: "This table is no longer available at the selected time. Please choose another slot." },
       { status: 409 },

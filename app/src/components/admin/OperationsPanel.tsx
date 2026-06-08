@@ -1,17 +1,48 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useApp } from "@/context/AppContext";
 import { RestaurantInfo } from "@/types";
 import { restaurantInfo as seedInfo } from "@/data/restaurant";
-import { Store, Clock, PoundSterling, MapPin, CheckCircle2, AlertCircle, Palette, Upload, X, Image as ImageIcon, Search, Code2, Info } from "lucide-react";
+import { CURRENCY_PRESETS, DEFAULT_CURRENCY } from "@/lib/currency";
+import { Store, Clock, Coins, MapPin, CheckCircle2, AlertCircle, Palette, Upload, X, Image as ImageIcon, Search, Code2, Info, Navigation, Star, Eye, EyeOff, Gift, Monitor, Lock, Trash2, Loader2 } from "lucide-react";
 
-// UK postcode validation (basic — covers the vast majority of valid formats)
-const UK_POSTCODE_RE = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i;
+const LocationMap = dynamic(() => import("@/components/maps/LocationMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[220px] w-full bg-gray-50 rounded-xl flex items-center justify-center text-xs text-gray-400 border border-gray-100">
+      Loading map…
+    </div>
+  ),
+});
+
+// Country-aware postcode/ZIP validation
+function validatePostcode(code: string, country: string): boolean {
+  const c = code.trim();
+  if (!c) return false;
+  const re: Record<string, RegExp> = {
+    "United Kingdom": /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i,
+    "United States":  /^\d{5}(-\d{4})?$/,
+    "Canada":         /^[A-Z]\d[A-Z]\s?\d[A-Z]\d$/i,
+    "Australia":      /^\d{4}$/,
+    "Ireland":        /^(?:[A-Z]{1,2}\d{1,2}\s?[A-Z]{1,2}\d|D\d{1,2})$/i,
+    "Germany":        /^\d{5}$/,
+    "France":         /^\d{5}$/,
+    "Netherlands":    /^\d{4}\s?[A-Z]{2}$/i,
+    "India":          /^\d{6}$/,
+    "Sri Lanka":      /^\d{5}$/,
+  };
+  const r = re[country];
+  if (r) return r.test(c);
+  // Unknown country: accept any 3-12 char alphanumeric-with-space code
+  return /^[A-Za-z0-9\s-]{3,12}$/.test(c);
+}
 
 export default function OperationsPanel() {
   const { settings, updateSettings } = useApp();
   const { restaurant } = settings;
+  const sym = settings.currency?.symbol || DEFAULT_CURRENCY.symbol;
 
   function update(patch: Partial<RestaurantInfo>) {
     updateSettings({ restaurant: { ...restaurant, ...patch } });
@@ -21,12 +52,6 @@ export default function OperationsPanel() {
     <div className="space-y-6">
       {/* ── Branding ────────────────────────────────────────────────────── */}
       <BrandingCard />
-
-      {/* ── SEO ─────────────────────────────────────────────────────────── */}
-      <SeoCard />
-
-      {/* ── Custom Head Code ────────────────────────────────────────────── */}
-      <CustomHeadCard />
 
       {/* ── Fees & Timings ──────────────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -42,15 +67,15 @@ export default function OperationsPanel() {
 
         <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-5">
           <Field
-            icon={<PoundSterling size={15} />}
-            label="Minimum order (£)"
+            icon={<span className="text-xs font-bold">{sym}</span>}
+            label={`Minimum order (${sym})`}
             value={restaurant.minOrder}
             onChange={(v) => update({ minOrder: Number(v) })}
             type="number" step="0.50" min="0"
           />
           <Field
-            icon={<PoundSterling size={15} />}
-            label="Delivery fee (£)"
+            icon={<span className="text-xs font-bold">{sym}</span>}
+            label={`Delivery fee (${sym})`}
             value={restaurant.deliveryFee}
             onChange={(v) => update({ deliveryFee: Number(v) })}
             type="number" step="0.10" min="0"
@@ -78,9 +103,529 @@ export default function OperationsPanel() {
           />
         </div>
       </div>
+      
+      {/* ── Currency ────────────────────────────────────────────────────── */}
+      <CurrencyCard />
+
+      {/* ── Loyalty Program ─────────────────────────────────────────────── */}
+      <LoyaltyCard />
+
+      {/* ── Customer Display Access ──────────────────────────────────────── */}
+      <CustomerDisplayCard />
+
+      {/* ── Hygiene Rating ──────────────────────────────────────────────── */}
+      <HygieneRatingCard restaurant={restaurant} update={update} />
 
       {/* ── Restaurant Location ──────────────────────────────────────────── */}
       <LocationCard />
+
+       {/* ── SEO ─────────────────────────────────────────────────────────── */}
+      <SeoCard />
+
+      {/* ── Custom Head Code ────────────────────────────────────────────── */}
+      <CustomHeadCard />
+    </div>
+  );
+}
+
+// ─── Loyalty Program card ──────────────────────────────────────────────────────
+
+function LoyaltyCard() {
+  const { settings, updateSettings } = useApp();
+  const sym = settings.currency?.symbol || DEFAULT_CURRENCY.symbol;
+
+  // Initialize with strings so users can clear the input while typing.
+  // We use 1 and 0.01 as safe fallbacks.
+  const [pointsPer, setPointsPer] = useState(settings.loyaltyPointsPerPound?.toString() || "1");
+  const [pointValue, setPointValue] = useState(settings.loyaltyPointsValue?.toString() || "0.01");
+  const [saved, setSaved] = useState(false);
+
+  // Re-sync local state when settings load from Supabase after mount
+  useEffect(() => {
+    setPointsPer(settings.loyaltyPointsPerPound?.toString() || "1");
+    setPointValue(settings.loyaltyPointsValue?.toString() || "0.01");
+  }, [settings.loyaltyPointsPerPound, settings.loyaltyPointsValue]);
+
+  function handleSave() {
+    const parsedPointsPer = parseFloat(pointsPer) || 0;
+    const parsedPointValue = parseFloat(pointValue) || 0;
+
+    updateSettings({
+      loyaltyPointsPerPound: parsedPointsPer,
+      loyaltyPointsValue: parsedPointValue,
+    });
+
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+        <div className="w-9 h-9 bg-purple-50 rounded-xl flex items-center justify-center flex-shrink-0">
+          <Gift size={18} className="text-purple-600 flex-shrink-0" />
+        </div>
+        <div>
+          <h2 className="font-bold text-gray-900">Loyalty Program</h2>
+          <p className="text-xs text-gray-400">Configure points earned per order and their monetary redemption value</p>
+        </div>
+      </div>
+
+      <div className="p-6 space-y-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+              Points per {sym}
+            </label>
+            <input
+              type="number"
+              step="0.5"
+              min="0"
+              value={pointsPer}
+              onChange={(e) => { setPointsPer(e.target.value); setSaved(false); }}
+              placeholder="1"
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-400 transition"
+            />
+            <p className="mt-1 text-[11px] text-gray-400">
+              How many points a customer earns for every {sym}1 spent.
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+              Point value ({sym})
+            </label>
+            <input
+              type="number"
+              step="0.001"
+              min="0"
+              value={pointValue}
+              onChange={(e) => { setPointValue(e.target.value); setSaved(false); }}
+              placeholder="0.01"
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-400 transition"
+            />
+            <p className="mt-1 text-[11px] text-gray-400">
+              The monetary value of a single point when redeemed at checkout.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 pt-1 border-t border-gray-100">
+          <button
+            onClick={handleSave}
+            className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-xl transition"
+          >
+            Save loyalty options
+          </button>
+          {saved && (
+            <span className="flex items-center gap-1.5 text-sm text-green-600 font-medium">
+              <CheckCircle2 size={16} /> Saved
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Customer Display access card ─────────────────────────────────────────────
+// Sets / changes / removes the password that gates the public /customer-display
+// order board. The hash is stored server-side (display_auth table) via a
+// dedicated admin endpoint — NOT in the settings blob, which the anon client
+// reads. Saving or removing the password logs out every live display screen.
+
+function CustomerDisplayCard() {
+  const [loading, setLoading]   = useState(true);
+  const [isSet, setIsSet]       = useState(false);
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm]   = useState("");
+  const [show, setShow]         = useState(false);
+  const [error, setError]       = useState("");
+  const [saved, setSaved]       = useState("");
+  const [busy, setBusy]         = useState(false);
+
+  useEffect(() => {
+    fetch("/api/admin/display-password", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { ok: boolean; set: boolean } | null) => { if (j?.ok) setIsSet(j.set); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handleSave() {
+    setError(""); setSaved("");
+    if (password.length < 4) { setError("Password must be at least 4 characters."); return; }
+    if (password !== confirm) { setError("Passwords don't match."); return; }
+    setBusy(true);
+    try {
+      const r = await fetch("/api/admin/display-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      const j = await r.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (!r.ok || !j.ok) { setError(j.error ?? "Failed to save password."); return; }
+      setIsSet(true);
+      setPassword(""); setConfirm("");
+      setSaved("Password saved — all display screens have been signed out.");
+      setTimeout(() => setSaved(""), 4000);
+    } catch {
+      setError("Connection error. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRemove() {
+    setError(""); setSaved("");
+    setBusy(true);
+    try {
+      const r = await fetch("/api/admin/display-password", { method: "DELETE" });
+      const j = await r.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (!r.ok || !j.ok) { setError(j.error ?? "Failed to remove password."); return; }
+      setIsSet(false);
+      setPassword(""); setConfirm("");
+      setSaved("Password removed — the display is now open to anyone.");
+      setTimeout(() => setSaved(""), 4000);
+    } catch {
+      setError("Connection error. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+        <div className="w-9 h-9 bg-blue-50 rounded-xl flex items-center justify-center flex-shrink-0">
+          <Monitor size={18} className="text-blue-600 flex-shrink-0" />
+        </div>
+        <div className="min-w-0">
+          <h2 className="font-bold text-gray-900">Customer Display Access</h2>
+          <p className="text-xs text-gray-400">Password-protect the public order board at <code className="font-mono bg-gray-100 px-1 rounded">/customer-display</code></p>
+        </div>
+        {!loading && (
+          <span className={`ml-auto flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${
+            isSet ? "bg-green-50 border border-green-200 text-green-700" : "bg-amber-50 border border-amber-200 text-amber-700"
+          }`}>
+            {isSet ? <><Lock size={12} /> Protected</> : <><Eye size={12} /> Open</>}
+          </span>
+        )}
+      </div>
+
+      <div className="p-6 space-y-5">
+        {/* Status note */}
+        <div className={`flex items-start gap-3 rounded-xl px-4 py-3 ${isSet ? "bg-green-50 border border-green-100" : "bg-amber-50 border border-amber-100"}`}>
+          <Info size={15} className={`flex-shrink-0 mt-0.5 ${isSet ? "text-green-500" : "text-amber-500"}`} />
+          <p className={`text-xs leading-relaxed ${isSet ? "text-green-700" : "text-amber-700"}`}>
+            {isSet
+              ? "A password is set. Each display screen must enter it once; the screen then stays unlocked until you change or remove the password here."
+              : "No password is set — anyone who opens the display URL can view the live order board. Set a password to lock it down."}
+          </p>
+        </div>
+
+        {/* Password fields */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">{isSet ? "New password" : "Password"}</label>
+            <div className="relative">
+              <input
+                type={show ? "text" : "password"}
+                value={password}
+                onChange={(e) => { setPassword(e.target.value); setError(""); }}
+                placeholder="At least 4 characters"
+                className="w-full pl-3 pr-9 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
+              />
+              <button type="button" onClick={() => setShow((s) => !s)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                {show ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Confirm password</label>
+            <input
+              type={show ? "text" : "password"}
+              value={confirm}
+              onChange={(e) => { setConfirm(e.target.value); setError(""); }}
+              placeholder="Re-enter password"
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
+            />
+          </div>
+        </div>
+
+        {error && (
+          <p className="text-xs text-red-500 flex items-center gap-1"><AlertCircle size={11} /> {error}</p>
+        )}
+
+        <div className="flex flex-wrap items-center gap-3 pt-1 border-t border-gray-100">
+          <button
+            onClick={handleSave}
+            disabled={busy || !password}
+            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition flex items-center gap-2"
+          >
+            {busy ? <Loader2 size={15} className="animate-spin" /> : null}
+            {isSet ? "Change password" : "Set password"}
+          </button>
+          {isSet && (
+            <button
+              onClick={handleRemove}
+              disabled={busy}
+              className="flex items-center gap-1.5 px-4 py-2.5 border border-red-200 text-red-500 hover:bg-red-50 disabled:opacity-50 text-sm font-semibold rounded-xl transition"
+            >
+              <Trash2 size={14} /> Remove password
+            </button>
+          )}
+          {saved && (
+            <span className="flex items-center gap-1.5 text-sm text-green-600 font-medium">
+              <CheckCircle2 size={16} /> {saved}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Hygiene rating card ──────────────────────────────────────────────────────
+
+function HygieneRatingCard({
+  restaurant,
+  update,
+}: {
+  restaurant: RestaurantInfo;
+  update: (patch: Partial<RestaurantInfo>) => void;
+}) {
+  const rating  = Number(restaurant.hygieneRating ?? 0);
+  const visible = restaurant.hygieneRatingVisible !== false;
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+        <div className="w-9 h-9 bg-green-100 rounded-xl flex items-center justify-center">
+          <Star size={18} className="text-green-600" />
+        </div>
+        <div>
+          <h2 className="font-bold text-gray-900">Food Hygiene Rating</h2>
+          <p className="text-xs text-gray-400">Shown as a badge on the customer site header</p>
+        </div>
+      </div>
+
+      <div className="p-6 space-y-5">
+        {/* Rating value */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-2">Rating (0 – 5)</label>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1">
+              {[0, 1, 2, 3, 4, 5].map((n) => {
+                const active = n <= rating;
+                return (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => update({ hygieneRating: n })}
+                    className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl border flex items-center justify-center transition ${
+                      active
+                        ? "bg-green-50 border-green-300 text-green-700"
+                        : "bg-gray-50 border-gray-200 text-gray-400 hover:border-gray-300"
+                    }`}
+                    aria-label={`Set hygiene rating to ${n}`}
+                  >
+                    <span className="text-sm font-semibold">{n}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <span className="text-xs text-gray-400">
+              Current: <span className="font-semibold text-gray-700">{rating} / 5</span>
+            </span>
+          </div>
+          <p className="text-xs text-gray-400 mt-2">
+            UK Food Standards Agency scale. Use 0 if you have no published rating.
+          </p>
+        </div>
+
+        {/* Visibility toggle */}
+        <div className="flex items-center justify-between gap-4 pt-2 border-t border-gray-100">
+          <div className="flex items-start gap-3">
+            {visible ? (
+              <Eye size={18} className="text-gray-500 mt-0.5 flex-shrink-0" />
+            ) : (
+              <EyeOff size={18} className="text-gray-400 mt-0.5 flex-shrink-0" />
+            )}
+            <div>
+              <p className="text-sm font-semibold text-gray-800">Show on customer site</p>
+              <p className="text-xs text-gray-400">
+                {visible
+                  ? "The hygiene badge is visible in the customer header."
+                  : "The hygiene badge is hidden from customers."}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={visible}
+            onClick={() => update({ hygieneRatingVisible: !visible })}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full transition ${
+              visible ? "bg-green-500" : "bg-gray-300"
+            }`}
+          >
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                visible ? "translate-x-5" : "translate-x-0.5"
+              } mt-0.5`}
+            />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Currency card ────────────────────────────────────────────────────────────
+
+function CurrencyCard() {
+  const { settings, updateSettings } = useApp();
+  const current = settings.currency ?? DEFAULT_CURRENCY;
+
+  const matchedPreset = CURRENCY_PRESETS.find(
+    (p) => p.code === current.code && p.symbol === current.symbol,
+  );
+  const [mode, setMode] = useState<"preset" | "custom">(matchedPreset ? "preset" : "custom");
+  const [code, setCode] = useState(current.code);
+  const [symbol, setSymbol] = useState(current.symbol);
+  const [saved, setSaved] = useState(false);
+
+  // Re-sync local state when settings load from Supabase after mount
+  useEffect(() => {
+    setCode(current.code);
+    setSymbol(current.symbol);
+    const preset = CURRENCY_PRESETS.find((p) => p.code === current.code && p.symbol === current.symbol);
+    setMode(preset ? "preset" : "custom");
+     
+  }, [current.code, current.symbol]);
+
+  function handleSelectPreset(presetCode: string) {
+    const preset = CURRENCY_PRESETS.find((p) => p.code === presetCode);
+    if (!preset) return;
+    setMode("preset");
+    setCode(preset.code);
+    setSymbol(preset.symbol);
+    setSaved(false);
+  }
+
+  function handleSave() {
+    const trimmedSymbol = symbol.trim();
+    const trimmedCode = code.trim().toUpperCase();
+    if (!trimmedSymbol) return;
+    updateSettings({ currency: { code: trimmedCode || "XXX", symbol: trimmedSymbol } });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+        <div className="w-9 h-9 bg-emerald-50 rounded-xl flex items-center justify-center flex-shrink-0">
+          <Coins size={18} className="text-emerald-600 flex-shrink-0" />
+        </div>
+        <div>
+          <h2 className="font-bold text-gray-900">Currency</h2>
+          <p className="text-xs text-gray-400">Displayed across the customer site, admin panels, POS, and receipts</p>
+        </div>
+      </div>
+
+      <div className="p-6 space-y-5">
+        {/* Live preview */}
+        <div className="bg-gray-50 rounded-xl px-3 py-3 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-0.5">Preview</p>
+            <p className="text-[13px] sm:text-base font-mono text-gray-700">
+              {symbol}12.50 · {symbol}99.00 · {symbol}1.20
+            </p>
+          </div>
+          <span className="text-[10px] font-mono uppercase bg-gray-200 text-gray-600 px-2 py-1 rounded">{code || "—"}</span>
+        </div>
+
+        {/* Preset / Custom toggle */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setMode("preset")}
+            className={`px-3 py-2 text-xs font-semibold rounded-lg border transition ${
+              mode === "preset" ? "bg-emerald-50 border-emerald-300 text-emerald-700" : "bg-white border-gray-200 text-gray-500 hover:border-gray-300"
+            }`}
+          >
+            Preset
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("custom")}
+            className={`px-3 py-2 text-xs font-semibold rounded-lg border transition ${
+              mode === "custom" ? "bg-emerald-50 border-emerald-300 text-emerald-700" : "bg-white border-gray-200 text-gray-500 hover:border-gray-300"
+            }`}
+          >
+            Custom symbol
+          </button>
+        </div>
+
+        {mode === "preset" ? (
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Currency</label>
+            <select
+              value={code}
+              onChange={(e) => handleSelectPreset(e.target.value)}
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400 transition"
+            >
+              {CURRENCY_PRESETS.map((p) => (
+                <option key={p.code} value={p.code}>
+                  {p.symbol} — {p.label} ({p.code})
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Symbol</label>
+              <input
+                type="text"
+                value={symbol}
+                onChange={(e) => { setSymbol(e.target.value); setSaved(false); }}
+                maxLength={6}
+                placeholder="$"
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition"
+              />
+              <p className="mt-1 text-[11px] text-gray-400">Up to 6 characters — e.g. <span className="font-mono">Rs.</span>, <span className="font-mono">kr</span>, <span className="font-mono">د.إ</span></p>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">ISO Code (optional)</label>
+              <input
+                type="text"
+                value={code}
+                onChange={(e) => { setCode(e.target.value.toUpperCase().slice(0, 3)); setSaved(false); }}
+                maxLength={3}
+                placeholder="XXX"
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 font-mono uppercase focus:outline-none focus:ring-2 focus:ring-emerald-400 transition"
+              />
+              <p className="mt-1 text-[11px] text-gray-400">3-letter ISO 4217 code — used by future payment integrations.</p>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center gap-3 pt-1 border-t border-gray-100">
+          <button
+            onClick={handleSave}
+            className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold rounded-xl transition"
+          >
+            Save currency
+          </button>
+          {saved && (
+            <span className="flex items-center gap-1.5 text-sm text-green-600 font-medium">
+              <CheckCircle2 size={16} /> Saved — all prices now display in {symbol}
+            </span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -148,9 +693,10 @@ function BrandingCard() {
         metaTitle:       replace(settings.seo.metaTitle),
         metaDescription: replace(settings.seo.metaDescription),
         metaKeywords:    replace(settings.seo.metaKeywords),
-        ogImage:         settings.seo.ogImage      ?? "",
-        siteUrl:         settings.seo.siteUrl      ?? "",
-        faviconUrl:      settings.seo.faviconUrl   ?? "",
+        ogImage:         settings.seo.ogImage        ?? "",
+        siteUrl:         settings.seo.siteUrl        ?? "",
+        faviconUrl:      settings.seo.faviconUrl     ?? "",
+        faviconVersion:  settings.seo.faviconVersion ?? "",
       };
       if (settings.footerCopyright.includes(oldName)) {
         patch.footerCopyright = replace(settings.footerCopyright);
@@ -392,18 +938,28 @@ function SeoCard() {
   const [keywords,   setKeywords]   = useState(settings.seo.metaKeywords);
   const [ogImage,    setOgImage]    = useState(settings.seo.ogImage      ?? "");
   const [siteUrl,    setSiteUrl]    = useState(settings.seo.siteUrl      ?? "");
-  const [faviconUrl, setFaviconUrl] = useState(settings.seo.faviconUrl   ?? "");
+  const [faviconUrl,     setFaviconUrl]     = useState(settings.seo.faviconUrl     ?? "");
+  const [faviconVersion, setFaviconVersion] = useState(settings.seo.faviconVersion ?? "");
   const [saved,      setSaved]      = useState(false);
   const [errors,     setErrors]     = useState<{ title?: string; desc?: string }>({});
   const [favErr,     setFavErr]     = useState("");
   const faviconRef = useRef<HTMLInputElement>(null);
+
+  function computeFaviconVersion(url: string): string {
+    return url.length.toString(36) + Date.now().toString(36).slice(-6);
+  }
 
   function readFavicon(file: File) {
     setFavErr("");
     if (file.size > 512 * 1024) { setFavErr("Max 512 KB for favicons."); return; }
     const reader = new FileReader();
     reader.onload = (e) => {
-      if (e.target?.result) { setFaviconUrl(e.target.result as string); setSaved(false); }
+      if (e.target?.result) {
+        const url = e.target.result as string;
+        setFaviconUrl(url);
+        setFaviconVersion(computeFaviconVersion(url));
+        setSaved(false);
+      }
     };
     reader.readAsDataURL(file);
   }
@@ -418,14 +974,26 @@ function SeoCard() {
 
   function handleSave() {
     if (!validate()) return;
+    const trimmedFavicon = faviconUrl.trim();
+    // If favicon URL changed since the version was computed, recompute now.
+    // If favicon was cleared, drop the version too.
+    const currentSavedUrl = (settings.seo.faviconUrl ?? "").trim();
+    let nextVersion = faviconVersion;
+    if (!trimmedFavicon) {
+      nextVersion = "";
+    } else if (trimmedFavicon !== currentSavedUrl && !nextVersion) {
+      nextVersion = computeFaviconVersion(trimmedFavicon);
+    }
     updateSettings({ seo: {
       metaTitle:       title.trim(),
       metaDescription: desc.trim(),
       metaKeywords:    keywords.trim(),
       ogImage:         ogImage.trim(),
       siteUrl:         siteUrl.trim(),
-      faviconUrl:      faviconUrl.trim(),
+      faviconUrl:      trimmedFavicon,
+      faviconVersion:  nextVersion,
     }});
+    setFaviconVersion(nextVersion);
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   }
@@ -583,7 +1151,7 @@ function SeoCard() {
                 {faviconUrl && (
                   <button
                     type="button"
-                    onClick={() => { setFaviconUrl(""); setSaved(false); setFavErr(""); }}
+                    onClick={() => { setFaviconUrl(""); setFaviconVersion(""); setSaved(false); setFavErr(""); }}
                     className="flex items-center gap-1.5 px-3 py-2 border border-red-200 text-red-500 text-xs font-semibold rounded-lg hover:bg-red-50 transition"
                   >
                     <X size={12} /> Remove
@@ -799,7 +1367,7 @@ function LocationCard() {
     if (!draft.addressLine1.trim()) e.addressLine1 = "Address is required";
     if (!draft.city.trim())        e.city         = "City is required";
     if (!draft.postcode.trim())    e.postcode     = "Postcode is required";
-    else if (!UK_POSTCODE_RE.test(draft.postcode.trim())) e.postcode = "Enter a valid UK postcode";
+    else if (!validatePostcode(draft.postcode.trim(), draft.country.trim())) e.postcode = `Enter a valid ${draft.country.trim() || "country"} postcode/ZIP`;
     if (!draft.country.trim())     e.country      = "Country is required";
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -957,16 +1525,52 @@ function LocationCard() {
           </div>
         </div>
 
-        {/* GPS coordinates note */}
-        <div className="bg-gray-50 rounded-xl px-4 py-3 flex items-start gap-2">
-          <span className="text-gray-400 mt-0.5">🗺️</span>
-          <div className="text-xs text-gray-500">
-            <span className="font-semibold text-gray-600">GPS coordinates</span> — lat{" "}
-            <span className="font-mono">{restaurant.lat ?? "—"}</span>, lng{" "}
-            <span className="font-mono">{restaurant.lng ?? "—"}</span>.{" "}
-            Edit precise coordinates in the{" "}
-            <span className="text-orange-600 font-medium">Zones</span> tab.
+        {/* GPS pin map — click or drag to set the restaurant's coordinates */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Navigation size={13} className="text-gray-400" />
+              <span className="text-xs font-semibold text-gray-600">GPS pin</span>
+              <span className="text-xs text-gray-400 font-mono">
+                {(restaurant.lat ?? 0).toFixed(4)}, {(restaurant.lng ?? 0).toFixed(4)}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (!navigator.geolocation) return;
+                navigator.geolocation.getCurrentPosition(
+                  (pos) => updateSettings({
+                    restaurant: {
+                      ...restaurant,
+                      lat: +pos.coords.latitude.toFixed(6),
+                      lng: +pos.coords.longitude.toFixed(6),
+                    },
+                  }),
+                );
+              }}
+              className="text-xs font-semibold text-orange-600 hover:text-orange-700 flex items-center gap-1"
+            >
+              <Navigation size={11} /> Use my location
+            </button>
           </div>
+          <LocationMap
+            center={[restaurant.lat ?? 51.515, restaurant.lng ?? -0.063]}
+            height={220}
+            className="rounded-xl border border-gray-200"
+            markers={[{
+              lat: restaurant.lat ?? 51.515,
+              lng: restaurant.lng ?? -0.063,
+              isPrimary: true,
+              tooltip: "Restaurant",
+            }]}
+            clickToMove
+            draggable
+            onPrimaryMove={(lat, lng) => updateSettings({ restaurant: { ...restaurant, lat, lng } })}
+          />
+          <p className="mt-2 text-[11px] text-gray-400">
+            Click anywhere on the map or drag the pin to set the precise restaurant location. Used for delivery distance calculations.
+          </p>
         </div>
 
         {/* Save button */}

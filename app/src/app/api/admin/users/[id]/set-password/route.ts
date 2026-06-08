@@ -9,13 +9,8 @@ import { NextRequest, NextResponse }                   from "next/server";
 import bcrypt                                          from "bcryptjs";
 import { supabaseAdmin }                               from "@/lib/supabaseAdmin";
 import { isAdminAuthenticated, unauthorizedResponse }  from "@/lib/adminAuth";
-import type { AdminSettings, WaiterStaff }             from "@/types";
-
-interface SetPasswordBody {
-  type?: string;
-  password?: string;
-  pin?: string;
-}
+import { parseBody }                                   from "@/lib/apiValidation";
+import { SetPasswordOrPinSchema }                      from "@/lib/schemas/staff";
 
 export async function POST(
   req: NextRequest,
@@ -25,33 +20,34 @@ export async function POST(
 
   const { id } = await context.params;
 
-  let body: SetPasswordBody;
-  try {
-    body = await req.json() as SetPasswordBody;
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 });
-  }
-
-  const { type, password, pin } = body;
-
-  if (!type) {
-    return NextResponse.json({ ok: false, error: "type is required." }, { status: 400 });
-  }
+  const parsed = await parseBody(req, SetPasswordOrPinSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { type, password, pin } = parsed.data;
 
   // ── Customer ──────────────────────────────────────────────────────────────
   if (type === "customer") {
-    if (!password || password.length < 6) {
-      return NextResponse.json(
-        { ok: false, error: "Password must be at least 6 characters." },
-        { status: 400 },
-      );
+    if (!password) {
+      return NextResponse.json({ ok: false, error: "Password is required for customer." }, { status: 400 });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
 
+    // Bump session_version so the customer's live sessions are invalidated on
+    // their next request (see lib/auth.ts readCustomerSession). Defensive: if
+    // the column isn't present yet, skip the bump and still set the password.
+    const update: Record<string, unknown> = { password_hash: passwordHash };
+    const { data: current } = await supabaseAdmin
+      .from("customers")
+      .select("session_version")
+      .eq("id", id)
+      .maybeSingle();
+    if (current && current.session_version !== undefined && current.session_version !== null) {
+      update.session_version = Number(current.session_version) + 1;
+    }
+
     const { error } = await supabaseAdmin
       .from("customers")
-      .update({ password_hash: passwordHash, password: "" })
+      .update(update)
       .eq("id", id);
 
     if (error) {
@@ -63,11 +59,8 @@ export async function POST(
 
   // ── Driver ────────────────────────────────────────────────────────────────
   if (type === "driver") {
-    if (!password || password.length < 6) {
-      return NextResponse.json(
-        { ok: false, error: "Password must be at least 6 characters." },
-        { status: 400 },
-      );
+    if (!password) {
+      return NextResponse.json({ ok: false, error: "Password is required for driver." }, { status: 400 });
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
@@ -84,44 +77,32 @@ export async function POST(
     return NextResponse.json({ ok: true });
   }
 
-  // ── Waiter ────────────────────────────────────────────────────────────────
-  if (type === "waiter") {
-    if (!pin || !/^\d{4}$/.test(pin)) {
+  // ── Staff PINs (waiter / kitchen / pos) ───────────────────────────────────
+  // Waiter and kitchen accept 4–6 digits; POS PINs are strictly 4 digits.
+  // The PIN is bcrypt-hashed and written to the matching staff table's
+  // pin_hash column.
+  if (type === "waiter" || type === "kitchen" || type === "pos") {
+    const re = type === "pos" ? /^\d{4}$/ : /^\d{4,6}$/;
+    if (!pin || !re.test(pin)) {
       return NextResponse.json(
-        { ok: false, error: "PIN must be exactly 4 digits." },
+        { ok: false, error: type === "pos" ? "PIN must be exactly 4 digits." : "PIN must be 4–6 digits." },
         { status: 400 },
       );
     }
 
-    const { data: settingsRow, error: settingsError } = await supabaseAdmin
-      .from("app_settings")
-      .select("data")
-      .limit(1)
-      .single();
+    const table = type === "waiter" ? "waiters"
+                : type === "kitchen" ? "kitchen_staff"
+                : "pos_staff";
 
-    if (settingsError) {
-      return NextResponse.json({ ok: false, error: settingsError.message }, { status: 500 });
+    const pinHash = await bcrypt.hash(pin, 10);
+    const { error } = await supabaseAdmin
+      .from(table)
+      .update({ pin_hash: pinHash })
+      .eq("id", id);
+
+    if (error) {
+      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     }
-
-    const settings = (settingsRow?.data ?? {}) as AdminSettings;
-    const waiters  = settings.waiters ?? [];
-    const idx      = waiters.findIndex((w: WaiterStaff) => w.id === id);
-
-    if (idx === -1) {
-      return NextResponse.json({ ok: false, error: "Waiter not found." }, { status: 404 });
-    }
-
-    const newWaiters = [...waiters];
-    newWaiters[idx]  = { ...newWaiters[idx], pin };
-
-    const { error: upsertError } = await supabaseAdmin
-      .from("app_settings")
-      .upsert({ data: { ...settings, waiters: newWaiters } });
-
-    if (upsertError) {
-      return NextResponse.json({ ok: false, error: upsertError.message }, { status: 500 });
-    }
-
     return NextResponse.json({ ok: true });
   }
 

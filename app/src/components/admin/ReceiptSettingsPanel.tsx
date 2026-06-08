@@ -53,7 +53,7 @@ function TextareaField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        rows={2}
+        rows={3}
         className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition resize-none"
       />
       {hint && <p className="text-[11px] text-gray-400 mt-1">{hint}</p>}
@@ -87,6 +87,8 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 // ─── Receipt preview ──────────────────────────────────────────────────────────
 
 function ReceiptPreview({ r, restaurantName }: { r: ReceiptSettings; restaurantName?: string }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const W = 42;
 
   function center(str: string) {
@@ -126,15 +128,15 @@ function ReceiptPreview({ r, restaurantName }: { r: ReceiptSettings; restaurantN
   // ── Items ──
   lines.push({ text: twoCol("ITEM", "PRICE"), bold: true });
   lines.push({ text: dash });
-  lines.push({ text: twoCol("Chicken Tikka x2", "£11.98") });
-  lines.push({ text: twoCol("Garlic Naan x1", "£2.99") });
+  lines.push({ text: twoCol("Chicken Tikka x2", `${sym}11.98`) });
+  lines.push({ text: twoCol("Garlic Naan x1", `${sym}2.99`) });
   lines.push({ text: dash });
 
   // ── Totals ──
-  lines.push({ text: twoCol("Subtotal", "£14.97") });
-  lines.push({ text: twoCol("Delivery fee", "£2.99") });
+  lines.push({ text: twoCol("Subtotal", `${sym}14.97`) });
+  lines.push({ text: twoCol("Delivery fee", `${sym}2.99`) });
   lines.push({ text: eq });
-  lines.push({ text: twoCol("TOTAL", "£17.96"), bold: true });
+  lines.push({ text: twoCol("TOTAL", `${sym}17.96`), bold: true });
   lines.push({ text: eq });
 
   // ── Bottom section ──
@@ -145,12 +147,12 @@ function ReceiptPreview({ r, restaurantName }: { r: ReceiptSettings; restaurantN
   lines.push({ text: "" });
 
   return (
-    <div className="bg-gray-800 rounded-2xl p-4">
+    <div className="bg-gray-800 rounded-2xl p-4 min-w-0 max-w-full overflow-hidden">
       {/* Simulated printer paper */}
       <div className="bg-white rounded-xl overflow-hidden shadow-inner">
         {/* Sprocket holes strip */}
-        <div className="flex gap-1.5 px-3 py-1.5 bg-gray-50 border-b border-dashed border-gray-200">
-          {Array.from({ length: 12 }).map((_, i) => (
+        <div className="flex gap-3 items-center justify-center px-3 py-1.5 bg-gray-50 border-b border-dashed border-gray-200">
+          {Array.from({ length: 13 }).map((_, i) => (
             <div key={i} className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" />
           ))}
         </div>
@@ -159,6 +161,7 @@ function ReceiptPreview({ r, restaurantName }: { r: ReceiptSettings; restaurantN
           {/* Logo */}
           {r.showLogo && r.logoUrl && (
             <div className="flex justify-center mb-3">
+              {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary URL or data: URI, needs onError fallback */}
               <img
                 src={r.logoUrl}
                 alt="Receipt logo"
@@ -168,26 +171,28 @@ function ReceiptPreview({ r, restaurantName }: { r: ReceiptSettings; restaurantN
             </div>
           )}
           {/* Receipt lines */}
-          <div className="font-mono text-[11px] leading-[1.45] overflow-x-auto">
-            {lines.map((line, i) => (
-              <div
-                key={i}
-                className={[
-                  "whitespace-pre",
-                  line.bold ? "font-bold" : "font-normal",
-                  line.large ? "text-[13px]" : "",
-                  line.dim ? "text-gray-400" : "text-gray-800",
-                ].filter(Boolean).join(" ")}
-              >
-                {line.text || "\u00A0"}
-              </div>
-            ))}
+          <div className="font-mono text-[11px] leading-[1.45] w-full overflow-x-auto min-w-0 flex justify-center">
+            <div className="min-w-max text-left">
+              {lines.map((line, i) => (
+                <div
+                  key={i}
+                  className={[
+                    "whitespace-pre",
+                    line.bold ? "font-bold" : "font-normal",
+                    line.large ? "text-[13px] -ml-[25px]" : "",
+                    line.dim ? "text-gray-400" : "text-gray-800",
+                  ].filter(Boolean).join(" ")}
+                >
+                  {line.text || "\u00A0"}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
         {/* Bottom tear strip */}
-        <div className="flex gap-1.5 px-3 py-1.5 bg-gray-50 border-t border-dashed border-gray-200">
-          {Array.from({ length: 12 }).map((_, i) => (
+        <div className="flex gap-3 items-center justify-center px-3 py-1.5 bg-gray-50 border-t border-dashed border-gray-200">
+          {Array.from({ length: 13 }).map((_, i) => (
             <div key={i} className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" />
           ))}
         </div>
@@ -281,6 +286,7 @@ export default function ReceiptSettingsPanel() {
                       />
                       {draft.logoUrl && (
                         <div className="w-10 h-10 border border-gray-200 rounded-xl overflow-hidden flex-shrink-0 bg-gray-50">
+                          {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary URL or data: URI, needs onError fallback */}
                           <img
                             src={draft.logoUrl}
                             alt="Logo preview"
@@ -382,7 +388,7 @@ export default function ReceiptSettingsPanel() {
 
           {/* ── Preview pane ─────────────────────────────────────────────────── */}
           {showPreview && (
-            <div className="border-t lg:border-t-0 lg:border-l border-gray-100 p-6 bg-gray-50/70">
+            <div className="border-t lg:border-t-0 lg:border-l border-gray-100 p-6 bg-gray-50/70 min-w-0">
               <SectionHeading>Receipt Preview</SectionHeading>
               <ReceiptPreview r={draft} restaurantName={liveRestaurantName} />
             </div>

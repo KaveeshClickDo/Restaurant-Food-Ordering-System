@@ -119,7 +119,7 @@ export async function GET(req: NextRequest) {
   // ── Find or create customer ──────────────────────────────────────────────────
   const { data: existing, error: lookupErr } = await supabaseAdmin
     .from("customers")
-    .select("id")
+    .select("id, session_version")
     .eq("email", email)
     .maybeSingle();
 
@@ -129,10 +129,15 @@ export async function GET(req: NextRequest) {
   }
 
   let customerId: string;
+  // Live session version embedded in the token. New accounts start at 1; an
+  // existing account may be higher if an admin reset its password before this
+  // sign-in — embedding it keeps the token valid (see lib/auth.ts).
+  let sessionVersion = 1;
 
   if (existing) {
     // Existing account — link by email (mark verified while we're here)
     customerId = existing.id;
+    sessionVersion = Number((existing as { session_version?: number }).session_version ?? 1);
     await supabaseAdmin
       .from("customers")
       .update({ email_verified: true })
@@ -148,7 +153,6 @@ export async function GET(req: NextRequest) {
       name,
       email,
       phone:           "",
-      password:        "",
       tags:            [] as string[],
       favourites:      [] as string[],
       saved_addresses: [] as unknown[],
@@ -179,7 +183,7 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Issue session cookie and redirect home ──────────────────────────────────
-  const token = createSessionToken({ id: customerId, role: "customer" });
+  const token = createSessionToken({ id: customerId, role: "customer", sessionVersion });
   const res   = NextResponse.redirect(`${siteUrl}/`);
   setSessionCookie(res, COOKIE_CUSTOMER, token);
   clearStateCookie(res);

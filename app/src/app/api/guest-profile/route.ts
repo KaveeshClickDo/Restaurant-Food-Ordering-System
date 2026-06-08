@@ -7,20 +7,28 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
+import { rateLimit }                 from "@/lib/rateLimit";
+import { parseBody }                 from "@/lib/apiValidation";
+import { GuestProfileSchema }        from "@/lib/schemas/customer";
 
 export async function POST(req: NextRequest) {
-  let body: { name?: string; email?: string; phone?: string; orderTotal?: number };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
-
-  const { name, email, phone, orderTotal } = body;
-
-  // Email is the primary key for deduplication
-  if (!email?.trim()) {
-    return NextResponse.json({ ok: false, error: "email is required." }, { status: 400 });
+  // Per-IP rate limit — 10 upserts per minute. The endpoint accepts an
+  // arbitrary email and writes to reservation_customers; without a cap a bot
+  // could pollute the CRM table.
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const { limited } = rateLimit(`guest-profile:${ip}`, 10, 60_000);
+  if (limited) {
+    return NextResponse.json(
+      { ok: false, error: "Too many requests. Please wait a minute." },
+      { status: 429 },
+    );
   }
 
-  const cleanEmail = email.trim().toLowerCase();
+  const parsed = await parseBody(req, GuestProfileSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const { name, email, phone, orderTotal } = parsed.data;
+
+  const cleanEmail = email.toLowerCase();
   const cleanName  = name?.trim()  ?? "";
   const cleanPhone = phone?.trim() ?? "";
   const spend      = typeof orderTotal === "number" && orderTotal > 0 ? orderTotal : 0;

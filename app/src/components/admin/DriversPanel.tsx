@@ -1,13 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useApp } from "@/context/AppContext";
 import type { Driver, Order } from "@/types";
+import { fullOrderNumber } from "@/lib/orderNumber";
 import {
   UserPlus, Pencil, Trash2, Car, Phone, Mail,
   CheckCircle2, XCircle, Truck, Package, User,
   ChevronDown, ChevronUp, AlertCircle, X,
+  Banknote, Receipt,
 } from "lucide-react";
+import { DriverCreateSchema, DriverUpdateSchema } from "@/lib/schemas/staff";
+import { cleanPhone, formErrorMessage } from "@/lib/inputUtils";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -33,11 +37,13 @@ const EMPTY_FORM = {
 
 function DriverForm({
   initial,
+  isEdit = false,
   existingEmails,
   onSave,
   onCancel,
 }: {
   initial?: Partial<typeof EMPTY_FORM>;
+  isEdit?: boolean;
   existingEmails: string[];
   onSave: (data: typeof EMPTY_FORM) => void;
   onCancel: () => void;
@@ -52,16 +58,30 @@ function DriverForm({
   }
 
   function validate(): boolean {
+    // On edit, the password is optional — leaving it blank keeps the existing
+    // one. Only validate (and later send) a password when the admin typed one.
+    // On create it stays required.
+    const base = {
+      name: form.name, email: form.email, phone: form.phone,
+      vehicleInfo: form.vehicleInfo || undefined, notes: form.notes || undefined,
+    };
+    const includePassword = !isEdit || form.password.trim().length > 0;
+    const result = (isEdit ? DriverUpdateSchema : DriverCreateSchema).safeParse(
+      includePassword ? { ...base, password: form.password } : base,
+    );
     const e: Record<string, string> = {};
-    if (!form.name.trim())   e.name  = "Name is required.";
-    if (!form.email.trim())  e.email = "Email is required.";
-    else if (existingEmails.includes(form.email.toLowerCase()))
+    if (!result.success) {
+      for (const issue of result.error.issues) {
+        const key = issue.path[0];
+        if (typeof key === "string" && !e[key]) e[key] = issue.message;
+      }
+    }
+    if (form.email && existingEmails.includes(form.email.toLowerCase()))
       e.email = "A driver with this email already exists.";
-    if (!form.phone.trim())  e.phone = "Phone is required.";
-    if (!form.password.trim() || form.password.length < 6)
-      e.password = "Password must be at least 6 characters.";
     setErrors(e);
-    return Object.keys(e).length === 0;
+    if (Object.keys(e).length === 0) return true;
+    if (!result.success && Object.values(e).length === 0) setErrors({ form: formErrorMessage(result.error) });
+    return false;
   }
 
   function handleSave() {
@@ -79,8 +99,10 @@ function DriverForm({
       </label>
       <input
         type={opts?.type ?? "text"}
+        inputMode={key === "phone" ? "tel" : undefined}
+        autoComplete={key === "phone" ? "off" : key === "email" ? "off" : undefined}
         value={form[key] as string}
-        onChange={(e) => set(key, e.target.value)}
+        onChange={(e) => set(key, key === "phone" ? cleanPhone(e.target.value) : e.target.value)}
         placeholder={opts?.placeholder}
         className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 transition ${
           errors[key]
@@ -99,13 +121,15 @@ function DriverForm({
         {field("phone", "Phone number",  { placeholder: "+44 7700 900000" })}
         {field("email", "Email address", { placeholder: "jane@example.com", type: "email" })}
         <div>
-          <label className="block text-xs font-semibold text-gray-600 mb-1">Password</label>
+          <label className="block text-xs font-semibold text-gray-600 mb-1">
+            Password{isEdit && <span className="text-gray-400 font-normal ml-1">(leave blank to keep current)</span>}
+          </label>
           <div className="relative">
             <input
               type={showPwd ? "text" : "password"}
               value={form.password}
               onChange={(e) => set("password", e.target.value)}
-              placeholder="Min. 6 characters"
+              placeholder={isEdit ? "Leave blank to keep current" : "Min. 6 characters"}
               className={`w-full border rounded-xl px-3 py-2.5 text-sm pr-16 focus:outline-none focus:ring-2 transition ${
                 errors.password ? "border-red-300 focus:ring-red-400" : "border-gray-200 focus:ring-orange-400"
               }`}
@@ -171,40 +195,43 @@ function DriverRow({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   return (
-    <div className={`bg-white border rounded-2xl px-4 py-3.5 flex items-center gap-4 ${
+    <div className={`group bg-white border rounded-2xl px-4 py-3.5 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 ${
       driver.active ? "border-gray-100" : "border-gray-100 opacity-60"
     }`}>
-      {/* Avatar */}
-      <div className={`w-10 h-10 rounded-xl ${avatarColor(driver.id)} flex items-center justify-center text-white font-bold text-sm flex-shrink-0`}>
-        {initials(driver.name)}
-      </div>
-
-      {/* Info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="font-semibold text-gray-900 text-sm">{driver.name}</p>
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-            driver.active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
-          }`}>
-            {driver.active ? "Active" : "Inactive"}
-          </span>
-          {activeOrderCount > 0 && (
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">
-              {activeOrderCount} on delivery
-            </span>
-          )}
+      {/* Container for Avatar and Info */}
+      <div className="flex items-center gap-4 flex-1 min-w-0">
+        {/* Avatar */}
+        <div className={`w-10 h-10 rounded-xl ${avatarColor(driver.id)} flex items-center justify-center text-white font-bold text-sm flex-shrink-0`}>
+          {initials(driver.name)}
         </div>
-        <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-          <span className="text-xs text-gray-500 flex items-center gap-1"><Phone size={10} />{driver.phone}</span>
-          <span className="text-xs text-gray-500 flex items-center gap-1"><Mail size={10} />{driver.email}</span>
-          {driver.vehicleInfo && (
-            <span className="text-xs text-gray-500 flex items-center gap-1"><Car size={10} />{driver.vehicleInfo}</span>
-          )}
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-semibold text-gray-900 text-sm">{driver.name}</p>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+              driver.active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
+            }`}>
+              {driver.active ? "Active" : "Inactive"}
+            </span>
+            {activeOrderCount > 0 && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">
+                {activeOrderCount} on delivery
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+            <span className="text-xs text-gray-500 flex items-center gap-1"><Phone size={10} />{driver.phone}</span>
+            <span className="text-xs text-gray-500 flex items-center gap-1"><Mail size={10} />{driver.email}</span>
+            {driver.vehicleInfo && (
+              <span className="text-xs text-gray-500 flex items-center gap-1"><Car size={10} />{driver.vehicleInfo}</span>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-1.5 flex-shrink-0">
+      <div className="flex items-center justify-center sm:justify-end py-0 border-t border-gray-50 sm:border-0 pt-0 mt-0 transition">
         <button
           onClick={onToggle}
           title={driver.active ? "Deactivate" : "Activate"}
@@ -261,6 +288,8 @@ function UnassignedOrderCard({
   drivers: Driver[];
   onAssign: (customerId: string, orderId: string, driverId: string) => void;
 }) {
+  const { settings } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
   const [selected, setSelected] = useState("");
   const activeDrivers = drivers.filter((d) => d.active);
 
@@ -268,15 +297,15 @@ function UnassignedOrderCard({
     <div className="bg-white border border-orange-200 rounded-2xl px-4 py-3.5 flex flex-col sm:flex-row sm:items-center gap-3">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <p className="font-bold text-gray-900 text-sm">#{order.id.slice(-8).toUpperCase()}</p>
+          <p title={fullOrderNumber(order.id)} className="font-bold text-gray-900 text-sm truncate max-w-[180px]">{fullOrderNumber(order.id)}</p>
           <span className="text-xs text-gray-500">{customerName}</span>
         </div>
         {order.address && (
-          <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1 truncate">
-            <Package size={10} /> {order.address}
+          <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+            <Package size={10} className="flex-shrink-0" /> {order.address}
           </p>
         )}
-        <p className="text-xs text-gray-400 mt-0.5">{order.items.length} item{order.items.length !== 1 ? "s" : ""} · £{order.total.toFixed(2)}</p>
+        <p className="text-xs text-gray-400 mt-0.5">{order.items.length} item{order.items.length !== 1 ? "s" : ""} · {sym}{order.total.toFixed(2)}</p>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
         {activeDrivers.length === 0 ? (
@@ -316,19 +345,89 @@ const DELIVERY_STATUS_CONFIG = {
   delivered:   { label: "Delivered",  color: "bg-green-100 text-green-700" },
 } as const;
 
+// ─── Outstanding-cash types ───────────────────────────────────────────────────
+
+interface CashOrder  { id: string; date: string; total: number; customerName: string }
+interface CashDriver { driverId: string; driverName: string; total: number; orderCount: number; orders: CashOrder[] }
+
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 
 export default function DriversPanel() {
   const {
-    drivers, customers,
+    drivers, customers, settings,
     addDriver, updateDriver, deleteDriver, toggleDriver,
     assignDriverToOrder,
   } = useApp();
+  const sym = settings.currency?.symbol ?? "£";
 
   const [showForm, setShowForm]       = useState(false);
   const [editDriver, setEditDriver]   = useState<Driver | null>(null);
   const [showActive, setShowActive]   = useState(true);
   const [apiError, setApiError]       = useState("");
+
+  // ── Outstanding-cash state ─────────────────────────────────────────────────
+  const [cashOwed,          setCashOwed]          = useState<CashDriver[]>([]);
+  const [cashLoading,       setCashLoading]       = useState(true);
+  const [expandedDriverId,  setExpandedDriverId]  = useState<string | null>(null);
+  const [selectedByDriver,  setSelectedByDriver]  = useState<Record<string, Set<string>>>({});
+  const [reconcilingId,     setReconcilingId]     = useState<string | null>(null);
+
+  const fetchCashOwed = useCallback(async (isInitial = false) => {
+    if (isInitial) setCashLoading(true);
+    try {
+      const r = await fetch("/api/admin/drivers/cash", { cache: "no-store" });
+      const j = await r.json() as { ok: boolean; drivers?: CashDriver[] };
+      if (j.ok && j.drivers) setCashOwed(j.drivers);
+    } catch { /* keep last-known on network blip */ }
+    finally { if (isInitial) setCashLoading(false); }
+  }, []);
+
+  // Initial load shows the spinner; thereafter poll every 10s so a freshly
+  // delivered cash order shows up under the driver without a manual refresh.
+  // Skipped while the tab is hidden to avoid needless background fetches.
+  useEffect(() => { fetchCashOwed(true); }, [fetchCashOwed]);
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      fetchCashOwed();
+    }, 10_000);
+    return () => clearInterval(id);
+  }, [fetchCashOwed]);
+
+  function toggleOrderSelected(driverId: string, orderId: string) {
+    setSelectedByDriver((prev) => {
+      const set = new Set(prev[driverId] ?? []);
+      if (set.has(orderId)) set.delete(orderId);
+      else set.add(orderId);
+      return { ...prev, [driverId]: set };
+    });
+  }
+
+  async function reconcileCash(driverId: string, payload: { all: true } | { orderIds: string[] }) {
+    setReconcilingId(driverId);
+    setApiError("");
+    try {
+      const r = await fetch(`/api/admin/drivers/${driverId}/reconcile-cash`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(payload),
+      });
+      const j = await r.json() as { ok: boolean; error?: string };
+      if (!j.ok) throw new Error(j.error ?? "Failed to reconcile cash.");
+      await fetchCashOwed();
+      setSelectedByDriver((prev) => {
+        const next = { ...prev };
+        delete next[driverId];
+        return next;
+      });
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : "Failed to reconcile cash.");
+    } finally {
+      setReconcilingId(null);
+    }
+  }
+
+  const totalCashOwed = cashOwed.reduce((s, d) => s + d.total, 0);
 
   // Flatten all orders for driver-related lookups
   const allOrders = customers.flatMap((c) =>
@@ -343,11 +442,17 @@ export default function DriversPanel() {
       !o.driverId,
   );
 
-  // Active deliveries: assigned / picked_up / on_the_way
+  // Active deliveries: assigned / picked_up / on_the_way — but only for
+  // orders still in flight. Admin cancel/refund flips `status` without
+  // touching `delivery_status`, so without the status guard a cancelled
+  // order would keep showing here (and inflate the "On delivery" stats
+  // and the per-driver "N on delivery" badge).
   const activeDeliveries = allOrders.filter(
     (o) =>
       o.deliveryStatus &&
-      ["assigned", "picked_up", "on_the_way"].includes(o.deliveryStatus),
+      ["assigned", "picked_up", "on_the_way"].includes(o.deliveryStatus) &&
+      o.status !== "cancelled" &&
+      o.status !== "refunded",
   );
 
   // Per-driver active order count
@@ -373,8 +478,12 @@ export default function DriversPanel() {
   async function handleEdit(form: typeof EMPTY_FORM) {
     if (!editDriver) return;
     setApiError("");
+    // Omit the password entirely when left blank so the server keeps the
+    // existing hash (sending "" would fail the min-length rule).
+    const { password, ...rest } = form;
+    const payload = password.trim() ? form : rest;
     try {
-      await updateDriver(editDriver.id, form);
+      await updateDriver(editDriver.id, payload);
       setEditDriver(null);
     } catch (err) {
       setApiError(err instanceof Error ? err.message : "Failed to update driver.");
@@ -451,19 +560,26 @@ export default function DriversPanel() {
                 const ds = o.deliveryStatus as keyof typeof DELIVERY_STATUS_CONFIG;
                 const cfg = DELIVERY_STATUS_CONFIG[ds];
                 return (
-                  <div key={o.id} className="px-5 py-3 flex items-center gap-3">
-                    <div className={`text-[11px] font-bold px-2.5 py-1 rounded-full flex-shrink-0 ${cfg.color}`}>
-                      {cfg.label}
+                  <div key={o.id} className="px-4 sm:px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                    <div className="flex items-center justify-between gap-3 sm:w-auto">
+                      <div className={`text-[11px] font-bold px-2.5 py-1 rounded-full flex-shrink-0 ${cfg.color}`}>
+                        {cfg.label}
+                      </div>
+                      <div className="sm:hidden text-[11px] text-gray-500 flex items-center gap-1 flex-shrink-0">
+                        <Car size={11} className="flex-shrink-0" />
+                        <span className="truncate max-w-[130px]">{o.driverName ?? "Unknown"}</span>
+                      </div>
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-900">
-                        #{o.id.slice(-8).toUpperCase()} — {o.customerName}
+                      <p title={fullOrderNumber(o.id)} className="text-sm font-semibold text-gray-900 truncate">
+                        {fullOrderNumber(o.id)}
+                        {o.customerName && <span className="text-gray-500 font-normal"> — {o.customerName}</span>}
                       </p>
                       {o.address && <p className="text-xs text-gray-400 truncate">{o.address}</p>}
                     </div>
-                    <div className="text-xs text-gray-500 flex items-center gap-1 flex-shrink-0">
-                      <Car size={11} />
-                      {o.driverName ?? "Unknown"}
+                    <div className="hidden sm:flex text-xs text-gray-500 items-center gap-1 flex-shrink-0 max-w-[150px]">
+                      <Car size={11} className="flex-shrink-0" />
+                      <span className="truncate">{o.driverName ?? "Unknown"}</span>
                     </div>
                   </div>
                 );
@@ -472,6 +588,120 @@ export default function DriversPanel() {
           )}
         </div>
       )}
+
+      {/* Outstanding cash — money drivers have collected but not handed in */}
+      <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <Banknote size={16} className="text-emerald-600" />
+            <h3 className="font-bold text-gray-900 text-sm">Cash to collect from drivers</h3>
+            {cashOwed.length > 0 && (
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 whitespace-nowrap">
+                {cashOwed.length} driver{cashOwed.length !== 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+          {!cashLoading && totalCashOwed > 0 && (
+            <div className="text-right ml-auto">
+              <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Outstanding total</p>
+              <p className="text-base font-extrabold text-emerald-700 leading-none">{sym}{totalCashOwed.toFixed(2)}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="p-4">
+          {cashLoading ? (
+            <p className="text-xs text-gray-400 py-2">Loading…</p>
+          ) : cashOwed.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">
+              <CheckCircle2 size={28} className="mx-auto mb-2 text-emerald-500 opacity-70" />
+              <p className="text-sm font-medium">No outstanding cash</p>
+              <p className="text-xs mt-1">All drivers have handed in their COD takings.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {cashOwed.map((row) => {
+                const expanded = expandedDriverId === row.driverId;
+                const selected = selectedByDriver[row.driverId] ?? new Set<string>();
+                const busy     = reconcilingId === row.driverId;
+                return (
+                  <div key={row.driverId} className="border border-gray-100 rounded-xl overflow-hidden">
+                    <button
+                      onClick={() => setExpandedDriverId(expanded ? null : row.driverId)}
+                      className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-gray-50 transition"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl ${avatarColor(row.driverId)} flex items-center justify-center text-white font-bold text-sm flex-shrink-0`}>
+                          {initials(row.driverName)}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-semibold text-gray-900 text-sm truncate">{row.driverName}</p>
+                          <p className="text-xs text-gray-500 truncate">
+                            {row.orderCount} order{row.orderCount !== 1 ? "s" : ""} awaiting hand-in
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <p className="text-[14px] sm:text-base font-extrabold text-emerald-700">{sym}{row.total.toFixed(2)}</p>
+                        {expanded ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}
+                      </div>
+                    </button>
+
+                    {expanded && (
+                      <div className="border-t border-gray-100 bg-gray-50/50">
+                        <ul className="divide-y divide-gray-100">
+                          {row.orders.map((o) => {
+                            const isChecked = selected.has(o.id);
+                            return (
+                              <li key={o.id} className="flex items-center gap-3 px-4 py-2.5">
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => toggleOrderSelected(row.driverId, o.id)}
+                                  disabled={busy}
+                                  className="w-4 h-4 accent-emerald-500 flex-shrink-0"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <p title={fullOrderNumber(o.id)} className="text-xs font-semibold text-gray-800 truncate">
+                                    {fullOrderNumber(o.id)}
+                                    <span className="text-gray-500 font-normal"> — {o.customerName}</span>
+                                  </p>
+                                  <p className="text-[11px] text-gray-400 flex items-center gap-1">
+                                    <Receipt size={10} /> {new Date(o.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                                  </p>
+                                </div>
+                                <p className="text-sm font-bold text-gray-900 flex-shrink-0">{sym}{o.total.toFixed(2)}</p>
+                              </li>
+                            );
+                          })}
+                        </ul>
+
+                        <div className="flex flex-wrap items-center justify-end gap-2 px-4 py-3 border-t border-gray-100 bg-white">
+                          <button
+                            disabled={busy || selected.size === 0}
+                            onClick={() => reconcileCash(row.driverId, { orderIds: Array.from(selected) })}
+                            className="text-xs font-semibold border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed px-3 py-2 rounded-lg transition"
+                          >
+                            Mark selected as handed in ({selected.size})
+                          </button>
+                          <button
+                            disabled={busy}
+                            onClick={() => reconcileCash(row.driverId, { all: true })}
+                            className="text-xs font-bold bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-3 py-2 rounded-lg transition flex items-center gap-1.5"
+                          >
+                            <Banknote size={12} className="flex-shrink-0" />
+                            {busy ? "Saving…" : `Mark all as handed in (${sym}${row.total.toFixed(2)})`}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Driver management */}
       <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
@@ -514,6 +744,7 @@ export default function DriversPanel() {
                 <DriverForm
                   key={driver.id}
                   initial={editDriver}
+                  isEdit
                   existingEmails={existingEmails}
                   onSave={handleEdit}
                   onCancel={() => setEditDriver(null)}

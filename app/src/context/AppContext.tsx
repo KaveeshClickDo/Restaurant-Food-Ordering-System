@@ -11,19 +11,16 @@ import React, {
 } from "react";
 import { supabase } from "@/lib/supabase";
 import {
-  AdminSettings, AuditEntry, BreakfastMenuSettings, CartItem, Category, ColorSettings, Coupon,
-  DeliveryStatus, DeliveryZone, Driver, MenuItem, Customer, Order, OrderStatus, PaymentMethod,
-  PrinterSettings, Refund, SavedAddress, SeoSettings, ReceiptSettings, StockStatus,
-  TaxSettings,
+  AdminSettings, AuditEntry, CartItem, Category, Coupon,
+  DeliveryStatus, DeliveryZone, Driver, MealPeriod, MenuItem, Customer, Order, OrderStatus, PaymentMethod,
+  PaymentStatus, Refund, SavedAddress, StockStatus,
 } from "@/types";
 import { buildColorCss } from "@/lib/colorUtils";
+import { cartSubtotal } from "@/lib/menuOfferUtils";
 import { DEFAULT_EMAIL_TEMPLATES } from "@/lib/emailTemplates";
-import { DEFAULT_FOOTER_PAGES } from "@/data/footerPages";
+import { DEFAULT_SETTINGS, DEFAULT_COLORS } from "@/data/defaultSettings";
 import SeoHead from "@/components/SeoHead";
 import EmailVerificationBanner from "@/components/EmailVerificationBanner";
-import { restaurantInfo, defaultSchedule } from "@/data/restaurant";
-import { categories as defaultCategories, menuItems as defaultMenuItems } from "@/data/menu";
-import { mockCustomers } from "@/data/customers";
 
 // ─── Email template merge ─────────────────────────────────────────────────────
 // Keeps existing edited templates and fills in any new default events that are
@@ -33,6 +30,22 @@ function mergeEmailTemplates(stored: typeof DEFAULT_EMAIL_TEMPLATES | undefined 
   const storedEvents = new Set(stored.map((t) => t.event));
   const missing = DEFAULT_EMAIL_TEMPLATES.filter((t) => !storedEvents.has(t.event));
   return missing.length > 0 ? [...stored, ...missing] : stored;
+}
+
+// ─── Dining table row mapping ─────────────────────────────────────────────────
+// dining_tables rows come back snake_case; the DiningTable type the whole app
+// consumes is camelCase. Most columns coincide (id/label/seats/section/active),
+// but the VIP fields don't — map them so the crown + booking fee surface in the
+// POS / waiter / reservation views that read settings.diningTables.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapDiningRow(r: any) {
+  return {
+    ...r,
+    isVip:    r.is_vip ?? false,
+    vipPrice: Number(r.vip_price ?? 0),
+    posX:     r.pos_x ?? null,
+    posY:     r.pos_y ?? null,
+  };
 }
 
 // ─── Cart (session data — stays in localStorage) ──────────────────────────────
@@ -67,6 +80,10 @@ interface AppContextValue {
   cartCount: number;
   settings: AdminSettings;
   updateSettings: (patch: Partial<AdminSettings>) => void;
+  /** Re-fetch dining tables into settings.diningTables (no server write).
+   *  Poll this on surfaces that gate UI on the table list (POS, waiter) so
+   *  admin add/remove-table changes show without a full reload. */
+  refreshDiningTables: () => Promise<void>;
   isOpen: boolean;
   fulfillment: "delivery" | "collection";
   setFulfillment: (f: "delivery" | "collection") => void;
@@ -79,16 +96,23 @@ interface AppContextValue {
   deleteCategory: (id: string) => void;
   addMenuItem: (item: MenuItem) => void;
   updateMenuItem: (item: MenuItem) => void;
+  /** Dedicated stock-only update. Use this when the admin explicitly changes
+   *  stock fields (qty or status) — it routes to /api/admin/menu/[id]/stock
+   *  so the general menu PUT can keep its hands off the live counter. */
+  updateMenuItemStock: (
+    id: string,
+    payload: { mode: "qty"; stockQty: number } | { mode: "manual"; stockStatus: "in_stock" | "low_stock" | "out_of_stock" },
+  ) => void;
   deleteMenuItem: (id: string) => void;
   reorderCategories: (cats: Category[]) => void;
   customers: Customer[];
   addOrder: (customerId: string, order: Order) => Promise<{ ok: boolean; error?: string }>;
   updateOrderStatus: (customerId: string, orderId: string, status: OrderStatus) => void;
-  addCustomer: (customer: Customer) => void;
+  addCustomer: (customer: Customer, password?: string) => Promise<void>;
   updateCustomer: (customer: Customer) => void;
   currentUser: Customer | null;
-  login: (email: string, password: string) => Promise<boolean>;
-  register: (name: string, email: string, phone: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  login: (email: string, password: string) => Promise<{ ok: boolean; needsVerification?: boolean; email?: string; error?: string }>;
+  register: (name: string, email: string, phone: string, password: string) => Promise<{ success: boolean; error?: string; needsVerification?: boolean; email?: string }>;
   logout: () => Promise<void>;
   toggleFavourite: (menuItemId: string) => void;
   isFavourite: (menuItemId: string) => boolean;
@@ -113,6 +137,11 @@ interface AppContextValue {
   setDefaultAddress: (customerId: string, addressId: string) => void;
   drivers: Driver[];
   currentDriver: Driver | null;
+  /** False until the first /api/auth/driver(/me) check resolves on mount.
+   *  The driver page uses this to distinguish "still checking" from "checked
+   *  and confirmed signed-out" so it can redirect to /driver/login without
+   *  a fixed-delay fallback timer. */
+  driverAuthChecked: boolean;
   /** Validates credentials via the server-side /api/auth/driver route. */
   driverLogin: (email: string, password: string) => Promise<boolean>;
   driverLogout: () => void;
@@ -121,123 +150,51 @@ interface AppContextValue {
   deleteDriver: (id: string) => Promise<void>;
   toggleDriver: (id: string, active: boolean) => Promise<void>;
   assignDriverToOrder: (customerId: string, orderId: string, driverId: string | null) => void;
-  updateDeliveryStatus: (customerId: string, orderId: string, status: DeliveryStatus) => void;
-  addRefund: (customerId: string, orderId: string, refund: Refund) => void;
-  spendStoreCredit: (customerId: string, amount: number) => void;
-  // ─── Breakfast menu ───────────────────────────────────────────────────────
-  updateBreakfastSettings: (patch: Partial<BreakfastMenuSettings>) => void;
-  addBreakfastCategory: (cat: Category) => void;
-  updateBreakfastCategory: (cat: Category) => void;
-  deleteBreakfastCategory: (id: string) => void;
-  reorderBreakfastCategories: (cats: Category[]) => void;
-  addBreakfastItem: (item: MenuItem) => void;
-  updateBreakfastItem: (item: MenuItem) => void;
-  deleteBreakfastItem: (id: string) => void;
+  updateDeliveryStatus: (
+    customerId: string,
+    orderId: string,
+    status: DeliveryStatus,
+    code?: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  /**
+   * Record a refund on an order. Pass `newStatus` to also flip the order's
+   * fulfillment status in the same atomic write — used by the Delivery panel's
+   * "refund + cancel" flow so the refund and the cancellation can't race each
+   * other on the `status` column. Omit it for a plain refund (the order keeps
+   * its current fulfillment status; only payment state changes).
+   */
+  addRefund: (customerId: string, orderId: string, refund: Refund, newStatus?: OrderStatus) => void;
+  spendStoreCredit: (customerId: string, amount: number, orderId: string) => void;
+  /** Local-only optimistic deduction. Use when the deduction is being handled
+   *  server-side elsewhere (e.g. Stripe/PayPal webhooks deduct after order
+   *  insert) — there's no order id yet on the client, so calling
+   *  `spendStoreCredit` would 404 against an order that doesn't exist. */
+  applyStoreCreditOptimistic: (customerId: string, amount: number) => void;
+  // ─── Meal periods ─────────────────────────────────────────────────────────
+  // Time-bounded customer-menu sections (Breakfast, Lunch, Dinner…). Items
+  // reference these via MenuItem.mealPeriodIds. Many-to-many.
+  mealPeriods: MealPeriod[];
+  addMealPeriod: (period: Omit<MealPeriod, "id"> & { id?: string }) => Promise<{ ok: boolean; mealPeriod?: MealPeriod; error?: string }>;
+  updateMealPeriod: (id: string, patch: Partial<Omit<MealPeriod, "id">>) => Promise<{ ok: boolean; error?: string }>;
+  deleteMealPeriod: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  reorderMealPeriods: (periods: MealPeriod[]) => Promise<{ ok: boolean; error?: string }>;
   /** Re-fetches the logged-in customer from the server and syncs state. */
   refreshCurrentUser: () => Promise<void>;
+  /**
+   * Admin/driver surfaces only — populates the `customers` array from the
+   * admin-gated /api/admin/customers/list endpoint. Customer-facing pages
+   * MUST NOT call this; they use `currentUser` instead. Returns ok=false
+   * when the admin session is missing (anyone else gets an empty result).
+   */
+  loadAllCustomers: () => Promise<{ ok: boolean; error?: string }>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
-
-const NO_RESTRICTION = { restricted: false, minKm: 0, maxKm: 50 };
-
-const DEFAULT_PAYMENT_METHODS: PaymentMethod[] = [
-  { id: "stripe", name: "Card (Stripe)",  description: "Visa, Mastercard, Amex via Stripe", adminNote: "",              enabled: true, builtIn: true, order: 0, deliveryRange: NO_RESTRICTION },
-  { id: "paypal", name: "PayPal",         description: "Fast, secure PayPal checkout",       adminNote: "",              enabled: true, builtIn: true, order: 1, deliveryRange: NO_RESTRICTION },
-  { id: "cash",   name: "Cash",           description: "Pay in store or on delivery",         adminNote: "Pay on delivery", enabled: true, builtIn: true, order: 2, deliveryRange: { restricted: true, minKm: 0, maxKm: 3 } },
-];
-
-const DEFAULT_DELIVERY_ZONES: DeliveryZone[] = [
-  { id: "zone-1", name: "Central",  minRadiusKm: 0, maxRadiusKm: 3,  fee: 1.99, enabled: true, color: "#f97316" },
-  { id: "zone-2", name: "Local",    minRadiusKm: 3, maxRadiusKm: 8,  fee: 2.99, enabled: true, color: "#3b82f6" },
-  { id: "zone-3", name: "Extended", minRadiusKm: 8, maxRadiusKm: 15, fee: 4.99, enabled: true, color: "#a855f7" },
-];
-
-const DEFAULT_COLORS: ColorSettings = { primaryColor: "#f97316", backgroundColor: "#f9fafb" };
-
-const DEFAULT_TAX: TaxSettings = { enabled: false, rate: 20, inclusive: true, showBreakdown: true };
-
-const DEFAULT_RECEIPT: ReceiptSettings = {
-  showLogo: false, logoUrl: "", restaurantName: restaurantInfo.name,
-  phone: restaurantInfo.phone, website: "", email: "", vatNumber: "",
-  thankYouMessage: "Thank you for your order!", customMessage: "",
-};
-
-const DEFAULT_SEO: SeoSettings = {
-  metaTitle: `${restaurantInfo.name} — Order Online`,
-  metaDescription: `Order online from ${restaurantInfo.name}.`,
-  metaKeywords: `food delivery, online order, ${restaurantInfo.name}`,
-  ogImage: "",
-  siteUrl: "",
-  faviconUrl: "",
-};
-
-const DEFAULT_PRINTER: PrinterSettings = {
-  enabled: false, name: "Kitchen Printer", connection: "network",
-  ip: "", port: 9100, bluetoothAddress: "", bluetoothName: "",
-  autoPrint: true, paperWidth: 48,
-};
-
-const DEFAULT_SETTINGS: AdminSettings = {
-  restaurant: restaurantInfo,
-  schedule: defaultSchedule,
-  manualClosed: false,
-  stripePublicKey: "",
-  // stripeSecretKey, paypalClientId → server-side env vars only
-  // smtpHost/Port/User/Password → server-side env vars only
-  // drivers → managed via /api/admin/drivers (separate Supabase table)
-  paymentMethods: DEFAULT_PAYMENT_METHODS,
-  paymentAuditLog: [],
-  deliveryZones: DEFAULT_DELIVERY_ZONES,
-  seo: DEFAULT_SEO,
-  customHeadCode: "",
-  printer: DEFAULT_PRINTER,
-  emailTemplates: DEFAULT_EMAIL_TEMPLATES,
-  footerPages: DEFAULT_FOOTER_PAGES,
-  footerCopyright: `© ${new Date().getFullYear()} ${restaurantInfo.name}. All rights reserved.`,
-  customPages: [],
-  menuLinks: [],
-  colors: DEFAULT_COLORS,
-  footerLogos: [],
-  receiptSettings: DEFAULT_RECEIPT,
-  coupons: [],
-  taxSettings: DEFAULT_TAX,
-  breakfastMenu: {
-    enabled: false,
-    startTime: "07:00",
-    endTime: "11:30",
-    categories: [],
-    items: [],
-  },
-  waiters: [
-    { id: "w-1", name: "Head Waiter", pin: "1111", role: "senior", active: true, avatarColor: "#7c3aed", createdAt: new Date().toISOString() },
-    { id: "w-2", name: "Alex",        pin: "2222", role: "waiter",  active: true, avatarColor: "#0891b2", createdAt: new Date().toISOString() },
-    { id: "w-3", name: "Sophie",      pin: "3333", role: "waiter",  active: true, avatarColor: "#16a34a", createdAt: new Date().toISOString() },
-  ],
-  kitchenStaff: [
-    { id: "k-1", name: "Head Chef",       pin: "1234", role: "head_chef",       active: true, avatarColor: "#dc2626", createdAt: new Date().toISOString() },
-    { id: "k-2", name: "Sous Chef",       pin: "2345", role: "chef",            active: true, avatarColor: "#ea580c", createdAt: new Date().toISOString() },
-    { id: "k-3", name: "Kitchen Manager", pin: "3456", role: "kitchen_manager", active: true, avatarColor: "#7c3aed", createdAt: new Date().toISOString() },
-  ],
-  diningTables: [
-    ...Array.from({ length: 6 },  (_, i) => ({ id: `t-${i+1}`,  number: i+1,  label: `T${i+1}`,  seats: i < 2 ? 2 : 4, section: "Main Hall", active: true })),
-    ...Array.from({ length: 4 },  (_, i) => ({ id: `t-${i+7}`,  number: i+7,  label: `T${i+7}`,  seats: 4,             section: "Terrace",   active: true })),
-    ...Array.from({ length: 2 },  (_, i) => ({ id: `t-${i+11}`, number: i+11, label: `B${i+1}`,  seats: 2,             section: "Bar",       active: true })),
-  ],
-  reservationSystem: {
-    enabled: false,
-    slotDurationMinutes: 90,
-    maxAdvanceDays: 30,
-    openTime: "12:00",
-    closeTime: "22:00",
-    slotIntervalMinutes: 30,
-    maxPartySize: 10,
-    blackoutDates: [],
-    reviewUrl: "",
-  },
-};
+// DEFAULT_SETTINGS and its sub-constants live in @/data/defaultSettings so the
+// same defaults can be loaded by the post-migrate seed-settings script. Don't
+// re-add inline defaults here — edit the data file.
 
 // ─── Store open check ─────────────────────────────────────────────────────────
 
@@ -255,7 +212,7 @@ function isStoreOpen(settings: AdminSettings): boolean {
 
 // ─── Coupon validator ─────────────────────────────────────────────────────────
 
-function validateCouponCode(code: string, subtotal: number, coupons: Coupon[]) {
+function validateCouponCode(code: string, subtotal: number, coupons: Coupon[], sym = "£") {
   const coupon = coupons.find((c) => c.code.toUpperCase() === code.trim().toUpperCase());
   if (!coupon)         return { valid: false as const, error: "Invalid coupon code." };
   if (!coupon.active)  return { valid: false as const, error: "This coupon is no longer active." };
@@ -264,7 +221,7 @@ function validateCouponCode(code: string, subtotal: number, coupons: Coupon[]) {
   if (coupon.usageLimit > 0 && coupon.usageCount >= coupon.usageLimit)
     return { valid: false as const, error: "This coupon has reached its usage limit." };
   if (coupon.minOrderAmount > 0 && subtotal < coupon.minOrderAmount)
-    return { valid: false as const, error: `Minimum order of £${coupon.minOrderAmount.toFixed(2)} required.` };
+    return { valid: false as const, error: `Minimum order of ${sym}${coupon.minOrderAmount.toFixed(2)} required.` };
   const discountAmount =
     coupon.type === "percentage"
       ? parseFloat((subtotal * (coupon.value / 100)).toFixed(2))
@@ -276,11 +233,11 @@ function validateCouponCode(code: string, subtotal: number, coupons: Coupon[]) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapCategory(row: any): Category {
-  return { id: row.id, name: row.name, emoji: row.emoji };
+  return { id: row.id, name: row.name, emoji: row.emoji, parentId: row.parent_id || null, sort_order: row.sort_order ?? 0 };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapMenuItem(row: any): MenuItem {
+function mapMenuItem(row: any, mealPeriodIds: string[] = []): MenuItem {
   return {
     id: row.id, categoryId: row.category_id,
     name: row.name, description: row.description ?? "",
@@ -292,69 +249,84 @@ function mapMenuItem(row: any): MenuItem {
     addOns: row.add_ons ?? [],
     stockQty: row.stock_qty ?? undefined,
     stockStatus: (row.stock_status as StockStatus) || undefined,
+    // Bug #2 — POS parity columns. Defaults match the schema (active=true,
+    // trackStock=false) so older snapshots without the columns still render.
+    cost:   row.cost  !== null && row.cost  !== undefined ? Number(row.cost) : undefined,
+    sku:    row.sku   ?? undefined,
+    emoji:  row.emoji ?? undefined,
+    color:  row.color ?? undefined,
+    active: row.active === undefined || row.active === null ? true : !!row.active,
+    trackStock: !!row.track_stock,
+    offer:  row.offer ?? undefined,
+    mealPeriodIds,
+    // Channel split. Legacy rows that pre-date the column come back as
+    // null/undefined → fall back to both channels so they stay visible
+    // everywhere until admin curates them.
+    channels: Array.isArray(row.channels) && row.channels.length > 0
+      ? (row.channels as ("in_store" | "online")[])
+      : ["in_store", "online"],
+    priceOnline: row.price_online !== null && row.price_online !== undefined
+      ? Number(row.price_online)
+      : undefined,
   };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapOrder(row: any): Order {
+function mapMealPeriod(row: any): MealPeriod {
   return {
     id: row.id,
-    customerId: row.customer_id,
-    date: typeof row.date === "string" ? row.date : new Date(row.date).toISOString(),
-    status: row.status as OrderStatus,
-    fulfillment: row.fulfillment,
-    total: Number(row.total),
-    items: row.items ?? [],
-    address: row.address || undefined,
-    note: row.note || undefined,
-    paymentMethod: row.payment_method || undefined,
-    deliveryFee: row.delivery_fee ? Number(row.delivery_fee) : undefined,
-    serviceFee: row.service_fee ? Number(row.service_fee) : undefined,
-    scheduledTime: row.scheduled_time || undefined,
-    couponCode: row.coupon_code || undefined,
-    couponDiscount: row.coupon_discount ? Number(row.coupon_discount) : undefined,
-    vatAmount: row.vat_amount ? Number(row.vat_amount) : undefined,
-    vatInclusive: row.vat_inclusive ?? undefined,
-    driverId: row.driver_id || undefined,
-    driverName: row.driver_name || undefined,
-    deliveryStatus: (row.delivery_status as DeliveryStatus) || undefined,
-    refunds: row.refunds ?? [],
-    refundedAmount: row.refunded_amount ? Number(row.refunded_amount) : undefined,
-    storeCreditUsed: row.store_credit_used ? Number(row.store_credit_used) : undefined,
+    name: row.name,
+    enabled: !!row.enabled,
+    startTime: row.start_time,
+    endTime: row.end_time,
+    daysOfWeek: row.days_of_week ?? [0, 1, 2, 3, 4, 5, 6],
+    sortOrder: row.sort_order ?? 0,
+    themeColor: row.theme_color ?? "#f59e0b",
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapCustomer(row: any): Customer {
-  return {
-    id: row.id, name: row.name, email: row.email,
-    phone: row.phone ?? "",
-    password: row.password || undefined,
-    createdAt: typeof row.created_at === "string" ? row.created_at : new Date(row.created_at).toISOString(),
-    tags: row.tags ?? [],
-    orders: (row.orders ?? []).map(mapOrder).sort(
-      (a: Order, b: Order) => new Date(b.date).getTime() - new Date(a.date).getTime()
-    ),
-    favourites: row.favourites ?? [],
-    savedAddresses: row.saved_addresses ?? [],
-    storeCredit: row.store_credit ? Number(row.store_credit) : undefined,
-  };
-}
+// mapOrder (row → Order) + mapCustomer + customersRef were used by the old
+// client-side anon SELECT on `customers`/`orders` and the matching realtime
+// hydration. Both paths are gone — orders/customers now arrive already shaped
+// from /api/auth/me (logged-in user only) and /api/admin/customers/list (admin
+// tree), so no client-side row mapping is needed.
 
 // ─── TypeScript → DB row mappers ─────────────────────────────────────────────
 
 function categoryToRow(c: Category, order: number) {
-  return { id: c.id, name: c.name, emoji: c.emoji, sort_order: order };
+  return { id: c.id, name: c.name, emoji: c.emoji, sort_order: order, parent_id: c.parentId || null };
 }
 
 function menuItemToRow(m: MenuItem) {
+  // mealPeriodIds is intentionally NOT included — those go to the
+  // menu_item_meal_periods join table, handled separately by the admin API.
+  //
+  // Stock fields ARE included here so a new-item POST sets the initial
+  // counter atomically (no separate stock PUT needed, no insert/update
+  // race). The general /api/admin/menu/[id] PUT route strips stock fields
+  // before update, so unrelated edits cannot clobber the live counter that
+  // sales are decrementing. Live stock changes go through
+  // updateMenuItemStock → /api/admin/menu/[id]/stock instead.
   return {
     id: m.id, category_id: m.categoryId,
     name: m.name, description: m.description ?? "",
     price: m.price, image: m.image ?? "",
     dietary: m.dietary, popular: m.popular ?? false,
     variations: m.variations ?? [], add_ons: m.addOns ?? [],
-    stock_qty: m.stockQty ?? null, stock_status: m.stockStatus ?? "in_stock",
+    stock_qty: m.stockQty ?? null,
+    stock_status: typeof m.stockQty === "number" ? null : (m.stockStatus ?? "in_stock"),
+    track_stock: typeof m.stockQty === "number",
+    cost: m.cost ?? null,
+    sku:  m.sku  ?? null,
+    emoji: m.emoji ?? null,
+    color: m.color ?? null,
+    active: m.active ?? true,
+    offer: m.offer ?? null,
+    // Channel split + online price override. Omitting `channels` from the
+    // payload would let the DB default re-assert `{in_store, online}`; we
+    // pass the explicit value so admin can save in_store-only items.
+    channels: m.channels && m.channels.length > 0 ? m.channels : ["in_store", "online"],
+    price_online: m.priceOnline ?? null,
   };
 }
 
@@ -364,6 +336,11 @@ function orderToRow(o: Order) {
     status: o.status, fulfillment: o.fulfillment, total: o.total,
     items: o.items,
     address: o.address ?? "", note: o.note ?? "",
+    // Customer pin coordinates captured at checkout — null when the customer
+    // didn't drop a pin. Server-side validateAndNormaliseOrder re-checks bounds
+    // and prefers these over re-geocoding the address when computing the fee.
+    customer_lat: o.customerLat ?? null,
+    customer_lng: o.customerLng ?? null,
     payment_method: o.paymentMethod ?? "",
     delivery_fee: o.deliveryFee ?? 0, service_fee: o.serviceFee ?? 0,
     scheduled_time: o.scheduledTime ?? "", coupon_code: o.couponCode ?? "",
@@ -371,16 +348,22 @@ function orderToRow(o: Order) {
     vat_amount: o.vatAmount ?? 0, vat_inclusive: o.vatInclusive ?? true,
     driver_id: o.driverId ?? "", driver_name: o.driverName ?? "",
     delivery_status: o.deliveryStatus ?? "",
+    delivery_code: o.deliveryCode ?? null,
     refunds: o.refunds ?? [],
     refunded_amount: o.refundedAmount ?? 0,
     store_credit_used: o.storeCreditUsed ?? 0,
+    // Gift card — the server looks up the code, validates + clamps the amount,
+    // and stamps gift_card_id on the row. We forward the transient code +
+    // proposed amount; empty string when no card was applied.
+    gift_card_code: o.giftCardCode ?? "",
+    gift_card_used: o.giftCardUsed ?? 0,
   };
 }
 
 function customerToRow(c: Customer) {
   return {
     id: c.id, name: c.name, email: c.email,
-    phone: c.phone ?? "", password: c.password ?? "",
+    phone: c.phone ?? "",
     created_at: c.createdAt,
     tags: c.tags ?? [], favourites: c.favourites ?? [],
     saved_addresses: c.savedAddresses ?? [],
@@ -390,38 +373,76 @@ function customerToRow(c: Customer) {
 
 // ─── Settings builder ─────────────────────────────────────────────────────────
 // Shared by: AppProvider initial state, init useEffect, and Realtime subscription.
-// Accepts the raw `data` column from app_settings (or null → returns DEFAULT_SETTINGS).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+//
+// Reads the raw `data` column from app_settings and returns it as-is — no
+// per-field merging with DEFAULT_SETTINGS. Fresh DBs are populated by
+// `npm run db:migrate` (which chains seed-settings), so every field is
+// guaranteed to be present. If you add a new field to AdminSettings, also:
+//   1. Add the default to src/data/defaultSettings.ts
+//   2. Write a one-line `update app_settings set data = data || $1::jsonb ...`
+//      migration for existing installs.
+//
+// The only fallback kept is "raw is null" → return DEFAULT_SETTINGS, which
+// covers the brief SSR window before the first DB query resolves.
+ 
 function buildSettingsFromData(raw: Record<string, unknown> | null): AdminSettings {
   if (!raw) return DEFAULT_SETTINGS;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d = raw as any;
+
+  // ── One-time footerPages → customPages migration ──────────────────────────
+  // Footer Pages and Custom Pages have been unified into a single "Pages"
+  // concept (CustomPage). Any installs that still carry legacy `footerPages`
+  // entries have them converted to `customPages` here (preserving slug/title/
+  // content, mapping `enabled` → `published`). Existing `customPages` win on
+  // slug collision, and `footerPages` is reset to `[]` so the migration is
+  // safe to re-run on every load.
+  const legacyFooterPages: import("@/types").FooterPage[] = Array.isArray(d.footerPages) ? d.footerPages : [];
+  const existingCustomPages: import("@/types").CustomPage[] = Array.isArray(d.customPages) ? d.customPages : [];
+  let mergedCustomPages = existingCustomPages;
+  if (legacyFooterPages.length > 0) {
+    const existingSlugs = new Set(existingCustomPages.map((p) => p.slug));
+    const nowIso = new Date().toISOString();
+    const converted: import("@/types").CustomPage[] = legacyFooterPages
+      .filter((fp) => fp && fp.slug && !existingSlugs.has(fp.slug))
+      .map((fp) => ({
+        id: (typeof crypto !== "undefined" && "randomUUID" in crypto) ? crypto.randomUUID() : `fp-${fp.slug}`,
+        title: fp.title ?? "",
+        slug: fp.slug,
+        content: fp.content ?? "",
+        seoTitle: "",
+        seoDescription: "",
+        published: !!fp.enabled,
+        createdAt: fp.lastModified && new Date(fp.lastModified).getTime() > 0
+          ? fp.lastModified
+          : nowIso,
+        updatedAt: fp.lastModified && new Date(fp.lastModified).getTime() > 0
+          ? fp.lastModified
+          : nowIso,
+      }));
+    mergedCustomPages = [...existingCustomPages, ...converted];
+  }
+
   return {
     ...DEFAULT_SETTINGS,
     ...d,
-    restaurant:        { ...DEFAULT_SETTINGS.restaurant,        ...(d.restaurant        ?? {}) },
-    schedule:          { ...DEFAULT_SETTINGS.schedule,          ...(d.schedule          ?? {}) },
-    colors:            { ...DEFAULT_SETTINGS.colors,            ...(d.colors            ?? {}) },
-    taxSettings:       { ...DEFAULT_SETTINGS.taxSettings,       ...(d.taxSettings       ?? {}) },
-    printer:           { ...DEFAULT_SETTINGS.printer,           ...(d.printer           ?? {}) },
-    seo:               { ...DEFAULT_SETTINGS.seo,               ...(d.seo               ?? {}) },
-    receiptSettings:   { ...DEFAULT_SETTINGS.receiptSettings,   ...(d.receiptSettings   ?? {}) },
-    reservationSystem: { ...DEFAULT_SETTINGS.reservationSystem, ...(d.reservationSystem ?? {}) },
-    breakfastMenu: {
-      ...DEFAULT_SETTINGS.breakfastMenu,
-      ...(d.breakfastMenu ?? {}),
-      categories: d.breakfastMenu?.categories ?? DEFAULT_SETTINGS.breakfastMenu.categories,
-      items:      d.breakfastMenu?.items      ?? DEFAULT_SETTINGS.breakfastMenu.items,
-    },
-    emailTemplates:  mergeEmailTemplates(d.emailTemplates),
-    footerPages:     d.footerPages    ?? DEFAULT_SETTINGS.footerPages,
-    paymentMethods:  d.paymentMethods ?? DEFAULT_SETTINGS.paymentMethods,
-    deliveryZones:   d.deliveryZones  ?? DEFAULT_SETTINGS.deliveryZones,
-    coupons:         d.coupons        ?? [],
-    waiters:         d.waiters        ?? DEFAULT_SETTINGS.waiters,
-    kitchenStaff:    d.kitchenStaff   ?? DEFAULT_SETTINGS.kitchenStaff,
-    diningTables:    d.diningTables   ?? DEFAULT_SETTINGS.diningTables,
-    // Sensitive fields explicitly excluded — must never reach client state:
+    // emailTemplates is the one legit forward-compat shim: it auto-fills any
+    // event templates added in code that aren't yet in the stored array, so
+    // existing installs surface new email events without a manual migration.
+    emailTemplates: mergeEmailTemplates(d.emailTemplates),
+    // Moved-out keys: read from DB tables, not JSONB. Empty arrays here so
+    // the legacy panels that haven't been switched (CouponsPanel) keep
+    // rendering something sensible — those panels are scheduled for the
+    // /api/admin/coupons switch in a follow-up.
+    coupons:      d.coupons      ?? [],
+    waiters:      [],   // managed via /api/admin/waiters; ignore JSONB copy
+    kitchenStaff: [],   // managed via /api/admin/kitchen-staff
+    diningTables: [],   // managed via /api/admin/dining-tables
+    // Footer Pages have been merged into Custom Pages — see migration above.
+    // We always reset footerPages to [] so a re-run is a no-op.
+    customPages: mergedCustomPages,
+    footerPages: [],
+    // Sensitive fields are explicitly excluded — never reach client state:
     // drivers, stripeSecretKey, paypalClientId, smtpHost/Port/User/Password
   };
 }
@@ -443,15 +464,21 @@ export function AppProvider({
   );
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems]   = useState<MenuItem[]>([]);
+  const [mealPeriods, setMealPeriods] = useState<MealPeriod[]>([]);
   const [customers, setCustomers]   = useState<Customer[]>([]);
+  // Tracks orders with an in-flight optimistic status change so the 8 s
+  // loadAllCustomers poll doesn't briefly flip cards back to their old column
+  // when a GET issued before the PUT committed returns stale data.
+  // Entry is cleared when the server view catches up or when TTL expires.
+  const pendingOrderStatusRef = useRef<Map<string, { status: OrderStatus; until: number }>>(new Map());
   // Mirror of customers state accessible from inside Realtime callbacks without
   // closure staleness — callbacks capture the ref value, not the state snapshot.
-  const customersRef = useRef<Customer[]>([]);
   // Drivers are fetched from the server-side /api/admin/drivers endpoint —
   // they are NOT part of app_settings so they are never exposed to customers.
   const [drivers, setDrivers]       = useState<Driver[]>([]);
   const [currentUser, setCurrentUser]   = useState<Customer | null>(null);
-  const [currentDriver, setCurrentDriver] = useState<Driver | null>(null);
+  const [currentDriver,      setCurrentDriver]      = useState<Driver | null>(null);
+  const [driverAuthChecked,  setDriverAuthChecked]  = useState(false);
   const [fulfillment, setFulfillment] = useState<"delivery" | "collection">("delivery");
   const [scheduledTime, setScheduledTime] = useState<string | null>(null);
   const [appliedCoupon, setAppliedCoupon] = useState<{
@@ -462,71 +489,104 @@ export function AppProvider({
   // (UTC) and the browser (local timezone). Updated after mount via useEffect.
   const [isOpen, setIsOpen] = useState(false);
 
-  // Keep customersRef in sync so Realtime callbacks always read current state.
-  useEffect(() => { customersRef.current = customers; }, [customers]);
 
   // ── Session data: cart, user, driver stay in localStorage ─────────────────
 
   useEffect(() => {
+    // Scope the session probes to the surface that actually uses each session,
+    // so we don't fire (and 401) on pages that have no business with that role.
+    //  • driver session  → only /driver (currentDriver is read only there)
+    //  • customer session → only the storefront (site) routes (currentUser is
+    //    never read on pos / kitchen / driver / admin)
+    // The cart restore below runs everywhere (it's role-agnostic, no network).
+    const path = typeof window !== "undefined" ? window.location.pathname : "";
+    const isDriverRoute  = path.startsWith("/driver");
+    const isCustomerSite = !isDriverRoute
+      && !path.startsWith("/admin")
+      && !path.startsWith("/pos")
+      && !path.startsWith("/kitchen");
+
     try {
       const c = localStorage.getItem("sg_cart");
       if (c) (JSON.parse(c) as CartItem[]).forEach((item) => dispatch({ type: "ADD", item }));
-      const d = localStorage.getItem("sg_driver_session");
-      if (d) {
-        setCurrentDriver(JSON.parse(d));
-        // Verify the cookie is still valid; clear stale localStorage if not.
-        fetch("/api/auth/driver", { method: "GET" })
-          .then((r) => {
-            if (!r.ok) {
-              setCurrentDriver(null);
-              localStorage.removeItem("sg_driver_session");
-            }
-          })
-          .catch(() => {});
-      } else {
-        // No localStorage — try fetching the driver profile from the session cookie.
-        // This restores currentDriver when localStorage has been cleared but the
-        // cookie is still valid (e.g. after clearing site data or on a new tab).
-        fetch("/api/auth/driver/me")
-          .then((r) => (r.ok ? r.json() : null))
-          .then((json: { ok: boolean; driver?: import("@/types").Driver } | null) => {
-            if (json?.ok && json.driver) {
-              setCurrentDriver(json.driver);
-              localStorage.setItem("sg_driver_session", JSON.stringify(json.driver));
-            }
-          })
-          .catch(() => {});
+
+      if (isDriverRoute) {
+        const d = localStorage.getItem("sg_driver_session");
+        if (d) {
+          setCurrentDriver(JSON.parse(d));
+          // Verify the cookie is still valid; clear stale localStorage AND the
+          // server cookie if not (fresh DB / deactivated / session_version bump).
+          // Without the server-side clear the cookie keeps fooling middleware
+          // on the next nav, looping the driver into a slow auth retry.
+          fetch("/api/auth/driver", { method: "GET" })
+            .then(async (r) => {
+              if (!r.ok) {
+                setCurrentDriver(null);
+                localStorage.removeItem("sg_driver_session");
+                await fetch("/api/auth/driver/logout", { method: "POST" }).catch(() => {});
+              }
+            })
+            .catch(() => {})
+            .finally(() => setDriverAuthChecked(true));
+        } else {
+          // No localStorage — try fetching the driver profile from the session cookie.
+          // This restores currentDriver when localStorage has been cleared but the
+          // cookie is still valid (e.g. after clearing site data or on a new tab).
+          fetch("/api/auth/driver/me")
+            .then(async (r) => {
+              if (r.ok) return r.json() as Promise<{ ok: boolean; driver?: import("@/types").Driver }>;
+              // 401 with a present cookie = stale signed token (fresh DB, deleted
+              // driver, etc.). Drop it now so the driver lands on /driver/login
+              // immediately instead of after the legacy 4 s fallback timer.
+              await fetch("/api/auth/driver/logout", { method: "POST" }).catch(() => {});
+              return null;
+            })
+            .then((json) => {
+              if (json?.ok && json.driver) {
+                setCurrentDriver(json.driver);
+                localStorage.setItem("sg_driver_session", JSON.stringify(json.driver));
+              }
+            })
+            .catch(() => {})
+            .finally(() => setDriverAuthChecked(true));
+        }
       }
+
       // Restore last-known customer instantly so the account page renders on first
       // click without waiting for the network. The fetch below verifies the session
-      // and merges fresh data (stale-while-revalidate pattern).
-      const u = localStorage.getItem("sg_current_user");
-      if (u) setCurrentUser(JSON.parse(u) as Customer);
+      // and merges fresh data (stale-while-revalidate pattern). Storefront only.
+      if (isCustomerSite) {
+        const u = localStorage.getItem("sg_current_user");
+        if (u) setCurrentUser(JSON.parse(u) as Customer);
+      }
     } catch { /* ignore */ }
-    // Verify session via httpOnly cookie and sync fresh data from the server.
-    fetch("/api/auth/me", { cache: "no-store" })
-      .then((r) => r.ok ? r.json() : null)
-      .then((json: { ok: boolean; customer?: Customer } | null) => {
-        if (!json?.ok || !json.customer) {
-          // Session invalid or expired — clear any stale cached user.
-          setCurrentUser(null);
-          return;
-        }
-        const serverOrders: Order[] = json.customer.orders ?? [];
-        const serverIds = new Set(serverOrders.map((o) => o.id));
-        setCurrentUser((prev) => {
-          const localOnly: Order[] = (prev && prev.id === json.customer!.id)
-            ? prev.orders.filter((o) => !serverIds.has(o.id))
-            : [];
-          return {
-            ...json.customer!,
-            orders: [...localOnly, ...serverOrders].sort(
-              (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-            ),
-          };
-        });
-      })
-      .catch(() => {});
+
+    // Verify customer session via httpOnly cookie — storefront routes only.
+    if (isCustomerSite) {
+      fetch("/api/auth/me", { cache: "no-store" })
+        .then((r) => r.ok ? r.json() : null)
+        .then((json: { ok: boolean; customer?: Customer } | null) => {
+          if (!json?.ok || !json.customer) {
+            // Session invalid or expired — clear any stale cached user.
+            setCurrentUser(null);
+            return;
+          }
+          const serverOrders: Order[] = json.customer.orders ?? [];
+          const serverIds = new Set(serverOrders.map((o) => o.id));
+          setCurrentUser((prev) => {
+            const localOnly: Order[] = (prev && prev.id === json.customer!.id)
+              ? prev.orders.filter((o) => !serverIds.has(o.id))
+              : [];
+            return {
+              ...json.customer!,
+              orders: [...localOnly, ...serverOrders].sort(
+                (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+              ),
+            };
+          });
+        })
+        .catch(() => {});
+    }
   }, []);
 
   useEffect(() => { localStorage.setItem("sg_cart", JSON.stringify(cart)); }, [cart]);
@@ -569,57 +629,77 @@ export function AppProvider({
           await supabase.from("app_settings").insert({ id: 1, data: DEFAULT_SETTINGS });
         }
 
-        // Drivers — fetched via server API, not from app_settings
+        // Drivers — admin-only data (DriversPanel + admin dashboard are the
+        // only consumers). Skip on every other surface so we don't fire a 401
+        // on pos / kitchen / driver / storefront pages that never read it.
+        const onAdminRoute = typeof window !== "undefined" && window.location.pathname.startsWith("/admin");
+        if (onAdminRoute) {
+          try {
+            const driversRes = await fetch("/api/admin/drivers");
+            if (driversRes.ok) {
+              const { drivers: loaded } = await driversRes.json() as { drivers: Driver[] };
+              setDrivers(loaded ?? []);
+            }
+          } catch (err) {
+            console.error("AppContext: failed to load drivers:", err);
+          }
+        }
+
+        // dining_tables — moved out of app_settings.data.diningTables.
+        // GET is anon-accessible, so this works on customer pages too
+        // (reservations booking UI reads it). Other panels (TableStatusPanel,
+        // ReservationsPanel) read `settings.diningTables` via context — we
+        // hydrate that field here once on mount so those panels Just Work.
         try {
-          const driversRes = await fetch("/api/admin/drivers");
-          if (driversRes.ok) {
-            const { drivers: loaded } = await driversRes.json() as { drivers: Driver[] };
-            setDrivers(loaded ?? []);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const { data: tableRows } = await (supabase as any)
+            .from("dining_tables")
+            .select("id, label, number, seats, section, active, sort_order, is_vip, vip_price, pos_x, pos_y")
+            .order("sort_order", { ascending: true });
+          if (Array.isArray(tableRows)) {
+            setSettings((prev) => ({ ...prev, diningTables: tableRows.map(mapDiningRow) }));
           }
         } catch (err) {
-          console.error("AppContext: failed to load drivers:", err);
+          console.error("AppContext: failed to load dining_tables:", err);
         }
 
-        // Categories
+        // Categories — no runtime seed and no fallback to bundled defaults.
+        // An empty DB shows an empty UI; populate via `npm run db:seed-menu` or
+        // through the admin panel.
         const { data: catsData, error: catsErr } = await supabase
           .from("categories").select("*").order("sort_order", { ascending: true });
-        if (catsErr) {
-          console.error("AppContext: failed to load categories:", catsErr.message);
-        } else if (catsData && catsData.length > 0) {
-          setCategories(catsData.map(mapCategory));
-        } else {
-          // Seed via server-side API (uses service role key, works with RLS enabled)
-          try {
-            await fetch("/api/admin/seed", { method: "POST" });
-          } catch (e) {
-            console.error("AppContext: seed failed:", e);
+        if (catsErr) console.error("AppContext: failed to load categories:", catsErr.message);
+        else setCategories((catsData ?? []).map(mapCategory));
+
+        // Menu items + their meal-period join rows (fetched in parallel).
+        const [menuRes, mimpRes] = await Promise.all([
+          supabase.from("menu_items").select("*"),
+          supabase.from("menu_item_meal_periods").select("menu_item_id, meal_period_id"),
+        ]);
+        if (menuRes.error) console.error("AppContext: failed to load menu items:", menuRes.error.message);
+        if (mimpRes.error) console.error("AppContext: failed to load menu_item_meal_periods:", mimpRes.error.message);
+        if (!menuRes.error) {
+          const tagsByItem = new Map<string, string[]>();
+          for (const row of (mimpRes.data ?? []) as { menu_item_id: string; meal_period_id: string }[]) {
+            const arr = tagsByItem.get(row.menu_item_id) ?? [];
+            arr.push(row.meal_period_id);
+            tagsByItem.set(row.menu_item_id, arr);
           }
-          setCategories(defaultCategories);
+          setMenuItems((menuRes.data ?? []).map((r) => mapMenuItem(r, tagsByItem.get(r.id) ?? [])));
         }
 
-        // Menu items
-        const { data: menuData, error: menuErr } = await supabase.from("menu_items").select("*");
-        if (menuErr) {
-          console.error("AppContext: failed to load menu items:", menuErr.message);
-        } else if (menuData && menuData.length > 0) {
-          setMenuItems(menuData.map(mapMenuItem));
-        } else {
-          // Seed was already triggered above if categories were empty;
-          // optimistically use defaults until realtime event arrives.
-          setMenuItems(defaultMenuItems);
-        }
+        // Meal periods
+        const { data: mpData, error: mpErr } = await supabase
+          .from("meal_periods").select("*").order("sort_order", { ascending: true });
+        if (mpErr) console.error("AppContext: failed to load meal_periods:", mpErr.message);
+        else setMealPeriods((mpData ?? []).map(mapMealPeriod));
 
-        // Customers (with nested orders)
-        const { data: custsData, error: custsErr } = await supabase
-          .from("customers").select("*, orders(*)");
-        if (custsErr) {
-          console.error("AppContext: failed to load customers:", custsErr.message);
-        } else if (custsData && custsData.length > 0) {
-          setCustomers(custsData.map(mapCustomer));
-        } else {
-          // Seed was triggered above; use mock data as optimistic default.
-          setCustomers(mockCustomers);
-        }
+        // NOTE: customers + their orders are NOT loaded here. The previous
+        // anon-key SELECT on customers leaked every customer's PII to every
+        // browser visitor (F-DATA-1). The customer site uses `currentUser`
+        // (fetched via /api/auth/me with cookie auth). Admin/driver/POS
+        // surfaces fetch via `loadAllCustomers()` after their own auth
+        // check passes.
       } catch (err) {
         // Network down, CORS issue, or unexpected data shape — log it clearly
         console.error("AppContext init failed:", err instanceof Error ? err.message : err);
@@ -638,7 +718,28 @@ export function AppProvider({
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "app_settings" },
         ({ new: row }) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          setSettings(buildSettingsFromData((row as any).data ?? null));
+          setSettings((prev) => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const next = buildSettingsFromData((row as any).data ?? null);
+            // diningTables / waiters / kitchenStaff live in their own DB
+            // tables, not in app_settings.data. buildSettingsFromData blanks
+            // them to [] by design — without preserving them here every realtime
+            // app_settings UPDATE would wipe the POS table grid (the QA bug:
+            // "when admin adds a table, all tables vanish then reappear").
+            return {
+              ...next,
+              diningTables: prev.diningTables,
+              waiters:      prev.waiters,
+              kitchenStaff: prev.kitchenStaff,
+            };
+          });
+          // Admin's table CRUD writes diningTables back through updateSettings
+          // (which persists to app_settings.data and triggers this realtime),
+          // so use that signal to refresh the dedicated dining_tables table.
+          // refreshDiningTables is no-op-if-unchanged, so this is cheap, and
+          // when it does update it appends the new row instead of replacing
+          // — existing cards stay in place via React key reconciliation.
+          refreshDiningTables();
         })
       // Categories
       .on("postgres_changes", { event: "*", schema: "public", table: "categories" },
@@ -657,99 +758,67 @@ export function AppProvider({
       // Menu items
       .on("postgres_changes", { event: "*", schema: "public", table: "menu_items" },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ({ eventType, new: newRow, old: oldRow }: any) => {
+        async ({ eventType, new: newRow, old: oldRow, errors }: any) => {
           if (eventType === "DELETE") {
             setMenuItems((prev) => prev.filter((m) => m.id !== oldRow.id));
+            return;
+          }
+          // Supabase Realtime drops oversized columns and sets `errors`
+          // ("Payload Too Large") when a row exceeds its ~1 MB cap — e.g. a
+          // legacy base64 image still stored inline. Trusting that truncated
+          // row would blank the image, so refetch the full row (SELECT is not
+          // size-capped) instead of mapping the partial payload. New images go
+          // through Supabase Storage (lib/uploadImage.ts) so rows stay tiny and
+          // this branch only fires for not-yet-migrated rows.
+          if (errors) {
+            const id = newRow?.id ?? oldRow?.id;
+            if (!id) return;
+            const { data, error } = await supabase.from("menu_items").select("*").eq("id", id).single();
+            if (error || !data) return;
+            newRow = data;
+          }
+          setMenuItems((prev) => {
+            const existing = prev.find((m) => m.id === newRow.id);
+            // Preserve mealPeriodIds — those live in a separate table and
+            // arrive via the menu_item_meal_periods subscription below.
+            const item = mapMenuItem(newRow, existing?.mealPeriodIds ?? []);
+            const idx = prev.findIndex((m) => m.id === item.id);
+            return idx >= 0 ? prev.map((m) => (m.id === item.id ? item : m)) : [...prev, item];
+          });
+        })
+      // Meal periods
+      .on("postgres_changes", { event: "*", schema: "public", table: "meal_periods" },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ({ eventType, new: newRow, old: oldRow }: any) => {
+          if (eventType === "DELETE") {
+            setMealPeriods((prev) => prev.filter((p) => p.id !== oldRow.id));
           } else {
-            const item = mapMenuItem(newRow);
-            setMenuItems((prev) => {
-              const idx = prev.findIndex((m) => m.id === item.id);
-              return idx >= 0 ? prev.map((m) => (m.id === item.id ? item : m)) : [...prev, item];
+            const period = mapMealPeriod(newRow);
+            setMealPeriods((prev) => {
+              const idx = prev.findIndex((p) => p.id === period.id);
+              const next = idx >= 0 ? prev.map((p) => (p.id === period.id ? period : p)) : [...prev, period];
+              return [...next].sort((a, b) => a.sortOrder - b.sortOrder);
             });
           }
         })
-      // Orders
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" },
+      // Menu item ↔ meal period assignments
+      .on("postgres_changes", { event: "*", schema: "public", table: "menu_item_meal_periods" },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        async ({ eventType, new: newRow, old: oldRow }: any) => {
-          if (eventType === "DELETE") {
-            const gone = (o: Order) => o.id !== oldRow.id;
-            setCustomers((prev) => prev.map((c) => ({ ...c, orders: c.orders.filter(gone) })));
-            setCurrentUser((prev) => prev ? { ...prev, orders: prev.orders.filter(gone) } : prev);
-          } else {
-            const order = mapOrder(newRow);
-            const patchOrders = (orders: Order[]) => {
-              const exists = orders.some((o) => o.id === order.id);
-              return exists ? orders.map((o) => (o.id === order.id ? order : o))
-                            : [order, ...orders];
-            };
-
-            // Always update currentUser regardless of which code path we take below.
-            setCurrentUser((prev) =>
-              prev && prev.id === order.customerId
-                ? { ...prev, orders: patchOrders(prev.orders) }
-                : prev
-            );
-
-            // If the order's customer is not yet in state (e.g. pos-walk-in sentinel
-            // or a race condition where the customer INSERT event hasn't arrived yet),
-            // fetch and add them so the order isn't silently dropped.
-            const knownCustomer = customersRef.current.some((c) => c.id === order.customerId);
-            if (!knownCustomer) {
-              const { data: cusData } = await supabase
-                .from("customers").select("*, orders(*)").eq("id", order.customerId).single();
-              if (cusData) {
-                const newCustomer = mapCustomer(cusData);
-                setCustomers((prev) => {
-                  // Another concurrent event may have already added this customer
-                  if (prev.some((c) => c.id === newCustomer.id)) {
-                    return prev.map((c) => c.id !== newCustomer.id ? c : { ...c, orders: patchOrders(c.orders) });
-                  }
-                  return [...prev, { ...newCustomer, orders: patchOrders(newCustomer.orders) }];
-                });
-              }
-              return;
-            }
-
-            setCustomers((prev) => prev.map((c) =>
-              c.id !== order.customerId ? c : { ...c, orders: patchOrders(c.orders) }
-            ));
-          }
+        ({ eventType, new: newRow, old: oldRow }: any) => {
+          const row = (eventType === "DELETE" ? oldRow : newRow) as { menu_item_id: string; meal_period_id: string };
+          setMenuItems((prev) => prev.map((m) => {
+            if (m.id !== row.menu_item_id) return m;
+            const tags = new Set(m.mealPeriodIds ?? []);
+            if (eventType === "DELETE") tags.delete(row.meal_period_id);
+            else tags.add(row.meal_period_id);
+            return { ...m, mealPeriodIds: Array.from(tags) };
+          }));
         })
-      // Customers
-      .on("postgres_changes", { event: "*", schema: "public", table: "customers" },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        async ({ eventType, new: newRow, old: oldRow }: any) => {
-          if (eventType === "DELETE") {
-            setCustomers((prev) => prev.filter((c) => c.id !== oldRow.id));
-          } else if (eventType === "INSERT") {
-            const { data } = await supabase
-              .from("customers").select("*, orders(*)").eq("id", newRow.id).single();
-            if (data) setCustomers((prev) => [...prev, mapCustomer(data)]);
-          } else {
-            // UPDATE — patch fields, keep in-memory orders
-            setCustomers((prev) => prev.map((c) =>
-              c.id !== newRow.id ? c : {
-                ...c,
-                name: newRow.name, email: newRow.email, phone: newRow.phone ?? "",
-                tags: newRow.tags ?? [], favourites: newRow.favourites ?? [],
-                savedAddresses: newRow.saved_addresses ?? [],
-                storeCredit: newRow.store_credit ? Number(newRow.store_credit) : undefined,
-              }
-            ));
-            setCurrentUser((prev) =>
-              prev && prev.id === newRow.id
-                ? {
-                    ...prev,
-                    name: newRow.name, email: newRow.email, phone: newRow.phone ?? "",
-                    tags: newRow.tags ?? [], favourites: newRow.favourites ?? [],
-                    savedAddresses: newRow.saved_addresses ?? [],
-                    storeCredit: newRow.store_credit ? Number(newRow.store_credit) : undefined,
-                  }
-                : prev
-            );
-          }
-        })
+      // Orders + Customers realtime subscriptions removed. The anon client
+      // no longer has SELECT on these tables (RLS revoke), so the channel
+      // would deliver no events anyway. Customer-side freshness is handled
+      // by polling /api/auth/me on the account page; admin/driver/kitchen
+      // surfaces poll their own dedicated endpoints.
       // Drivers
       .on("postgres_changes", { event: "*", schema: "public", table: "drivers" },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -818,12 +887,40 @@ export function AppProvider({
     }).catch((err) => console.error("settings persist:", err));
   }
 
-  const updateSettings = (patch: Partial<AdminSettings>) =>
+  // Memoized so consumers can safely list this in useEffect / useCallback
+  // dependency arrays without re-triggering on every AppContext render.
+  // The body only uses setSettings (stable) and persistSettings (no closure
+  // deps — its fetch body comes from the `next` argument), so freezing it to
+  // the first render is safe.
+  const updateSettings = useCallback((patch: Partial<AdminSettings>) =>
     setSettings((prev) => {
       const next = { ...prev, ...patch };
       persistSettings(next);
       return next;
-    });
+    }),
+  []);
+
+  // Re-fetch dining_tables into settings.diningTables WITHOUT a server write.
+  // dining_tables has no realtime subscription (and anon realtime is dead post
+  // RLS-revoke), so surfaces that gate UI on the table list — the POS Table
+  // Service / Reservations tabs, the waiter grid — go stale after an admin
+  // adds/removes a table until a full reload. Callers poll this to stay live.
+  // No-op-if-unchanged so it never causes a spurious re-render.
+  const refreshDiningTables = useCallback(async () => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: tableRows } = await (supabase as any)
+        .from("dining_tables")
+        .select("id, label, number, seats, section, active, sort_order, is_vip, vip_price")
+        .order("sort_order", { ascending: true });
+      if (!Array.isArray(tableRows)) return;
+      const mapped = tableRows.map(mapDiningRow);
+      setSettings((prev) => {
+        if (JSON.stringify(prev.diningTables ?? []) === JSON.stringify(mapped)) return prev;
+        return { ...prev, diningTables: mapped };
+      });
+    } catch { /* keep last-known */ }
+  }, []);
 
   // Internal helper: functional update + server-side persist.
   // Use this instead of setSettings directly for any mutation that must survive a refresh.
@@ -837,31 +934,36 @@ export function AppProvider({
   // ─── Categories ───────────────────────────────────────────────────────────
   // All writes go through admin API routes (require admin session cookie).
 
+  // The fetch is intentionally OUTSIDE the setState updater. React StrictMode
+  // (default in Next dev) invokes setState updaters twice to surface impurity
+  // — when the fetch lived inside the updater that meant two POSTs with the
+  // same id, and the second one failed with "duplicate key value violates
+  // unique constraint". Mirror addMenuItem's pattern: optimistic update first,
+  // single fire-and-forget fetch second.
   const addCategory = (cat: Category) => {
-    setCategories((prev) => {
-      const row = categoryToRow(cat, prev.length);
-      fetch("/api/admin/categories", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(row),
-      }).then(async (r) => {
-        if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("addCategory:", j.error); }
-      }).catch((e) => console.error("addCategory:", e));
-      return [...prev, cat];
-    });
+    const order = categories.length;
+    const row = categoryToRow(cat, order);
+    // Stamp sort_order on the optimistic row too — getParents/getChildren sort
+    // by it, so an unset value would float the new category to the top.
+    setCategories((prev) => [...prev, { ...cat, sort_order: order }]);
+    fetch("/api/admin/categories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(row),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("addCategory:", j.error); }
+    }).catch((e) => console.error("addCategory:", e));
   };
 
   const updateCategory = (cat: Category) => {
-    setCategories((prev) => {
-      fetch(`/api/admin/categories/${cat.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: cat.name, emoji: cat.emoji }),
-      }).then(async (r) => {
-        if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateCategory:", j.error); }
-      }).catch((e) => console.error("updateCategory:", e));
-      return prev.map((c) => (c.id === cat.id ? cat : c));
-    });
+    setCategories((prev) => prev.map((c) => (c.id === cat.id ? cat : c)));
+    fetch(`/api/admin/categories/${cat.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: cat.name, emoji: cat.emoji, parent_id: cat.parentId || null }),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateCategory:", j.error); }
+    }).catch((e) => console.error("updateCategory:", e));
   };
 
   const deleteCategory = (id: string) => {
@@ -874,7 +976,11 @@ export function AppProvider({
   };
 
   const reorderCategories = (cats: Category[]) => {
-    setCategories(cats);
+    // Re-stamp sort_order to match the new positions so the optimistic order
+    // sticks — getParents/getChildren sort by sort_order, which would otherwise
+    // revert the reorder (to the stale values) until the next reload.
+    const reindexed = cats.map((c, i) => ({ ...c, sort_order: i }));
+    setCategories(reindexed);
     const rows = cats.map((c, i) => categoryToRow(c, i));
     fetch("/api/admin/categories", {
       method: "PUT",
@@ -893,7 +999,7 @@ export function AppProvider({
     fetch("/api/admin/menu", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(menuItemToRow(item)),
+      body: JSON.stringify({ ...menuItemToRow(item), mealPeriodIds: item.mealPeriodIds ?? [] }),
     }).then(async (r) => {
       if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("addMenuItem:", j.error); }
     }).catch((e) => console.error("addMenuItem:", e));
@@ -904,10 +1010,33 @@ export function AppProvider({
     fetch(`/api/admin/menu/${item.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(menuItemToRow(item)),
+      body: JSON.stringify({ ...menuItemToRow(item), mealPeriodIds: item.mealPeriodIds ?? [] }),
     }).then(async (r) => {
       if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateMenuItem:", j.error); }
     }).catch((e) => console.error("updateMenuItem:", e));
+  };
+
+  // Dedicated stock writer. The general PUT above strips stock fields, so
+  // admin's stale form snapshot can't clobber the live counter that sales
+  // are decrementing. Stock changes must go through this path.
+  const updateMenuItemStock = (
+    id: string,
+    payload: { mode: "qty"; stockQty: number } | { mode: "manual"; stockStatus: "in_stock" | "low_stock" | "out_of_stock" },
+  ) => {
+    // Optimistic local update so the admin grid reflects the change immediately.
+    setMenuItems((prev) => prev.map((m) => {
+      if (m.id !== id) return m;
+      return payload.mode === "qty"
+        ? { ...m, stockQty: payload.stockQty, stockStatus: undefined, trackStock: true }
+        : { ...m, stockQty: undefined, stockStatus: payload.stockStatus, trackStock: false };
+    }));
+    fetch(`/api/admin/menu/${id}/stock`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).then(async (r) => {
+      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateMenuItemStock:", j.error); }
+    }).catch((e) => console.error("updateMenuItemStock:", e));
   };
 
   const deleteMenuItem = (id: string) => {
@@ -920,15 +1049,37 @@ export function AppProvider({
 
   // ─── Customer & order actions ──────────────────────────────────────────────
 
-  const addCustomer = (customer: Customer) => {
+  const addCustomer = async (customer: Customer, password?: string): Promise<void> => {
+    // Optimistic insert so the new row appears immediately (admin realtime does
+    // not receive customer INSERTs — anon has no SELECT on the table).
     setCustomers((prev) => [...prev, customer]);
-    fetch("/api/admin/customers", {
+    // Mark admin-created customers verified so they can sign in straight away;
+    // the create schema doesn't accept a password, so it's set via the
+    // dedicated route below.
+    const res = await fetch("/api/admin/customers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(customerToRow(customer)),
-    }).then(async (r) => {
-      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("addCustomer:", j.error); }
-    }).catch((e) => console.error("addCustomer:", e));
+      body: JSON.stringify({ ...customerToRow(customer), email_verified: true }),
+    });
+    const j = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+    if (!res.ok || !j.ok) {
+      // Roll back the optimistic add so a failed create doesn't linger in the UI.
+      setCustomers((prev) => prev.filter((c) => c.id !== customer.id));
+      throw new Error(j.error ?? "Failed to add customer.");
+    }
+    if (password && password.trim()) {
+      const pr = await fetch(`/api/admin/customers/${customer.id}/set-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      const pj = await pr.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (!pr.ok || !pj.ok) {
+        // The customer exists; only the password failed. Surface it so the admin
+        // can retry via the per-customer "Set password" control.
+        throw new Error(pj.error ?? "Customer created, but setting the password failed. Use “Set password” on the customer to try again.");
+      }
+    }
   };
 
   const updateCustomer = (customer: Customer) => {
@@ -998,7 +1149,7 @@ export function AppProvider({
     }
   };
 
-  const addRefund = (customerId: string, orderId: string, refund: Refund) => {
+  const addRefund = (customerId: string, orderId: string, refund: Refund, newStatus?: OrderStatus) => {
     const currentOrder = customers
       .find((c) => c.id === customerId)
       ?.orders.find((o) => o.id === orderId);
@@ -1006,13 +1157,18 @@ export function AppProvider({
 
     const newRefunds = [...(currentOrder.refunds ?? []), refund];
     const newRefundedAmount = (currentOrder.refundedAmount ?? 0) + refund.amount;
-    const newStatus: OrderStatus =
+    // A refund updates payment state only — the order keeps its fulfillment
+    // status. `paymentStatus` is the source of truth for refunds.
+    const newPaymentStatus: PaymentStatus =
       newRefundedAmount >= currentOrder.total ? "refunded" : "partially_refunded";
+    // Callers can flip the fulfillment status in the same write (refund + cancel).
+    // Default: preserve the current status — a refund alone never moves it.
+    const nextStatus: OrderStatus = newStatus ?? currentOrder.status;
 
     const patchOrder = (o: Order): Order =>
       o.id !== orderId
         ? o
-        : { ...o, refunds: newRefunds, refundedAmount: newRefundedAmount, status: newStatus };
+        : { ...o, status: nextStatus, refunds: newRefunds, refundedAmount: newRefundedAmount, paymentStatus: newPaymentStatus };
 
     setCustomers((prev) =>
       prev.map((c) => {
@@ -1047,7 +1203,10 @@ export function AppProvider({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        newStatus,
+        // Usually preserves fulfillment status (the refund is reflected in
+        // payment_status); refund + cancel passes "cancelled" here so the two
+        // changes land in one atomic order update.
+        newStatus:       nextStatus,
         refunds:         newRefunds,
         refundedAmount:  newRefundedAmount,
         ...storeCreditPayload,
@@ -1057,17 +1216,43 @@ export function AppProvider({
     }).catch((e) => console.error("addRefund:", e));
   };
 
-  const spendStoreCredit = (customerId: string, amount: number) => {
-    const prevCredit = customers.find((c) => c.id === customerId)?.storeCredit ?? 0;
-    const newBalance = Math.max(0, prevCredit - amount);
-    const patch = (c: Customer) => ({ ...c, storeCredit: newBalance });
-    setCustomers((prev) => prev.map((c) => (c.id === customerId ? patch(c) : c)));
-    setCurrentUser((prev) => (prev && prev.id === customerId ? patch(prev) : prev));
-    // Server validates current balance and computes the new value — client cannot manipulate the result
+  // Pure-local mirror of the optimistic-update half of spendStoreCredit.
+  // Used by the card / PayPal checkout paths where the order hasn't been
+  // inserted yet (the webhook does that asynchronously) — calling the
+  // server-side endpoint here would 404. The actual balance deduction is
+  // handled by the webhook on insert; this just keeps the UI in sync.
+  const applyStoreCreditOptimistic = (customerId: string, amount: number) => {
+    setCurrentUser((prev) => {
+      if (!prev || prev.id !== customerId) return prev;
+      const newBalance = Math.max(0, (prev.storeCredit ?? 0) - amount);
+      return { ...prev, storeCredit: newBalance };
+    });
+    setCustomers((prev) => prev.map((c) => {
+      if (c.id !== customerId) return c;
+      const newBalance = Math.max(0, (c.storeCredit ?? 0) - amount);
+      return { ...c, storeCredit: newBalance };
+    }));
+  };
+
+  const spendStoreCredit = (customerId: string, amount: number, orderId: string) => {
+    // Optimistic local update: use currentUser as the source of truth on the
+    // customer site (customers[] may be empty for non-admin surfaces now).
+    setCurrentUser((prev) => {
+      if (!prev || prev.id !== customerId) return prev;
+      const newBalance = Math.max(0, (prev.storeCredit ?? 0) - amount);
+      return { ...prev, storeCredit: newBalance };
+    });
+    setCustomers((prev) => prev.map((c) => {
+      if (c.id !== customerId) return c;
+      const newBalance = Math.max(0, (c.storeCredit ?? 0) - amount);
+      return { ...c, storeCredit: newBalance };
+    }));
+    // Server is authoritative: it verifies ownership, idempotency (per-order),
+    // and caps the deduction at order.total and customer.storeCredit.
     fetch(`/api/customers/${customerId}/spend-credit`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amount }),
+      body: JSON.stringify({ amount, order_id: orderId }),
     }).then(async (r) => {
       if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("spendStoreCredit:", j.error); }
     }).catch((e) => console.error("spendStoreCredit:", e));
@@ -1081,13 +1266,26 @@ export function AppProvider({
     setCurrentUser((prev) =>
       prev && prev.id === customerId ? { ...prev, orders: prev.orders.map(patch) } : prev
     );
+    // Guard against the next poll(s) overwriting our optimistic value with a
+    // stale snapshot whose GET was issued before the PUT below commits. The
+    // entry stays until loadAllCustomers sees the server reflect this status,
+    // or the TTL expires (12 s — one full 8 s poll cycle plus margin).
+    pendingOrderStatusRef.current.set(orderId, { status, until: Date.now() + 12_000 });
     fetch(`/api/admin/orders/${orderId}/status`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     }).then(async (r) => {
-      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateOrderStatus:", j.error); }
-    }).catch((e) => console.error("updateOrderStatus:", e));
+      if (!r.ok) {
+        // Drop the guard so the next poll reconciles to the real server state.
+        pendingOrderStatusRef.current.delete(orderId);
+        const j = await r.json().catch(() => ({})) as { error?: string };
+        console.error("updateOrderStatus:", j.error);
+      }
+    }).catch((e) => {
+      pendingOrderStatusRef.current.delete(orderId);
+      console.error("updateOrderStatus:", e);
+    });
   };
 
   // ─── Refresh current user from server ────────────────────────────────────
@@ -1133,27 +1331,78 @@ export function AppProvider({
     } catch { /* network error — silently ignore */ }
   }, []); // setCurrentUser / setCustomers are stable setState refs
 
+  // ─── Admin/driver/staff: load the full customers list via authenticated API.
+  // The customer site MUST NOT call this — it's gated server-side to admin.
+  const loadAllCustomers = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const r = await fetch("/api/admin/customers/list", { cache: "no-store" });
+      if (!r.ok) {
+        return { ok: false, error: r.status === 401 ? "Unauthorized" : `HTTP ${r.status}` };
+      }
+      const json = await r.json() as { ok: boolean; customers?: Customer[]; error?: string };
+      if (!json.ok || !json.customers) return { ok: false, error: json.error ?? "Bad response" };
+      // Preserve in-flight optimistic status changes when the server snapshot
+      // is still stale. Without this, the kanban card briefly jumps back to
+      // its previous column before the next poll arrives with fresh data.
+      const pending = pendingOrderStatusRef.current;
+      const now = Date.now();
+      const merged = pending.size === 0 ? json.customers : json.customers.map((c) => ({
+        ...c,
+        orders: c.orders.map((o) => {
+          const p = pending.get(o.id);
+          if (!p) return o;
+          if (p.until < now || o.status === p.status) {
+            // TTL elapsed, or server caught up — drop the guard and trust server.
+            pending.delete(o.id);
+            return o;
+          }
+          // Server is still serving pre-mutation data — keep optimistic status.
+          return { ...o, status: p.status };
+        }),
+      }));
+      setCustomers(merged);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+    }
+  }, []);
+
   // ─── Auth ─────────────────────────────────────────────────────────────────
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (
+    email: string, password: string,
+  ): Promise<{ ok: boolean; needsVerification?: boolean; email?: string; error?: string }> => {
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      const json = await res.json() as { ok: boolean; customer?: Customer; error?: string };
+      const json = await res.json() as {
+        ok: boolean;
+        customer?: Customer;
+        error?: string;
+        needsVerification?: boolean;
+        email?: string;
+      };
       if (json.ok && json.customer) {
         setCurrentUser({ ...json.customer, orders: json.customer.orders ?? [] });
-        return true;
+        return { ok: true };
       }
-      return false;
+      return {
+        ok: false,
+        needsVerification: json.needsVerification,
+        email: json.email,
+        error: json.error,
+      };
     } catch {
-      return false;
+      return { ok: false, error: "Connection error. Please try again." };
     }
   };
 
-  const register = async (name: string, email: string, phone: string, password: string): Promise<{ success: boolean; error?: string }> => {
+  const register = async (
+    name: string, email: string, phone: string, password: string,
+  ): Promise<{ success: boolean; error?: string; needsVerification?: boolean; email?: string }> => {
     const id = crypto.randomUUID();
     const createdAt = new Date().toISOString();
     try {
@@ -1162,12 +1411,26 @@ export function AppProvider({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, name, email, phone, password, createdAt }),
       });
-      const json = await res.json() as { ok: boolean; error?: string; emailVerificationSent?: boolean };
+      const json = await res.json() as {
+        ok: boolean;
+        error?: string;
+        requiresVerification?: boolean;
+        email?: string;
+      };
       if (!json.ok) return { success: false, error: json.error ?? "Registration failed." };
-      // Optimistically add to local state; Realtime will sync
+
+      // When the migration is in place the server holds back the session
+      // cookie until /api/auth/verify-email is hit — do NOT auto-login the
+      // user here, just surface needsVerification so the UI can show
+      // "check your inbox".
+      if (json.requiresVerification) {
+        return { success: true, needsVerification: true, email: json.email ?? email };
+      }
+
+      // Pre-migration fallback path — cookie was set server-side, mirror the
+      // user into local state so the account page can render immediately.
       const newCustomer: Customer = {
         id, name, email, phone, createdAt, tags: [], orders: [], favourites: [], savedAddresses: [],
-        emailVerified: json.emailVerificationSent ? false : undefined,
       };
       setCustomers((prev) => [...prev, newCustomer]);
       setCurrentUser(newCustomer);
@@ -1299,7 +1562,7 @@ export function AppProvider({
     }));
 
   const applyCoupon = (code: string, subtotal: number): { valid: boolean; error?: string; discountAmount?: number } => {
-    const result = validateCouponCode(code, subtotal, settings.coupons ?? []);
+    const result = validateCouponCode(code, subtotal, settings.coupons ?? [], settings.currency?.symbol ?? "£");
     if (!result.valid) return { valid: false, error: result.error };
     setAppliedCoupon({ couponId: result.coupon.id, code: result.coupon.code, discountAmount: result.discountAmount });
     return { valid: true, discountAmount: result.discountAmount };
@@ -1398,79 +1661,181 @@ export function AppProvider({
     }).catch((e) => console.error("assignDriver:", e));
   };
 
-  const updateDeliveryStatus = (customerId: string, orderId: string, status: DeliveryStatus) => {
+  const updateDeliveryStatus = async (
+    customerId: string,
+    orderId: string,
+    status: DeliveryStatus,
+    code?: string,
+  ): Promise<{ ok: boolean; error?: string }> => {
     const orderPatch: Partial<Order> = {
       deliveryStatus: status,
       ...(status === "delivered" ? { status: "delivered" as OrderStatus } : {}),
     };
     const patchOrders = (orders: Order[]) =>
       orders.map((o) => (o.id === orderId ? { ...o, ...orderPatch } : o));
-    setCustomers((prev) => prev.map((c) =>
-      c.id !== customerId ? c : { ...c, orders: patchOrders(c.orders) }
-    ));
-    setCurrentUser((prev) =>
-      prev && prev.id === customerId ? { ...prev, orders: patchOrders(prev.orders) } : prev
-    );
+    const applyOptimistic = () => {
+      setCustomers((prev) => prev.map((c) =>
+        c.id !== customerId ? c : { ...c, orders: patchOrders(c.orders) }
+      ));
+      setCurrentUser((prev) =>
+        prev && prev.id === customerId ? { ...prev, orders: patchOrders(prev.orders) } : prev
+      );
+    };
+
+    // For pickup / on-the-way, the optimistic update is safe — the server
+    // can only reject these for the "kitchen not ready" guard, which the UI
+    // already prevents. For "delivered" we wait for the server first because
+    // it may reject the delivery code; flipping the row to delivered locally
+    // before confirmation would leave a stale UI on a wrong-PIN attempt.
+    if (status !== "delivered") applyOptimistic();
+
     const body: Record<string, string> = { delivery_status: status };
     if (status === "delivered") body.status = "delivered";
-    fetch(`/api/admin/orders/${orderId}/driver`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }).then(async (r) => {
-      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateDeliveryStatus:", j.error); }
-    }).catch((e) => console.error("updateDeliveryStatus:", e));
+    if (code) body.delivery_code = code;
+
+    try {
+      const r = await fetch(`/api/admin/orders/${orderId}/driver`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({})) as { error?: string };
+        console.error("updateDeliveryStatus:", j.error);
+        return { ok: false, error: j.error ?? "Failed to update delivery status." };
+      }
+      if (status === "delivered") applyOptimistic();
+      return { ok: true };
+    } catch (e) {
+      console.error("updateDeliveryStatus:", e);
+      return { ok: false, error: "Network error — please try again." };
+    }
   };
 
-  // ─── Breakfast menu ────────────────────────────────────────────────────────
+  // ─── Meal periods ──────────────────────────────────────────────────────────
+  // CRUD methods talk to the /api/admin/meal-periods routes. Local state is
+  // updated optimistically; the Realtime subscription on `meal_periods`
+  // reconciles any divergence.
 
-  const bm = () => settings.breakfastMenu ?? { enabled: false, startTime: "07:00", endTime: "11:30", categories: [], items: [] };
+  function periodToRow(p: MealPeriod | (Omit<MealPeriod, "id"> & { id?: string })) {
+    const row: Record<string, unknown> = {
+      name: p.name,
+      enabled: p.enabled,
+      start_time: p.startTime,
+      end_time: p.endTime,
+      days_of_week: p.daysOfWeek,
+      sort_order: p.sortOrder,
+      theme_color: p.themeColor,
+    };
+    if ("id" in p && p.id) row.id = p.id;
+    return row;
+  }
 
-  const updateBreakfastSettings = (patch: Partial<BreakfastMenuSettings>) =>
-    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), ...patch } }));
+  const addMealPeriod = async (
+    period: Omit<MealPeriod, "id"> & { id?: string },
+  ): Promise<{ ok: boolean; mealPeriod?: MealPeriod; error?: string }> => {
+    try {
+      const r = await fetch("/api/admin/meal-periods", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(periodToRow(period)),
+      });
+      const j = await r.json().catch(() => ({})) as { ok: boolean; mealPeriod?: unknown; error?: string };
+      if (!r.ok || !j.ok) return { ok: false, error: j.error ?? "Failed to add meal period" };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const created = mapMealPeriod(j.mealPeriod as any);
+      setMealPeriods((prev) => [...prev, created].sort((a, b) => a.sortOrder - b.sortOrder));
+      return { ok: true, mealPeriod: created };
+    } catch (e) {
+      console.error("addMealPeriod:", e);
+      return { ok: false, error: "Network error" };
+    }
+  };
 
-  const addBreakfastCategory = (cat: Category) =>
-    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), categories: [...(bm().categories), cat] } }));
+  const updateMealPeriod = async (
+    id: string,
+    patch: Partial<Omit<MealPeriod, "id">>,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    setMealPeriods((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+    try {
+      const body: Record<string, unknown> = {};
+      if (patch.name        !== undefined) body.name         = patch.name;
+      if (patch.enabled     !== undefined) body.enabled      = patch.enabled;
+      if (patch.startTime   !== undefined) body.start_time   = patch.startTime;
+      if (patch.endTime     !== undefined) body.end_time     = patch.endTime;
+      if (patch.daysOfWeek  !== undefined) body.days_of_week = patch.daysOfWeek;
+      if (patch.sortOrder   !== undefined) body.sort_order   = patch.sortOrder;
+      if (patch.themeColor  !== undefined) body.theme_color  = patch.themeColor;
+      const r = await fetch(`/api/admin/meal-periods/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const j = await r.json().catch(() => ({})) as { ok: boolean; error?: string };
+      if (!r.ok || !j.ok) return { ok: false, error: j.error ?? "Failed to update meal period" };
+      return { ok: true };
+    } catch (e) {
+      console.error("updateMealPeriod:", e);
+      return { ok: false, error: "Network error" };
+    }
+  };
 
-  const updateBreakfastCategory = (cat: Category) =>
-    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), categories: bm().categories.map((c) => (c.id === cat.id ? cat : c)) } }));
+  const deleteMealPeriod = async (id: string): Promise<{ ok: boolean; error?: string }> => {
+    setMealPeriods((prev) => prev.filter((p) => p.id !== id));
+    // Cascade in DB drops the join rows, but the optimistic state needs the
+    // same cleanup so the customer page stops sectioning by the dead period.
+    setMenuItems((prev) => prev.map((m) => ({
+      ...m,
+      mealPeriodIds: (m.mealPeriodIds ?? []).filter((x) => x !== id),
+    })));
+    try {
+      const r = await fetch(`/api/admin/meal-periods/${id}`, { method: "DELETE" });
+      const j = await r.json().catch(() => ({})) as { ok: boolean; error?: string };
+      if (!r.ok || !j.ok) return { ok: false, error: j.error ?? "Failed to delete meal period" };
+      return { ok: true };
+    } catch (e) {
+      console.error("deleteMealPeriod:", e);
+      return { ok: false, error: "Network error" };
+    }
+  };
 
-  const deleteBreakfastCategory = (id: string) =>
-    mutateSettings((p) => ({
-      ...p,
-      breakfastMenu: {
-        ...bm(),
-        categories: bm().categories.filter((c) => c.id !== id),
-        items: bm().items.filter((i) => i.categoryId !== id),
-      },
-    }));
-
-  const reorderBreakfastCategories = (cats: Category[]) =>
-    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), categories: cats } }));
-
-  const addBreakfastItem = (item: MenuItem) =>
-    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), items: [...bm().items, item] } }));
-
-  const updateBreakfastItem = (item: MenuItem) =>
-    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), items: bm().items.map((i) => (i.id === item.id ? item : i)) } }));
-
-  const deleteBreakfastItem = (id: string) =>
-    mutateSettings((p) => ({ ...p, breakfastMenu: { ...bm(), items: bm().items.filter((i) => i.id !== id) } }));
+  const reorderMealPeriods = async (
+    periods: MealPeriod[],
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const renumbered = periods.map((p, i) => ({ ...p, sortOrder: i }));
+    setMealPeriods(renumbered);
+    try {
+      await Promise.all(renumbered.map((p) =>
+        fetch(`/api/admin/meal-periods/${p.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sort_order: p.sortOrder }),
+        })
+      ));
+      return { ok: true };
+    } catch (e) {
+      console.error("reorderMealPeriods:", e);
+      return { ok: false, error: "Network error" };
+    }
+  };
 
   // ─── Derived values ────────────────────────────────────────────────────────
 
-  const cartTotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+  // Cart-level offers (bogo/multibuy/qty_discount) snapshotted on each line
+  // adjust the line total; per-unit offers are already in i.price. See
+  // src/lib/menuOfferUtils.ts. Falls back to plain qty*price when no offer.
+  const cartTotal = cartSubtotal(cart);
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0);
 
   return (
     <AppContext.Provider
       value={{
         cart, addToCart, removeFromCart, updateQty, clearCart, cartTotal, cartCount,
-        settings, updateSettings, isOpen,
+        settings, updateSettings, refreshDiningTables, isOpen,
         fulfillment, setFulfillment, scheduledTime, setScheduledTime,
         categories, menuItems,
         addCategory, updateCategory, deleteCategory, reorderCategories,
-        addMenuItem, updateMenuItem, deleteMenuItem,
+        addMenuItem, updateMenuItem, updateMenuItemStock, deleteMenuItem,
         customers, addOrder, updateOrderStatus, addCustomer, updateCustomer,
         currentUser, login, register, logout,
         toggleFavourite, isFavourite,
@@ -1481,13 +1846,12 @@ export function AppProvider({
         incrementCouponUsage, appliedCoupon, applyCoupon, removeCoupon,
         addSavedAddress, updateSavedAddress, deleteSavedAddress, setDefaultAddress,
         drivers,
-        currentDriver, driverLogin, driverLogout,
+        currentDriver, driverAuthChecked, driverLogin, driverLogout,
         addDriver, updateDriver, deleteDriver, toggleDriver,
-        assignDriverToOrder, updateDeliveryStatus, addRefund, spendStoreCredit,
-        updateBreakfastSettings,
-        addBreakfastCategory, updateBreakfastCategory, deleteBreakfastCategory, reorderBreakfastCategories,
-        addBreakfastItem, updateBreakfastItem, deleteBreakfastItem,
+        assignDriverToOrder, updateDeliveryStatus, addRefund, spendStoreCredit, applyStoreCreditOptimistic,
+        mealPeriods, addMealPeriod, updateMealPeriod, deleteMealPeriod, reorderMealPeriods,
         refreshCurrentUser,
+        loadAllCustomers,
       }}
     >
       <SeoHead settings={settings} />

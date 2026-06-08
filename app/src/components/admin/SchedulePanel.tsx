@@ -21,8 +21,8 @@ export default function SchedulePanel() {
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-100">
-        <div className="flex items-center justify-between">
+      <div className="px-5 sm:px-6 py-4 border-b border-gray-100">
+        <div className="flex flex-wrap gap-2 items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-blue-100 rounded-xl flex items-center justify-center">
               <Calendar size={18} className="text-blue-600" />
@@ -65,7 +65,7 @@ export default function SchedulePanel() {
         )}
       </div>
 
-      <div className="p-6 space-y-3">
+      <div className="p-5 sm:p-6 space-y-3">
         {DAYS.map((day) => {
           const d = schedule[day] ?? { open: "09:00", close: "22:00", closed: false };
           return (
@@ -93,7 +93,7 @@ export default function SchedulePanel() {
                   value={d.open}
                   disabled={d.closed}
                   onChange={(e) => updateDay(day, { open: e.target.value })}
-                  className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:opacity-40"
+                  className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs sm:text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:opacity-40"
                 />
                 <span className="text-gray-400 text-sm">–</span>
                 <input
@@ -101,7 +101,7 @@ export default function SchedulePanel() {
                   value={d.close}
                   disabled={d.closed}
                   onChange={(e) => updateDay(day, { close: e.target.value })}
-                  className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:opacity-40"
+                  className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs sm:text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:opacity-40"
                 />
               </div>
               {/* Desktop: original single-row layout */}

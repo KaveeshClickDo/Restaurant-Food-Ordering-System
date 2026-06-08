@@ -1,11 +1,16 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import {
   X, CalendarDays, Clock, Users, ChevronRight, ChevronLeft,
-  CheckCircle2, Loader2, UtensilsCrossed, MapPin, AlertCircle,
+  CheckCircle2, Loader2, UtensilsCrossed, MapPin, AlertCircle, Crown,
 } from "lucide-react";
+import { ReservationFormSchema } from "@/lib/schemas/reservation";
+import { cleanPhone, formErrorMessage } from "@/lib/inputUtils";
+import ReservationPaymentStep from "@/components/ReservationPaymentStep";
+import TableMap, { type MapTable } from "@/components/reservation/TableMap";
+import { LayoutGrid, Map as MapIcon } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -14,9 +19,11 @@ interface AvailableTable {
   label: string;
   seats: number;
   section: string;
+  isVip?: boolean;
+  vipPrice?: number;
 }
 
-type Step = "datetime" | "table" | "details" | "confirmed";
+type Step = "datetime" | "table" | "details" | "payment" | "confirmed";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -108,12 +115,14 @@ function StepDots({ current }: { current: Step }) {
 export default function ReservationModal({ onClose }: { onClose: () => void }) {
   const { settings } = useApp();
   const rs = settings.reservationSystem;
+  const currencySymbol = settings.currency?.symbol ?? "£";
 
   const slots = generateSlots(
     rs.openTime ?? "12:00",
     rs.closeTime ?? "22:00",
     rs.slotIntervalMinutes ?? 30,
   );
+  const maxPS = rs.maxPartySize ?? 10;
 
   // ── Form state ────────────────────────────────────────────────────────────
   const [step, setStep] = useState<Step>("datetime");
@@ -128,13 +137,21 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
 
   // ── Availability state ────────────────────────────────────────────────────
   const [tables,       setTables]       = useState<AvailableTable[]>([]);
+  const [mapTables,    setMapTables]    = useState<MapTable[]>([]);
   const [loadingTables, setLoadingTables] = useState(false);
   const [availError,   setAvailError]   = useState("");
+  // Floor-plan map vs. card list. Defaults to the map whenever one is configured.
+  const floorPlanImageUrl = rs.floorPlanImageUrl ?? "";
+  const [tableView, setTableView] = useState<"map" | "list">("map");
 
   // ── Submission state ──────────────────────────────────────────────────────
   const [submitting,     setSubmitting]     = useState(false);
   const [submitError,    setSubmitError]    = useState("");
   const [reservationId,  setReservationId]  = useState("");
+  // True once a VIP booking fee has been paid. The reservation row is then
+  // created asynchronously by the payment webhook, so the confirmed screen
+  // shows a "details emailed" message instead of an in-hand booking reference.
+  const [paidVip,        setPaidVip]        = useState(false);
 
   // When date changes to today, re-anchor the selected time to the first future slot
   useEffect(() => {
@@ -151,9 +168,10 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
       const res  = await fetch(
         `/api/reservations/availability?date=${date}&time=${time}&partySize=${partySize}`
       );
-      const json = await res.json() as { ok: boolean; availableTables?: AvailableTable[]; error?: string };
+      const json = await res.json() as { ok: boolean; availableTables?: AvailableTable[]; mapTables?: MapTable[]; error?: string };
       if (json.ok) {
         setTables(json.availableTables ?? []);
+        setMapTables(json.mapTables ?? []);
       } else {
         setAvailError(json.error ?? "Failed to check availability.");
       }
@@ -169,24 +187,40 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
   }, [step, fetchTables]);
 
   // ── Submit reservation ────────────────────────────────────────────────────
+  const submitInFlight = useRef(false);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitInFlight.current) return;
     if (!selectedTable) return;
-    setSubmitting(true);
     setSubmitError("");
+    const check = ReservationFormSchema.safeParse({
+      customerName:  name,
+      customerEmail: email,
+      customerPhone: phone,
+      partySize,
+      note,
+    });
+    if (!check.success) { setSubmitError(formErrorMessage(check.error)); return; }
+
+    // VIP tables charge a non-refundable booking fee — hand off to the payment
+    // step, which collects the fee and lets the webhook create the reservation.
+    if (selectedTable.isVip && (selectedTable.vipPrice ?? 0) > 0) {
+      setStep("payment");
+      return;
+    }
+
+    submitInFlight.current = true;
+    setSubmitting(true);
     try {
       const res  = await fetch("/api/reservations", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({
-          tableId:       selectedTable.id,
+          tableId: selectedTable.id,
           date,
           time,
-          partySize,
-          customerName:  name.trim(),
-          customerEmail: email.trim(),
-          customerPhone: phone.trim(),
-          note:          note.trim(),
+          ...check.data,
         }),
       });
       const json = await res.json() as { ok: boolean; reservationId?: string; error?: string };
@@ -199,6 +233,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
     } catch {
       setSubmitError("Network error — please try again.");
     } finally {
+      submitInFlight.current = false;
       setSubmitting(false);
     }
   }
@@ -224,7 +259,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
       <div className="relative w-full sm:max-w-lg bg-white sm:rounded-2xl shadow-2xl flex flex-col max-h-[95dvh] overflow-hidden">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
+        <div className="flex flex-wrap gap-2 items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-orange-500 rounded-xl flex items-center justify-center flex-shrink-0">
               <CalendarDays size={17} className="text-white" />
@@ -285,7 +320,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                   <span className="text-2xl font-bold text-gray-900 w-8 text-center">{partySize}</span>
                   <button
                     type="button"
-                    onClick={() => setPartySize((p) => Math.min(20, p + 1))}
+                    onClick={() => setPartySize((p) => Math.min(maxPS, p + 1))}
                     className="w-10 h-10 rounded-full border border-gray-200 text-gray-600 hover:border-orange-400 hover:text-orange-500 font-bold text-lg transition flex items-center justify-center"
                   >
                     +
@@ -294,6 +329,9 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                     {partySize === 1 ? "1 guest" : `${partySize} guests`}
                   </span>
                 </div>
+                {partySize >= maxPS && (
+                  <p className="text-xs text-amber-600 mt-1">Maximum party size is {maxPS}. Call us for larger groups.</p>
+                )}
               </div>
 
               {/* Time slots */}
@@ -314,7 +352,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                         onClick={() => !past && setTime(slot)}
                         title={past ? "Time has passed" : undefined}
                         className={[
-                          "py-2.5 rounded-xl text-sm font-semibold border transition-all",
+                          "py-2.5 rounded-xl text-xs sm:text-sm font-semibold border transition-all",
                           past
                             ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed line-through"
                             : selected
@@ -340,7 +378,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
           {/* ── Step 2: Table Selection ───────────────────────────────── */}
           {step === "table" && (
             <div className="p-5">
-              <div className="bg-orange-50 border border-orange-100 rounded-xl px-4 py-3 mb-5 text-sm text-orange-800">
+              <div className="bg-orange-50 border border-orange-100 rounded-xl px-4 py-3 mb-5 text-[13px] sm:text-sm text-orange-800">
                 <span className="font-semibold">{fmtDate(date)}</span>
                 {" · "}{fmt12(time)}{" · "}
                 {partySize} {partySize === 1 ? "guest" : "guests"}
@@ -383,6 +421,41 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                 </div>
               ) : (
                 <div className="space-y-4">
+                  {/* Map ↔ list toggle — only when a floor plan with placed tables exists */}
+                  {floorPlanImageUrl && mapTables.length > 0 && (
+                    <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+                      <button
+                        type="button"
+                        onClick={() => setTableView("map")}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                          tableView === "map" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                        }`}
+                      >
+                        <MapIcon size={13} /> Map
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTableView("list")}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                          tableView === "list" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                        }`}
+                      >
+                        <LayoutGrid size={13} /> List
+                      </button>
+                    </div>
+                  )}
+
+                  {floorPlanImageUrl && mapTables.length > 0 && tableView === "map" ? (
+                    <TableMap
+                      imageUrl={floorPlanImageUrl}
+                      tables={mapTables}
+                      selectedId={selectedTable?.id ?? null}
+                      currencySymbol={currencySymbol}
+                      markerScale={rs.floorPlanMarkerScale ?? 1}
+                      onSelect={(t) => setSelectedTable({ id: t.id, label: t.label, seats: t.seats, section: t.section, isVip: t.isVip, vipPrice: t.vipPrice })}
+                    />
+                  ) : (
+                  <div className="space-y-4">
                   {Object.entries(tablesBySection).map(([section, sectionTables]) => (
                     <div key={section}>
                       <div className="flex items-center gap-1.5 text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
@@ -398,22 +471,34 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                               type="button"
                               onClick={() => setSelectedTable(t)}
                               className={[
-                                "flex flex-col items-center gap-1.5 py-4 px-3 rounded-xl border-2 transition-all",
+                                "relative flex flex-col items-center gap-1.5 py-4 px-3 rounded-xl border-2 transition-all",
                                 isSelected
-                                  ? "border-orange-500 bg-orange-50 shadow-sm"
-                                  : "border-gray-200 bg-white hover:border-orange-300",
+                                  ? (t.isVip ? "border-amber-500 bg-amber-50 shadow-sm" : "border-orange-500 bg-orange-50 shadow-sm")
+                                  : (t.isVip ? "border-amber-300 bg-amber-50/40 hover:border-amber-400" : "border-gray-200 bg-white hover:border-orange-300"),
                               ].join(" ")}
                             >
+                              {t.isVip && (
+                                <span className="absolute top-1.5 right-1.5 inline-flex items-center" title="VIP table">
+                                  <Crown size={14} className="text-amber-500" />
+                                </span>
+                              )}
                               <div className={[
                                 "w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-all",
-                                isSelected ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600",
+                                isSelected
+                                  ? (t.isVip ? "bg-amber-500 text-white" : "bg-orange-500 text-white")
+                                  : "bg-gray-100 text-gray-600",
                               ].join(" ")}>
                                 {t.label}
                               </div>
-                              <span className={`text-xs font-medium ${isSelected ? "text-orange-700" : "text-gray-500"}`}>
+                              <span className={`text-xs font-medium ${isSelected ? (t.isVip ? "text-amber-700" : "text-orange-700") : "text-gray-500"}`}>
                                 Up to {t.seats} guests
                               </span>
-                              {isSelected && (
+                              {t.isVip && (
+                                <span className="text-[11px] font-semibold text-amber-700">
+                                  {currencySymbol}{(t.vipPrice ?? 0).toFixed(2)} booking fee
+                                </span>
+                              )}
+                              {isSelected && !t.isVip && (
                                 <CheckCircle2 size={14} className="text-orange-500" />
                               )}
                             </button>
@@ -422,6 +507,8 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                       </div>
                     </div>
                   ))}
+                  </div>
+                  )}
                 </div>
               )}
             </div>
@@ -475,9 +562,11 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                 </label>
                 <input
                   type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
                   required
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={(e) => setPhone(cleanPhone(e.target.value))}
                   placeholder="+44 7700 900123"
                   className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400 transition"
                 />
@@ -503,6 +592,28 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                 </div>
               )}
             </form>
+          )}
+
+          {/* ── Step 3b: VIP booking-fee payment ──────────────────────── */}
+          {step === "payment" && selectedTable && (
+            <ReservationPaymentStep
+              payload={{
+                tableId:       selectedTable.id,
+                date,
+                time,
+                partySize,
+                customerName:  name.trim(),
+                customerEmail: email.trim(),
+                customerPhone: phone.trim(),
+                note:          note.trim() || undefined,
+              }}
+              fee={selectedTable.vipPrice ?? 0}
+              currencyCode={(settings.currency?.code ?? "GBP").toUpperCase()}
+              currencySymbol={currencySymbol}
+              tableLabel={selectedTable.label}
+              onBack={() => setStep("details")}
+              onPaid={() => { setPaidVip(true); setStep("confirmed"); }}
+            />
           )}
 
           {/* ── Step 4: Confirmed ─────────────────────────────────────── */}
@@ -545,9 +656,15 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                 )}
               </div>
 
-              <p className="text-xs text-gray-400">
-                Booking reference: <span className="font-mono font-semibold text-gray-600">{reservationId.slice(0, 8).toUpperCase()}</span>
-              </p>
+              {paidVip ? (
+                <p className="text-xs text-gray-400">
+                  Your booking fee is paid. A confirmation with your booking reference has been emailed to <span className="font-semibold text-gray-600">{email}</span>.
+                </p>
+              ) : (
+                <p className="text-xs text-gray-400">
+                  Booking reference: <span className="font-mono font-semibold text-gray-600">{reservationId.slice(0, 8).toUpperCase()}</span>
+                </p>
+              )}
               <p className="text-xs text-gray-400 -mt-2">
                 To cancel or modify, please contact us directly.
               </p>
@@ -562,8 +679,8 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
           )}
         </div>
 
-        {/* Footer navigation */}
-        {step !== "confirmed" && (
+        {/* Footer navigation — the payment step renders its own controls */}
+        {step !== "confirmed" && step !== "payment" && (
           <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-gray-100 bg-white flex-shrink-0">
             {/* Back */}
             {step === "datetime" ? (
@@ -623,6 +740,8 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
               >
                 {submitting ? (
                   <><Loader2 size={15} className="animate-spin" /> Confirming…</>
+                ) : selectedTable?.isVip && (selectedTable.vipPrice ?? 0) > 0 ? (
+                  <>Continue to payment ({currencySymbol}{(selectedTable.vipPrice ?? 0).toFixed(2)}) <ChevronRight size={16} /></>
                 ) : (
                   <><CheckCircle2 size={15} /> Confirm reservation</>
                 )}

@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { getPosSession } from "@/lib/auth";
+import { requirePosPermission } from "@/lib/posPermissions";
 
 // ─── GET ──────────────────────────────────────────────────────────────────────
 
@@ -34,17 +34,48 @@ export async function GET() {
 
 // ─── POST ─────────────────────────────────────────────────────────────────────
 
-export async function POST(req: NextRequest) {
-  // Auth guard: require a valid POS session. Same graceful fallback as pos/orders.
-  const session = await getPosSession();
-  if (!session) {
-    const { data: settingsRow } = await supabaseAdmin
-      .from("app_settings").select("data").eq("id", 1).single();
-    const posStaffConfigured = (settingsRow?.data?.pos_staff ?? []).length > 0;
-    if (posStaffConfigured) {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-    }
+// Whitelisted columns — the POS UI is allowed to write these, nothing else.
+// Anything outside the whitelist (active flags, audit fields, server-managed
+// timestamps, etc.) is silently dropped before the upsert.
+const CATEGORY_COLS = new Set([
+  "id", "name", "emoji", "sort_order",
+]);
+const MENU_ITEM_COLS = new Set([
+  "id", "category_id", "name", "description", "price", "image",
+  "dietary", "popular", "variations", "add_ons", "sort_order",
+  // Bug #2 — POS / admin field parity. These mirror the new MenuItem fields
+  // so a POS upsert preserves cost/sku/branding/offer state in menu_items.
+  "cost", "sku", "emoji", "color", "active", "offer",
+  // Channel split. POS only ever writes `channels = ['in_store']`; online-
+  // channel toggling and price_online overrides are admin-panel only. We
+  // accept the columns here so an admin-edited row round-trips through POS
+  // without being silently dropped on the next bulk sync.
+  "channels", "price_online",
+  // NOTE: stock_qty / stock_status / track_stock are intentionally NOT in
+  // this whitelist. Stock is server-authoritative (decremented atomically
+  // by /api/orders, /api/pos/sales, /api/waiter/orders, /api/webhooks/*)
+  // and restored by void/refund. Letting POS push stock via this bulk
+  // sync would overwrite the server count with the client's stale value.
+  // Admin can still edit stock via /api/admin/menu/[id] which updates
+  // those fields directly.
+]);
+
+function pick(row: Record<string, unknown>, allowed: Set<string>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(row)) {
+    if (allowed.has(key)) out[key] = row[key];
   }
+  return out;
+}
+
+export async function POST(req: NextRequest) {
+  // F-INS-4 fix: require `canManageMenu` (admin or POS-admin/manager with
+  // the explicit flag) — was previously open to any POS session and the
+  // "no active staff yet" bypass was wide open on a fresh install. The
+  // bootstrap bypass is gone; a fresh install seeds menu via the admin panel
+  // or seed script, not via this route.
+  const gate = await requirePosPermission("canManageMenu");
+  if (!gate.ok) return gate.response;
 
   let body: {
     categories?: Record<string, unknown>[];
@@ -53,7 +84,10 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); }
   catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
 
-  const { categories = [], products = [] } = body;
+  const rawCategories = Array.isArray(body.categories) ? body.categories : [];
+  const rawProducts   = Array.isArray(body.products)   ? body.products   : [];
+  const categories = rawCategories.map((c) => pick(c, CATEGORY_COLS));
+  const products   = rawProducts.map((p) => pick(p, MENU_ITEM_COLS));
 
   // Upsert categories
   if (categories.length > 0) {

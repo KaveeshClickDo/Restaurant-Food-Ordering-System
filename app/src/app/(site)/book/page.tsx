@@ -1,12 +1,16 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   CalendarDays, Clock, Users, UtensilsCrossed, CheckCircle2,
   Loader2, AlertCircle, MapPin, ChevronLeft, ChevronRight,
+  Map as MapIcon, LayoutGrid,
 } from "lucide-react";
+import { ReservationFormSchema } from "@/lib/schemas/reservation";
+import { cleanPhone, formErrorMessage } from "@/lib/inputUtils";
+import TableMap, { type MapTable } from "@/components/reservation/TableMap";
 
-interface AvailableTable { id: string; label: string; seats: number; section: string; }
+interface AvailableTable { id: string; label: string; seats: number; section: string; isVip?: boolean; vipPrice?: number; }
 type Step = "datetime" | "table" | "details" | "confirmed";
 
 function toMins(t: string) { const [h, m] = t.split(":").map(Number); return h * 60 + m; }
@@ -47,10 +51,10 @@ function isSlotPast(slot: string, selectedDate: string): boolean {
 
 const STEPS = ["Date & Time", "Table", "Details"];
 
-export default function BookPage() {
+export default function BookPage() {  
   // Settings fetched from the public API
   const [rsSettings, setRsSettings] = useState<{
-    openTime: string; closeTime: string; slotIntervalMinutes: number; maxAdvanceDays: number; maxPartySize: number;
+    openTime: string; closeTime: string; slotIntervalMinutes: number; maxAdvanceDays: number; maxPartySize: number; enabled: boolean; floorPlanImageUrl?: string; floorPlanMarkerScale?: number;
   } | null>(null);
   const [restaurantName, setRestaurantName] = useState("Reserve a Table");
 
@@ -61,11 +65,14 @@ export default function BookPage() {
     }).catch(() => {});
   }, []);
 
+  const enabled = rsSettings?.enabled             ?? false;
   const open    = rsSettings?.openTime            ?? "12:00";
   const close   = rsSettings?.closeTime           ?? "22:00";
   const interval= rsSettings?.slotIntervalMinutes ?? 30;
   const maxDays = rsSettings?.maxAdvanceDays       ?? 30;
   const maxPS   = rsSettings?.maxPartySize         ?? 10;
+  const floorPlanImageUrl = rsSettings?.floorPlanImageUrl ?? "";
+  const floorPlanMarkerScale = rsSettings?.floorPlanMarkerScale ?? 1;
   const slots   = generateSlots(open, close, interval);
 
   const [step,          setStep]          = useState<Step>("datetime");
@@ -73,6 +80,8 @@ export default function BookPage() {
   const [time,          setTime]          = useState("");
   const [partySize,     setPartySize]     = useState(2);
   const [tables,        setTables]        = useState<AvailableTable[]>([]);
+  const [mapTables,     setMapTables]     = useState<MapTable[]>([]);
+  const [tableView,     setTableView]     = useState<"map" | "list">("map");
   const [selectedTable, setSelectedTable] = useState<AvailableTable | null>(null);
   const [loadingTables, setLoadingTables] = useState(false);
   const [availError,    setAvailError]    = useState("");
@@ -95,9 +104,9 @@ export default function BookPage() {
     setLoadingTables(true); setAvailError(""); setBlackout(false); setSelectedTable(null);
     try {
       const res  = await fetch(`/api/reservations/availability?date=${date}&time=${time}&partySize=${partySize}`);
-      const json = await res.json() as { ok: boolean; availableTables?: AvailableTable[]; error?: string; blackout?: boolean };
-      if (json.blackout) { setBlackout(true); setTables([]); }
-      else if (json.ok)  { setTables(json.availableTables ?? []); }
+      const json = await res.json() as { ok: boolean; availableTables?: AvailableTable[]; mapTables?: MapTable[]; error?: string; blackout?: boolean };
+      if (json.blackout) { setBlackout(true); setTables([]); setMapTables([]); }
+      else if (json.ok)  { setTables(json.availableTables ?? []); setMapTables(json.mapTables ?? []); }
       else               { setAvailError(json.error ?? "Failed to check availability."); }
     } catch { setAvailError("Network error — please try again."); }
     finally { setLoadingTables(false); }
@@ -105,22 +114,32 @@ export default function BookPage() {
 
   useEffect(() => { if (step === "table") fetchTables(); }, [step, fetchTables]);
 
+  const submitInFlight = useRef(false);
+
   async function handleSubmit(e: { preventDefault(): void }) {
     e.preventDefault();
+    if (submitInFlight.current) return;
     if (!selectedTable) return;
-    setSubmitting(true); setSubmitError("");
+    setSubmitError("");
+    const check = ReservationFormSchema.safeParse({
+      customerName: name, customerEmail: email, customerPhone: phone, partySize, note,
+    });
+    if (!check.success) { setSubmitError(formErrorMessage(check.error)); return; }
+    submitInFlight.current = true;
+    setSubmitting(true);
     try {
       const res  = await fetch("/api/reservations", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tableId: selectedTable.id, date, time, partySize,
-          customerName: name.trim(), customerEmail: email.trim(), customerPhone: phone.trim(),
-          note: note.trim(), source: "online" }),
+        body: JSON.stringify({ tableId: selectedTable.id, date, time, ...check.data, source: "online" }),
       });
       const json = await res.json() as { ok: boolean; reservationId?: string; error?: string };
       if (json.ok && json.reservationId) { setReservationId(json.reservationId); setStep("confirmed"); }
       else { setSubmitError(json.error ?? "Failed to create reservation."); }
     } catch { setSubmitError("Network error — please try again."); }
-    finally { setSubmitting(false); }
+    finally {
+      submitInFlight.current = false;
+      setSubmitting(false);
+    }
   }
 
   const tablesBySection = tables.reduce<Record<string, AvailableTable[]>>((acc, t) => {
@@ -129,10 +148,29 @@ export default function BookPage() {
 
   const stepIdx = step === "datetime" ? 0 : step === "table" ? 1 : step === "details" ? 2 : 3;
 
+  // ─── Disabled State ──────────────────────────────────────────────────────────
+  if (!enabled) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center px-4 py-20 min-h-[60vh]">
+        <div className="w-full max-w-md bg-white rounded-3xl shadow-sm border border-gray-100 p-8 text-center space-y-4">
+          <div className="w-16 h-16 rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center mx-auto mb-2">
+            <CalendarDays size={28} className="text-gray-400" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">Reservations Unavailable</h1>
+            <p className="text-gray-500 text-sm mt-2 leading-relaxed">
+              We are currently not accepting online table reservations. Please check back later or contact us directly to book a table.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (step === "confirmed") {
     return (
       <div className="flex-1 flex items-center justify-center px-4 py-12">
-        <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-gray-200 p-8 text-center space-y-5">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-gray-200 p-6 text-center space-y-5">
           <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto">
             <CheckCircle2 size={40} className="text-green-500" />
           </div>
@@ -207,7 +245,7 @@ export default function BookPage() {
                 <div className="flex items-center gap-3">
                   <button type="button" onClick={() => setPartySize((p) => Math.max(1, p - 1))}
                     className="w-10 h-10 rounded-full border border-gray-200 text-gray-600 hover:border-zinc-400 hover:text-zinc-700 font-bold text-lg transition flex items-center justify-center">−</button>
-                  <span className="text-2xl font-bold text-gray-900 w-8 text-center">{partySize}</span>
+                  <span className="text-xl font-bold text-gray-900 w-8 text-center">{partySize}</span>
                   <button type="button" onClick={() => setPartySize((p) => Math.min(maxPS, p + 1))}
                     className="w-10 h-10 rounded-full border border-gray-200 text-gray-600 hover:border-zinc-400 hover:text-zinc-700 font-bold text-lg transition flex items-center justify-center">+</button>
                   <span className="text-sm text-gray-400">{partySize === 1 ? "1 guest" : `${partySize} guests`}</span>
@@ -285,6 +323,40 @@ export default function BookPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
+                  {/* Map ↔ list toggle — only when a floor plan with placed tables exists */}
+                  {floorPlanImageUrl && mapTables.length > 0 && (
+                    <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+                      <button type="button" onClick={() => setTableView("map")}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                          tableView === "map" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                        }`}>
+                        <MapIcon size={13} /> Map
+                      </button>
+                      <button type="button" onClick={() => setTableView("list")}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                          tableView === "list" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                        }`}>
+                        <LayoutGrid size={13} /> List
+                      </button>
+                    </div>
+                  )}
+
+                  {floorPlanImageUrl && mapTables.length > 0 && tableView === "map" ? (
+                    <>
+                      <TableMap
+                        imageUrl={floorPlanImageUrl}
+                        tables={mapTables}
+                        selectedId={selectedTable?.id ?? null}
+                        allowVipSelect={false}
+                        markerScale={floorPlanMarkerScale}
+                        onSelect={(t) => setSelectedTable({ id: t.id, label: t.label, seats: t.seats, section: t.section, isVip: t.isVip, vipPrice: t.vipPrice })}
+                      />
+                      {mapTables.some((t) => t.isVip) && (
+                        <p className="text-xs text-gray-400">👑 VIP tables are shown for reference — to reserve one, use the &ldquo;Book a table&rdquo; button at the top of the site.</p>
+                      )}
+                    </>
+                  ) : (
+                  <div className="space-y-4">
                   {Object.entries(tablesBySection).map(([section, st]) => (
                     <div key={section}>
                       <div className="flex items-center gap-1.5 text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
@@ -307,6 +379,8 @@ export default function BookPage() {
                       </div>
                     </div>
                   ))}
+                  </div>
+                  )}
                 </div>
               )}
             </div>
@@ -319,16 +393,16 @@ export default function BookPage() {
                 {selectedTable?.label} · {fmtDate(date)} · {fmt12(time)} · {partySize} guests
               </div>
               {[
-                { label: "Full name", type: "text",  value: name,  setter: setName,  ph: "Jane Smith",       req: true  },
-                { label: "Email",     type: "email", value: email, setter: setEmail, ph: "jane@example.com", req: true  },
-                { label: "Phone",     type: "tel",   value: phone, setter: setPhone, ph: "+44 7700 900123",  req: true  },
-              ].map(({ label, type, value, setter, ph, req }) => (
+                { label: "Full name", type: "text",  value: name,  setter: setName,  ph: "Jane Smith",       req: true,  isPhone: false },
+                { label: "Email",     type: "email", value: email, setter: setEmail, ph: "jane@example.com", req: true,  isPhone: false },
+                { label: "Phone",     type: "tel",   value: phone, setter: setPhone, ph: "+44 7700 900123",  req: true,  isPhone: true  },
+              ].map(({ label, type, value, setter, ph, req, isPhone }) => (
                 <div key={label}>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
                     {label} {req && <span className="text-red-400">*</span>}
                   </label>
-                  <input type={type} required={req} value={value} placeholder={ph}
-                    onChange={(e) => setter(e.target.value)}
+                  <input type={type} inputMode={isPhone ? "tel" : undefined} autoComplete={isPhone ? "tel" : undefined} required={req} value={value} placeholder={ph}
+                    onChange={(e) => setter(isPhone ? cleanPhone(e.target.value) : e.target.value)}
                     className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 transition" />
                 </div>
               ))}
@@ -374,14 +448,14 @@ export default function BookPage() {
             )}
             {step === "details" && (
               <button type="submit" form="book-form" disabled={submitting || !name.trim() || !email.trim() || !phone.trim()}
-                className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition-all">
+                className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-3 sm:px-5 py-2.5 rounded-xl transition-all">
                 {submitting ? <><Loader2 size={15} className="animate-spin" />Confirming…</> : <><CheckCircle2 size={15} />Confirm booking</>}
               </button>
             )}
           </div>
         </div>
 
-        <p className="text-center text-xs text-gray-400">Powered by {restaurantName}</p>
+        <p className="text-center text-xs text-gray-400 mb-5 lg:mb-10">Powered by {restaurantName}</p>
       </div>
     </div>
   );

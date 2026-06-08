@@ -7,6 +7,9 @@
 import { NextRequest, NextResponse }            from "next/server";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
+import { parseBody }                            from "@/lib/apiValidation";
+import { CategoryUpdateSchema }                 from "@/lib/schemas/menu";
+import { validateCategoryParent, countCategoryChildren } from "@/lib/categoryValidation";
 
 export async function PUT(
   req: NextRequest,
@@ -15,13 +18,20 @@ export async function PUT(
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
   const { id } = await params;
 
-  let body: { name?: string; emoji?: string };
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ ok: false, error: "Invalid JSON." }, { status: 400 }); }
+  const parsed = await parseBody(req, CategoryUpdateSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+  const body = parsed.data;
 
-  const patch: Record<string, string> = {};
+  const patch: Record<string, string | null> = {};
   if (body.name  !== undefined) patch.name  = body.name;
   if (body.emoji !== undefined) patch.emoji = body.emoji;
+  // parent_id can legitimately be set to null (converting sub → parent).
+  // Validate the proposed parent server-side before persisting.
+  if ("parent_id" in body) {
+    const parentErr = await validateCategoryParent(id, body.parent_id ?? null);
+    if (parentErr) return NextResponse.json({ ok: false, error: parentErr }, { status: 400 });
+    patch.parent_id = body.parent_id ?? null;
+  }
 
   const { error } = await supabaseAdmin.from("categories").update(patch).eq("id", id);
   if (error) {
@@ -37,6 +47,17 @@ export async function DELETE(
 ) {
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
   const { id } = await params;
+
+  // Block deleting a parent that still has sub-categories — otherwise the FK's
+  // `on delete set null` would silently orphan them (promote to top-level).
+  // Mirrors the admin UI guard so the rule holds for direct API calls too.
+  const childCount = await countCategoryChildren(id);
+  if (childCount > 0) {
+    return NextResponse.json(
+      { ok: false, error: `Cannot delete: this category has ${childCount} sub-categor${childCount === 1 ? "y" : "ies"}. Move or remove them first.` },
+      { status: 409 },
+    );
+  }
 
   const { error } = await supabaseAdmin.from("categories").delete().eq("id", id);
   if (error) {
