@@ -25,6 +25,7 @@ import { parseBody }                            from "@/lib/apiValidation";
 import { AdminRefundSchema }                    from "@/lib/schemas/waiter";
 import { restoreStock, type StockItem }         from "@/lib/stockMutation";
 import { moneyPaidGross }                       from "@/lib/giftCardMoney";
+import { deductLoyaltyPoints }                  from "@/lib/loyaltyUtils";
 
 export async function POST(
   req: NextRequest,
@@ -207,6 +208,20 @@ export async function POST(
   if (orderErr) {
     console.error("admin/orders/[id]/refund POST (order):", orderErr.message);
     return NextResponse.json({ ok: false, error: orderErr.message }, { status: 500 });
+  }
+
+  // ─── Deduct loyalty points for the refund (Ahinsa) ──────────────────
+  // Loyalty is earned on money paid, so a money refund deducts the matching
+  // points. Every refund is a money refund now (gift-card refunds were removed),
+  // so all of them deduct — and it's naturally bounded because newest.amount is
+  // itself capped at the money actually paid (moneyCap) above.
+  if (
+    newest &&
+    orderRow.customer_id &&
+    orderRow.customer_id !== "guest" &&
+    orderRow.customer_id !== "pos-walk-in"
+  ) {
+    await deductLoyaltyPoints(orderRow.customer_id, Number(newest.amount));
   }
 
   // Restore stock when a full refund covers an order whose food was never

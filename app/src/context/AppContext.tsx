@@ -1159,6 +1159,10 @@ export function AppProvider({
       ?.orders.find((o) => o.id === orderId);
     if (!currentOrder) return;
 
+    // --- Calculate loyalty points to deduct ---
+  const rate = settings.loyaltyPointsPerPound ?? 1;
+  const pointsToDeduct = Math.floor(refund.amount * rate);
+
     const newRefunds = [...(currentOrder.refunds ?? []), refund];
     const newRefundedAmount = (currentOrder.refundedAmount ?? 0) + refund.amount;
     // A refund updates payment state only — the order keeps its fulfillment
@@ -1181,7 +1185,11 @@ export function AppProvider({
           refund.method === "store_credit"
             ? (c.storeCredit ?? 0) + refund.amount
             : c.storeCredit;
-        return { ...c, orders: c.orders.map(patchOrder), storeCredit: newStoreCredit };
+
+        // Apply optimistic loyalty point deduction
+      const newLoyaltyPoints = Math.max(0, (c.loyaltyPoints ?? 0) - pointsToDeduct);
+
+        return { ...c, orders: c.orders.map(patchOrder), storeCredit: newStoreCredit, loyaltyPoints: newLoyaltyPoints };
       })
     );
     setCurrentUser((prev) => {
@@ -1190,7 +1198,11 @@ export function AppProvider({
         refund.method === "store_credit"
           ? (prev.storeCredit ?? 0) + refund.amount
           : prev.storeCredit;
-      return { ...prev, orders: prev.orders.map(patchOrder), storeCredit: newStoreCredit };
+
+      // Apply optimistic loyalty point deduction
+    const newLoyaltyPoints = Math.max(0, (prev.loyaltyPoints ?? 0) - pointsToDeduct);
+
+      return { ...prev, orders: prev.orders.map(patchOrder), storeCredit: newStoreCredit, loyaltyPoints: newLoyaltyPoints };
     });
 
     // ── Single atomic order update via admin API route ──────────────────────
