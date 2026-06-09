@@ -292,6 +292,7 @@ function IssueCardModal({ sym, onClose, onIssued, addToast }: {
   addToast: (m: string, ok: boolean) => void;
 }) {
   const [amount, setAmount] = useState("25");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "card">("cash");
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [message, setMessage] = useState("");
@@ -311,6 +312,7 @@ function IssueCardModal({ sym, onClose, onIssued, addToast }: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           amount: amt,
+          paymentMethod,
           recipientEmail: email.trim() || undefined,
           recipientName:  name.trim() || undefined,
           personalMessage: message.trim() || undefined,
@@ -355,6 +357,26 @@ function IssueCardModal({ sym, onClose, onIssued, addToast }: {
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Amount ({sym})</label>
               <input type="number" min="1" step="1" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Paid by</label>
+              <div className="grid grid-cols-2 gap-2">
+                {(["cash", "card"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setPaymentMethod(m)}
+                    className={`px-3 py-2.5 rounded-xl border text-sm font-semibold capitalize transition ${
+                      paymentMethod === m
+                        ? "border-orange-500 bg-orange-50 text-orange-700"
+                        : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100"
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1">Card is sold for money — recorded as income on the Admin finance tab.</p>
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Recipient email {sendEmail && <span className="text-red-500">*</span>}</label>

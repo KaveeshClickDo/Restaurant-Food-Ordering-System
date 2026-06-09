@@ -3,10 +3,11 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useApp } from "@/context/AppContext";
 import { fullOrderNumber } from "@/lib/orderNumber";
+import { moneyPaidGross } from "@/lib/giftCardMoney";
 import {
   TrendingUp, ShoppingBag, RotateCcw, Percent, CreditCard,
   Download, Printer, RefreshCw, CalendarDays, ChevronDown,
-  ArrowUpRight, ArrowDownRight, Minus, Crown,
+  ArrowUpRight, ArrowDownRight, Minus, Crown, Gift,
 } from "lucide-react";
 
 interface VipFeeRow {
@@ -14,14 +15,33 @@ interface VipFeeRow {
   created_at: string;
   vip_fee: number;
   payment_method: string | null;
+  // payment_ref carries the origin prefix for cash/card fees: "pos:cash",
+  // "admin:card", etc. (set in /api/pos|admin/reservations). It's what tells a
+  // till booking apart from a back-office (admin) booking — both use cash/card,
+  // so payment_method alone can't distinguish them.
+  payment_ref: string | null;
 }
 
-// A VIP booking fee is "online" when it was paid through a gateway
-// (Stripe/PayPal) and "pos" when collected as cash/card at the till or by
-// admin. This mirrors the order source split so the fee lands on the same
-// sub-tab as the orders it belongs with.
-function vipFeeSource(f: VipFeeRow): "online" | "pos" {
-  return f.payment_method === "stripe" || f.payment_method === "paypal" ? "online" : "pos";
+// Where a VIP booking fee belongs:
+//   • online — paid through a gateway (Stripe/PayPal)
+//   • admin  — collected by back-office staff (payment_ref starts "admin:")
+//   • pos    — collected at the till (everything else cash/card, including
+//              legacy rows with no prefix, which stay on POS as before)
+function vipFeeSource(f: VipFeeRow): "online" | "pos" | "admin" {
+  if (f.payment_method === "stripe" || f.payment_method === "paypal") return "online";
+  if ((f.payment_ref ?? "").startsWith("admin:")) return "admin";
+  return "pos";
+}
+
+// A gift card SALE — prepaid money booked as income at purchase. The endpoint
+// (/api/admin/gift-card-sales) classifies origin: online (Stripe) → Online tab,
+// admin (counter cash/card) → Admin tab. POS can't sell cards, so there is no
+// POS / dine-in slice.
+interface GiftCardSaleRow {
+  id: string;
+  created_at: string;
+  amount: number;
+  origin: "online" | "admin";
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -40,11 +60,23 @@ interface RawOrder {
   // (otherwise their revenue and refunds silently disappear from finance).
   payment_status:   string | null;
   customer_id:      string;
+  // Gift-card-covered portion. Online orders store net total (gift card already
+  // excluded); POS/dine-in store gross, so revenue nets it out via orderRevenue.
+  gift_card_used:   number | null;
   items:            { name: string; qty: number; price: number }[];
 }
 
 type Preset = "today" | "yesterday" | "7d" | "30d" | "month" | "lastMonth" | "year" | "custom";
-type Source  = "all" | "online" | "pos" | "dine-in";
+type Source  = "all" | "online" | "pos" | "dine-in" | "admin";
+
+// Long human label for a source tab — used in CSV export + print/summary headers.
+function sourceLabelLong(s: Source): string {
+  return s === "all"     ? "All sources"
+       : s === "online"  ? "Online orders only"
+       : s === "pos"     ? "POS counter orders only"
+       : s === "dine-in" ? "Dine-in orders only"
+       :                   "Admin bookings only";
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -315,6 +347,9 @@ export default function OnlineReportsPanel() {
   // from orders because they're not in the orders table — they live on the
   // reservations row.
   const [vipFees,     setVipFees]     = useState<VipFeeRow[]>([]);
+  // Gift card SALES (prepaid money). Online + admin slices come from the
+  // gift_cards table via /api/admin/gift-card-sales.
+  const [giftCardSales, setGiftCardSales] = useState<GiftCardSaleRow[]>([]);
   const [loading,     setLoading]     = useState(false);
   const [lastFetched, setLastFetched] = useState<Date | null>(null);
   const [showPresetMenu, setShowPresetMenu] = useState(false);
@@ -353,9 +388,10 @@ export default function OnlineReportsPanel() {
         from:   from.toISOString(),
         to:     to.toISOString(),
       });
-      const [ordersRes, feesRes] = await Promise.all([
+      const [ordersRes, feesRes, gcRes] = await Promise.all([
         fetch(`/api/admin/orders?${params}`, { cache: "no-store" }),
         fetch(`/api/admin/booking-fees?${feeParams}`, { cache: "no-store" }),
+        fetch(`/api/admin/gift-card-sales?${feeParams}`, { cache: "no-store" }),
       ]);
       if (ordersRes.ok) {
         const json = await ordersRes.json() as { ok: boolean; orders?: RawOrder[] };
@@ -364,6 +400,10 @@ export default function OnlineReportsPanel() {
       if (feesRes.ok) {
         const json = await feesRes.json() as { ok: boolean; fees?: VipFeeRow[] };
         setVipFees(json.ok ? (json.fees ?? []) : []);
+      }
+      if (gcRes.ok) {
+        const json = await gcRes.json() as { ok: boolean; sales?: GiftCardSaleRow[] };
+        setGiftCardSales(json.ok ? (json.sales ?? []) : []);
       }
       setLastFetched(new Date());
     } finally {
@@ -393,6 +433,19 @@ export default function OnlineReportsPanel() {
     [vipFeesForSource],
   );
 
+  // Gift card sales that belong on the current tab. Online sales → Online tab;
+  // admin (counter) sales → Admin tab; "all" shows both. POS / dine-in never
+  // sell cards. Folded into Gross/Net revenue + the chart like VIP fees.
+  const giftCardSalesForSource = useMemo(() => {
+    if (source === "pos" || source === "dine-in") return [];
+    if (source === "all") return giftCardSales;
+    return giftCardSales.filter((g) => g.origin === source);
+  }, [giftCardSales, source]);
+  const giftCardSalesTotal = useMemo(
+    () => giftCardSalesForSource.reduce((s, g) => s + Number(g.amount ?? 0), 0),
+    [giftCardSalesForSource],
+  );
+
   // ── Computed metrics ───────────────────────────────────────────────────────
 
   const metrics = useMemo(() => {
@@ -405,12 +458,20 @@ export default function OnlineReportsPanel() {
     const active       = filtered.filter(isActive);
     const moneyBearing = filtered.filter(isMoneyBearing);
     const cancelled    = filtered.filter((o) => o.status === "cancelled");
-    const revenue   = moneyBearing.reduce((s, o) => s + o.total, 0);
+    // Revenue per order = real money collected. Online orders already store the
+    // net total; POS / dine-in store gross, so net the gift card out for those —
+    // a gift card is income when SOLD, not when it's spent.
+    const orderRevenue = (o: RawOrder) =>
+      orderSource(o) === "online" ? o.total : moneyPaidGross(o.total, o.gift_card_used);
+    const revenue   = moneyBearing.reduce((s, o) => s + orderRevenue(o), 0);
     const refunds   = moneyBearing.reduce((s, o) => s + (o.refunded_amount ?? 0), 0);
     const vat       = moneyBearing.reduce((s, o) => s + (o.vat_amount ?? 0), 0);
     const netRev    = revenue - refunds;
     const count     = active.length;
     const aov       = moneyBearing.length === 0 ? 0 : revenue / moneyBearing.length;
+    // Gift card value redeemed against orders in this window — reconciliation
+    // only (already booked as income at card sale, so NOT part of revenue).
+    const giftCardRedeemed = moneyBearing.reduce((s, o) => s + (Number(o.gift_card_used) || 0), 0);
 
     // Payment methods — audit view so a paid-then-cancelled card order
     // still attributes its revenue to "card" rather than vanishing.
@@ -418,7 +479,7 @@ export default function OnlineReportsPanel() {
     for (const o of moneyBearing) {
       const key = o.payment_method || "Unknown";
       const cur = payMap.get(key) ?? { revenue: 0, count: 0 };
-      payMap.set(key, { revenue: cur.revenue + o.total, count: cur.count + 1 });
+      payMap.set(key, { revenue: cur.revenue + orderRevenue(o), count: cur.count + 1 });
     }
     const payMethods = [...payMap.entries()]
       .sort(([, a], [, b]) => b.revenue - a.revenue)
@@ -438,13 +499,15 @@ export default function OnlineReportsPanel() {
     const collection = active.filter((o) => o.fulfillment === "collection").length;
 
     return { revenue, refunds, vat, netRev, count, aov, payMethods, statuses, delivery, collection,
-             cancelledCount: cancelled.length };
+             giftCardRedeemed, cancelledCount: cancelled.length };
   }, [filtered]);
 
-  // Headline revenue includes VIP booking fees (non-refundable, so they add to
-  // both gross and net). Order count / AOV stay order-only — a fee isn't an order.
-  const grossRevenue = metrics.revenue + vipFeeTotal;
-  const netRevenue   = metrics.netRev + vipFeeTotal;
+  // Headline revenue includes VIP booking fees AND gift card sales — both are
+  // real money in (gift cards are recognised at sale, not at redemption), and
+  // neither is refundable here, so they add to both gross and net. Order count /
+  // AOV stay order-only — neither a fee nor a card sale is an order.
+  const grossRevenue = metrics.revenue + vipFeeTotal + giftCardSalesTotal;
+  const netRevenue   = metrics.netRev + vipFeeTotal + giftCardSalesTotal;
 
   // ── Chart data ─────────────────────────────────────────────────────────────
 
@@ -454,12 +517,18 @@ export default function OnlineReportsPanel() {
     const feeAsOrders = vipFeesForSource.map((f) => ({
       id: f.id, date: f.created_at, status: "confirmed", total: Number(f.vip_fee ?? 0),
       fulfillment: "booking", refunded_amount: 0, vat_amount: 0, vat_inclusive: false,
-      payment_method: f.payment_method, payment_status: "paid", customer_id: "", items: [],
+      payment_method: f.payment_method, payment_status: "paid", customer_id: "", gift_card_used: 0, items: [],
     })) as RawOrder[];
-    const combined = [...filtered, ...feeAsOrders];
+    // Gift card sales likewise fold in so the chart total matches Gross Revenue.
+    const giftAsOrders = giftCardSalesForSource.map((g) => ({
+      id: g.id, date: g.created_at, status: "confirmed", total: Number(g.amount ?? 0),
+      fulfillment: "gift_card", refunded_amount: 0, vat_amount: 0, vat_inclusive: false,
+      payment_method: g.origin, payment_status: "paid", customer_id: "", gift_card_used: 0, items: [],
+    })) as RawOrder[];
+    const combined = [...filtered, ...feeAsOrders, ...giftAsOrders];
     const days = dateRangeDays(startDate, endDate);
     return days > 90 ? groupByMonth(combined) : groupByDay(combined);
-  }, [filtered, vipFeesForSource, startDate, endDate]);
+  }, [filtered, vipFeesForSource, giftCardSalesForSource, startDate, endDate]);
 
   // ── Export CSV ─────────────────────────────────────────────────────────────
 
@@ -474,11 +543,7 @@ export default function OnlineReportsPanel() {
 
     const restaurantName = settings.restaurant?.name ?? "Restaurant";
     const rangeLabel = `${startDate.toLocaleDateString("en-GB")} - ${endDate.toLocaleDateString("en-GB")}`;
-    const sourceLabel =
-      source === "all"     ? "All sources" :
-      source === "online"  ? "Online orders only" :
-      source === "pos"     ? "POS counter orders only" :
-                             "Dine-in orders only";
+    const sourceLabel = sourceLabelLong(source);
     const refundRate = pct(metrics.refunds, metrics.revenue);
     const totalOrders = metrics.count + metrics.cancelledCount;
 
@@ -491,10 +556,12 @@ export default function OnlineReportsPanel() {
 
     // Summary
     lines.push("## Summary");
-    lines.push(row(["Gross Revenue (incl. VIP fees)", grossRevenue.toFixed(2)]));
-    lines.push(row(["Net Revenue (incl. VIP fees)", netRevenue.toFixed(2)]));
+    lines.push(row(["Gross Revenue (incl. VIP fees + gift cards)", grossRevenue.toFixed(2)]));
+    lines.push(row(["Net Revenue (incl. VIP fees + gift cards)", netRevenue.toFixed(2)]));
     lines.push(row(["Order Revenue", metrics.revenue.toFixed(2)]));
     lines.push(row(["VIP Booking Fees", vipFeeTotal.toFixed(2)]));
+    lines.push(row(["Gift Card Sales", giftCardSalesTotal.toFixed(2)]));
+    lines.push(row(["Gift Card Redeemed (not revenue)", metrics.giftCardRedeemed.toFixed(2)]));
     lines.push(row(["Total Orders", totalOrders]));
     lines.push(row(["Average Order Value", metrics.aov.toFixed(2)]));
     lines.push(row(["Total Refunds", metrics.refunds.toFixed(2)]));
@@ -592,7 +659,7 @@ export default function OnlineReportsPanel() {
         </h1>
         <p style={{ fontSize: "11pt", margin: "4pt 0 0", color: "#444" }}>
           {fmtPresetLabel(preset)} · {startDate.toLocaleDateString("en-GB")} – {endDate.toLocaleDateString("en-GB")} ·{" "}
-          {source === "all" ? "All sources" : source === "online" ? "Online orders only" : "POS orders only"}
+          {sourceLabelLong(source)}
         </p>
         <hr style={{ margin: "10pt 0", border: "none", borderTop: "1px solid #999" }} />
       </div>
@@ -649,7 +716,7 @@ export default function OnlineReportsPanel() {
 
         {/* Source filter */}
         <div className="flex rounded-xl border border-gray-200 overflow-hidden text-[13px] sm:text-sm font-medium">
-          {(["all", "online", "pos", "dine-in"] as Source[]).map((s) => (
+          {(["all", "online", "pos", "dine-in", "admin"] as Source[]).map((s) => (
             <button
               key={s}
               onClick={() => setSource(s)}
@@ -659,7 +726,7 @@ export default function OnlineReportsPanel() {
                   : "bg-white text-gray-600 hover:bg-gray-50"
               }`}
             >
-              {s === "all" ? "All" : s === "online" ? "Online" : s === "pos" ? "POS" : "Dine-in"}
+              {s === "all" ? "All" : s === "online" ? "Online" : s === "pos" ? "POS" : s === "dine-in" ? "Dine-in" : "Admin"}
             </button>
           ))}
         </div>
@@ -751,9 +818,32 @@ export default function OnlineReportsPanel() {
           <StatCard
             label="VIP Booking Fees"
             value={cur(vipFeeTotal)}
-            sub={`${vipFeesForSource.length} reservation${vipFeesForSource.length !== 1 ? "s" : ""} · ${source === "all" ? "online + POS" : source === "online" ? "online" : "POS"}`}
+            sub={`${vipFeesForSource.length} reservation${vipFeesForSource.length !== 1 ? "s" : ""} · ${source === "all" ? "online + POS + admin" : source === "online" ? "online" : source === "admin" ? "admin" : "POS"}`}
             icon={Crown}
             accent="bg-amber-500"
+          />
+        )}
+        {/* Gift card SALES for the selected source — prepaid money booked as
+            income at purchase, already inside Gross Revenue above. Online +
+            Admin only (POS / dine-in can't sell cards). */}
+        {(source === "all" || source === "online" || source === "admin") && (
+          <StatCard
+            label="Gift Card Sales"
+            value={cur(giftCardSalesTotal)}
+            sub={`${giftCardSalesForSource.length} card${giftCardSalesForSource.length !== 1 ? "s" : ""} sold · ${source === "all" ? "online + admin" : source}`}
+            icon={Gift}
+            accent="bg-purple-500"
+          />
+        )}
+        {/* Gift card REDEEMED — money settled by spending cards. Informational
+            only (income was booked at the card sale), so NOT added to revenue. */}
+        {metrics.giftCardRedeemed > 0 && (
+          <StatCard
+            label="Gift Card Redeemed"
+            value={cur(metrics.giftCardRedeemed)}
+            sub="settled · not revenue"
+            icon={Gift}
+            accent="bg-fuchsia-500"
           />
         )}
       </div>
@@ -958,7 +1048,7 @@ export default function OnlineReportsPanel() {
         </div>
         <p className="text-xs text-gray-500 mt-4">
           {fmtPresetLabel(preset)} · {startDate.toLocaleDateString("en-GB")}–{endDate.toLocaleDateString("en-GB")} ·{" "}
-          {source === "all" ? "All sources" : source === "online" ? "Online orders only" : "POS orders only"}
+          {sourceLabelLong(source)}
         </p>
       </div>
 

@@ -1,6 +1,7 @@
 /**
  * GET  /api/admin/gift-cards  — list gift cards (filters: status, search, date).
- * POST /api/admin/gift-cards  — manually issue a card (goodwill / refund-as-card).
+ * POST /api/admin/gift-cards  — sell a card at the counter (cash/card). The sale
+ *                               is booked as income on the Admin finance tab.
  *
  * Admin authentication required.
  */
@@ -85,7 +86,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const parsed = await parseBody(req, AdminGiftCardCreateSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { amount, recipientEmail, recipientName, personalMessage, notes, sendEmail } = parsed.data;
+  const { amount, paymentMethod, recipientEmail, recipientName, personalMessage, notes, sendEmail } = parsed.data;
 
   const expiresAt = new Date();
   expiresAt.setMonth(expiresAt.getMonth() + GIFT_CARD_EXPIRY_MONTHS);
@@ -105,7 +106,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       issued_to_name:    recipientName ?? null,
       personal_message:  personalMessage ?? null,
       expires_at:        expiresAt.toISOString(),
-      // No stripe_payment_intent_id — this card was issued without a payment.
+      // Sold by admin (cash/card) — booked as income on the Admin finance tab.
+      // No stripe_payment_intent_id (that's only set for online gateway sales).
+      payment_method:    paymentMethod,
+      payment_ref:       `admin:${paymentMethod}`,
     });
 
   if (insertErr) {

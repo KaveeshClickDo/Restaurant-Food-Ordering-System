@@ -442,6 +442,9 @@ async function handleGiftCardPurchaseSucceeded(
       personal_message:         payload.personal_message,
       expires_at:               expiresAt.toISOString(),
       stripe_payment_intent_id: intent.id,
+      // Online gateway sale — booked as income on the Online finance tab.
+      payment_method:           "stripe",
+      payment_ref:              intent.id,
     });
 
   if (insertErr) {

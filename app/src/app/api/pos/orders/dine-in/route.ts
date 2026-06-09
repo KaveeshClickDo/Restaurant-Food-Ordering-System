@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
 
   let q = supabaseAdmin
     .from("orders")
-    .select("id, items, total, note, status, payment_method, date, refunded_amount")
+    .select("id, items, total, note, status, payment_method, date, refunded_amount, gift_card_used")
     .eq("fulfillment", "dine-in")
     .order("date", { ascending: false })
     .limit(limit);

@@ -8,9 +8,14 @@ import { fmt } from "../_utils";
 
 export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClose: () => void }) {
   const { settings, voidSale } = usePOS();
+  // A gift card is prepaid money, so its portion is non-refundable. A refund can
+  // only return what was actually paid by cash/card: moneyPaid = total − gift
+  // card used. Default + cap the refund to that.
+  const giftUsed  = sale.giftCardUsed ?? 0;
+  const moneyPaid = Math.max(0, sale.total - giftUsed);
   const [voidReason, setVoidReason]   = useState("");
   const [refundMethod, setRefundMethod] = useState<"cash" | "card" | "none">(sale.paymentMethod === "card" ? "card" : "cash");
-  const [refundAmount, setRefundAmount] = useState(sale.total.toFixed(2));
+  const [refundAmount, setRefundAmount] = useState(moneyPaid.toFixed(2));
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -102,9 +107,14 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl pl-8 pr-4 py-2.5 text-white text-sm outline-none focus:border-orange-500"
                 />
               </div>
-              {parseFloat(refundAmount) < sale.total && parseFloat(refundAmount) > 0 && (
+              {parseFloat(refundAmount) < moneyPaid && parseFloat(refundAmount) > 0 && (
                 <p className="text-amber-400 text-xs mt-1">
-                  Partial refund — {fmt(sale.total - parseFloat(refundAmount), settings.currencySymbol)} retained
+                  Partial refund — {fmt(moneyPaid - parseFloat(refundAmount), settings.currencySymbol)} retained
+                </p>
+              )}
+              {giftUsed > 0 && (
+                <p className="text-purple-300 text-xs mt-1">
+                  {fmt(giftUsed, settings.currencySymbol)} paid by gift card is non-refundable · max refund {fmt(moneyPaid, settings.currencySymbol)}
                 </p>
               )}
             </div>

@@ -40,11 +40,6 @@ const METHOD_CONFIG: Record<RefundMethod, { label: string; icon: React.ReactNode
     icon: <Banknote size={14} />,
     desc: "Hand cash back in person",
   },
-  gift_card: {
-    label: "Gift card",
-    icon: <Gift size={14} />,
-    desc: "Return to the gift card balance used at checkout",
-  },
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -294,17 +289,13 @@ export function RefundModal({
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
   const refundedAmount = order.refundedAmount ?? 0;
-  // Money budget — what can go back to card / cash / store credit.
-  const maxRefundable = Math.max(0, order.total - refundedAmount);
-  // Gift-card budget — capped at the amount paid by gift card minus any prior
-  // gift-card refunds. Independent of the money budget (separate track on the
-  // server), so a gift-card refund stays possible even after the card is fully
-  // refunded.
-  const giftCardUsed = order.giftCardUsed ?? 0;
-  const priorGiftRefunds = (order.refunds ?? [])
-    .filter((r) => r.method === "gift_card")
-    .reduce((s, r) => s + (r.amount ?? 0), 0);
-  const maxGiftRefundable = Math.max(0, giftCardUsed - priorGiftRefunds);
+  // Refundable money = what the customer actually paid. Online orders store the
+  // NET total (gift card already excluded); dine-in stores GROSS, so net the
+  // gift card out. The gift-card-covered portion is never refundable.
+  const moneyPaid = order.fulfillment === "dine-in"
+    ? Math.max(0, order.total - (order.giftCardUsed ?? 0))
+    : order.total;
+  const maxRefundable = Math.max(0, moneyPaid - refundedAmount);
 
   const [amount, setAmount]     = useState(maxRefundable.toFixed(2));
   const [reason, setReason]     = useState("");
@@ -313,15 +304,11 @@ export function RefundModal({
   const [errors, setErrors]     = useState<Record<string, string>>({});
 
   const amountNum = parseFloat(amount) || 0;
-  // The cap depends on which track the chosen method belongs to.
-  const effectiveMax = method === "gift_card" ? maxGiftRefundable : maxRefundable;
+  const effectiveMax = maxRefundable;
 
   function setMethodAndClamp(m: RefundMethod) {
     setMethod(m);
-    const max = m === "gift_card" ? maxGiftRefundable : maxRefundable;
-    // Re-default the amount to the new track's max so the input isn't stuck on
-    // a value that's invalid for the newly-selected method.
-    setAmount(max.toFixed(2));
+    setAmount(maxRefundable.toFixed(2));
     setErrors((prev) => { const n = { ...prev }; delete n.amount; return n; });
   }
 
@@ -387,7 +374,7 @@ export function RefundModal({
               <p className="text-sm font-extrabold text-teal-600 mt-0.5">{fmtAmt(refundedAmount, sym)}</p>
             </div>
             <div className="col-span-2 sm:col-span-1">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{method === "gift_card" ? "Gift card" : "Refundable"}</p>
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Refundable</p>
               <p className="text-sm font-extrabold text-gray-900 mt-0.5">{fmtAmt(effectiveMax, sym)}</p>
             </div>
           </div>
@@ -453,10 +440,6 @@ export function RefundModal({
             <label className="text-sm font-semibold text-gray-700 block mb-2">Refund method</label>
             <div className="space-y-2">
               {(Object.entries(METHOD_CONFIG) as [RefundMethod, typeof METHOD_CONFIG[RefundMethod]][])
-                // The "gift_card" method only makes sense when the order was
-                // actually paid (partly) with a gift card — otherwise there's
-                // no card balance to credit back.
-                .filter(([key]) => key !== "gift_card" || (order.giftCardUsed ?? 0) > 0)
                 .map(([key, cfg]) => {
                 // When the order was paid with a Stripe card, the "original
                 // payment" choice will actually call stripe.refunds.create()

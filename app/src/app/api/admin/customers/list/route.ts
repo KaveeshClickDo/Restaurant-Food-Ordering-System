@@ -19,6 +19,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { orderSpendContribution } from "@/lib/customerSpend";
+import { moneyPaidGross } from "@/lib/giftCardMoney";
 
 interface AggregateBucket {
   spend: number;
@@ -32,10 +33,16 @@ interface AggregateBucket {
 // the two payment fields the helper reads.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function spendContribution(o: any): { amount: number; counts: boolean } {
+  // Dine-in / POS orders store the GROSS goods value with the gift card kept
+  // separately; online orders already store net. Net the gift card out of the
+  // gross channels so a gift-card-paid order doesn't inflate lifetime spend
+  // (the card was already counted as income when it was bought).
+  const isGross = o.fulfillment === "dine-in" || o.customer_id === "pos-walk-in";
+  const total = isGross ? moneyPaidGross(o.total, o.gift_card_used) : o.total;
   return orderSpendContribution({
     status:         o.status,
     paymentStatus:  o.payment_status,
-    total:          o.total,
+    total,
     refundedAmount: o.refunded_amount,
   });
 }
@@ -167,7 +174,7 @@ export async function GET() {
       .order("date", { ascending: false }),
     supabaseAdmin
       .from("pos_sales")
-      .select("id, receipt_no, customer_id, staff_name, table_number, items, total, payment_method, voided, void_reason, refund_amount, date")
+      .select("id, receipt_no, customer_id, staff_name, table_number, items, total, payment_method, voided, void_reason, refund_amount, gift_card_used, date")
       .not("customer_id", "is", null)
       .order("date", { ascending: false }),
   ]);
@@ -219,10 +226,10 @@ export async function GET() {
   }
   for (const s of posSales ?? []) {
     if (!s.customer_id) continue;
-    const total  = Number(s.total) || 0;
+    const moneyTotal = moneyPaidGross(s.total, s.gift_card_used); // net of gift card
     const refund = Number(s.refund_amount) || 0;
     if (s.voided && refund <= 0) continue; // reversed, no money kept
-    bumpAgg(s.customer_id, Math.max(0, total - refund), s.date);
+    bumpAgg(s.customer_id, Math.max(0, moneyTotal - refund), s.date);
   }
 
   // Belt-and-braces: also skip the sentinel during the map step in case any

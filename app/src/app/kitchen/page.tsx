@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { useIdleLogout } from "@/lib/useIdleLogout";
 import type { KitchenStaff } from "@/types";
-import { fullOrderNumber, extractReceiptNo, shortCode, collectionLabel } from "@/lib/orderNumber";
+import { fullOrderNumber, extractReceiptNo } from "@/lib/orderNumber";
 import {
   ChefHat, Clock, Truck, ShoppingBag, CheckCircle2,
   LayoutDashboard, Maximize2, Minimize2, UtensilsCrossed,
@@ -182,21 +182,6 @@ function deriveKitchenNote(fulfillment: string, note: string | null): string | u
   return n || undefined;
 }
 
-/**
- * Ticket display number for the KDS card. Mirrors the customer-display board so
- * staff and customers share one reference:
- *   POS sale   → R1024            (the till receipt number)
- *   delivery   → #ORD-1A2B3C4D    (full order number)
- *   collection → #ORD-… (C-…)     (full order number + board's short C-code)
- *   dine-in    → T-4C8A33         (board's short T-code only)
- */
-function kitchenOrderLabel(order: KDSOrder): string {
-  if (order.receiptNo) return order.receiptNo;
-  if (order.fulfillment === "dine-in")    return shortCode("T", order.id);
-  if (order.fulfillment === "collection") return collectionLabel(order.id);
-  return fullOrderNumber(order.id);
-}
-
 function mapRow(row: Record<string, unknown>): KDSOrder {
   const fulfillment = String(row.fulfillment ?? "collection");
   const note        = (row.note as string | null) ?? null;
@@ -275,7 +260,9 @@ function OrderCard({
   // orders are settled on the POS Collection screen, so their card is display-only.
   const isPosWalkin = order.isPosWalkin;
 
-  const orderLabel = kitchenOrderLabel(order);
+  // POS sales show their real till receipt number ("R1024"); every other type
+  // shows the full order number.
+  const orderLabel = order.receiptNo ?? fullOrderNumber(order.id);
 
   // A delivery order that the kitchen has marked "ready" but where no driver
   // has yet collected it (delivery_status null or still "assigned"). We keep

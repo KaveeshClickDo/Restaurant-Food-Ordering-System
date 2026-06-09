@@ -11,6 +11,8 @@ export interface DineInOrder {
   paymentMethod: string;
   date: string;
   refundedAmount?: number;
+  /** Amount of the bill paid by gift card (gross total − this = money in). */
+  giftCardUsed?: number;
 }
 
 export function buildReceiptHtml(sale: POSSale, settings: POSSettings, restaurantNameOverride?: string): string {

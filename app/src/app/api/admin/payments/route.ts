@@ -85,9 +85,30 @@ export async function GET(req: NextRequest) {
     feeRows = (fees ?? []).map(mapFeeToPaymentRow);
   }
 
-  // Merge orders + fees and sort by date descending; cap to the requested
-  // limit so we don't grow the response unbounded when both lists are large.
-  const merged = [...(data ?? []), ...feeRows]
+  // Online gift card SALES collected through Stripe are also "money that moved"
+  // — surface them here so reconciliation sees the whole online picture. Only
+  // the online (gateway) slice belongs here; admin counter sales live on the
+  // admin finance report. Skipped for non-"paid" tabs (sales aren't refunded).
+  let gcRows: PaymentRow[] = [];
+  if (!status || status === "paid") {
+    let gcQ = supabaseAdmin
+      .from("gift_cards")
+      .select("id, code, initial_amount, created_at, stripe_payment_intent_id, issued_to_email, issued_to_name")
+      .not("stripe_payment_intent_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (from) gcQ = gcQ.gte("created_at", from);
+    if (to)   gcQ = gcQ.lte("created_at", to);
+    const { data: gcs, error: gcErr } = await gcQ;
+    if (gcErr && !gcErr.message?.includes("schema cache")) {
+      console.error("admin/payments gift cards:", gcErr.message);
+    }
+    gcRows = (gcs ?? []).map(mapGiftCardToPaymentRow);
+  }
+
+  // Merge orders + VIP fees + gift card sales, sort by date descending; cap to
+  // the requested limit so we don't grow the response unbounded.
+  const merged = [...(data ?? []), ...feeRows, ...gcRows]
     .sort((a, b) => new Date((b as { date: string }).date).getTime() - new Date((a as { date: string }).date).getTime())
     .slice(0, limit);
 
@@ -100,6 +121,32 @@ type PaymentRow = any;
 // Shape a paid VIP reservation as a row the Payments panel can render side-by-
 // side with orders. The synthetic id prefix lets the UI tell fees from orders
 // at a glance; the gateway reference lives in payment_ref.
+// Shape an online (Stripe) gift card sale as a Payments-panel row. Mirrors the
+// VIP-fee mapper: a synthetic id prefix tells card sales apart from orders, and
+// the gateway reference lives in stripe_payment_intent_id.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapGiftCardToPaymentRow(g: any): PaymentRow {
+  return {
+    id:                       `gc:${g.id}`,
+    date:                     g.created_at,
+    total:                    Number(g.initial_amount ?? 0),
+    payment_method:           "Gift card (Stripe)",
+    payment_status:           "paid",
+    stripe_payment_intent_id: g.stripe_payment_intent_id ?? null,
+    stripe_charge_id:         null,
+    paypal_order_id:          null,
+    paypal_capture_id:        null,
+    refunded_amount:          0,
+    refunds:                  [],
+    status:                   "active",
+    fulfillment:              "gift_card",
+    customer_id:              null,
+    customers:                g.issued_to_email
+      ? { name: g.issued_to_name ?? "Gift card", email: g.issued_to_email }
+      : null,
+  };
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapFeeToPaymentRow(r: any): PaymentRow {
   const isStripe = r.payment_method === "stripe";

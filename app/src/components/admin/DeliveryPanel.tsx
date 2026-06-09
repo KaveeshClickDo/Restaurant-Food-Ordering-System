@@ -26,11 +26,19 @@ interface RichOrder extends Order {
 
 const ACTIVE_STATUSES: OrderStatus[] = ["pending", "confirmed", "preparing", "ready"];
 
-// A refunded order (full or partial) has left the live delivery workflow and
-// is handled in the Refunds panel. Refund state lives in paymentStatus; older
-// rows may carry it on status. Used to keep refunded orders out of the active
-// kanban and the delivered-based stats, matching pre-fix behaviour (before the
-// refund flow stopped overwriting status with the refund state).
+// A FULLY-refunded order has left the live delivery workflow — the money is
+// entirely back and (for an un-fulfilled order) the refund flow also cancels it.
+// Used to gate the active kanban. A partial refund is deliberately excluded: an
+// order that's still preparing with one item refunded (e.g. out of stock) is
+// still being fulfilled and must stay on the board so the kitchen/driver finish
+// the rest. Refund state lives in paymentStatus; older rows may carry it on status.
+function isFullyRefunded(o: { status: string; paymentStatus?: string | null }): boolean {
+  return o.paymentStatus === "refunded" || o.status === "refunded";
+}
+
+// Any refund (full or partial) clawed money back, so a *delivered* order with a
+// refund is kept out of the "clean" today-revenue / completed stats. NOT used to
+// gate the active kanban — see isFullyRefunded for why partial refunds stay live.
 function isRefundedOrder(o: { status: string; paymentStatus?: string | null }): boolean {
   return o.paymentStatus === "refunded" || o.paymentStatus === "partially_refunded"
       || o.status === "refunded" || o.status === "partially_refunded";
@@ -564,7 +572,7 @@ export default function DeliveryPanel() {
 
   // Today's stats
   const todayOrders = allOrders.filter((o) => isToday(o.date));
-  const activeOrders = allOrders.filter((o) => ACTIVE_STATUSES.includes(o.status) && !isRefundedOrder(o));
+  const activeOrders = allOrders.filter((o) => ACTIVE_STATUSES.includes(o.status) && !isFullyRefunded(o));
   const todayRevenue = todayOrders.filter((o) => o.status === "delivered" && !isRefundedOrder(o)).reduce((s, o) => s + o.total, 0);
   const deliveryCount = activeOrders.filter((o) => o.fulfillment === "delivery").length;
   const todayDelivered = todayOrders.filter((o) => o.status === "delivered" && !isRefundedOrder(o)).length;
@@ -614,7 +622,7 @@ export default function DeliveryPanel() {
   const filteredActive = useMemo(() => {
     const q = search.toLowerCase();
     return allOrders.filter((o) => {
-      if (!ACTIVE_STATUSES.includes(o.status) || isRefundedOrder(o)) return false;
+      if (!ACTIVE_STATUSES.includes(o.status) || isFullyRefunded(o)) return false;
       if (fulfillmentFilter !== "all" && o.fulfillment !== fulfillmentFilter) return false;
       if (q && !o.customerName.toLowerCase().includes(q) && !o.id.toLowerCase().includes(q)) return false;
       return true;

@@ -1080,7 +1080,11 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       // sync across terminals. totalSpend/visitCount/lastVisit are computed
       // server-side from pos_sales on the next fetch, so we no longer write
       // them client-side.
-      const pts = Math.floor(total * settings.loyaltyPointsPerPound);
+      // Loyalty + spend accrue on real money paid only. The gift-card-covered
+      // portion was already counted when the card was bought, so exclude it
+      // (matches the server-side net spend computed from pos_sales on next fetch).
+      const moneyPaid = Math.max(0, round2(total - (giftCard?.amount ?? 0)));
+      const pts = Math.floor(moneyPaid * settings.loyaltyPointsPerPound);
       const existingPts = assignedCustomer.loyaltyPoints ?? 0;
       const newPts = existingPts + pts;
       setCustomers((prev) =>
@@ -1089,7 +1093,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
             ? {
                 ...c,
                 loyaltyPoints: newPts,
-                totalSpend:    (c.totalSpend ?? 0) + total,
+                totalSpend:    (c.totalSpend ?? 0) + moneyPaid,
                 visitCount:    (c.visitCount ?? 0) + 1,
                 lastVisit:     new Date().toISOString(),
               }
