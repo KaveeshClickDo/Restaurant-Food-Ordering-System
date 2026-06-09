@@ -26,6 +26,7 @@ import { AdminRefundSchema }                    from "@/lib/schemas/waiter";
 import { restoreStock, type StockItem }         from "@/lib/stockMutation";
 import { moneyPaidGross }                       from "@/lib/giftCardMoney";
 import { deductLoyaltyPoints }                  from "@/lib/loyaltyUtils";
+import { sendOrderStatusEmail }                 from "@/lib/emailServer";
 
 export async function POST(
   req: NextRequest,
@@ -189,16 +190,32 @@ export async function POST(
     newPaymentStatus = "partially_refunded";
   }
 
+  // ── Auto-cancel a full refund on an un-fulfilled order ──────────────────
+  // A full money refund on an order that was never delivered kills the order:
+  // the customer won't receive the food. Flip it to "cancelled" so it leaves
+  // every surface that keys off `status` — the kitchen display, the driver's
+  // queue, and the admin delivery board — instead of lingering as
+  // "preparing"/"ready" with the money already returned. Partial refunds are
+  // NOT auto-cancelled: the rest of the order still ships. The Delivery panel's
+  // "refund & cancel" path already passes newStatus "cancelled"; this makes a
+  // refund issued from the standalone Refunds panel behave the same.
+  const wasAlreadyRefunded = existingPaymentStatusIsTerminal(String(orderRow.payment_status ?? ""));
+  const tippingToRefunded  = newPaymentStatus === "refunded" && !wasAlreadyRefunded;
+  const requestedStatus    = String(body.newStatus ?? "");
+  const existingStatus     = String(orderRow.status ?? "");
+  const foodWasDelivered   = requestedStatus === "delivered" || existingStatus === "delivered";
+  const alreadyCancelled   = existingStatus === "cancelled";
+  const autoCancel         = tippingToRefunded && !foodWasDelivered && !alreadyCancelled;
+
   // `refunded_amount` tracks MONEY returned to the customer (card / cash /
   // store credit). Keeping it money-only means the Refunds panel's "remaining
   // refundable" (moneyCap − refunded_amount) stays correct.
-  // A refund changes only the *payment* state — the order keeps its real
-  // fulfillment status (preparing / delivered / …). `payment_status` is the
-  // source of truth for refunds.
+  // A refund changes the *payment* state; the fulfillment `status` is preserved
+  // unless this is a full refund on an un-fulfilled order, which cancels it.
   const { error: orderErr } = await supabaseAdmin
     .from("orders")
     .update({
-      status:           body.newStatus,
+      status:           autoCancel ? "cancelled" : body.newStatus,
       refunds:          submittedRefunds,
       refunded_amount:  moneyRefundedTotal,
       ...(newPaymentStatus ? { payment_status: newPaymentStatus } : {}),
@@ -208,6 +225,17 @@ export async function POST(
   if (orderErr) {
     console.error("admin/orders/[id]/refund POST (order):", orderErr.message);
     return NextResponse.json({ ok: false, error: orderErr.message }, { status: 500 });
+  }
+
+  // The full refund just cancelled this order — tell the customer, mirroring the
+  // KDS/admin status routes. Fire-and-forget: an email failure must never fail
+  // the refund. No-op for guests / POS / when no cancellation template is on.
+  // Skipped when the caller already requested "cancelled" (the Delivery panel's
+  // "refund & cancel" owns that email via updateOrderStatus) — avoids a double-send.
+  if (autoCancel && requestedStatus !== "cancelled") {
+    sendOrderStatusEmail(id, "cancelled").catch((err) =>
+      console.error("[admin/orders refund] cancellation email:", err instanceof Error ? err.message : err),
+    );
   }
 
   // ─── Deduct loyalty points for the refund (Ahinsa) ──────────────────
@@ -235,18 +263,9 @@ export async function POST(
   //     doesn't put units back on the shelf.
   //   • Oversold-flagged webhook orders — the decrement never ran, so
   //     restoring would create false positive inventory.
-  const wasAlreadyRefunded = existingPaymentStatusIsTerminal(String(orderRow.payment_status ?? ""));
-  const tippingToRefunded = newPaymentStatus === "refunded" && !wasAlreadyRefunded;
-  const newStatus = String(body.newStatus ?? "");
-  const existingStatus = String(orderRow.status ?? "");
-  const foodWasDelivered = newStatus === "delivered" || existingStatus === "delivered";
-  const alreadyCancelled = existingStatus === "cancelled";
-  if (
-    tippingToRefunded
-    && !foodWasDelivered
-    && !alreadyCancelled
-    && orderRow.oversold !== true
-  ) {
+  // `autoCancel` already encodes "full refund on an un-fulfilled, non-cancelled
+  // order" (the first four bullets); only the oversold guard is added here.
+  if (autoCancel && orderRow.oversold !== true) {
     const rawItems = Array.isArray(orderRow.items) ? (orderRow.items as Array<Record<string, unknown>>) : [];
     const stockItems: StockItem[] = rawItems
       .map((i) => ({ id: String(i.menuItemId ?? ""), qty: Number(i.qty ?? 0) }))
