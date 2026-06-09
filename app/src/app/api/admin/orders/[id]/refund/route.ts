@@ -25,6 +25,7 @@ import { parseBody }                            from "@/lib/apiValidation";
 import { AdminRefundSchema }                    from "@/lib/schemas/waiter";
 import { refundGiftCardForRow }                 from "@/lib/giftCardValidation";
 import { restoreStock, type StockItem }         from "@/lib/stockMutation";
+import { deductLoyaltyPoints } from "@/lib/loyaltyUtils";
 
 export async function POST(
   req: NextRequest,
@@ -261,6 +262,20 @@ export async function POST(
   if (orderErr) {
     console.error("admin/orders/[id]/refund POST (order):", orderErr.message);
     return NextResponse.json({ ok: false, error: orderErr.message }, { status: 500 });
+  }
+
+  // ─── DEDUCT LOYALTY POINTS ──────────────────────────────────────────
+  // Deduct points only for money-based refunds (Stripe, PayPal, Cash, Store Credit).
+  // We skip this if the specific refund method used was 'gift_card'.
+  if (
+    newest && 
+    !isGift(newest.method) && 
+    orderRow.customer_id && 
+    orderRow.customer_id !== "guest" && 
+    orderRow.customer_id !== "pos-walk-in"
+  ) {
+    // We use the amount of the current refund being processed
+    await deductLoyaltyPoints(orderRow.customer_id, Number(newest.amount));
   }
 
   // Restore stock when a full refund covers an order whose food was never

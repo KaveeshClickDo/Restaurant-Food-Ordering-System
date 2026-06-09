@@ -40,3 +40,28 @@ export async function rewardLoyaltyPoints(customerId: string | null | undefined,
     console.error("[Loyalty] Failed to reward points:", err);
   }
 }
+
+export async function deductLoyaltyPoints(customerId: string | null | undefined, refundAmount: number) {
+  if (!customerId || customerId === "guest" || customerId === "pos-walk-in" || refundAmount <= 0) return;
+
+  try {
+    const { data: settingsRow } = await supabaseAdmin.from("app_settings").select("data").single();
+    const rate = settingsRow?.data?.loyaltyPointsPerPound ?? 1;
+    const pointsToDeduct = Math.floor(refundAmount * rate);
+
+    if (pointsToDeduct <= 0) return;
+
+    const { data: customer } = await supabaseAdmin
+      .from("customers")
+      .select("loyalty_points")
+      .eq("id", customerId)
+      .maybeSingle();
+
+    if (customer) {
+      const newPts = Math.max(0, (customer.loyalty_points ?? 0) - pointsToDeduct);
+      await supabaseAdmin.from("customers").update({ loyalty_points: newPts }).eq("id", customerId);
+    }
+  } catch (err) {
+    console.error("[Loyalty] Failed to deduct points:", err);
+  }
+}
