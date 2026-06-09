@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Category, MenuItem } from "@/types";
 import { useApp } from "@/context/AppContext";
 import { useRouter } from "next/navigation";
@@ -337,6 +337,16 @@ export default function HomePage() {
   const [authModal, setAuthModal] = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [showReservation, setShowReservation] = useState(false);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Open a dish from a search suggestion. Blur the input first so the mobile
+  // keyboard dismisses before the customization modal slides up.
+  const openSuggestion = (item: MenuItem) => {
+    searchInputRef.current?.blur();
+    setSearchFocused(false);
+    setOpenItem(item);
+  };
 
   // ── Meal-period awareness ────────────────────────────────────────────────
   // Tick re-renders the page every 30s so meal-period sections appear/disappear
@@ -491,6 +501,23 @@ export default function HomePage() {
     return sections;
   }, [activeCat, activeCategory, categories, items, search]);
 
+  // Search-bar autocomplete: dish suggestions shown in a dropdown as the
+  // customer types. Searches every orderable online dish by name/description
+  // (independent of the active category) and surfaces name matches first.
+  const searchSuggestions = (() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return [];
+    return menuItems
+      .filter(isItemOrderable)
+      .filter((i) => i.name.toLowerCase().includes(q) || i.description.toLowerCase().includes(q))
+      .sort((a, b) => {
+        const an = a.name.toLowerCase().includes(q) ? 0 : 1;
+        const bn = b.name.toLowerCase().includes(q) ? 0 : 1;
+        return an - bn;
+      })
+      .slice(0, 6);
+  })();
+
   return (
     <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: 'var(--brand-bg, #FAFAF9)' }}>
 
@@ -522,18 +549,62 @@ export default function HomePage() {
           </div>
 
           {/* Search */}
-          <div className="flex-1 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-100 max-w-xl min-w-0">
-            <Search className="w-4 h-4 text-zinc-400 flex-shrink-0" strokeWidth={1.8} />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search dishes…"
-              className="flex-1 min-w-0 bg-transparent outline-none text-[13.5px] text-zinc-900 placeholder:text-zinc-400"
-            />
-            {search && (
-              <button onClick={() => setSearch("")} className="text-[11px] font-medium text-zinc-400 hover:text-zinc-700 transition-colors flex-shrink-0">
-                Clear
-              </button>
+          <div className="relative flex-1 max-w-xl min-w-0">
+            <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-100">
+              <Search className="w-4 h-4 text-zinc-400 flex-shrink-0" strokeWidth={1.8} />
+              <input
+                ref={searchInputRef}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => setSearchFocused(false)}
+                placeholder="Search dishes…"
+                className="flex-1 min-w-0 bg-transparent outline-none text-[13.5px] text-zinc-900 placeholder:text-zinc-400"
+              />
+              {search && (
+                <button onMouseDown={(e) => e.preventDefault()} onClick={() => setSearch("")} className="text-[11px] font-medium text-zinc-400 hover:text-zinc-700 transition-colors flex-shrink-0">
+                  Clear
+                </button>
+              )}
+            </div>
+
+            {/* Suggestions dropdown — appears while typing; clicking a row opens
+                the item exactly like tapping its card in the grid. */}
+            {searchFocused && search.trim() && (
+              <div className="absolute left-0 right-0 top-full mt-2 bg-white rounded-xl border border-zinc-200/70 shadow-lg z-30 py-1 max-h-[55vh] overflow-y-auto overscroll-contain">
+                {searchSuggestions.length > 0 ? (
+                  searchSuggestions.map((item) => {
+                    const sym = settings.currency?.symbol ?? "£";
+                    const price = effectiveMenuPrice(item, "online");
+                    return (
+                      <button
+                        key={item.id}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => openSuggestion(item)}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-50 active:bg-zinc-100 transition-colors text-left"
+                      >
+                        <div className="w-11 h-11 rounded-lg bg-orange-50 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                          {item.image ? (
+                            // eslint-disable-next-line @next/next/no-img-element -- admin-uploaded URLs from arbitrary hosts
+                            <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <UtensilsCrossed className="w-5 h-5 text-zinc-300" strokeWidth={1.4} />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[13.5px] font-medium text-zinc-900 truncate">{item.name}</div>
+                          {item.description && (
+                            <div className="text-[11.5px] text-zinc-400 truncate">{item.description}</div>
+                          )}
+                        </div>
+                        <span className="text-[13px] font-semibold text-zinc-700 flex-shrink-0">{sym}{price.toFixed(2)}</span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="px-3.5 py-4 text-[13px] text-zinc-400 text-center">No dishes found</div>
+                )}
+              </div>
             )}
           </div>
 
