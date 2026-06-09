@@ -110,6 +110,67 @@ function LiveClock() {
   );
 }
 
+// ─── Marquee label ───────────────────────────────────────────────────────────
+
+function MarqueeLabel({
+  label,
+  className,
+}: {
+  label: string;
+  className?: string;
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const textRef = useRef<HTMLSpanElement>(null);
+  const [overflowPx, setOverflowPx] = useState(0);
+ 
+  useEffect(() => {
+    const measure = () => {
+      const wrap = wrapRef.current;
+      const text = textRef.current;
+      if (!wrap || !text) return;
+      // How many px does the text stick out past the container?
+      setOverflowPx(Math.max(0, text.scrollWidth - wrap.clientWidth));
+    };
+ 
+    measure();
+ 
+    // Re-measure on any resize (grid layout change, viewport scale, font load)
+    const ro = new ResizeObserver(measure);
+    if (wrapRef.current) ro.observe(wrapRef.current);
+    if (textRef.current) ro.observe(textRef.current);
+    return () => ro.disconnect();
+  }, [label]);
+ 
+  const needsScroll = label.length > 8 && overflowPx > 0;
+ 
+  // Speed: 2s base + 0.06s per overflow-px → smooth at any card width / screen size
+  const durationSec = needsScroll ? (2 + overflowPx * 0.02).toFixed(2) : "0";
+ 
+  return (
+    <div ref={wrapRef} className="w-full overflow-hidden flex-shrink-0">
+      <span
+        ref={textRef}
+        style={
+          needsScroll
+            ? ({
+                "--slide-px": `-${overflowPx}px`,
+                "--slide-dur": `${durationSec}s`,
+                animation: "order-slide var(--slide-dur) ease-in-out infinite",
+              } as React.CSSProperties)
+            : undefined
+        }
+        className={`
+          whitespace-nowrap will-change-transform leading-none
+          ${needsScroll ? "inline-block" : "block text-center"}
+          ${className ?? ""}
+        `}
+      >
+        {label}
+      </span>
+    </div>
+  );
+}
+
 // ─── Order card ───────────────────────────────────────────────────────────────
 
 function OrderCard({
@@ -166,15 +227,13 @@ function OrderCard({
       <div className={`h-1 w-full flex-shrink-0 ${isReady ? "bg-emerald-400" : "bg-orange-500"}`} />
 
       <div className={`flex flex-col flex-1 min-h-0 ${pad} ${gap}`}>
-        {/* Order number — primary visual */}
-        <p
-          title={order.fullLabel}
-          className={`font-black tracking-widest text-center leading-none flex-shrink-0 truncate ${numCls} ${
+        {/* Order number — measured edge-to-edge marquee for long labels */}
+        <MarqueeLabel
+          label={order.label}
+          className={`font-black tracking-widest ${numCls} ${
             isReady ? "text-emerald-300" : "text-orange-400"
           }`}
-        >
-          {order.label}
-        </p>
+        />
 
         <div className={`flex-shrink-0 border-t ${isReady ? "border-emerald-800/60" : "border-gray-700/70"}`} />
 
@@ -252,7 +311,7 @@ function OrderPanel({
       setTimeout(() => {
         setPage((p) => (p + 1) % pageCount);
         setFade(false);
-      }, 300);
+      }, 350);
     }, PAGE_INTERVAL);
     return () => clearInterval(id);
   },[pageCount]);

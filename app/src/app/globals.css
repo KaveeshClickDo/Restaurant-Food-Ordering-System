@@ -132,3 +132,27 @@
   /* Hide custom scrollbar artifacts */
   ::-webkit-scrollbar { display: none !important; }
 }
+/* 
+   The keyframe uses --slide-px which MarqueeLabel sets per-element
+   to exactly (labelScrollWidth - containerClientWidth) pixels.
+   This means the label travels left edge → right edge only — no more. */
+
+@keyframes order-slide {
+  /* Hold at start so the beginning is readable */
+  0%,
+  18% {
+    transform: translateX(0px);
+  }
+  /* Slide to the exact overflow amount — right edge of label = right edge of card */
+  55%,
+  72% {
+    transform: translateX(var(--slide-px));
+  }
+  /* Jump back instantly during the invisible pause */
+  73% {
+    transform: translateX(0px);
+  }
+  100% {
+    transform: translateX(0px);
+  }
+}
