@@ -396,6 +396,10 @@ async function pushToKDS(sale: POSSale, kitchenNote?: string): Promise<{ ok: boo
     payment_method: sale.paymentMethod,
     vat_amount:     sale.taxAmount,
     vat_inclusive:  sale.taxInclusive,
+    // Carry the gift-card-covered amount onto the mirror so the admin Finance
+    // Reports (which read `orders`, not `pos_sales`) can net it out of POS
+    // revenue. pos_sales stays the source of truth for the redemption itself.
+    gift_card_used: sale.giftCardUsed ?? 0,
   };
 
   const { error } = await supabaseAdmin.from("orders").insert(orderRow);

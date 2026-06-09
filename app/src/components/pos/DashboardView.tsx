@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { fmt, fmtPct, fmtDate, fmtTime, relTime } from "./_utils";
 import { buildDineInReceiptHtml, type DineInOrder } from "./_receipts";
+import { moneyPaidGross } from "@/lib/giftCardMoney";
 import {
   type POSPeriod, POS_PERIODS, getPOSDateRange,
   posDailyBuckets, posHourlyBuckets, posExportCSV,
@@ -58,6 +59,7 @@ export default function DashboardView() {
       paymentMethod: (o.payment_method as string) ?? "table-service",
       date: o.date as string,
       refundedAmount: o.refunded_amount != null ? Number(o.refunded_amount) : undefined,
+      giftCardUsed: o.gift_card_used != null ? Number(o.gift_card_used) : undefined,
     };
   }
 
@@ -173,9 +175,14 @@ export default function DashboardView() {
     o.status === "partially_refunded"
   );
 
-  const posRevenue = todaySales.reduce((sum, s) => sum + (s.total - (s.refundAmount ?? 0)), 0);
+  // Revenue = money paid (gift card netted out) − refund. A gift card is
+  // prepaid money, so its redeemed portion isn't revenue at spend time.
+  const posRevenue = todaySales.reduce(
+    (sum, s) => sum + Math.max(0, moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0)),
+    0,
+  );
   const diRevToday = todayDineInSettled.reduce(
-    (sum, o) => sum + (o.total - (o.refundedAmount ?? 0)),
+    (sum, o) => sum + Math.max(0, moneyPaidGross(o.total, o.giftCardUsed) - (o.refundedAmount ?? 0)),
     0,
   );
   const totalRevenue = posRevenue + diRevToday;
@@ -271,14 +278,22 @@ export default function DashboardView() {
     [sales, startDate, endDate],
   );
   const rFiltered = useMemo(() => inRange.filter((s) => !s.voided), [inRange]);
+  // Money-bearing = non-voided + partially-refunded sales (the retained portion
+  // is real revenue). A void with no refund is cancelled and contributes nothing.
+  const rMoneyBearing = useMemo(
+    () => inRange.filter((s) => !s.voided || (s.refundAmount ?? 0) > 0),
+    [inRange],
+  );
+  const rSaleNet = (s: POSSale) => Math.max(0, moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0));
   const voidedCount = inRange.filter((s) => s.voided).length;
 
-  // KPIs
-  const rRevenue = rFiltered.reduce((s, x) => s + x.total, 0);
+  // KPIs — revenue is money paid (gift card netted out) − refund, so a partial
+  // refund reduces it by the amount returned, not the whole sale.
+  const rRevenue = rMoneyBearing.reduce((s, x) => s + rSaleNet(x), 0);
   const rTax = rFiltered.reduce((s, x) => s + x.taxAmount, 0);
   const rTips = rFiltered.reduce((s, x) => s + x.tipAmount, 0);
   const rDiscounts = rFiltered.reduce((s, x) => s + x.discountAmount, 0);
-  const rAvgOrder = rFiltered.length > 0 ? rRevenue / rFiltered.length : 0;
+  const rAvgOrder = rMoneyBearing.length > 0 ? rRevenue / rMoneyBearing.length : 0;
   const rCost = rFiltered.reduce((sum, sale) =>
     sum + sale.items.reduce((s, item) => s + (costMap[item.productId] ?? 0) * item.quantity, 0), 0);
   const grossProfit = rRevenue - rCost;
@@ -321,8 +336,15 @@ export default function DashboardView() {
   const diSettled = reportsDineIn.filter(o => o.status === "delivered");
   const diVoided = reportsDineIn.filter(o => o.status === "cancelled");
   const diRefundedOrders = reportsDineIn.filter(o => o.status === "refunded" || o.status === "partially_refunded");
-  const diRevenue = diSettled.reduce((s, o) => s + o.total, 0);
-  const diAvgOrder = diSettled.length > 0 ? diRevenue / diSettled.length : 0;
+  // Revenue-bearing dine-in = settled PLUS (partially) refunded — the retained
+  // portion is real revenue. Net out gift card + refund, just like POS sales,
+  // so a partial refund reduces revenue by the amount returned, not the whole bill.
+  const diMoneyBearing = [...diSettled, ...diRefundedOrders];
+  const diRevenue = diMoneyBearing.reduce(
+    (s, o) => s + Math.max(0, moneyPaidGross(o.total, o.giftCardUsed) - (o.refundedAmount ?? 0)),
+    0,
+  );
+  const diAvgOrder = diMoneyBearing.length > 0 ? diRevenue / diMoneyBearing.length : 0;
   const diPayMix = { cash: 0, card: 0, "table-service": 0 } as Record<string, number>;
   for (const o of diSettled) diPayMix[o.paymentMethod] = (diPayMix[o.paymentMethod] ?? 0) + 1;
   const diTotalCovers = diSettled.reduce((s, o) => s + o.covers, 0);

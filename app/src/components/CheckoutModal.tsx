@@ -1107,25 +1107,31 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
           <div>
             <h3 className="font-semibold text-gray-900 text-sm mb-2">Gift card</h3>
             {appliedGiftCard ? (
-              <div className="flex items-center justify-between gap-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Gift size={15} className="text-orange-600 flex-shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-orange-800 font-mono tracking-wider truncate">{appliedGiftCard.code}</p>
-                    <p className="text-xs text-orange-600">
-                      −{sym}{giftCardApplied.toFixed(2)} applied
-                      {appliedGiftCard.balance - giftCardApplied > 0.001 &&
-                        ` · ${sym}${(appliedGiftCard.balance - giftCardApplied).toFixed(2)} left after`}
-                    </p>
+              <>
+                <div className="flex items-center justify-between gap-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Gift size={15} className="text-orange-600 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-orange-800 font-mono tracking-wider truncate">{appliedGiftCard.code}</p>
+                      <p className="text-xs text-orange-600">
+                        −{sym}{giftCardApplied.toFixed(2)} applied
+                        {appliedGiftCard.balance - giftCardApplied > 0.001 &&
+                          ` · ${sym}${(appliedGiftCard.balance - giftCardApplied).toFixed(2)} left after`}
+                      </p>
+                    </div>
                   </div>
+                  <button
+                    onClick={removeGiftCard}
+                    className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700 font-semibold flex-shrink-0 transition"
+                  >
+                    <XCircle size={14} /> Remove
+                  </button>
                 </div>
-                <button
-                  onClick={removeGiftCard}
-                  className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700 font-semibold flex-shrink-0 transition"
-                >
-                  <XCircle size={14} /> Remove
-                </button>
-              </div>
+                <p className="text-[11px] text-gray-500 mt-1.5 flex items-start gap-1">
+                  <AlertCircle size={12} className="flex-shrink-0 text-gray-400 mt-px" />
+                  Gift card payments are non-refundable — only the amount paid by card can be refunded.
+                </p>
+              </>
             ) : (
               <div className="space-y-2">
                 <div className="flex gap-2">

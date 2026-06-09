@@ -50,18 +50,22 @@ export const GiftCardRedeemSchema = z.object({
 );
 
 // ── Admin manual issue ───────────────────────────────────────────────────────
-// "Issue manually" for goodwill / refund-as-gift-card / promotions. No
-// payment is processed — admin is creating value directly. Recipient details
-// optional because admin might just want to print a code and hand it over.
+// Admin sells a gift card at the counter / over the phone. We never give cards
+// away free, so a payment method (cash or card) is REQUIRED — the sale is booked
+// as income on the Admin finance tab (payment_ref 'admin:cash' | 'admin:card').
+// Recipient details optional because admin might just print a code and hand it
+// over.
 export const AdminGiftCardCreateSchema = z.object({
   amount: Money
     .refine((n) => n >= 1, "Amount must be at least £1.")
     .refine((n) => n <= 1000, "Amount must be £1,000 or less."),
+  /** How the customer paid for the card. Required — no free/comp cards. */
+  paymentMethod: z.enum(["cash", "card"]),
   recipientEmail: Email.optional(),
   recipientName:  z.string().trim().max(120).optional(),
   personalMessage: z.string().trim().max(500).optional(),
-  /** Free-form reason (e.g. "Goodwill — complaint #42"). Stored on the
-   *  initial gift_card_transactions row as the `notes` field. */
+  /** Free-form reason / note. Stored on the initial gift_card_transactions
+   *  row as the `notes` field. */
   notes: z.string().trim().max(500).optional(),
   /** If true, sends the delivery email after issuing. If false, admin just
    *  gets the code in the response and hand-delivers it. */

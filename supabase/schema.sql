@@ -729,6 +729,15 @@ create table if not exists gift_cards (
 create unique index if not exists gift_cards_code_lower_unique
   on gift_cards (lower(code));
 
+-- Sale attribution for gift cards (mirrors reservations.payment_method/_ref).
+-- Online purchases: payment_method='stripe', payment_ref = PaymentIntent id.
+-- Admin-issued sales: payment_method='cash'|'card', payment_ref='admin:cash'|'admin:card'.
+-- Lets the finance reports book a gift card SALE as income and split it onto the
+-- Online tab (gateway) vs the Admin tab (back-office), the same way VIP booking
+-- fees are split. POS cannot issue gift cards, so there is no 'pos:' variant.
+alter table gift_cards add column if not exists payment_method text;
+alter table gift_cards add column if not exists payment_ref    text;
+
 -- Append-only audit log. Every state change on gift_cards (issue, redeem,
 -- refund, void, adjust) produces one row here. Never updated, never deleted.
 -- balance_after is a snapshot for reconciliation (without it you'd need to

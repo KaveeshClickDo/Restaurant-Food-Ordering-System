@@ -47,7 +47,10 @@ const RefundEntry = z.object({
   amount:       PositiveMoney,
   type:         z.enum(["full", "partial"]),
   reason:       NonEmptyString,
-  method:       z.enum(["original_payment", "store_credit", "cash", "gift_card"]),
+  // Gift-card refunds are intentionally NOT supported: a gift card is prepaid
+  // money, so only the cash/card/gateway portion is refundable. (See the gift
+  // card model — spending a card is non-refundable.)
+  method:       z.enum(["original_payment", "store_credit", "cash"]),
   note:         z.string().optional(),
   processedAt:  NonEmptyString,
   processedBy:  NonEmptyString,

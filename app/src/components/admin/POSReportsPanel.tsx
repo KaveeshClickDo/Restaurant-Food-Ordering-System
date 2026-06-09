@@ -4,14 +4,19 @@ import { useState, useEffect, useMemo } from "react";
 import {
   TrendingUp, Receipt, BarChart3, Users, Percent, BadgeDollarSign,
   Download, RefreshCw, Tag, CreditCard, Banknote, Shuffle,
-  Trophy, Package, ChevronUp, ChevronDown, AlertTriangle, RotateCcw, Crown,
+  Trophy, Package, ChevronUp, ChevronDown, AlertTriangle, RotateCcw, Crown, Gift,
 } from "lucide-react";
+import { moneyPaidGross } from "@/lib/giftCardMoney";
 
 interface VipFeeRow {
   id: string;
   created_at: string;
   vip_fee: number;
   payment_method: string | null;
+  // "pos:cash" / "admin:card" etc. — the prefix tells a till booking apart from
+  // a back-office (admin) booking. Admin bookings belong on the admin finance
+  // tab, NOT in POS reports, so we filter them out below.
+  payment_ref: string | null;
   customer_name: string | null;
   customer_email: string | null;
   customer_phone: string | null;
@@ -253,10 +258,25 @@ export default function POSReportsPanel() {
     }), [sales, startDate, endDate]);
 
   const filtered = useMemo(() => inRange.filter((s) => !s.voided), [inRange]);
+  // Money-bearing = sales whose money (partly) stuck: non-voided, PLUS voided
+  // sales that were only partially refunded (the retained portion is real
+  // revenue). A void with NO refund is a cancelled sale and contributes nothing.
+  // Mirrors the POS Dashboard Overview, so a partial refund reduces revenue by
+  // the refunded amount — not the whole sale.
+  const moneyBearing = useMemo(
+    () => inRange.filter((s) => !s.voided || (s.refundAmount ?? 0) > 0),
+    [inRange],
+  );
+  // Net money kept on a sale = money paid (gift card excluded) − refund.
+  const saleNet = (s: POSSale) => Math.max(0, moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0));
 
-  // VIP booking fees collected at the till in the same date window.
+  // VIP booking fees collected at the till in the same date window. Back-office
+  // (admin) bookings share the cash/card payment_method, so the server's
+  // source=pos slice still includes them — exclude any "admin:" prefixed fee
+  // here so it lands only on the admin finance tab, not POS reports.
   const vipFeesInRange = useMemo(() =>
     vipFees.filter((f) => {
+      if ((f.payment_ref ?? "").startsWith("admin:")) return false;
       const d = new Date(f.created_at);
       return d >= startDate && d <= endDate;
     }), [vipFees, startDate, endDate]);
@@ -266,11 +286,18 @@ export default function POSReportsPanel() {
   );
 
   // ── KPIs ────────────────────────────────────────────────────────────────────
-  const revenue       = filtered.reduce((s, x) => s + x.total, 0);
+  // Revenue = real money collected and KEPT. A gift card is prepaid money
+  // (income booked when the card is SOLD), so its redeemed portion is netted
+  // out; refunds are subtracted so a partial refund only reduces revenue by the
+  // amount returned, not the whole sale.
+  const revenue       = moneyBearing.reduce((s, x) => s + saleNet(x), 0);
+  // Gift card value redeemed in this window — informational reconciliation only
+  // (already recognised as income at card sale, so NOT added to revenue).
+  const giftCardRedeemed = filtered.reduce((s, x) => s + (x.giftCardUsed ?? 0), 0);
   const taxCollected  = filtered.reduce((s, x) => s + x.taxAmount, 0);
   const tipsTotal     = filtered.reduce((s, x) => s + x.tipAmount, 0);
   const discountTotal = filtered.reduce((s, x) => s + x.discountAmount, 0);
-  const avgOrder      = filtered.length > 0 ? revenue / filtered.length : 0;
+  const avgOrder      = moneyBearing.length > 0 ? revenue / moneyBearing.length : 0;
   const voidedCount   = inRange.filter((s) => s.voided).length;
   // Bug #1b: refunds were silently hidden — voided sales were dropped from
   // `filtered` and there was no separate refund total. Compute from the voided
@@ -317,7 +344,7 @@ export default function POSReportsPanel() {
   for (const sale of filtered) {
     if (!staffStats[sale.staffId]) staffStats[sale.staffId] = { name: sale.staffName, sales: 0, revenue: 0, avgOrder: 0 };
     staffStats[sale.staffId].sales++;
-    staffStats[sale.staffId].revenue += sale.total;
+    staffStats[sale.staffId].revenue += moneyPaidGross(sale.total, sale.giftCardUsed);
   }
   const staffPerf = Object.values(staffStats)
     .map((s) => ({ ...s, avgOrder: s.sales > 0 ? s.revenue / s.sales : 0 }))
@@ -424,6 +451,9 @@ export default function POSReportsPanel() {
             <KpiCard label="Tips"             value={fmtCur(tipsTotal, sym)}      sub="staff tips"                         icon={BadgeDollarSign} color="text-pink-600"   bg="bg-pink-50" />
             <KpiCard label="Discounts Given"  value={fmtCur(discountTotal, sym)}  sub="reductions applied"                 icon={Tag}             color="text-red-600"    bg="bg-red-50" />
             <KpiCard label="Refunded"         value={fmtCur(refundedTotal, sym)}  sub={`${refundedCount} txn${refundedCount === 1 ? "" : "s"}`} icon={RotateCcw} color="text-teal-600"  bg="bg-teal-50" />
+            {giftCardRedeemed > 0 && (
+              <KpiCard label="Gift Card Redeemed" value={fmtCur(giftCardRedeemed, sym)} sub="settled · not revenue" icon={Gift} color="text-fuchsia-600" bg="bg-fuchsia-50" />
+            )}
           </div>
 
           {/* ── VIP booking fees — detail with reserved customers ──────────── */}
@@ -540,7 +570,7 @@ export default function POSReportsPanel() {
                        ["split","Split","bg-purple-500","text-purple-700",Shuffle]] as [string,string,string,string,React.ComponentType<{size?:number;className?:string}>][]).map(([key,label,bar,txt,Icon]) => {
                       const count = payMix[key as keyof typeof payMix] ?? 0;
                       const pct   = (count / payTotal) * 100;
-                      const rev   = filtered.filter((s) => s.paymentMethod === key).reduce((s, x) => s + x.total, 0);
+                      const rev   = filtered.filter((s) => s.paymentMethod === key).reduce((s, x) => s + moneyPaidGross(x.total, x.giftCardUsed), 0);
                       return (
                         <div key={key}>
                           <div className="flex items-center justify-between mb-1">
@@ -751,6 +781,11 @@ export default function POSReportsPanel() {
                             sale.paymentMethod === "card" ? "bg-blue-100 text-blue-700" :
                             "bg-purple-100 text-purple-700"
                           }`}>{sale.paymentMethod}</span>
+                          {(sale.giftCardUsed ?? 0) > 0 && (
+                            <span className="ml-1 text-xs px-2 py-0.5 rounded-full font-medium bg-fuchsia-100 text-fuchsia-700 inline-flex items-center gap-0.5">
+                              <Gift size={10} /> {fmtCur(sale.giftCardUsed ?? 0, sym)}
+                            </span>
+                          )}
                         </td>
                         <td className={`px-5 py-3 text-right font-semibold ${sale.voided ? "text-red-400 line-through" : "text-gray-900"}`}>
                           {fmtCur(sale.total, sym)}

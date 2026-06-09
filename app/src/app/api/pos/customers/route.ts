@@ -19,6 +19,7 @@ import { requirePosSession } from "@/lib/posPermissions";
 import { parseBody } from "@/lib/apiValidation";
 import { PosCustomerCreateSchema } from "@/lib/schemas/customer";
 import { orderSpendContribution } from "@/lib/customerSpend";
+import { moneyPaidGross } from "@/lib/giftCardMoney";
 
 const POS_WALK_IN_ID = "pos-walk-in";
 
@@ -73,10 +74,10 @@ export async function GET() {
       .neq("id", POS_WALK_IN_ID),
     supabaseAdmin
       .from("orders")
-      .select("customer_id, total, status, payment_status, refunded_amount, date"),
+      .select("customer_id, total, status, payment_status, refunded_amount, fulfillment, gift_card_used, date"),
     supabaseAdmin
       .from("pos_sales")
-      .select("customer_id, total, voided, refund_amount, date")
+      .select("customer_id, total, voided, refund_amount, gift_card_used, date")
       .not("customer_id", "is", null),
   ]);
 
@@ -102,10 +103,13 @@ export async function GET() {
   // cancellation does not). They are NOT POS visits.
   for (const o of orders ?? []) {
     if (!o.customer_id) continue;
+    // Dine-in orders store GROSS (gift card separate); online orders store net.
+    // Net the gift card out of dine-in so it doesn't inflate spend.
+    const total = o.fulfillment === "dine-in" ? moneyPaidGross(o.total, o.gift_card_used) : o.total;
     const { amount, counts } = orderSpendContribution({
       status:         o.status,
       paymentStatus:  o.payment_status,
-      total:          o.total,
+      total,
       refundedAmount: o.refunded_amount,
     });
     if (!counts) continue;
@@ -116,9 +120,9 @@ export async function GET() {
   for (const s of posSales ?? []) {
     if (!s.customer_id) continue;
     const b = ensure(s.customer_id);
-    const total  = Number(s.total) || 0;
+    const moneyTotal = moneyPaidGross(s.total, s.gift_card_used); // net of gift card
     const refund = Number(s.refund_amount) || 0;
-    if (!(s.voided && refund <= 0)) b.spend += Math.max(0, total - refund);
+    if (!(s.voided && refund <= 0)) b.spend += Math.max(0, moneyTotal - refund);
     b.visits += 1;
     const iso = typeof s.date === "string" ? s.date : new Date(s.date as string).toISOString();
     if (!b.lastVisit || iso > b.lastVisit) b.lastVisit = iso;

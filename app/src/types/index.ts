@@ -537,7 +537,9 @@ export type OrderStatus =
 
 export type DeliveryStatus = "assigned" | "picked_up" | "on_the_way" | "delivered";
 
-export type RefundMethod = "original_payment" | "store_credit" | "cash" | "gift_card";
+// Gift-card refunds are intentionally not a method: a gift card is prepaid
+// money, so only the cash / card / gateway portion is ever refundable.
+export type RefundMethod = "original_payment" | "store_credit" | "cash";
 
 export type PaymentStatus = "unpaid" | "paid" | "refunded" | "partially_refunded" | "failed";
 

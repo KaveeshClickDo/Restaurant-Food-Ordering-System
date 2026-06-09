@@ -273,6 +273,10 @@ export interface POSSale {
   staffName: string;
   customerId?: string;
   giftCard?: { code: string; amount: number };
+  /** Amount of the sale paid by gift card (gross total − this = money in).
+   *  Mapped from pos_sales.gift_card_used so reports can net it out of revenue
+   *  without needing the card code. */
+  giftCardUsed?: number;
   customerName?: string;
   tableNumber?: number;
   date: string; // ISO

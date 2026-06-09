@@ -35,6 +35,8 @@ export type PosSaleRow = {
   void_reason: string | null;
   refund_method: "cash" | "card" | "none" | null;
   refund_amount: number | null;
+  gift_card_id: string | null;
+  gift_card_used: number | null;
 };
 
 export function rowToSale(r: PosSaleRow): POSSale {
@@ -64,5 +66,9 @@ export function rowToSale(r: PosSaleRow): POSSale {
     voidReason:     r.void_reason  ?? undefined,
     refundMethod:   r.refund_method ?? undefined,
     refundAmount:   r.refund_amount != null ? Number(r.refund_amount) : undefined,
+    giftCardUsed:   r.gift_card_used != null ? Number(r.gift_card_used) : 0,
+    // Reconstruct the receipt-facing giftCard stamp (code isn't stored on the
+    // sale row, only the id + amount — the amount is what receipts/reports need).
+    giftCard:       r.gift_card_id ? { code: "", amount: Number(r.gift_card_used) || 0 } : undefined,
   };
 }

@@ -18,6 +18,7 @@ import { parseBody }                 from "@/lib/apiValidation";
 import { PosSaleVoidSchema }         from "@/lib/schemas/pos";
 import { requirePosPermission }      from "@/lib/posPermissions";
 import { restoreStock, type StockItem } from "@/lib/stockMutation";
+import { moneyPaidGross }            from "@/lib/giftCardMoney";
 import type { POSCartItem }          from "@/types/pos";
 
 export async function PATCH(
@@ -46,6 +47,21 @@ export async function PATCH(
   if (refundAmount !== null) {
     const refundGate = await requirePosPermission("canIssueRefund");
     if (!refundGate.ok) return refundGate.response;
+
+    // Cap the refund at money actually collected. A gift card is prepaid money,
+    // so the gift-card-covered portion is non-refundable: moneyPaid = total −
+    // gift_card_used. Guards against refunding more cash than was taken.
+    const { data: saleForCap } = await supabaseAdmin
+      .from("pos_sales").select("total, gift_card_used, voided").eq("id", id).maybeSingle();
+    if (saleForCap && !saleForCap.voided) {
+      const moneyPaid = moneyPaidGross(saleForCap.total, saleForCap.gift_card_used);
+      if (refundAmount > moneyPaid + 0.001) {
+        return NextResponse.json(
+          { ok: false, error: `Refund (${refundAmount}) cannot exceed the ${moneyPaid.toFixed(2)} paid by cash/card. The gift-card portion is non-refundable.` },
+          { status: 400 },
+        );
+      }
+    }
   }
 
   // Conditionally void: `.eq("voided", false)` makes this a no-op idempotent
@@ -109,13 +125,12 @@ export async function PATCH(
     voided_at:   new Date().toISOString(),
   };
   if (refundAmount !== null) {
-    // Fetch sale total so partial refunds get the right payment_status. The
-    // sale is voided regardless of refund amount, but the refund itself can
-    // be full or partial.
+    // Full vs partial is judged against money PAID (gift card excluded), so a
+    // refund of the entire cash/card portion correctly reads as "refunded".
     const { data: saleRow } = await supabaseAdmin
-      .from("pos_sales").select("total").eq("id", id).maybeSingle();
-    const saleTotal = Number(saleRow?.total ?? 0);
-    const isFullRefund = refundAmount >= saleTotal - 0.001;
+      .from("pos_sales").select("total, gift_card_used").eq("id", id).maybeSingle();
+    const moneyPaid = moneyPaidGross(saleRow?.total, saleRow?.gift_card_used);
+    const isFullRefund = refundAmount >= moneyPaid - 0.001;
     orderPatch.refunded_amount = refundAmount;
     orderPatch.payment_status  = isFullRefund ? "refunded" : "partially_refunded";
   }
