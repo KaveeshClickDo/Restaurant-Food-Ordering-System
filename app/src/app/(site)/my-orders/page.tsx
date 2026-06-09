@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import AuthModal from "@/components/AuthModal";
 import type { Order } from "@/types";
-import { fullOrderNumber } from "@/lib/orderNumber";
+import { customerOrderLabel } from "@/lib/orderNumber";
 import Link from "next/link";
 import Cart from "@/components/Cart";
 import MobileBottomNav from "@/components/MobileBottomNav";
@@ -59,7 +59,7 @@ function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void
                 <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-100">
                     <div>
                         <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400">Tracking order</p>
-                        <p title={fullOrderNumber(order.id)} className="text-[15px] font-bold text-zinc-900 mt-0.5 truncate">{fullOrderNumber(order.id)}</p>
+                        <p title={customerOrderLabel(order.id, order.fulfillment)} className="text-[15px] font-bold text-zinc-900 mt-0.5 truncate">{customerOrderLabel(order.id, order.fulfillment)}</p>
                     </div>
                     <button onClick={onClose} className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-500 hover:bg-zinc-200 transition-colors">
                         <X className="w-4 h-4" strokeWidth={2} />
@@ -340,7 +340,7 @@ export default function MyOrdersPage() {
                                                     <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
                                                     <span className="text-[11px] font-bold uppercase tracking-widest text-green-400">In Progress</span>
                                                 </div>
-                                                <p title={fullOrderNumber(activeOrder.id)} className="text-[13px] text-zinc-400 mb-0.5 truncate">Order {fullOrderNumber(activeOrder.id)}</p>
+                                                <p title={customerOrderLabel(activeOrder.id, activeOrder.fulfillment)} className="text-[13px] text-zinc-400 mb-0.5 truncate">Order {customerOrderLabel(activeOrder.id, activeOrder.fulfillment)}</p>
                                                 <p className="text-[18px] font-bold text-white leading-snug mb-3">
                                                     {activeLabel(activeOrder)}
                                                 </p>

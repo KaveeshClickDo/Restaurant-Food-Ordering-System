@@ -11,16 +11,9 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getDisplaySession } from "@/lib/auth";
+import { extractReceiptNo, shortCode } from "@/lib/orderNumber";
 
 const ACTIVE_STATUSES = ["pending", "confirmed", "preparing", "ready"];
-
-// Extract `Receipt: R1024` if present in the order's note field — POS sales
-// embed the receipt number there so the display can show it.
-function extractReceiptNo(note: string | null | undefined): string | null {
-  if (!note) return null;
-  const m = note.match(/Receipt:\s*(R\d+)/);
-  return m ? m[1] : null;
-}
 
 // Short, screen-friendly display code. POS sales already carry an "R…" receipt
 // number in the note; every other type gets a one-letter prefix (derived from
@@ -30,8 +23,7 @@ function extractReceiptNo(note: string | null | undefined): string | null {
 function displayNumber(id: string, fulfillment: string | null | undefined, note: string | null | undefined): string {
   const receiptNo = extractReceiptNo(note);
   if (receiptNo) return receiptNo;
-  const prefix = fulfillment === "dine-in" ? "T" : "C";  // T = table, C = collection
-  return `${prefix}-${String(id).slice(-6).toUpperCase()}`;
+  return shortCode(fulfillment === "dine-in" ? "T" : "C", id);  // T = table, C = collection
 }
 
 export async function GET() {

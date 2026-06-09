@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { useIdleLogout } from "@/lib/useIdleLogout";
 import type { KitchenStaff } from "@/types";
-import { fullOrderNumber } from "@/lib/orderNumber";
+import { fullOrderNumber, extractReceiptNo, shortCode, collectionLabel } from "@/lib/orderNumber";
 import {
   ChefHat, Clock, Truck, ShoppingBag, CheckCircle2,
   LayoutDashboard, Maximize2, Minimize2, UtensilsCrossed,
@@ -44,6 +44,9 @@ interface KDSOrder {
    *  button. Real online collection orders are settled on the POS Collection
    *  screen instead, so their KDS card is display-only. */
   isPosWalkin: boolean;
+  /** POS receipt number ("R1024") parsed from the note, when present. Used as
+   *  the ticket's display number for POS walk-in sales. */
+  receiptNo: string | null;
   /** Driver-side state — only present for delivery orders. Used to distinguish
    *  a "ready" delivery order that's still waiting for a driver pickup from
    *  one that has already been collected and is en route. */
@@ -179,6 +182,21 @@ function deriveKitchenNote(fulfillment: string, note: string | null): string | u
   return n || undefined;
 }
 
+/**
+ * Ticket display number for the KDS card. Mirrors the customer-display board so
+ * staff and customers share one reference:
+ *   POS sale   → R1024            (the till receipt number)
+ *   delivery   → #ORD-1A2B3C4D    (full order number)
+ *   collection → #ORD-… (C-…)     (full order number + board's short C-code)
+ *   dine-in    → T-4C8A33         (board's short T-code only)
+ */
+function kitchenOrderLabel(order: KDSOrder): string {
+  if (order.receiptNo) return order.receiptNo;
+  if (order.fulfillment === "dine-in")    return shortCode("T", order.id);
+  if (order.fulfillment === "collection") return collectionLabel(order.id);
+  return fullOrderNumber(order.id);
+}
+
 function mapRow(row: Record<string, unknown>): KDSOrder {
   const fulfillment = String(row.fulfillment ?? "collection");
   const note        = (row.note as string | null) ?? null;
@@ -192,6 +210,7 @@ function mapRow(row: Record<string, unknown>): KDSOrder {
     status:        row.status as KDSStatus,
     fulfillment,
     isPosWalkin:   note?.startsWith("[POS]") ?? false,
+    receiptNo:     extractReceiptNo(note),
     deliveryStatus: (row.delivery_status as DeliveryStatus | null) ?? null,
     date:          String(row.date),
     address:       (row.address as string) || undefined,
@@ -256,6 +275,8 @@ function OrderCard({
   // orders are settled on the POS Collection screen, so their card is display-only.
   const isPosWalkin = order.isPosWalkin;
 
+  const orderLabel = kitchenOrderLabel(order);
+
   // A delivery order that the kitchen has marked "ready" but where no driver
   // has yet collected it (delivery_status null or still "assigned"). We keep
   // these in the Ready column so kitchen staff can still see them — they're
@@ -304,8 +325,8 @@ function OrderCard({
       {/* Card header */}
       <div className="px-4 pt-3.5 pb-2 flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p title={fullOrderNumber(order.id)} className="text-[10px] text-gray-500 font-mono uppercase tracking-widest truncate">
-            {fullOrderNumber(order.id)}
+          <p title={orderLabel} className="text-[10px] text-gray-500 font-mono uppercase tracking-widest truncate">
+            {orderLabel}
           </p>
           <p className="text-white font-bold text-lg leading-tight truncate mt-0.5">
             {order.displayName}
