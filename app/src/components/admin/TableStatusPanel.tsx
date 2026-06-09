@@ -303,8 +303,9 @@ function TableCard({
 
         {/* Floating Edit Form: Hovers over the grid, overlapping downwards smoothly */}
         <div className="absolute top-0 left-0 w-full z-30 rounded-2xl border-2 border-gray-200 bg-white p-4 h-fit">
-          <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2 text-sm">
-            <Pencil size={14} /> Edit {table.label}
+          <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2 text-sm min-w-0" >
+            <Pencil size={14} className="flex-shrink-0" /> 
+            <span className="truncate" title={table.label} >Edit {table.label}</span>
           </h4>
           <TableForm
             initial={table}
@@ -322,7 +323,7 @@ function TableCard({
     return (
       <div className="rounded-2xl border-2 border-red-200 bg-red-50 p-4 flex items-center gap-3">
         <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
-        <p className="text-red-700 text-sm flex-1">Remove table <strong>{table.label}</strong>?</p>
+        <p className="text-red-700 text-sm flex-1 min-w-0 leading-tight">Remove table <strong className="block truncate" title={table.label}>{table.label}?</strong></p>
         <button
           onClick={() => void onConfirmDelete()}
           className="bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition"
@@ -340,12 +341,14 @@ function TableCard({
     <div className={`rounded-2xl border-2 p-3 sm:p-4 flex flex-col gap-3 transition h-full ${s.card}`}>
       {/* Table header */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2.5 sm:gap-2">
-        <div>
-          <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1"> 
+          <div className="flex items-center gap-2 min-w-0">
             {table.isVip
               ? <Crown size={14} className="text-amber-500" />
               : <UtensilsCrossed size={14} className="text-orange-500" />}
-            <span className="font-bold text-gray-900 text-base">{table.label}</span>
+            <span className="font-bold text-gray-900 text-base truncate" title={table.label}>
+              {table.label}
+            </span>
           </div>
           <div className="flex sm:hidden items-center gap-3 mt-1 text-xs text-gray-500">
             <span className="flex items-center gap-1"><Users size={11} /> {table.seats} seats</span>
