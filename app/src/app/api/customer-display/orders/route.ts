@@ -11,19 +11,23 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getDisplaySession } from "@/lib/auth";
-import { extractReceiptNo, shortCode } from "@/lib/orderNumber";
+import { extractReceiptNo, fullOrderNumber } from "@/lib/orderNumber";
 
 const ACTIVE_STATUSES = ["pending", "confirmed", "preparing", "ready"];
 
-// Short, screen-friendly display code. POS sales already carry an "R…" receipt
-// number in the note; every other type gets a one-letter prefix (derived from
-// fulfillment) plus the last 6 chars of the id — short enough for a big-font
-// counter screen, unique enough across the handful of active orders shown.
-//   T-4C8A33  dine-in (table service)   C-B2C3D4  collection   R1024  POS sale
+// Screen-friendly display label for the counter board:
+//   POS sale   → R1024         (the till receipt number, carried in the note)
+//   dine-in    → Table T4      (the table name, parsed from the note — matches
+//                               the bill receipt and every other surface)
+//   collection → #ORD-1A2B3C4D (the full order number the customer already has)
 function displayNumber(id: string, fulfillment: string | null | undefined, note: string | null | undefined): string {
   const receiptNo = extractReceiptNo(note);
   if (receiptNo) return receiptNo;
-  return shortCode(fulfillment === "dine-in" ? "T" : "C", id);  // T = table, C = collection
+  if (fulfillment === "dine-in") {
+    const m = (note ?? "").match(/Table\s+(\S+)/);
+    return m ? `Table ${m[1]}` : "Dine-in";
+  }
+  return fullOrderNumber(id);
 }
 
 export async function GET() {
