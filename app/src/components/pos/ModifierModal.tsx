@@ -68,7 +68,10 @@ export default function ModifierModal({
         <div className="px-5 py-4 border-b border-slate-700 flex items-start justify-between">
           <div>
             <h2 className="text-white font-bold text-base">{product.name}</h2>
-            <p className="text-slate-400 text-sm">{fmt(product.price + totalAdjust, currencySymbol)}</p>
+            {product.description && (
+              <p className="text-slate-400 text-sm mt-0.5 leading-snug line-clamp-2">{product.description}</p>
+            )}
+            {/* <p className="text-slate-400 text-sm">{fmt(product.price + totalAdjust, currencySymbol)}</p> */}
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white p-1 transition-colors">
             <X size={20} />
