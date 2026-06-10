@@ -12,6 +12,7 @@ import {
 import { fmt, fmtPct, fmtDate, fmtTime, relTime } from "./_utils";
 import { buildDineInReceiptHtml, type DineInOrder } from "./_receipts";
 import { moneyPaidGross } from "@/lib/giftCardMoney";
+import { parseTableLabelFromNote } from "@/lib/tableLabel";
 import {
   type POSPeriod, POS_PERIODS, getPOSDateRange,
   posDailyBuckets, posHourlyBuckets, posExportCSV,
@@ -50,7 +51,7 @@ export default function DashboardView() {
     const n = String(o.note ?? "");
     return {
       id: o.id as string,
-      tableLabel: n.match(/Table\s+(\S+)/)?.[1] ?? "?",
+      tableLabel: parseTableLabelFromNote(n) ?? "?",
       staffName: n.match(/Staff:\s*([^·\n]+)/)?.[1]?.trim() ?? "—",
       covers: parseInt(n.match(/(\d+)\s+cover/)?.[1] ?? "0"),
       items: (o.items as DineInOrder["items"]) ?? [],

@@ -768,49 +768,61 @@ export default function OnlineReportsPanel() {
         <StatCard
           label="Gross Revenue"
           value={cur(grossRevenue)}
-          sub={vipFeeTotal > 0
-            ? `${metrics.count} order${metrics.count !== 1 ? "s" : ""} + ${cur(vipFeeTotal)} VIP fees`
-            : `${metrics.count} order${metrics.count !== 1 ? "s" : ""} · avg ${cur(metrics.aov)}`}
+          sub={source === "admin"
+            ? `${cur(vipFeeTotal)} VIP fees + ${cur(giftCardSalesTotal)} gift cards`
+            : vipFeeTotal > 0
+              ? `${metrics.count} order${metrics.count !== 1 ? "s" : ""} + ${cur(vipFeeTotal)} VIP fees`
+              : `${metrics.count} order${metrics.count !== 1 ? "s" : ""} · avg ${cur(metrics.aov)}`}
           icon={TrendingUp}
           accent="bg-orange-500"
         />
         <StatCard
           label="Net Revenue"
           value={cur(netRevenue)}
-          sub={`After ${cur(metrics.refunds)} in refunds`}
+          sub={source === "admin" ? "Bookings + gift cards · no refunds" : `After ${cur(metrics.refunds)} in refunds`}
           icon={TrendingUp}
           accent="bg-emerald-500"
           trend={metrics.refunds > 0 ? "down" : "neutral"}
         />
-        <StatCard
-          label="Total Orders"
-          value={String(metrics.count + metrics.cancelledCount)}
-          sub={`${metrics.cancelledCount} cancelled · ${metrics.count} completed`}
-          icon={ShoppingBag}
-          accent="bg-blue-500"
-        />
-        <StatCard
-          label="Average Order"
-          value={cur(metrics.aov)}
-          sub={`Over ${metrics.count} order${metrics.count !== 1 ? "s" : ""}`}
-          icon={CreditCard}
-          accent="bg-violet-500"
-        />
-        <StatCard
-          label="Total Refunds"
-          value={cur(metrics.refunds)}
-          sub={pct(metrics.refunds, metrics.revenue) + " refund rate"}
-          icon={RotateCcw}
-          accent="bg-red-500"
-          trend={metrics.refunds > 0 ? "down" : "neutral"}
-        />
-        <StatCard
-          label="VAT Collected"
-          value={cur(metrics.vat)}
-          sub={pct(metrics.vat, metrics.revenue) + " of gross revenue"}
-          icon={Percent}
-          accent="bg-indigo-500"
-        />
+        {/* Order-centric KPIs. Hidden on the Admin tab — admin transactions are
+            VIP fees + gift card sales, not orders, so these are always zero there. */}
+        {source !== "admin" && (
+          <StatCard
+            label="Total Orders"
+            value={String(metrics.count + metrics.cancelledCount)}
+            sub={`${metrics.cancelledCount} cancelled · ${metrics.count} completed`}
+            icon={ShoppingBag}
+            accent="bg-blue-500"
+          />
+        )}
+        {source !== "admin" && (
+          <StatCard
+            label="Average Order"
+            value={cur(metrics.aov)}
+            sub={`Over ${metrics.count} order${metrics.count !== 1 ? "s" : ""}`}
+            icon={CreditCard}
+            accent="bg-violet-500"
+          />
+        )}
+        {source !== "admin" && (
+          <StatCard
+            label="Total Refunds"
+            value={cur(metrics.refunds)}
+            sub={pct(metrics.refunds, metrics.revenue) + " refund rate"}
+            icon={RotateCcw}
+            accent="bg-red-500"
+            trend={metrics.refunds > 0 ? "down" : "neutral"}
+          />
+        )}
+        {source !== "admin" && (
+          <StatCard
+            label="VAT Collected"
+            value={cur(metrics.vat)}
+            sub={pct(metrics.vat, metrics.revenue) + " of gross revenue"}
+            icon={Percent}
+            accent="bg-indigo-500"
+          />
+        )}
         {/* VIP booking fees for the selected source. Already included in Gross
             Revenue above — this card breaks out how much of it was booking fees.
             Hidden on Dine-in (no reservation fees there). */}
@@ -871,6 +883,9 @@ export default function OnlineReportsPanel() {
       </div>
 
       {/* ── Breakdowns ────────────────────────────────────────────────────── */}
+      {/* All four breakdowns are order-driven (filtered/metrics), so they're
+          empty on the Admin tab where there are no orders. Hidden there. */}
+      {source !== "admin" && (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
         {/* Order status */}
@@ -976,6 +991,7 @@ export default function OnlineReportsPanel() {
           </div>
         </div>
       </div>
+      )}
 
       {/* ── Refunds detail ────────────────────────────────────────────────── */}
       {metrics.refunds > 0 && (() => {
@@ -1034,12 +1050,19 @@ export default function OnlineReportsPanel() {
       <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-5 text-white">
         <h3 className="font-bold text-sm text-gray-300 uppercase tracking-widest mb-4">Period Summary</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-          {[
-            { label: "Gross Revenue",   value: cur(grossRevenue) },
-            { label: "Total Refunds",   value: cur(metrics.refunds) },
-            { label: "VAT Due",         value: cur(metrics.vat) },
-            { label: "Net Revenue",     value: cur(netRevenue) },
-          ].map(({ label, value }) => (
+          {(source === "admin"
+            ? [
+                { label: "Gross Revenue",     value: cur(grossRevenue) },
+                { label: "VIP Booking Fees",  value: cur(vipFeeTotal) },
+                { label: "Gift Card Sales",   value: cur(giftCardSalesTotal) },
+              ]
+            : [
+                { label: "Gross Revenue",   value: cur(grossRevenue) },
+                { label: "Total Refunds",   value: cur(metrics.refunds) },
+                { label: "VAT Due",         value: cur(metrics.vat) },
+                { label: "Net Revenue",     value: cur(netRevenue) },
+              ]
+          ).map(({ label, value }) => (
             <div key={label}>
               <p className="text-xs text-gray-400 font-medium">{label}</p>
               <p className="text-xl font-black mt-0.5">{value}</p>

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import { fullOrderNumber } from "@/lib/orderNumber";
+import { parseTableLabelFromNote } from "@/lib/tableLabel";
 import {
   Circle, CheckCircle2, ChefHat, Package, Truck, Ban, RotateCcw,
   RefreshCw, ShoppingBag, TrendingUp, Clock, UtensilsCrossed, Tablet,
@@ -63,8 +64,8 @@ function fmtTime(iso: string) {
 function orderLabel(o: RawOrder, source: Source): string {
   const note = o.note ?? "";
   if (source === "dine-in") {
-    const m = note.match(/Table\s+(\S+)/);
-    return m ? `Table ${m[1]}` : "Dine-in";
+    const label = parseTableLabelFromNote(note);
+    return label ? `Table ${label}` : "Dine-in";
   }
   const m = note.match(/Receipt:\s*(\S+)/);
   return m ? `Receipt ${m[1]}` : fullOrderNumber(o.id);

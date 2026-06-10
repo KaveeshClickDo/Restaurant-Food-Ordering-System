@@ -12,6 +12,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getDisplaySession } from "@/lib/auth";
 import { extractReceiptNo, fullOrderNumber } from "@/lib/orderNumber";
+import { parseTableLabelFromNote } from "@/lib/tableLabel";
 
 const ACTIVE_STATUSES = ["pending", "confirmed", "preparing", "ready"];
 
@@ -24,8 +25,8 @@ function displayNumber(id: string, fulfillment: string | null | undefined, note:
   const receiptNo = extractReceiptNo(note);
   if (receiptNo) return receiptNo;
   if (fulfillment === "dine-in") {
-    const m = (note ?? "").match(/Table\s+(\S+)/);
-    return m ? `Table ${m[1]}` : "Dine-in";
+    const label = parseTableLabelFromNote(note);
+    return label ? `Table ${label}` : "Dine-in";
   }
   return fullOrderNumber(id);
 }

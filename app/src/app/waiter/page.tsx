@@ -7,6 +7,7 @@ import { useIdleLogout } from "@/lib/useIdleLogout";
 import { resolveStock, isAvailable } from "@/lib/stockUtils";
 import { computeTax, taxSurcharge } from "@/lib/taxUtils";
 import { getOfferUnitPrice, isOfferActive, cartLineTotal, offerBadgeLabel } from "@/lib/menuOfferUtils";
+import { parseTableLabelFromNote } from "@/lib/tableLabel";
 import type { MenuItem, MenuItemOffer, WaiterStaff, DiningTable } from "@/types";
 import {
   ChefHat, ArrowLeft, Plus, Minus, Trash2, SendHorizonal,
@@ -1087,7 +1088,7 @@ export default function WaiterPage() {
     try {
       const r = await fetch("/api/waiter/orders", { cache: "no-store" });
       if (!r.ok) return;
-      const json = await r.json() as { ok: boolean; orders?: Array<{ note?: string | null; status?: string }> };
+      const json = await r.json() as { ok: boolean; orders?: Array<{ note?: string | null; status?: string; table_label?: string | null }> };
       if (!json.ok || !json.orders) return;
 
       const labels = new Set<string>();
@@ -1095,8 +1096,11 @@ export default function WaiterPage() {
         const note = String(o.note ?? "");
         if (!note.startsWith("[WAITER]")) continue;
         if (o.status === "delivered" || o.status === "cancelled") continue;
-        const m = note.match(/Table\s+(\S+)/);
-        if (m) labels.add(m[1]);
+        // Prefer the structural table_label column. Fall back to the note for
+        // legacy rows — the shared parser keeps the whole label (not just the
+        // first word) so multi-word names like "Blue Occupied" match.
+        const label = o.table_label?.trim() || parseTableLabelFromNote(note);
+        if (label) labels.add(label);
       }
       setOccupiedLabels(labels);
     } catch { /* ignore — surface is non-critical */ }

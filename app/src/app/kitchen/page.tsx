@@ -7,6 +7,7 @@ import { useApp } from "@/context/AppContext";
 import { useIdleLogout } from "@/lib/useIdleLogout";
 import type { KitchenStaff } from "@/types";
 import { fullOrderNumber, extractReceiptNo } from "@/lib/orderNumber";
+import { parseTableLabelFromNote } from "@/lib/tableLabel";
 import {
   ChefHat, Clock, Truck, ShoppingBag, CheckCircle2,
   LayoutDashboard, Maximize2, Minimize2, UtensilsCrossed,
@@ -142,8 +143,8 @@ function deriveDisplayName(
 ): string {
   const n = note ?? "";
   if (fulfillment === "dine-in" || n.startsWith("[WAITER]")) {
-    const m = n.match(/Table\s+(\S+)/);
-    return m ? `Table ${m[1]}` : "Dine-in";
+    const label = parseTableLabelFromNote(n);
+    return label ? `Table ${label}` : "Dine-in";
   }
   if (n.startsWith("[POS]")) {
     const m = n.match(/Customer:\s*([^|]+)/);

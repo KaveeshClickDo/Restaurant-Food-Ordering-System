@@ -22,6 +22,7 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { parseTableLabelFromNote } from "@/lib/tableLabel";
 
 // A dine-in order holds its table until it's settled ('delivered') or voided
 // ('cancelled'). Those two free the table, so they're excluded here.
@@ -51,13 +52,6 @@ function snapToSlot(mins: number, openTime?: string, intervalMinutes?: number): 
   const openMins = openTime ? hhmmToMins(openTime) : 0;
   if (mins < openMins) return mins;
   return openMins + Math.floor((mins - openMins) / intervalMinutes) * intervalMinutes;
-}
-
-/** Recover the table label from a legacy "[WAITER] Table <label>" note. */
-function parseLabelFromNote(note: string | null): string | null {
-  if (!note) return null;
-  const m = note.match(/\[WAITER\]\s+Table\s+(\S+)/);
-  return m ? m[1] : null;
 }
 
 export interface OrderOccupancyResult {
@@ -109,7 +103,7 @@ export async function getOrderOccupiedTableIds(opts: OrderOccupancyOpts): Promis
 
     let id = (o.table_id as string | null) ?? null;
     if (!id) {
-      const label = (o.table_label as string | null) ?? parseLabelFromNote(o.note as string | null);
+      const label = (o.table_label as string | null) ?? parseTableLabelFromNote(o.note as string | null);
       if (label && tablesByLabel) id = tablesByLabel.get(label) ?? null;
     }
     if (id) ids.add(id);
@@ -143,7 +137,7 @@ export async function getActiveDineInTableIds(): Promise<Set<string>> {
   for (const o of data) {
     let id = (o.table_id as string | null) ?? null;
     if (!id) {
-      const label = (o.table_label as string | null) ?? parseLabelFromNote(o.note as string | null);
+      const label = (o.table_label as string | null) ?? parseTableLabelFromNote(o.note as string | null);
       if (label) {
         if (!labelToId) {
           const { data: rows } = await supabaseAdmin.from("dining_tables").select("id, label");
