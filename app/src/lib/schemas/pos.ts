@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { NonEmptyString, Money } from "./primitives";
+import { NonEmptyString, Money, PositiveMoney } from "./primitives";
 
 // ── POS sale ─────────────────────────────────────────────────────────────────
 // The POS cart item shape is rich + flexible — let it pass through and let the
@@ -52,6 +52,25 @@ export const PosSaleVoidSchema = z.object({
   voidReason:   NonEmptyString,
   refundMethod: z.enum(["cash", "card", "none"]).optional(),
   refundAmount: Money.optional(),
+});
+
+// ── POS dine-in void / refund ────────────────────────────────────────────────
+// The POS dashboard's Dine-In tab voids/refunds dine-in orders (orders table,
+// fulfillment = "dine-in"). These are POS-native endpoints gated by the POS
+// permissions canVoidSale / canIssueRefund — the dashboard runs on the POS
+// staff session, NOT the waiter session, so it must NOT call /api/waiter/*.
+const NonEmptyIdArray = z.array(NonEmptyString).min(1, "At least one orderId is required.");
+
+export const PosDineInVoidSchema = z.object({
+  orderIds: NonEmptyIdArray,
+  reason:   NonEmptyString,
+});
+
+export const PosDineInRefundSchema = z.object({
+  orderIds:     NonEmptyIdArray,
+  refundAmount: PositiveMoney,
+  refundMethod: z.enum(["cash", "card"]).optional(),
+  reason:       NonEmptyString,
 });
 
 export const PosClockSchema = z.object({

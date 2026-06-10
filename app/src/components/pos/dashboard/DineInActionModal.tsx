@@ -17,8 +17,11 @@ export default function DineInActionModal({
   onClose: () => void;
   onComplete: () => void;
 }) {
-  const { settings, currentStaff } = usePOS();
+  const { settings } = usePOS();
   const sym = settings.currencySymbol;
+  // A gift card is prepaid money, so only the cash/card portion of the bill is
+  // refundable. Cap "full" and the partial input at money actually collected.
+  const refundable = Math.max(0, action.order.total - (action.order.giftCardUsed ?? 0));
 
   const [reason,       setReason]       = useState("");
   const [refundType,   setRefundType]   = useState<"full" | "partial">("full");
@@ -34,10 +37,10 @@ export default function DineInActionModal({
     inFlight.current = true;
     setLoading(true); setError(null);
     try {
-      const res = await fetch("/api/waiter/void", {
+      const res = await fetch("/api/pos/orders/dine-in/void", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderIds: [action.order.id], reason: reason.trim(), voidedBy: currentStaff?.name ?? "POS Admin" }),
+        body: JSON.stringify({ orderIds: [action.order.id], reason: reason.trim() }),
       });
       const d = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
       if (d.ok) { onComplete(); onClose(); }
@@ -51,16 +54,16 @@ export default function DineInActionModal({
   async function submitRefund() {
     if (inFlight.current) return;
     if (!reason.trim()) { setError("Please enter a reason."); return; }
-    const amt = refundType === "full" ? action.order.total : parseFloat(refundAmtStr);
+    const amt = refundType === "full" ? refundable : parseFloat(refundAmtStr);
     if (isNaN(amt) || amt <= 0) { setError("Enter a valid refund amount."); return; }
-    if (amt > action.order.total + 0.001) { setError(`Cannot exceed ${fmt(action.order.total, sym)}.`); return; }
+    if (amt > refundable + 0.001) { setError(`Cannot exceed ${fmt(refundable, sym)}.`); return; }
     inFlight.current = true;
     setLoading(true); setError(null);
     try {
-      const res = await fetch("/api/waiter/refund", {
+      const res = await fetch("/api/pos/orders/dine-in/refund", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderIds: [action.order.id], refundAmount: amt, refundMethod, reason: reason.trim(), refundedBy: currentStaff?.name ?? "POS Admin" }),
+        body: JSON.stringify({ orderIds: [action.order.id], refundAmount: amt, refundMethod, reason: reason.trim() }),
       });
       const d = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
       if (d.ok) { onComplete(); onClose(); }
@@ -101,15 +104,20 @@ export default function DineInActionModal({
                   {(["full", "partial"] as const).map(t => (
                     <button key={t} onClick={() => setRefundType(t)}
                       className={`px-2 py-2 rounded-xl text-sm font-semibold border transition ${refundType === t ? "bg-amber-500/20 border-amber-500 text-amber-300" : "bg-slate-700 border-slate-600 text-slate-300"}`}>
-                      {t === "full" ? `Full ${sym}${action.order.total.toFixed(2)}` : "Partial"}
+                      {t === "full" ? `Full ${sym}${refundable.toFixed(2)}` : "Partial"}
                     </button>
                   ))}
                 </div>
                 {refundType === "partial" && (
-                  <input type="number" min="0.01" max={action.order.total} step="0.01"
+                  <input type="number" min="0.01" max={refundable} step="0.01"
                     value={refundAmtStr} onChange={e => setRefundAmtStr(e.target.value)}
-                    placeholder={`Max ${sym}${action.order.total.toFixed(2)}`}
+                    placeholder={`Max ${sym}${refundable.toFixed(2)}`}
                     className="w-full bg-slate-700 border border-slate-600 text-white placeholder-slate-500 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-amber-500" />
+                )}
+                {(action.order.giftCardUsed ?? 0) > 0 && (
+                  <p className="text-[11px] text-slate-400 mt-2">
+                    {sym}{(action.order.giftCardUsed ?? 0).toFixed(2)} of this bill was paid by gift card and is non-refundable.
+                  </p>
                 )}
               </div>
               <div>
