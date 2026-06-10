@@ -21,7 +21,7 @@ interface CartProps {
 export default function Cart({ onMobileClose, onOrderPlaced }: CartProps) {
   const { cart, updateQty, clearCart, cartTotal, menuItems, mealPeriods, settings, fulfillment, isOpen, scheduledTime, setScheduledTime, currentUser } = useApp();
   const [showCheckout, setShowCheckout] = useState(false);
-  const [showAuth,     setShowAuth]     = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
@@ -48,11 +48,11 @@ export default function Cart({ onMobileClose, onOrderPlaced }: CartProps) {
 
   const { minOrder, deliveryFee, serviceFee } = settings.restaurant;
   const sym = settings.currency?.symbol ?? "£";
-  const delivery   = fulfillment === "delivery" ? deliveryFee : 0;
-  const service    = cartTotal * (serviceFee / 100);
-  const tax        = computeTax(cartTotal, settings);
+  const delivery = fulfillment === "delivery" ? deliveryFee : 0;
+  const service = cartTotal * (serviceFee / 100);
+  const tax = computeTax(cartTotal, settings);
   const grandTotal = cartTotal + delivery + service + taxSurcharge(tax);
-  const shortfall  = minOrder - cartTotal;
+  const shortfall = minOrder - cartTotal;
   const canCheckout = cartTotal >= minOrder && cart.length > 0 && (isOpen || !!scheduledTime) && !hasBlockedLines;
 
   return (
@@ -106,6 +106,9 @@ export default function Cart({ onMobileClose, onOrderPlaced }: CartProps) {
                 <li key={item.id} className="px-5 py-3.5 flex items-start gap-3 border-b border-zinc-50">
                   <div className="flex-1 min-w-0">
                     <p className="text-[13.5px] font-semibold text-zinc-900 leading-snug">{item.name}</p>
+                    {item.selectedVariations && item.selectedVariations.length > 0 && (
+                      <p className="text-[11.5px] text-zinc-400 mt-0.5">{item.selectedVariations.map((v) => v.label).join(", ")}</p>
+                    )}
                     {item.selectedAddOns && item.selectedAddOns.length > 0 && (
                       <p className="text-[11.5px] text-zinc-400 mt-0.5">+ {item.selectedAddOns.map((a) => a.name).join(", ")}</p>
                     )}
@@ -129,7 +132,8 @@ export default function Cart({ onMobileClose, onOrderPlaced }: CartProps) {
                     {sym}{cartLineTotal(item).toFixed(2)}
                   </span>
                 </li>
-              ))}
+              )
+              )}
             </ul>
           )}
         </div>
@@ -244,11 +248,10 @@ export default function Cart({ onMobileClose, onOrderPlaced }: CartProps) {
               <button
                 disabled={!canCheckout}
                 onClick={() => currentUser ? setShowCheckout(true) : setShowAuth(true)}
-                className={`w-full py-3.5 rounded-xl font-semibold text-[14px] flex items-center justify-between px-5 transition-all ${
-                  canCheckout
-                    ? "bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white"
-                    : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
-                }`}
+                className={`w-full py-3.5 rounded-xl font-semibold text-[14px] flex items-center justify-between px-5 transition-all ${canCheckout
+                  ? "bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white"
+                  : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
+                  }`}
               >
                 <span>{scheduledTime ? "Schedule order" : "Go to checkout"}</span>
                 {canCheckout && (

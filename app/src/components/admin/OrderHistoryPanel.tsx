@@ -20,17 +20,17 @@ const POS_CUSTOMER_ID = "pos-walk-in";
 type SourceTab = "delivery" | "collection" | "walk-in" | "dine-in";
 
 interface RawOrder {
-  id:             string;
-  date:           string;
-  status:         string;
+  id: string;
+  date: string;
+  status: string;
   payment_status: string | null;
-  total:          number;
-  items:          { name: string; qty: number; price: number }[] | null;
-  note:           string | null;
-  fulfillment:    string | null;
+  total: number;
+  items: { name: string; qty: number; price: number; selectedVariations?: { variationId: string; optionId: string; label: string }[]; selectedAddOns?: { id: string; name: string; price: number }[]; }[] | null;
+  note: string | null;
+  fulfillment: string | null;
   payment_method: string | null;
-  customer_id:    string | null;
-  customer?:      { name?: string | null } | null;
+  customer_id: string | null;
+  customer?: { name?: string | null } | null;
 }
 
 // Cancelled-but-refunded must surface both states — a bare "Cancelled" badge
@@ -38,40 +38,40 @@ interface RawOrder {
 function statusLabel(o: RawOrder): string {
   const base = STATUS_CONFIG[o.status]?.label ?? o.status;
   if (o.status !== "cancelled") return base;
-  if (o.payment_status === "refunded")           return "Cancelled · Refunded";
+  if (o.payment_status === "refunded") return "Cancelled · Refunded";
   if (o.payment_status === "partially_refunded") return "Cancelled · Partial refund";
   return base;
 }
 
 const STATUS_CONFIG: Record<string, { label: string; badge: string; dot: string; icon: React.ReactNode }> = {
-  pending:            { label: "Pending",            badge: "bg-yellow-50 text-yellow-700 border-yellow-200", dot: "bg-yellow-400", icon: <Circle size={11} className="fill-yellow-400 text-yellow-400" /> },
-  confirmed:          { label: "Confirmed",          badge: "bg-blue-50 text-blue-700 border-blue-200",       dot: "bg-blue-500",   icon: <CheckCircle2 size={11} className="text-blue-500" /> },
-  preparing:          { label: "Preparing",          badge: "bg-orange-50 text-orange-700 border-orange-200", dot: "bg-orange-500", icon: <ChefHat size={11} className="text-orange-500" /> },
-  ready:              { label: "Ready",              badge: "bg-purple-50 text-purple-700 border-purple-200", dot: "bg-purple-500", icon: <Package size={11} className="text-purple-500" /> },
-  delivered:          { label: "Completed",          badge: "bg-green-50 text-green-700 border-green-200",    dot: "bg-green-500",  icon: <Truck size={11} className="text-green-600" /> },
-  cancelled:          { label: "Cancelled",          badge: "bg-red-50 text-red-700 border-red-200",          dot: "bg-red-400",    icon: <Ban size={11} className="text-red-500" /> },
-  refunded:           { label: "Refunded",           badge: "bg-teal-50 text-teal-700 border-teal-200",       dot: "bg-teal-500",   icon: <RotateCcw size={11} className="text-teal-600" /> },
-  partially_refunded: { label: "Partially Refunded", badge: "bg-cyan-50 text-cyan-700 border-cyan-200",       dot: "bg-cyan-500",   icon: <RotateCcw size={11} className="text-cyan-600" /> },
+  pending: { label: "Pending", badge: "bg-yellow-50 text-yellow-700 border-yellow-200", dot: "bg-yellow-400", icon: <Circle size={11} className="fill-yellow-400 text-yellow-400" /> },
+  confirmed: { label: "Confirmed", badge: "bg-blue-50 text-blue-700 border-blue-200", dot: "bg-blue-500", icon: <CheckCircle2 size={11} className="text-blue-500" /> },
+  preparing: { label: "Preparing", badge: "bg-orange-50 text-orange-700 border-orange-200", dot: "bg-orange-500", icon: <ChefHat size={11} className="text-orange-500" /> },
+  ready: { label: "Ready", badge: "bg-purple-50 text-purple-700 border-purple-200", dot: "bg-purple-500", icon: <Package size={11} className="text-purple-500" /> },
+  delivered: { label: "Completed", badge: "bg-green-50 text-green-700 border-green-200", dot: "bg-green-500", icon: <Truck size={11} className="text-green-600" /> },
+  cancelled: { label: "Cancelled", badge: "bg-red-50 text-red-700 border-red-200", dot: "bg-red-400", icon: <Ban size={11} className="text-red-500" /> },
+  refunded: { label: "Refunded", badge: "bg-teal-50 text-teal-700 border-teal-200", dot: "bg-teal-500", icon: <RotateCcw size={11} className="text-teal-600" /> },
+  partially_refunded: { label: "Partially Refunded", badge: "bg-cyan-50 text-cyan-700 border-cyan-200", dot: "bg-cyan-500", icon: <RotateCcw size={11} className="text-cyan-600" /> },
 };
 
 const TAB_ACCENT: Record<SourceTab, string> = {
-  delivery:   "bg-blue-50 text-blue-500",
+  delivery: "bg-blue-50 text-blue-500",
   collection: "bg-purple-50 text-purple-500",
-  "walk-in":  "bg-orange-50 text-orange-500",
-  "dine-in":  "bg-teal-50 text-teal-500",
+  "walk-in": "bg-orange-50 text-orange-500",
+  "dine-in": "bg-teal-50 text-teal-500",
 };
 
 const TABS: { id: SourceTab; label: string; icon: React.ReactNode }[] = [
-  { id: "delivery",   label: "Delivery",   icon: <Bike size={14} /> },
+  { id: "delivery", label: "Delivery", icon: <Bike size={14} /> },
   { id: "collection", label: "Collection", icon: <ShoppingBag size={14} /> },
-  { id: "walk-in",    label: "Walk-in",    icon: <Tablet size={14} /> },
-  { id: "dine-in",    label: "Dine-in",    icon: <UtensilsCrossed size={14} /> },
+  { id: "walk-in", label: "Walk-in", icon: <Tablet size={14} /> },
+  { id: "dine-in", label: "Dine-in", icon: <UtensilsCrossed size={14} /> },
 ];
 
 function classify(o: RawOrder): SourceTab {
-  if (o.fulfillment === "dine-in")          return "dine-in";
-  if (o.customer_id === POS_CUSTOMER_ID)    return "walk-in"; // POS counter mirror
-  if (o.fulfillment === "delivery")         return "delivery";
+  if (o.fulfillment === "dine-in") return "dine-in";
+  if (o.customer_id === POS_CUSTOMER_ID) return "walk-in"; // POS counter mirror
+  if (o.fulfillment === "delivery") return "delivery";
   return "collection";
 }
 
@@ -103,23 +103,23 @@ export default function OrderHistoryPanel() {
   // Date-range filter. preset drives the from/to bounds; "custom" reveals the
   // date inputs. Bounds are passed to the API so old ranges aren't capped by
   // the recent-rows limit.
-  const [preset, setPreset]     = useState<RangePreset>("all");
+  const [preset, setPreset] = useState<RangePreset>("all");
   const [customFrom, setCustomFrom] = useState("");
-  const [customTo,   setCustomTo]   = useState("");
+  const [customTo, setCustomTo] = useState("");
   const lastKey = useRef<string>("");
 
   // Resolve the preset into ISO from/to bounds (local-day aligned).
   const { fromISO, toISO } = useMemo(() => {
     const startOfDay = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
-    const endOfDay   = (d: Date) => { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; };
+    const endOfDay = (d: Date) => { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; };
     const now = new Date();
     if (preset === "today") return { fromISO: startOfDay(now).toISOString(), toISO: endOfDay(now).toISOString() };
-    if (preset === "7d")    { const f = new Date(now); f.setDate(f.getDate() - 6); return { fromISO: startOfDay(f).toISOString(), toISO: endOfDay(now).toISOString() }; }
-    if (preset === "30d")   { const f = new Date(now); f.setDate(f.getDate() - 29); return { fromISO: startOfDay(f).toISOString(), toISO: endOfDay(now).toISOString() }; }
+    if (preset === "7d") { const f = new Date(now); f.setDate(f.getDate() - 6); return { fromISO: startOfDay(f).toISOString(), toISO: endOfDay(now).toISOString() }; }
+    if (preset === "30d") { const f = new Date(now); f.setDate(f.getDate() - 29); return { fromISO: startOfDay(f).toISOString(), toISO: endOfDay(now).toISOString() }; }
     if (preset === "custom") {
       return {
         fromISO: customFrom ? startOfDay(new Date(customFrom)).toISOString() : null,
-        toISO:   customTo   ? endOfDay(new Date(customTo)).toISOString()     : null,
+        toISO: customTo ? endOfDay(new Date(customTo)).toISOString() : null,
       };
     }
     return { fromISO: null as string | null, toISO: null as string | null };
@@ -133,7 +133,7 @@ export default function OrderHistoryPanel() {
       // ranges aren't truncated by the recent-rows cap.
       const params = new URLSearchParams({ limit: "5000" });
       if (fromISO) params.set("from", fromISO);
-      if (toISO)   params.set("to", toISO);
+      if (toISO) params.set("to", toISO);
       const r = await fetch(`/api/admin/orders?${params}`, { cache: "no-store" });
       if (!r.ok) return;
       const json = await r.json() as { ok: boolean; orders?: RawOrder[] };
@@ -168,10 +168,10 @@ export default function OrderHistoryPanel() {
   const tabTotal = rows.reduce((s, o) => s + (o.status === "cancelled" ? 0 : Number(o.total ?? 0)), 0);
 
   const PRESETS: { id: RangePreset; label: string }[] = [
-    { id: "all",    label: "All time" },
-    { id: "today",  label: "Today" },
-    { id: "7d",     label: "7 days" },
-    { id: "30d",    label: "30 days" },
+    { id: "all", label: "All time" },
+    { id: "today", label: "Today" },
+    { id: "7d", label: "7 days" },
+    { id: "30d", label: "30 days" },
     { id: "custom", label: "Custom" },
   ];
 
@@ -205,11 +205,10 @@ export default function OrderHistoryPanel() {
             <button
               key={t.id}
               onClick={() => { setTab(t.id); setSearch(""); }}
-              className={`flex items-center gap-2 pl-2.5 pr-2.5 sm:pr-3 py-2 rounded-xl text-sm font-semibold border transition ${
-                isActive
+              className={`flex items-center gap-2 pl-2.5 pr-2.5 sm:pr-3 py-2 rounded-xl text-sm font-semibold border transition ${isActive
                   ? "bg-white border-orange-300 text-gray-900 shadow-sm ring-1 ring-orange-200"
                   : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
-              }`}
+                }`}
             >
               <span className={`w-6 h-6 rounded-lg flex items-center justify-center ${isActive ? TAB_ACCENT[t.id] : "bg-gray-100 text-gray-400"}`}>
                 {t.icon}
@@ -230,9 +229,8 @@ export default function OrderHistoryPanel() {
             <button
               key={p.id}
               onClick={() => setPreset(p.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                preset === p.id ? "bg-orange-500 text-white shadow-sm" : "text-gray-500 hover:text-gray-700"
-              }`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${preset === p.id ? "bg-orange-500 text-white shadow-sm" : "text-gray-500 hover:text-gray-700"
+                }`}
             >
               {p.label}
             </button>
@@ -283,7 +281,12 @@ export default function OrderHistoryPanel() {
           {rows.map((o) => {
             const cfg = STATUS_CONFIG[o.status] ?? STATUS_CONFIG.pending;
             const itemCount = (o.items ?? []).reduce((s, i) => s + (i.qty ?? 0), 0);
-            const itemSummary = (o.items ?? []).map((i) => `${i.qty}× ${i.name}`).join(", ");
+            const itemSummary = (o.items ?? []).map((i) => {
+              const v = i.selectedVariations?.map(v => v.label).join(", ");
+              const a = i.selectedAddOns?.map(a => a.name).join(", ");
+              const details = [v, a].filter(Boolean).join(" / ");
+              return `${i.qty}× ${i.name}${details ? ` (${details})` : ""}`;
+            }).join(", ");
             return (
               <div key={o.id} className="relative bg-white rounded-xl border border-gray-100 shadow-sm pl-4 pr-4 py-3.5 flex items-center justify-between gap-3 overflow-hidden hover:border-gray-200 transition">
                 <span className={`absolute left-0 top-0 bottom-0 w-1 ${cfg.dot}`} />

@@ -153,7 +153,7 @@ function MethodIcon({ id }: { id: string }) {
 }
 
 function hoverColor(id: string) {
-  if (id === "cash")   return "hover:border-green-400";
+  if (id === "cash") return "hover:border-green-400";
   if (id === "paypal") return "hover:border-blue-400";
   return "hover:border-orange-400";
 }
@@ -285,11 +285,11 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     defaultAddress ? defaultAddress.id : "manual"
   );
   const [form, setForm] = useState({
-    name:    currentUser?.name  ?? "",
-    email:   currentUser?.email ?? "",
-    phone:   currentUser?.phone ?? (defaultAddress?.phone ?? ""),
+    name: currentUser?.name ?? "",
+    email: currentUser?.email ?? "",
+    phone: currentUser?.phone ?? (defaultAddress?.phone ?? ""),
     address: defaultAddress ? `${defaultAddress.address}, ${defaultAddress.postcode}` : "",
-    note:    defaultAddress?.note ?? "",
+    note: defaultAddress?.note ?? "",
   });
 
   // Coupon input state
@@ -310,11 +310,11 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   const [giftCardLookingUp, setGiftCardLookingUp] = useState(false);
 
   // Location state
-  const [locState, setLocState]   = useState<LocationState>("idle");
-  const [distKm,   setDistKm]     = useState<number | null>(null);
-  const [zone,     setZone]       = useState<DeliveryZone | null>(null);
-  const [custLat,  setCustLat]    = useState<number | null>(defaultAddress?.lat ?? null);
-  const [custLng,  setCustLng]    = useState<number | null>(defaultAddress?.lng ?? null);
+  const [locState, setLocState] = useState<LocationState>("idle");
+  const [distKm, setDistKm] = useState<number | null>(null);
+  const [zone, setZone] = useState<DeliveryZone | null>(null);
+  const [custLat, setCustLat] = useState<number | null>(defaultAddress?.lat ?? null);
+  const [custLng, setCustLng] = useState<number | null>(defaultAddress?.lng ?? null);
   // A saved-address pin is treated as user-confirmed (the customer placed it
   // when they saved the address). Manual entry starts with no pin → null.
   const [pinSource, setPinSource] = useState<PinSource>(
@@ -327,9 +327,9 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   useEffect(() => { pinSourceRef.current = pinSource; }, [pinSource]);
 
   // Validation
-  const [fieldErrors, setFieldErrors]  = useState<Record<string, string>>({});
-  const [submitError, setSubmitError]  = useState("");
-  const [submitting,  setSubmitting]   = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [submitError, setSubmitError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const isDelivery = fulfillment === "delivery";
   const sym = settings.currency?.symbol ?? "£";
@@ -339,27 +339,27 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   // Re-compute grand total using zone fee when detected. cartSubtotal applies
   // any cart-level offers (bogo/multibuy/qty_discount) snapshotted on each
   // line; per-unit offers are already in i.price.
-  const baseCartTotal  = cartSubtotal(cart);
-  const deliveryFee    = isDelivery ? (zone?.fee ?? settings.restaurant.deliveryFee) : 0;
-  const serviceFee     = baseCartTotal * (settings.restaurant.serviceFee / 100);
+  const baseCartTotal = cartSubtotal(cart);
+  const deliveryFee = isDelivery ? (zone?.fee ?? settings.restaurant.deliveryFee) : 0;
+  const serviceFee = baseCartTotal * (settings.restaurant.serviceFee / 100);
   const couponDiscount = appliedCoupon?.discountAmount ?? 0;
-  const tax            = computeTax(baseCartTotal, settings);
-  const adjustedTotal     = Math.max(0, baseCartTotal + deliveryFee + serviceFee + taxSurcharge(tax) - couponDiscount);
+  const tax = computeTax(baseCartTotal, settings);
+  const adjustedTotal = Math.max(0, baseCartTotal + deliveryFee + serviceFee + taxSurcharge(tax) - couponDiscount);
   const storeCreditApplied = useCredit ? Math.min(availableCredit, adjustedTotal) : 0;
   // Gift card applies after coupon + store credit, capped by the remaining
   // total. Order of operations matches the server (orderValidation.ts).
   const totalBeforeGiftCard = Math.max(0, adjustedTotal - storeCreditApplied);
-  const giftCardApplied     = appliedGiftCard
+  const giftCardApplied = appliedGiftCard
     ? Math.round(Math.min(appliedGiftCard.balance, totalBeforeGiftCard) * 100) / 100
     : 0;
-  const orderTotal         = Math.max(0, totalBeforeGiftCard - giftCardApplied);
+  const orderTotal = Math.max(0, totalBeforeGiftCard - giftCardApplied);
 
   // Card minimum is enforced server-side via Stripe's own rejection (see
   // /api/payments/intent catch block). We don't pre-check on the client
   // because per-currency minimums shift with FX rates and hardcoded tables
   // go stale.
-  const paypalMin       = PAYPAL_MIN_CHARGE_BY_CURRENCY[(settings.currency?.code ?? "GBP").toUpperCase()] ?? PAYPAL_MIN_CHARGE_FALLBACK;
-  const belowPaypalMin  = orderTotal > 0 && orderTotal < paypalMin;
+  const paypalMin = PAYPAL_MIN_CHARGE_BY_CURRENCY[(settings.currency?.code ?? "GBP").toUpperCase()] ?? PAYPAL_MIN_CHARGE_FALLBACK;
+  const belowPaypalMin = orderTotal > 0 && orderTotal < paypalMin;
 
   function applyCode() {
     setCouponError("");
@@ -378,9 +378,9 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     setGiftCardLookingUp(true);
     try {
       const res = await fetch("/api/gift-cards/lookup", {
-        method:  "POST",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ code }),
+        body: JSON.stringify({ code }),
       });
       const json = await res.json().catch(() => ({})) as {
         ok?: boolean; error?: string; card?: { code: string; balance: number };
@@ -504,9 +504,9 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
         price: i.price,
         menuItemId: i.menuItemId,
         // Emit the deprecated singular field too so older consumers keep working.
-        ...(i.selectedVariation   ? { selectedVariation:   i.selectedVariation }   : {}),
+        ...(i.selectedVariation ? { selectedVariation: i.selectedVariation } : {}),
         ...(i.selectedVariations?.length ? { selectedVariations: i.selectedVariations } : {}),
-        ...(i.selectedAddOns?.length ? { selectedAddOns: i.selectedAddOns }        : {}),
+        ...(i.selectedAddOns?.length ? { selectedAddOns: i.selectedAddOns } : {}),
         ...(i.specialInstructions ? { specialInstructions: i.specialInstructions } : {}),
         // Snapshot of the offer at add-to-cart time. Server re-verifies it
         // against the current menu_items.offer and applies cart-level
@@ -564,16 +564,16 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
 
   async function handlePay(method: PaymentMethod) {
     if (!validate()) return;
-    if (method.id === "stripe")      await startCardPayment(method);
+    if (method.id === "stripe") await startCardPayment(method);
     else if (method.id === "paypal") await startPaypalPayment(method);
-    else                             await placeCashOrder(method);
+    else await placeCashOrder(method);
   }
 
   // Synchronous double-submit guards. The `submitting` state already disables
   // the buttons but a fast double-click can fire before React re-renders;
   // these refs catch the second call before the fetch is issued.
-  const cashInFlight   = useRef(false);
-  const cardInFlight   = useRef(false);
+  const cashInFlight = useRef(false);
+  const cardInFlight = useRef(false);
   const paypalInFlight = useRef(false);
 
   /** Cash / pay-on-delivery — order is inserted immediately. */
@@ -625,12 +625,12 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name:       form.name.trim(),
-          email:      form.email.trim(),
-          phone:      form.phone.trim(),
+          name: form.name.trim(),
+          email: form.email.trim(),
+          phone: form.phone.trim(),
           orderTotal: orderTotal,
         }),
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }
 
@@ -709,12 +709,12 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name:       form.name.trim(),
-          email:      form.email.trim(),
-          phone:      form.phone.trim(),
+          name: form.name.trim(),
+          email: form.email.trim(),
+          phone: form.phone.trim(),
           orderTotal: orderTotal,
         }),
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }
 
@@ -793,12 +793,12 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name:       form.name.trim(),
-          email:      form.email.trim(),
-          phone:      form.phone.trim(),
+          name: form.name.trim(),
+          email: form.email.trim(),
+          phone: form.phone.trim(),
           orderTotal: orderTotal,
         }),
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }
 
@@ -998,7 +998,20 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
             <ul className="space-y-1.5">
               {cart.map((item) => (
                 <li key={item.id} className="flex justify-between text-sm">
-                  <span className="text-gray-600">{item.quantity}× {item.name}</span>
+                  <div>
+                    <div className="flex flex-wrap flex-row">
+                      <span className="text-gray-600 mr-1.5">{item.quantity}× {item.name} </span>
+                      {item.selectedVariations && item.selectedVariations.length > 0 && (
+                        <p className="text-[12.5px] text-gray-500 mt-0.5 mr-1">({item.selectedVariations.map((v) => v.label).join(", ")})</p>
+                      )}
+                      {item.selectedAddOns && item.selectedAddOns.length > 0 && (
+                        <p className="text-[12.5px] text-gray-500 mt-0.5">+ {item.selectedAddOns.map((a) => a.name).join(", ")}</p>
+                      )}
+                    </div>
+                    {item.specialInstructions && (
+                      <p className="text-[12.5px] text-gray-500 italic">&ldquo;{item.specialInstructions}&rdquo;</p>
+                    )}
+                  </div>
                   <span className="font-medium text-gray-900">{sym}{(item.price * item.quantity).toFixed(2)}</span>
                 </li>
               ))}
@@ -1015,9 +1028,8 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                 <span>{sym}{serviceFee.toFixed(2)}</span>
               </div>
               {tax.enabled && tax.showBreakdown && tax.vatAmount > 0 && (
-                <div className={`flex justify-between text-xs font-semibold ${
-                  tax.inclusive ? "text-gray-400" : "text-orange-600"
-                }`}>
+                <div className={`flex justify-between text-xs font-semibold ${tax.inclusive ? "text-gray-400" : "text-orange-600"
+                  }`}>
                   <span>{tax.label}</span>
                   <span>{tax.inclusive ? `${sym}${tax.vatAmount.toFixed(2)}` : `+${sym}${tax.vatAmount.toFixed(2)}`}</span>
                 </div>
@@ -1167,15 +1179,13 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
               <button
                 type="button"
                 onClick={() => setUseCredit((v) => !v)}
-                className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 border-2 transition ${
-                  useCredit
-                    ? "border-teal-400 bg-teal-50"
-                    : "border-gray-200 hover:border-teal-300"
-                }`}
+                className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 border-2 transition ${useCredit
+                  ? "border-teal-400 bg-teal-50"
+                  : "border-gray-200 hover:border-teal-300"
+                  }`}
               >
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                  useCredit ? "bg-teal-500" : "bg-teal-100"
-                }`}>
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${useCredit ? "bg-teal-500" : "bg-teal-100"
+                  }`}>
                   <Gift size={18} className={useCredit ? "text-white" : "text-teal-600"} />
                 </div>
                 <div className="flex-1 text-left">
@@ -1188,9 +1198,8 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                       : "Tap to apply your credit to this order"}
                   </p>
                 </div>
-                <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
-                  useCredit ? "border-teal-500 bg-teal-500" : "border-gray-300"
-                }`}>
+                <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${useCredit ? "border-teal-500 bg-teal-500" : "border-gray-300"
+                  }`}>
                   {useCredit && <div className="w-2 h-2 rounded-full bg-white" />}
                 </div>
               </button>
@@ -1201,9 +1210,9 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
           <div className="space-y-3">
             <h3 className="font-semibold text-gray-900 text-sm">Your details</h3>
             {[
-              { key: "name",  label: "Full name",     type: "text",  placeholder: "Jane Smith" },
+              { key: "name", label: "Full name", type: "text", placeholder: "Jane Smith" },
               { key: "email", label: "Email address", type: "email", placeholder: "jane@example.com" },
-              { key: "phone", label: "Phone number",  type: "tel",   placeholder: "+44 7700 900000" },
+              { key: "phone", label: "Phone number", type: "tel", placeholder: "+44 7700 900000" },
             ].map(({ key, label, type, placeholder }) => (
               <div key={key}>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -1220,11 +1229,10 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                     if (fieldErrors[key]) setFieldErrors((p) => ({ ...p, [key]: "" }));
                   }}
                   placeholder={placeholder}
-                  className={`w-full border rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 transition ${
-                    fieldErrors[key]
-                      ? "border-red-400 focus:ring-red-300 bg-red-50"
-                      : "border-gray-200 focus:ring-orange-400"
-                  }`}
+                  className={`w-full border rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 transition ${fieldErrors[key]
+                    ? "border-red-400 focus:ring-red-300 bg-red-50"
+                    : "border-gray-200 focus:ring-orange-400"
+                    }`}
                 />
                 {fieldErrors[key] && (
                   <p className="flex items-center gap-1 text-xs text-red-500 mt-1">
@@ -1273,15 +1281,13 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                             setZone(null);
                           }
                         }}
-                        className={`w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-xl border transition ${
-                          selectedAddressId === addr.id
-                            ? "border-orange-400 bg-orange-50"
-                            : "border-gray-200 hover:border-orange-300 bg-white"
-                        }`}
+                        className={`w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-xl border transition ${selectedAddressId === addr.id
+                          ? "border-orange-400 bg-orange-50"
+                          : "border-gray-200 hover:border-orange-300 bg-white"
+                          }`}
                       >
-                        <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 mt-0.5 flex items-center justify-center ${
-                          selectedAddressId === addr.id ? "border-orange-500" : "border-gray-300"
-                        }`}>
+                        <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 mt-0.5 flex items-center justify-center ${selectedAddressId === addr.id ? "border-orange-500" : "border-gray-300"
+                          }`}>
                           {selectedAddressId === addr.id && (
                             <div className="w-2 h-2 rounded-full bg-orange-500" />
                           )}
@@ -1314,15 +1320,13 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                         setDistKm(null);
                         setZone(null);
                       }}
-                      className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl border transition ${
-                        selectedAddressId === "manual"
-                          ? "border-orange-400 bg-orange-50"
-                          : "border-dashed border-gray-200 hover:border-orange-300"
-                      }`}
+                      className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl border transition ${selectedAddressId === "manual"
+                        ? "border-orange-400 bg-orange-50"
+                        : "border-dashed border-gray-200 hover:border-orange-300"
+                        }`}
                     >
-                      <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
-                        selectedAddressId === "manual" ? "border-orange-500" : "border-gray-300"
-                      }`}>
+                      <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${selectedAddressId === "manual" ? "border-orange-500" : "border-gray-300"
+                        }`}>
                         {selectedAddressId === "manual" && (
                           <div className="w-2 h-2 rounded-full bg-orange-500" />
                         )}
@@ -1347,11 +1351,10 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                         // guard skips when pinSource === "user").
                       }}
                       placeholder="42 Example Street, London"
-                      className={`w-full border rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 transition ${
-                        fieldErrors.address
-                          ? "border-red-400 focus:ring-red-300 bg-red-50"
-                          : "border-gray-200 focus:ring-orange-400"
-                      }`}
+                      className={`w-full border rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 transition ${fieldErrors.address
+                        ? "border-red-400 focus:ring-red-300 bg-red-50"
+                        : "border-gray-200 focus:ring-orange-400"
+                        }`}
                     />
                     {fieldErrors.address && (
                       <p className="flex items-center gap-1 text-xs text-red-500 mt-1">
@@ -1514,7 +1517,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
               // rejection (and translated to a friendly message). PayPal
               // we still pre-check because its rejections are less clean.
               const disabledByMin = method.id === "paypal" && belowPaypalMin;
-              const methodMin     = paypalMin;
+              const methodMin = paypalMin;
               return (
                 <button
                   key={method.id}
@@ -1575,11 +1578,11 @@ function CardPaymentForm({
   amountLabel: string;
   onPaid: () => void;
 }) {
-  const stripe   = useStripe();
+  const stripe = useStripe();
   const elements = useElements();
   const [submitting, setSubmitting] = useState(false);
-  const [error,      setError]      = useState<string | null>(null);
-  const submitInFlight              = useRef(false);
+  const [error, setError] = useState<string | null>(null);
+  const submitInFlight = useRef(false);
 
   // Stripe needs an absolute return_url for redirect-based methods (Klarna,
   // Bancontact, etc.). Even when we confirm in-place via redirect:'if_required',
@@ -1666,13 +1669,13 @@ function PaypalPaymentForm({
   onCancel,
 }: {
   paypalOrderId: string;
-  amountLabel:   string;
-  currencyCode:  string;
-  onPaid:        () => void;
-  onCancel:      () => void;
+  amountLabel: string;
+  currencyCode: string;
+  onPaid: () => void;
+  onCancel: () => void;
 }) {
-  const [error,      setError]      = useState<string | null>(null);
-  const [capturing,  setCapturing]  = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [capturing, setCapturing] = useState(false);
 
   return (
     <div className="space-y-4">
@@ -1685,7 +1688,7 @@ function PaypalPaymentForm({
         options={{
           clientId: PAYPAL_CLIENT_ID,
           currency: currencyCode,
-          intent:   "capture",
+          intent: "capture",
         }}
       >
         <PayPalButtons

@@ -21,45 +21,45 @@ export interface VarDef {
 
 export const TEMPLATE_VARS: VarDef[] = [
   // Customer
-  { name: "customer_name",       label: "Customer name",       group: "Customer",    preview: "Jane Smith" },
-  { name: "customer_email",      label: "Customer email",      group: "Customer",    preview: "jane@example.com" },
+  { name: "customer_name", label: "Customer name", group: "Customer", preview: "Jane Smith" },
+  { name: "customer_email", label: "Customer email", group: "Customer", preview: "jane@example.com" },
   // Order
-  { name: "order_id",            label: "Order ID",            group: "Order",       preview: "ORD-A1B2C3D4" },
-  { name: "order_date",          label: "Order date",          group: "Order",       preview: "11 Apr 2026, 12:34" },
-  { name: "order_items",         label: "Order items (table)", group: "Order",       preview: "<i>(items table)</i>" },
-  { name: "order_total",         label: "Order total",         group: "Order",       preview: "£18.45" },
-  { name: "order_status",        label: "Order status",        group: "Order",       preview: "confirmed" },
-  { name: "fulfillment_type",    label: "Fulfillment type",    group: "Order",       preview: "Delivery" },
-  { name: "delivery_address",    label: "Delivery address",    group: "Order",       preview: "42 Example St, London" },
-  { name: "payment_method",      label: "Payment method",      group: "Order",       preview: "Cash on Delivery" },
-  { name: "estimated_time",      label: "Estimated time (min)", group: "Order",      preview: "30–45" },
-  { name: "delivery_code",       label: "Delivery confirmation code (delivery only)", group: "Order", preview: "<i>(styled PIN block — only for delivery orders)</i>" },
+  { name: "order_id", label: "Order ID", group: "Order", preview: "ORD-A1B2C3D4" },
+  { name: "order_date", label: "Order date", group: "Order", preview: "11 Apr 2026, 12:34" },
+  { name: "order_items", label: "Order items (table)", group: "Order", preview: "<i>(items table)</i>" },
+  { name: "order_total", label: "Order total", group: "Order", preview: "£18.45" },
+  { name: "order_status", label: "Order status", group: "Order", preview: "confirmed" },
+  { name: "fulfillment_type", label: "Fulfillment type", group: "Order", preview: "Delivery" },
+  { name: "delivery_address", label: "Delivery address", group: "Order", preview: "42 Example St, London" },
+  { name: "payment_method", label: "Payment method", group: "Order", preview: "Cash on Delivery" },
+  { name: "estimated_time", label: "Estimated time (min)", group: "Order", preview: "30–45" },
+  { name: "delivery_code", label: "Delivery confirmation code (delivery only)", group: "Order", preview: "<i>(styled PIN block — only for delivery orders)</i>" },
   // Restaurant
-  { name: "restaurant_name",     label: "Restaurant name",     group: "Restaurant",  preview: "Your Restaurant" },
-  { name: "restaurant_phone",    label: "Restaurant phone",    group: "Restaurant",  preview: "020 7123 4567" },
-  { name: "restaurant_address",  label: "Restaurant address",  group: "Restaurant",  preview: "42 Curry Lane, London" },
+  { name: "restaurant_name", label: "Restaurant name", group: "Restaurant", preview: "Your Restaurant" },
+  { name: "restaurant_phone", label: "Restaurant phone", group: "Restaurant", preview: "020 7123 4567" },
+  { name: "restaurant_address", label: "Restaurant address", group: "Restaurant", preview: "42 Curry Lane, London" },
   // Tax
-  { name: "order_vat",           label: "VAT amount",          group: "Order",       preview: "£3.33 (incl. 20% VAT)" },
+  { name: "order_vat", label: "VAT amount", group: "Order", preview: "£3.33 (incl. 20% VAT)" },
   // Reservation
-  { name: "booking_ref",         label: "Booking reference",   group: "Reservation", preview: "A1B2C3D4" },
-  { name: "reservation_date",    label: "Reservation date",    group: "Reservation", preview: "25 Apr 2026" },
-  { name: "reservation_time",    label: "Reservation time",    group: "Reservation", preview: "7:30 PM" },
-  { name: "table_label",         label: "Table label",         group: "Reservation", preview: "Table 3" },
-  { name: "party_size",          label: "Party size",          group: "Reservation", preview: "4" },
-  { name: "reservation_status",  label: "Reservation status",  group: "Reservation", preview: "confirmed" },
-  { name: "reservation_note",    label: "Special note",        group: "Reservation", preview: "Window seat preferred" },
-  { name: "cancel_link",         label: "Cancel booking link", group: "Reservation", preview: "https://yourdomain.com/reservation/token" },
-  { name: "review_url",          label: "Review link (Google/TripAdvisor)", group: "Reservation", preview: "https://g.page/r/yourplaceid/review" },
+  { name: "booking_ref", label: "Booking reference", group: "Reservation", preview: "A1B2C3D4" },
+  { name: "reservation_date", label: "Reservation date", group: "Reservation", preview: "25 Apr 2026" },
+  { name: "reservation_time", label: "Reservation time", group: "Reservation", preview: "7:30 PM" },
+  { name: "table_label", label: "Table label", group: "Reservation", preview: "Table 3" },
+  { name: "party_size", label: "Party size", group: "Reservation", preview: "4" },
+  { name: "reservation_status", label: "Reservation status", group: "Reservation", preview: "confirmed" },
+  { name: "reservation_note", label: "Special note", group: "Reservation", preview: "Window seat preferred" },
+  { name: "cancel_link", label: "Cancel booking link", group: "Reservation", preview: "https://yourdomain.com/reservation/token" },
+  { name: "review_url", label: "Review link (Google/TripAdvisor)", group: "Reservation", preview: "https://g.page/r/yourplaceid/review" },
   // Gift card (only for gift_card_delivered event)
-  { name: "gift_code",            label: "Gift card code",        group: "Gift Card", preview: "GC-7K9X-LM3P-WT2Q" },
-  { name: "gift_amount",          label: "Gift card amount",      group: "Gift Card", preview: "£50.00" },
-  { name: "gift_recipient_name",  label: "Recipient name",        group: "Gift Card", preview: "Alex" },
-  { name: "gift_sender_name",     label: "Sender / buyer name",   group: "Gift Card", preview: "Jane Smith" },
-  { name: "personal_message",     label: "Personal message",      group: "Gift Card", preview: "Happy birthday — enjoy a nice meal on me!" },
-  { name: "gift_expires_at",      label: "Expiry date",           group: "Gift Card", preview: "11 Apr 2027" },
+  { name: "gift_code", label: "Gift card code", group: "Gift Card", preview: "GC-7K9X-LM3P-WT2Q" },
+  { name: "gift_amount", label: "Gift card amount", group: "Gift Card", preview: "£50.00" },
+  { name: "gift_recipient_name", label: "Recipient name", group: "Gift Card", preview: "Alex" },
+  { name: "gift_sender_name", label: "Sender / buyer name", group: "Gift Card", preview: "Jane Smith" },
+  { name: "personal_message", label: "Personal message", group: "Gift Card", preview: "Happy birthday — enjoy a nice meal on me!" },
+  { name: "gift_expires_at", label: "Expiry date", group: "Gift Card", preview: "11 Apr 2027" },
   // Branding
-  { name: "brand_color",        label: "Brand primary color (hex)", group: "Branding", preview: "#f97316" },
-  { name: "brand_color_light",  label: "Brand light tint (hex)",   group: "Branding", preview: "#fff7ed" },
+  { name: "brand_color", label: "Brand primary color (hex)", group: "Branding", preview: "#f97316" },
+  { name: "brand_color_light", label: "Brand light tint (hex)", group: "Branding", preview: "#fff7ed" },
 ];
 
 // ─── Event metadata ───────────────────────────────────────────────────────────
@@ -74,18 +74,18 @@ export interface EventConfig {
 }
 
 export const EVENT_CONFIGS: EventConfig[] = [
-  { event: "order_confirmation", name: "Order Confirmation", description: "Sent when a customer places an order",        color: "bg-orange-100", textColor: "text-orange-700", emoji: "🧾" },
-  { event: "order_confirmed",    name: "Order Confirmed",    description: "Sent when admin confirms the order",          color: "bg-blue-100",   textColor: "text-blue-700",   emoji: "✅" },
-  { event: "order_preparing",    name: "Order Preparing",    description: "Sent when kitchen starts preparing",         color: "bg-amber-100",  textColor: "text-amber-700",  emoji: "🍳" },
-  { event: "order_ready",        name: "Order Ready",        description: "Sent when the order is ready",               color: "bg-green-100",  textColor: "text-green-700",  emoji: "🥡" },
-  { event: "order_delivered",    name: "Order Delivered",    description: "Sent when the order has been delivered",     color: "bg-emerald-100",textColor: "text-emerald-700",emoji: "🚀" },
-  { event: "order_cancelled",         name: "Order Cancelled",         description: "Sent when an order is cancelled",                color: "bg-red-100",     textColor: "text-red-700",     emoji: "❌" },
-  { event: "reservation_confirmation",   name: "Reservation Confirmed",    description: "Sent when a customer books a table",             color: "bg-teal-100",    textColor: "text-teal-700",    emoji: "📅" },
-  { event: "reservation_update",         name: "Reservation Update",       description: "Sent when admin confirms or changes the status", color: "bg-blue-100",    textColor: "text-blue-700",    emoji: "🔄" },
-  { event: "reservation_cancellation",   name: "Reservation Cancelled",    description: "Sent when a reservation is cancelled",           color: "bg-rose-100",    textColor: "text-rose-700",    emoji: "🚫" },
-  { event: "reservation_check_in",       name: "Guest Checked In",         description: "Sent when staff check the guest in (welcome)",   color: "bg-sky-100",     textColor: "text-sky-700",     emoji: "🪑" },
-  { event: "reservation_review_request", name: "Post-Visit Review Request",description: "Sent automatically when a guest checks out",     color: "bg-yellow-100",  textColor: "text-yellow-700",  emoji: "⭐" },
-  { event: "gift_card_delivered",        name: "Gift Card Delivered",      description: "Sent to the recipient when a gift card is purchased", color: "bg-purple-100", textColor: "text-purple-700", emoji: "🎁" },
+  { event: "order_confirmation", name: "Order Confirmation", description: "Sent when a customer places an order", color: "bg-orange-100", textColor: "text-orange-700", emoji: "🧾" },
+  { event: "order_confirmed", name: "Order Confirmed", description: "Sent when admin confirms the order", color: "bg-blue-100", textColor: "text-blue-700", emoji: "✅" },
+  { event: "order_preparing", name: "Order Preparing", description: "Sent when kitchen starts preparing", color: "bg-amber-100", textColor: "text-amber-700", emoji: "🍳" },
+  { event: "order_ready", name: "Order Ready", description: "Sent when the order is ready", color: "bg-green-100", textColor: "text-green-700", emoji: "🥡" },
+  { event: "order_delivered", name: "Order Delivered", description: "Sent when the order has been delivered", color: "bg-emerald-100", textColor: "text-emerald-700", emoji: "🚀" },
+  { event: "order_cancelled", name: "Order Cancelled", description: "Sent when an order is cancelled", color: "bg-red-100", textColor: "text-red-700", emoji: "❌" },
+  { event: "reservation_confirmation", name: "Reservation Confirmed", description: "Sent when a customer books a table", color: "bg-teal-100", textColor: "text-teal-700", emoji: "📅" },
+  { event: "reservation_update", name: "Reservation Update", description: "Sent when admin confirms or changes the status", color: "bg-blue-100", textColor: "text-blue-700", emoji: "🔄" },
+  { event: "reservation_cancellation", name: "Reservation Cancelled", description: "Sent when a reservation is cancelled", color: "bg-rose-100", textColor: "text-rose-700", emoji: "🚫" },
+  { event: "reservation_check_in", name: "Guest Checked In", description: "Sent when staff check the guest in (welcome)", color: "bg-sky-100", textColor: "text-sky-700", emoji: "🪑" },
+  { event: "reservation_review_request", name: "Post-Visit Review Request", description: "Sent automatically when a guest checks out", color: "bg-yellow-100", textColor: "text-yellow-700", emoji: "⭐" },
+  { event: "gift_card_delivered", name: "Gift Card Delivered", description: "Sent to the recipient when a gift card is purchased", color: "bg-purple-100", textColor: "text-purple-700", emoji: "🎁" },
 ];
 
 // ─── Default templates ────────────────────────────────────────────────────────
@@ -350,18 +350,37 @@ export function buildVarMap(
   const sym = settings.currency?.symbol || "£";
 
   const itemsHtml = order.items
-    .map(
-      (i) =>
+    .map((i) => {
+
+      // 1. Get variation labels (if any)
+      const variations = i.selectedVariations?.length
+        ? i.selectedVariations.map((v) => v.label).join(", ")
+        : null;
+
+      // 2. Get add-on names (if any)
+      const addOns = i.selectedAddOns?.length
+        ? i.selectedAddOns.map((v) => v.name).join(", ")
+        : null;
+
+      // 3. Combine them with a slash only if both exist
+      const details = [variations, addOns].filter(Boolean).join(" / ");
+
+      // 4. Create the final detail string (wrapped in parentheses)
+      const detailDisplay = details ? ` (${details})` : "";
+
+      return (
         `<tr>
-          <td style="padding:6px 8px;border-bottom:1px solid #f3f4f6">${i.name} × ${i.qty}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #f3f4f6">${i.name} ${detailDisplay} × ${i.qty}</td>
           <td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;text-align:right;white-space:nowrap">${sym}${(i.price * i.qty).toFixed(2)}</td>
-        </tr>`,
-    )
+        </tr>`
+      );
+
+    })
     .join("");
 
   // ── Totals breakdown ───────────────────────────────────────────────────────
   const subtotalAmt = order.items.reduce((s, i) => s + i.price * i.qty, 0);
-  const vatRate     = settings.taxSettings?.rate ?? 0;
+  const vatRate = settings.taxSettings?.rate ?? 0;
 
   let totalsHtml = `
     <tr>
@@ -391,8 +410,8 @@ export function buildVarMap(
     </tr>`;
   }
   if (order.vatAmount && order.vatAmount > 0) {
-    const vatLabel  = order.vatInclusive ? `VAT incl. (${vatRate}%)` : `VAT (${vatRate}%)`;
-    const vatColor  = order.vatInclusive ? "#9ca3af" : primaryColor;
+    const vatLabel = order.vatInclusive ? `VAT incl. (${vatRate}%)` : `VAT (${vatRate}%)`;
+    const vatColor = order.vatInclusive ? "#9ca3af" : primaryColor;
     const vatPrefix = order.vatInclusive ? "" : "+";
     totalsHtml += `
     <tr>
@@ -455,30 +474,30 @@ export function buildVarMap(
 
   return {
     // User-supplied — must be HTML-escaped to prevent injection / phishing links.
-    customer_name:      escHtml(customer?.name    ?? "Valued Customer"),
-    customer_email:     escHtml(customer?.email   ?? ""),
-    delivery_address:   escHtml(order.address     ?? ""),
-    payment_method:     escHtml(order.paymentMethod ?? ""),
+    customer_name: escHtml(customer?.name ?? "Valued Customer"),
+    customer_email: escHtml(customer?.email ?? ""),
+    delivery_address: escHtml(order.address ?? ""),
+    payment_method: escHtml(order.paymentMethod ?? ""),
     // System-generated or admin-supplied — safe as-is.
-    order_id:           fullOrderNumber(order.id),
-    order_date:         new Date(order.date).toLocaleString("en-GB", {
+    order_id: fullOrderNumber(order.id),
+    order_date: new Date(order.date).toLocaleString("en-GB", {
       day: "2-digit", month: "short", year: "numeric",
       hour: "2-digit", minute: "2-digit",
     }),
-    order_items:        orderItemsTable,   // server-built HTML — do not escape
-    order_total:        `${sym}${order.total.toFixed(2)}`,
-    order_status:       order.status,
-    fulfillment_type:   order.fulfillment === "delivery" ? "Delivery" : "Collection",
-    restaurant_name:    settings.restaurant.name,
-    restaurant_phone:   settings.restaurant.phone,
+    order_items: orderItemsTable,   // server-built HTML — do not escape
+    order_total: `${sym}${order.total.toFixed(2)}`,
+    order_status: order.status,
+    fulfillment_type: order.fulfillment === "delivery" ? "Delivery" : "Collection",
+    restaurant_name: settings.restaurant.name,
+    restaurant_phone: settings.restaurant.phone,
     restaurant_address: restAddr,
-    estimated_time:     estTime,
-    order_vat:          buildVatString(order.vatAmount, order.vatInclusive, settings),
+    estimated_time: estTime,
+    order_vat: buildVatString(order.vatAmount, order.vatInclusive, settings),
     // Pre-built HTML block — only populated for delivery orders that have a
     // delivery_code on the row. Server-built, so safe to inline unescaped.
-    delivery_code:      buildDeliveryCodeBlock(order.deliveryCode, primaryColor),
-    brand_color:        primaryColor,       // hex — used in style attributes, not escaped
-    brand_color_light:  brandColorLight(primaryColor),
+    delivery_code: buildDeliveryCodeBlock(order.deliveryCode, primaryColor),
+    brand_color: primaryColor,       // hex — used in style attributes, not escaped
+    brand_color_light: brandColorLight(primaryColor),
   };
 }
 
@@ -530,15 +549,15 @@ export function buildPreviewVarMap(settings: AdminSettings): Record<string, stri
     .join(", ");
 
   const previewVatEnabled = settings.taxSettings?.enabled && (settings.taxSettings?.rate ?? 0) > 0;
-  const previewSubtotal   = 14.97;  // 11.98 + 2.99
-  const previewDelivery   = 2.99;
-  const previewService    = parseFloat((previewSubtotal * (settings.restaurant.serviceFee / 100)).toFixed(2));
-  const previewVatRate    = settings.taxSettings?.rate ?? 20;
-  const previewInclusive  = settings.taxSettings?.inclusive ?? true;
-  const previewVatAmt     = previewVatEnabled
+  const previewSubtotal = 14.97;  // 11.98 + 2.99
+  const previewDelivery = 2.99;
+  const previewService = parseFloat((previewSubtotal * (settings.restaurant.serviceFee / 100)).toFixed(2));
+  const previewVatRate = settings.taxSettings?.rate ?? 20;
+  const previewInclusive = settings.taxSettings?.inclusive ?? true;
+  const previewVatAmt = previewVatEnabled
     ? parseFloat((previewSubtotal * previewVatRate / (previewInclusive ? 100 + previewVatRate : 100)).toFixed(2))
     : 0;
-  const previewTotal      = previewSubtotal + previewDelivery + previewService + (previewInclusive ? 0 : previewVatAmt);
+  const previewTotal = previewSubtotal + previewDelivery + previewService + (previewInclusive ? 0 : previewVatAmt);
 
   let previewTotals = `
     <tr>
@@ -554,8 +573,8 @@ export function buildPreviewVarMap(settings: AdminSettings): Record<string, stri
       <td style="padding:4px 8px;text-align:right;color:#6b7280">${sym}${previewService.toFixed(2)}</td>
     </tr>`;
   if (previewVatEnabled && previewVatAmt > 0) {
-    const vatLabel  = previewInclusive ? `VAT incl. (${previewVatRate}%)` : `VAT (${previewVatRate}%)`;
-    const vatColor  = previewInclusive ? "#9ca3af" : primaryColor;
+    const vatLabel = previewInclusive ? `VAT incl. (${previewVatRate}%)` : `VAT (${previewVatRate}%)`;
+    const vatColor = previewInclusive ? "#9ca3af" : primaryColor;
     const vatPrefix = previewInclusive ? "" : "+";
     previewTotals += `
     <tr>
@@ -587,26 +606,26 @@ export function buildPreviewVarMap(settings: AdminSettings): Record<string, stri
     </table>${previewVatNote}`;
 
   return {
-    customer_name:      "Jane Smith",
-    customer_email:     "jane@example.com",
-    order_id:           "ORD-A1B2C3D4",
-    order_date:         "11 Apr 2026, 12:34",
-    order_items:        itemsTable,
-    order_total:        `${sym}${previewTotal.toFixed(2)}`,
-    order_status:       "confirmed",
-    fulfillment_type:   "Delivery",
-    delivery_address:   "42 Example Street, London, E1 6RF",
-    payment_method:     "Cash on Delivery",
-    estimated_time:     `${settings.restaurant.deliveryTime}`,
-    restaurant_name:    settings.restaurant.name,
-    restaurant_phone:   settings.restaurant.phone,
+    customer_name: "Jane Smith",
+    customer_email: "jane@example.com",
+    order_id: "ORD-A1B2C3D4",
+    order_date: "11 Apr 2026, 12:34",
+    order_items: itemsTable,
+    order_total: `${sym}${previewTotal.toFixed(2)}`,
+    order_status: "confirmed",
+    fulfillment_type: "Delivery",
+    delivery_address: "42 Example Street, London, E1 6RF",
+    payment_method: "Cash on Delivery",
+    estimated_time: `${settings.restaurant.deliveryTime}`,
+    restaurant_name: settings.restaurant.name,
+    restaurant_phone: settings.restaurant.phone,
     restaurant_address: restAddr,
     order_vat: previewVatEnabled && previewVatAmt > 0
       ? buildVatString(previewVatAmt, previewInclusive, settings)
       : "",
     // Preview always shows the block populated (it represents the delivery flow).
-    delivery_code:     buildDeliveryCodeBlock("4729", primaryColor),
-    brand_color:       primaryColor,
+    delivery_code: buildDeliveryCodeBlock("4729", primaryColor),
+    brand_color: primaryColor,
     brand_color_light: brandColorLight(primaryColor),
   };
 }
@@ -637,12 +656,12 @@ export function buildEmailDocument(
 
   // Footer contact line
   const footerParts: string[] = [headerName];
-  if (restaurantAddress)                        footerParts.push(restaurantAddress);
+  if (restaurantAddress) footerParts.push(restaurantAddress);
   const footerPhone = receiptSettings?.phone?.trim() || phone;
-  if (footerPhone)                              footerParts.push(footerPhone);
-  if (receiptSettings?.website?.trim())         footerParts.push(receiptSettings.website.trim());
-  if (receiptSettings?.email?.trim())           footerParts.push(receiptSettings.email.trim());
-  if (receiptSettings?.vatNumber?.trim())       footerParts.push(`VAT: ${receiptSettings.vatNumber.trim()}`);
+  if (footerPhone) footerParts.push(footerPhone);
+  if (receiptSettings?.website?.trim()) footerParts.push(receiptSettings.website.trim());
+  if (receiptSettings?.email?.trim()) footerParts.push(receiptSettings.email.trim());
+  if (receiptSettings?.vatNumber?.trim()) footerParts.push(`VAT: ${receiptSettings.vatNumber.trim()}`);
 
   // Optional bottom messages
   const bottomBlock =
@@ -695,9 +714,9 @@ export async function sendEmailViaApi(params: {
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const res = await fetch("/api/admin/email", {
-      method:  "POST",
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(params),
+      body: JSON.stringify(params),
     });
     return await res.json() as { ok: boolean; error?: string };
   } catch (err) {
@@ -774,24 +793,24 @@ export function buildReservationVarMap(
     : "";
 
   return {
-    customer_name:      escHtml(res.customer_name),
-    customer_email:     escHtml(res.customer_email),
-    booking_ref:        res.id.slice(0, 8).toUpperCase(),
-    reservation_date:   formattedDate,
-    reservation_time:   formattedTime,
-    table_label:        escHtml(res.table_label),
-    party_size:         String(res.party_size),
+    customer_name: escHtml(res.customer_name),
+    customer_email: escHtml(res.customer_email),
+    booking_ref: res.id.slice(0, 8).toUpperCase(),
+    reservation_date: formattedDate,
+    reservation_time: formattedTime,
+    table_label: escHtml(res.table_label),
+    party_size: String(res.party_size),
     reservation_status: res.status,
-    reservation_note:   escHtml(res.note ?? ""),
-    restaurant_name:    settings.restaurant.name,
-    restaurant_phone:   settings.restaurant.phone,
+    reservation_note: escHtml(res.note ?? ""),
+    restaurant_name: settings.restaurant.name,
+    restaurant_phone: settings.restaurant.phone,
     restaurant_address: restAddr,
-    cancel_link:        cancelLink,
-    review_url:         (settings.reservationSystem as { reviewUrl?: string })?.reviewUrl ?? "",
-    brand_color:        primaryColor,
-    brand_color_light:  brandColorLight(primaryColor),
+    cancel_link: cancelLink,
+    review_url: (settings.reservationSystem as { reviewUrl?: string })?.reviewUrl ?? "",
+    brand_color: primaryColor,
+    brand_color_light: brandColorLight(primaryColor),
     // VIP booking fee receipt — empty string for free reservations.
-    booking_fee:        feeAmount > 0 ? `${sym}${feeAmount.toFixed(2)}` : "",
+    booking_fee: feeAmount > 0 ? `${sym}${feeAmount.toFixed(2)}` : "",
     booking_fee_receipt: bookingFeeReceipt,
   };
 }
@@ -806,7 +825,7 @@ export function buildReservationVarMap(
 export function buildGiftCardPreviewVarMap(settings: AdminSettings): Record<string, string> {
   const primaryColor = settings.colors?.primaryColor ?? "#f97316";
   const primaryColorLt = brandColorLight(primaryColor);
-  const sym            = settings.currency?.symbol ?? "£";
+  const sym = settings.currency?.symbol ?? "£";
 
   const restAddr = [
     settings.restaurant.addressLine1,
@@ -818,19 +837,19 @@ export function buildGiftCardPreviewVarMap(settings: AdminSettings): Record<stri
   const personalBlock = `<div style="background:${primaryColorLt};border-left:4px solid ${primaryColor};padding:14px 16px;margin:18px 0;border-radius:6px;font-style:italic;color:#374151">"${sampleMessage}"</div>`;
 
   return {
-    customer_name:       "Alex",
-    customer_email:      "alex@example.com",
-    gift_code:           "GC-7K9X-LM3P-WT2Q",
-    gift_amount:         `${sym}50.00`,
+    customer_name: "Alex",
+    customer_email: "alex@example.com",
+    gift_code: "GC-7K9X-LM3P-WT2Q",
+    gift_amount: `${sym}50.00`,
     gift_recipient_name: "Alex",
-    gift_sender_name:    "Jane Smith",
-    personal_message:    personalBlock,
-    gift_expires_at:     "11 Apr 2027",
-    restaurant_name:     settings.restaurant.name,
-    restaurant_phone:    settings.restaurant.phone,
-    restaurant_address:  restAddr,
-    brand_color:         primaryColor,
-    brand_color_light:   primaryColorLt,
+    gift_sender_name: "Jane Smith",
+    personal_message: personalBlock,
+    gift_expires_at: "11 Apr 2027",
+    restaurant_name: settings.restaurant.name,
+    restaurant_phone: settings.restaurant.phone,
+    restaurant_address: restAddr,
+    brand_color: primaryColor,
+    brand_color_light: primaryColorLt,
   };
 }
 
@@ -845,23 +864,23 @@ export function buildReservationPreviewVarMap(settings: AdminSettings): Record<s
   ].filter(Boolean).join(", ");
 
   return {
-    customer_name:      "Jane Smith",
-    customer_email:     "jane@example.com",
-    booking_ref:        "A1B2C3D4",
-    reservation_date:   "25 Apr 2026",
-    reservation_time:   "7:30 PM",
-    table_label:        "Table 3",
-    party_size:         "4",
+    customer_name: "Jane Smith",
+    customer_email: "jane@example.com",
+    booking_ref: "A1B2C3D4",
+    reservation_date: "25 Apr 2026",
+    reservation_time: "7:30 PM",
+    table_label: "Table 3",
+    party_size: "4",
     reservation_status: "confirmed",
-    reservation_note:   "Window seat preferred",
-    restaurant_name:    settings.restaurant.name,
-    restaurant_phone:   settings.restaurant.phone,
+    reservation_note: "Window seat preferred",
+    restaurant_name: settings.restaurant.name,
+    restaurant_phone: settings.restaurant.phone,
     restaurant_address: restAddr,
-    cancel_link:        "https://yourdomain.com/reservation/example-token",
-    review_url:         (settings.reservationSystem as { reviewUrl?: string })?.reviewUrl ?? "https://g.page/r/review",
-    brand_color:        primaryColor,
-    brand_color_light:  brandColorLight(primaryColor),
-    booking_fee:        "",
+    cancel_link: "https://yourdomain.com/reservation/example-token",
+    review_url: (settings.reservationSystem as { reviewUrl?: string })?.reviewUrl ?? "https://g.page/r/review",
+    brand_color: primaryColor,
+    brand_color_light: brandColorLight(primaryColor),
+    booking_fee: "",
     booking_fee_receipt: "",
   };
 }
@@ -883,9 +902,9 @@ export function sendReservationEmail(
   const to = res.customer_email?.trim();
   if (!to) return;
 
-  const vars    = buildReservationVarMap(res, settings);
+  const vars = buildReservationVarMap(res, settings);
   const subject = applyVars(template.subject, vars);
-  const body    = applyVars(template.body,    vars);
+  const body = applyVars(template.body, vars);
 
   const restAddr = [
     settings.restaurant.addressLine1,
@@ -929,9 +948,9 @@ export function sendOrderEmail(
   const to = customer?.email?.trim();
   if (!to) return;
 
-  const vars    = buildVarMap(order, customer, settings);
+  const vars = buildVarMap(order, customer, settings);
   const subject = applyVars(template.subject, vars);
-  const body    = applyVars(template.body,    vars);
+  const body = applyVars(template.body, vars);
 
   const restAddr = [
     settings.restaurant.addressLine1,
