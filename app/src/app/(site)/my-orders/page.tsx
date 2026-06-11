@@ -290,13 +290,13 @@ export default function MyOrdersPage() {
             // Resolve Variations (Support multiple variations + Name fallback)
             // Check for both plural and singular keys to be safe
             const originalVars = line.selectedVariations || (line.selectedVariation ? [line.selectedVariation] : []);
-            let resolvedVariations: CartItem["selectedVariations"] = [];
+            const resolvedVariations: CartItem["selectedVariations"] = [];
             let variationPriceTotal = 0;
 
             if (originalVars.length > 0) {
                 originalVars.forEach((saved) => {
                     // Find the variation group (e.g., "Size")
-                    let variationGroup = menuItem.variations?.find(v => v.id === saved.variationId);
+                    const variationGroup = menuItem.variations?.find(v => v.id === saved.variationId);
 
                     // Find the specific option (e.g., "Large")
                     // Try ID first, fallback to Label matching

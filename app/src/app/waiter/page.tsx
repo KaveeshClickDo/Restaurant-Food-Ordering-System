@@ -910,10 +910,15 @@ function ItemModal({
 
           <button
             onClick={handleAdd}
-            className="flex-1 bg-orange-500 hover:bg-orange-400 active:scale-[0.98] text-sm sm:text-base text-white font-bold rounded-xl px-1 py-3 flex items-center justify-center gap-2 transition-all"
+            disabled={isMissingRequired}
+            className={`flex-1 flex items-center justify-center gap-2 px-1 py-3 rounded-xl font-bold transition-all ${
+              isMissingRequired 
+                ? "bg-slate-700 text-slate-500 cursor-not-allowed" 
+                : "bg-orange-500 hover:bg-orange-400 text-white active:scale-[0.98]"
+            }`}
           >
             <Plus size={16} />
-            Add · {fmtCur(unitPrice * qty, sym)}
+            {isMissingRequired ? "Selection Required" : `Add · ${fmtCur(unitPrice * qty, sym)}`}
           </button>
         </div>
       </div>
