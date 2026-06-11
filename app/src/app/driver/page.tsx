@@ -155,8 +155,8 @@ function AvailableOrderCard({
         </div>
         <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
           <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${isReady
-              ? "bg-green-100 text-green-800 border-green-200"
-              : "bg-orange-100 text-orange-800 border-orange-200"
+            ? "bg-green-100 text-green-800 border-green-200"
+            : "bg-orange-100 text-orange-800 border-orange-200"
             }`}>
             {isReady ? "Ready for pickup" : "Preparing"}
           </span>
@@ -213,16 +213,35 @@ function AvailableOrderCard({
       <div className="mx-4 border-t border-gray-100" />
 
       {/* Items */}
-      <div className="px-4 py-3 space-y-1.5">
+      <div className="px-4 py-3 space-y-2">
         <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide flex items-center gap-1">
           <Package size={10} /> Order items
         </p>
-        {order.items.map((item, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <span className="text-orange-500 font-extrabold text-base min-w-[3rem] text-center flex-shrink-0">{item.qty}×</span>
-            <span className="text-gray-800 font-semibold text-sm">{item.name}</span>
-          </div>
-        ))}
+        {order.items.map((item, i) => {
+          // 1. Process variations and add-ons
+          const v = item.selectedVariations?.map(v => v.label).join(", ");
+          const a = item.selectedAddOns?.map(a => a.name).join(", ");
+          const details = [v, a].filter(Boolean).join(" / ");
+
+          return (
+            <div key={i} className="flex flex-wrap items-start gap-2">
+              <span className="text-orange-500 font-extrabold text-base min-w-[3rem] text-center flex-shrink-0 leading-tight">
+                {item.qty}×
+              </span>
+
+              <span className="text-gray-800 font-semibold text-sm leading-tight">
+                {item.name} -
+              </span>
+
+              {/* 2. Sub-details for variations/add-ons */}
+              {details && (
+                <p className="text-[12px] text-gray-400 font-medium leading-tight mt-0.5">
+                  {details}
+                </p>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Delivery note — full banner stays for visibility; the address card
@@ -277,8 +296,8 @@ function AvailableOrderCard({
           <button
             onClick={() => setConfirming(true)}
             className={`w-full font-bold py-3.5 rounded-xl transition-all active:scale-[0.97] shadow-sm text-white ${isReady
-                ? "bg-green-500 hover:bg-green-400"
-                : "bg-orange-500 hover:bg-orange-400"
+              ? "bg-green-500 hover:bg-green-400"
+              : "bg-orange-500 hover:bg-orange-400"
               }`}
           >
             {isReady ? "Accept & Pick Up →" : "Accept Order →"}
@@ -346,9 +365,9 @@ function OrderCard({
 
   return (
     <div className={`bg-white rounded-2xl border-l-4 shadow-sm overflow-hidden ${ds === "assigned" ? "border-amber-400" :
-        ds === "picked_up" ? "border-blue-400" :
-          ds === "on_the_way" ? "border-indigo-500" :
-            "border-green-400"
+      ds === "picked_up" ? "border-blue-400" :
+        ds === "on_the_way" ? "border-indigo-500" :
+          "border-green-400"
       }`}>
       {/* Card header */}
       <div className="px-4 pt-4 pb-3 flex items-start justify-between gap-3">
@@ -415,16 +434,35 @@ function OrderCard({
       <div className="mx-4 border-t border-gray-100" />
 
       {/* Items */}
-      <div className="px-4 py-3 space-y-1.5">
+      <div className="px-4 py-3 space-y-2">
         <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide flex items-center gap-1">
           <Package size={10} /> Order items
         </p>
-        {order.items.map((item, i) => (
-          <div key={i} className="flex items-center gap-2.5">
-            <span className="text-orange-500 font-extrabold text-base min-w-[3rem] text-center flex-shrink-0">{item.qty}×</span>
-            <span className="text-gray-800 font-semibold text-sm">{item.name}</span>
-          </div>
-        ))}
+        {order.items.map((item, i) => {
+          // 1. Process variations and add-ons
+          const v = item.selectedVariations?.map(v => v.label).join(", ");
+          const a = item.selectedAddOns?.map(a => a.name).join(", ");
+          const details = [v, a].filter(Boolean).join(" / ");
+
+          return (
+            <div key={i} className="flex flex-wrap items-start gap-2">
+              <span className="text-orange-500 font-extrabold text-base min-w-[3rem] text-center flex-shrink-0 leading-tight">
+                {item.qty}×
+              </span>
+
+              <span className="text-gray-800 font-semibold text-sm leading-tight">
+                {item.name} -
+              </span>
+
+              {/* 2. Sub-details for variations/add-ons */}
+              {details && (
+                <p className="text-[12px] text-gray-400 font-medium leading-tight mt-0.5">
+                  {details}
+                </p>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Note */}
@@ -491,8 +529,8 @@ function OrderCard({
                   onClick={handleConfirmDelivered}
                   disabled={submitting || (needsCode && codeInput.length !== 4)}
                   className={`flex-1 text-white font-bold py-3 rounded-xl transition text-sm md:text-base ${submitting || (needsCode && codeInput.length !== 4)
-                      ? "bg-gray-300 cursor-not-allowed"
-                      : "bg-green-500 hover:bg-green-400"
+                    ? "bg-gray-300 cursor-not-allowed"
+                    : "bg-green-500 hover:bg-green-400"
                     }`}
                 >
                   {submitting ? "Confirming…" : needsCode ? "Confirm Delivery" : "Yes, Delivered"}
@@ -518,8 +556,8 @@ function OrderCard({
                 onClick={handleNext}
                 disabled={pickupBlocked}
                 className={`w-full text-white font-bold py-3.5 rounded-xl transition-all shadow-sm ${pickupBlocked
-                    ? "bg-gray-300 cursor-not-allowed"
-                    : `${cfg.nextClass} active:scale-[0.97]`
+                  ? "bg-gray-300 cursor-not-allowed"
+                  : `${cfg.nextClass} active:scale-[0.97]`
                   }`}
               >
                 {pickupBlocked ? "Waiting for kitchen…" : `${cfg.nextLabel} →`}
@@ -996,7 +1034,7 @@ export default function DriverDashboardPage() {
       {/* ── Footer (Fixed at bottom) ─────────────────────────────────────── */}
       <footer className="bg-white border-t border-gray-200 px-4 py-3 flex-shrink-0 text-center text-[11px] text-gray-400">
         {settings.footerCopyright || `© ${new Date().getFullYear()} ${settings.restaurant.name}. All rights reserved.`} ·
-         Designed by SeekaHost Technologies Ltd.
+        Designed by SeekaHost Technologies Ltd.
       </footer>
 
     </div>

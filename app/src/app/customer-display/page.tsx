@@ -38,18 +38,18 @@ function rowToDisplay(row: any): DisplayOrder | null {
   if (!ACTIVE_STATUSES.includes(row.status)) return null;
   // Server computes the short, prefixed display code (R… for POS, C-/T- for
   // collection/dine-in) so the client never has to touch the raw id.
-  const label  = String(row.displayNo ?? "");
+  const label = String(row.displayNo ?? "");
   const status = row.status as ActiveStatus;
 
   return {
-    id:          row.id,
+    id: row.id,
     label,
-    fullLabel:   label,
+    fullLabel: label,
     status,
     fulfillment: String(row.fulfillment ?? "collection"),
-    readyLabel:  status === "ready" ? "READY FOR COLLECTION" : null,
-    items:       (row.items ?? []) as OrderLine[],
-    date:        typeof row.date === "string" ? row.date : new Date(row.date).toISOString(),
+    readyLabel: status === "ready" ? "READY FOR COLLECTION" : null,
+    items: (row.items ?? []) as OrderLine[],
+    date: typeof row.date === "string" ? row.date : new Date(row.date).toISOString(),
   };
 }
 
@@ -59,7 +59,7 @@ function rowToDisplay(row: any): DisplayOrder | null {
 
 function useSmartLayout(orderCount: number) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const[layout, setLayout] = useState({ cols: 1, maxRows: 3, pageSize: 3 });
+  const [layout, setLayout] = useState({ cols: 1, maxRows: 3, pageSize: 3 });
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -68,7 +68,7 @@ function useSmartLayout(orderCount: number) {
       if (width === 0 || height === 0) return;
 
       // Minimum comfortably readable sizes for a card
-      const minCardHeight = 180; 
+      const minCardHeight = 180;
       const minCardWidth = 300;
 
       // Calculate max possible rows/cols that fit physically (capped to maintain aesthetics)
@@ -122,7 +122,7 @@ function MarqueeLabel({
   const wrapRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
   const [overflowPx, setOverflowPx] = useState(0);
- 
+
   useEffect(() => {
     const measure = () => {
       const wrap = wrapRef.current;
@@ -131,21 +131,21 @@ function MarqueeLabel({
       // How many px does the text stick out past the container?
       setOverflowPx(Math.max(0, text.scrollWidth - wrap.clientWidth));
     };
- 
+
     measure();
- 
+
     // Re-measure on any resize (grid layout change, viewport scale, font load)
     const ro = new ResizeObserver(measure);
     if (wrapRef.current) ro.observe(wrapRef.current);
     if (textRef.current) ro.observe(textRef.current);
     return () => ro.disconnect();
   }, [label]);
- 
+
   const needsScroll = label.length > 8 && overflowPx > 0;
- 
+
   // Speed: 2s base + 0.06s per overflow-px → smooth at any card width / screen size
   const durationSec = needsScroll ? (2 + overflowPx * 0.02).toFixed(2) : "0";
- 
+
   return (
     <div ref={wrapRef} className="w-full overflow-hidden flex-shrink-0">
       <span
@@ -153,10 +153,10 @@ function MarqueeLabel({
         style={
           needsScroll
             ? ({
-                "--slide-px": `-${overflowPx}px`,
-                "--slide-dur": `${durationSec}s`,
-                animation: "order-slide var(--slide-dur) ease-in-out infinite",
-              } as React.CSSProperties)
+              "--slide-px": `-${overflowPx}px`,
+              "--slide-dur": `${durationSec}s`,
+              animation: "order-slide var(--slide-dur) ease-in-out infinite",
+            } as React.CSSProperties)
             : undefined
         }
         className={`
@@ -196,20 +196,20 @@ function OrderCard({
   }, [isReady]);
 
   // Highly responsive typography scaling based on grid density
-  const numCls = cols === 1 ? "text-5xl sm:text-7xl lg:text-7xl xl:text-[78px] 2xl:text-[88px]" 
-               : cols === 2 ? "text-5xl sm:text-5xl lg:text-[41px] xl:text-[45px] 2xl:text-[54px]" 
-               : cols === 3 ? "text-[32px] sm:text-4xl lg:text-4xl 2xl:text-[45px]"
-               : "text-2xl md:text-[32px] lg:text-4xl 2xl:text-4xl";
-               
-  const qtyTxt  = cols >= 3 ? "text-xs sm:text-sm" : "text-sm sm:text-base";
+  const numCls = cols === 1 ? "text-5xl sm:text-7xl lg:text-7xl xl:text-[78px] 2xl:text-[88px]"
+    : cols === 2 ? "text-5xl sm:text-5xl lg:text-[41px] xl:text-[45px] 2xl:text-[54px]"
+      : cols === 3 ? "text-[32px] sm:text-4xl lg:text-4xl 2xl:text-[45px]"
+        : "text-2xl md:text-[32px] lg:text-4xl 2xl:text-4xl";
+
+  const qtyTxt = cols >= 3 ? "text-xs sm:text-sm" : "text-sm sm:text-base";
   const itemTxt = cols >= 3 ? "text-[11px] sm:text-xs" : "text-xs sm:text-sm";
-  const pad     = cols >= 3 || maxRows >= 4 ? "p-1.5 sm:p-2.5" : "p-3 sm:p-4";
-  const gap     = cols >= 3 || maxRows >= 4 ? "gap-1 sm:gap-1.5" : "gap-1.5 sm:gap-2.5";
+  const pad = cols >= 3 || maxRows >= 4 ? "p-1.5 sm:p-2.5" : "p-3 sm:p-4";
+  const gap = cols >= 3 || maxRows >= 4 ? "gap-1 sm:gap-1.5" : "gap-1.5 sm:gap-2.5";
 
   // Smartly truncate lists if cards are physically constrained
   const maxItems = maxRows >= 4 ? 2 : cols >= 3 ? 3 : 5;
 
-  const shown    = order.items.slice(0, maxItems);
+  const shown = order.items.slice(0, maxItems);
   const overflow = order.items.length - shown.length;
 
   return (
@@ -230,39 +230,46 @@ function OrderCard({
         {/* Order number — measured edge-to-edge marquee for long labels */}
         <MarqueeLabel
           label={order.label}
-          className={`font-black tracking-widest ${numCls} ${
-            isReady ? "text-emerald-300" : "text-orange-400"
-          }`}
+          className={`font-black tracking-widest ${numCls} ${isReady ? "text-emerald-300" : "text-orange-400"
+            }`}
         />
 
         <div className={`flex-shrink-0 border-t ${isReady ? "border-emerald-800/60" : "border-gray-700/70"}`} />
 
         {/* Item list — secondary reference for customers */}
         <ul className="flex-1 min-h-0 overflow-hidden space-y-0.5">
-          {shown.map((item, i) => (
-            <li key={i} className="flex items-baseline gap-1.5 leading-tight">
-              <span className={`font-extrabold tabular-nums flex-shrink-0 ${qtyTxt} ${
-                isReady ? "text-emerald-400" : "text-orange-400"
-              }`}>
-                {item.qty}×
-              </span>
-              <span className={`text-white/85 font-medium line-clamp-1 ${itemTxt}`}>
-                {item.name}
-              </span>
-            </li>
-          ))}
-          {overflow > 0 && (
-            <li className={`text-gray-500 pl-4 sm:pl-5 font-semibold ${itemTxt}`}>+{overflow} more</li>
-          )}
+          {shown.map((item, i) => {
+            // 1. Process variations and add-ons
+            const v = item.selectedVariations?.map(v => v.label).join(", ");
+            const a = item.selectedAddOns?.map(a => a.name).join(", ");
+            const details = [v, a].filter(Boolean).join(" / ");
+
+            return (
+              <li key={i} className="flex items-baseline gap-1.5 leading-tight">
+                <span className={`font-extrabold tabular-nums flex-shrink-0 ${qtyTxt} ${isReady ? "text-emerald-400" : "text-orange-400"
+                  }`}>
+                  {item.qty}×
+                </span>
+                <span className={`text-white/85 font-medium line-clamp-1 ${itemTxt}`}>
+                  {item.name}
+                  {/* 2. Append details inline if they exist */}
+                  {details && (
+                    <span className="text-white/40 text-[1em] font-normal ml-1">
+                      ({details})
+                    </span>
+                  )}
+                </span>
+              </li>
+            );
+          })}
         </ul>
 
         {isReady && (
           <div className="flex-shrink-0 mt-auto pt-1">
             {/* Display-only "ready" badge — no actions. Orders clear from the
                 board automatically once marked collected on another surface. */}
-            <div className={`rounded-lg sm:rounded-xl flex items-center justify-center gap-1 sm:gap-1.5 bg-emerald-400 ${
-              cols >= 3 || maxRows >= 4 ? "py-1 sm:py-1.5" : "py-1.5 sm:py-2"
-            }`}>
+            <div className={`rounded-lg sm:rounded-xl flex items-center justify-center gap-1 sm:gap-1.5 bg-emerald-400 ${cols >= 3 || maxRows >= 4 ? "py-1 sm:py-1.5" : "py-1.5 sm:py-2"
+              }`}>
               <CheckCircle2 size={cols >= 3 ? 12 : 16} className="text-emerald-950" />
               <span className={`font-black tracking-wide text-emerald-950 ${cols >= 3 ? "text-[10px] sm:text-xs" : "text-xs sm:text-sm"}`}>
                 {order.readyLabel ?? "COLLECT NOW"}
@@ -287,13 +294,13 @@ function OrderPanel({
   dotClass,
   emptyText,
 }: {
-  orders:      DisplayOrder[];
-  isReady:     boolean;
-  title:       string;
-  emoji:       string;
+  orders: DisplayOrder[];
+  isReady: boolean;
+  title: string;
+  emoji: string;
   accentClass: string;
-  dotClass:    string;
-  emptyText:   string;
+  dotClass: string;
+  emptyText: string;
 }) {
   const { containerRef, cols, maxRows, pageSize } = useSmartLayout(orders.length);
   const pageCount = Math.max(1, Math.ceil(orders.length / pageSize));
@@ -301,7 +308,7 @@ function OrderPanel({
   const [page, setPage] = useState(0);
   const [fade, setFade] = useState(false);
 
-  useEffect(() => setPage(0),[cols, maxRows]);
+  useEffect(() => setPage(0), [cols, maxRows]);
 
   // Auto-advance pages with a 300 ms opacity fade
   useEffect(() => {
@@ -314,7 +321,7 @@ function OrderPanel({
       }, 350);
     }, PAGE_INTERVAL);
     return () => clearInterval(id);
-  },[pageCount]);
+  }, [pageCount]);
 
   const safePage = Math.min(page, pageCount - 1);
   const visible = orders.slice(safePage * pageSize, (safePage + 1) * pageSize);
@@ -345,7 +352,7 @@ function OrderPanel({
               display: 'grid',
               gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
               // This strictly locks height ensuring perfectly equal cards that never break out
-              gridTemplateRows: `repeat(${maxRows}, minmax(0, 1fr))`, 
+              gridTemplateRows: `repeat(${maxRows}, minmax(0, 1fr))`,
               gap: '8px'
             }}
           >
@@ -365,11 +372,10 @@ function OrderPanel({
                 key={i}
                 onClick={() => { setPage(i); setFade(false); }}
                 aria-label={`Page ${i + 1}`}
-                className={`rounded-full transition-all ${
-                  i === safePage
+                className={`rounded-full transition-all ${i === safePage
                     ? `h-1.5 w-4 sm:w-5 ${isReady ? "bg-emerald-400" : "bg-orange-500"}`
                     : "h-1.5 w-1.5 bg-gray-600 hover:bg-gray-400"
-                }`}
+                  }`}
               />
             ))}
             <span className="text-gray-600 text-[9px] sm:text-[11px] font-mono ml-1 tabular-nums">
@@ -386,7 +392,7 @@ function OrderPanel({
 
 export default function CustomerDisplayPage() {
   const router = useRouter();
-  const[orders, setOrders] = useState<DisplayOrder[]>([]);
+  const [orders, setOrders] = useState<DisplayOrder[]>([]);
   const [restaurantName, setRestaurantName] = useState("Our Restaurant");
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -397,8 +403,8 @@ export default function CustomerDisplayPage() {
       .then((json: { restaurant?: { name?: string } } | null) => {
         if (json?.restaurant?.name) setRestaurantName(json.restaurant.name);
       })
-      .catch(() => {});
-  },[]);
+      .catch(() => { });
+  }, []);
 
   // Poll the public display endpoint every 4 s. Replaces the prior direct
   // supabase read + realtime channel on the anon client (which would no
@@ -433,7 +439,7 @@ export default function CustomerDisplayPage() {
     return () => { active = false; clearInterval(id); };
   }, [router]);
 
-  const preparing = orders.filter((o) =>["pending", "confirmed", "preparing"].includes(o.status));
+  const preparing = orders.filter((o) => ["pending", "confirmed", "preparing"].includes(o.status));
   const ready = orders.filter((o) => o.status === "ready");
 
   return (
@@ -471,7 +477,7 @@ export default function CustomerDisplayPage() {
         </div>
       ) : (
         <div className="flex-1 grid grid-cols-1 grid-rows-2 lg:grid-cols-2 lg:grid-rows-1 divide-y lg:divide-y-0 lg:divide-x divide-gray-800 min-h-0 overflow-hidden">
-          
+
           {/* Left — Being Prepared */}
           <div className="flex p-3 sm:p-4 lg:p-5 min-h-0 overflow-hidden bg-gray-950/40">
             <OrderPanel
@@ -503,7 +509,7 @@ export default function CustomerDisplayPage() {
       {/* ── Footer ──────────────────────────────────────────────────────────── */}
       <footer className="bg-gray-900 border-t border-gray-800 px-3 sm:px-5 py-1.5 sm:py-2 flex items-center justify-between flex-shrink-0">
         <p className="text-gray-600 text-[9px] sm:text-xs">Updates automatically <span className="hidden sm:inline">—  no refresh needed</span></p>
-        <p className="text-gray-600 text-[9px] sm:text-xs text-right">Thank you for dining with us!<br/>Designed by SeekaHost Technologies Ltd.</p>
+        <p className="text-gray-600 text-[9px] sm:text-xs text-right">Thank you for dining with us!<br />Designed by SeekaHost Technologies Ltd.</p>
       </footer>
     </div>
   );
