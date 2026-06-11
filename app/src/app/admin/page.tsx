@@ -255,8 +255,15 @@ function AdminPageContent() {
     };
   }, [goToOpen]);
 
+  // Mirrors the Online Orders board's active filter (DeliveryPanel): a fully
+  // refunded order has left the live workflow even while its fulfillment
+  // status is still catching up to "cancelled" (server auto-cancels; the next
+  // poll syncs it). Without the paymentStatus check the badge keeps counting
+  // an order the board no longer shows.
   const activeOrderCount = customers.reduce(
-    (n, c) => n + c.orders.filter((o) => ["pending", "confirmed", "preparing", "ready"].includes(o.status)).length,
+    (n, c) => n + c.orders.filter((o) =>
+      ["pending", "confirmed", "preparing", "ready"].includes(o.status) && o.paymentStatus !== "refunded",
+    ).length,
     0,
   );
 

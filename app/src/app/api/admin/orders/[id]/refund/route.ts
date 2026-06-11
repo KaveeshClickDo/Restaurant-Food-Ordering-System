@@ -199,7 +199,11 @@ export async function POST(
   // NOT auto-cancelled: the rest of the order still ships. The Delivery panel's
   // "refund & cancel" path already passes newStatus "cancelled"; this makes a
   // refund issued from the standalone Refunds panel behave the same.
-  const wasAlreadyRefunded = existingPaymentStatusIsTerminal(String(orderRow.payment_status ?? ""));
+  // Only a prior FULL refund skips the cancel (idempotency on repeated refund
+  // edits). "partially_refunded" must NOT skip: a full refund reached in two
+  // steps (partial first, then the remainder) still tips to "refunded" here
+  // and must cancel + restore stock + email exactly like a one-shot refund.
+  const wasAlreadyRefunded = String(orderRow.payment_status ?? "") === "refunded";
   const tippingToRefunded  = newPaymentStatus === "refunded" && !wasAlreadyRefunded;
   const requestedStatus    = String(body.newStatus ?? "");
   const existingStatus     = String(orderRow.status ?? "");
@@ -300,15 +304,6 @@ export async function POST(
     paypalRefundId:  newest?.paypalRefundId ?? null,
     refundedAmount:  moneyRefundedTotal,
   });
-}
-
-/**
- * True when the order had already reached a terminal refund state before this
- * call. Used to skip stock-restore on repeated refund edits — admin updating
- * the refunds array for an already-refunded order must not re-restore.
- */
-function existingPaymentStatusIsTerminal(status: string): boolean {
-  return status === "refunded" || status === "partially_refunded";
 }
 
 /**
