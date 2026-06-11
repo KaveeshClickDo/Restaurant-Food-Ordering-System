@@ -174,14 +174,14 @@ export default function MyOrdersPage() {
     const [showMobileCart, setShowMobileCart] = useState(false);
 
     const ACTIVE_STATUSES = new Set(["pending", "confirmed", "preparing", "ready"]);
-    // A refunded order (full or partial) is no longer "active", even when its
-    // fulfillment status is still mid-pipeline. Refund state lives in
-    // paymentStatus; older rows may still carry it on status.
-    const isRefunded = (o: Order) =>
-        o.paymentStatus === "refunded" || o.paymentStatus === "partially_refunded"
-        || o.status === "refunded" || o.status === "partially_refunded";
+    // Only a FULL refund removes an order from "active". A partially refunded
+    // order that's still mid-pipeline is still being prepared and delivered, so
+    // it must stay in progress — the customer still needs the driver code.
+    // Refund state lives in paymentStatus; older rows may still carry it on status.
+    const isFullyRefunded = (o: Order) =>
+        o.paymentStatus === "refunded" || o.status === "refunded";
     const displayOrders = currentUser?.orders ?? [];
-    const hasActiveOrders = displayOrders.some((o) => ACTIVE_STATUSES.has(o.status) && !isRefunded(o));
+    const hasActiveOrders = displayOrders.some((o) => ACTIVE_STATUSES.has(o.status) && !isFullyRefunded(o));
 
     // Refresh immediately on mount so switching to this screen always shows fresh data.
     useEffect(() => {
@@ -212,8 +212,8 @@ export default function MyOrdersPage() {
     const allOrders = [...displayOrders].sort(
         (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
-    const activeOrders = allOrders.filter((o) => ACTIVE_STATUSES.has(o.status) && !isRefunded(o));
-    const pastOrders = allOrders.filter((o) => !ACTIVE_STATUSES.has(o.status) || isRefunded(o));
+    const activeOrders = allOrders.filter((o) => ACTIVE_STATUSES.has(o.status) && !isFullyRefunded(o));
+    const pastOrders = allOrders.filter((o) => !ACTIVE_STATUSES.has(o.status) || isFullyRefunded(o));
 
     const activeLabel = (order: Order): string => {
         switch (order.status) {

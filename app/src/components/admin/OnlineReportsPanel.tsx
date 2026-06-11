@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { useApp } from "@/context/AppContext";
 import { fullOrderNumber } from "@/lib/orderNumber";
 import { moneyPaidGross } from "@/lib/giftCardMoney";
+import { paymentMethodLabel } from "@/lib/paymentMethodLabel";
 import {
   TrendingUp, ShoppingBag, RotateCcw, Percent, CreditCard,
   Download, Printer, RefreshCw, CalendarDays, ChevronDown,
@@ -157,7 +158,18 @@ function isActive(o: RawOrder) {
 // row, plus cancelled rows that were paid (so paid-then-cancelled appears
 // in revenue, and any refund on it appears in refunds — the audit shows
 // both legs of a real money movement instead of dropping them entirely).
+//
+// Online orders that are still explicitly unpaid (cash on delivery/collection
+// not yet handed over, or a failed/abandoned gateway payment) are NOT revenue
+// — they start counting when the driver/counter collects and payment_status
+// flips to "paid". POS / dine-in rows are settled at the till but their
+// orders-table mirrors keep the 'unpaid' DB default, so the test only applies
+// to online orders.
 function isMoneyBearing(o: RawOrder) {
+  if (orderSource(o) === "online"
+      && (o.payment_status === "unpaid" || o.payment_status === "failed")) {
+    return false;
+  }
   if (o.status !== "cancelled") return true;
   return o.payment_status === "paid"
       || o.payment_status === "partially_refunded"
@@ -477,7 +489,7 @@ export default function OnlineReportsPanel() {
     // still attributes its revenue to "card" rather than vanishing.
     const payMap = new Map<string, { revenue: number; count: number }>();
     for (const o of moneyBearing) {
-      const key = o.payment_method || "Unknown";
+      const key = paymentMethodLabel(o.payment_method, orderSource(o) !== "online");
       const cur = payMap.get(key) ?? { revenue: 0, count: 0 };
       payMap.set(key, { revenue: cur.revenue + orderRevenue(o), count: cur.count + 1 });
     }
@@ -631,7 +643,7 @@ export default function OnlineReportsPanel() {
         (o.refunded_amount ?? 0).toFixed(2),
         (o.vat_amount ?? 0).toFixed(2),
         (o.total - (o.refunded_amount ?? 0)).toFixed(2),
-        o.payment_method ?? "",
+        paymentMethodLabel(o.payment_method, orderSource(o) !== "online"),
       ]));
     }
 

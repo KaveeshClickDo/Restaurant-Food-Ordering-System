@@ -29,13 +29,15 @@ interface RawOrder {
   payment_method:  string | null;
 }
 
-// Cancelled-but-refunded must surface both states — a bare "Cancelled" badge
-// hides the fact that the customer's money already went back (QA #37).
+// Refund state lives on payment_status, so any status can carry it — a voided
+// sale is "Cancelled · Refunded" (QA #37), an admin partial refund on a
+// completed order is "Completed · Partial refund". Statuses that ARE the
+// refund don't get a second tag.
 function statusLabel(o: RawOrder): string {
   const base = STATUS_CONFIG[o.status]?.label ?? o.status;
-  if (o.status !== "cancelled") return base;
-  if (o.payment_status === "refunded")           return "Cancelled · Refunded";
-  if (o.payment_status === "partially_refunded") return "Cancelled · Partial refund";
+  if (o.status === "refunded" || o.status === "partially_refunded") return base;
+  if (o.payment_status === "refunded")           return `${base} · Refunded`;
+  if (o.payment_status === "partially_refunded") return `${base} · Partial refund`;
   return base;
 }
 
@@ -57,8 +59,11 @@ function isToday(iso: string) {
   const n = new Date();
   return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
 }
-function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+// Date + time — ongoing orders can be from a previous day, so time alone is
+// ambiguous on this board.
+function fmtDateTime(iso: string) {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" })} · ${d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`;
 }
 
 function orderLabel(o: RawOrder, source: Source): string {
@@ -107,7 +112,7 @@ function OrderCard({ o, source, sym }: { o: RawOrder; source: Source; sym: strin
           <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${cfg.badge}`}>
             {cfg.icon} {statusLabel(o)}
           </span>
-          <span className="text-xs text-gray-400 flex items-center gap-1"><Clock size={10} /> {fmtTime(o.date)}</span>
+          <span className="text-xs text-gray-400 flex items-center gap-1"><Clock size={10} /> {fmtDateTime(o.date)}</span>
         </div>
         {itemSummary && (
           <p className="text-xs text-gray-500 mt-1 truncate">
@@ -157,6 +162,13 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
   const completedToday = orders.filter((o) => isToday(o.date) && o.status === "delivered")
                                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   const earnedToday    = completedToday.reduce((s, o) => s + Number(o.total ?? 0), 0);
+  // Voided POS sales land on the mirror order as "cancelled" (with refund state
+  // on payment_status); dine-in refunds overwrite status with
+  // "refunded"/"partially_refunded". Surface all of them for today.
+  const voidedToday    = orders.filter((o) =>
+                               isToday(o.date)
+                               && (o.status === "cancelled" || o.status === "refunded" || o.status === "partially_refunded"))
+                               .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const isPos = source === "pos";
   const heading = isPos ? "POS Orders" : "Dine-in Orders";
@@ -173,7 +185,7 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
           </div>
           <div className="flex flex-col leading-snug">
             <h2 className="font-bold text-gray-900 text-lg leading-tight">{heading} · Today / Ongoing</h2>
-            <span className="text-[11px] font-semibold text-gray-400 mt-0.5">Live · read-only · ongoing orders &amp; today&apos;s completed</span>
+            <span className="text-[11px] font-semibold text-gray-400 mt-0.5">Live · read-only · ongoing orders &amp; today&apos;s completed / voided / refunded</span>
           </div>
         </div>
         <button
@@ -222,6 +234,20 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             {completedToday.map((o) => <OrderCard key={o.id} o={o} source={source} sym={sym} />)}
+          </div>
+        </div>
+      )}
+
+      {/* Voided / refunded today */}
+      {voidedToday.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Ban size={14} className="text-red-400" />
+            <p className="text-sm font-bold text-gray-700">Voided / refunded today</p>
+            <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{voidedToday.length}</span>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {voidedToday.map((o) => <OrderCard key={o.id} o={o} source={source} sym={sym} />)}
           </div>
         </div>
       )}

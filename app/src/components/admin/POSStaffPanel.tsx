@@ -40,7 +40,7 @@ type FormDraft = {
 };
 
 const EMPTY: FormDraft = {
-  name: "", email: "", role: "cashier", pin: "",
+  name: "", email: "", role: "admin", pin: "",
   active: true, avatarColor: AVATAR_COLORS[0], hourlyRate: "",
 };
 

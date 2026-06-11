@@ -26,7 +26,7 @@ const AVATAR_COLORS = [
 // ─── Waiter Form ──────────────────────────────────────────────────────────────
 
 const EMPTY_WAITER: Omit<WaiterStaff, "id" | "createdAt"> = {
-  name: "", pin: "", role: "waiter", active: true, avatarColor: AVATAR_COLORS[0],
+  name: "", pin: "", role: "senior", active: true, avatarColor: AVATAR_COLORS[0],
 };
 
 function WaiterForm({

@@ -359,11 +359,14 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
   const sym = settings.currency?.symbol ?? "£";
   const [expanded, setExpanded] = useState(false);
   // Refund state lives in paymentStatus (current) or status (legacy rows).
-  const isRefunded =
-    order.paymentStatus === "refunded" || order.paymentStatus === "partially_refunded"
-    || order.status === "refunded" || order.status === "partially_refunded";
-  const isActive = !isRefunded && !["delivered", "cancelled"].includes(order.status);
-  const canReorder = isRefunded || order.status === "delivered";
+  const isFullyRefunded =
+    order.paymentStatus === "refunded" || order.status === "refunded";
+  const isPartiallyRefunded =
+    order.paymentStatus === "partially_refunded" || order.status === "partially_refunded";
+  // A partial refund alone doesn't end the order — the remaining items are
+  // still being fulfilled, so it stays live and trackable.
+  const isActive = !isFullyRefunded && !["delivered", "cancelled"].includes(order.status);
+  const canReorder = !isActive && (isFullyRefunded || isPartiallyRefunded || order.status === "delivered");
 
   return (
     <div className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all ${isActive ? "border-zinc-200" : "border-zinc-100"}`}>

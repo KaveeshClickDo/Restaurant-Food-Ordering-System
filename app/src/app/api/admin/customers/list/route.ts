@@ -44,6 +44,9 @@ function spendContribution(o: any): { amount: number; counts: boolean } {
     paymentStatus:  o.payment_status,
     total,
     refundedAmount: o.refunded_amount,
+    // Same staff-side test as isGross: till/dine-in rows never update
+    // payment_status, so the helper's unpaid exclusion must skip them.
+    staffOrder:     isGross,
   });
 }
 

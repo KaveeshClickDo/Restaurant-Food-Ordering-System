@@ -34,7 +34,7 @@ const ROLE_BADGE: Record<KitchenRole, string> = {
 // ─── Staff Form ───────────────────────────────────────────────────────────────
 
 const EMPTY: Omit<KitchenStaff, "id" | "createdAt"> = {
-  name: "", pin: "", role: "chef", active: true, avatarColor: AVATAR_COLORS[0],
+  name: "", pin: "", role: "kitchen_manager", active: true, avatarColor: AVATAR_COLORS[0],
 };
 
 function StaffForm({

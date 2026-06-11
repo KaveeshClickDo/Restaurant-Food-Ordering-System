@@ -6,6 +6,11 @@
  *   • PayPal-paid orders   (same payment_status set)
  *   • Cash orders that have been marked paid (rare today but supported)
  *
+ * ONLINE only — POS counter sales and dine-in orders are handled (and shown)
+ * on the POS side. Their mirror rows normally sit at payment_status 'unpaid'
+ * and never match here, but a POS void/refund stamps refund state onto the
+ * mirror, so they must be excluded explicitly or they leak into this panel.
+ *
  * Query params:
  *   • status   — filter by payment_status ("paid" | "refunded" | "partially_refunded")
  *   • method   — filter by payment_method (e.g. "Cash", "Card (Stripe)")
@@ -20,6 +25,9 @@ import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
+
+// FK-only sentinel customer for POS counter sales and waiter dine-in orders.
+const POS_CUSTOMER_ID = "pos-walk-in";
 
 export async function GET(req: NextRequest) {
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
@@ -42,6 +50,11 @@ export async function GET(req: NextRequest) {
       customers ( name, email )
     `)
     .in("payment_status", ["paid", "refunded", "partially_refunded"])
+    // Online orders only — drop the POS walk-in sentinel (counter sales and
+    // dine-in both use it) without losing deleted-customer rows (customer_id
+    // null), which a plain .neq would silently exclude.
+    .or(`customer_id.is.null,customer_id.neq.${POS_CUSTOMER_ID}`)
+    .neq("fulfillment", "dine-in")
     .order("date", { ascending: false })
     .limit(limit);
 

@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { PaymentStatusBadge, StripeIntentLink } from "@/components/admin/PaymentStatusBadge";
+import { paymentMethodLabel } from "@/lib/paymentMethodLabel";
 import type { PaymentStatus } from "@/types";
 
 /**
@@ -40,6 +41,14 @@ interface PaymentRow {
 }
 
 type StatusFilter = "all" | "paid" | "refunded" | "partially_refunded";
+
+// Staff-side rows (POS walk-in counter sales and waiter dine-in service) store
+// machine tenders ("cash"/"card"); online rows store the configured method
+// name. paymentMethodLabel disambiguates the overlapping Cash/Card buckets.
+function methodLabel(r: PaymentRow): string {
+  const staffOrder = r.customer_id === "pos-walk-in" || r.fulfillment === "dine-in";
+  return paymentMethodLabel(r.payment_method, staffOrder);
+}
 
 export default function PaymentsPanel() {
   const { settings } = useApp();
@@ -101,6 +110,7 @@ export default function PaymentsPanel() {
         (r.customers?.name?.toLowerCase().includes(q) ?? false) ||
         (r.customers?.email?.toLowerCase().includes(q) ?? false) ||
         (r.payment_method ?? "").toLowerCase().includes(q) ||
+        methodLabel(r).toLowerCase().includes(q) ||
         (r.stripe_payment_intent_id ?? "").toLowerCase().includes(q) ||
         (r.paypal_order_id ?? "").toLowerCase().includes(q)
       );
@@ -237,7 +247,7 @@ export default function PaymentsPanel() {
                         )}
                       </td>
                       <td className="px-5 py-3 text-gray-600 text-xs">
-                        {r.payment_method ?? "—"}
+                        {r.payment_method ? methodLabel(r) : "—"}
                       </td>
                       <td className="px-5 py-3">
                         {r.stripe_payment_intent_id ? (

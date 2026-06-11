@@ -111,6 +111,9 @@ export async function GET() {
       paymentStatus:  o.payment_status,
       total,
       refundedAmount: o.refunded_amount,
+      // Till/dine-in rows never update payment_status, so the helper's
+      // unpaid exclusion must skip them.
+      staffOrder:     o.fulfillment === "dine-in" || o.customer_id === POS_WALK_IN_ID,
     });
     if (!counts) continue;
     ensure(o.customer_id).spend += amount;
