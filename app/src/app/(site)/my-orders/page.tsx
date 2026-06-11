@@ -17,13 +17,16 @@ import {
     Search,
     LayoutDashboard,
     LogOut,
+    ShoppingCart,
 } from "lucide-react";
 import AuthModal from "@/components/AuthModal";
-import type { Order } from "@/types";
+import type { AddOn, CartItem, Order } from "@/types";
 import { fullOrderNumber } from "@/lib/orderNumber";
 import Link from "next/link";
 import Cart from "@/components/Cart";
 import MobileBottomNav from "@/components/MobileBottomNav";
+import { effectiveMenuPrice, getOfferUnitPrice, isOnChannel } from "@/lib/menuOfferUtils";
+import { resolveStock } from "@/lib/stockUtils";
 
 // ── Track order modal ───────────────────────────────────────────────
 function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void }) {
@@ -161,9 +164,50 @@ function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void
     );
 }
 
+
+interface ReorderResult { added: number; skipped: string[]; priceChanged: string[] }
+
+function ReorderToast({ result, onClose }: { result: ReorderResult; onClose: () => void }) {
+    return (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-sm">
+            <div className="bg-gray-900 text-white rounded-2xl shadow-2xl px-5 py-4 flex items-start gap-3">
+                <ShoppingCart size={18} className="text-zinc-500 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold">
+                        {result.added > 0
+                            ? `${result.added} item${result.added !== 1 ? "s" : ""} added to cart`
+                            : "No items could be added"}
+                    </p>
+                    {result.priceChanged.length > 0 && (
+                        <p className="text-xs text-amber-400 mt-0.5 truncate">
+                            Price updated: {result.priceChanged.join(", ")}
+                        </p>
+                    )}
+                    {result.skipped.length > 0 && (
+                        <p className="text-xs text-zinc-400 mt-0.5 truncate">
+                            Unavailable: {result.skipped.join(", ")}
+                        </p>
+                    )}
+                    {result.added > 0 && (
+                        <Link
+                            href="/"
+                            className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-orange-400 hover:text-orange-300 transition"
+                        >
+                            <ShoppingCart size={11} /> Go to cart
+                        </Link>
+                    )}
+                </div>
+                <button onClick={onClose} className="text-zinc-500 hover:text-white transition flex-shrink-0">
+                    <X size={15} />
+                </button>
+            </div>
+        </div>
+    );
+}
+
 // ── Main Page ───────────────────────────────────────────────────────────────
 export default function MyOrdersPage() {
-    const { currentUser, addToCart, settings, refreshCurrentUser, logout } = useApp();
+    const { currentUser, addToCart, settings, menuItems, refreshCurrentUser, logout } = useApp();
     const sym = settings.currency?.symbol ?? "£";
     const router = useRouter();
     const [search, setSearch] = useState("");
@@ -171,6 +215,7 @@ export default function MyOrdersPage() {
     const [authModal, setAuthModal] = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
     const [userMenuOpen, setUserMenuOpen] = useState(false);
     const [showMobileCart, setShowMobileCart] = useState(false);
+    const [reorderToast, setReorderToast] = useState<ReorderResult | null>(null);
 
     const ACTIVE_STATUSES = new Set(["pending", "confirmed", "preparing", "ready"]);
     // Only a FULL refund removes an order from "active". A partially refunded
@@ -221,6 +266,104 @@ export default function MyOrdersPage() {
             default: return order.status;
         }
     };
+
+    // ── Re-order handler ───────────────────────────────────────────────────────
+    function handleReorder(order: Order) {
+        const added: string[] = [];
+        const skipped: string[] = [];
+        const priceChanged: string[] = [];
+
+        order.items.forEach((line) => {
+            // Match by menuItemId first (preferred), fall back to name
+            const menuItem = line.menuItemId
+                ? menuItems.find((m) => m.id === line.menuItemId)
+                : menuItems.find((m) => m.name.toLowerCase() === line.name.toLowerCase());
+
+            if (!menuItem || !isOnChannel(menuItem, "online") || resolveStock(menuItem) === "out_of_stock") {
+                skipped.push(line.name);
+                return;
+            }
+
+            // Resolve Variations (Support multiple variations + Name fallback)
+            // Check for both plural and singular keys to be safe
+            const originalVars = line.selectedVariations || (line.selectedVariation ? [line.selectedVariation] : []);
+            const resolvedVariations: CartItem["selectedVariations"] = [];
+            let variationPriceTotal = 0;
+
+            if (originalVars.length > 0) {
+                originalVars.forEach((saved) => {
+                    // Find the variation group (e.g., "Size")
+                    const variationGroup = menuItem.variations?.find(v => v.id === saved.variationId);
+
+                    // Find the specific option (e.g., "Large")
+                    // Try ID first, fallback to Label matching
+                    let option = variationGroup?.options.find(o => o.id === saved.optionId);
+                    if (!option && saved.label) {
+                        option = variationGroup?.options.find(o => o.label.toLowerCase() === saved.label.toLowerCase());
+                    }
+
+                    if (option && variationGroup) {
+                        resolvedVariations.push({
+                            variationId: variationGroup.id,
+                            optionId: option.id,
+                            label: option.label
+                        });
+                        variationPriceTotal += option.price;
+                    }
+                });
+            }
+
+            // Resolve Add-ons (ID matching + Name fallback)
+            let resolvedAddOns: CartItem["selectedAddOns"] = [];
+            let addOnsPriceTotal = 0;
+
+            if (line.selectedAddOns?.length) {
+                const currentMenuAddOns = menuItem.addOns ?? [];
+                resolvedAddOns = line.selectedAddOns.map((saved) => {
+                    // Try ID match first
+                    let found = currentMenuAddOns.find((a) => String(a.id) === String(saved.id));
+                    // Fallback to Name match if ID changed
+                    if (!found) {
+                        found = currentMenuAddOns.find((a) => a.name.toLowerCase() === saved.name.toLowerCase());
+                    }
+                    return found;
+                }).filter((a): a is AddOn => a != null);
+
+                addOnsPriceTotal = resolvedAddOns.reduce((s, a) => s + a.price, 0);
+            }
+
+            // Price Validation
+            const offerBase = getOfferUnitPrice(menuItem) ?? effectiveMenuPrice(menuItem);
+            const currentPrice = offerBase + variationPriceTotal + addOnsPriceTotal;
+
+            if (Math.abs(currentPrice - line.price) > 0.005) {
+                priceChanged.push(line.name);
+            }
+
+            // Add to Cart with ALL data
+            addToCart({
+                id: crypto.randomUUID(),
+                menuItemId: menuItem.id,
+                name: menuItem.name,
+                price: currentPrice,
+                quantity: line.qty,
+                // Pass the resolved arrays to the cart
+                selectedVariations: resolvedVariations,
+                selectedAddOns: resolvedAddOns,
+                specialInstructions: line.specialInstructions,
+                ...(menuItem.offer?.active ? { offer: menuItem.offer } : {}),
+            });
+
+            added.push(line.name);
+        });
+
+        setReorderToast({ added: added.length, skipped, priceChanged });
+        setTimeout(() => setReorderToast(null), 6000);
+
+        if (added.length > 0) {
+            router.push("/");
+        }
+    }
 
     return (
         <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: '#f5f5f3' }}>
@@ -395,8 +538,12 @@ export default function MyOrdersPage() {
                                         <div className="space-y-3 max-w-lg">
                                             {pastOrders.map((order) => {
                                                 const dateStr = new Date(order.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-                                                const itemSummary = order.items.slice(0, 2).map((i) => `${i.qty}× ${i.name}`).join(", ")
-                                                    + (order.items.length > 2 ? ` +${order.items.length - 2} more` : "");
+                                                const itemSummary = order.items.slice(0, 2).map((i) => {
+                                                    const v = i.selectedVariations?.map(v => v.label).join(", ");
+                                                    const a = i.selectedAddOns?.map(a => a.name).join(", ");
+                                                    const details = [v, a].filter(Boolean).join(" / ");
+                                                    return `${i.qty}× ${i.name}${details ? ` (${details})` : ""}`;
+                                                }).join(", ") + (order.items.length > 2 ? ` +${order.items.length - 2} more` : "");
                                                 // Refund state lives in paymentStatus; status stays on fulfillment.
                                                 const refundLabel =
                                                     order.paymentStatus === "refunded"
@@ -429,21 +576,7 @@ export default function MyOrdersPage() {
                                                         <div className="flex items-center justify-between">
                                                             <span className="text-[15px] font-bold text-zinc-900 tabular-nums">{sym}{order.total.toFixed(2)}</span>
                                                             <button
-                                                                onClick={() => {
-                                                                    order.items.forEach((line) => {
-                                                                        addToCart({
-                                                                            id: crypto.randomUUID(),
-                                                                            menuItemId: line.menuItemId ?? line.name,
-                                                                            name: line.name,
-                                                                            price: line.price,
-                                                                            quantity: line.qty,
-                                                                            selectedVariation: line.selectedVariation,
-                                                                            selectedAddOns: line.selectedAddOns,
-                                                                            specialInstructions: line.specialInstructions,
-                                                                        });
-                                                                    });
-                                                                    router.push("/");
-                                                                }}
+                                                                onClick={() => handleReorder(order)}
                                                                 className="flex items-center gap-1 text-[13px] font-semibold text-orange-500 hover:text-orange-600 transition-colors"
                                                             >
                                                                 <RotateCcw className="w-3.5 h-3.5" strokeWidth={2} />
@@ -461,6 +594,11 @@ export default function MyOrdersPage() {
                     </div>
                 </div>
             </div>
+
+            {/* Re-order toast */}
+            {reorderToast && (
+                <ReorderToast result={reorderToast} onClose={() => setReorderToast(null)} />
+            )}
 
             {/* ── Mobile Bottom Nav ── */}
             <MobileBottomNav

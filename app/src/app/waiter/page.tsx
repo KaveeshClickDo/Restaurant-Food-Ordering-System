@@ -695,22 +695,29 @@ function ItemModal({
 }) {
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
-  const firstVar = item.variations?.[0];
-  const firstOpt = firstVar?.options?.[0];
 
-  const [selVarId, setSelVarId] = useState(firstVar?.id ?? "");
-  const [selOptId, setSelOptId] = useState(firstOpt?.id ?? "");
+  // Initialize state with the first option of EVERY variation group selected by default
+  const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {};
+    item.variations?.forEach((v) => {
+      if (v.options.length > 0) {
+        initial[v.id] = v.options[0].id;
+      }
+    });
+    return initial;
+  });
+
   const [addOnIds, setAddOnIds] = useState<Set<string>>(new Set());
   const [qty, setQty] = useState(1);
   const [note, setNote] = useState("");
 
-  const selectedOption = item.variations
-    ?.find((v) => v.id === selVarId)
-    ?.options.find((o) => o.id === selOptId);
+  // Calculate the total extra cost from all selected variation options
+  const variationExtra = item.variations?.reduce((total, v) => {
+    const selectedOptId = selectedOptions[v.id];
+    const option = v.options.find((o) => o.id === selectedOptId);
+    return total + (option?.price ?? 0);
+  }, 0) ?? 0;
 
-  // variations[].options[].price is a delta added on top of item.price (matches
-  // ItemCustomizationModal and the admin MenuManagementPanel convention).
-  const variationExtra = selectedOption?.price ?? 0;
   const addOnTotal = (item.addOns ?? [])
     .filter((a) => addOnIds.has(a.id))
     .reduce((s, a) => s + a.price, 0);
@@ -725,15 +732,44 @@ function ItemModal({
     ? item.offer
     : undefined;
 
+  // Check if all required variations have a selection
+  const isMissingRequired = item.variations?.some(
+    (v) => v.required !== false && !selectedOptions[v.id]
+  );
+
   function buildName(): string {
     let name = item.name;
-    if (selectedOption) name += ` (${selectedOption.label})`;
+    const labels: string[] = [];
+    
+    item.variations?.forEach((v) => {
+      const optId = selectedOptions[v.id];
+      const opt = v.options.find((o) => o.id === optId);
+      if (opt) labels.push(opt.label);
+    });
+
+    if (labels.length) name += ` (${labels.join(", ")})`;
+
     const addOnNames = (item.addOns ?? [])
       .filter((a) => addOnIds.has(a.id))
       .map((a) => a.name);
     if (addOnNames.length) name += " + " + addOnNames.join(", ");
+    
     return name;
   }
+
+  const handleToggleOption = (variationId: string, optionId: string, isRequired: boolean) => {
+    setSelectedOptions((prev) => {
+      const next = { ...prev };
+      // If it's already selected and NOT required, deselect it
+      if (prev[variationId] === optionId && !isRequired) {
+        delete next[variationId];
+      } else {
+        // Otherwise set/change the selection for this group
+        next[variationId] = optionId;
+      }
+      return next;
+    });
+  };
 
   function handleAdd() {
     onAdd({
@@ -768,34 +804,42 @@ function ItemModal({
         </div>
 
         <div className="p-5 space-y-5 flex-1">
-          {/* Variations */}
-          {item.variations?.map((variation) => (
-            <div key={variation.id}>
-              <p className="text-slate-300 text-xs font-bold uppercase tracking-widest mb-2">
-                {variation.name}
-              </p>
-              <div className="grid grid-cols-1 gap-2">
-                {variation.options.map((opt) => {
-                  const active = selVarId === variation.id && selOptId === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      onClick={() => { setSelVarId(variation.id); setSelOptId(opt.id); }}
-                      className={`flex items-center justify-between px-4 py-3 rounded-xl border text-sm font-medium transition-all ${active
-                        ? "bg-orange-500 border-orange-500 text-white"
-                        : "bg-slate-700/50 border-slate-600 text-slate-200 hover:border-orange-500/50"
-                        }`}
-                    >
-                      <span>{opt.label}</span>
-                      <span className={active ? "text-orange-100" : "text-slate-400"}>
-                        {fmtCur(item.price + opt.price, sym)}
-                      </span>
-                    </button>
-                  );
-                })}
+          {/* Multi-Variations List */}
+          {item.variations?.map((variation) => {
+            const isReq = variation.required !== false;
+            return (
+              <div key={variation.id}>
+                <div className="flex justify-between items-center mb-2">
+                  <p className="text-slate-300 text-xs font-bold uppercase tracking-widest">
+                    {variation.name}
+                  </p>
+                  {isReq && (
+                    <span className="text-[10px] bg-orange-500/10 text-orange-400 px-1.5 py-0.5 rounded font-bold">REQUIRED</span>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 gap-2">
+                  {variation.options.map((opt) => {
+                    const active = selectedOptions[variation.id] === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        onClick={() => handleToggleOption(variation.id, opt.id, isReq)}
+                        className={`flex items-center justify-between px-4 py-3 rounded-xl border text-sm font-medium transition-all ${active
+                          ? "bg-orange-500 border-orange-500 text-white"
+                          : "bg-slate-700/50 border-slate-600 text-slate-200 hover:border-orange-500/50"
+                          }`}
+                      >
+                        <span className="text-left">{opt.label}</span>
+                        <span className={active ? "text-orange-100" : "text-slate-400"}>
+                          {fmtCur(item.price + opt.price, sym)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {/* Add-ons */}
           {(item.addOns ?? []).length > 0 && (
@@ -866,10 +910,15 @@ function ItemModal({
 
           <button
             onClick={handleAdd}
-            className="flex-1 bg-orange-500 hover:bg-orange-400 active:scale-[0.98] text-sm sm:text-base text-white font-bold rounded-xl px-1 py-3 flex items-center justify-center gap-2 transition-all"
+            disabled={isMissingRequired}
+            className={`flex-1 flex items-center justify-center gap-2 px-1 py-3 rounded-xl font-bold transition-all ${
+              isMissingRequired 
+                ? "bg-slate-700 text-slate-500 cursor-not-allowed" 
+                : "bg-orange-500 hover:bg-orange-400 text-white active:scale-[0.98]"
+            }`}
           >
             <Plus size={16} />
-            Add · {fmtCur(unitPrice * qty, sym)}
+            {isMissingRequired ? "Selection Required" : `Add · ${fmtCur(unitPrice * qty, sym)}`}
           </button>
         </div>
       </div>
