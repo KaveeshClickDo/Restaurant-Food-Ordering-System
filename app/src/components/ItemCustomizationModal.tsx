@@ -154,7 +154,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
               )}
               <h2 className="text-xl font-bold text-gray-900 leading-snug pr-6">{item.name}</h2>
               {item.description && (
-                <p className="text-gray-500 text-sm mt-1 leading-relaxed">{item.description}</p>
+                <p className="text-gray-500 text-sm mt-1 leading-relaxed line-clamp-2 sm:line-clamp-4">{item.description}</p>
               )}
               {offerOn && offerLabel && (
                 <div className="mt-2 inline-flex items-center gap-2">
@@ -221,7 +221,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                               <Check size={9} className="text-white" strokeWidth={3} />
                             </span>
                           )}
-                          <p className={`text-sm font-semibold ${active ? "text-orange-700" : "text-gray-800"}`}>
+                          <p className={`text-[13px] sm:text-sm font-semibold ${active ? "text-orange-700" : "text-gray-800"}`}>
                             {opt.label}
                           </p>
                           <p className={`text-xs mt-0.5 ${active ? "text-orange-500" : "text-gray-500"}`}>

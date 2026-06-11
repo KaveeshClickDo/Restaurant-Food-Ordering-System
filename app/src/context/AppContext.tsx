@@ -48,6 +48,25 @@ function mapDiningRow(r: any) {
   };
 }
 
+// Helper to compare variations (checks if they have the same selection IDs)
+const isSameVariations = (v1?: any[], v2?: any[]) => {
+  if (!v1 && !v2) return true;
+  if (!v1 || !v2 || v1.length !== v2.length) return false;
+  // Sort by ID to ensure order doesn't break the comparison
+  const s1 = [...v1].sort((a, b) => a.variationId.localeCompare(b.variationId));
+  const s2 = [...v2].sort((a, b) => a.variationId.localeCompare(b.variationId));
+  return s1.every((v, idx) => v.optionId === s2[idx].optionId);
+};
+
+// Helper to compare add-ons (checks IDs)
+const isSameAddOns = (a1?: any[], a2?: any[]) => {
+  if (!a1 && !a2) return true;
+  if (!a1 || !a2 || a1.length !== a2.length) return false;
+  const s1 = [...a1].sort((a, b) => a.id.localeCompare(b.id));
+  const s2 = [...a2].sort((a, b) => a.id.localeCompare(b.id));
+  return s1.every((a, idx) => a.id === s2[idx].id);
+};
+
 // ─── Cart (session data — stays in localStorage) ──────────────────────────────
 
 type CartAction =
@@ -58,7 +77,35 @@ type CartAction =
 
 function cartReducer(state: CartItem[], action: CartAction): CartItem[] {
   switch (action.type) {
-    case "ADD":    return [...state, action.item];
+    case "ADD": {
+      const newItem = action.item;
+
+      // Rule: If it has special instructions, it always goes in as a new/separate item.
+      if (newItem.specialInstructions) {
+        return [...state, newItem];
+      }
+
+      // Check for an existing match based on Name + Variations + AddOns
+      const existingIndex = state.findIndex((item) => 
+        item.name === newItem.name &&
+        !item.specialInstructions && // Existing item must also have no notes
+        isSameVariations(item.selectedVariations, newItem.selectedVariations) &&
+        isSameAddOns(item.selectedAddOns, newItem.selectedAddOns)
+      );
+
+      if (existingIndex > -1) {
+        // Increment quantity of existing item
+        const updatedCart = [...state];
+        updatedCart[existingIndex] = {
+          ...updatedCart[existingIndex],
+          quantity: updatedCart[existingIndex].quantity + newItem.quantity,
+        };
+        return updatedCart;
+      }
+
+      // No match found, add as new
+      return [...state, newItem];
+    }
     case "REMOVE": return state.filter((i) => i.id !== action.id);
     case "UPDATE_QTY":
       return state.map((i) => (i.id === action.id ? { ...i, quantity: action.qty } : i))
