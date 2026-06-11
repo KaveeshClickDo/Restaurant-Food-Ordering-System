@@ -235,7 +235,7 @@ A mobile-friendly table-service companion for dine-in staff. No admin cookie nee
 #### Void & Refund (Senior only)
 
 - **Void** (before settlement) — cancels all active orders for the table with a mandatory reason; sets `status = "cancelled"` and records `void_reason`, `voided_by`, `voided_at`
-- **Refund** (after settlement) — full or partial amount; cash or card method; distributes refund proportionally across multiple order rounds; sets `status = "refunded"` or `"partially_refunded"`; appends a `RefundRecord` to `orders.refunds`
+- **Refund** (after settlement) — full or partial amount; cash or card method; distributes refund proportionally across multiple order rounds; sets `payment_status = "refunded"` or `"partially_refunded"` (`status` stays `"delivered"`); appends a `RefundRecord` to `orders.refunds`
 
 #### Receipt
 
@@ -362,8 +362,8 @@ pending → confirmed → preparing → ready
 | `ready` | KDS | Food ready for collection or driver |
 | `delivered` | Admin (collection), Waiter app (dine-in), or Driver | Completed |
 | `cancelled` | Admin or Waiter (void) | Order cancelled / voided |
-| `refunded` | Admin or Waiter (senior) | Full refund processed |
-| `partially_refunded` | Admin or Waiter (senior) | Partial refund processed |
+| `refunded` | *(legacy)* | Full refund — current flows set `payment_status = "refunded"` and keep `status` |
+| `partially_refunded` | *(legacy)* | Partial refund — current flows set `payment_status = "partially_refunded"` and keep `status` |
 
 **Role guard**: Admin cannot advance delivery orders past `ready` — only the driver can mark them delivered.
 

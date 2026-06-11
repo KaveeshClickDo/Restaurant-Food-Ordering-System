@@ -641,8 +641,8 @@ pending ──→ confirmed ──→ preparing ──→ ready
 | `ready` | KDS | Food ready |
 | `delivered` | Admin (collection), Waiter (dine-in), Driver | Completed |
 | `cancelled` | Admin or Waiter void | Cancelled |
-| `refunded` | Admin or Senior Waiter | Full refund |
-| `partially_refunded` | Admin or Senior Waiter | Partial refund |
+| `refunded` | *(legacy)* | Full refund — current flows set `payment_status = "refunded"` and keep `status` |
+| `partially_refunded` | *(legacy)* | Partial refund — current flows set `payment_status = "partially_refunded"` and keep `status` |
 
 ### Driver leg (`deliveryStatus`)
 

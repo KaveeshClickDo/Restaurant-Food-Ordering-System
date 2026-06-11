@@ -157,17 +157,21 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
     return () => clearInterval(id);
   }, [fetchOrders]);
 
+  // Refund state lives on payment_status (dine-in refunds keep status
+  // "delivered"); legacy rows carried it on status instead — accept both.
+  const isRefunded = (o: RawOrder) =>
+    o.payment_status === "refunded" || o.payment_status === "partially_refunded"
+    || o.status === "refunded" || o.status === "partially_refunded";
+
   const active         = orders.filter((o) => ACTIVE_STATUSES.includes(o.status))
                                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  const completedToday = orders.filter((o) => isToday(o.date) && o.status === "delivered")
+  const completedToday = orders.filter((o) => isToday(o.date) && o.status === "delivered" && !isRefunded(o))
                                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   const earnedToday    = completedToday.reduce((s, o) => s + Number(o.total ?? 0), 0);
   // Voided POS sales land on the mirror order as "cancelled" (with refund state
-  // on payment_status); dine-in refunds overwrite status with
-  // "refunded"/"partially_refunded". Surface all of them for today.
-  const voidedToday    = orders.filter((o) =>
-                               isToday(o.date)
-                               && (o.status === "cancelled" || o.status === "refunded" || o.status === "partially_refunded"))
+  // on payment_status); refunded dine-in orders stay "delivered" but carry
+  // payment_status. Surface all of them for today.
+  const voidedToday    = orders.filter((o) => isToday(o.date) && (o.status === "cancelled" || isRefunded(o)))
                                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const isPos = source === "pos";

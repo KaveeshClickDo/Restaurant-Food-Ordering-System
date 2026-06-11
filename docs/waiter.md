@@ -116,11 +116,11 @@ API: `POST /api/waiter/void`
 Available from the receipt modal via the "Refund" button — replaces the normal Close/Print/Reprint footer when order IDs are present.
 
 - **Full refund**: refunds the entire table total
-- **Partial refund**: enter a custom amount (must be ≤ total)
+- **Partial refund**: enter a custom amount (must be ≤ the refundable money — gift-card portion and prior refunds excluded)
 - **Refund method**: Cash or Card
-- Refund amount is distributed proportionally across all order rounds
+- Refund amount is distributed proportionally across all order rounds (by money paid, gift card netted out)
 - Each order gets a `RefundRecord` appended to its `refunds` JSON array
-- Status is set to `"refunded"` (full) or `"partially_refunded"` (partial)
+- `payment_status` is set to `"refunded"` (all money back, cumulatively) or `"partially_refunded"`; `status` stays `"delivered"` — a refund changes the payment state, not fulfillment
 
 API: `POST /api/waiter/refund`
 

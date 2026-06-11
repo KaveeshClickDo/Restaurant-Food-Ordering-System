@@ -146,7 +146,7 @@ Senior waiter taps "Void Table" → enters reason → confirms
 Senior waiter opens receipt → taps "Refund" → selects full/partial + method + reason
   → POST /api/waiter/refund
   → Each order gets proportional share of refund amount
-  → status = "refunded" or "partially_refunded"
+  → payment_status = "refunded" or "partially_refunded" (status stays "delivered")
   → RefundRecord appended to orders.refunds[]
 ```
 
@@ -174,8 +174,8 @@ Admin assigns driver → order.driverId set, deliveryStatus = "assigned"
 | `ready` | Food ready to go | KDS |
 | `delivered` | Completed | Admin (collection), Waiter (settle), Driver (delivery) |
 | `cancelled` | Voided / cancelled | Admin or Waiter void |
-| `refunded` | Full refund processed | Admin or Waiter (senior) |
-| `partially_refunded` | Partial refund processed | Admin or Waiter (senior) |
+| `refunded` | *(legacy)* Full refund — current flows set `payment_status = "refunded"` and keep `status` | — |
+| `partially_refunded` | *(legacy)* Partial refund — current flows set `payment_status = "partially_refunded"` and keep `status` | — |
 
 ---
 

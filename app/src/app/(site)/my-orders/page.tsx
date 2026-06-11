@@ -407,13 +407,19 @@ export default function MyOrdersPage() {
                                                         : order.paymentStatus === "partially_refunded" || order.status === "partially_refunded"
                                                             ? "partially refunded"
                                                             : null;
-                                                const isCancelled = order.status === "cancelled" || refundLabel !== null;
-                                                // A cancelled-AND-refunded order must surface both facts — showing
-                                                // only "cancelled" hides from the customer that their money came back.
+                                                // Red is reserved for cancelled orders — a delivered order with a
+                                                // refund completed normally, so it keeps the neutral grey.
+                                                const isCancelled = order.status === "cancelled";
+                                                // A refunded order must surface both facts — showing only
+                                                // "cancelled"/"Delivered" hides from the customer that their
+                                                // money came back, and a bare "refunded" hides whether the
+                                                // food ever arrived.
                                                 const pastLabel =
                                                     order.status === "cancelled"
                                                         ? (refundLabel ? `cancelled · ${refundLabel}` : "cancelled")
-                                                        : refundLabel ?? "Delivered";
+                                                        : refundLabel
+                                                            ? `Delivered · ${refundLabel}`
+                                                            : "Delivered";
                                                 return (
                                                     <div key={order.id} className="bg-white rounded-3xl p-5 shadow-sm">
                                                         <div className="flex items-start justify-between gap-2 mb-2">

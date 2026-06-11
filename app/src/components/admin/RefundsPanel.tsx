@@ -100,11 +100,10 @@ function isOnlineOrder(o: Order): boolean {
 /**
  * The refund state of an order, independent of fulfillment.
  *
- * Source of truth is `paymentStatus`, which the admin refund flow sets while
- * leaving `status` to track fulfillment. We also honour a refund state stamped
- * onto `status` so two other cases still read correctly here:
- *   • legacy rows refunded before payment_status carried the refund state, and
- *   • POS dine-in refunds, which write the refund state to `status`.
+ * Source of truth is `paymentStatus`, which every refund flow (admin, Stripe/
+ * PayPal webhooks, POS and waiter dine-in) sets while leaving `status` to
+ * track fulfillment. We also honour a refund state stamped onto `status` for
+ * legacy rows written before the dine-in flows switched to payment_status.
  */
 function refundState(o: Order): "refunded" | "partially_refunded" | null {
   if (o.paymentStatus === "refunded"           || o.status === "refunded")           return "refunded";

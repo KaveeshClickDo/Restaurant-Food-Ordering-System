@@ -76,9 +76,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const isFullRefund = refundAmount >= moneyCap - 0.001;
-  const newStatus    = isFullRefund ? "refunded" : "partially_refunded";
-  const processedAt  = new Date().toISOString();
+  // "refunded" = the customer now has ALL their money back, cumulatively —
+  // a second partial refund that clears the balance still counts as full.
+  const isFullRefund     = priorRefunded + refundAmount >= moneyCap - 0.001;
+  const newPaymentStatus = isFullRefund ? "refunded" : "partially_refunded";
+  const processedAt      = new Date().toISOString();
 
   // Distribute the refund across orders in proportion to each order's MONEY paid
   // (gift card netted out) so a multi-order table bill splits fairly.
@@ -101,18 +103,21 @@ export async function POST(req: NextRequest) {
 
     return {
       id:              o.id,
-      status:          newStatus,
+      payment_status:  newPaymentStatus,
       refunds:         [...existingRefunds, newRecord],
       refunded_amount: round2((Number(o.refunded_amount ?? 0)) + roundedShare),
     };
   });
 
+  // `status` is intentionally NOT touched: the order was delivered and the
+  // refund only changes its payment state (payment_status is the source of
+  // truth for refunds, matching the admin refund route).
   const errors: string[] = [];
   await Promise.all(
-    updates.map(async ({ id, status, refunds, refunded_amount }) => {
+    updates.map(async ({ id, payment_status, refunds, refunded_amount }) => {
       const { error } = await supabaseAdmin
         .from("orders")
-        .update({ status, refunds, refunded_amount })
+        .update({ payment_status, refunds, refunded_amount })
         .eq("id", id);
       if (error) errors.push(`${id}: ${error.message}`);
     }),
@@ -127,6 +132,6 @@ export async function POST(req: NextRequest) {
     ok:            true,
     refunded:      orders.length,
     totalRefunded: refundAmount,
-    type:          newStatus,
+    type:          newPaymentStatus,
   });
 }

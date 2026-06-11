@@ -8,11 +8,26 @@ export interface DineInOrder {
   items: { name: string; qty: number; price: number }[];
   total: number;
   status: string;
+  /** Money state ("paid"/"refunded"/"partially_refunded"…) — refunds live here, not on status. */
+  paymentStatus?: string;
   paymentMethod: string;
   date: string;
   refundedAmount?: number;
   /** Amount of the bill paid by gift card (gross total − this = money in). */
   giftCardUsed?: number;
+}
+
+/**
+ * Refund state of a dine-in order. It lives in paymentStatus; legacy rows
+ * wrote it onto status instead — accept both until old rows are cleaned up.
+ * A refunded order keeps status "delivered" (the food was served).
+ */
+export function dineInRefundState(
+  o: Pick<DineInOrder, "status" | "paymentStatus">,
+): "refunded" | "partially_refunded" | null {
+  if (o.paymentStatus === "refunded" || o.status === "refunded") return "refunded";
+  if (o.paymentStatus === "partially_refunded" || o.status === "partially_refunded") return "partially_refunded";
+  return null;
 }
 
 export function buildReceiptHtml(sale: POSSale, settings: POSSettings, restaurantNameOverride?: string): string {

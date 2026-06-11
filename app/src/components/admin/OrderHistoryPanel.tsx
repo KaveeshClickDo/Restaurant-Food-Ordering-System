@@ -34,13 +34,15 @@ interface RawOrder {
   customer?: { name?: string | null } | null;
 }
 
-// Cancelled-but-refunded must surface both states — a bare "Cancelled" badge
-// hides the fact that the customer's money already went back (QA #37).
+// A refunded order must surface both states — a bare "Cancelled" or
+// "Completed" badge hides the fact that the customer's money already went
+// back (QA #37). Refund state lives on payment_status (dine-in refunds keep
+// status "delivered"); legacy rows that ARE the refund don't get a second tag.
 function statusLabel(o: RawOrder): string {
   const base = STATUS_CONFIG[o.status]?.label ?? o.status;
-  if (o.status !== "cancelled") return base;
-  if (o.payment_status === "refunded") return "Cancelled · Refunded";
-  if (o.payment_status === "partially_refunded") return "Cancelled · Partial refund";
+  if (o.status === "refunded" || o.status === "partially_refunded") return base;
+  if (o.payment_status === "refunded") return `${base} · Refunded`;
+  if (o.payment_status === "partially_refunded") return `${base} · Partial refund`;
   return base;
 }
 

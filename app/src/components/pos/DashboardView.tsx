@@ -10,7 +10,7 @@ import {
   RotateCcw, Search, Shuffle, Tag, Trash2, TrendingUp, Trophy, Users, Utensils,
 } from "lucide-react";
 import { fmt, fmtPct, fmtDate, fmtTime, relTime } from "./_utils";
-import { buildDineInReceiptHtml, type DineInOrder } from "./_receipts";
+import { buildDineInReceiptHtml, dineInRefundState, type DineInOrder } from "./_receipts";
 import { moneyPaidGross } from "@/lib/giftCardMoney";
 import { parseTableLabelFromNote } from "@/lib/tableLabel";
 import {
@@ -57,6 +57,7 @@ export default function DashboardView() {
       items: (o.items as DineInOrder["items"]) ?? [],
       total: Number(o.total),
       status: o.status as string,
+      paymentStatus: (o.payment_status as string) ?? undefined,
       paymentMethod: (o.payment_method as string) ?? "table-service",
       date: o.date as string,
       refundedAmount: o.refunded_amount != null ? Number(o.refunded_amount) : undefined,
@@ -161,7 +162,7 @@ export default function DashboardView() {
   // transaction that happened — we count it, then deduct the refunded amount
   // from revenue. Voided-without-refund sales are excluded entirely (the sale
   // was cancelled before money changed hands). Same shape applied to dine-in
-  // below where the refund state lives on `status` instead.
+  // below, where refund state lives in paymentStatus (legacy rows: on status).
   const todaySales = sales.filter((s) => {
     if (new Date(s.date).toDateString() !== today) return false;
     if (!s.voided) return true;
@@ -171,9 +172,7 @@ export default function DashboardView() {
   // those rows must NOT contribute to the tips KPI.
   const todaySalesActive = todaySales.filter((s) => !s.voided);
   const todayDineInSettled = todayDineIn.filter(o =>
-    o.status === "delivered" ||
-    o.status === "refunded" ||
-    o.status === "partially_refunded"
+    o.status === "delivered" || dineInRefundState(o) !== null
   );
 
   // Revenue = money paid (gift card netted out) − refund. A gift card is
@@ -333,10 +332,11 @@ export default function DashboardView() {
   const staffPerf = Object.values(staffStats).map((s) => ({ ...s, avgOrder: s.sales > 0 ? s.revenue / s.sales : 0 })).sort((a, b) => b.revenue - a.revenue);
   const maxStaffRev = staffPerf[0]?.revenue || 1;
 
-  // Dine-in stats for reports
-  const diSettled = reportsDineIn.filter(o => o.status === "delivered");
+  // Dine-in stats for reports. A refunded order keeps status "delivered", so
+  // "settled" excludes refund state to keep the two buckets disjoint.
+  const diSettled = reportsDineIn.filter(o => o.status === "delivered" && dineInRefundState(o) === null);
   const diVoided = reportsDineIn.filter(o => o.status === "cancelled");
-  const diRefundedOrders = reportsDineIn.filter(o => o.status === "refunded" || o.status === "partially_refunded");
+  const diRefundedOrders = reportsDineIn.filter(o => dineInRefundState(o) !== null);
   // Revenue-bearing dine-in = settled PLUS (partially) refunded — the retained
   // portion is real revenue. Net out gift card + refund, just like POS sales,
   // so a partial refund reduces revenue by the amount returned, not the whole bill.
@@ -401,11 +401,11 @@ export default function DashboardView() {
                 `Today · ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}`
               ) : dashTab === "dine-in" ? (
                 (() => {
-                  const settled = dineInOrders.filter((o) => o.status === "delivered").length;
-                  const open    = dineInOrders.filter((o) => o.status !== "delivered" && o.status !== "cancelled" && o.status !== "refunded" && o.status !== "partially_refunded").length;
-                  const refunded = dineInOrders.filter((o) => o.status === "refunded" || o.status === "partially_refunded").length;
+                  const settled = dineInOrders.filter((o) => o.status === "delivered" && dineInRefundState(o) === null).length;
+                  const open    = dineInOrders.filter((o) => o.status !== "delivered" && o.status !== "cancelled" && dineInRefundState(o) === null).length;
+                  const refunded = dineInOrders.filter((o) => dineInRefundState(o) !== null).length;
                   const revenue = dineInOrders
-                    .filter((o) => o.status === "delivered" || o.status === "refunded" || o.status === "partially_refunded")
+                    .filter((o) => o.status === "delivered" || dineInRefundState(o) !== null)
                     .reduce((s, o) => s + (o.total - (o.refundedAmount ?? 0)), 0);
                   return `${open} open · ${settled} settled · ${fmt(revenue, sym)} revenue${refunded > 0 ? ` · ${refunded} refunded` : ""}`;
                 })()
@@ -624,8 +624,9 @@ export default function DashboardView() {
                         );
                       } else {
                         const order = entry.data;
-                        const isSettled = order.status === "delivered";
-                        const isRefunded = order.status === "refunded" || order.status === "partially_refunded";
+                        const refundState = dineInRefundState(order);
+                        const isRefunded = refundState !== null;
+                        const isSettled = order.status === "delivered" && !isRefunded;
                         const isCancelled = order.status === "cancelled";
                         const containerCls = isRefunded
                           ? "bg-amber-500/5 border-amber-500/20"
@@ -654,7 +655,7 @@ export default function DashboardView() {
                               ? "text-violet-400"
                               : "text-blue-400";
                         const label = isRefunded
-                          ? (order.status === "refunded" ? "Refunded" : "Partial Refund")
+                          ? (refundState === "refunded" ? "Refunded" : "Partial Refund")
                           : isCancelled
                             ? "Voided"
                             : isSettled
@@ -1307,7 +1308,9 @@ export default function DashboardView() {
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-700/40">
-                              {reportsDineIn.map((o) => (
+                              {reportsDineIn.map((o) => {
+                                const refundState = dineInRefundState(o);
+                                return (
                                 <tr key={o.id} className="hover:bg-slate-700/30 transition-colors">
                                   <td className="px-5 py-3 text-slate-400 text-xs whitespace-nowrap">
                                     {new Date(o.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}{" "}
@@ -1319,33 +1322,35 @@ export default function DashboardView() {
                                     {o.items.map(it => `${it.qty}× ${it.name}`).join(", ")}
                                   </td>
                                   <td className="px-5 py-3">
-                                    <span className={`text-xs whitespace-nowrap font-semibold px-2 py-0.5 rounded-full ${o.status === "delivered" ? "bg-emerald-500/20 text-emerald-300" :
-                                      o.status === "cancelled" ? "bg-red-500/20 text-red-400" :
-                                        o.status === "refunded" ? "bg-amber-500/20 text-amber-300" :
-                                          o.status === "partially_refunded" ? "bg-amber-500/15 text-amber-400" :
-                                            "bg-blue-500/20 text-blue-300"
+                                    <span className={`text-xs whitespace-nowrap font-semibold px-2 py-0.5 rounded-full ${
+                                      refundState === "refunded" ? "bg-amber-500/20 text-amber-300" :
+                                        refundState === "partially_refunded" ? "bg-amber-500/15 text-amber-400" :
+                                          o.status === "delivered" ? "bg-emerald-500/20 text-emerald-300" :
+                                            o.status === "cancelled" ? "bg-red-500/20 text-red-400" :
+                                              "bg-blue-500/20 text-blue-300"
                                       }`}>
-                                      {o.status === "delivered" ? "Settled" :
-                                        o.status === "cancelled" ? "Voided" :
-                                          o.status === "refunded" ? "Refunded" :
-                                            o.status === "partially_refunded" ? "Part. Refund" :
+                                      {refundState === "refunded" ? "Refunded" :
+                                        refundState === "partially_refunded" ? "Part. Refund" :
+                                          o.status === "delivered" ? "Settled" :
+                                            o.status === "cancelled" ? "Voided" :
                                               o.status.charAt(0).toUpperCase() + o.status.slice(1)}
                                     </span>
                                   </td>
                                   <td className={`px-5 py-3 text-right font-bold ${o.status === "cancelled" ? "text-red-400 line-through opacity-50" :
-                                    o.status === "refunded" ? "text-amber-400 line-through opacity-70" :
+                                    refundState === "refunded" ? "text-amber-400 line-through opacity-70" :
                                       "text-white"
                                     }`}>{fmt(o.total, sym)}</td>
                                 </tr>
-                              ))}
+                                );
+                              })}
                             </tbody>
                             <tfoot>
                               <tr className="bg-slate-900/60 border-t-2 border-slate-600">
                                 <td colSpan={5} className="px-5 py-3 text-xs font-semibold text-slate-400">
-                                  Dine-In Total ({reportsDineIn.filter(o => o.status === "delivered").length} settled)
+                                  Dine-In Total ({diSettled.length} settled)
                                 </td>
                                 <td className="px-5 py-3 text-right font-bold text-violet-300">
-                                  {fmt(reportsDineIn.filter(o => o.status === "delivered").reduce((s, o) => s + o.total, 0), sym)}
+                                  {fmt(diSettled.reduce((s, o) => s + o.total, 0), sym)}
                                 </td>
                               </tr>
                             </tfoot>
@@ -1377,14 +1382,14 @@ export default function DashboardView() {
             ) : (
               <>
                 {/* Open / active orders */}
-                {dineInOrders.filter(o => o.status !== "delivered" && o.status !== "cancelled" && o.status !== "refunded" && o.status !== "partially_refunded").length > 0 && (
+                {dineInOrders.filter(o => o.status !== "delivered" && o.status !== "cancelled" && dineInRefundState(o) === null).length > 0 && (
                   <div>
                     <h3 className="text-slate-300 font-semibold text-sm uppercase tracking-wider mb-3">
-                      Open Tables ({dineInOrders.filter(o => o.status !== "delivered" && o.status !== "cancelled" && o.status !== "refunded" && o.status !== "partially_refunded").length})
+                      Open Tables ({dineInOrders.filter(o => o.status !== "delivered" && o.status !== "cancelled" && dineInRefundState(o) === null).length})
                     </h3>
                     <div className="space-y-3">
                       {dineInOrders
-                        .filter(o => o.status !== "delivered" && o.status !== "cancelled" && o.status !== "refunded" && o.status !== "partially_refunded")
+                        .filter(o => o.status !== "delivered" && o.status !== "cancelled" && dineInRefundState(o) === null)
                         .map(order => (
                           <div key={order.id} className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
                             <div className="flex items-start justify-between gap-4 mb-3">
@@ -1460,15 +1465,16 @@ export default function DashboardView() {
                   </div>
                 )}
 
-                {/* Settled orders */}
-                {dineInOrders.filter(o => o.status === "delivered").length > 0 && (
+                {/* Settled orders (refunded ones keep status "delivered" but move
+                    to the Voided / Refunded section below) */}
+                {dineInOrders.filter(o => o.status === "delivered" && dineInRefundState(o) === null).length > 0 && (
                   <div>
                     <h3 className="text-slate-300 font-semibold text-sm uppercase tracking-wider mb-3">
-                      Settled Today ({dineInOrders.filter(o => o.status === "delivered").length})
+                      Settled Today ({dineInOrders.filter(o => o.status === "delivered" && dineInRefundState(o) === null).length})
                     </h3>
                     <div className="space-y-3">
                       {dineInOrders
-                        .filter(o => o.status === "delivered")
+                        .filter(o => o.status === "delivered" && dineInRefundState(o) === null)
                         .map(order => (
                           <div key={order.id} className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-5 opacity-80">
                             <div className="flex items-start justify-between gap-4 mb-3">
@@ -1545,14 +1551,14 @@ export default function DashboardView() {
                 )}
 
                 {/* Voided & Refunded orders */}
-                {dineInOrders.filter(o => o.status === "cancelled" || o.status === "refunded" || o.status === "partially_refunded").length > 0 && (
+                {dineInOrders.filter(o => o.status === "cancelled" || dineInRefundState(o) !== null).length > 0 && (
                   <div>
                     <h3 className="text-slate-400 font-semibold text-sm uppercase tracking-wider mb-3">
-                      Voided / Refunded ({dineInOrders.filter(o => o.status === "cancelled" || o.status === "refunded" || o.status === "partially_refunded").length})
+                      Voided / Refunded ({dineInOrders.filter(o => o.status === "cancelled" || dineInRefundState(o) !== null).length})
                     </h3>
                     <div className="space-y-3">
                       {dineInOrders
-                        .filter(o => o.status === "cancelled" || o.status === "refunded" || o.status === "partially_refunded")
+                        .filter(o => o.status === "cancelled" || dineInRefundState(o) !== null)
                         .map(order => (
                           <div key={order.id} className="bg-slate-800/30 border border-slate-700/30 rounded-2xl p-5 opacity-60">
                             <div className="flex items-start justify-between gap-4">
@@ -1563,7 +1569,7 @@ export default function DashboardView() {
                                     ? "bg-red-500/15 text-red-400 border-red-500/25"
                                     : "bg-amber-500/15 text-amber-400 border-amber-500/25"
                                     }`}>
-                                    {order.status === "cancelled" ? "Voided" : order.status === "refunded" ? "Refunded" : "Partial Refund"}
+                                    {order.status === "cancelled" ? "Voided" : dineInRefundState(order) === "refunded" ? "Refunded" : "Partial Refund"}
                                   </span>
                                 </div>
                                 <p className="text-slate-500 text-sm mt-0.5">

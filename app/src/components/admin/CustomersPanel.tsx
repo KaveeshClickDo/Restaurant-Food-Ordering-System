@@ -32,13 +32,15 @@ const STATUS_CONFIG: Record<OrderStatus, { label: string; className: string; ico
   partially_refunded: { label: "Partially Refunded", className: "bg-cyan-50 text-cyan-700 border-cyan-200", icon: <RotateCcw size={11} className="text-cyan-600" /> },
 };
 
-// Cancelled-but-refunded must surface both states — a bare "Cancelled" badge
-// hides the fact that the customer's money already went back (QA #37).
+// A refunded order must surface both states — a bare "Cancelled" or
+// "Delivered" badge hides the fact that the customer's money already went
+// back (QA #37). Refund state lives on paymentStatus (dine-in refunds keep
+// status "delivered"); legacy rows that ARE the refund don't get a second tag.
 function orderStatusLabel(o: { status: OrderStatus; paymentStatus?: string | null }): string {
   const base = STATUS_CONFIG[o.status]?.label ?? String(o.status);
-  if (o.status !== "cancelled") return base;
-  if (o.paymentStatus === "refunded") return "Cancelled · Refunded";
-  if (o.paymentStatus === "partially_refunded") return "Cancelled · Partial refund";
+  if (o.status === "refunded" || o.status === "partially_refunded") return base;
+  if (o.paymentStatus === "refunded") return `${base} · Refunded`;
+  if (o.paymentStatus === "partially_refunded") return `${base} · Partial refund`;
   return base;
 }
 
