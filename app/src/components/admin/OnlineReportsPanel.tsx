@@ -582,7 +582,7 @@ export default function OnlineReportsPanel() {
     lines.push("");
 
     // Payment methods
-    lines.push("## Payment Methods");
+    lines.push("## Orders Payment Methods");
     lines.push(row(["Method", "Order Count", `Amount (${sym})`, "Percentage"]));
     for (const pm of metrics.payMethods) {
       lines.push(row([pm.method, pm.count, pm.revenue.toFixed(2), pct(pm.revenue, metrics.revenue)]));
@@ -597,12 +597,15 @@ export default function OnlineReportsPanel() {
     }
     lines.push("");
 
-    // Fulfillment split
-    lines.push("## Fulfillment Split");
-    lines.push(row(["Type", "Count", "Percentage"]));
-    lines.push(row(["delivery", metrics.delivery, pct(metrics.delivery, metrics.count)]));
-    lines.push(row(["collection", metrics.collection, pct(metrics.collection, metrics.count)]));
-    lines.push("");
+    // Fulfillment split — All / Online only, mirroring the on-screen card
+    // (delivery vs collection doesn't apply to POS / dine-in / admin).
+    if (source === "all" || source === "online") {
+      lines.push("## Fulfillment Split");
+      lines.push(row(["Type", "Count", "Percentage"]));
+      lines.push(row(["delivery", metrics.delivery, pct(metrics.delivery, metrics.count)]));
+      lines.push(row(["collection", metrics.collection, pct(metrics.collection, metrics.count)]));
+      lines.push("");
+    }
 
     // Revenue over time
     lines.push("## Revenue Over Time");
@@ -860,8 +863,10 @@ export default function OnlineReportsPanel() {
           />
         )}
         {/* Gift card REDEEMED — money settled by spending cards. Informational
-            only (income was booked at the card sale), so NOT added to revenue. */}
-        {metrics.giftCardRedeemed > 0 && (
+            only (income was booked at the card sale), so NOT added to revenue.
+            Always shown (even at zero) like the other KPI cards; hidden on the
+            Admin tab only, where redemption is order-derived and always zero. */}
+        {source !== "admin" && (
           <StatCard
             label="Gift Card Redeemed"
             value={cur(metrics.giftCardRedeemed)}
@@ -923,7 +928,7 @@ export default function OnlineReportsPanel() {
 
         {/* Payment methods */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 space-y-4">
-          <h3 className="font-bold text-gray-900">Payment methods</h3>
+          <h3 className="font-bold text-gray-900">Orders Payment methods</h3>
           {metrics.payMethods.length === 0 ? (
             <p className="text-sm text-gray-400">No data</p>
           ) : (
@@ -951,7 +956,7 @@ export default function OnlineReportsPanel() {
 
         {/* VAT breakdown */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 space-y-4">
-          <h3 className="font-bold text-gray-900">VAT / Tax breakdown</h3>
+          <h3 className="font-bold text-gray-900">Orders VAT / Tax breakdown</h3>
           <div className="space-y-3">
             {[
               { label: "Gross Revenue",     value: metrics.revenue,          color: "bg-orange-400" },
@@ -970,7 +975,9 @@ export default function OnlineReportsPanel() {
           </div>
         </div>
 
-        {/* Fulfilment split */}
+        {/* Fulfilment split — delivery vs collection only applies to online
+            orders, so it's shown on the All and Online tabs only. */}
+        {(source === "all" || source === "online") && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
           <h3 className="font-bold text-gray-900">Fulfilment split</h3>
           <div className="space-y-3">
@@ -1002,6 +1009,7 @@ export default function OnlineReportsPanel() {
             ))}
           </div>
         </div>
+        )}
       </div>
       )}
 

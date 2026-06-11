@@ -89,7 +89,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "online-payments", label: "Online Payments", icon: CreditCard },
       { id: "online-refunds", label: "Online Refunds", icon: RotateCcw },
-      { id: "online-reports", label: "Finance Reports", icon: LineChart },
+      { id: "finance-reports", label: "Finance Reports", icon: LineChart },
       { id: "coupons", label: "Coupons", icon: Tag },
       { id: "gift-cards", label: "Gift Cards", icon: Gift },
       { id: "tax", label: "Tax & VAT", icon: Percent },
@@ -180,7 +180,7 @@ function bannerSubtitle(
     case "drivers": return "Manage driver accounts and track deliveries.";
     case "online-refunds": return "Process full or partial refunds on online orders, choose refund method, and view the full refund history.";
     case "online-payments": return "Online Stripe and cash transactions with status, customer, and gateway links — every online order where money actually moved.";
-    case "online-reports": return "Revenue, orders, refunds, VAT, and payment breakdowns — filter by date range and export to CSV or PDF.";
+    case "finance-reports": return "Revenue, orders, refunds, VAT, and payment breakdowns — filter by date range and export to CSV or PDF.";
     case "pos-reports": return "View POS sales reports — revenue, profit, staff performance, and best-selling items.";
     case "waiters": return "Manage waiter accounts, PINs, and roles. Dining tables moved to the Tables tab.";
     case "kitchen-staff": return "Manage KDS login accounts, PINs, and kitchen roles.";
@@ -220,13 +220,15 @@ function AdminPageContent() {
   // the user-management active-orders modal) land on the right panel.
   // Accept legacy aliases so old bookmarks / external links (e.g. emails sent
   // before a rename) still land on the right tab: "delivery" → online-orders,
-  // "payments" → online-payments, "refunds" → online-refunds.
+  // "payments" → online-payments, "refunds" → online-refunds,
+  // "online-reports" → finance-reports.
   const rawTab = searchParams.get("tab");
   const initialTab = (
     rawTab === "delivery" ? "online-orders" :
       rawTab === "payments" ? "online-payments" :
         rawTab === "refunds" ? "online-refunds" :
-          rawTab ?? "online-orders"
+          rawTab === "online-reports" ? "finance-reports" :
+            rawTab ?? "online-orders"
   ) as TabId;
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -310,7 +312,7 @@ function AdminPageContent() {
   // legacy alias the same way the initial-tab resolver above does.
   useEffect(() => {
     const raw = searchParams.get("tab");
-    const t = raw === "delivery" ? "online-orders" : raw === "payments" ? "online-payments" : raw === "refunds" ? "online-refunds" : raw;
+    const t = raw === "delivery" ? "online-orders" : raw === "payments" ? "online-payments" : raw === "refunds" ? "online-refunds" : raw === "online-reports" ? "finance-reports" : raw;
     if (t && ALL_TABS.some((x) => x.id === t)) setActiveTab(t);
   }, [searchParams]);
 
@@ -769,7 +771,7 @@ function AdminPageContent() {
             {activeTab === "drivers" && <DriversPanel />}
             {activeTab === "online-refunds" && <RefundsPanel />}
             {activeTab === "online-payments" && <PaymentsPanel />}
-            {activeTab === "online-reports" && <OnlineReportsPanel />}
+            {activeTab === "finance-reports" && <OnlineReportsPanel />}
             {activeTab === "pos-reports" && <POSReportsPanel />}
             {activeTab === "waiters" && <WaitersPanel />}
             {activeTab === "kitchen-staff" && <KitchenStaffPanel />}
