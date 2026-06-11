@@ -15,7 +15,7 @@ import CollectionFooter from "@/components/collection/CollectionFooter";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface CollectionItem { name: string; qty: number; price?: number }
+interface CollectionItem { name: string; qty: number; price?: number; selectedVariations?: { variationId: string; optionId: string; label: string }[]; selectedAddOns?: { id: string; name: string; price: number }[]; }
 interface CollectionOrder {
   id: string;
   items: CollectionItem[];
@@ -34,10 +34,10 @@ const STATUS_LABEL: Record<string, string> = {
   pending: "Pending", confirmed: "Confirmed", preparing: "Preparing", ready: "Ready",
 };
 const STATUS_STYLE: Record<string, string> = {
-  pending:   "bg-yellow-500/15 text-yellow-300 border-yellow-500/30",
+  pending: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30",
   confirmed: "bg-blue-500/15 text-blue-300 border-blue-500/30",
   preparing: "bg-orange-500/15 text-orange-300 border-orange-500/30",
-  ready:     "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+  ready: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
 };
 
 function customerName(o: CollectionOrder): string {
@@ -217,9 +217,8 @@ export default function CollectionPage() {
           <button
             key={id}
             onClick={() => setTab(id)}
-            className={`flex items-center gap-1.5 px-4 py-3 text-sm font-semibold border-b-2 transition ${
-              tab === id ? "text-orange-400 border-orange-500" : "text-slate-400 border-transparent hover:text-slate-200"
-            }`}
+            className={`flex items-center gap-1.5 px-4 py-3 text-sm font-semibold border-b-2 transition ${tab === id ? "text-orange-400 border-orange-500" : "text-slate-400 border-transparent hover:text-slate-200"
+              }`}
           >
             <Icon size={15} /> {label}
           </button>
@@ -250,9 +249,8 @@ export default function CollectionPage() {
               <button
                 key={p}
                 onClick={() => setPeriod(p)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                  period === p ? "bg-orange-500 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                }`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${period === p ? "bg-orange-500 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  }`}
               >
                 {p === "today" ? "Today" : p === "7d" ? "Last 7 days" : "Last 30 days"}
               </button>
@@ -283,7 +281,7 @@ export default function CollectionPage() {
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                 {orders.map((order) => {
                   const isReady = order.status === "ready";
-                  const isPaid  = order.payment_status === "paid";
+                  const isPaid = order.payment_status === "paid";
                   const itemCount = order.items.reduce((s, i) => s + (i.qty ?? 0), 0);
                   return (
                     <div key={order.id} className={`bg-slate-800 rounded-2xl border flex flex-col overflow-hidden ${isReady ? "border-emerald-500/40" : "border-slate-700"}`}>
@@ -307,11 +305,25 @@ export default function CollectionPage() {
                       )}
                       <div className="mx-4 border-t border-slate-700/60" />
                       <div className="px-4 py-2.5 flex-1 space-y-1">
-                        {order.items.map((item, i) => (
-                          <div key={i} className="text-xs text-slate-300 truncate">
-                            <span className="text-slate-500 tabular-nums">{item.qty}×</span> {item.name}
-                          </div>
-                        ))}
+                        {order.items.map((item, i) => {
+                          // 1. Extract variations and add-ons
+                          const v = item.selectedVariations?.map(v => v.label).join(", ");
+                          const a = item.selectedAddOns?.map(a => a.name).join(", ");
+
+                          // 2. Combine them only if they exist
+                          const details = [v, a].filter(Boolean).join(" / ");
+
+                          return (
+                            <div key={i} className="text-xs text-slate-300 truncate">
+                              <span className="text-slate-500 tabular-nums">{item.qty}×</span> {item.name}
+
+                              {/* 3. Append details in a lighter color if present */}
+                              {details && (
+                                <span className="text-slate-500 text-[10px]"> ({details})</span>
+                              )}
+                            </div>
+                          );
+                        })}
                         <p className="text-slate-600 text-[10px] pt-0.5">{itemCount} item{itemCount !== 1 ? "s" : ""}</p>
                       </div>
                       <div className="px-4 py-2 bg-slate-900/40 flex items-center justify-between">

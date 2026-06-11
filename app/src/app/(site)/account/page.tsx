@@ -230,7 +230,20 @@ function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 function itemSummary(items: OrderLine[], max = 3) {
-  const names = items.slice(0, max).map((i) => `${i.qty}× ${i.name}`);
+  if (!items || items.length === 0) return "No items";
+
+  const names = items.slice(0, max).map((i) => {
+    // 1. Process variations and add-ons safely
+    const v = i.selectedVariations?.map(v => v.label).join(", ");
+    const a = i.selectedAddOns?.map(a => a.name).join(", ");
+
+    // 2. Filter out null/undefined and join with a slash
+    const details = [v, a].filter(Boolean).join(" / ");
+
+    // 3. Return string with optional details in parentheses
+    return `${i.qty}× ${i.name}${details ? ` (${details})` : ""}`;
+  });
+
   const extra = items.length - max;
   return extra > 0 ? [...names, `+${extra} more`].join(", ") : names.join(", ");
 }
@@ -404,14 +417,36 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
       {expanded && (
         <div className="border-t border-zinc-100 px-4 sm:px-5 py-4 bg-zinc-50 space-y-2">
           <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Items</p>
-          {order.items.map((item, i) => (
-            <div key={i} className="flex justify-between gap-3 text-sm">
-              <span className="text-zinc-600 min-w-0 flex-1">
-                <span className="font-medium text-gray-800">{item.qty}×</span> {item.name}
-              </span>
-              <span className="font-medium text-gray-800 flex-shrink-0 tabular-nums">{sym}{(item.price * item.qty).toFixed(2)}</span>
-            </div>
-          ))}
+          <div className="space-y-3"> {/* Added space-y for better separation between items */}
+            {order.items.map((item, i) => {
+              // 1. Extract variations and add-ons
+              const v = item.selectedVariations?.map(v => v.label).join(", ");
+              const a = item.selectedAddOns?.map(a => a.name).join(", ");
+
+              // 2. Combine only if they exist
+              const details = [v, a].filter(Boolean).join(" / ");
+
+              return (
+                <div key={i} className="flex justify-between gap-3 text-sm items-start">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-zinc-600">
+                      <span className="font-medium text-gray-800">{item.qty}×</span> {item.name}
+                    </div>
+
+                    {/* 3. Display details on a secondary line */}
+                    {details && (
+                      <p className="text-[11.5px] text-zinc-400 mt-0.5 leading-tight">
+                        {details}
+                      </p>
+                    )}
+                  </div>
+                  <span className="font-medium text-gray-800 flex-shrink-0 tabular-nums">
+                    {sym}{(item.price * item.qty).toFixed(2)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
           <div className="border-t border-zinc-200 mt-3 pt-3 flex justify-between font-bold text-zinc-900 text-sm">
             <span>Total</span>
             <span className="tabular-nums">{sym}{order.total.toFixed(2)}</span>
@@ -1676,73 +1711,81 @@ function AccountPageContent() {
         ? menuItems.find((m) => m.id === line.menuItemId)
         : menuItems.find((m) => m.name.toLowerCase() === line.name.toLowerCase());
 
-      if (!menuItem) {
+      if (!menuItem || !isOnChannel(menuItem, "online") || resolveStock(menuItem) === "out_of_stock") {
         skipped.push(line.name);
         return;
       }
 
-      // Skip items that are no longer offered on the customer site (admin
-      // moved them to in-store-only since the original order was placed).
-      if (!isOnChannel(menuItem, "online")) {
-        skipped.push(line.name);
-        return;
+      // Resolve Variations (Support multiple variations + Name fallback)
+      // Check for both plural and singular keys to be safe
+      const originalVars = line.selectedVariations || (line.selectedVariation ? [line.selectedVariation] : []);
+      let resolvedVariations: CartItem["selectedVariations"] = [];
+      let variationPriceTotal = 0;
+
+      if (originalVars.length > 0) {
+        originalVars.forEach((saved) => {
+          // Find the variation group (e.g., "Size")
+          let variationGroup = menuItem.variations?.find(v => v.id === saved.variationId);
+
+          // Find the specific option (e.g., "Large")
+          // Try ID first, fallback to Label matching
+          let option = variationGroup?.options.find(o => o.id === saved.optionId);
+          if (!option && saved.label) {
+            option = variationGroup?.options.find(o => o.label.toLowerCase() === saved.label.toLowerCase());
+          }
+
+          if (option && variationGroup) {
+            resolvedVariations.push({
+              variationId: variationGroup.id,
+              optionId: option.id,
+              label: option.label
+            });
+            variationPriceTotal += option.price;
+          }
+        });
       }
 
-      if (resolveStock(menuItem) === "out_of_stock") {
-        skipped.push(line.name);
-        return;
-      }
+      // Resolve Add-ons (ID matching + Name fallback)
+      let resolvedAddOns: CartItem["selectedAddOns"] = [];
+      let addOnsPriceTotal = 0;
 
-      // Resolve variation — verify it still exists in the current menu item
-      let selectedVariation: CartItem["selectedVariation"];
-      let variationPrice = 0;
-      if (line.selectedVariation) {
-        const variation = menuItem.variations?.find(
-          (v) => v.id === line.selectedVariation!.variationId
-        );
-        const option = variation?.options.find(
-          (o) => o.id === line.selectedVariation!.optionId
-        );
-        if (variation && option) {
-          selectedVariation = { variationId: variation.id, optionId: option.id, label: option.label };
-          variationPrice = option.price;
-        }
-      }
-
-      // Resolve add-ons — keep only those still present in the menu item
-      let selectedAddOns: CartItem["selectedAddOns"];
-      let addOnsTotal = 0;
       if (line.selectedAddOns?.length) {
-        const currentAddOns = menuItem.addOns ?? [];
-        const resolved = line.selectedAddOns
-          .map((saved) => currentAddOns.find((a) => a.id === saved.id))
-          .filter((a): a is AddOn => a != null);
-        if (resolved.length > 0) {
-          selectedAddOns = resolved;
-          addOnsTotal = resolved.reduce((s, a) => s + a.price, 0);
-        }
+        const currentMenuAddOns = menuItem.addOns ?? [];
+        resolvedAddOns = line.selectedAddOns.map((saved) => {
+          // Try ID match first
+          let found = currentMenuAddOns.find((a) => String(a.id) === String(saved.id));
+          // Fallback to Name match if ID changed
+          if (!found) {
+            found = currentMenuAddOns.find((a) => a.name.toLowerCase() === saved.name.toLowerCase());
+          }
+          return found;
+        }).filter((a): a is AddOn => a != null);
+
+        addOnsPriceTotal = resolvedAddOns.reduce((s, a) => s + a.price, 0);
       }
 
-      // Online channel: discount the base with any live per-unit offer, and
-      // use the online price override when set. Mirrors ItemCustomizationModal.
+      // Price Validation
       const offerBase = getOfferUnitPrice(menuItem) ?? effectiveMenuPrice(menuItem);
-      const currentPrice = offerBase + variationPrice + addOnsTotal;
+      const currentPrice = offerBase + variationPriceTotal + addOnsPriceTotal;
+
       if (Math.abs(currentPrice - line.price) > 0.005) {
         priceChanged.push(line.name);
       }
 
+      // Add to Cart with ALL data
       addToCart({
         id: crypto.randomUUID(),
         menuItemId: menuItem.id,
         name: menuItem.name,
         price: currentPrice,
         quantity: line.qty,
-        selectedVariation,
-        selectedAddOns,
+        // Pass the resolved arrays to the cart
+        selectedVariations: resolvedVariations,
+        selectedAddOns: resolvedAddOns,
         specialInstructions: line.specialInstructions,
-        // Snapshot the offer for cart-level math (bogo/multibuy/qty_discount).
         ...(menuItem.offer?.active ? { offer: menuItem.offer } : {}),
       });
+
       added.push(line.name);
     });
 
