@@ -483,7 +483,20 @@ export default function OnlineReportsPanel() {
     const aov       = moneyBearing.length === 0 ? 0 : revenue / moneyBearing.length;
     // Gift card value redeemed against orders in this window — reconciliation
     // only (already booked as income at card sale, so NOT part of revenue).
-    const giftCardRedeemed = moneyBearing.reduce((s, o) => s + (Number(o.gift_card_used) || 0), 0);
+    // Deliberately NOT the moneyBearing filter: redemption timing differs from
+    // revenue timing. Cash / POS / dine-in orders debit the card instantly at
+    // placement (even while a cash-on-delivery leg is still "unpaid"), and gift
+    // cards are never refunded — so those count regardless of payment_status or
+    // cancellation. Stripe/PayPal only debit the card in the success webhook,
+    // so unpaid/failed gateway orders never actually redeemed anything.
+    const giftCardRedeemed = filtered.reduce((s, o) => {
+      const used = Number(o.gift_card_used) || 0;
+      if (used <= 0) return s;
+      const method = String(o.payment_method ?? "").toLowerCase();
+      const viaGateway = method === "stripe" || method === "paypal";
+      if (viaGateway && (o.payment_status === "unpaid" || o.payment_status === "failed")) return s;
+      return s + used;
+    }, 0);
 
     // Payment methods — audit view so a paid-then-cancelled card order
     // still attributes its revenue to "card" rather than vanishing.
