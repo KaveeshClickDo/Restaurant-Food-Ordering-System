@@ -5,7 +5,7 @@ import { useApp } from "@/context/AppContext";
 import { fullOrderNumber } from "@/lib/orderNumber";
 import { parseTableLabelFromNote } from "@/lib/tableLabel";
 import {
-  Circle, CheckCircle2, ChefHat, Package, Truck, Ban, RotateCcw,
+  Circle, CheckCircle2, ChefHat, Package, Truck, Ban,
   RefreshCw, ShoppingBag, TrendingUp, Clock, UtensilsCrossed, Tablet,
 } from "lucide-react";
 
@@ -31,11 +31,9 @@ interface RawOrder {
 
 // Refund state lives on payment_status, so any status can carry it — a voided
 // sale is "Cancelled · Refunded" (QA #37), an admin partial refund on a
-// completed order is "Completed · Partial refund". Statuses that ARE the
-// refund don't get a second tag.
+// completed order is "Completed · Partial refund".
 function statusLabel(o: RawOrder): string {
   const base = STATUS_CONFIG[o.status]?.label ?? o.status;
-  if (o.status === "refunded" || o.status === "partially_refunded") return base;
   if (o.payment_status === "refunded")           return `${base} · Refunded`;
   if (o.payment_status === "partially_refunded") return `${base} · Partial refund`;
   return base;
@@ -48,8 +46,6 @@ const STATUS_CONFIG: Record<string, { label: string; badge: string; dot: string;
   ready:              { label: "Ready",              badge: "bg-purple-50 text-purple-700 border-purple-200", dot: "bg-purple-500",  icon: <Package size={11} className="text-purple-500" /> },
   delivered:          { label: "Completed",          badge: "bg-green-50 text-green-700 border-green-200",    dot: "bg-green-500",   icon: <Truck size={11} className="text-green-600" /> },
   cancelled:          { label: "Cancelled",          badge: "bg-red-50 text-red-700 border-red-200",          dot: "bg-red-400",     icon: <Ban size={11} className="text-red-500" /> },
-  refunded:           { label: "Refunded",           badge: "bg-teal-50 text-teal-700 border-teal-200",       dot: "bg-teal-500",    icon: <RotateCcw size={11} className="text-teal-600" /> },
-  partially_refunded: { label: "Partially Refunded", badge: "bg-cyan-50 text-cyan-700 border-cyan-200",       dot: "bg-cyan-500",    icon: <RotateCcw size={11} className="text-cyan-600" /> },
 };
 
 const ACTIVE_STATUSES = ["pending", "confirmed", "preparing", "ready"];
@@ -158,10 +154,9 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
   }, [fetchOrders]);
 
   // Refund state lives on payment_status (dine-in refunds keep status
-  // "delivered"); legacy rows carried it on status instead — accept both.
+  // "delivered").
   const isRefunded = (o: RawOrder) =>
-    o.payment_status === "refunded" || o.payment_status === "partially_refunded"
-    || o.status === "refunded" || o.status === "partially_refunded";
+    o.payment_status === "refunded" || o.payment_status === "partially_refunded";
 
   const active         = orders.filter((o) => ACTIVE_STATUSES.includes(o.status))
                                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());

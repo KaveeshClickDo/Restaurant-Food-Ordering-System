@@ -484,7 +484,7 @@ Restaurant name and branding set in **Admin → Operations** propagate everywher
 | `Category` | Category with emoji |
 | `CartItem` | Cart line with variation, add-ons, instructions |
 | `Order` | Order record with status, delivery status, driver, fees, coupon, VAT, store credit, refunds |
-| `OrderStatus` | `"pending" \| "confirmed" \| "preparing" \| "ready" \| "delivered" \| "cancelled" \| "refunded" \| "partially_refunded"` |
+| `OrderStatus` | `"pending" \| "confirmed" \| "preparing" \| "ready" \| "delivered" \| "cancelled"` — fulfillment only; refund state lives in `PaymentStatus` |
 | `DeliveryStatus` | `"assigned" \| "picked_up" \| "on_the_way" \| "delivered"` |
 | `Customer` | Customer with bcrypt auth, email_verified, tags, order history, favourites, saved addresses, store credit |
 | `Driver` | Driver account with bcrypt auth, vehicle info, active flag |
@@ -641,8 +641,10 @@ pending ──→ confirmed ──→ preparing ──→ ready
 | `ready` | KDS | Food ready |
 | `delivered` | Admin (collection), Waiter (dine-in), Driver | Completed |
 | `cancelled` | Admin or Waiter void | Cancelled |
-| `refunded` | *(legacy)* | Full refund — current flows set `payment_status = "refunded"` and keep `status` |
-| `partially_refunded` | *(legacy)* | Partial refund — current flows set `payment_status = "partially_refunded"` and keep `status` |
+
+`status` tracks fulfillment only. Refund state lives in `payment_status`
+(`refunded` / `partially_refunded`), set by the admin refund flow, the
+Stripe/PayPal webhooks, and the waiter/POS dine-in refunds.
 
 ### Driver leg (`deliveryStatus`)
 

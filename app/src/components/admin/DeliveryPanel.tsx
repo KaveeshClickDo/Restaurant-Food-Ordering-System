@@ -31,17 +31,16 @@ const ACTIVE_STATUSES: OrderStatus[] = ["pending", "confirmed", "preparing", "re
 // Used to gate the active kanban. A partial refund is deliberately excluded: an
 // order that's still preparing with one item refunded (e.g. out of stock) is
 // still being fulfilled and must stay on the board so the kitchen/driver finish
-// the rest. Refund state lives in paymentStatus; older rows may carry it on status.
-function isFullyRefunded(o: { status: string; paymentStatus?: string | null }): boolean {
-  return o.paymentStatus === "refunded" || o.status === "refunded";
+// the rest. Refund state lives in paymentStatus; status stays on fulfillment.
+function isFullyRefunded(o: { paymentStatus?: string | null }): boolean {
+  return o.paymentStatus === "refunded";
 }
 
 // Any refund (full or partial) clawed money back, so a *delivered* order with a
 // refund is kept out of the "clean" today-revenue / completed stats. NOT used to
 // gate the active kanban — see isFullyRefunded for why partial refunds stay live.
-function isRefundedOrder(o: { status: string; paymentStatus?: string | null }): boolean {
-  return o.paymentStatus === "refunded" || o.paymentStatus === "partially_refunded"
-      || o.status === "refunded" || o.status === "partially_refunded";
+function isRefundedOrder(o: { paymentStatus?: string | null }): boolean {
+  return o.paymentStatus === "refunded" || o.paymentStatus === "partially_refunded";
 }
 
 // When cancelling an active order, can the operator also issue a refund?
@@ -129,27 +128,15 @@ const STATUS_CONFIG: Record<OrderStatus, {
     headerBg: "bg-red-50 border-red-200", dotBg: "bg-red-400",
     badge: "bg-red-50 text-red-700 border-red-200", cardBorder: "border-red-200",
   },
-  refunded: {
-    label: "Refunded", shortLabel: "",
-    icon: <RotateCcw size={14} className="text-teal-600" />,
-    headerBg: "bg-teal-50 border-teal-200", dotBg: "bg-teal-500",
-    badge: "bg-teal-50 text-teal-700 border-teal-200", cardBorder: "border-teal-200",
-  },
-  partially_refunded: {
-    label: "Partially Refunded", shortLabel: "",
-    icon: <RotateCcw size={14} className="text-cyan-600" />,
-    headerBg: "bg-cyan-50 border-cyan-200", dotBg: "bg-cyan-500",
-    badge: "bg-cyan-50 text-cyan-700 border-cyan-200", cardBorder: "border-cyan-200",
-  },
 };
 
-// Cancelled-but-refunded must surface both states — a bare "Cancelled" badge
-// hides the fact that the customer's money already went back (QA #37).
+// A refunded order must surface both states — a bare "Cancelled" or
+// "Delivered" badge hides the fact that the customer's money already went
+// back (QA #37). Refund state lives on paymentStatus, not status.
 function orderStatusLabel(o: { status: OrderStatus; paymentStatus?: string | null }): string {
   const base = STATUS_CONFIG[o.status]?.label ?? String(o.status);
-  if (o.status !== "cancelled") return base;
-  if (o.paymentStatus === "refunded")           return "Cancelled · Refunded";
-  if (o.paymentStatus === "partially_refunded") return "Cancelled · Partial refund";
+  if (o.paymentStatus === "refunded")           return `${base} · Refunded`;
+  if (o.paymentStatus === "partially_refunded") return `${base} · Partial refund`;
   return base;
 }
 

@@ -78,9 +78,7 @@ function isRefundEligible(o: Order): boolean {
   if (o.paymentStatus === "refunded")           return true;
   if (o.status === "cancelled") return false;
   // Pre-Stripe cash-only path — delivered orders remain refundable.
-  return o.status === "delivered"
-      || o.status === "partially_refunded"
-      || o.status === "refunded";
+  return o.status === "delivered";
 }
 
 /**
@@ -102,12 +100,11 @@ function isOnlineOrder(o: Order): boolean {
  *
  * Source of truth is `paymentStatus`, which every refund flow (admin, Stripe/
  * PayPal webhooks, POS and waiter dine-in) sets while leaving `status` to
- * track fulfillment. We also honour a refund state stamped onto `status` for
- * legacy rows written before the dine-in flows switched to payment_status.
+ * track fulfillment.
  */
 function refundState(o: Order): "refunded" | "partially_refunded" | null {
-  if (o.paymentStatus === "refunded"           || o.status === "refunded")           return "refunded";
-  if (o.paymentStatus === "partially_refunded" || o.status === "partially_refunded") return "partially_refunded";
+  if (o.paymentStatus === "refunded")           return "refunded";
+  if (o.paymentStatus === "partially_refunded") return "partially_refunded";
   return null;
 }
 
@@ -117,14 +114,10 @@ function StatusBadge({ status }: { status: string }) {
   const cfg: Record<string, string> = {
     delivered:           "bg-green-100 text-green-700",
     cancelled:           "bg-red-100 text-red-700",
-    partially_refunded:  "bg-amber-100 text-amber-700",
-    refunded:            "bg-teal-100 text-teal-700",
   };
   const label: Record<string, string> = {
     delivered:           "Delivered",
     cancelled:           "Cancelled",
-    partially_refunded:  "Partially Refunded",
-    refunded:            "Refunded",
   };
   return (
     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${cfg[status] ?? "bg-gray-100 text-gray-600"}`}>
@@ -574,17 +567,13 @@ export default function RefundsPanel() {
     //   • Refund tabs ("partially_refunded" / "refunded") read refundState(),
     //     which is independent of fulfillment.
     // A delivered order that was later refunded therefore correctly appears in
-    // *both* "Delivered" and its refund tab. "in_progress" still excludes the
-    // refund states stamped onto status so legacy/POS rows (whose status was
-    // overwritten) don't leak into the pipeline view.
+    // *both* "Delivered" and its refund tab.
     const matchFilter =
       filter === "all"
         ? true
         : filter === "in_progress"
           ? order.status !== "delivered" &&
-            order.status !== "cancelled" &&
-            order.status !== "refunded" &&
-            order.status !== "partially_refunded"
+            order.status !== "cancelled"
           : filter === "delivered"
             ? order.status === "delivered"
             : filter === "cancelled"

@@ -174,8 +174,10 @@ Admin assigns driver → order.driverId set, deliveryStatus = "assigned"
 | `ready` | Food ready to go | KDS |
 | `delivered` | Completed | Admin (collection), Waiter (settle), Driver (delivery) |
 | `cancelled` | Voided / cancelled | Admin or Waiter void |
-| `refunded` | *(legacy)* Full refund — current flows set `payment_status = "refunded"` and keep `status` | — |
-| `partially_refunded` | *(legacy)* Partial refund — current flows set `payment_status = "partially_refunded"` and keep `status` | — |
+
+`status` tracks fulfillment only. Refund state lives in `payment_status`
+(`refunded` / `partially_refunded`), set by the admin refund flow, the
+Stripe/PayPal webhooks, and the waiter/POS dine-in refunds.
 
 ---
 

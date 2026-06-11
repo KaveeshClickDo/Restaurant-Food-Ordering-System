@@ -18,15 +18,14 @@ export interface DineInOrder {
 }
 
 /**
- * Refund state of a dine-in order. It lives in paymentStatus; legacy rows
- * wrote it onto status instead — accept both until old rows are cleaned up.
- * A refunded order keeps status "delivered" (the food was served).
+ * Refund state of a dine-in order. It lives in paymentStatus — a refunded
+ * order keeps status "delivered" (the food was served).
  */
 export function dineInRefundState(
-  o: Pick<DineInOrder, "status" | "paymentStatus">,
+  o: Pick<DineInOrder, "paymentStatus">,
 ): "refunded" | "partially_refunded" | null {
-  if (o.paymentStatus === "refunded" || o.status === "refunded") return "refunded";
-  if (o.paymentStatus === "partially_refunded" || o.status === "partially_refunded") return "partially_refunded";
+  if (o.paymentStatus === "refunded") return "refunded";
+  if (o.paymentStatus === "partially_refunded") return "partially_refunded";
   return null;
 }
 

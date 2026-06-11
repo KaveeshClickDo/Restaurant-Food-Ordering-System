@@ -28,17 +28,14 @@ const STATUS_CONFIG: Record<OrderStatus, { label: string; className: string; ico
   ready: { label: "Ready", className: "bg-purple-50 text-purple-700 border-purple-200", icon: <Package size={11} className="text-purple-500" /> },
   delivered: { label: "Delivered", className: "bg-green-50 text-green-700 border-green-200", icon: <Truck size={11} className="text-green-600" /> },
   cancelled: { label: "Cancelled", className: "bg-red-50 text-red-700 border-red-200", icon: <Ban size={11} className="text-red-500" /> },
-  refunded: { label: "Refunded", className: "bg-teal-50 text-teal-700 border-teal-200", icon: <RotateCcw size={11} className="text-teal-600" /> },
-  partially_refunded: { label: "Partially Refunded", className: "bg-cyan-50 text-cyan-700 border-cyan-200", icon: <RotateCcw size={11} className="text-cyan-600" /> },
 };
 
 // A refunded order must surface both states — a bare "Cancelled" or
 // "Delivered" badge hides the fact that the customer's money already went
 // back (QA #37). Refund state lives on paymentStatus (dine-in refunds keep
-// status "delivered"); legacy rows that ARE the refund don't get a second tag.
+// status "delivered").
 function orderStatusLabel(o: { status: OrderStatus; paymentStatus?: string | null }): string {
   const base = STATUS_CONFIG[o.status]?.label ?? String(o.status);
-  if (o.status === "refunded" || o.status === "partially_refunded") return base;
   if (o.paymentStatus === "refunded") return `${base} · Refunded`;
   if (o.paymentStatus === "partially_refunded") return `${base} · Partial refund`;
   return base;

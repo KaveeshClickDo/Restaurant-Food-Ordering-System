@@ -115,7 +115,6 @@ function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void
                     && order.deliveryCode
                     && order.status !== "delivered"
                     && order.status !== "cancelled"
-                    && order.status !== "refunded"
                     && order.paymentStatus !== "refunded" && (
                         <div className="mx-5 mt-3 rounded-2xl p-4 text-center border-2 border-dashed border-orange-300 bg-orange-50">
                             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-orange-700 mb-1">
@@ -177,9 +176,7 @@ export default function MyOrdersPage() {
     // Only a FULL refund removes an order from "active". A partially refunded
     // order that's still mid-pipeline is still being prepared and delivered, so
     // it must stay in progress — the customer still needs the driver code.
-    // Refund state lives in paymentStatus; older rows may still carry it on status.
-    const isFullyRefunded = (o: Order) =>
-        o.paymentStatus === "refunded" || o.status === "refunded";
+    const isFullyRefunded = (o: Order) => o.paymentStatus === "refunded";
     const displayOrders = currentUser?.orders ?? [];
     const hasActiveOrders = displayOrders.some((o) => ACTIVE_STATUSES.has(o.status) && !isFullyRefunded(o));
 
@@ -400,11 +397,11 @@ export default function MyOrdersPage() {
                                                 const dateStr = new Date(order.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
                                                 const itemSummary = order.items.slice(0, 2).map((i) => `${i.qty}× ${i.name}`).join(", ")
                                                     + (order.items.length > 2 ? ` +${order.items.length - 2} more` : "");
-                                                // Refund state can sit on paymentStatus (current) or status (legacy).
+                                                // Refund state lives in paymentStatus; status stays on fulfillment.
                                                 const refundLabel =
-                                                    order.paymentStatus === "refunded" || order.status === "refunded"
+                                                    order.paymentStatus === "refunded"
                                                         ? "refunded"
-                                                        : order.paymentStatus === "partially_refunded" || order.status === "partially_refunded"
+                                                        : order.paymentStatus === "partially_refunded"
                                                             ? "partially refunded"
                                                             : null;
                                                 // Red is reserved for cancelled orders — a delivered order with a

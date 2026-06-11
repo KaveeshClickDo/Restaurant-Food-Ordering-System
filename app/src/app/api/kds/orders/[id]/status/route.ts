@@ -3,7 +3,7 @@
  * Advances an order through kitchen workflow stages.
  * Requires a valid kitchen_session cookie.
  * Only kitchen-valid transitions are permitted; admin-only statuses
- * (delivered, cancelled, refunded) are blocked here.
+ * (delivered, cancelled) are blocked here.
  */
 
 import { NextRequest, NextResponse } from "next/server";

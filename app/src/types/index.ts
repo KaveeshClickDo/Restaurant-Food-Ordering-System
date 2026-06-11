@@ -530,10 +530,12 @@ export interface GiftCardSettings {
   expiryMonths: number;
 }
 
+// Fulfillment state only — refund state lives in PaymentStatus. (The legacy
+// "refunded"/"partially_refunded" status values were removed when the dine-in
+// refund flows switched to payment_status.)
 export type OrderStatus =
   | "pending" | "confirmed" | "preparing" | "ready"
-  | "delivered" | "cancelled"
-  | "refunded" | "partially_refunded";
+  | "delivered" | "cancelled";
 
 export type DeliveryStatus = "assigned" | "picked_up" | "on_the_way" | "delivered";
 

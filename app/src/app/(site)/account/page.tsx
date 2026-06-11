@@ -47,6 +47,11 @@ const STATUS_CONFIG: Record<OrderStatus, { label: string; color: string; dot: st
   ready: { label: "Ready", color: "bg-purple-100 text-purple-700", dot: "bg-purple-500" },
   delivered: { label: "Delivered", color: "bg-green-100 text-green-700", dot: "bg-green-500" },
   cancelled: { label: "Cancelled", color: "bg-red-100 text-red-700", dot: "bg-red-400" },
+};
+
+// Refund state is a payment fact, not a fulfillment status — it gets its own
+// badge config rather than living in STATUS_CONFIG.
+const REFUND_CONFIG: Record<"refunded" | "partially_refunded", { label: string; color: string; dot: string }> = {
   refunded: { label: "Refunded", color: "bg-teal-100 text-teal-700", dot: "bg-teal-500" },
   partially_refunded: { label: "Partially Refunded", color: "bg-cyan-100 text-cyan-700", dot: "bg-cyan-500" },
 };
@@ -71,10 +76,10 @@ const DELIVERY_STATUS_BADGE: Record<DeliveryStatus, { label: string; color: stri
 
 function StatusBadge({ order }: { order: Order }) {
   // Refund state takes precedence in the customer's history view. It lives in
-  // paymentStatus (current) but older rows may carry it on status.
-  const refund: OrderStatus | null =
-    order.paymentStatus === "refunded" || order.status === "refunded" ? "refunded"
-      : order.paymentStatus === "partially_refunded" || order.status === "partially_refunded" ? "partially_refunded"
+  // paymentStatus — status keeps tracking fulfillment.
+  const refund: "refunded" | "partially_refunded" | null =
+    order.paymentStatus === "refunded" ? "refunded"
+      : order.paymentStatus === "partially_refunded" ? "partially_refunded"
         : null;
   // Cancelled-AND-refunded must surface both facts: showing only "Refunded"
   // hides the cancellation, showing only "Cancelled" hides that the money came
@@ -92,7 +97,7 @@ function StatusBadge({ order }: { order: Order }) {
     );
   }
   if (refund) {
-    const cfg = STATUS_CONFIG[refund];
+    const cfg = REFUND_CONFIG[refund];
     return (
       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${cfg.color}`}>
         <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
@@ -358,11 +363,9 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
   const [expanded, setExpanded] = useState(false);
-  // Refund state lives in paymentStatus (current) or status (legacy rows).
-  const isFullyRefunded =
-    order.paymentStatus === "refunded" || order.status === "refunded";
-  const isPartiallyRefunded =
-    order.paymentStatus === "partially_refunded" || order.status === "partially_refunded";
+  // Refund state lives in paymentStatus; status stays on fulfillment.
+  const isFullyRefunded = order.paymentStatus === "refunded";
+  const isPartiallyRefunded = order.paymentStatus === "partially_refunded";
   // A partial refund alone doesn't end the order — the remaining items are
   // still being fulfilled, so it stays live and trackable.
   const isActive = !isFullyRefunded && !["delivered", "cancelled"].includes(order.status);

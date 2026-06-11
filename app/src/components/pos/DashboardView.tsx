@@ -171,9 +171,9 @@ export default function DashboardView() {
   // Non-voided slice — tips on refunded sales went back to the customer, so
   // those rows must NOT contribute to the tips KPI.
   const todaySalesActive = todaySales.filter((s) => !s.voided);
-  const todayDineInSettled = todayDineIn.filter(o =>
-    o.status === "delivered" || dineInRefundState(o) !== null
-  );
+  // Refunded dine-in orders keep status "delivered" (refund state lives in
+  // paymentStatus), so "delivered" alone covers settled + refunded tables.
+  const todayDineInSettled = todayDineIn.filter(o => o.status === "delivered");
 
   // Revenue = money paid (gift card netted out) − refund. A gift card is
   // prepaid money, so its redeemed portion isn't revenue at spend time.
@@ -402,10 +402,10 @@ export default function DashboardView() {
               ) : dashTab === "dine-in" ? (
                 (() => {
                   const settled = dineInOrders.filter((o) => o.status === "delivered" && dineInRefundState(o) === null).length;
-                  const open    = dineInOrders.filter((o) => o.status !== "delivered" && o.status !== "cancelled" && dineInRefundState(o) === null).length;
+                  const open    = dineInOrders.filter((o) => o.status !== "delivered" && o.status !== "cancelled").length;
                   const refunded = dineInOrders.filter((o) => dineInRefundState(o) !== null).length;
                   const revenue = dineInOrders
-                    .filter((o) => o.status === "delivered" || dineInRefundState(o) !== null)
+                    .filter((o) => o.status === "delivered")
                     .reduce((s, o) => s + (o.total - (o.refundedAmount ?? 0)), 0);
                   return `${open} open · ${settled} settled · ${fmt(revenue, sym)} revenue${refunded > 0 ? ` · ${refunded} refunded` : ""}`;
                 })()
@@ -476,7 +476,7 @@ export default function DashboardView() {
                 <Utensils size={16} className="text-violet-400 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-violet-200 text-sm font-semibold">Dine-In Today</p>
-                  <p className="text-slate-400 text-xs">{todayDineInSettled.length} settled table{todayDineInSettled.length !== 1 ? "s" : ""} · {todayDineIn.filter(o => o.status !== "delivered" && o.status !== "cancelled" && o.status !== "refunded" && o.status !== "partially_refunded").length} still open</p>
+                  <p className="text-slate-400 text-xs">{todayDineInSettled.length} settled table{todayDineInSettled.length !== 1 ? "s" : ""} · {todayDineIn.filter(o => o.status !== "delivered" && o.status !== "cancelled").length} still open</p>
                 </div>
                 <div className="flex gap-6">
                   <div className="text-right">
@@ -1382,14 +1382,14 @@ export default function DashboardView() {
             ) : (
               <>
                 {/* Open / active orders */}
-                {dineInOrders.filter(o => o.status !== "delivered" && o.status !== "cancelled" && dineInRefundState(o) === null).length > 0 && (
+                {dineInOrders.filter(o => o.status !== "delivered" && o.status !== "cancelled").length > 0 && (
                   <div>
                     <h3 className="text-slate-300 font-semibold text-sm uppercase tracking-wider mb-3">
-                      Open Tables ({dineInOrders.filter(o => o.status !== "delivered" && o.status !== "cancelled" && dineInRefundState(o) === null).length})
+                      Open Tables ({dineInOrders.filter(o => o.status !== "delivered" && o.status !== "cancelled").length})
                     </h3>
                     <div className="space-y-3">
                       {dineInOrders
-                        .filter(o => o.status !== "delivered" && o.status !== "cancelled" && dineInRefundState(o) === null)
+                        .filter(o => o.status !== "delivered" && o.status !== "cancelled")
                         .map(order => (
                           <div key={order.id} className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
                             <div className="flex items-start justify-between gap-4 mb-3">

@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
       })
       .in("id", orderIds)
       .eq("fulfillment", "dine-in")
-      .not("status", "in", '("delivered","cancelled","refunded","partially_refunded")')
+      .not("status", "in", '("delivered","cancelled")')
       .select("id, items, oversold");
 
     if (error) {
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
           .update({ status: "cancelled" })
           .in("id", orderIds)
           .eq("fulfillment", "dine-in")
-          .not("status", "in", '("delivered","cancelled","refunded","partially_refunded")')
+          .not("status", "in", '("delivered","cancelled")')
           .select("id, items, oversold");
 
         if (fallbackError) {

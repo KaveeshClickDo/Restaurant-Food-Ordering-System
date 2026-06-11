@@ -14,13 +14,11 @@ import { restoreStock, type StockItem }         from "@/lib/stockMutation";
 import { rewardLoyaltyPoints } from "@/lib/loyaltyUtils";
 
 // Statuses we consider "cancelled" for stock-restore purposes. Refunds go
-// through /admin/orders/[id]/refund and restore there; here we only handle
-// the cancellation transition. Once an order has already passed any of these
-// terminal states we treat it as "stock already accounted for" and skip the
-// restore on subsequent re-saves.
-const TERMINAL_STATUSES_FOR_STOCK = new Set([
-  "cancelled", "refunded", "partially_refunded",
-]);
+// through /admin/orders/[id]/refund and restore there (refund state lives on
+// payment_status, not status); here we only handle the cancellation
+// transition. Once an order has already passed a terminal state we treat it
+// as "stock already accounted for" and skip the restore on re-saves.
+const TERMINAL_STATUSES_FOR_STOCK = new Set(["cancelled"]);
 
 export async function PUT(
   req: NextRequest,

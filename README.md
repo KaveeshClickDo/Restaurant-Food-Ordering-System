@@ -362,8 +362,10 @@ pending → confirmed → preparing → ready
 | `ready` | KDS | Food ready for collection or driver |
 | `delivered` | Admin (collection), Waiter app (dine-in), or Driver | Completed |
 | `cancelled` | Admin or Waiter (void) | Order cancelled / voided |
-| `refunded` | *(legacy)* | Full refund — current flows set `payment_status = "refunded"` and keep `status` |
-| `partially_refunded` | *(legacy)* | Partial refund — current flows set `payment_status = "partially_refunded"` and keep `status` |
+
+`status` tracks fulfillment only. Refund state lives in `payment_status`
+(`refunded` / `partially_refunded`), set by the admin refund flow, the
+Stripe/PayPal webhooks, and the waiter/POS dine-in refunds.
 
 **Role guard**: Admin cannot advance delivery orders past `ready` — only the driver can mark them delivered.
 

@@ -35,7 +35,7 @@ supabase.channel("kds-orders-live")
 ```
 
 On each Realtime event:
-- **Non-kitchen status** (`delivered`, `cancelled`, `refunded`, `partially_refunded`) → remove card from state
+- **Non-kitchen status** (`delivered`, `cancelled`) → remove card from state
 - **INSERT or UPDATE** → re-fetch the full row with the customer JOIN (Realtime payloads don't carry embedded data), then upsert into state
 - **DELETE** → filter card out of state
 
@@ -81,7 +81,7 @@ All kitchen status changes go through `PUT /api/kds/orders/[id]/status`. This en
 
 - Requires **no admin session cookie** (kitchen screens don't log in)
 - Only permits kitchen-valid statuses: `pending`, `confirmed`, `preparing`, `ready`
-- Blocks admin-only statuses (`delivered`, `cancelled`, `refunded`, `partially_refunded`)
+- Blocks admin-only statuses (`delivered`, `cancelled`)
 
 ### Optimistic UI
 
