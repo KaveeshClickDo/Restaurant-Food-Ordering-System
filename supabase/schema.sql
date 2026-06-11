@@ -694,6 +694,97 @@ grant execute  on function decrement_stock_atomic(jsonb) to service_role;
 grant execute  on function restore_stock(jsonb)          to service_role;
 
 
+-- ── Store credit + coupon atomic mutations ───────────────────────────────────
+-- Same rationale as the stock functions: the previous read-in-JS → write-back
+-- pattern let two concurrent orders double-spend a customer's store credit (or
+-- clobber the coupon counter / settings blob). These do the check + mutation in
+-- a single atomic statement so concurrent callers can't both win.
+--
+-- Called from app/src/lib/storeCredit.ts via supabase.rpc().
+
+-- Spend store credit. Single UPDATE guarded by `store_credit >= p_amount`, so a
+-- concurrent spend that already drained the balance matches zero rows and the
+-- function returns NULL (the caller treats NULL as "insufficient"). Returns the
+-- new balance on success.
+create or replace function spend_store_credit_atomic(p_customer_id text, p_amount numeric)
+returns numeric
+language sql
+as $$
+  update customers
+     set store_credit = round((store_credit - p_amount)::numeric, 2)
+   where id = p_customer_id
+     and store_credit >= p_amount
+  returning store_credit;
+$$;
+
+-- Add store credit back (compensation when a later gate fails, and reusable by
+-- the refund / cancel restore paths). No guard — adding is always valid.
+create or replace function add_store_credit_atomic(p_customer_id text, p_amount numeric)
+returns numeric
+language sql
+as $$
+  update customers
+     set store_credit = round((store_credit + p_amount)::numeric, 2)
+   where id = p_customer_id
+  returning store_credit;
+$$;
+
+-- Atomically claim one use of a coupon. Locks the singleton app_settings row so
+-- concurrent claims serialise (no lost update on the JSONB blob), and only
+-- increments when the limit allows. Returns true if a use was claimed, false if
+-- the coupon is at its usage limit (or not found). usageLimit = 0 means no limit.
+create or replace function claim_coupon_usage(p_coupon_id text)
+returns boolean
+language plpgsql
+as $$
+declare
+  v_data    jsonb;
+  v_coupons jsonb;
+  v_idx     int;
+  v_coupon  jsonb;
+  v_limit   numeric;
+  v_count   numeric;
+begin
+  select data into v_data from app_settings where id = 1 for update;
+  if v_data is null then return false; end if;
+
+  v_coupons := coalesce(v_data->'coupons', '[]'::jsonb);
+
+  -- Find the array index of the coupon with this id.
+  v_idx := null;
+  for i in 0 .. jsonb_array_length(v_coupons) - 1 loop
+    if (v_coupons->i->>'id') = p_coupon_id then
+      v_idx := i;
+      v_coupon := v_coupons->i;
+      exit;
+    end if;
+  end loop;
+  if v_idx is null then return false; end if;
+
+  v_limit := coalesce((v_coupon->>'usageLimit')::numeric, 0);
+  v_count := coalesce((v_coupon->>'usageCount')::numeric, 0);
+
+  -- A positive limit that's already reached ⇒ refuse to claim.
+  if v_limit > 0 and v_count >= v_limit then
+    return false;
+  end if;
+
+  -- Increment usageCount in place and persist the whole blob back atomically.
+  v_coupon  := jsonb_set(v_coupon, '{usageCount}', to_jsonb(v_count + 1));
+  v_coupons := jsonb_set(v_coupons, array[v_idx::text], v_coupon);
+  update app_settings set data = jsonb_set(v_data, '{coupons}', v_coupons) where id = 1;
+  return true;
+end;
+$$;
+
+revoke all    on function spend_store_credit_atomic(text, numeric) from public, anon, authenticated;
+revoke all    on function add_store_credit_atomic(text, numeric)   from public, anon, authenticated;
+revoke all    on function claim_coupon_usage(text)                 from public, anon, authenticated;
+grant execute on function spend_store_credit_atomic(text, numeric) to service_role;
+grant execute on function add_store_credit_atomic(text, numeric)   to service_role;
+grant execute on function claim_coupon_usage(text)                 to service_role;
+
+
 -- Gift cards — code-based / transferable. Anyone holding the code can redeem,
 -- regardless of which surface they're ordering from (online, POS, waiter).
 -- See plan: code-based bearer model with gift_card_transactions ledger.

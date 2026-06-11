@@ -29,8 +29,8 @@ import type Stripe from "stripe";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendOrderConfirmationEmail, sendGiftCardDeliveredEmail } from "@/lib/emailServer";
 import { getStripe, getWebhookSecret, fromStripeAmount } from "@/lib/stripeServer";
-import { incrementCouponUsage } from "@/lib/orderValidation";
 import { redeemGiftCardForRow } from "@/lib/giftCardValidation";
+import { spendStoreCredit, refundStoreCredit, claimCouponUsage } from "@/lib/storeCredit";
 import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
 import { generateGiftCardCode } from "@/lib/giftCardCode";
 import { completeReservationFromSession } from "@/lib/reservations";
@@ -162,19 +162,58 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
     );
   }
 
-  // ── Gift card redemption AS A GATE — before the order is inserted ─────────
-  // Debit the card atomically now. The order is stamped (gift_card_id +
-  // gift_card_used) and its `total` already had the card subtracted, so the
-  // order must NOT exist unless the card actually backs that discount.
-  //   • insufficient  → the double-spend race: another paid order drained the
-  //     card first. Don't create this order — auto-refund the charge and mark
-  //     the session. The customer gets their money back; no unbacked order.
-  //   • db_error/other → transient; throw so Stripe retries. The debit is
-  //     idempotent on the order id, so the eventual successful delivery debits
-  //     exactly once.
-  // On success we fall through to the insert; a later 23505 (a concurrent
-  // webhook delivery won the insert) is fine because the debit is idempotent
-  // on the same order id, so the card is debited exactly once either way.
+  // ── Resource gates — debit prepaid balances BEFORE inserting the order ────
+  // Store credit and the gift card were both subtracted from this order's total
+  // at checkout, so the order must NOT exist unless each one actually backs its
+  // share. We debit atomically here.
+  //   • insufficient  → a concurrent paid order drained the balance first.
+  //     Don't create this order — auto-refund the charge and mark the session.
+  //   • db_error/other → transient; throw so Stripe retries. Debits are
+  //     idempotent on the order id ⇒ the eventual success debits exactly once.
+  // Order: store credit first, so a later gift-card shortfall compensates it.
+  const storeCreditUsed = Number(orderRow.store_credit_used ?? 0);
+  const orderCustomerId = orderRow.customer_id as string | null;
+  const realCustomer    = !!orderCustomerId && orderCustomerId !== "guest" && orderCustomerId !== "pos-walk-in";
+
+  // Helper: undo stock, auto-refund the full charge (idempotency-keyed), mark
+  // the session, and stop. Shared by both shortfall paths.
+  const refundAndMarkShortfall = async (key: string, reason: string): Promise<void> => {
+    if (stock.ok) {
+      restoreStock(stockItems).catch((err) =>
+        console.error("[webhooks/stripe] restore after shortfall:", err instanceof Error ? err.message : err),
+      );
+    }
+    try {
+      await getStripe().refunds.create({ payment_intent: intent.id }, { idempotencyKey: key });
+    } catch (err) {
+      console.error("[webhooks/stripe] shortfall auto-refund failed:", err instanceof Error ? err.message : err);
+    }
+    await supabaseAdmin
+      .from("payment_sessions")
+      .update({ status: "refunded_shortfall", last_error: reason })
+      .eq("id", session.id);
+  };
+
+  let storeCreditSpent = false;
+  if (realCustomer && storeCreditUsed > 0) {
+    const sc = await spendStoreCredit(orderCustomerId as string, storeCreditUsed);
+    if (!sc.ok && sc.reason === "insufficient") {
+      console.error(`[webhooks/stripe] store credit shortfall on paid order ${orderRow.id} — auto-refunding, not creating order.`);
+      await refundAndMarkShortfall(`sc-shortfall-${intent.id}`, "Store credit insufficient at capture — auto-refunded.");
+      return;
+    }
+    if (!sc.ok) {
+      if (stock.ok) {
+        restoreStock(stockItems).catch((err) =>
+          console.error("[webhooks/stripe] restore after store-credit db error:", err instanceof Error ? err.message : err),
+        );
+      }
+      throw new Error(`store credit spend: ${sc.error}`);
+    }
+    storeCreditSpent = true;
+  }
+
+  // Gift card: same gate. On failure, compensate the store-credit spend first.
   const giftCardId   = orderRow.gift_card_id as string | null;
   const giftCardUsed = Number(orderRow.gift_card_used ?? 0);
   if (giftCardId && giftCardUsed > 0) {
@@ -188,29 +227,19 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
       console.error(
         `[webhooks/stripe] gift card shortfall on paid order ${orderRow.id} — auto-refunding charge, not creating order.`,
       );
-      if (stock.ok) {
-        restoreStock(stockItems).catch((err) =>
-          console.error("[webhooks/stripe] restore after gift-card shortfall:", err instanceof Error ? err.message : err),
-        );
+      if (storeCreditSpent) {
+        const back = await refundStoreCredit(orderCustomerId as string, storeCreditUsed);
+        if (!back.ok) console.error("[webhooks/stripe] store credit compensation failed:", back.error);
       }
-      try {
-        // No `amount` → refunds the full charge. Idempotency key prevents a
-        // duplicate succeeded delivery from issuing a second refund.
-        await getStripe().refunds.create(
-          { payment_intent: intent.id },
-          { idempotencyKey: `gc-shortfall-${intent.id}` },
-        );
-      } catch (err) {
-        console.error("[webhooks/stripe] shortfall auto-refund failed:", err instanceof Error ? err.message : err);
-      }
-      await supabaseAdmin
-        .from("payment_sessions")
-        .update({ status: "refunded_shortfall", last_error: "Gift card balance insufficient at capture — auto-refunded." })
-        .eq("id", session.id);
+      await refundAndMarkShortfall(`gc-shortfall-${intent.id}`, "Gift card balance insufficient at capture — auto-refunded.");
       return;
     }
     if (!redeem.ok) {
-      // Transient DB error — undo the stock decrement and let Stripe retry.
+      // Transient DB error — compensate store credit, undo stock, let Stripe retry.
+      if (storeCreditSpent) {
+        const back = await refundStoreCredit(orderCustomerId as string, storeCreditUsed);
+        if (!back.ok) console.error("[webhooks/stripe] store credit compensation failed:", back.error);
+      }
       if (stock.ok) {
         restoreStock(stockItems).catch((err) =>
           console.error("[webhooks/stripe] restore after redeem db error:", err instanceof Error ? err.message : err),
@@ -269,7 +298,7 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
     await rewardLoyaltyPoints(orderRow.customer_id as string, Number(orderRow.total));
   }
 
-  // Coupon increment — fire-and-forget; order is already committed.
+  // Coupon usage — atomic + limit-aware claim; order is already committed.
   const couponCode = orderRow.coupon_code as string | null;
   if (couponCode) {
     const { data: settingsRow } = await supabaseAdmin
@@ -277,40 +306,12 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
     const coupons: Array<{ id: string; code: string }> = settingsRow?.data?.coupons ?? [];
     const coupon = coupons.find((c) => c.code?.toUpperCase() === couponCode.toUpperCase());
     if (coupon) {
-      incrementCouponUsage(coupon.id).catch((err) =>
-        console.error("[webhooks/stripe] coupon increment:", err instanceof Error ? err.message : err),
-      );
+      await claimCouponUsage(coupon.id);
     }
   }
 
-  // Store credit deduction — the order row carries store_credit_used from the
-  // browser; the customer's balance must be deducted server-side here because
-  // the client has no working window (the client's spend-credit POST would
-  // race the order insert). Idempotent through the 23505 early-return above —
-  // a webhook retry never reaches this block on the same order.
-  const storeCreditUsed   = Number(orderRow.store_credit_used ?? 0);
-  const orderCustomerId   = orderRow.customer_id as string | null;
-  if (orderCustomerId && storeCreditUsed > 0) {
-    try {
-      const { data: cust } = await supabaseAdmin
-        .from("customers")
-        .select("store_credit")
-        .eq("id", orderCustomerId)
-        .maybeSingle();
-      if (cust) {
-        const current    = Number(cust.store_credit ?? 0);
-        const newBalance = Math.max(0, parseFloat((current - storeCreditUsed).toFixed(2)));
-        await supabaseAdmin
-          .from("customers")
-          .update({ store_credit: newBalance })
-          .eq("id", orderCustomerId);
-      }
-    } catch (err) {
-      console.error("[webhooks/stripe] store credit deduct:", err instanceof Error ? err.message : err);
-    }
-  }
-
-  // (Gift card was already debited as a gate above, before the insert.)
+  // (Store credit + gift card were already debited as gates above, before the
+  // insert — the order only exists because both balances backed the discount.)
 
   // Confirmation email.
   sendOrderConfirmationEmail({

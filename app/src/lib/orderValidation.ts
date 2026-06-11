@@ -436,7 +436,12 @@ export async function validateAndNormaliseOrder(
   const serviceFee      = typeof body.service_fee     === "number" ? Math.max(0, body.service_fee)     : 0;
   const vatAmount       = typeof body.vat_amount      === "number" ? Math.max(0, body.vat_amount)      : 0;
   const vatInclusive    = typeof body.vat_inclusive   === "boolean" ? body.vat_inclusive               : true;
-  const storeCreditUsed = typeof body.store_credit_used === "number" && body.store_credit_used >= 0
+  // The browser's PROPOSED store-credit amount. NEVER trusted directly — it is
+  // clamped against the customer's real balance + the amount owed below (the
+  // same treatment the gift card gets). Before this, the claim was subtracted
+  // from the total with no balance check, so a crafted request could discount
+  // an order to £0 with no credit behind it.
+  const storeCreditClaim = typeof body.store_credit_used === "number" && body.store_credit_used >= 0
                             ? body.store_credit_used : 0;
 
   // Gift card claim — we accept the code + the amount the browser proposes
@@ -627,18 +632,41 @@ export async function validateAndNormaliseOrder(
     ),
     0,
   );
-  // Running total before gift card — coupon + store credit have already been
-  // applied. Gift card claim is capped by min(card.balance, runningTotal).
-  const runningTotal = Math.max(
+  // Total after coupon but BEFORE store credit + gift card are applied.
+  const preStoreCreditTotal = Math.max(
     0,
     Math.round((
       itemsSubtotal +
       deliveryFee +
       serviceFee +
       (vatInclusive ? 0 : vatAmount) -
-      (verifiedCoupon?.discount ?? 0) -
-      storeCreditUsed
+      (verifiedCoupon?.discount ?? 0)
     ) * 100) / 100,
+  );
+
+  // ── Store credit clamp (server-authoritative) ─────────────────────────────
+  // Look up the customer's REAL balance and cap the spend at
+  // min(claim, balance, amount owed). The guest / POS sentinels have no real
+  // balance. This is what makes "store_credit_used: 9999" impossible — the
+  // total can never be discounted below what the balance actually backs.
+  let storeCreditUsed = 0;
+  if (
+    storeCreditClaim > 0 &&
+    committedCustomerId &&
+    committedCustomerId !== "guest" &&
+    committedCustomerId !== "pos-walk-in"
+  ) {
+    const { data: cust } = await supabaseAdmin
+      .from("customers").select("store_credit").eq("id", committedCustomerId).maybeSingle();
+    const balance = Number(cust?.store_credit ?? 0);
+    storeCreditUsed = Math.max(0, Math.round(Math.min(storeCreditClaim, balance, preStoreCreditTotal) * 100) / 100);
+  }
+
+  // Running total before gift card — coupon + store credit have been applied.
+  // Gift card claim is capped by min(card.balance, runningTotal).
+  const runningTotal = Math.max(
+    0,
+    Math.round((preStoreCreditTotal - storeCreditUsed) * 100) / 100,
   );
 
   // ── Gift card validation + clamp ──────────────────────────────────────────
@@ -687,6 +715,18 @@ export async function validateAndNormaliseOrder(
     };
   }
 
+  // Same stale-balance guard for store credit: the customer's credit dropped
+  // (another order/tab spent it) so the clamp reduced the claim and a real
+  // remainder is left. Refuse rather than place an order the client thought was
+  // covered — the client re-fetches the balance and re-prompts for payment.
+  if (storeCreditClaim > storeCreditUsed + 0.001 && serverTotal > 0.001) {
+    return {
+      ok: false,
+      error: "Your store credit balance changed and no longer covers this order. Please review the remaining amount and choose how to pay.",
+      status: 409,
+    };
+  }
+
   // ── Delivery PIN (only for delivery fulfillment) ──────────────────────────
   const deliveryCode = fulfillment === "delivery"
     ? String(randomInt(0, 10_000)).padStart(4, "0")
@@ -721,24 +761,9 @@ export async function validateAndNormaliseOrder(
   return { ok: true, data: { row, verifiedItems, coupon: verifiedCoupon, currency } };
 }
 
-/**
- * Increment the usage counter for a verified coupon. Safe to call after the
- * order is committed (cash flow) or after webhook confirms payment (Stripe).
- * Fire-and-forget: if this fails the order still exists; only the usage
- * counter is stale, which the admin can correct.
- */
-export async function incrementCouponUsage(couponId: string): Promise<void> {
-  const { data: settingsRow } = await supabaseAdmin
-    .from("app_settings").select("data").eq("id", 1).single();
-  if (!settingsRow?.data) return;
-
-  const coupons: Array<{ id: string; usageCount: number }> = settingsRow.data.coupons ?? [];
-  const updatedCoupons = coupons.map((c) =>
-    c.id === couponId ? { ...c, usageCount: (c.usageCount ?? 0) + 1 } : c,
-  );
-
-  await supabaseAdmin
-    .from("app_settings")
-    .update({ data: { ...settingsRow.data, coupons: updatedCoupons } })
-    .eq("id", 1);
-}
+// NOTE: server-side coupon usage is now claimed atomically via
+// `claimCouponUsage` in lib/storeCredit.ts (backed by the row-locked
+// `claim_coupon_usage` Postgres function). The old read-modify-write
+// `incrementCouponUsage` here rewrote the whole app_settings.data blob and could
+// lose concurrent updates / exceed the usage limit under a race — it has been
+// removed. (The identically-named client helper in AppContext is unrelated.)

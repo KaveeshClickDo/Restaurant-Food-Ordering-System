@@ -26,8 +26,9 @@ import { supabaseAdmin }                from "@/lib/supabaseAdmin";
 import { sendOrderConfirmationEmail }   from "@/lib/emailServer";
 import { getCustomerSession, unauthorizedJson } from "@/lib/auth";
 import { rateLimit }                    from "@/lib/rateLimit";
-import { validateAndNormaliseOrder, incrementCouponUsage } from "@/lib/orderValidation";
+import { validateAndNormaliseOrder } from "@/lib/orderValidation";
 import { redeemGiftCardForRow } from "@/lib/giftCardValidation";
+import { spendStoreCredit, refundStoreCredit, claimCouponUsage } from "@/lib/storeCredit";
 import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
 
 export async function POST(req: NextRequest) {
@@ -103,14 +104,33 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  // Apply the gift card redemption AS A GATE — before any other side effect.
-  // The order row already carries the stamp (gift_card_id + gift_card_used);
-  // the helper uses that as the idempotency key and decrements the balance
-  // with an atomic compare-and-swap. If the debit fails (a concurrent order
-  // drained the card between validation and here), the order must NOT stand
-  // with a discount the card can't back — so we roll it back: delete the
-  // just-inserted row and restore stock. A failed CAS leaves the balance
-  // untouched, so there's nothing to compensate on the card side.
+  // ── Resource gates: store credit → gift card ──────────────────────────────
+  // Both are prepaid balances that must actually back the discount baked into
+  // the order total. Each is debited atomically AFTER the insert; if a debit
+  // fails (a concurrent order drained the balance between validation and here)
+  // we roll the order back — it must not stand with an unbacked discount.
+  // Order matters: store credit first, so a later gift-card failure compensates
+  // the store-credit spend before rolling back.
+  let storeCreditSpent = false;
+  if (
+    row.store_credit_used > 0 &&
+    row.customer_id && row.customer_id !== "guest" && row.customer_id !== "pos-walk-in"
+  ) {
+    const sc = await spendStoreCredit(row.customer_id, row.store_credit_used);
+    if (!sc.ok) {
+      console.error("[orders] store credit spend failed, rolling back order:", sc.reason, sc.error);
+      await supabaseAdmin.from("orders").delete().eq("id", row.id);
+      restoreStock(stockItems).catch((err) =>
+        console.error("[orders] stock restore after store-credit rollback:", err instanceof Error ? err.message : err),
+      );
+      return NextResponse.json(
+        { ok: false, error: "Your store credit balance changed during checkout. Please review your order and try again." },
+        { status: 409 },
+      );
+    }
+    storeCreditSpent = true;
+  }
+
   if (row.gift_card_id && row.gift_card_used > 0) {
     const redeem = await redeemGiftCardForRow({
       giftCardId:  row.gift_card_id,
@@ -120,6 +140,11 @@ export async function POST(req: NextRequest) {
     });
     if (!redeem.ok) {
       console.error("[orders] gift card redeem failed, rolling back order:", redeem.reason, redeem.error);
+      // Compensate the store-credit spend before rolling back the order.
+      if (storeCreditSpent) {
+        const back = await refundStoreCredit(row.customer_id, row.store_credit_used);
+        if (!back.ok) console.error("[orders] store credit compensation failed:", back.error);
+      }
       await supabaseAdmin.from("orders").delete().eq("id", row.id);
       restoreStock(stockItems).catch((err) =>
         console.error("[orders] stock restore after redeem rollback:", err instanceof Error ? err.message : err),
@@ -131,42 +156,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Increment coupon usage now — order is committed (and gift card debited).
+  // Claim coupon usage now — order is committed and balances are debited.
+  // Atomic + limit-aware: a false return just means the coupon already hit its
+  // cap (soft enforcement — the order still stands). Awaited so the counter is
+  // updated before the route returns.
   if (coupon) {
-    incrementCouponUsage(coupon.id).catch((err) =>
-      console.error("[orders] coupon increment:", err instanceof Error ? err.message : err),
-    );
-  }
-
-  // Store-credit deduction. Mirrors the Stripe / PayPal webhook behaviour so
-  // the cash flow also debits `customers.store_credit` server-side. Before
-  // this, the cash path stamped `order.store_credit_used` at insert but never
-  // touched the customer balance (the client-side /spend-credit POST 409'd
-  // because the stamp was already non-zero) → customers could redeem the
-  // same credit forever. Best-effort: a failure here is logged but doesn't
-  // fail the order response (we don't want one balance write hiccup to look
-  // like the entire checkout failed).
-  if (row.store_credit_used > 0 && row.customer_id && row.customer_id !== "guest") {
-    try {
-      const { data: cust, error: fetchErr } = await supabaseAdmin
-        .from("customers")
-        .select("store_credit")
-        .eq("id", row.customer_id)
-        .maybeSingle();
-      if (fetchErr) {
-        console.error("[orders] store credit fetch:", fetchErr.message);
-      } else if (cust) {
-        const current    = Number(cust.store_credit ?? 0);
-        const newBalance = Math.max(0, parseFloat((current - row.store_credit_used).toFixed(2)));
-        const { error: credErr } = await supabaseAdmin
-          .from("customers")
-          .update({ store_credit: newBalance })
-          .eq("id", row.customer_id);
-        if (credErr) console.error("[orders] store credit deduct:", credErr.message);
-      }
-    } catch (err) {
-      console.error("[orders] store credit deduct:", err instanceof Error ? err.message : err);
-    }
+    await claimCouponUsage(coupon.id);
   }
 
   // Fire-and-forget — email failure must never fail the order response

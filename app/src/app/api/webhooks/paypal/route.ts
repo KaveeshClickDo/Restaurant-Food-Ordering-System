@@ -32,9 +32,11 @@ import {
   fromPaypalAmount,
   getPaypalWebhookId,
   paypalIsConfigured,
+  paypalFetch,
   verifyPaypalWebhook,
 } from "@/lib/paypalServer";
-import { incrementCouponUsage } from "@/lib/orderValidation";
+import { redeemGiftCardForRow } from "@/lib/giftCardValidation";
+import { spendStoreCredit, refundStoreCredit, claimCouponUsage } from "@/lib/storeCredit";
 import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
 import { completeReservationFromSession } from "@/lib/reservations";
 import { rewardLoyaltyPoints } from "@/lib/loyaltyUtils";
@@ -219,6 +221,100 @@ async function handleCaptureCompleted(resource: PaypalCapture): Promise<void> {
     );
   }
 
+  // ── Resource gates — debit prepaid balances BEFORE inserting the order ────
+  // Mirrors the Stripe webhook. Store credit AND the gift card were subtracted
+  // from this order's total at checkout, so the order must NOT exist unless each
+  // one actually backs its share. (Previously the gift card was NEVER debited on
+  // PayPal — the discount was applied for free.) On a genuine shortfall we
+  // auto-refund the PayPal capture and skip the order; transient DB errors throw
+  // so PayPal retries (debits are idempotent on the order id ⇒ debited once).
+  const storeCreditUsed = Number(orderRow.store_credit_used ?? 0);
+  const orderCustomerId = orderRow.customer_id as string | null;
+  const realCustomer    = !!orderCustomerId && orderCustomerId !== "guest" && orderCustomerId !== "pos-walk-in";
+
+  // Helper: undo stock, refund the full PayPal capture (idempotent via
+  // PayPal-Request-Id), mark the session, and stop. Shared by both shortfalls.
+  const refundAndMarkShortfall = async (key: string, reason: string): Promise<void> => {
+    if (stock.ok) {
+      restoreStock(stockItems).catch((err) =>
+        console.error("[webhooks/paypal] restore after shortfall:", err instanceof Error ? err.message : err),
+      );
+    }
+    if (captureId) {
+      try {
+        // No amount body ⇒ refunds the full captured amount.
+        const { status } = await paypalFetch(
+          `/v2/payments/captures/${encodeURIComponent(captureId)}/refund`,
+          { method: "POST", headers: { "PayPal-Request-Id": key }, body: {} },
+        );
+        if (status !== 201 && status !== 200) {
+          console.error(`[webhooks/paypal] shortfall auto-refund returned HTTP ${status}`);
+        }
+      } catch (err) {
+        console.error("[webhooks/paypal] shortfall auto-refund failed:", err instanceof Error ? err.message : err);
+      }
+    } else {
+      console.error(`[webhooks/paypal] shortfall on order ${orderRow.id} but no captureId to refund — manual reconcile needed`);
+    }
+    await supabaseAdmin
+      .from("payment_sessions")
+      .update({ status: "refunded_shortfall", last_error: reason })
+      .eq("id", session.id);
+  };
+
+  const shortfallKeyBase = captureId ?? paypalOrderId;
+
+  let storeCreditSpent = false;
+  if (realCustomer && storeCreditUsed > 0) {
+    const sc = await spendStoreCredit(orderCustomerId as string, storeCreditUsed);
+    if (!sc.ok && sc.reason === "insufficient") {
+      console.error(`[webhooks/paypal] store credit shortfall on paid order ${orderRow.id} — auto-refunding, not creating order.`);
+      await refundAndMarkShortfall(`sc-shortfall-${shortfallKeyBase}`, "Store credit insufficient at capture — auto-refunded.");
+      return;
+    }
+    if (!sc.ok) {
+      if (stock.ok) {
+        restoreStock(stockItems).catch((err) =>
+          console.error("[webhooks/paypal] restore after store-credit db error:", err instanceof Error ? err.message : err),
+        );
+      }
+      throw new Error(`store credit spend: ${sc.error}`);
+    }
+    storeCreditSpent = true;
+  }
+
+  const giftCardId   = orderRow.gift_card_id as string | null;
+  const giftCardUsed = Number(orderRow.gift_card_used ?? 0);
+  if (giftCardId && giftCardUsed > 0) {
+    const redeem = await redeemGiftCardForRow({
+      giftCardId,
+      amount:      giftCardUsed,
+      orderId:     orderRow.id as string,
+      performedBy: `customer:${orderRow.customer_id}`,
+    });
+    if (!redeem.ok && redeem.reason === "insufficient") {
+      console.error(`[webhooks/paypal] gift card shortfall on paid order ${orderRow.id} — auto-refunding, not creating order.`);
+      if (storeCreditSpent) {
+        const back = await refundStoreCredit(orderCustomerId as string, storeCreditUsed);
+        if (!back.ok) console.error("[webhooks/paypal] store credit compensation failed:", back.error);
+      }
+      await refundAndMarkShortfall(`gc-shortfall-${shortfallKeyBase}`, "Gift card balance insufficient at capture — auto-refunded.");
+      return;
+    }
+    if (!redeem.ok) {
+      if (storeCreditSpent) {
+        const back = await refundStoreCredit(orderCustomerId as string, storeCreditUsed);
+        if (!back.ok) console.error("[webhooks/paypal] store credit compensation failed:", back.error);
+      }
+      if (stock.ok) {
+        restoreStock(stockItems).catch((err) =>
+          console.error("[webhooks/paypal] restore after redeem db error:", err instanceof Error ? err.message : err),
+        );
+      }
+      throw new Error(`gift card redeem: ${redeem.error}`);
+    }
+  }
+
   const insertRow = {
     ...orderRow,
     payment_status: "paid",
@@ -265,33 +361,10 @@ async function handleCaptureCompleted(resource: PaypalCapture): Promise<void> {
     await rewardLoyaltyPoints(orderRow.customer_id as string, Number(orderRow.total));
   }
 
-  // Store credit deduction — order row carries store_credit_used from the
-  // browser; the customer's balance must be deducted server-side here because
-  // the client has no working window (its spend-credit POST would race the
-  // order insert). Idempotent through the 23505 early-return on retries.
-  const storeCreditUsed = Number(orderRow.store_credit_used ?? 0);
-  const orderCustomerId = orderRow.customer_id as string | null;
-  if (orderCustomerId && storeCreditUsed > 0) {
-    try {
-      const { data: cust } = await supabaseAdmin
-        .from("customers")
-        .select("store_credit")
-        .eq("id", orderCustomerId)
-        .maybeSingle();
-      if (cust) {
-        const current = Number(cust.store_credit ?? 0);
-        const newBalance = Math.max(0, parseFloat((current - storeCreditUsed).toFixed(2)));
-        await supabaseAdmin
-          .from("customers")
-          .update({ store_credit: newBalance })
-          .eq("id", orderCustomerId);
-      }
-    } catch (err) {
-      console.error("[webhooks/paypal] store credit deduct:", err instanceof Error ? err.message : err);
-    }
-  }
+  // (Store credit + gift card were already debited as gates above, before the
+  // insert — the order only exists because both balances backed the discount.)
 
-  // Coupon usage — fire-and-forget; order is already committed.
+  // Coupon usage — atomic + limit-aware claim; order is already committed.
   const couponCode = orderRow.coupon_code as string | null;
   if (couponCode) {
     const { data: settingsRow } = await supabaseAdmin
@@ -299,9 +372,7 @@ async function handleCaptureCompleted(resource: PaypalCapture): Promise<void> {
     const coupons: Array<{ id: string; code: string }> = settingsRow?.data?.coupons ?? [];
     const coupon = coupons.find((c) => c.code?.toUpperCase() === couponCode.toUpperCase());
     if (coupon) {
-      incrementCouponUsage(coupon.id).catch((err) =>
-        console.error("[webhooks/paypal] coupon increment:", err instanceof Error ? err.message : err),
-      );
+      await claimCouponUsage(coupon.id);
     }
   }
 
