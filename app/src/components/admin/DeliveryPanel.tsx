@@ -190,7 +190,19 @@ function isToday(iso: string) {
 
 function itemsSummary(items: Order["items"]) {
   if (items.length === 0) return "No items";
-  const first = items.slice(0, 2).map((i) => `${i.qty}× ${i.name}`).join(", ");
+
+  const first = items.slice(0, 2).map((i) => {
+    // 1. Extract and join variations and add-ons
+    const v = i.selectedVariations?.map(v => v.label).join(", ");
+    const a = i.selectedAddOns?.map(a => a.name).join(", ");
+
+    // 2. Combine them only if they exist, separated by a slash
+    const details = [v, a].filter(Boolean).join(" / ");
+
+    // 3. Return the item string with details in parentheses if they exist
+    return `${i.qty}× ${i.name}${details ? ` (${details})` : ""}`;
+  }).join(", ");
+
   const extra = items.length > 2 ? ` +${items.length - 2} more` : "";
   return first + extra;
 }

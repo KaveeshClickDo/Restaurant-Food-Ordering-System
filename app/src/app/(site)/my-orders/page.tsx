@@ -112,23 +112,23 @@ function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void
                  *  used. Same value the customer received by email, mirrored here
                  *  in case the email was missed or deleted. */}
                 {order.fulfillment === "delivery"
-                  && order.deliveryCode
-                  && order.status !== "delivered"
-                  && order.status !== "cancelled"
-                  && order.status !== "refunded"
-                  && order.paymentStatus !== "refunded" && (
-                    <div className="mx-5 mt-3 rounded-2xl p-4 text-center border-2 border-dashed border-orange-300 bg-orange-50">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-orange-700 mb-1">
-                            Delivery confirmation code
-                        </p>
-                        <p className="font-mono font-extrabold text-[28px] tracking-[0.4em] text-zinc-900 leading-none my-2">
-                            {order.deliveryCode}
-                        </p>
-                        <p className="text-[11.5px] text-zinc-600 leading-snug">
-                            Show or read this to your driver to confirm delivery.
-                        </p>
-                    </div>
-                )}
+                    && order.deliveryCode
+                    && order.status !== "delivered"
+                    && order.status !== "cancelled"
+                    && order.status !== "refunded"
+                    && order.paymentStatus !== "refunded" && (
+                        <div className="mx-5 mt-3 rounded-2xl p-4 text-center border-2 border-dashed border-orange-300 bg-orange-50">
+                            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-orange-700 mb-1">
+                                Delivery confirmation code
+                            </p>
+                            <p className="font-mono font-extrabold text-[28px] tracking-[0.4em] text-zinc-900 leading-none my-2">
+                                {order.deliveryCode}
+                            </p>
+                            <p className="text-[11.5px] text-zinc-600 leading-snug">
+                                Show or read this to your driver to confirm delivery.
+                            </p>
+                        </div>
+                    )}
 
                 {/* Order details */}
                 <div className="px-5 py-4 space-y-3">
@@ -345,7 +345,17 @@ export default function MyOrdersPage() {
                                                     {activeLabel(activeOrder)}
                                                 </p>
                                                 <p className="text-[12.5px] text-zinc-400 leading-relaxed mb-5 line-clamp-2">
-                                                    {activeOrder.items.map((i) => `${i.qty}× ${i.name}`).join(", ")}
+                                                    {activeOrder.items.map((i) => {
+                                                        // 1. Get variations and add-ons
+                                                        const v = i.selectedVariations?.map(v => v.label).join(", ");
+                                                        const a = i.selectedAddOns?.map(a => a.name).join(", ");
+
+                                                        // 2. Combine them only if they exist
+                                                        const details = [v, a].filter(Boolean).join(" / ");
+
+                                                        // 3. Return the string with details in brackets if present
+                                                        return `${i.qty}× ${i.name}${details ? ` (${details})` : ""}`;
+                                                    }).join(", ")}
                                                 </p>
 
                                                 {/* Compact delivery code pill — same value the customer got by

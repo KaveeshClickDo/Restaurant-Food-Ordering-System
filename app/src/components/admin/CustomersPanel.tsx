@@ -22,14 +22,14 @@ import {
 // ─── Status config ────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<OrderStatus, { label: string; className: string; icon: React.ReactNode }> = {
-  pending:    { label: "Pending",    className: "bg-yellow-50 text-yellow-700 border-yellow-200",  icon: <Circle size={11} className="fill-yellow-400 text-yellow-400" /> },
-  confirmed:  { label: "Confirmed",  className: "bg-blue-50 text-blue-700 border-blue-200",        icon: <CheckCircle2 size={11} className="text-blue-500" /> },
-  preparing:  { label: "Preparing",  className: "bg-orange-50 text-orange-700 border-orange-200",  icon: <ChefHat size={11} className="text-orange-500" /> },
-  ready:      { label: "Ready",      className: "bg-purple-50 text-purple-700 border-purple-200",  icon: <Package size={11} className="text-purple-500" /> },
-  delivered:  { label: "Delivered",  className: "bg-green-50 text-green-700 border-green-200",     icon: <Truck size={11} className="text-green-600" /> },
-  cancelled:          { label: "Cancelled",          className: "bg-red-50 text-red-700 border-red-200",     icon: <Ban size={11} className="text-red-500" /> },
-  refunded:           { label: "Refunded",           className: "bg-teal-50 text-teal-700 border-teal-200",   icon: <RotateCcw size={11} className="text-teal-600" /> },
-  partially_refunded: { label: "Partially Refunded", className: "bg-cyan-50 text-cyan-700 border-cyan-200",   icon: <RotateCcw size={11} className="text-cyan-600" /> },
+  pending: { label: "Pending", className: "bg-yellow-50 text-yellow-700 border-yellow-200", icon: <Circle size={11} className="fill-yellow-400 text-yellow-400" /> },
+  confirmed: { label: "Confirmed", className: "bg-blue-50 text-blue-700 border-blue-200", icon: <CheckCircle2 size={11} className="text-blue-500" /> },
+  preparing: { label: "Preparing", className: "bg-orange-50 text-orange-700 border-orange-200", icon: <ChefHat size={11} className="text-orange-500" /> },
+  ready: { label: "Ready", className: "bg-purple-50 text-purple-700 border-purple-200", icon: <Package size={11} className="text-purple-500" /> },
+  delivered: { label: "Delivered", className: "bg-green-50 text-green-700 border-green-200", icon: <Truck size={11} className="text-green-600" /> },
+  cancelled: { label: "Cancelled", className: "bg-red-50 text-red-700 border-red-200", icon: <Ban size={11} className="text-red-500" /> },
+  refunded: { label: "Refunded", className: "bg-teal-50 text-teal-700 border-teal-200", icon: <RotateCcw size={11} className="text-teal-600" /> },
+  partially_refunded: { label: "Partially Refunded", className: "bg-cyan-50 text-cyan-700 border-cyan-200", icon: <RotateCcw size={11} className="text-cyan-600" /> },
 };
 
 // Cancelled-but-refunded must surface both states — a bare "Cancelled" badge
@@ -37,7 +37,7 @@ const STATUS_CONFIG: Record<OrderStatus, { label: string; className: string; ico
 function orderStatusLabel(o: { status: OrderStatus; paymentStatus?: string | null }): string {
   const base = STATUS_CONFIG[o.status]?.label ?? String(o.status);
   if (o.status !== "cancelled") return base;
-  if (o.paymentStatus === "refunded")           return "Cancelled · Refunded";
+  if (o.paymentStatus === "refunded") return "Cancelled · Refunded";
   if (o.paymentStatus === "partially_refunded") return "Cancelled · Partial refund";
   return base;
 }
@@ -45,9 +45,9 @@ function orderStatusLabel(o: { status: OrderStatus; paymentStatus?: string | nul
 const ORDER_STATUS_FLOW: OrderStatus[] = ["pending", "confirmed", "preparing", "ready", "delivered"];
 
 const TAG_COLORS: Record<string, string> = {
-  VIP:      "bg-amber-100 text-amber-700 border-amber-200",
-  Regular:  "bg-blue-100 text-blue-700 border-blue-200",
-  New:      "bg-green-100 text-green-700 border-green-200",
+  VIP: "bg-amber-100 text-amber-700 border-amber-200",
+  Regular: "bg-blue-100 text-blue-700 border-blue-200",
+  New: "bg-green-100 text-green-700 border-green-200",
   Inactive: "bg-gray-100 text-gray-500 border-gray-200",
 };
 
@@ -112,8 +112,8 @@ export default function CustomersPanel() {
 
   // Quick stats
   const totalRevenue = customers.reduce((s, c) => s + totalSpent(c), 0);
-  const totalOrders  = customers.reduce((s, c) => s + orderCount(c), 0);
-  const activeToday  = customers.filter((c) =>
+  const totalOrders = customers.reduce((s, c) => s + orderCount(c), 0);
+  const activeToday = customers.filter((c) =>
     c.orders.some((o) => daysSince(o.date) === 0) ||
     (c.posSales ?? []).some((s) => daysSince(s.date) === 0),
   ).length;
@@ -135,9 +135,9 @@ export default function CustomersPanel() {
     });
     list.sort((a, b) => {
       let av: number | string = 0, bv: number | string = 0;
-      if (sortKey === "name")   { av = a.name; bv = b.name; }
+      if (sortKey === "name") { av = a.name; bv = b.name; }
       if (sortKey === "orders") { av = orderCount(a); bv = orderCount(b); }
-      if (sortKey === "spent")  { av = totalSpent(a); bv = totalSpent(b); }
+      if (sortKey === "spent") { av = totalSpent(a); bv = totalSpent(b); }
       if (sortKey === "joined") { av = a.createdAt; bv = b.createdAt; }
       if (av < bv) return sortDir === "asc" ? -1 : 1;
       if (av > bv) return sortDir === "asc" ? 1 : -1;
@@ -150,9 +150,8 @@ export default function CustomersPanel() {
     return (
       <button
         onClick={() => toggleSort(k)}
-        className={`flex items-center gap-1 text-xs font-semibold uppercase tracking-wider transition ${
-          sortKey === k ? "text-orange-500" : "text-gray-400 hover:text-gray-600"
-        }`}
+        className={`flex items-center gap-1 text-xs font-semibold uppercase tracking-wider transition ${sortKey === k ? "text-orange-500" : "text-gray-400 hover:text-gray-600"
+          }`}
       >
         {children}
         <ArrowUpDown size={10} className={sortKey === k ? "text-orange-400" : "text-gray-300"} />
@@ -164,10 +163,10 @@ export default function CustomersPanel() {
     <div className="space-y-5">
       {/* Stats row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Total customers"  value={customers.length}         sub={`${activeToday} active today`}    icon={<Users size={18} />} />
-        <StatCard label="Total orders"     value={totalOrders}              sub="all time"                          icon={<ShoppingBag size={18} />} />
-        <StatCard label="Total revenue"    value={`${sym}${totalRevenue.toFixed(2)}`} sub="delivered orders only"      icon={<TrendingUp size={18} />} />
-        <StatCard label="Avg. order value" value={`${sym}${totalOrders ? (totalRevenue / totalOrders).toFixed(2) : "0.00"}`} sub="per order"  icon={<Star size={18} />} />
+        <StatCard label="Total customers" value={customers.length} sub={`${activeToday} active today`} icon={<Users size={18} />} />
+        <StatCard label="Total orders" value={totalOrders} sub="all time" icon={<ShoppingBag size={18} />} />
+        <StatCard label="Total revenue" value={`${sym}${totalRevenue.toFixed(2)}`} sub="delivered orders only" icon={<TrendingUp size={18} />} />
+        <StatCard label="Avg. order value" value={`${sym}${totalOrders ? (totalRevenue / totalOrders).toFixed(2) : "0.00"}`} sub="per order" icon={<Star size={18} />} />
       </div>
 
       {/* Table card */}
@@ -190,11 +189,10 @@ export default function CustomersPanel() {
               <button
                 key={t}
                 onClick={() => setTagFilter(t)}
-                className={`px-3 py-1 rounded-full text-xs font-medium border transition capitalize ${
-                  tagFilter === t
-                    ? "bg-orange-500 text-white border-orange-500"
-                    : "border-gray-200 text-gray-500 hover:border-gray-300"
-                }`}
+                className={`px-3 py-1 rounded-full text-xs font-medium border transition capitalize ${tagFilter === t
+                  ? "bg-orange-500 text-white border-orange-500"
+                  : "border-gray-200 text-gray-500 hover:border-gray-300"
+                  }`}
               >
                 {t}
               </button>
@@ -304,18 +302,18 @@ export default function CustomersPanel() {
           onClose={() => setShowAdd(false)}
           onCreate={async (data) => {
             const newCustomer: Customer = {
-              id:             `cust-${crypto.randomUUID()}`,
-              name:           data.name.trim(),
-              email:          data.email.trim().toLowerCase(),
-              phone:          data.phone.trim(),
-              createdAt:      new Date().toISOString(),
-              tags:           [],
-              orders:         [],
-              favourites:     [],
+              id: `cust-${crypto.randomUUID()}`,
+              name: data.name.trim(),
+              email: data.email.trim().toLowerCase(),
+              phone: data.phone.trim(),
+              createdAt: new Date().toISOString(),
+              tags: [],
+              orders: [],
+              favourites: [],
               savedAddresses: [],
-              storeCredit:    0,
-              emailVerified:  true,
-              active:         true,
+              storeCredit: 0,
+              emailVerified: true,
+              active: true,
             };
             await addCustomer(newCustomer, data.password.trim() || undefined);
           }}
@@ -333,9 +331,9 @@ export default function CustomersPanel() {
             setSelectedCustomer((prev) =>
               prev
                 ? {
-                    ...prev,
-                    orders: prev.orders.map((o) => (o.id === oid ? { ...o, status: s } : o)),
-                  }
+                  ...prev,
+                  orders: prev.orders.map((o) => (o.id === oid ? { ...o, status: s } : o)),
+                }
                 : null
             );
           }}
@@ -488,11 +486,11 @@ function buildPrintHtml(
   restaurantAddress: string,
   sym: string,
 ): string {
-  const subtotal     = order.items.reduce((s, l) => s + l.price * l.qty, 0);
-  const deliveryFee  = order.deliveryFee  ?? 0;
-  const serviceFee   = order.serviceFee   ?? 0;
-  const couponDisc   = order.couponDiscount ?? 0;
-  const vatAmt       = order.vatAmount    ?? 0;
+  const subtotal = order.items.reduce((s, l) => s + l.price * l.qty, 0);
+  const deliveryFee = order.deliveryFee ?? 0;
+  const serviceFee = order.serviceFee ?? 0;
+  const couponDisc = order.couponDiscount ?? 0;
+  const vatAmt = order.vatAmount ?? 0;
   const vatInclusive = order.vatInclusive ?? true;
 
   return `<!DOCTYPE html>
@@ -518,10 +516,10 @@ function buildPrintHtml(
   ${rs.showLogo && rs.logoUrl ? `<img src="${rs.logoUrl}" class="logo" alt="Logo"/>` : ""}
   <div class="c b" style="font-size:15px">${rs.restaurantName}</div>
   ${restaurantAddress ? `<div class="c sm">${restaurantAddress}</div>` : ""}
-  ${rs.phone   ? `<div class="c sm">${rs.phone}</div>`              : ""}
-  ${rs.website ? `<div class="c sm">${rs.website}</div>`            : ""}
-  ${rs.email   ? `<div class="c sm">${rs.email}</div>`              : ""}
-  ${rs.vatNumber ? `<div class="c sm">VAT: ${rs.vatNumber}</div>`   : ""}
+  ${rs.phone ? `<div class="c sm">${rs.phone}</div>` : ""}
+  ${rs.website ? `<div class="c sm">${rs.website}</div>` : ""}
+  ${rs.email ? `<div class="c sm">${rs.email}</div>` : ""}
+  ${rs.vatNumber ? `<div class="c sm">VAT: ${rs.vatNumber}</div>` : ""}
   <div class="d"></div>
   <div class="c b">RECEIPT</div>
   <div class="c sm" style="word-break:break-all">${fullOrderNumber(order.id)}</div>
@@ -529,7 +527,7 @@ function buildPrintHtml(
   <div class="d"></div>
   <div class="row"><span>Customer:</span><span>${customer.name}</span></div>
   <div class="row"><span>Type:</span><span>${order.fulfillment === "delivery" ? "Delivery" : "Collection"}</span></div>
-  ${order.address     ? `<div class="row"><span>Address:</span><span style="text-align:right;max-width:180px">${order.address}</span></div>` : ""}
+  ${order.address ? `<div class="row"><span>Address:</span><span style="text-align:right;max-width:180px">${order.address}</span></div>` : ""}
   ${order.scheduledTime ? `<div class="row"><span>Scheduled:</span><span>${order.scheduledTime}</span></div>` : ""}
   <div class="d"></div>
   ${order.items.map((l) => `<div class="row"><span>${l.qty}x ${l.name}</span><span>${sym}${(l.price * l.qty).toFixed(2)}</span></div>`).join("")}
@@ -546,7 +544,7 @@ function buildPrintHtml(
   <div class="row"><span>Status:</span><span>${order.status.charAt(0).toUpperCase() + order.status.slice(1)}</span></div>
   <div class="d"></div>
   ${rs.thankYouMessage ? `<div class="c b" style="margin-bottom:3px">${rs.thankYouMessage}</div>` : ""}
-  ${rs.customMessage   ? `<div class="c sm" style="margin-bottom:3px;white-space:pre-wrap">${rs.customMessage}</div>` : ""}
+  ${rs.customMessage ? `<div class="c sm" style="margin-bottom:3px;white-space:pre-wrap">${rs.customMessage}</div>` : ""}
   <div class="c sm">${rs.restaurantName}</div>
 </div>
 </body>
@@ -569,18 +567,18 @@ function ReceiptModal({
   const { restaurant, receiptSettings: rs } = settings;
   const restaurantAddress = [restaurant.addressLine1, restaurant.city, restaurant.postcode].filter(Boolean).join(", ");
 
-  const subtotal    = order.items.reduce((s, l) => s + l.price * l.qty, 0);
-  const deliveryFee = order.deliveryFee   ?? 0;
-  const serviceFee  = order.serviceFee    ?? 0;
-  const couponDisc  = order.couponDiscount ?? 0;
-  const vatAmt      = order.vatAmount     ?? 0;
-  const vatRate     = settings.taxSettings?.rate ?? 0;
+  const subtotal = order.items.reduce((s, l) => s + l.price * l.qty, 0);
+  const deliveryFee = order.deliveryFee ?? 0;
+  const serviceFee = order.serviceFee ?? 0;
+  const couponDisc = order.couponDiscount ?? 0;
+  const vatAmt = order.vatAmount ?? 0;
+  const vatRate = settings.taxSettings?.rate ?? 0;
   const storeCreditUsed = order.storeCreditUsed ?? 0;
-  const giftCardUsed    = order.giftCardUsed    ?? 0;
+  const giftCardUsed = order.giftCardUsed ?? 0;
 
   function handlePrint() {
     const html = buildPrintHtml(order, customer, rs, restaurantAddress, sym);
-    const win  = window.open("", "_blank", "width=420,height=720");
+    const win = window.open("", "_blank", "width=420,height=720");
     if (!win) return;
     win.document.write(html);
     win.document.close();
@@ -620,9 +618,9 @@ function ReceiptModal({
             )}
             <p className="font-bold text-base text-gray-900">{rs.restaurantName}</p>
             {restaurantAddress && <p className="text-gray-500 text-[10px]">{restaurantAddress}</p>}
-            {rs.phone   && <p className="text-gray-500">{rs.phone}</p>}
+            {rs.phone && <p className="text-gray-500">{rs.phone}</p>}
             {rs.website && <p className="text-gray-500">{rs.website}</p>}
-            {rs.email   && <p className="text-gray-500">{rs.email}</p>}
+            {rs.email && <p className="text-gray-500">{rs.email}</p>}
             {rs.vatNumber && <p className="text-gray-500">VAT: {rs.vatNumber}</p>}
           </div>
 
@@ -661,13 +659,34 @@ function ReceiptModal({
 
           <div className="border-t border-dashed border-gray-300" />
 
-          <div className="space-y-1.5">
-            {order.items.map((line, i) => (
-              <div key={i} className="flex justify-between">
-                <span>{line.qty}× {line.name}</span>
-                <span className="font-medium">{sym}{(line.price * line.qty).toFixed(2)}</span>
-              </div>
-            ))}
+          <div className="space-y-3">
+            {order.items.map((line, i) => {
+              // 1. Process details
+              const v = line.selectedVariations?.map(v => v.label).join(", ");
+              const a = line.selectedAddOns?.map(a => a.name).join(", ");
+              const details = [v, a].filter(Boolean).join(" / ");
+
+              return (
+                <div key={i} className="flex justify-between items-start">
+                  <div className="flex-1 min-w-0">
+                    <span className="block text-sm">
+                      {line.qty}× {line.name}
+                    </span>
+
+                    {/* 2. Only show details if they exist */}
+                    {details && (
+                      <p className="text-[11px] text-gray-400 leading-tight mt-0.5">
+                        {details}
+                      </p>
+                    )}
+                  </div>
+
+                  <span className="text-sm font-medium tabular-nums ml-4">
+                    {sym}{(line.price * line.qty).toFixed(2)}
+                  </span>
+                </div>
+              );
+            })}
           </div>
 
           <div className="border-t border-dashed border-gray-300" />
@@ -748,7 +767,7 @@ function ReceiptModal({
 
           <div className="text-center space-y-0.5 text-gray-500">
             {rs.thankYouMessage && <p className="font-medium text-gray-700">{rs.thankYouMessage}</p>}
-            {rs.customMessage   && <p className="text-[10px] leading-snug whitespace-pre-wrap">{rs.customMessage}</p>}
+            {rs.customMessage && <p className="text-[10px] leading-snug whitespace-pre-wrap">{rs.customMessage}</p>}
             <p>{rs.restaurantName}</p>
           </div>
         </div>
@@ -777,10 +796,10 @@ function CustomerDrawer({
   // are display-only (driven by the system); gift card balance is gone with
   // the move to code-based gift cards. `tags` + `notes` are admin-editable
   // and the values are visible at the till on the next customer-list refresh.
-  const [tags,       setTags]       = useState<string[]>(customer.tags ?? []);
-  const [customTag,  setCustomTag]  = useState("");
-  const [notes,      setNotes]      = useState<string>(customer.notes ?? "");
-  const [posSaving,  setPosSaving]  = useState(false);
+  const [tags, setTags] = useState<string[]>(customer.tags ?? []);
+  const [customTag, setCustomTag] = useState("");
+  const [notes, setNotes] = useState<string>(customer.notes ?? "");
+  const [posSaving, setPosSaving] = useState(false);
   const [posMessage, setPosMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
   function toggleTag(tag: string) {
@@ -797,18 +816,18 @@ function CustomerDrawer({
   // The "Deleted customer" pseudo-row (id "__deleted__") surfaces orphan
   // orders for audit only; none of these controls apply to it.
   const isDeletedRow = customer.id === "__deleted__";
-  const [active,           setActive]           = useState<boolean>(customer.active ?? true);
-  const [savingActive,     setSavingActive]     = useState(false);
-  const [actionToast,      setActionToast]      = useState<{ kind: "ok" | "error"; text: string } | null>(null);
-  const [editProfileOpen,  setEditProfileOpen]  = useState(false);
-  const [passwordOpen,     setPasswordOpen]     = useState(false);
-  const [deleteOpen,       setDeleteOpen]       = useState(false);
+  const [active, setActive] = useState<boolean>(customer.active ?? true);
+  const [savingActive, setSavingActive] = useState(false);
+  const [actionToast, setActionToast] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [editProfileOpen, setEditProfileOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirming, setDeleteConfirming] = useState(false);
-  const [resetSending,     setResetSending]     = useState(false);
-  const [activeOrders,     setActiveOrders]     = useState<{ id: string; status: string }[] | null>(null);
+  const [resetSending, setResetSending] = useState(false);
+  const [activeOrders, setActiveOrders] = useState<{ id: string; status: string }[] | null>(null);
   const toggleInFlight = useRef(false);
   const deleteInFlight = useRef(false);
-  const resetInFlight  = useRef(false);
+  const resetInFlight = useRef(false);
 
   function flashToast(kind: "ok" | "error", text: string) {
     setActionToast({ kind, text });
@@ -823,9 +842,9 @@ function CustomerDrawer({
       // store credit are display-only, gift cards are code-based. Both
       // columns live on the customers row and are visible at the POS too.
       const res = await fetch(`/api/admin/customers/${customer.id}`, {
-        method:  "PUT",
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ tags, notes }),
+        body: JSON.stringify({ tags, notes }),
       });
       const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
       if (!res.ok || !json.ok) {
@@ -851,9 +870,9 @@ function CustomerDrawer({
     setActive(next);
     try {
       const res = await fetch(`/api/admin/customers/${customer.id}`, {
-        method:  "PUT",
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ active: next }),
+        body: JSON.stringify({ active: next }),
       });
       const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
       if (!res.ok || !json.ok) {
@@ -880,9 +899,9 @@ function CustomerDrawer({
     setResetSending(true);
     try {
       const res = await fetch(`/api/admin/customers/${customer.id}/send-reset`, {
-        method:  "POST",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ email: customer.email }),
+        body: JSON.stringify({ email: customer.email }),
       });
       const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
       if (!res.ok || !json.ok) {
@@ -960,11 +979,11 @@ function CustomerDrawer({
       return;
     }
 
-    const vars    = buildVarMap(order, customer, settings);
+    const vars = buildVarMap(order, customer, settings);
     const subject = applyVars(template.subject, vars);
-    const body    = applyVars(template.body, vars);
-    const addr    = [settings.restaurant.addressLine1, settings.restaurant.city, settings.restaurant.postcode].filter(Boolean).join(", ");
-    const html    = buildEmailDocument(body, settings.restaurant.name, addr, settings.restaurant.phone, settings.receiptSettings);
+    const body = applyVars(template.body, vars);
+    const addr = [settings.restaurant.addressLine1, settings.restaurant.city, settings.restaurant.postcode].filter(Boolean).join(", ");
+    const html = buildEmailDocument(body, settings.restaurant.name, addr, settings.restaurant.phone, settings.receiptSettings);
 
     try {
       const result = await sendEmailViaApi({ to: customer.email, subject, html });
@@ -1045,11 +1064,10 @@ function CustomerDrawer({
                 <UserCog size={15} className="text-orange-500" />
                 Account
                 {actionToast && (
-                  <span className={`text-[11px] font-medium ml-auto px-2 py-0.5 rounded-full ${
-                    actionToast.kind === "ok"
-                      ? "bg-green-50 text-green-700 border border-green-200"
-                      : "bg-red-50 text-red-700 border border-red-200"
-                  }`}>
+                  <span className={`text-[11px] font-medium ml-auto px-2 py-0.5 rounded-full ${actionToast.kind === "ok"
+                    ? "bg-green-50 text-green-700 border border-green-200"
+                    : "bg-red-50 text-red-700 border border-red-200"
+                    }`}>
                     {actionToast.text}
                   </span>
                 )}
@@ -1067,11 +1085,10 @@ function CustomerDrawer({
                 <button
                   onClick={() => void toggleActive()}
                   disabled={savingActive}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition disabled:opacity-60 ${
-                    active
-                      ? "bg-white text-gray-700 border-gray-200 hover:border-amber-300 hover:text-amber-600"
-                      : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
-                  }`}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition disabled:opacity-60 ${active
+                    ? "bg-white text-gray-700 border-gray-200 hover:border-amber-300 hover:text-amber-600"
+                    : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
+                    }`}
                   title={active ? "Disable login for this customer" : "Re-enable login"}
                 >
                   {savingActive
@@ -1121,119 +1138,118 @@ function CustomerDrawer({
               field was unused by the new flow and has been dropped. Notes
               stay editable for staff dietary / preference jotting. */}
           {!isDeletedRow && (
-          <div className="px-6 py-4 border-b border-gray-100 space-y-3">
-            <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
-              <Award size={15} className="text-orange-500" />
-              Balances &amp; Notes
-              <span className="text-[10px] font-normal text-gray-400 ml-auto">shared with POS</span>
-            </h3>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="flex flex-col sm:flex-row items-center justify-between bg-teal-50 border border-teal-100 rounded-lg px-3 py-2">
-                <div className="flex items-center gap-2 text-xs text-teal-700 min-w-0">
-                  <Gift size={13} className="text-teal-500 flex-shrink-0" />
-                  <span className="font-semibold">Store credit</span>
+            <div className="px-6 py-4 border-b border-gray-100 space-y-3">
+              <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+                <Award size={15} className="text-orange-500" />
+                Balances &amp; Notes
+                <span className="text-[10px] font-normal text-gray-400 ml-auto">shared with POS</span>
+              </h3>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-col sm:flex-row items-center justify-between bg-teal-50 border border-teal-100 rounded-lg px-3 py-2">
+                  <div className="flex items-center gap-2 text-xs text-teal-700 min-w-0">
+                    <Gift size={13} className="text-teal-500 flex-shrink-0" />
+                    <span className="font-semibold">Store credit</span>
+                  </div>
+                  <span className="text-sm font-bold text-teal-700 tabular-nums flex-shrink-0">
+                    {sym}{(customer.storeCredit ?? 0).toFixed(2)}
+                  </span>
                 </div>
-                <span className="text-sm font-bold text-teal-700 tabular-nums flex-shrink-0">
-                  {sym}{(customer.storeCredit ?? 0).toFixed(2)}
-                </span>
-              </div>
-              <div className="flex flex-col sm:flex-row items-center justify-between bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                <div className="flex items-center gap-2 text-xs text-amber-700 min-w-0">
-                  <Award size={13} className="text-amber-500 flex-shrink-0" />
-                  <span className="font-semibold truncate">Loyalty points</span>
+                <div className="flex flex-col sm:flex-row items-center justify-between bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                  <div className="flex items-center gap-2 text-xs text-amber-700 min-w-0">
+                    <Award size={13} className="text-amber-500 flex-shrink-0" />
+                    <span className="font-semibold truncate">Loyalty points</span>
+                  </div>
+                  <span className="text-sm font-bold text-amber-700 tabular-nums flex-shrink-0">
+                    {(customer.loyaltyPoints ?? 0).toLocaleString()}
+                  </span>
                 </div>
-                <span className="text-sm font-bold text-amber-700 tabular-nums flex-shrink-0">
-                  {(customer.loyaltyPoints ?? 0).toLocaleString()}
-                </span>
               </div>
-            </div>
 
-            {/* Tags — preset toggles + custom add. Mirrors the POS CustomersView
+              {/* Tags — preset toggles + custom add. Mirrors the POS CustomersView
                 vocabulary so a tag added at the till is recognised here, and
                 vice versa. */}
-            <div>
-              <label className="text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide flex items-center gap-1">Tags</label>
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {PRESET_TAGS.map((t) => {
-                  const active = tags.includes(t);
-                  return (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => toggleTag(t)}
-                      className={`text-[11px] px-2.5 py-1 rounded-full border font-medium transition ${
-                        active
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide flex items-center gap-1">Tags</label>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {PRESET_TAGS.map((t) => {
+                    const active = tags.includes(t);
+                    return (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => toggleTag(t)}
+                        className={`text-[11px] px-2.5 py-1 rounded-full border font-medium transition ${active
                           ? (TAG_COLORS[t] ?? "bg-orange-500 text-white border-orange-500")
                           : "bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-300"
-                      }`}
-                    >
-                      {t}
-                    </button>
-                  );
-                })}
-              </div>
-              {/* Custom tag input */}
-              <div className="flex gap-2 mb-2">
-                <input
-                  type="text"
-                  value={customTag}
-                  onChange={(e) => setCustomTag(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustomTag(); } }}
-                  placeholder="Custom tag…"
-                  className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-800 placeholder-gray-400 outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition"
-                />
-                <button
-                  type="button"
-                  onClick={addCustomTag}
-                  disabled={!customTag.trim()}
-                  className="px-3 rounded-lg bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 text-white text-xs font-semibold transition"
-                >
-                  Add
-                </button>
-              </div>
-              {/* Active custom tags — non-preset chips with remove */}
-              {tags.filter((t) => !PRESET_TAGS.includes(t)).length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {tags.filter((t) => !PRESET_TAGS.includes(t)).map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => toggleTag(t)}
-                      title="Remove tag"
-                      className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full border font-medium bg-gray-100 text-gray-700 border-gray-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition"
-                    >
-                      {t} <X size={10} />
-                    </button>
-                  ))}
+                          }`}
+                      >
+                        {t}
+                      </button>
+                    );
+                  })}
                 </div>
-              )}
-            </div>
+                {/* Custom tag input */}
+                <div className="flex gap-2 mb-2">
+                  <input
+                    type="text"
+                    value={customTag}
+                    onChange={(e) => setCustomTag(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustomTag(); } }}
+                    placeholder="Custom tag…"
+                    className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-800 placeholder-gray-400 outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition"
+                  />
+                  <button
+                    type="button"
+                    onClick={addCustomTag}
+                    disabled={!customTag.trim()}
+                    className="px-3 rounded-lg bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 text-white text-xs font-semibold transition"
+                  >
+                    Add
+                  </button>
+                </div>
+                {/* Active custom tags — non-preset chips with remove */}
+                {tags.filter((t) => !PRESET_TAGS.includes(t)).length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {tags.filter((t) => !PRESET_TAGS.includes(t)).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => toggleTag(t)}
+                        title="Remove tag"
+                        className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full border font-medium bg-gray-100 text-gray-700 border-gray-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition"
+                      >
+                        {t} <X size={10} />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
 
-            <div>
-              <label className="text-xs text-gray-500 mb-1 flex items-center gap-1"><FileText size={11} /> Notes</label>
-              <textarea
-                rows={2}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Dietary requirements, preferences, allergies…"
-                className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent resize-none"
-              />
+              <div>
+                <label className="text-xs text-gray-500 mb-1 flex items-center gap-1"><FileText size={11} /> Notes</label>
+                <textarea
+                  rows={2}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Dietary requirements, preferences, allergies…"
+                  className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent resize-none"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={savePosFields}
+                  disabled={posSaving}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-orange-500 hover:bg-orange-600 text-white transition disabled:opacity-50"
+                >
+                  <Save size={12} /> {posSaving ? "Saving…" : "Save tags & notes"}
+                </button>
+                {posMessage && (
+                  <span className={`text-xs ${posMessage.kind === "ok" ? "text-green-600" : "text-red-600"}`}>
+                    {posMessage.text}
+                  </span>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={savePosFields}
-                disabled={posSaving}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-orange-500 hover:bg-orange-600 text-white transition disabled:opacity-50"
-              >
-                <Save size={12} /> {posSaving ? "Saving…" : "Save tags & notes"}
-              </button>
-              {posMessage && (
-                <span className={`text-xs ${posMessage.kind === "ok" ? "text-green-600" : "text-red-600"}`}>
-                  {posMessage.text}
-                </span>
-              )}
-            </div>
-          </div>
           )}
 
           {/* Order history */}
@@ -1250,10 +1266,10 @@ function CustomerDrawer({
                   const sale = entry.sale;
                   const isExpanded = expandedOrder === sale.id;
                   const posBadge = sale.voided
-                    ? { label: "Voided",    className: "bg-red-50 text-red-700 border-red-200",   icon: <Ban size={11} className="text-red-500" /> }
+                    ? { label: "Voided", className: "bg-red-50 text-red-700 border-red-200", icon: <Ban size={11} className="text-red-500" /> }
                     : (sale.refundAmount ?? 0) > 0
-                    ? { label: "Refunded",  className: "bg-teal-50 text-teal-700 border-teal-200", icon: <RotateCcw size={11} className="text-teal-600" /> }
-                    : { label: "Completed", className: "bg-green-50 text-green-700 border-green-200", icon: <CheckCircle2 size={11} className="text-green-600" /> };
+                      ? { label: "Refunded", className: "bg-teal-50 text-teal-700 border-teal-200", icon: <RotateCcw size={11} className="text-teal-600" /> }
+                      : { label: "Completed", className: "bg-green-50 text-green-700 border-green-200", icon: <CheckCircle2 size={11} className="text-green-600" /> };
                   return (
                     <div key={sale.id} className="border border-gray-100 rounded-xl overflow-hidden">
                       <button
@@ -1332,11 +1348,10 @@ function CustomerDrawer({
                           <span className={`flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${cfg.className}`}>
                             {cfg.icon} {orderStatusLabel(order)}
                           </span>
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                            order.fulfillment === "delivery"
-                              ? "bg-blue-50 text-blue-600 border border-blue-100"
-                              : "bg-teal-50 text-teal-600 border border-teal-100"
-                          }`}>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${order.fulfillment === "delivery"
+                            ? "bg-blue-50 text-blue-600 border border-blue-100"
+                            : "bg-teal-50 text-teal-600 border border-teal-100"
+                            }`}>
                             {order.fulfillment === "delivery" ? "🚚 Delivery" : "🏪 Collection"}
                           </span>
                         </div>
@@ -1356,13 +1371,32 @@ function CustomerDrawer({
                         {/* Items */}
                         <div>
                           <p className="text-xs font-semibold text-gray-500 mb-2">Items</p>
-                          <div className="space-y-1">
-                            {order.items.map((line, idx) => (
-                              <div key={idx} className="flex justify-between text-sm">
-                                <span className="text-gray-700">{line.qty}× {line.name}</span>
-                                <span className="text-gray-900 font-medium">{sym}{(line.price * line.qty).toFixed(2)}</span>
-                              </div>
-                            ))}
+                          <div className="space-y-3"> {/* Increased spacing slightly for readability */}
+                            {order.items.map((line, idx) => {
+                              // 1. Process variations and add-ons
+                              const v = line.selectedVariations?.map(v => v.label).join(", ");
+                              const a = line.selectedAddOns?.map(a => a.name).join(", ");
+                              const details = [v, a].filter(Boolean).join(" / ");
+
+                              return (
+                                <div key={idx} className="flex justify-between items-start text-sm">
+                                  <div className="flex-1 min-w-0">
+                                    <span className="text-gray-700 block">
+                                      {line.qty}× {line.name}
+                                    </span>
+                                    {/* 2. Display details on a separate line if they exist */}
+                                    {details && (
+                                      <p className="text-[11px] text-gray-400 mt-0.5 leading-tight">
+                                        {details}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <span className="text-gray-900 font-medium ml-4 tabular-nums">
+                                    {sym}{(line.price * line.qty).toFixed(2)}
+                                  </span>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
 
@@ -1397,13 +1431,12 @@ function CustomerDrawer({
                                     key={s}
                                     disabled={isPast || isActive}
                                     onClick={() => onStatusChange(customer.id, order.id, s)}
-                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
-                                      isActive
-                                        ? sCfg.className + " opacity-100 cursor-default"
-                                        : isPast
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${isActive
+                                      ? sCfg.className + " opacity-100 cursor-default"
+                                      : isPast
                                         ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"
                                         : sCfg.className + " opacity-60 hover:opacity-100"
-                                    }`}
+                                      }`}
                                   >
                                     {sCfg.icon}
                                     {sCfg.label}
@@ -1450,16 +1483,15 @@ function CustomerDrawer({
 
                             {/* Resend email */}
                             {emailToast?.orderId === order.id ? (
-                              <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
-                                emailToast.state === "sending"
-                                  ? "bg-blue-50 text-blue-600 border-blue-100"
-                                  : emailToast.state === "sent"
+                              <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${emailToast.state === "sending"
+                                ? "bg-blue-50 text-blue-600 border-blue-100"
+                                : emailToast.state === "sent"
                                   ? "bg-green-50 text-green-600 border-green-100"
                                   : "bg-red-50 text-red-600 border-red-100"
-                              }`}>
+                                }`}>
                                 {emailToast.state === "sending" && <><RefreshCw size={11} className="animate-spin" /> Sending…</>}
-                                {emailToast.state === "sent"    && <><CheckCheck size={11} /> Sent to {customer.email}</>}
-                                {emailToast.state === "error"   && <><AlertCircle size={11} /> Failed — retry</>}
+                                {emailToast.state === "sent" && <><CheckCheck size={11} /> Sent to {customer.email}</>}
+                                {emailToast.state === "error" && <><AlertCircle size={11} /> Failed — retry</>}
                               </span>
                             ) : (
                               <button
@@ -1610,16 +1642,16 @@ function EditProfileModal({
   onSaved: () => void | Promise<void>;
   onError: (msg: string) => void;
 }) {
-  const [name,    setName]    = useState(customer.name);
-  const [email,   setEmail]   = useState(customer.email);
-  const [phone,   setPhone]   = useState(customer.phone ?? "");
-  const [errors,  setErrors]  = useState<Record<string, string>>({});
-  const [saving,  setSaving]  = useState(false);
+  const [name, setName] = useState(customer.name);
+  const [email, setEmail] = useState(customer.email);
+  const [phone, setPhone] = useState(customer.phone ?? "");
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
   const inFlight = useRef(false);
 
   function validate(): boolean {
     const e: Record<string, string> = {};
-    if (!name.trim())  e.name  = "Name is required.";
+    if (!name.trim()) e.name = "Name is required.";
     if (!email.trim()) e.email = "Email is required.";
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -1633,9 +1665,9 @@ function EditProfileModal({
     setSaving(true);
     try {
       const res = await fetch(`/api/admin/customers/${customer.id}`, {
-        method:  "PUT",
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ name, email, phone }),
+        body: JSON.stringify({ name, email, phone }),
       });
       const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
       if (!res.ok || !json.ok) {
@@ -1718,25 +1750,25 @@ function ChangePasswordModal({
   onSaved: () => void;
   onError: (msg: string) => void;
 }) {
-  const [value,   setValue]   = useState("");
+  const [value, setValue] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [error,   setError]   = useState("");
-  const [saving,  setSaving]  = useState(false);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
   const inFlight = useRef(false);
 
   async function handleSubmit(ev: React.FormEvent) {
     ev.preventDefault();
     if (inFlight.current) return;
     setError("");
-    if (value.length < 6)  { setError("Password must be at least 6 characters."); return; }
+    if (value.length < 6) { setError("Password must be at least 6 characters."); return; }
     if (value !== confirm) { setError("Passwords do not match."); return; }
     inFlight.current = true;
     setSaving(true);
     try {
       const res = await fetch(`/api/admin/customers/${customer.id}/set-password`, {
-        method:  "POST",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ password: value }),
+        body: JSON.stringify({ password: value }),
       });
       const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
       if (!res.ok || !json.ok) {

@@ -1868,7 +1868,7 @@ function AccountPageContent() {
                 <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5">
                   <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
                     <TrendingUp size={14} className="text-zinc-700 flex-shrink-0" />
-                    <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total spent</span>
+                    <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total order spent</span>
                   </div>
                   <p className="text-[17px] sm:text-[19px] font-bold text-zinc-900 tabular-nums">{sym}{totalSpent.toFixed(2)}</p>
                 </div>

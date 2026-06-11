@@ -406,6 +406,9 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
 
                     <div className="p-3 w-full">
                       <p className="text-white text-xs font-semibold leading-snug mb-1 line-clamp-2">{product.name}</p>
+                      {product.description && (
+                          <p className="text-slate-500 text-[11px] mt-0.5 line-clamp-1">{product.description}</p>
+                        )}
                       <div className="flex items-center justify-between gap-1">
                         {/* Simple per-unit offer: show discounted + strikethrough */}
                         {offerPrice !== null ? (
