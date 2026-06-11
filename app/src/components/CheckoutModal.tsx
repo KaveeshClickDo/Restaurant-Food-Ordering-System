@@ -348,11 +348,16 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   const storeCreditApplied = useCredit ? Math.min(availableCredit, adjustedTotal) : 0;
   // Gift card applies after coupon + store credit, capped by the remaining
   // total. Order of operations matches the server (orderValidation.ts).
-  const totalBeforeGiftCard = Math.max(0, adjustedTotal - storeCreditApplied);
+  // Round every money step to whole pence: a percentage service fee / tax
+  // produces unrounded floats (e.g. 89.004), and subtracting the *rounded*
+  // gift-card amount would otherwise leave orderTotal a hair above zero —
+  // keeping the payment tiles visible and the "fully covered" button hidden
+  // even when the card covers the order in full.
+  const totalBeforeGiftCard = Math.max(0, Math.round((adjustedTotal - storeCreditApplied) * 100) / 100);
   const giftCardApplied = appliedGiftCard
     ? Math.round(Math.min(appliedGiftCard.balance, totalBeforeGiftCard) * 100) / 100
     : 0;
-  const orderTotal = Math.max(0, totalBeforeGiftCard - giftCardApplied);
+  const orderTotal = Math.max(0, Math.round((totalBeforeGiftCard - giftCardApplied) * 100) / 100);
 
   // Card minimum is enforced server-side via Stripe's own rejection (see
   // /api/payments/intent catch block). We don't pre-check on the client
@@ -401,6 +406,39 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   function removeGiftCard() {
     setAppliedGiftCard(null);
     setGiftCardError("");
+  }
+
+  /**
+   * Re-fetch the applied gift card's *real* balance after a placement was
+   * rejected. The customer's view can go stale — another order / browser tab
+   * (or a concurrent checkout) may have spent the card since they typed the
+   * code — which makes an order look "fully covered" when it no longer is.
+   * Refreshing `appliedGiftCard.balance` recomputes `giftCardApplied` and
+   * `orderTotal`: if the card now falls short, orderTotal becomes > 0, the
+   * "fully covered" button disappears, and the real payment tiles re-appear so
+   * the customer can pay the remainder. If the card is fully spent we drop it
+   * so the order reverts to its full price. Best-effort: a network failure
+   * leaves the current view as-is (the server guard still blocks a short order).
+   */
+  async function revalidateAppliedGiftCard(): Promise<void> {
+    if (!appliedGiftCard) return;
+    try {
+      const res = await fetch("/api/gift-cards/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: appliedGiftCard.code }),
+      });
+      const json = await res.json().catch(() => ({})) as {
+        ok?: boolean; card?: { code: string; balance: number };
+      };
+      if (!res.ok || !json.ok || !json.card) {
+        setAppliedGiftCard(null);
+        return;
+      }
+      setAppliedGiftCard({ code: json.card.code, balance: json.card.balance });
+    } catch {
+      /* keep the current view; the server guard is the real safety net */
+    }
   }
 
   // Filter payment methods.
@@ -587,6 +625,12 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     if (currentUser) {
       const result = await addOrder(currentUser.id, newOrder);
       if (!result.ok) {
+        // If a gift card was applied, refresh its real balance — the order may
+        // have been rejected because the card no longer covers it (stale /
+        // concurrent spend). This re-renders the remaining amount + payment
+        // tiles so the customer can pay the rest instead of re-clicking a stale
+        // "fully covered" button.
+        if (appliedGiftCard) await revalidateAppliedGiftCard();
         setSubmitError(result.error ?? "Failed to place order. Please try again.");
         cashInFlight.current = false;
         setSubmitting(false);
@@ -660,6 +704,9 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
         amount?: number;
       };
       if (!j.ok || !j.clientSecret) {
+        // Same stale-gift-card recovery as the cash path: refresh the balance
+        // so a short card reveals the real remainder + payment options.
+        if (appliedGiftCard) await revalidateAppliedGiftCard();
         setSubmitError(j.error ?? "Could not start payment. Please try again.");
         return;
       }

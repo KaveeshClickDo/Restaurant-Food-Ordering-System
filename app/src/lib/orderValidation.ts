@@ -666,6 +666,27 @@ export async function validateAndNormaliseOrder(
     Math.round((runningTotal - giftCardUsed) * 100) / 100,
   );
 
+  // ── Stale-balance guard ───────────────────────────────────────────────────
+  // The card couldn't cover what the client applied: clampGiftCardAmount
+  // reduced the claim (giftCardUsed < giftCardClaim) AND a real remainder is
+  // left (serverTotal > 0). This is the concurrent/stale-balance case — another
+  // order or browser tab spent the card between the customer's balance lookup
+  // and this submit. The client may have shown "fully covered" and hidden the
+  // payment tiles, so placing the order anyway would create one whose remainder
+  // has NO way to be collected: it's tagged 'Gift card / credit' (a driver
+  // never knows to collect cash) and no card was charged. Reject so the client
+  // re-fetches the true balance and re-prompts the customer to pay the rest.
+  // (Note: a legitimate partial gift-card payment sends a claim equal to the
+  // real balance, so giftCardClaim === giftCardUsed and this never fires; an
+  // over-claim relative to the order total leaves serverTotal === 0, also safe.)
+  if (giftCardCode && giftCardClaim > giftCardUsed + 0.001 && serverTotal > 0.001) {
+    return {
+      ok: false,
+      error: "Your gift card balance changed and no longer covers this order. Please review the remaining amount and choose how to pay.",
+      status: 409,
+    };
+  }
+
   // ── Delivery PIN (only for delivery fulfillment) ──────────────────────────
   const deliveryCode = fulfillment === "delivery"
     ? String(randomInt(0, 10_000)).padStart(4, "0")

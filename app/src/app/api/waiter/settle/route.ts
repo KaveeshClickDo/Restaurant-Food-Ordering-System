@@ -53,8 +53,11 @@ export async function POST(req: NextRequest) {
 
     // ── Gift card tender (optional) ────────────────────────────────────────
     // Applied across the table's combined bill AFTER discount + tip, clamped to
-    // the final amount owed, then stamped on the anchor order so the redemption
-    // is idempotent (the redeem helper keys on that order id).
+    // the final amount owed. The redemption (atomic balance debit) runs FIRST,
+    // as a gate: if the card can't back the amount (a concurrent settle on
+    // another terminal drained it), we refuse to settle rather than apply a
+    // gift-card discount the card can't cover. Only on a successful debit do we
+    // stamp the anchor order + mark the bill delivered.
     let giftCardId: string | null = null;
     let giftCardAmount = 0;
     if (giftCardCode && giftCardUsed && giftCardUsed > 0) {
@@ -68,6 +71,21 @@ export async function POST(req: NextRequest) {
       });
 
       if (anchorOrderId && giftCardAmount > 0) {
+        // Debit first (idempotent + CAS-guarded on the anchor order id).
+        const redeem = await redeemGiftCardForRow({
+          giftCardId,
+          amount:      giftCardAmount,
+          orderId:     anchorOrderId,
+          performedBy: "waiter",
+        });
+        if (!redeem.ok) {
+          console.error("[waiter/settle] gift card redeem failed, not settling:", redeem.reason, redeem.error);
+          return NextResponse.json(
+            { ok: false, error: "Gift card balance changed. Please re-check the card and try again." },
+            { status: 409 },
+          );
+        }
+        // Debit succeeded — stamp the anchor so reports / refunds see the card.
         await supabaseAdmin
           .from("orders")
           .update({ gift_card_id: giftCardId, gift_card_used: giftCardAmount })
@@ -111,20 +129,7 @@ export async function POST(req: NextRequest) {
         .eq("id", anchorOrderId);
     }
 
-    // Redeem after the orders are settled. AWAITED — a fire-and-forget promise
-    // would be cut off when this route returns, leaving the card balance
-    // un-debited. Idempotent on the anchor order id so a retry can't double-debit.
-    if (giftCardId && giftCardAmount > 0 && anchorOrderId) {
-      const redeem = await redeemGiftCardForRow({
-        giftCardId,
-        amount:      giftCardAmount,
-        orderId:     anchorOrderId,
-        performedBy: "waiter",
-      });
-      if (!redeem.ok) {
-        console.error("[waiter/settle] gift card redeem:", redeem.error);
-      }
-    }
+    // (Gift card was already debited as a gate above, before settling.)
 
     return NextResponse.json({ ok: true, settled: orderIds.length, tableLabel });
   } catch (err) {

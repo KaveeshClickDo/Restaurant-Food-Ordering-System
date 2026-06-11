@@ -104,6 +104,12 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
     // Idempotent — order already created. Acknowledge silently.
     return;
   }
+  if (session.status === "refunded_shortfall") {
+    // A prior delivery of this event hit the gift-card shortfall path: the
+    // charge was already auto-refunded and no order was created. Acknowledge
+    // silently so Stripe stops retrying.
+    return;
+  }
 
   // Branch on session.kind — gift card purchases run through a separate path
   // that mints a code instead of inserting an order row. metadata.kind is
@@ -154,6 +160,64 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
     console.error(
       `[webhooks/stripe] OVERSOLD on paid order ${orderRow.id}: ${stock.message}. Inserting flagged order — admin must reconcile.`,
     );
+  }
+
+  // ── Gift card redemption AS A GATE — before the order is inserted ─────────
+  // Debit the card atomically now. The order is stamped (gift_card_id +
+  // gift_card_used) and its `total` already had the card subtracted, so the
+  // order must NOT exist unless the card actually backs that discount.
+  //   • insufficient  → the double-spend race: another paid order drained the
+  //     card first. Don't create this order — auto-refund the charge and mark
+  //     the session. The customer gets their money back; no unbacked order.
+  //   • db_error/other → transient; throw so Stripe retries. The debit is
+  //     idempotent on the order id, so the eventual successful delivery debits
+  //     exactly once.
+  // On success we fall through to the insert; a later 23505 (a concurrent
+  // webhook delivery won the insert) is fine because the debit is idempotent
+  // on the same order id, so the card is debited exactly once either way.
+  const giftCardId   = orderRow.gift_card_id as string | null;
+  const giftCardUsed = Number(orderRow.gift_card_used ?? 0);
+  if (giftCardId && giftCardUsed > 0) {
+    const redeem = await redeemGiftCardForRow({
+      giftCardId,
+      amount:      giftCardUsed,
+      orderId:     orderRow.id as string,
+      performedBy: `customer:${orderRow.customer_id}`,
+    });
+    if (!redeem.ok && redeem.reason === "insufficient") {
+      console.error(
+        `[webhooks/stripe] gift card shortfall on paid order ${orderRow.id} — auto-refunding charge, not creating order.`,
+      );
+      if (stock.ok) {
+        restoreStock(stockItems).catch((err) =>
+          console.error("[webhooks/stripe] restore after gift-card shortfall:", err instanceof Error ? err.message : err),
+        );
+      }
+      try {
+        // No `amount` → refunds the full charge. Idempotency key prevents a
+        // duplicate succeeded delivery from issuing a second refund.
+        await getStripe().refunds.create(
+          { payment_intent: intent.id },
+          { idempotencyKey: `gc-shortfall-${intent.id}` },
+        );
+      } catch (err) {
+        console.error("[webhooks/stripe] shortfall auto-refund failed:", err instanceof Error ? err.message : err);
+      }
+      await supabaseAdmin
+        .from("payment_sessions")
+        .update({ status: "refunded_shortfall", last_error: "Gift card balance insufficient at capture — auto-refunded." })
+        .eq("id", session.id);
+      return;
+    }
+    if (!redeem.ok) {
+      // Transient DB error — undo the stock decrement and let Stripe retry.
+      if (stock.ok) {
+        restoreStock(stockItems).catch((err) =>
+          console.error("[webhooks/stripe] restore after redeem db error:", err instanceof Error ? err.message : err),
+        );
+      }
+      throw new Error(`gift card redeem: ${redeem.error}`);
+    }
   }
 
   const insertRow = {
@@ -246,24 +310,7 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
     }
   }
 
-  // Gift card redemption — order row carries gift_card_id + gift_card_used
-  // stamp from orderValidation. Fire-and-forget; helper is idempotent so a
-  // webhook retry won't double-spend.
-  const giftCardId   = orderRow.gift_card_id as string | null;
-  const giftCardUsed = Number(orderRow.gift_card_used ?? 0);
-  if (giftCardId && giftCardUsed > 0) {
-    try {
-      const redeem = await redeemGiftCardForRow({
-        giftCardId,
-        amount:      giftCardUsed,
-        orderId:     orderRow.id as string,
-        performedBy: `customer:${orderRow.customer_id}`,
-      });
-      if (!redeem.ok) console.error("[webhooks/stripe] gift card redeem:", redeem.error);
-    } catch (err) {
-      console.error("[webhooks/stripe] gift card redeem:", err instanceof Error ? err.message : err);
-    }
-  }
+  // (Gift card was already debited as a gate above, before the insert.)
 
   // Confirmation email.
   sendOrderConfirmationEmail({

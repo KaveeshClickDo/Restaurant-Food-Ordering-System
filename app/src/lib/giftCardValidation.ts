@@ -184,16 +184,18 @@ export function clampGiftCardAmount(args: {
  * DB failure here just leaves the ledger temporarily inconsistent and an
  * admin can patch it from the audit log.
  */
+export type RedeemFailureReason = "insufficient" | "not_found" | "db_error" | "bad_args";
+
 export async function redeemGiftCardForRow(args: {
   giftCardId: string;
   amount: number;
   orderId?: string;
   posSaleId?: string;
   performedBy?: string;
-}): Promise<{ ok: boolean; newBalance?: number; error?: string }> {
+}): Promise<{ ok: true; newBalance: number } | { ok: false; reason: RedeemFailureReason; error: string }> {
   const { giftCardId, amount, orderId, posSaleId } = args;
   if ((!orderId && !posSaleId) || amount <= 0) {
-    return { ok: false, error: "Nothing to redeem." };
+    return { ok: false, reason: "bad_args", error: "Nothing to redeem." };
   }
 
   // Replay guard.
@@ -211,12 +213,15 @@ export async function redeemGiftCardForRow(args: {
     .select("balance, status")
     .eq("id", giftCardId)
     .maybeSingle();
-  if (cardErr || !card) {
-    return { ok: false, error: cardErr?.message ?? "Gift card row not found." };
+  if (cardErr) {
+    return { ok: false, reason: "db_error", error: cardErr.message };
+  }
+  if (!card) {
+    return { ok: false, reason: "not_found", error: "Gift card row not found." };
   }
   const current = Number(card.balance);
   if (current < amount) {
-    return { ok: false, error: "Gift card balance insufficient." };
+    return { ok: false, reason: "insufficient", error: "Gift card balance insufficient." };
   }
 
   const newBalance = parseFloat((current - amount).toFixed(2));
@@ -233,9 +238,12 @@ export async function redeemGiftCardForRow(args: {
     .eq("balance", current)
     .select("id")
     .maybeSingle();
-  if (updErr) return { ok: false, error: updErr.message };
+  if (updErr) return { ok: false, reason: "db_error", error: updErr.message };
   if (!updated) {
-    return { ok: false, error: "Gift card balance changed during redemption." };
+    // Lost the compare-and-swap race against a concurrent redemption — the
+    // balance is now lower than we read, so treat it as a shortfall (a retry
+    // would re-read the reduced balance and fail the same way).
+    return { ok: false, reason: "insufficient", error: "Gift card balance changed during redemption." };
   }
 
   // Append the audit row.

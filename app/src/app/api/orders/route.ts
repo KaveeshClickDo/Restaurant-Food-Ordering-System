@@ -103,17 +103,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  // Increment coupon usage now — order is committed.
-  if (coupon) {
-    incrementCouponUsage(coupon.id).catch((err) =>
-      console.error("[orders] coupon increment:", err instanceof Error ? err.message : err),
-    );
-  }
-
-  // Apply the gift card redemption. Order row already carries the stamp
-  // (gift_card_id + gift_card_used) — the helper uses that as the idempotency
-  // key. AWAITED so the balance is debited before we respond (a dangling
-  // promise can be killed when the route returns).
+  // Apply the gift card redemption AS A GATE — before any other side effect.
+  // The order row already carries the stamp (gift_card_id + gift_card_used);
+  // the helper uses that as the idempotency key and decrements the balance
+  // with an atomic compare-and-swap. If the debit fails (a concurrent order
+  // drained the card between validation and here), the order must NOT stand
+  // with a discount the card can't back — so we roll it back: delete the
+  // just-inserted row and restore stock. A failed CAS leaves the balance
+  // untouched, so there's nothing to compensate on the card side.
   if (row.gift_card_id && row.gift_card_used > 0) {
     const redeem = await redeemGiftCardForRow({
       giftCardId:  row.gift_card_id,
@@ -121,7 +118,24 @@ export async function POST(req: NextRequest) {
       orderId:     row.id,
       performedBy: `customer:${row.customer_id}`,
     });
-    if (!redeem.ok) console.error("[orders] gift card redeem:", redeem.error);
+    if (!redeem.ok) {
+      console.error("[orders] gift card redeem failed, rolling back order:", redeem.reason, redeem.error);
+      await supabaseAdmin.from("orders").delete().eq("id", row.id);
+      restoreStock(stockItems).catch((err) =>
+        console.error("[orders] stock restore after redeem rollback:", err instanceof Error ? err.message : err),
+      );
+      return NextResponse.json(
+        { ok: false, error: "Gift card balance changed during checkout. Please review your order and try again." },
+        { status: 409 },
+      );
+    }
+  }
+
+  // Increment coupon usage now — order is committed (and gift card debited).
+  if (coupon) {
+    incrementCouponUsage(coupon.id).catch((err) =>
+      console.error("[orders] coupon increment:", err instanceof Error ? err.message : err),
+    );
   }
 
   // Store-credit deduction. Mirrors the Stripe / PayPal webhook behaviour so

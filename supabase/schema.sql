@@ -840,6 +840,24 @@ begin
   alter table payment_sessions
     add constraint payment_sessions_kind_check check (kind in ('order','gift_card','reservation'));
 end $$;
+-- Widen the status check to allow 'refunded_shortfall': the gift-card
+-- double-spend guard marks a card-paid order session this way when the gift
+-- card was drained by a concurrent order before capture — the charge is
+-- auto-refunded and no order is created (see /api/webhooks/stripe). Drop the
+-- old constraint (inline checks are named '<table>_<column>_check') and re-add
+-- the superset so re-running is idempotent.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.constraint_column_usage
+    where table_name = 'payment_sessions' and constraint_name = 'payment_sessions_status_check'
+  ) then
+    alter table payment_sessions drop constraint payment_sessions_status_check;
+  end if;
+  alter table payment_sessions
+    add constraint payment_sessions_status_check
+      check (status in ('pending','succeeded','failed','expired','refunded_shortfall'));
+end $$;
 -- Drop the legacy CHECK that required order_payload always be set. With the
 -- gift_card kind the order_payload is null and gift_card_payload is set.
 -- (Postgres lets us add a not-null column with a default, then relax the

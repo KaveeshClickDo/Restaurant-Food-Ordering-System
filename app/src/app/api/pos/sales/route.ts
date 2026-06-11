@@ -316,10 +316,14 @@ export async function POST(req: NextRequest) {
 
   const sale = rowToSale(inserted);
 
-  // Gift card redemption — sale row carries the gift_card_id + gift_card_used
-  // stamp. AWAITED so the balance is actually debited before we respond (a
-  // fire-and-forget promise can be killed when the route returns). Idempotent
-  // (keyed on the sale id) so the POS outbox replaying a sale won't double-debit.
+  // Gift card redemption AS A GATE — before KDS sync / the orders mirror.
+  // The sale row carries the gift_card_id + gift_card_used stamp; the helper
+  // debits the balance with an atomic compare-and-swap, keyed on the sale id
+  // (so the POS outbox replaying a sale won't double-debit). If the debit
+  // fails (a concurrent sale on a second terminal drained the card), the sale
+  // must not stand with a gift-card discount the card can't back — roll it
+  // back: delete the just-inserted row and restore stock. A failed CAS leaves
+  // the balance untouched, so there's nothing to compensate on the card side.
   if (giftCardId && giftCardUsed > 0) {
     const redeem = await redeemGiftCardForRow({
       giftCardId,
@@ -327,7 +331,17 @@ export async function POST(req: NextRequest) {
       posSaleId:   String(body.id),
       performedBy: `pos:${session.id}`,
     });
-    if (!redeem.ok) console.error("[pos/sales] gift card redeem:", redeem.error);
+    if (!redeem.ok) {
+      console.error("[pos/sales] gift card redeem failed, rolling back sale:", redeem.reason, redeem.error);
+      await supabaseAdmin.from("pos_sales").delete().eq("id", body.id);
+      restoreStock(stockItems).catch((err) =>
+        console.error("[pos/sales] stock restore after redeem rollback:", err instanceof Error ? err.message : err),
+      );
+      return NextResponse.json(
+        { ok: false, error: "Gift card balance changed. Please re-check the card and try again." },
+        { status: 409 },
+      );
+    }
   }
 
   // KDS sync — fire-and-await so the client knows whether the kitchen has
