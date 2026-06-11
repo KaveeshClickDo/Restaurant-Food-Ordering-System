@@ -167,6 +167,8 @@ const vipPriceError = { message: "A VIP table needs a booking fee greater than 0
 
 // Floor-plan map position: a 0..1 fraction of the plan image, or null to unplace.
 const MapCoord = z.number().min(0).max(1).nullable().optional();
+// Which named floor plan the table sits on (FloorPlan.id), or null to unplace.
+const FloorId = z.string().max(64).nullable().optional();
 
 export const DiningTableCreateSchema = z.object({
   label:     NonEmptyString,
@@ -179,6 +181,7 @@ export const DiningTableCreateSchema = z.object({
   vipPrice:  VipPrice.optional(),
   posX:      MapCoord,
   posY:      MapCoord,
+  floorId:   FloorId,
 }).refine(requireVipPrice, vipPriceError);
 
 export const DiningTableUpdateSchema = z.object({
@@ -192,4 +195,5 @@ export const DiningTableUpdateSchema = z.object({
   vipPrice:  VipPrice.optional(),
   posX:      MapCoord,
   posY:      MapCoord,
+  floorId:   FloorId,
 }).refine(requireVipPrice, vipPriceError);

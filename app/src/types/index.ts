@@ -412,6 +412,15 @@ export interface ReservationCustomer {
   updatedAt: string;
 }
 
+/** One named floor-plan map (e.g. "Ground Floor", "Rooftop"). A restaurant can
+ *  have several; tables are placed on exactly one via dining_tables.floor_plan_id. */
+export interface FloorPlan {
+  id: string;            // stable UUID — dining_tables.floor_plan_id points here
+  name: string;          // shown on the admin tabs and the customer floor selector
+  imageUrl: string;      // Storage bucket "floor-plan" public URL; "" = image not uploaded yet (hidden from customers)
+  markerScale?: number;  // size multiplier for this floor's table markers (1 = default)
+}
+
 export interface ReservationSystem {
   enabled: boolean;
   slotDurationMinutes: number;   // how long one booking occupies the table
@@ -422,8 +431,14 @@ export interface ReservationSystem {
   maxPartySize: number;          // maximum guests per booking (default 10)
   blackoutDates: string[];       // "YYYY-MM-DD" dates the restaurant is closed
   reviewUrl?: string;            // Google Maps / TripAdvisor review link
-  floorPlanImageUrl?: string;    // public URL of the floor-plan map shown on the booking page (Storage bucket "floor-plan"); empty = no map, booking uses the card list
-  floorPlanMarkerScale?: number; // admin-chosen size multiplier for the table markers on the floor-plan map (1 = default). Applies to the editor + customer map.
+  /** Named floor-plan maps shown on the booking page. Source of truth when non-empty;
+   *  resolveFloorPlans() falls back to the legacy single-image fields below. */
+  floorPlans?: FloorPlan[];
+  /** @deprecated Legacy single floor plan — superseded by floorPlans. Kept mirrored to
+   *  floorPlans[0] so older readers keep working; resolveFloorPlans() handles both. */
+  floorPlanImageUrl?: string;
+  /** @deprecated See floorPlanImageUrl. */
+  floorPlanMarkerScale?: number;
 }
 
 export interface WaitlistEntry {
@@ -475,6 +490,9 @@ export interface DiningTable {
   /** Position on the customer-facing floor-plan map, as a 0..1 fraction of the plan image's width/height. null / absent = not placed yet (falls back to the card list). */
   posX?: number | null;
   posY?: number | null;
+  /** Which floor plan the table is placed on (FloorPlan.id). null on placed tables
+   *  from before multi-floor support — those belong to the first floor plan. */
+  floorId?: string | null;
 }
 
 export interface AdminSettings {

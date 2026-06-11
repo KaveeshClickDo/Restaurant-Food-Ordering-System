@@ -8,7 +8,9 @@ import {
 } from "lucide-react";
 import { ReservationFormSchema } from "@/lib/schemas/reservation";
 import { cleanPhone, formErrorMessage } from "@/lib/inputUtils";
-import TableMap, { type MapTable } from "@/components/reservation/TableMap";
+import MultiFloorTableMap from "@/components/reservation/MultiFloorTableMap";
+import { type MapTable } from "@/components/reservation/TableMap";
+import type { FloorPlan } from "@/types";
 
 interface AvailableTable { id: string; label: string; seats: number; section: string; isVip?: boolean; vipPrice?: number; }
 type Step = "datetime" | "table" | "details" | "confirmed";
@@ -54,7 +56,7 @@ const STEPS = ["Date & Time", "Table", "Details"];
 export default function BookPage() {  
   // Settings fetched from the public API
   const [rsSettings, setRsSettings] = useState<{
-    openTime: string; closeTime: string; slotIntervalMinutes: number; maxAdvanceDays: number; maxPartySize: number; enabled: boolean; floorPlanImageUrl?: string; floorPlanMarkerScale?: number;
+    openTime: string; closeTime: string; slotIntervalMinutes: number; maxAdvanceDays: number; maxPartySize: number; enabled: boolean; floorPlans?: FloorPlan[];
   } | null>(null);
   const [restaurantName, setRestaurantName] = useState("Reserve a Table");
 
@@ -71,8 +73,9 @@ export default function BookPage() {
   const interval= rsSettings?.slotIntervalMinutes ?? 30;
   const maxDays = rsSettings?.maxAdvanceDays       ?? 30;
   const maxPS   = rsSettings?.maxPartySize         ?? 10;
-  const floorPlanImageUrl = rsSettings?.floorPlanImageUrl ?? "";
-  const floorPlanMarkerScale = rsSettings?.floorPlanMarkerScale ?? 1;
+  // Customer-visible floor plans (the API already filters out image-less drafts
+  // and folds in legacy single-image settings).
+  const floorPlans = rsSettings?.floorPlans ?? [];
   const slots   = generateSlots(open, close, interval);
 
   const [step,          setStep]          = useState<Step>("datetime");
@@ -324,7 +327,7 @@ export default function BookPage() {
               ) : (
                 <div className="space-y-4">
                   {/* Map ↔ list toggle — only when a floor plan with placed tables exists */}
-                  {floorPlanImageUrl && mapTables.length > 0 && (
+                  {floorPlans.length > 0 && mapTables.length > 0 && (
                     <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1 w-fit">
                       <button type="button" onClick={() => setTableView("map")}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
@@ -341,14 +344,13 @@ export default function BookPage() {
                     </div>
                   )}
 
-                  {floorPlanImageUrl && mapTables.length > 0 && tableView === "map" ? (
+                  {floorPlans.length > 0 && mapTables.length > 0 && tableView === "map" ? (
                     <>
-                      <TableMap
-                        imageUrl={floorPlanImageUrl}
+                      <MultiFloorTableMap
+                        plans={floorPlans}
                         tables={mapTables}
                         selectedId={selectedTable?.id ?? null}
                         allowVipSelect={false}
-                        markerScale={floorPlanMarkerScale}
                         onSelect={(t) => setSelectedTable({ id: t.id, label: t.label, seats: t.seats, section: t.section, isVip: t.isVip, vipPrice: t.vipPrice })}
                       />
                       {mapTables.some((t) => t.isVip) && (

@@ -9,7 +9,9 @@ import {
 import { ReservationFormSchema } from "@/lib/schemas/reservation";
 import { cleanPhone, formErrorMessage } from "@/lib/inputUtils";
 import ReservationPaymentStep from "@/components/ReservationPaymentStep";
-import TableMap, { type MapTable } from "@/components/reservation/TableMap";
+import MultiFloorTableMap from "@/components/reservation/MultiFloorTableMap";
+import { type MapTable } from "@/components/reservation/TableMap";
+import { resolveFloorPlans, hasImage } from "@/lib/floorPlans";
 import { LayoutGrid, Map as MapIcon } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -141,7 +143,8 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
   const [loadingTables, setLoadingTables] = useState(false);
   const [availError,   setAvailError]   = useState("");
   // Floor-plan map vs. card list. Defaults to the map whenever one is configured.
-  const floorPlanImageUrl = rs.floorPlanImageUrl ?? "";
+  // Only floors with an uploaded image are customer-visible.
+  const floorPlans = resolveFloorPlans(rs).filter(hasImage);
   const [tableView, setTableView] = useState<"map" | "list">("map");
 
   // ── Submission state ──────────────────────────────────────────────────────
@@ -422,7 +425,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
               ) : (
                 <div className="space-y-4">
                   {/* Map ↔ list toggle — only when a floor plan with placed tables exists */}
-                  {floorPlanImageUrl && mapTables.length > 0 && (
+                  {floorPlans.length > 0 && mapTables.length > 0 && (
                     <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1 w-fit">
                       <button
                         type="button"
@@ -445,13 +448,12 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                     </div>
                   )}
 
-                  {floorPlanImageUrl && mapTables.length > 0 && tableView === "map" ? (
-                    <TableMap
-                      imageUrl={floorPlanImageUrl}
+                  {floorPlans.length > 0 && mapTables.length > 0 && tableView === "map" ? (
+                    <MultiFloorTableMap
+                      plans={floorPlans}
                       tables={mapTables}
                       selectedId={selectedTable?.id ?? null}
                       currencySymbol={currencySymbol}
-                      markerScale={rs.floorPlanMarkerScale ?? 1}
                       onSelect={(t) => setSelectedTable({ id: t.id, label: t.label, seats: t.seats, section: t.section, isVip: t.isVip, vipPrice: t.vipPrice })}
                     />
                   ) : (

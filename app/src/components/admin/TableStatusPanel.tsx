@@ -2,13 +2,14 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
-import type { Reservation, DiningTable } from "@/types";
+import type { Reservation, DiningTable, FloorPlan } from "@/types";
 import { uploadFloorPlanImage, floorPlanSizeError } from "@/lib/uploadImage";
+import { resolveFloorPlans, effectiveFloorId } from "@/lib/floorPlans";
 import {
   UtensilsCrossed, Users, Clock, LogIn, LogOut,
   Loader2, RefreshCw, CheckCircle2, XCircle, CalendarDays,
   Plus, Pencil, Trash2, AlertCircle, X, Save, EyeOff, Crown,
-  ImagePlus, Map as MapIcon, LayoutGrid,
+  ImagePlus, Map as MapIcon, LayoutGrid, Layers,
 } from "lucide-react";
 
 // One unified panel for both live table status AND CRUD. Each card shows the
@@ -471,38 +472,52 @@ function TableCard({
 }
 
 // ─── Floor-plan editor ──────────────────────────────────────────────────────
-// Upload a floor-plan image and drag each active table onto it. Positions are
-// saved as a 0..1 fraction of the image so they scale to any screen on the
-// customer booking map. Tables left in the tray simply don't appear on the map.
+// Multiple named floor plans ("Ground Floor", "Rooftop", …). Each floor has its
+// own image + marker size; a table is dragged onto exactly one floor. Positions
+// are saved as a 0..1 fraction of the image so they scale to any screen on the
+// customer booking map, where the floors appear as a selector.
 
 function FloorPlanEditor({
   tables,
-  imageUrl,
+  plans,
   uploading,
-  markerScale,
+  onPlansChange,
   onUpload,
-  onRemoveImage,
   onSaveCoords,
-  onMarkerScaleChange,
 }: {
   tables: DiningTable[];
-  imageUrl: string;
+  plans: FloorPlan[];
   uploading: boolean;
-  markerScale: number;
-  onUpload: (file: File) => void;
-  onRemoveImage: () => void;
-  onSaveCoords: (id: string, posX: number | null, posY: number | null) => void;
-  onMarkerScaleChange: (scale: number) => void;
+  /** Persist the full floor-plan list (add / rename / delete / scale / image). */
+  onPlansChange: (plans: FloorPlan[]) => void;
+  onUpload: (floorId: string, file: File) => void;
+  onSaveCoords: (id: string, posX: number | null, posY: number | null, floorId: string | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [activeId, setActiveId] = useState<string | null>(plans[0]?.id ?? null);
   const [dragId, setDragId]     = useState<string | null>(null);
   const [localPos, setLocalPos] = useState<Record<string, { x: number; y: number }>>({});
   const [selected, setSelected] = useState<string | null>(null);
   const [err, setErr]           = useState("");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const moved = useRef(false);
 
-  // Live marker-size preview. Updates instantly while dragging the slider; the
-  // value is persisted to settings (onMarkerScaleChange) only on release.
+  // Keep the active tab valid as floors are added / deleted.
+  useEffect(() => {
+    if (!plans.some((p) => p.id === activeId)) setActiveId(plans[0]?.id ?? null);
+  }, [plans, activeId]);
+
+  const activePlan = plans.find((p) => p.id === activeId) ?? null;
+  const imageUrl   = activePlan?.imageUrl ?? "";
+
+  // Floor-name draft — committed on blur / Enter so settings aren't persisted
+  // on every keystroke.
+  const [nameDraft, setNameDraft] = useState(activePlan?.name ?? "");
+  useEffect(() => { setNameDraft(activePlan?.name ?? ""); setConfirmingDelete(false); setSelected(null); }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Live marker-size preview for the active floor. Updates instantly while
+  // dragging the slider; persisted (onPlansChange) only on release.
+  const markerScale = activePlan?.markerScale ?? 1;
   const [scale, setScale] = useState(markerScale);
   useEffect(() => { setScale(markerScale); }, [markerScale]);
   const mSize  = Math.round(44 * scale);
@@ -515,9 +530,18 @@ function FloorPlanEditor({
     return null;
   }
 
+  // The floor a table sits on, with legacy (null) assignments resolved to the
+  // first plan. Tables pointing at a deleted floor return to the tray.
+  function floorOf(t: DiningTable): string | null {
+    if (posOf(t) === null) return null;
+    const id = effectiveFloorId(t.floorId, plans);
+    return plans.some((p) => p.id === id) ? id : null;
+  }
+
   const active   = tables.filter((t) => t.active);
-  const placed   = active.filter((t) => posOf(t) !== null);
-  const unplaced = active.filter((t) => posOf(t) === null);
+  const placed   = active.filter((t) => floorOf(t) === activeId && activeId !== null);
+  const unplaced = active.filter((t) => floorOf(t) === null);
+  const placedCountOn = (floorId: string) => active.filter((t) => floorOf(t) === floorId).length;
 
   function clientToNorm(clientX: number, clientY: number) {
     const rect = containerRef.current!.getBoundingClientRect();
@@ -530,11 +554,40 @@ function FloorPlanEditor({
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";               // allow re-selecting the same file
-    if (!file) return;
+    if (!file || !activePlan) return;
     const sizeErr = floorPlanSizeError(file);
     if (sizeErr) { setErr(sizeErr); return; }
     setErr("");
-    onUpload(file);
+    onUpload(activePlan.id, file);
+  }
+
+  // ── Floor management ──────────────────────────────────────────────────────
+
+  function addFloor() {
+    const name = plans.length === 0 ? "Main Floor" : `Floor ${plans.length + 1}`;
+    const plan: FloorPlan = { id: crypto.randomUUID(), name, imageUrl: "", markerScale: 1 };
+    onPlansChange([...plans, plan]);
+    setActiveId(plan.id);
+  }
+
+  function commitName() {
+    if (!activePlan) return;
+    const name = nameDraft.trim();
+    if (!name || name === activePlan.name) { setNameDraft(activePlan.name); return; }
+    onPlansChange(plans.map((p) => (p.id === activePlan.id ? { ...p, name } : p)));
+  }
+
+  function deleteActiveFloor() {
+    if (!activePlan) return;
+    // Tables on this floor (including inactive ones, and legacy rows that
+    // resolve to it) go back to the tray so they can't ghost onto another floor.
+    for (const t of tables) {
+      if (t.posX != null && t.posY != null && effectiveFloorId(t.floorId, plans) === activePlan.id) {
+        onSaveCoords(t.id, null, null, null);
+      }
+    }
+    onPlansChange(plans.filter((p) => p.id !== activePlan.id));
+    setConfirmingDelete(false);
   }
 
   // Pointer-capture keeps move/up on the grabbed marker even if the cursor
@@ -556,41 +609,135 @@ function FloorPlanEditor({
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
     setDragId(null);
     const pos = localPos[id];
-    if (moved.current && pos) onSaveCoords(id, pos.x, pos.y);
+    // Always stamp the active floor id so legacy (null) placements migrate on
+    // their first move.
+    if (moved.current && pos && activeId) onSaveCoords(id, pos.x, pos.y, activeId);
+  }
+
+  // No floors yet — first-run empty state.
+  if (plans.length === 0) {
+    return (
+      <div className="flex flex-col items-center py-16 gap-3 bg-white rounded-2xl border-2 border-dashed border-gray-200 text-center">
+        <Layers size={32} className="text-gray-300" />
+        <p className="font-semibold text-gray-600">No floor plans yet</p>
+        <p className="text-sm text-gray-400 max-w-sm">Create a floor (e.g. “Ground Floor” or “Rooftop”), upload a picture or diagram of it, then drag your tables onto it. Customers pick a floor when booking.</p>
+        <button
+          onClick={addFloor}
+          className="mt-1 flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-xl transition"
+        >
+          <Plus size={15} /> Add your first floor
+        </button>
+      </div>
+    );
   }
 
   return (
     <div className="space-y-4">
-      {/* Toolbar */}
+      {/* Floor tabs */}
       <div className="flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2 rounded-xl cursor-pointer transition">
-          {uploading ? <Loader2 size={15} className="animate-spin" /> : <ImagePlus size={15} />}
-          {imageUrl ? "Replace image" : "Upload floor plan"}
-          <input type="file" accept="image/*" className="hidden" onChange={handleFile} disabled={uploading} />
-        </label>
-        {imageUrl && (
-          <button
-            onClick={onRemoveImage}
-            className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-red-600 hover:border-red-200 transition"
-          >
-            <Trash2 size={14} /> Remove image
-          </button>
-        )}
-        {imageUrl && (
-          <span className="text-xs text-gray-400 ml-auto">{placed.length} placed · {unplaced.length} to place</span>
-        )}
+        {plans.map((p) => {
+          const isActive = p.id === activeId;
+          const count = placedCountOn(p.id);
+          return (
+            <button
+              key={p.id}
+              onClick={() => setActiveId(p.id)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border transition ${
+                isActive
+                  ? "bg-orange-500 text-white border-orange-500 shadow-sm shadow-orange-200"
+                  : "bg-white text-gray-600 border-gray-200 hover:border-orange-300 hover:text-orange-600"
+              }`}
+            >
+              <Layers size={13} className={isActive ? "text-white" : "text-gray-400"} />
+              <span className="max-w-[10rem] truncate" title={p.name}>{p.name}</span>
+              {count > 0 && (
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${isActive ? "bg-white/25 text-white" : "bg-gray-100 text-gray-500"}`}>
+                  {count}
+                </span>
+              )}
+              {!p.imageUrl && (
+                <span title="No image uploaded yet — hidden from customers" className={`w-1.5 h-1.5 rounded-full ${isActive ? "bg-white/70" : "bg-amber-400"}`} />
+              )}
+            </button>
+          );
+        })}
+        <button
+          onClick={addFloor}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border border-dashed border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-600 transition"
+        >
+          <Plus size={14} /> Add floor
+        </button>
       </div>
 
-      {/* Table-marker size — admin preference, applies to the customer map too */}
-      {imageUrl && (
+      {/* Active floor toolbar */}
+      {activePlan && (confirmingDelete ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border-2 border-red-200 bg-red-50 px-4 py-3">
+          <AlertCircle size={16} className="text-red-500 flex-shrink-0" />
+          <p className="text-sm text-red-700 flex-1 min-w-[12rem]">
+            Delete <strong className="break-all">{activePlan.name}</strong>? Its tables go back to the “not placed” tray.
+          </p>
+          <button
+            onClick={deleteActiveFloor}
+            className="bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition"
+          >
+            Delete floor
+          </button>
+          <button onClick={() => setConfirmingDelete(false)} className="text-gray-400 hover:text-gray-600 transition">
+            <X size={15} />
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2 bg-white rounded-2xl border border-gray-100 shadow-sm px-3 py-2.5">
+          {/* Rename — commits on blur / Enter */}
+          <div className="flex items-center gap-1.5 flex-1 min-w-[11rem] max-w-xs">
+            <Pencil size={13} className="text-gray-400 flex-shrink-0" />
+            <input
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onBlur={commitName}
+              onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+              maxLength={40}
+              aria-label="Floor name"
+              className="w-full bg-transparent border-b border-transparent hover:border-gray-200 focus:border-orange-400 text-sm font-semibold text-gray-800 px-0.5 py-1 focus:outline-none transition"
+            />
+          </div>
+
+          <label className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold px-3.5 py-2 rounded-xl cursor-pointer transition">
+            {uploading ? <Loader2 size={15} className="animate-spin" /> : <ImagePlus size={15} />}
+            {imageUrl ? "Replace image" : "Upload image"}
+            <input type="file" accept="image/*" className="hidden" onChange={handleFile} disabled={uploading} />
+          </label>
+          {imageUrl && (
+            <button
+              onClick={() => onPlansChange(plans.map((p) => (p.id === activePlan.id ? { ...p, imageUrl: "" } : p)))}
+              className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-red-600 hover:border-red-200 transition"
+            >
+              <X size={14} /> Remove image
+            </button>
+          )}
+          <button
+            onClick={() => setConfirmingDelete(true)}
+            title="Delete this floor"
+            className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-red-600 hover:border-red-200 transition"
+          >
+            <Trash2 size={14} /> Delete floor
+          </button>
+          {imageUrl && (
+            <span className="text-xs text-gray-400 ml-auto">{placed.length} placed · {unplaced.length} to place</span>
+          )}
+        </div>
+      ))}
+
+      {/* Table-marker size — per floor, applies to the customer map too */}
+      {activePlan && imageUrl && (
         <div className="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5">
           <span className="text-xs font-semibold text-gray-600 whitespace-nowrap">Table size</span>
           <input
             type="range" min={0.5} max={2.5} step={0.1} value={scale}
             onChange={(e) => setScale(parseFloat(e.target.value))}
-            onPointerUp={() => onMarkerScaleChange(scale)}
-            onTouchEnd={() => onMarkerScaleChange(scale)}
-            onKeyUp={() => onMarkerScaleChange(scale)}
+            onPointerUp={() => onPlansChange(plans.map((p) => (p.id === activePlan.id ? { ...p, markerScale: scale } : p)))}
+            onTouchEnd={() => onPlansChange(plans.map((p) => (p.id === activePlan.id ? { ...p, markerScale: scale } : p)))}
+            onKeyUp={() => onPlansChange(plans.map((p) => (p.id === activePlan.id ? { ...p, markerScale: scale } : p)))}
             className="flex-1 max-w-xs accent-orange-500 cursor-pointer"
           />
           <span className="text-xs text-gray-400 w-10 text-right tabular-nums">{Math.round(scale * 100)}%</span>
@@ -608,8 +755,8 @@ function FloorPlanEditor({
       {!imageUrl ? (
         <div className="flex flex-col items-center py-16 gap-3 bg-white rounded-2xl border-2 border-dashed border-gray-200 text-center">
           <MapIcon size={32} className="text-gray-300" />
-          <p className="font-semibold text-gray-600">No floor plan yet</p>
-          <p className="text-sm text-gray-400 max-w-xs">Upload a picture or diagram of your dining room, then drag your tables onto it. Customers will see it when booking.</p>
+          <p className="font-semibold text-gray-600">No image for {activePlan?.name ?? "this floor"} yet</p>
+          <p className="text-sm text-gray-400 max-w-xs">Upload a picture or diagram of this floor, then drag your tables onto it. Customers will see it when booking. Until then this floor stays hidden.</p>
         </div>
       ) : (
         <>
@@ -619,7 +766,7 @@ function FloorPlanEditor({
           <div className="flex justify-center">
           <div ref={containerRef} className="relative inline-block max-w-full rounded-2xl overflow-hidden border border-gray-200 bg-gray-50 select-none">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={imageUrl} alt="Floor plan" className="block w-auto h-auto max-w-full max-h-[60vh] pointer-events-none" draggable={false} />
+            <img src={imageUrl} alt={`${activePlan?.name ?? "Floor"} plan`} className="block w-auto h-auto max-w-full max-h-[60vh] pointer-events-none" draggable={false} />
             {placed.map((t) => {
               const p = posOf(t)!;
               const isSel = selected === t.id;
@@ -643,7 +790,7 @@ function FloorPlanEditor({
                   {isSel && (
                     <button
                       onPointerDown={(e) => e.stopPropagation()}
-                      onClick={() => { setSelected(null); setLocalPos((p2) => { const n = { ...p2 }; delete n[t.id]; return n; }); onSaveCoords(t.id, null, null); }}
+                      onClick={() => { setSelected(null); setLocalPos((p2) => { const n = { ...p2 }; delete n[t.id]; return n; }); onSaveCoords(t.id, null, null, null); }}
                       title="Remove from map"
                       className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow"
                     >
@@ -655,17 +802,17 @@ function FloorPlanEditor({
             })}
           </div>
           </div>
-          <p className="text-xs text-gray-400">Drag a table to reposition it. Tap a placed table, then ✕ to take it off the map.</p>
+          <p className="text-xs text-gray-400">Drag a table to reposition it. Tap a placed table, then ✕ to take it off the map. A table can only sit on one floor.</p>
 
-          {/* Unplaced tray */}
+          {/* Unplaced tray — tables not on ANY floor */}
           {unplaced.length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Tables not on the map</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Tables not placed on a floor</p>
               <div className="flex flex-wrap gap-2">
                 {unplaced.map((t) => (
                   <button
                     key={t.id}
-                    onClick={() => { setSelected(t.id); onSaveCoords(t.id, 0.5, 0.5); }}
+                    onClick={() => { if (!activeId) return; setSelected(t.id); onSaveCoords(t.id, 0.5, 0.5, activeId); }}
                     className="flex items-center gap-1.5 border border-dashed border-gray-300 rounded-xl px-3 py-1.5 text-sm text-gray-600 hover:border-orange-400 hover:text-orange-600 transition"
                   >
                     {t.isVip && <Crown size={12} className="text-amber-500" />}
@@ -673,7 +820,7 @@ function FloorPlanEditor({
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-gray-400 mt-1.5">Click a table to drop it on the centre of the plan, then drag it where it belongs.</p>
+              <p className="text-xs text-gray-400 mt-1.5">Click a table to drop it on the centre of {activePlan?.name ?? "this floor"}, then drag it where it belongs.</p>
             </div>
           )}
         </>
@@ -703,8 +850,12 @@ export default function TableStatusPanel() {
   // Grid (cards) vs. Floor Plan (drag-to-place map editor).
   const [view, setView] = useState<"grid" | "map">("grid");
   const [uploadingPlan, setUploadingPlan] = useState(false);
-  const floorPlanImageUrl   = settings.reservationSystem?.floorPlanImageUrl ?? "";
-  const floorPlanMarkerScale = settings.reservationSystem?.floorPlanMarkerScale ?? 1;
+  // Named floor plans (legacy single-image settings fold into a one-element list).
+  const floorPlans = resolveFloorPlans(settings.reservationSystem);
+  // Latest reservationSystem block for async callbacks (an upload finishing
+  // after a rename must not clobber it with the settings captured at click time).
+  const rsRef = useRef(settings.reservationSystem);
+  useEffect(() => { rsRef.current = settings.reservationSystem; }, [settings.reservationSystem]);
 
   // Add / edit / delete state
   const [addingTable,   setAddingTable]   = useState(false);
@@ -832,22 +983,31 @@ export default function TableStatusPanel() {
 
   // ── Floor-plan editor ───────────────────────────────────────────────────────
 
-  // Persist the floor-plan image URL into reservationSystem settings (shallow
-  // merge — updateSettings replaces top-level keys, so spread the existing block).
-  function setFloorPlanImageUrl(url: string) {
-    updateSettings({ reservationSystem: { ...settings.reservationSystem, floorPlanImageUrl: url } });
-  }
+  // Persist the floor-plan list into reservationSystem settings (shallow merge —
+  // updateSettings replaces top-level keys, so spread the existing block). The
+  // legacy single-image fields mirror the first floor that has an image so any
+  // reader still on them keeps working.
+  const persistPlans = useCallback((plans: FloorPlan[]) => {
+    const first = plans.find((p) => p.imageUrl);
+    updateSettings({
+      reservationSystem: {
+        ...rsRef.current,
+        floorPlans:           plans,
+        floorPlanImageUrl:    first?.imageUrl ?? "",
+        floorPlanMarkerScale: first?.markerScale ?? 1,
+      },
+    });
+  }, [updateSettings]);
 
-  function setFloorPlanMarkerScale(scale: number) {
-    updateSettings({ reservationSystem: { ...settings.reservationSystem, floorPlanMarkerScale: scale } });
-  }
-
-  async function handleUploadFloorPlan(file: File) {
+  async function handleUploadFloorPlan(floorId: string, file: File) {
     setTableError("");
     setUploadingPlan(true);
     try {
       const url = await uploadFloorPlanImage(file);
-      setFloorPlanImageUrl(url);
+      // Re-resolve from the latest settings — the admin may have renamed or
+      // added floors while the upload was in flight.
+      const current = resolveFloorPlans(rsRef.current);
+      persistPlans(current.map((p) => (p.id === floorId ? { ...p, imageUrl: url } : p)));
     } catch (err) {
       setTableError(err instanceof Error ? err.message : "Failed to upload floor plan.");
     } finally {
@@ -855,16 +1015,16 @@ export default function TableStatusPanel() {
     }
   }
 
-  // Save a table's map position (or null/null to take it off the map). Optimistic
-  // local update first, then PATCH; refresh syncs context so the customer map and
-  // other panels pick up the change.
-  async function saveTableCoords(id: string, posX: number | null, posY: number | null) {
-    setAllTables((prev) => prev.map((t) => (t.id === id ? { ...t, posX, posY } : t)));
+  // Save a table's map position + floor (or nulls to take it off the map).
+  // Optimistic local update first, then PATCH; refresh syncs context so the
+  // customer map and other panels pick up the change.
+  async function saveTableCoords(id: string, posX: number | null, posY: number | null, floorId: string | null) {
+    setAllTables((prev) => prev.map((t) => (t.id === id ? { ...t, posX, posY, floorId } : t)));
     try {
       const res = await fetch(`/api/admin/dining-tables/${id}`, {
         method:  "PATCH",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ posX, posY }),
+        body:    JSON.stringify({ posX, posY, floorId }),
       });
       if (!res.ok) setTableError("Failed to save table position.");
     } catch {
@@ -1041,13 +1201,11 @@ export default function TableStatusPanel() {
       {view === "map" ? (
         <FloorPlanEditor
           tables={allTables}
-          imageUrl={floorPlanImageUrl}
+          plans={floorPlans}
           uploading={uploadingPlan}
-          markerScale={floorPlanMarkerScale}
+          onPlansChange={persistPlans}
           onUpload={handleUploadFloorPlan}
-          onRemoveImage={() => setFloorPlanImageUrl("")}
           onSaveCoords={saveTableCoords}
-          onMarkerScaleChange={setFloorPlanMarkerScale}
         />
       ) : (
       <>

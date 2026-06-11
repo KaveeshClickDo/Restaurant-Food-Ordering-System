@@ -117,6 +117,7 @@ export const DEFAULT_SETTINGS: AdminSettings = {
     maxPartySize: 10,
     blackoutDates: [],
     reviewUrl: "",
+    floorPlans: [],
     floorPlanImageUrl: "",
     floorPlanMarkerScale: 1,
   },

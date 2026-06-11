@@ -22,6 +22,9 @@ export interface MapTable {
   vipPrice?: number;
   posX: number | null;
   posY: number | null;
+  /** Floor plan the table sits on (FloorPlan.id). null = placed before
+   *  multi-floor support → first floor plan. */
+  floorId?: string | null;
   status: "available" | "booked" | "too_small";
 }
 

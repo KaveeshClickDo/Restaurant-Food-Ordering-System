@@ -467,6 +467,10 @@ create table if not exists dining_tables (
   -- table hasn't been placed on the map yet (it falls back to the card list).
   pos_x       real,
   pos_y       real,
+  -- Which named floor plan the table is placed on (FloorPlan.id from
+  -- app_settings.data.reservationSystem.floorPlans). NULL on tables placed
+  -- before multi-floor support — those belong to the first floor plan.
+  floor_plan_id text,
   created_at  timestamptz not null default now()
 );
 
@@ -973,6 +977,13 @@ alter table dining_tables add column if not exists vip_price numeric(10,2) not n
 -- "floor-plan"), not in this table.
 alter table dining_tables add column if not exists pos_x real;
 alter table dining_tables add column if not exists pos_y real;
+
+-- ── Multiple named floor plans ───────────────────────────────────────────────
+-- A restaurant can have several floor plans ("Ground Floor", "Rooftop", …),
+-- stored as app_settings.data.reservationSystem.floorPlans. Each placed table
+-- records which plan it sits on; NULL = placed before multi-floor support and
+-- belongs to the first plan.
+alter table dining_tables add column if not exists floor_plan_id text;
 alter table reservations  add column if not exists vip_fee        numeric(10,2) not null default 0;
 alter table reservations  add column if not exists payment_status text          not null default 'none';
 alter table reservations  add column if not exists payment_method text;

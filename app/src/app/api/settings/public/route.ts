@@ -6,6 +6,7 @@
 
 import { NextResponse }  from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { resolveFloorPlans, hasImage } from "@/lib/floorPlans";
 
 export async function GET() {
   const { data } = await supabaseAdmin
@@ -31,6 +32,9 @@ export async function GET() {
       slotDurationMinutes: rs.slotDurationMinutes  ?? 90,
       maxAdvanceDays:      rs.maxAdvanceDays        ?? 30,
       maxPartySize:        rs.maxPartySize          ?? 10,
+      // Named floor plans for the booking map (legacy single-image settings are
+      // folded in). Plans without an uploaded image are admin drafts — hidden.
+      floorPlans:          resolveFloorPlans(rs).filter(hasImage),
       floorPlanImageUrl:   rs.floorPlanImageUrl     ?? "",
       floorPlanMarkerScale: rs.floorPlanMarkerScale ?? 1,
     },
