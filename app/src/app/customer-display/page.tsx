@@ -210,7 +210,7 @@ function OrderCard({
   const maxItems = maxRows >= 4 ? 2 : cols >= 3 ? 3 : 5;
 
   const shown = order.items.slice(0, maxItems);
-  const overflow = order.items.length - shown.length;
+  // const overflow = order.items.length - shown.length;
 
   return (
     <div
