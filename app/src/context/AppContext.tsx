@@ -48,11 +48,20 @@ function mapDiningRow(r: any) {
   };
 }
 
+interface VariationSelection {
+  variationId: string;
+  optionId: string;
+  label?: string;
+}
+
+interface AddOnSelection {
+  id: string;
+  name?: string;
+  price?: number;
+}
+
 // Helper to compare variations (checks if they have the same selection IDs)
-const isSameVariations = (
-  v1?: { variationId: string; optionId: string }[],
-  v2?: { variationId: string; optionId: string }[],
-) => {
+const isSameVariations = (v1?: VariationSelection[], v2?: VariationSelection[]) => {
   if (!v1 && !v2) return true;
   if (!v1 || !v2 || v1.length !== v2.length) return false;
   // Sort by ID to ensure order doesn't break the comparison
@@ -62,7 +71,7 @@ const isSameVariations = (
 };
 
 // Helper to compare add-ons (checks IDs)
-const isSameAddOns = (a1?: { id: string }[], a2?: { id: string }[]) => {
+const isSameAddOns = (a1?: AddOnSelection[], a2?: AddOnSelection[]) => {
   if (!a1 && !a2) return true;
   if (!a1 || !a2 || a1.length !== a2.length) return false;
   const s1 = [...a1].sort((a, b) => a.id.localeCompare(b.id));
