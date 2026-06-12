@@ -418,50 +418,129 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
 
       {/* Expanded detail */}
       {expanded && (
-        <div className="border-t border-zinc-100 px-4 sm:px-5 py-4 bg-zinc-50 space-y-2">
-          <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Items</p>
-          <div className="space-y-3"> {/* Added space-y for better separation between items */}
-            {order.items.map((item, i) => {
-              // 1. Extract variations and add-ons
-              const v = item.selectedVariations?.map(v => v.label).join(", ");
-              const a = item.selectedAddOns?.map(a => a.name).join(", ");
+        <div className="border-t border-zinc-100 px-4 sm:px-5 py-4 bg-zinc-50 space-y-4">
+          <div>
+            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Items</p>
+            <div className="space-y-3"> {/* Added space-y for better separation between items */}
+              {order.items.map((item, i) => {
+                // 1. Extract variations and add-ons
+                const v = item.selectedVariations?.map(v => v.label).join(", ");
+                const a = item.selectedAddOns?.map(a => a.name).join(", ");
 
-              // 2. Combine only if they exist
-              const details = [v, a].filter(Boolean).join(" / ");
+                // 2. Combine only if they exist
+                const details = [v, a].filter(Boolean).join(" / ");
 
-              return (
-                <div key={i} className="flex justify-between gap-3 text-sm items-start">
-                  <div className="min-w-0 flex-1">
-                    <div className="text-zinc-600">
-                      <span className="font-medium text-gray-800">{item.qty}×</span> {item.name}
+                return (
+                  <div key={i} className="flex justify-between gap-3 text-sm items-start">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-zinc-600">
+                        <span className="font-medium text-gray-800">{item.qty}×</span> {item.name}
+                      </div>
+
+                      {/* 3. Display details on a secondary line */}
+                      {details && (
+                        <p className="text-[11.5px] text-zinc-400 mt-0.5 leading-tight">
+                          {details}
+                        </p>
+                      )}
                     </div>
-
-                    {/* 3. Display details on a secondary line */}
-                    {details && (
-                      <p className="text-[11.5px] text-zinc-400 mt-0.5 leading-tight">
-                        {details}
-                      </p>
-                    )}
+                    <span className="font-medium text-gray-800 flex-shrink-0 tabular-nums">
+                      {sym}{(item.price * item.qty).toFixed(2)}
+                    </span>
                   </div>
-                  <span className="font-medium text-gray-800 flex-shrink-0 tabular-nums">
-                    {sym}{(item.price * item.qty).toFixed(2)}
-                  </span>
+                );
+              })}
+            </div>
+          </div>
+          <div className="pt-3 border-t border-zinc-200 border-dashed space-y-1.5">
+            {/* Subtotal */}
+            <div className="flex justify-between text-xs text-zinc-500">
+              <span>Subtotal</span>
+              <span className="tabular-nums">{sym}{(order.items.reduce((s, l) => s + l.price * l.qty, 0)).toFixed(2)}</span>
+            </div>
+
+            {/* Delivery Fee */}
+            {order.fulfillment === "delivery" && (
+              <div className="flex justify-between text-xs text-zinc-500">
+                <span>Delivery fee</span>
+                <span className="tabular-nums">{sym}{(order.deliveryFee ?? 0).toFixed(2)}</span>
+              </div>
+            )}
+
+            {/* Service Fee */}
+            {(order.serviceFee ?? 0) > 0 && (
+              <div className="flex justify-between text-xs text-zinc-500">
+                <span>Service fee</span>
+                <span className="tabular-nums">{sym}{order.serviceFee!.toFixed(2)}</span>
+              </div>
+            )}
+
+            {/* Coupon */}
+            {(order.couponDiscount ?? 0) > 0 && (
+              <div className="flex justify-between text-xs text-emerald-600 font-medium">
+                <span>Coupon {order.couponCode ? `(${order.couponCode})` : ""}</span>
+                <span className="tabular-nums">−{sym}{order.couponDiscount!.toFixed(2)}</span>
+              </div>
+            )}
+
+            {/* VAT */}
+            {(order.vatAmount ?? 0) > 0 && (
+              <div className={`flex justify-between text-xs font-medium ${order.vatInclusive ? "text-zinc-400" : "text-orange-600"}`}>
+                <span>{order.vatInclusive ? `Incl. VAT` : `VAT`}</span>
+                <span className="tabular-nums">{order.vatInclusive ? "" : "+"}{sym}{order.vatAmount!.toFixed(2)}</span>
+              </div>
+            )}
+
+            {/* Store Credit */}
+            {(order.storeCreditUsed ?? 0) > 0 && (
+              <div className="flex justify-between text-xs text-blue-600 font-medium">
+                <span>Store credit applied</span>
+                <span className="tabular-nums">−{sym}{order.storeCreditUsed!.toFixed(2)}</span>
+              </div>
+            )}
+
+            {/* Gift Card */}
+            {(order.giftCardUsed ?? 0) > 0 && (
+              <div className="flex justify-between text-xs text-purple-600 font-medium">
+                <span>Gift card applied</span>
+                <span className="tabular-nums">−{sym}{order.giftCardUsed!.toFixed(2)}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Final Total */}
+          <div className="border-t border-zinc-200 pt-3 flex justify-between items-baseline">
+            <span className="text-xs font-bold text-zinc-900 uppercase tracking-wider">Total</span>
+            <span className="text-lg font-black text-zinc-900 tabular-nums leading-none">
+              {sym}{order.total.toFixed(2)}
+            </span>
+          </div>
+
+          {(order.vatAmount ?? 0) > 0 && order.vatInclusive && (
+            <p className="text-right text-xs text-zinc-500">Prices include {settings.taxSettings?.rate}% VAT</p>
+          )}
+
+           {(order.paymentMethod || order.status) && (
+            <div>
+              {order.paymentMethod && (
+                <div className="flex justify-between">
+                  <span className="text-zinc-500 text-sm">Payment</span>
+                  <span className="font-medium text-sm">{order.paymentMethod}</span>
                 </div>
-              );
-            })}
-          </div>
-          <div className="border-t border-zinc-200 mt-3 pt-3 flex justify-between font-bold text-zinc-900 text-sm">
-            <span>Total</span>
-            <span className="tabular-nums">{sym}{order.total.toFixed(2)}</span>
-          </div>
-          {order.address && (
-            <p className="text-xs text-zinc-400 mt-2 break-words">
-              Delivered to: <span className="text-zinc-600">{order.address}</span>
-            </p>
+              )}
+            </div>
           )}
-          {order.note && (
-            <p className="text-xs text-red-400 mt-1 italic break-words">{order.note}</p>
-          )}
+
+          <div className="space-y-1">
+            {order.address && (
+              <p className="text-xs text-zinc-400 mt-2 break-words">
+                Delivered to: <span className="text-zinc-600">{order.address}</span>
+              </p>
+            )}
+            {order.note && (
+              <p className="text-xs text-red-400 mt-1 italic break-words">{order.note}</p>
+            )}
+          </div>
 
           {/* Re-order button in expanded view */}
           {canReorder && (
