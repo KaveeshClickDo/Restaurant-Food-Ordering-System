@@ -701,6 +701,10 @@ export interface Order {
    *  to the server for lookup. Never persisted/loaded (the server resolves it
    *  to gift_card_id at insert time). */
   giftCardCode?: string;
+  /** Loyalty reward claimed at checkout. Transient like giftCardCode — the
+   *  server re-validates the reward, appends the £0 line itself, and debits
+   *  the points atomically at order insert / payment capture. */
+  loyaltyRewardId?: string;
   // POS-only fields (not set on online orders)
   tipAmount?: number;      // tip collected at the POS terminal
   changeGiven?: number;    // cash change given back to the customer

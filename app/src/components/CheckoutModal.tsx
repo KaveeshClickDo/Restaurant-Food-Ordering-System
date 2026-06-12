@@ -569,6 +569,11 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
       ...(appliedGiftCard && giftCardApplied > 0
         ? { giftCardCode: appliedGiftCard.code, giftCardUsed: giftCardApplied }
         : {}),
+      // Reward id rides on the Order object so BOTH flows forward it: the
+      // cash flow via addOrder → orderToRow, the card flow via buildOrderPayload.
+      ...(cart.some((i) => i.loyaltyRewardId)
+        ? { loyaltyRewardId: cart.find((i) => i.loyaltyRewardId)!.loyaltyRewardId }
+        : {}),
     };
   }
 
@@ -601,9 +606,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
         : {}),
       // Loyalty reward: id only — the server validates it, re-checks the
       // points balance, and appends the £0 line itself.
-      ...(cart.some((i) => i.loyaltyRewardId)
-        ? { loyalty_reward_id: cart.find((i) => i.loyaltyRewardId)!.loyaltyRewardId }
-        : {}),
+      ...(order.loyaltyRewardId ? { loyalty_reward_id: order.loyaltyRewardId } : {}),
       customer_email: form.email.trim() || undefined,
     };
   }

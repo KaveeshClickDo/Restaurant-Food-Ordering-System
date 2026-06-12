@@ -416,6 +416,9 @@ function orderToRow(o: Order) {
     // proposed amount; empty string when no card was applied.
     gift_card_code: o.giftCardCode ?? "",
     gift_card_used: o.giftCardUsed ?? 0,
+    // Loyalty reward claim — server re-validates the reward, appends the £0
+    // line itself, and debits the points atomically. Empty string = no claim.
+    loyalty_reward_id: o.loyaltyRewardId ?? "",
   };
 }
 
