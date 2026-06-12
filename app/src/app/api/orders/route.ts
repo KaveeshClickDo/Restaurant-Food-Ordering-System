@@ -27,7 +27,8 @@ import { sendOrderConfirmationEmail }   from "@/lib/emailServer";
 import { getCustomerSession, unauthorizedJson } from "@/lib/auth";
 import { rateLimit }                    from "@/lib/rateLimit";
 import { validateAndNormaliseOrder } from "@/lib/orderValidation";
-import { redeemGiftCardForRow } from "@/lib/giftCardValidation";
+import { redeemGiftCardForRow, refundGiftCardForRow } from "@/lib/giftCardValidation";
+import { redeemLoyaltyPointsForOrder } from "@/lib/loyaltyUtils";
 import { spendStoreCredit, refundStoreCredit, claimCouponUsage } from "@/lib/storeCredit";
 import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
 
@@ -131,6 +132,7 @@ export async function POST(req: NextRequest) {
     storeCreditSpent = true;
   }
 
+  let giftCardSpent = false;
   if (row.gift_card_id && row.gift_card_used > 0) {
     const redeem = await redeemGiftCardForRow({
       giftCardId:  row.gift_card_id,
@@ -151,6 +153,45 @@ export async function POST(req: NextRequest) {
       );
       return NextResponse.json(
         { ok: false, error: "Gift card balance changed during checkout. Please review your order and try again." },
+        { status: 409 },
+      );
+    }
+    giftCardSpent = true;
+  }
+
+  // Loyalty reward gate — same contract as the two balances above: the order
+  // carries a free reward item, so the points MUST actually back it. Atomic
+  // debit with an enforced balance check (idempotent per order id). On
+  // failure, compensate the earlier debits and roll the order back.
+  if (row.loyalty_reward_id && row.loyalty_points_spent > 0) {
+    const redeem = await redeemLoyaltyPointsForOrder({
+      customerId: row.customer_id,
+      points:     row.loyalty_points_spent,
+      orderId:    row.id,
+      rewardId:   row.loyalty_reward_id,
+    });
+    if (!redeem.ok) {
+      console.error("[orders] loyalty redeem failed, rolling back order:", redeem.reason, redeem.error);
+      if (giftCardSpent && row.gift_card_id) {
+        const back = await refundGiftCardForRow({
+          giftCardId:  row.gift_card_id,
+          amount:      row.gift_card_used,
+          orderId:     row.id,
+          performedBy: "system:loyalty-rollback",
+          notes:       "Compensation — loyalty points debit failed after gift card redeem.",
+        });
+        if (!back.ok) console.error("[orders] gift card compensation failed:", back.error);
+      }
+      if (storeCreditSpent) {
+        const back = await refundStoreCredit(row.customer_id, row.store_credit_used);
+        if (!back.ok) console.error("[orders] store credit compensation failed:", back.error);
+      }
+      await supabaseAdmin.from("orders").delete().eq("id", row.id);
+      restoreStock(stockItems).catch((err) =>
+        console.error("[orders] stock restore after loyalty rollback:", err instanceof Error ? err.message : err),
+      );
+      return NextResponse.json(
+        { ok: false, error: "Your points balance changed during checkout. Please remove the reward and try again." },
         { status: 409 },
       );
     }

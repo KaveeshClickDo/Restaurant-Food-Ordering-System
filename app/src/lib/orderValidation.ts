@@ -173,6 +173,8 @@ export interface ValidatedOrder {
     store_credit_used: number;
     gift_card_id:      string | null;
     gift_card_used:    number;
+    loyalty_reward_id:    string | null;
+    loyalty_points_spent: number;
     delivery_code:     string | null;
     customer_lat:      number | null;
     customer_lng:      number | null;
@@ -727,6 +729,75 @@ export async function validateAndNormaliseOrder(
     };
   }
 
+  // ── Loyalty reward redemption ─────────────────────────────────────────────
+  // The cart may carry ONE reward (a free menu item priced in points). The
+  // client sends only the reward id — the server looks the reward up, checks
+  // it's redeemable, and appends the £0 line itself, so a crafted payload
+  // can't invent free items or fake the points price. The points DEBIT is not
+  // here: it's an atomic gate in /api/orders / the payment webhooks, next to
+  // store credit and gift cards. Here we only pre-check the balance for a
+  // clean early error.
+  let loyaltyRewardId: string | null = null;
+  let loyaltyPointsSpent = 0;
+  const rewardClaim = typeof body.loyalty_reward_id === "string" ? body.loyalty_reward_id.trim() : "";
+  if (rewardClaim) {
+    if (!committedCustomerId || committedCustomerId === "guest" || committedCustomerId === "pos-walk-in") {
+      return { ok: false, error: "Sign in to redeem loyalty rewards.", status: 401 };
+    }
+    const { data: reward } = await supabaseAdmin
+      .from("loyalty_rewards")
+      .select("id, menu_item_id, name, points_cost, active, menu_items ( id, name, active, channels, track_stock, stock_qty, stock_status )")
+      .eq("id", rewardClaim)
+      .maybeSingle();
+    if (!reward || reward.active === false) {
+      return { ok: false, error: "This reward is no longer available.", status: 400 };
+    }
+    const rewardItem = reward.menu_items as unknown as {
+      id: string; name: string; active?: boolean | null; channels?: string[] | null;
+      track_stock?: boolean | null; stock_qty?: number | null; stock_status?: string | null;
+    } | null;
+    if (!rewardItem || rewardItem.active === false) {
+      return { ok: false, error: "This reward is no longer available.", status: 400 };
+    }
+    const rewardChannels = rewardItem.channels;
+    if (Array.isArray(rewardChannels) && rewardChannels.length > 0 && !rewardChannels.includes(orderChannel)) {
+      return { ok: false, error: "This reward is not available for online orders.", status: 400 };
+    }
+    // Stock pre-check for the free unit, on top of whatever the cart already
+    // requests for the same item. The atomic decrement at commit remains the
+    // source of truth.
+    const rewardTracked = rewardItem.track_stock === true && typeof rewardItem.stock_qty === "number";
+    if (!rewardTracked && rewardItem.stock_status === "out_of_stock") {
+      return { ok: false, error: `'${rewardItem.name}' is out of stock right now — your reward can't be added.`, status: 400 };
+    }
+    if (rewardTracked) {
+      const alreadyRequested = requestedQtyByMenuId.get(rewardItem.id) ?? 0;
+      if (alreadyRequested + 1 > Math.max(0, Number(rewardItem.stock_qty))) {
+        return { ok: false, error: `'${rewardItem.name}' is out of stock right now — your reward can't be added.`, status: 400 };
+      }
+    }
+    // Balance pre-check (the atomic enforce happens at the debit gate).
+    const { data: balRow } = await supabaseAdmin
+      .from("customers").select("loyalty_points").eq("id", committedCustomerId).maybeSingle();
+    const pointsBalance = Number(balRow?.loyalty_points ?? 0);
+    if (pointsBalance < Number(reward.points_cost)) {
+      return {
+        ok: false,
+        error: "You don't have enough points for this reward any more. Please remove it and try again.",
+        status: 409,
+      };
+    }
+    loyaltyRewardId    = String(reward.id);
+    loyaltyPointsSpent = Number(reward.points_cost);
+    verifiedItems.push({
+      menuItemId: rewardItem.id,
+      name:       (typeof reward.name === "string" && reward.name.trim()) ? reward.name.trim() : rewardItem.name,
+      qty:        1,
+      price:      0,
+      loyaltyRewardId: loyaltyRewardId,
+    });
+  }
+
   // ── Delivery PIN (only for delivery fulfillment) ──────────────────────────
   const deliveryCode = fulfillment === "delivery"
     ? String(randomInt(0, 10_000)).padStart(4, "0")
@@ -753,6 +824,8 @@ export async function validateAndNormaliseOrder(
     store_credit_used: storeCreditUsed,
     gift_card_id:      giftCardId,
     gift_card_used:    giftCardUsed,
+    loyalty_reward_id:    loyaltyRewardId,
+    loyalty_points_spent: loyaltyPointsSpent,
     delivery_code:     deliveryCode,
     customer_lat:      fulfillment === "delivery" ? custLat : null,
     customer_lng:      fulfillment === "delivery" ? custLng : null,

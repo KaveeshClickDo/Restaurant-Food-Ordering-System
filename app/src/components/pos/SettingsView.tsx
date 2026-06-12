@@ -34,10 +34,6 @@ export default function SettingsView() {
     if (key === "general") {
 
       updateSettings({
-        // Update Loyalty settings in the global config to match
-        loyaltyPointsPerPound: local.loyaltyPointsPerPound,
-        loyaltyPointsValue: local.loyaltyPointsValue,
-
         // Update Tax settings in the global config to match
         taxSettings: {
           ...(appSettings.taxSettings || {}),
@@ -223,43 +219,8 @@ export default function SettingsView() {
               </div>
             </div>
 
-            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4">
-              <h3 className="text-white font-semibold text-sm">Loyalty Program</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs text-slate-400 mb-1 block">Points per {appSettings.currency?.symbol ?? local.currencySymbol}</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.5}
-                    placeholder="e.g. 1 point per £1 spent"
-                    value={local.loyaltyPointsPerPound}
-                    onChange={(e) => setLocal((p) => ({ ...p, loyaltyPointsPerPound: e.target.value === "" ? ("" as unknown as number) : parseFloat(e.target.value) }))}
-                    onBlur={() => {
-                      if (local.loyaltyPointsPerPound === ("" as unknown as number) || isNaN(Number(local.loyaltyPointsPerPound))) {
-                        setLocal((p) => ({ ...p, loyaltyPointsPerPound: 0 }));
-                      }
-                    }}
-                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500" />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 mb-1 block">Point value ({appSettings.currency?.symbol ?? local.currencySymbol})</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.001}
-                    placeholder="e.g. £0.01 for 1 point"
-                    value={local.loyaltyPointsValue}
-                    onChange={(e) => setLocal((p) => ({ ...p, loyaltyPointsValue: e.target.value === "" ? ("" as unknown as number) : parseFloat(e.target.value) }))}
-                    onBlur={() => {
-                      if (local.loyaltyPointsValue === ("" as unknown as number) || isNaN(Number(local.loyaltyPointsValue))) {
-                        setLocal((p) => ({ ...p, loyaltyPointsValue: 0 }));
-                      }
-                    }}
-                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500" />
-                </div>
-              </div>
-            </div>
+            {/* Loyalty Program moved to Admin → Operations. Earning happens
+                server-side on every sale; the reward catalog is admin-managed. */}
 
             <button
               onClick={() => saveSettings("general")}

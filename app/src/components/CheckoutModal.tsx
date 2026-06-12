@@ -536,7 +536,10 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
       status: "pending",
       fulfillment,
       total: orderTotal,
-      items: cart.map((i) => ({
+      // The reward line is EXCLUDED from items — the server re-validates the
+      // reward id and appends its own authoritative £0 line, so a crafted
+      // client can't invent free items. It travels as loyalty_reward_id below.
+      items: cart.filter((i) => !i.loyaltyRewardId).map((i) => ({
         name: i.name,
         qty: i.quantity,
         price: i.price,
@@ -596,12 +599,28 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
       ...(appliedGiftCard && giftCardApplied > 0
         ? { gift_card_code: appliedGiftCard.code, gift_card_used: giftCardApplied }
         : {}),
+      // Loyalty reward: id only — the server validates it, re-checks the
+      // points balance, and appends the £0 line itself.
+      ...(cart.some((i) => i.loyaltyRewardId)
+        ? { loyalty_reward_id: cart.find((i) => i.loyaltyRewardId)!.loyaltyRewardId }
+        : {}),
       customer_email: form.email.trim() || undefined,
     };
   }
 
   async function handlePay(method: PaymentMethod) {
     if (!validate()) return;
+    // Loyalty reward guards — the server enforces both too; these just give a
+    // clean message before any payment UI opens.
+    const rewardLine = cart.find((i) => i.loyaltyRewardId);
+    if (rewardLine && !currentUser) {
+      setSubmitError("Sign in to redeem your loyalty reward, or remove it from your cart.");
+      return;
+    }
+    if (rewardLine && cart.every((i) => i.loyaltyRewardId)) {
+      setSubmitError("Add at least one paid item to your order to redeem a reward.");
+      return;
+    }
     if (method.id === "stripe") await startCardPayment(method);
     else if (method.id === "paypal") await startPaypalPayment(method);
     else await placeCashOrder(method);

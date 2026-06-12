@@ -49,7 +49,10 @@ function mapDiningRow(r: any) {
 }
 
 // Helper to compare variations (checks if they have the same selection IDs)
-const isSameVariations = (v1?: any[], v2?: any[]) => {
+const isSameVariations = (
+  v1?: { variationId: string; optionId: string }[],
+  v2?: { variationId: string; optionId: string }[],
+) => {
   if (!v1 && !v2) return true;
   if (!v1 || !v2 || v1.length !== v2.length) return false;
   // Sort by ID to ensure order doesn't break the comparison
@@ -59,7 +62,7 @@ const isSameVariations = (v1?: any[], v2?: any[]) => {
 };
 
 // Helper to compare add-ons (checks IDs)
-const isSameAddOns = (a1?: any[], a2?: any[]) => {
+const isSameAddOns = (a1?: { id: string }[], a2?: { id: string }[]) => {
   if (!a1 && !a2) return true;
   if (!a1 || !a2 || a1.length !== a2.length) return false;
   const s1 = [...a1].sort((a, b) => a.id.localeCompare(b.id));
@@ -80,14 +83,22 @@ function cartReducer(state: CartItem[], action: CartAction): CartItem[] {
     case "ADD": {
       const newItem = action.item;
 
+      // Loyalty reward lines: max ONE per cart, qty locked to 1, never merged
+      // with paid lines of the same item. Adding a second reward replaces the
+      // first (the customer changed their pick).
+      if (newItem.loyaltyRewardId) {
+        return [...state.filter((i) => !i.loyaltyRewardId), { ...newItem, quantity: 1 }];
+      }
+
       // Rule: If it has special instructions, it always goes in as a new/separate item.
       if (newItem.specialInstructions) {
         return [...state, newItem];
       }
 
       // Check for an existing match based on Name + Variations + AddOns
-      const existingIndex = state.findIndex((item) => 
+      const existingIndex = state.findIndex((item) =>
         item.name === newItem.name &&
+        !item.loyaltyRewardId && // A reward line never absorbs a paid line
         !item.specialInstructions && // Existing item must also have no notes
         isSameVariations(item.selectedVariations, newItem.selectedVariations) &&
         isSameAddOns(item.selectedAddOns, newItem.selectedAddOns)
@@ -108,7 +119,8 @@ function cartReducer(state: CartItem[], action: CartAction): CartItem[] {
     }
     case "REMOVE": return state.filter((i) => i.id !== action.id);
     case "UPDATE_QTY":
-      return state.map((i) => (i.id === action.id ? { ...i, quantity: action.qty } : i))
+      // Reward lines keep qty 1 — only removal (qty ≤ 0) is allowed.
+      return state.map((i) => (i.id === action.id ? { ...i, quantity: i.loyaltyRewardId ? Math.min(action.qty, 1) : action.qty } : i))
                   .filter((i) => i.quantity > 0);
     case "CLEAR":  return [];
     default:       return state;

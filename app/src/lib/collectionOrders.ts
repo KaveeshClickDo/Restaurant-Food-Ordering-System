@@ -112,7 +112,7 @@ export async function settleCollectionOrder(
     return { ok: false, status: 500, error: error.message };
   }
 
-  await rewardLoyaltyPoints(order.customer_id, Number(order.total));
+  await rewardLoyaltyPoints(order.customer_id, Number(order.total), { orderId: id });
   sendOrderStatusEmail(id, "delivered").catch((err: unknown) =>
     console.error("[collectionOrders] settle email:", err instanceof Error ? err.message : err),
   );

@@ -304,8 +304,6 @@ export interface POSSettings {
   currencySymbol: string;
   tableModeEnabled: boolean;
   tableCount: number;
-  loyaltyPointsPerPound: number; // points per £ spent
-  loyaltyPointsValue: number;    // £ value per point (e.g. 0.01)
   giftCardEnabled: boolean;
   maxDiscountPercent: number;
   requirePinForDiscount: boolean;

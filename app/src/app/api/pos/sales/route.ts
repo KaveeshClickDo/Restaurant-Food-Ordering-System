@@ -23,6 +23,7 @@ import { PosSaleCreateSchema }       from "@/lib/schemas/pos";
 import { requirePosSession, requirePosPermission } from "@/lib/posPermissions";
 import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
 import { lookupActiveGiftCard, clampGiftCardAmount, redeemGiftCardForRow } from "@/lib/giftCardValidation";
+import { rewardLoyaltyPoints } from "@/lib/loyaltyUtils";
 import { rowToSale } from "@/lib/posSaleMap";
 
 const POS_CUSTOMER_ID = "pos-walk-in";
@@ -342,6 +343,17 @@ export async function POST(req: NextRequest) {
         { status: 409 },
       );
     }
+  }
+
+  // Loyalty earn — server-side and atomic (used to be a fire-and-forget
+  // absolute-value PATCH from the POS browser, which lost points to races
+  // and network failures). Points accrue on real money paid only: the
+  // gift-card-covered portion is prepaid money and earns nothing. Idempotent
+  // per sale id, so outbox replays can't double-award.
+  const saleCustomerId = row.customer_id as string | null;
+  if (saleCustomerId && saleCustomerId !== POS_CUSTOMER_ID) {
+    const moneyPaid = Math.max(0, parseFloat((totalServer - giftCardUsed).toFixed(2)));
+    await rewardLoyaltyPoints(saleCustomerId, moneyPaid, { posSaleId: String(body.id) });
   }
 
   // KDS sync — fire-and-await so the client knows whether the kitchen has

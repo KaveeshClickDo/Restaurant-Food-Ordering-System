@@ -17,7 +17,7 @@ import {
   UtensilsCrossed,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { Order, OrderLine, OrderStatus, DeliveryStatus, MenuItem, SavedAddress, AddOn, CartItem } from "@/types";
+import { Order, OrderLine, OrderStatus, DeliveryStatus, MenuItem, SavedAddress, AddOn, CartItem, LoyaltyReward, LoyaltyTransaction } from "@/types";
 import { fullOrderNumber } from "@/lib/orderNumber";
 import { orderSpendContribution } from "@/lib/customerSpend";
 import AuthModal from "@/components/AuthModal";
@@ -1385,10 +1385,10 @@ function ProfileTab() {
 }
 
 // ─── Rewards Tab ──────────────────────────────────────────────────────────────
-// Read-only view of the three balances that ride on the customers row:
-// store credit, loyalty points, gift card balance. Issued via admin refunds
-// (store credit), POS-shared sales (loyalty / gift card) and consumed at the
-// online or POS till on the next order.
+// The loyalty rewards home: points balance with a milestone progress bar,
+// the reward catalog (redeem points for free menu items — added to the cart
+// as a £0 line and re-validated server-side), the points history ledger,
+// plus the store-credit balance and purchased gift cards.
 
 interface PurchasedGiftCard {
   id: string;
@@ -1400,8 +1400,17 @@ interface PurchasedGiftCard {
   createdAt: string;
 }
 
+const TXN_LABELS: Record<string, string> = {
+  earn:            "Points earned",
+  redeem:          "Points used",
+  earn_reversal:   "Refund adjustment",
+  redeem_reversal: "Reward points returned",
+  adjust:          "Balance adjustment",
+};
+
 function RewardsTab() {
-  const { currentUser, settings } = useApp();
+  const { currentUser, settings, cart, addToCart } = useApp();
+  const router = useRouter();
   const sym = settings.currency?.symbol ?? "£";
 
   const [myCards, setMyCards] = useState<PurchasedGiftCard[]>([]);
@@ -1409,8 +1418,15 @@ function RewardsTab() {
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [cardToast, setCardToast] = useState<string | null>(null);
 
+  const [rewards, setRewards] = useState<LoyaltyReward[]>([]);
+  const [tiers, setTiers] = useState<number[]>([]);
+  const [loadingRewards, setLoadingRewards] = useState(true);
+  const [history, setHistory] = useState<LoyaltyTransaction[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [rewardToast, setRewardToast] = useState<string | null>(null);
+
   useEffect(() => {
-    if (!currentUser) { setLoadingCards(false); return; }
+    if (!currentUser) { setLoadingCards(false); setLoadingRewards(false); return; }
     (async () => {
       try {
         const res = await fetch("/api/gift-cards/mine", { cache: "no-store" });
@@ -1419,6 +1435,22 @@ function RewardsTab() {
       } finally {
         setLoadingCards(false);
       }
+    })();
+    (async () => {
+      try {
+        const res = await fetch("/api/rewards", { cache: "no-store" });
+        const json = await res.json() as { ok: boolean; rewards?: LoyaltyReward[]; tiers?: number[] };
+        if (json.ok) { setRewards(json.rewards ?? []); setTiers(json.tiers ?? []); }
+      } finally {
+        setLoadingRewards(false);
+      }
+    })();
+    (async () => {
+      try {
+        const res = await fetch("/api/loyalty/history", { cache: "no-store" });
+        const json = await res.json() as { ok: boolean; transactions?: LoyaltyTransaction[] };
+        if (json.ok) setHistory(json.transactions ?? []);
+      } catch { /* history is non-critical */ }
     })();
   }, [currentUser]);
 
@@ -1442,46 +1474,226 @@ function RewardsTab() {
   const storeCredit = currentUser.storeCredit ?? 0;
   const loyaltyPoints = currentUser.loyaltyPoints ?? 0;
 
+  // Milestone bar geometry — stops are the distinct reward costs (max tier =
+  // 100% of the bar). Falls back to a single stop so the bar still renders
+  // before any rewards are configured.
+  const maxTier = tiers.length > 0 ? tiers[tiers.length - 1] : 0;
+  const fillPct = maxTier > 0 ? Math.min(100, (loyaltyPoints / maxTier) * 100) : 0;
+
+  const cartRewardId = cart.find((i) => i.loyaltyRewardId)?.loyaltyRewardId ?? null;
+
+  function redeemReward(r: LoyaltyReward) {
+    addToCart({
+      id: `reward-${r.id}-${Date.now()}`,
+      menuItemId: r.menuItemId,
+      name: r.name.trim() || r.menuItemName || "Reward",
+      price: 0,
+      quantity: 1,
+      loyaltyRewardId: r.id,
+      loyaltyPointsCost: r.pointsCost,
+    });
+    setRewardToast(`${r.name.trim() || r.menuItemName} added to your basket as a reward.`);
+    setTimeout(() => setRewardToast(null), 4000);
+  }
+
+  // Group ledger rows by "Month Year" for the McDonald's-style history list.
+  const historyGroups: Array<{ label: string; rows: LoyaltyTransaction[] }> = [];
+  for (const t of history) {
+    const label = new Date(t.createdAt).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+    const last = historyGroups[historyGroups.length - 1];
+    if (last && last.label === label) last.rows.push(t);
+    else historyGroups.push({ label, rows: [t] });
+  }
+
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-        {/* Store credit */}
-        <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
-          <div className="flex items-start gap-4">
-            <div className="w-11 h-11 bg-teal-50 rounded-2xl flex items-center justify-center flex-shrink-0">
-              <Gift size={20} className="text-teal-500" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Store credit</p>
-              <p className="text-2xl font-bold text-zinc-900 tabular-nums mt-1">
-                {sym}{storeCredit.toFixed(2)}
-              </p>
-              <p className="text-xs text-zinc-500 mt-1">
-                {storeCredit > 0
-                  ? "Automatically applied at online checkout — you can toggle it off before paying."
-                  : "Issued when an order is refunded as store credit instead of a card return."}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Loyalty points */}
-        <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
+      {/* ── Points hero + milestone bar ── */}
+      <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
+        <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-4">
             <div className="w-11 h-11 bg-amber-50 rounded-2xl flex items-center justify-center flex-shrink-0">
               <Award size={20} className="text-amber-500" />
             </div>
-            <div className="flex-1 min-w-0">
+            <div>
               <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Loyalty points</p>
-              <p className="text-2xl font-bold text-zinc-900 tabular-nums mt-1">
+              <p className="text-3xl font-bold text-zinc-900 tabular-nums mt-0.5">
                 {loyaltyPoints.toLocaleString()}
-              </p>
-              <p className="text-xs text-zinc-500 mt-1">
-                {loyaltyPoints > 0
-                  ? "Earned on past orders. Ask staff in-store about redemption."
-                  : "Earned on orders. Your balance shows here as it grows."}
+                <span className="text-sm font-semibold text-zinc-400 ml-1.5">points</span>
               </p>
             </div>
+          </div>
+          {history.length > 0 && (
+            <button
+              onClick={() => setShowHistory((v) => !v)}
+              className="text-xs font-semibold text-orange-600 hover:text-orange-700 flex items-center gap-1 flex-shrink-0"
+            >
+              {showHistory ? "Hide history" : "View history"}
+              {showHistory ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+          )}
+        </div>
+
+        {/* Milestone progress bar */}
+        {maxTier > 0 && (
+          <div className="mt-5">
+            <div className="relative h-2.5 bg-zinc-100 rounded-full overflow-visible">
+              <div
+                className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-orange-400 via-amber-400 to-amber-500 transition-all duration-700"
+                style={{ width: `${fillPct}%` }}
+              />
+              {/* Tier dots */}
+              {tiers.map((t) => {
+                const pos = (t / maxTier) * 100;
+                const reached = loyaltyPoints >= t;
+                return (
+                  <div
+                    key={t}
+                    className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full border-2 ${
+                      reached ? "bg-amber-500 border-amber-200" : "bg-white border-zinc-300"
+                    }`}
+                    style={{ left: `${pos}%` }}
+                  />
+                );
+              })}
+            </div>
+            <div className="relative mt-2 h-4 text-[10.5px] font-semibold text-zinc-400 tabular-nums">
+              <span className="absolute left-0">0</span>
+              {tiers.map((t) => {
+                const pos = (t / maxTier) * 100;
+                const reached = loyaltyPoints >= t;
+                return (
+                  <span
+                    key={t}
+                    className={`absolute -translate-x-1/2 ${reached ? "text-amber-600" : ""}`}
+                    style={{ left: `${pos}%` }}
+                  >
+                    {t.toLocaleString()}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        <p className="text-xs text-zinc-500 mt-3">
+          Earn {settings.loyaltyPointsPerPound ?? 1} point{(settings.loyaltyPointsPerPound ?? 1) === 1 ? "" : "s"} for
+          every {sym}1 you spend — then trade them for free food below.
+        </p>
+
+        {/* History (collapsible) */}
+        {showHistory && history.length > 0 && (
+          <div className="mt-5 border-t border-zinc-100 pt-4 space-y-4">
+            {historyGroups.map((g) => (
+              <div key={g.label}>
+                <p className="text-xs font-bold text-zinc-900 uppercase tracking-wide mb-2">{g.label}</p>
+                <div className="space-y-1.5">
+                  {g.rows.map((t) => (
+                    <div key={t.id} className="flex items-center justify-between gap-3 rounded-xl bg-zinc-50 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className={`text-sm font-bold tabular-nums ${t.points >= 0 ? "text-emerald-600" : "text-zinc-900"}`}>
+                          {t.points >= 0 ? "+" : ""}{t.points.toLocaleString()} points
+                        </p>
+                        <p className="text-[11px] text-zinc-400 truncate">
+                          {TXN_LABELS[t.type] ?? t.type}{t.note ? ` — ${t.note}` : ""}
+                        </p>
+                      </div>
+                      <p className="text-[11px] text-zinc-400 flex-shrink-0 text-right">
+                        {new Date(t.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}<br />
+                        {new Date(t.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Reward catalog ── */}
+      <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
+        <div className="flex items-center gap-2 mb-1">
+          <Gift size={18} className="text-orange-500 flex-shrink-0" />
+          <h3 className="font-semibold text-zinc-900 text-sm">My Rewards</h3>
+        </div>
+        <p className="text-xs text-zinc-500 mb-4">Redeem your points for free items — they&apos;re added to your basket and go out with your next order.</p>
+
+        {rewardToast && (
+          <div className="flex items-center justify-between gap-3 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5 mb-4">
+            <span className="flex items-center gap-1.5"><Check size={14} /> {rewardToast}</span>
+            <button onClick={() => router.push("/")} className="font-bold underline flex-shrink-0">Go to menu →</button>
+          </div>
+        )}
+
+        {loadingRewards ? (
+          <div className="flex items-center gap-2 text-sm text-zinc-400 py-4">
+            <RefreshCw size={14} className="animate-spin" /> Loading…
+          </div>
+        ) : rewards.length === 0 ? (
+          <p className="text-sm text-zinc-400 py-2">No rewards are available right now — check back soon!</p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {rewards.map((r) => {
+              const name = r.name.trim() || r.menuItemName || "Reward";
+              const affordable = loyaltyPoints >= r.pointsCost;
+              const inBasket = cartRewardId === r.id;
+              const shortBy = r.pointsCost - loyaltyPoints;
+              return (
+                <div key={r.id} className={`rounded-2xl border p-4 flex flex-col ${affordable ? "border-amber-200 bg-amber-50/40" : "border-zinc-100 bg-zinc-50/50"}`}>
+                  {r.menuItemImage ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={r.menuItemImage} alt={name} className="w-full h-28 object-cover rounded-xl mb-3" />
+                  ) : (
+                    <div className="w-full h-28 rounded-xl mb-3 bg-gradient-to-br from-amber-100 to-orange-100 flex items-center justify-center">
+                      <Gift size={28} className="text-amber-400" />
+                    </div>
+                  )}
+                  <p className="text-sm font-bold text-zinc-900 leading-snug">{name}</p>
+                  {r.description && <p className="text-[11.5px] text-zinc-500 mt-0.5 line-clamp-2">{r.description}</p>}
+                  <div className="flex items-center justify-between gap-2 pt-3 border-t border-zinc-100/80 mt-auto">
+                    <span className="inline-flex items-center gap-1 text-[12px] font-bold text-amber-700">
+                      <Star size={12} className="fill-amber-400 text-amber-400" />
+                      {r.pointsCost.toLocaleString()} pts
+                    </span>
+                    {inBasket ? (
+                      <span className="text-[11.5px] font-bold text-emerald-600 flex items-center gap-1"><Check size={13} /> In basket</span>
+                    ) : (
+                      <button
+                        onClick={() => redeemReward(r)}
+                        disabled={!affordable}
+                        className={`text-[11.5px] font-bold rounded-full px-3 py-1.5 transition ${
+                          affordable
+                            ? "bg-orange-500 hover:bg-orange-600 text-white"
+                            : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
+                        }`}
+                        title={affordable ? `Redeem for ${r.pointsCost.toLocaleString()} points` : `${shortBy.toLocaleString()} more points needed`}
+                      >
+                        {affordable ? "Redeem" : `${shortBy.toLocaleString()} more pts`}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── Store credit ── */}
+      <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
+        <div className="flex items-start gap-4">
+          <div className="w-11 h-11 bg-teal-50 rounded-2xl flex items-center justify-center flex-shrink-0">
+            <Gift size={20} className="text-teal-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Store credit</p>
+            <p className="text-2xl font-bold text-zinc-900 tabular-nums mt-1">
+              {sym}{storeCredit.toFixed(2)}
+            </p>
+            <p className="text-xs text-zinc-500 mt-1">
+              {storeCredit > 0
+                ? "Automatically applied at online checkout — you can toggle it off before paying."
+                : "Issued when an order is refunded as store credit instead of a card return."}
+            </p>
           </div>
         </div>
       </div>

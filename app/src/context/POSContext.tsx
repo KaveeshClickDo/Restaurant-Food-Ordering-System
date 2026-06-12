@@ -38,8 +38,6 @@ const SEED_SETTINGS: POSSettings = {
   currencySymbol: "£",
   tableModeEnabled: false,
   tableCount: 10,
-  loyaltyPointsPerPound: 1,
-  loyaltyPointsValue: 0.01,
   giftCardEnabled: true,
   maxDiscountPercent: 100,
   requirePinForDiscount: false,
@@ -610,19 +608,8 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     );
   }, [adminTaxRate, adminTaxInclusive]);
 
-  // Mirror the admin Loyalty configuration into POSSettings. Without this, the
-  // POS will use its hardcoded seed defaults (1 point per £ / 0.01 value) 
-  // regardless of what the admin configures in the Operations panel.
-  const adminLoyaltyPointsPer = appSettings.loyaltyPointsPerPound ?? 1;
-  const adminLoyaltyPointValue = appSettings.loyaltyPointsValue ?? 0.01;
-  
-  useEffect(() => {
-    setSettings((p) =>
-      p.loyaltyPointsPerPound === adminLoyaltyPointsPer && p.loyaltyPointsValue === adminLoyaltyPointValue
-        ? p
-        : { ...p, loyaltyPointsPerPound: adminLoyaltyPointsPer, loyaltyPointsValue: adminLoyaltyPointValue }
-    );
-  }, [adminLoyaltyPointsPer, adminLoyaltyPointValue]);
+  // (Loyalty configuration no longer lives in POSSettings — earning happens
+  // server-side in /api/pos/sales using the admin rate from app_settings.)
 
   // products + categories are intentionally NOT persisted — see the useState
   // declarations above. Same rationale as Bug #11 (customers): caching shared
@@ -1074,25 +1061,17 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     setSales((prev) => [sale!, ...prev]);
 
     if (assignedCustomer) {
-      // Bug #11 — loyalty points are now persisted on the customers row,
-      // shared with admin. Optimistically bump the in-memory value and
-      // PATCH the new total to /api/pos/customers/[id] so the row stays in
-      // sync across terminals. totalSpend/visitCount/lastVisit are computed
-      // server-side from pos_sales on the next fetch, so we no longer write
-      // them client-side.
-      // Loyalty + spend accrue on real money paid only. The gift-card-covered
-      // portion was already counted when the card was bought, so exclude it
-      // (matches the server-side net spend computed from pos_sales on next fetch).
+      // Loyalty points are now awarded SERVER-SIDE inside /api/pos/sales
+      // (atomic ledger write, idempotent per sale) — the old client-side
+      // read-modify-write PATCH lost points to races between terminals and
+      // network failures. Here we only bump the local spend/visit display
+      // and re-fetch so the authoritative points balance lands in state.
       const moneyPaid = Math.max(0, round2(total - (giftCard?.amount ?? 0)));
-      const pts = Math.floor(moneyPaid * settings.loyaltyPointsPerPound);
-      const existingPts = assignedCustomer.loyaltyPoints ?? 0;
-      const newPts = existingPts + pts;
       setCustomers((prev) =>
         prev.map((c) =>
           c.id === assignedCustomer.id
             ? {
                 ...c,
-                loyaltyPoints: newPts,
                 totalSpend:    (c.totalSpend ?? 0) + moneyPaid,
                 visitCount:    (c.visitCount ?? 0) + 1,
                 lastVisit:     new Date().toISOString(),
@@ -1100,13 +1079,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
             : c
         )
       );
-      // Fire-and-forget — the receipt has already printed; a stale loyalty
-      // total is benign and the next fetch will reconcile if this fails.
-      fetch(`/api/pos/customers/${assignedCustomer.id}`, {
-        method:  "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ loyaltyPoints: newPts }),
-      }).catch(() => {});
+      fetchCustomers().catch(() => {});
     }
 
     // Stock decrement now happens server-side inside /api/pos/sales (atomic,
@@ -1119,7 +1092,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
     clearCart();
     return { sale };
-  }, [cart, discount, tipAmount, kitchenNote, settings, currentStaff, assignedCustomer, clearCart]);
+  }, [cart, discount, tipAmount, kitchenNote, settings, currentStaff, assignedCustomer, clearCart, fetchCustomers]);
 
   const voidSale = useCallback(async (
     saleId: string,
@@ -1158,43 +1131,22 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         : s)
     );
 
-    // 3. Deduct loyalty points matching the refund amount if there is an assigned customer
-    if (sale.customerId && refundAmount && refundAmount > 0) {
-      const ptsToDeduct = Math.floor(refundAmount * settings.loyaltyPointsPerPound);
-      
-      if (ptsToDeduct > 0) {
-        const targetCustomer = customers.find((c) => c.id === sale.customerId);
-        if (targetCustomer) {
-          const existingPts = targetCustomer.loyaltyPoints ?? 0;
-          // Ensure points don't drop below 0
-          const newPts = Math.max(0, existingPts - ptsToDeduct);
-
-          // Optimistically update local customer state
-          setCustomers((prev) =>
-            prev.map((c) =>
-              c.id === sale.customerId
-                ? {
-                    ...c,
-                    loyaltyPoints: newPts,
-                    // Optionally adjust totalSpend to reflect the refund deduction
-                    totalSpend: Math.max(0, (c.totalSpend ?? 0) - refundAmount),
-                  }
-                : c
-            )
-          );
-
-          // Update customer loyalty points in the database
-          fetch(`/api/pos/customers/${sale.customerId}`, {
-            method:  "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body:    JSON.stringify({ loyaltyPoints: newPts }),
-          }).catch((err) => console.error("voidSale loyalty points patch failed:", err));
-        }
-      }
+    // 3. Loyalty reversal happens SERVER-SIDE in PATCH /api/pos/sales/[id]
+    // (the void annuls the sale, so everything it earned is clawed back via
+    // the ledger). Re-fetch so the authoritative balance lands in state.
+    if (sale.customerId) {
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c.id === sale.customerId && refundAmount && refundAmount > 0
+            ? { ...c, totalSpend: Math.max(0, (c.totalSpend ?? 0) - refundAmount) }
+            : c
+        )
+      );
+      fetchCustomers().catch(() => {});
     }
 
     return { ok: true };
-  }, [sales, customers, settings]);
+  }, [sales, fetchCustomers]);
 
   // ── Clock in/out ──────────────────────────────────────────────────────────
   const clockIn = useCallback(async (staffId: string): Promise<boolean> => {

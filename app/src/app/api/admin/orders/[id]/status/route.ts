@@ -11,7 +11,7 @@ import type { OrderStatus }                     from "@/types";
 import { parseBody }                            from "@/lib/apiValidation";
 import { OrderStatusUpdateSchema }              from "@/lib/schemas/pos";
 import { restoreStock, type StockItem }         from "@/lib/stockMutation";
-import { rewardLoyaltyPoints } from "@/lib/loyaltyUtils";
+import { rewardLoyaltyPoints, refundRedeemedPoints } from "@/lib/loyaltyUtils";
 
 // Statuses we consider "cancelled" for stock-restore purposes. Refunds go
 // through /admin/orders/[id]/refund and restore there (refund state lives on
@@ -81,7 +81,7 @@ export async function PUT(
 
   // Award Loyalty Points if this update transitioned a Cash order to "paid"
   if (shouldMarkPaid && existing.customer_id && existing.customer_id !== "guest" && existing.customer_id !== "pos-walk-in") {
-    await rewardLoyaltyPoints(existing.customer_id, Number(existing.total));
+    await rewardLoyaltyPoints(existing.customer_id, Number(existing.total), { orderId: id });
   }
 
   // Restore stock when an active order transitions into "cancelled". Skip
@@ -91,6 +91,16 @@ export async function PUT(
   // restoring would create false positive inventory).
   const wasActive = !TERMINAL_STATUSES_FOR_STOCK.has(String(existing.status ?? ""));
   const becomingCancelled = body.status === "cancelled";
+
+  // Return redeemed loyalty points when an active order is cancelled — the
+  // customer never received the reward item. Idempotent: the ledger accepts
+  // only one redeem_reversal per order, so re-saving cancelled is a no-op.
+  if (wasActive && becomingCancelled) {
+    refundRedeemedPoints(id).catch((err) =>
+      console.error("[admin/orders status] loyalty redeem reversal:", err instanceof Error ? err.message : err),
+    );
+  }
+
   if (wasActive && becomingCancelled && existing.oversold !== true) {
     const rawItems = Array.isArray(existing.items) ? existing.items as Array<Record<string, unknown>> : [];
     const stockItems: StockItem[] = rawItems

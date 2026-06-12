@@ -139,6 +139,52 @@ export interface CartItem {
    *  change does not retroactively rewrite an existing line. Per-unit
    *  offers are already baked into `price` and don't need the snapshot. */
   offer?: MenuItemOffer;
+  /** Set when this line is a redeemed loyalty reward (price 0, qty locked to 1,
+   *  max one per cart). The server re-validates the reward + points balance. */
+  loyaltyRewardId?: string;
+  /** Points the reward costs — display only; the server is authoritative. */
+  loyaltyPointsCost?: number;
+}
+
+// ─── Loyalty rewards program ──────────────────────────────────────────────────
+// Points buy reward items from a catalog (McDonald's model) — they are never
+// converted to a money discount. Earning stays at loyaltyPointsPerPound.
+
+export interface LoyaltyReward {
+  id: string;
+  menuItemId: string;
+  /** Display name; empty = fall back to the menu item's name. */
+  name: string;
+  description: string;
+  pointsCost: number;
+  active: boolean;
+  sortOrder: number;
+  /** Joined from menu_items for display (server-filled). */
+  menuItemName?: string;
+  menuItemImage?: string | null;
+  menuItemPrice?: number;
+  menuItemActive?: boolean;
+}
+
+export type LoyaltyTransactionType =
+  | "earn"             // points credited for money spent
+  | "redeem"           // points spent on a reward
+  | "earn_reversal"    // refund clawed back earned points
+  | "redeem_reversal"  // cancelled order returned redeemed points
+  | "adjust";          // manual admin adjustment
+
+export interface LoyaltyTransaction {
+  id: string;
+  customerId: string;
+  type: LoyaltyTransactionType;
+  /** Signed: positive = credit, negative = debit. */
+  points: number;
+  balanceAfter: number;
+  orderId?: string | null;
+  posSaleId?: string | null;
+  rewardId?: string | null;
+  note: string;
+  createdAt: string;
 }
 
 export interface DaySchedule {
@@ -500,7 +546,6 @@ export interface AdminSettings {
   taxSettings: TaxSettings;
   restaurant: RestaurantInfo;
   loyaltyPointsPerPound: number; // points per £ spent
-  loyaltyPointsValue: number;    // £ value per point (e.g. 0.01)
   schedule: WeekSchedule;
   manualClosed: boolean;
   /** Stripe publishable key — safe to expose to the browser. */

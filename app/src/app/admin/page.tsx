@@ -32,6 +32,7 @@ import KitchenStaffPanel from "@/components/admin/KitchenStaffPanel";
 import POSStaffPanel from "@/components/admin/POSStaffPanel";
 import CollectionStaffPanel from "@/components/admin/CollectionStaffPanel";
 import GiftCardsPanel from "@/components/admin/GiftCardsPanel";
+import LoyaltyPanel from "@/components/admin/LoyaltyPanel";
 import ReservationsPanel from "@/components/admin/ReservationsPanel";
 import TableStatusPanel from "@/components/admin/TableStatusPanel";
 import ReservationCustomersPanel from "@/components/admin/ReservationCustomersPanel";
@@ -41,7 +42,7 @@ import {
   Tag, Percent, Car, RotateCcw, BarChart3, LineChart, UtensilsCrossed, CalendarDays, BookUser,
   Menu as MenuIcon, ChevronDown, ChevronRight, ChevronLeft,
   Tablet, CreditCard, Globe, Monitor, Compass, Gift, ClipboardList,
-  PackageCheck,
+  PackageCheck, Award,
 } from "lucide-react";
 
 // ─── Navigation structure ─────────────────────────────────────────────────────
@@ -92,6 +93,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "finance-reports", label: "Finance Reports", icon: LineChart },
       { id: "coupons", label: "Coupons", icon: Tag },
       { id: "gift-cards", label: "Gift Cards", icon: Gift },
+      { id: "loyalty", label: "Loyalty Program", icon: Award },
       { id: "tax", label: "Tax & VAT", icon: Percent },
       { id: "pos-reports", label: "POS Reports", icon: BarChart3 },
     ],
@@ -176,6 +178,7 @@ function bannerSubtitle(
     case "receipt": return "Configure what appears on printed and emailed receipts — name, phone, VAT number, and footer.";
     case "coupons": return `${(s.coupons ?? []).filter((c) => c.active).length} active coupon${(s.coupons ?? []).filter((c) => c.active).length !== 1 ? "s" : ""} · percentage and fixed-amount discount codes.`;
     case "gift-cards": return "Prepaid gift card codes — issue manually, track balances, void, and view redemption history.";
+    case "loyalty": return "Loyalty programme — set the points earning rate and manage the reward catalog customers redeem points for.";
     case "tax": return s.taxSettings?.enabled ? `VAT ${s.taxSettings.rate}% · ${s.taxSettings.inclusive ? "inclusive" : "exclusive"} mode.` : "VAT is currently disabled.";
     case "drivers": return "Manage driver accounts and track deliveries.";
     case "online-refunds": return "Process full or partial refunds on online orders, choose refund method, and view the full refund history.";
@@ -774,6 +777,7 @@ function AdminPageContent() {
             {activeTab === "receipt" && <ReceiptSettingsPanel />}
             {activeTab === "coupons" && <CouponsPanel />}
             {activeTab === "gift-cards" && <GiftCardsPanel />}
+            {activeTab === "loyalty" && <LoyaltyPanel />}
             {activeTab === "tax" && <TaxSettingsPanel />}
             {activeTab === "drivers" && <DriversPanel />}
             {activeTab === "online-refunds" && <RefundsPanel />}

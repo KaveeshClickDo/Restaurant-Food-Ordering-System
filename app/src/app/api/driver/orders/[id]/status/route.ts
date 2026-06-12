@@ -115,7 +115,7 @@ export async function PUT(
 
   // Award Loyalty Points if this update transitioned a Cash delivery order to "paid"
   if (patch.payment_status === "paid" && order.customer_id && order.customer_id !== "guest" && order.customer_id !== "pos-walk-in") {
-    await rewardLoyaltyPoints(order.customer_id, Number(order.total));
+    await rewardLoyaltyPoints(order.customer_id, Number(order.total), { orderId: id });
   }
 
   return NextResponse.json({ ok: true });

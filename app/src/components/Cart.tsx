@@ -105,7 +105,14 @@ export default function Cart({ onMobileClose, onOrderPlaced }: CartProps) {
               {cart.map((item) => (
                 <li key={item.id} className="px-5 py-3.5 flex items-start gap-3 border-b border-zinc-50">
                   <div className="flex-1 min-w-0">
-                    <p className="text-[13.5px] font-semibold text-zinc-900 leading-snug">{item.name}</p>
+                    <p className="text-[13.5px] font-semibold text-zinc-900 leading-snug">
+                      {item.name}
+                      {item.loyaltyRewardId && (
+                        <span className="ml-2 inline-flex items-center gap-1 align-middle bg-amber-100 text-amber-700 text-[10px] font-bold uppercase tracking-wide rounded-full px-2 py-0.5">
+                          Reward
+                        </span>
+                      )}
+                    </p>
                     {item.selectedVariations && item.selectedVariations.length > 0 && (
                       <p className="text-[11.5px] text-zinc-400 mt-0.5">{item.selectedVariations.map((v) => v.label).join(", ")}</p>
                     )}
@@ -115,21 +122,39 @@ export default function Cart({ onMobileClose, onOrderPlaced }: CartProps) {
                     {item.specialInstructions && (
                       <p className="text-[11.5px] text-zinc-500 mt-0.5 italic">&ldquo;{item.specialInstructions}&rdquo;</p>
                     )}
-                    <p className="text-[12px] text-zinc-400 mt-1">{sym}{item.price.toFixed(2)} each</p>
+                    {item.loyaltyRewardId ? (
+                      <p className="text-[12px] text-amber-600 font-semibold mt-1">
+                        {item.loyaltyPointsCost ? `${item.loyaltyPointsCost.toLocaleString()} points` : "Loyalty reward"}
+                      </p>
+                    ) : (
+                      <p className="text-[12px] text-zinc-400 mt-1">{sym}{item.price.toFixed(2)} each</p>
+                    )}
                   </div>
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
-                    <button onClick={() => updateQty(item.id, item.quantity - 1)}
-                      className="w-7 h-7 rounded-full border border-zinc-200 flex items-center justify-center text-zinc-500 hover:border-zinc-400 hover:text-zinc-800 transition-colors">
-                      <Minus className="w-3 h-3" strokeWidth={2} />
+                  {item.loyaltyRewardId ? (
+                    <button
+                      onClick={() => updateQty(item.id, 0)}
+                      className="flex-shrink-0 p-1.5 rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                      title="Remove reward"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" strokeWidth={1.8} />
                     </button>
-                    <span className="text-[11px] font-bold text-zinc-900 w-6 text-center tabular-nums">{item.quantity}</span>
-                    <button onClick={() => updateQty(item.id, item.quantity + 1)}
-                      className="w-7 h-7 rounded-full border border-zinc-200 flex items-center justify-center text-zinc-500 hover:border-orange-500 hover:bg-orange-500 hover:text-white transition-colors">
-                      <Plus className="w-3 h-3" strokeWidth={2} />
-                    </button>
-                  </div>
-                  <span className="text-[13px] font-bold text-zinc-900 flex-shrink-0 whitespace-nowrap text-right tabular-nums">
-                    {sym}{cartLineTotal(item).toFixed(2)}
+                  ) : (
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <button onClick={() => updateQty(item.id, item.quantity - 1)}
+                        className="w-7 h-7 rounded-full border border-zinc-200 flex items-center justify-center text-zinc-500 hover:border-zinc-400 hover:text-zinc-800 transition-colors">
+                        <Minus className="w-3 h-3" strokeWidth={2} />
+                      </button>
+                      <span className="text-[11px] font-bold text-zinc-900 w-6 text-center tabular-nums">{item.quantity}</span>
+                      <button onClick={() => updateQty(item.id, item.quantity + 1)}
+                        className="w-7 h-7 rounded-full border border-zinc-200 flex items-center justify-center text-zinc-500 hover:border-orange-500 hover:bg-orange-500 hover:text-white transition-colors">
+                        <Plus className="w-3 h-3" strokeWidth={2} />
+                      </button>
+                    </div>
+                  )}
+                  <span className="text-[13px] font-bold flex-shrink-0 whitespace-nowrap text-right tabular-nums">
+                    {item.loyaltyRewardId
+                      ? <span className="text-emerald-600">Free</span>
+                      : <span className="text-zinc-900">{sym}{cartLineTotal(item).toFixed(2)}</span>}
                   </span>
                 </li>
               )

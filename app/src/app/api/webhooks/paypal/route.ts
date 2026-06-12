@@ -39,7 +39,7 @@ import { redeemGiftCardForRow } from "@/lib/giftCardValidation";
 import { spendStoreCredit, refundStoreCredit, claimCouponUsage } from "@/lib/storeCredit";
 import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
 import { completeReservationFromSession } from "@/lib/reservations";
-import { rewardLoyaltyPoints } from "@/lib/loyaltyUtils";
+import { rewardLoyaltyPoints, redeemLoyaltyPointsForOrder } from "@/lib/loyaltyUtils";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -315,6 +315,34 @@ async function handleCaptureCompleted(resource: PaypalCapture): Promise<void> {
     }
   }
 
+  // Loyalty reward gate — debit the points behind the free reward item
+  // (atomic, enforced, idempotent per order id). A points shortfall must NOT
+  // void the whole paid order: degrade by dropping the reward line, zeroing
+  // the stamp, and giving its unit back to stock. Mirrors the Stripe webhook.
+  const loyaltyRewardId = orderRow.loyalty_reward_id as string | null;
+  const loyaltyPoints   = Number(orderRow.loyalty_points_spent ?? 0);
+  if (realCustomer && loyaltyRewardId && loyaltyPoints > 0) {
+    const redeem = await redeemLoyaltyPointsForOrder({
+      customerId: orderCustomerId as string,
+      points:     loyaltyPoints,
+      orderId:    orderRow.id as string,
+      rewardId:   loyaltyRewardId,
+    });
+    if (!redeem.ok) {
+      console.error(`[webhooks/paypal] loyalty redeem failed on order ${orderRow.id} (${redeem.reason}) — dropping the reward line.`);
+      const rawItems    = Array.isArray(orderRow.items) ? (orderRow.items as Array<Record<string, unknown>>) : [];
+      const rewardLine  = rawItems.find((i) => i.loyaltyRewardId === loyaltyRewardId);
+      orderRow.items                = rawItems.filter((i) => i.loyaltyRewardId !== loyaltyRewardId);
+      orderRow.loyalty_reward_id    = null;
+      orderRow.loyalty_points_spent = 0;
+      if (stock.ok && rewardLine?.menuItemId) {
+        restoreStock([{ id: String(rewardLine.menuItemId), qty: 1 }]).catch((err) =>
+          console.error("[webhooks/paypal] reward stock restore:", err instanceof Error ? err.message : err),
+        );
+      }
+    }
+  }
+
   const insertRow = {
     ...orderRow,
     payment_status: "paid",
@@ -357,8 +385,8 @@ async function handleCaptureCompleted(resource: PaypalCapture): Promise<void> {
 
   // AWARD LOYALTY POINTS FOR PAYPAL PAYMENTS
   if (orderRow.customer_id && orderRow.customer_id !== "pos-walk-in" && orderRow.customer_id !== "guest") {
-    // We pass the final total to calculate the points
-    await rewardLoyaltyPoints(orderRow.customer_id as string, Number(orderRow.total));
+    // Net money total; idempotent per order id (PayPal retries award once).
+    await rewardLoyaltyPoints(orderRow.customer_id as string, Number(orderRow.total), { orderId: orderRow.id as string });
   }
 
   // (Store credit + gift card were already debited as gates above, before the

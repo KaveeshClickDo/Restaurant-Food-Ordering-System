@@ -25,7 +25,7 @@ import { parseBody }                            from "@/lib/apiValidation";
 import { AdminRefundSchema }                    from "@/lib/schemas/waiter";
 import { restoreStock, type StockItem }         from "@/lib/stockMutation";
 import { moneyPaidGross }                       from "@/lib/giftCardMoney";
-import { deductLoyaltyPoints }                  from "@/lib/loyaltyUtils";
+import { deductLoyaltyPoints, refundRedeemedPoints } from "@/lib/loyaltyUtils";
 import { sendOrderStatusEmail }                 from "@/lib/emailServer";
 
 export async function POST(
@@ -242,18 +242,30 @@ export async function POST(
     );
   }
 
-  // ─── Deduct loyalty points for the refund (Ahinsa) ──────────────────
-  // Loyalty is earned on money paid, so a money refund deducts the matching
-  // points. Every refund is a money refund now (gift-card refunds were removed),
-  // so all of them deduct — and it's naturally bounded because newest.amount is
-  // itself capped at the money actually paid (moneyCap) above.
+  // ─── Deduct loyalty points for the refund ───────────────────────────
+  // Loyalty is earned on money paid, so a money refund claws back the matching
+  // points. The helper additionally clamps the deduction to what THIS order
+  // actually earned (net of prior clawbacks, via the loyalty ledger) — a
+  // refund recorded against an order that never earned (e.g. unpaid cash)
+  // deducts nothing, instead of eating points earned on other orders.
   if (
     newest &&
     orderRow.customer_id &&
     orderRow.customer_id !== "guest" &&
     orderRow.customer_id !== "pos-walk-in"
   ) {
-    await deductLoyaltyPoints(orderRow.customer_id, Number(newest.amount));
+    await deductLoyaltyPoints(orderRow.customer_id, Number(newest.amount), { orderId: id });
+  }
+
+  // A full refund on an un-fulfilled order (autoCancel) also returns any
+  // points the customer redeemed on it — they never received the reward item.
+  // Idempotent: the ledger accepts one redeem_reversal per order. When the
+  // caller requested "cancelled" explicitly, the status route handles it too;
+  // the dedupe makes the double-call harmless.
+  if (autoCancel) {
+    refundRedeemedPoints(id).catch((err) =>
+      console.error("[admin/orders refund] loyalty redeem reversal:", err instanceof Error ? err.message : err),
+    );
   }
 
   // Restore stock when a full refund covers an order whose food was never

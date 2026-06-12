@@ -19,6 +19,7 @@ import { PosSaleVoidSchema }         from "@/lib/schemas/pos";
 import { requirePosPermission }      from "@/lib/posPermissions";
 import { restoreStock, type StockItem } from "@/lib/stockMutation";
 import { moneyPaidGross }            from "@/lib/giftCardMoney";
+import { reverseEarnedPoints }       from "@/lib/loyaltyUtils";
 import type { POSCartItem }          from "@/types/pos";
 
 export async function PATCH(
@@ -79,7 +80,7 @@ export async function PATCH(
     })
     .eq("id", id)
     .eq("voided", false)
-    .select("id, items")
+    .select("id, items, customer_id")
     .maybeSingle();
 
   if (error) {
@@ -98,6 +99,14 @@ export async function PATCH(
     // Already voided — idempotent success, no stock restore.
     return NextResponse.json({ ok: true, id: existing.id, alreadyVoided: true });
   }
+
+  // Reverse the loyalty points this sale earned — the sale is annulled, so the
+  // customer keeps no purchase behind those points. Server-side and bounded by
+  // the ledger (used to be a client-side absolute-value PATCH). Runs only when
+  // THIS request flipped the row (`updated` non-null), so retries are no-ops.
+  reverseEarnedPoints(updated.customer_id as string | null, { posSaleId: id }).catch((err) =>
+    console.error(`[pos/sales/${id}] loyalty reversal on void:`, err instanceof Error ? err.message : err),
+  );
 
   // Restore stock for every catalogued line. Best-effort — a failure here just
   // leaves a small under-count that admin can correct manually.

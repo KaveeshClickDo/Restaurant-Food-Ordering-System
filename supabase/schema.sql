@@ -1315,6 +1315,157 @@ end $$;
 
 
 -- ═══════════════════════════════════════════════════════════════════════════════
+-- Loyalty rewards program (McDonald's-style: points buy reward items, not money)
+-- ═══════════════════════════════════════════════════════════════════════════════
+--
+-- Two tables + one atomic function:
+--   loyalty_rewards       — the reward catalog (point-priced menu items)
+--   loyalty_transactions  — append-only ledger of every points movement
+--   apply_loyalty_points  — the ONLY way points move. Row-locks the customer,
+--                           enforces/clamps the balance, dedupes per order/sale,
+--                           and writes the ledger row + cached balance in one
+--                           transaction. Fixes the lost-update races the old
+--                           read-modify-write JS code had.
+--
+-- customers.loyalty_points stays as the cached balance every existing surface
+-- reads; the ledger is the audit trail and powers the customer History screen.
+
+-- Reward catalog. Each reward is a free menu item priced in points. Image /
+-- live availability come from the joined menu_items row at render time, so
+-- menu edits propagate automatically. ON DELETE CASCADE: deleting the menu
+-- item retires the reward.
+create table if not exists loyalty_rewards (
+  id           text        primary key default gen_random_uuid()::text,
+  menu_item_id text        not null references menu_items(id) on delete cascade,
+  -- Optional display overrides; empty string = use the menu item's own.
+  name         text        not null default '',
+  description  text        not null default '',
+  points_cost  integer     not null check (points_cost > 0),
+  active       boolean     not null default true,
+  sort_order   integer     not null default 0,
+  created_at   timestamptz not null default now()
+);
+
+-- Points ledger. `points` is signed: positive = credit (earn, redeem_reversal,
+-- adjust up), negative = debit (redeem, earn_reversal, adjust down).
+-- balance_after snapshots the cached balance after this row applied.
+create table if not exists loyalty_transactions (
+  id            text        primary key default gen_random_uuid()::text,
+  customer_id   text        not null references customers(id) on delete cascade,
+  type          text        not null check (type in
+                  ('earn','redeem','earn_reversal','redeem_reversal','adjust')),
+  points        integer     not null,
+  balance_after integer     not null,
+  order_id      text,
+  pos_sale_id   text,
+  reward_id     text        references loyalty_rewards(id) on delete set null,
+  note          text        not null default '',
+  -- Reserved for a future expiry feature; unused for now.
+  expires_at    timestamptz,
+  created_at    timestamptz not null default now()
+);
+
+create index if not exists idx_loyalty_txns_customer on loyalty_transactions(customer_id, created_at desc);
+create index if not exists idx_loyalty_txns_order    on loyalty_transactions(order_id)    where order_id    is not null;
+create index if not exists idx_loyalty_txns_pos_sale on loyalty_transactions(pos_sale_id) where pos_sale_id is not null;
+create index if not exists idx_loyalty_rewards_item  on loyalty_rewards(menu_item_id);
+
+-- Redemption stamp on orders — which reward this order carries and what it
+-- cost in points. Mirrors the gift_card_id / gift_card_used pattern.
+alter table orders add column if not exists loyalty_reward_id    text references loyalty_rewards(id) on delete set null;
+alter table orders add column if not exists loyalty_points_spent integer not null default 0;
+
+-- The single atomic mutation for loyalty points.
+--   p_delta    signed points to apply.
+--   p_enforce  true  → fail with 'insufficient' if balance + delta < 0 (redeem).
+--              false → clamp the debit so the balance floors at 0 (reversals).
+-- Dedupe: for types earn / redeem / redeem_reversal, a second call with the
+-- same order_id (or pos_sale_id) is a no-op success — this is what makes
+-- webhook retries and POS outbox replays safe. earn_reversal and adjust are
+-- intentionally NOT deduped (an order can take several partial refunds); their
+-- callers compute the remaining-reversible amount from the ledger first.
+create or replace function apply_loyalty_points(
+  p_customer_id text,
+  p_delta       integer,
+  p_type        text,
+  p_order_id    text default null,
+  p_pos_sale_id text default null,
+  p_reward_id   text default null,
+  p_note        text default '',
+  p_enforce     boolean default false
+) returns jsonb
+language plpgsql
+as $$
+declare
+  v_balance integer;
+  v_applied integer;
+begin
+  if p_delta = 0 then
+    return jsonb_build_object('ok', true, 'applied', 0, 'duplicate', false);
+  end if;
+
+  -- Lock the customer row first: all concurrent loyalty ops on this customer
+  -- serialise here, which also makes the dedupe check below race-free.
+  select loyalty_points into v_balance
+    from customers where id = p_customer_id for update;
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'not_found');
+  end if;
+  v_balance := coalesce(v_balance, 0);
+
+  if p_type in ('earn','redeem','redeem_reversal') then
+    if (p_order_id is not null and exists (
+          select 1 from loyalty_transactions
+          where order_id = p_order_id and type = p_type))
+    or (p_pos_sale_id is not null and exists (
+          select 1 from loyalty_transactions
+          where pos_sale_id = p_pos_sale_id and type = p_type)) then
+      return jsonb_build_object('ok', true, 'applied', 0, 'duplicate', true, 'balance', v_balance);
+    end if;
+  end if;
+
+  v_applied := p_delta;
+  if p_delta < 0 then
+    if p_enforce and v_balance + p_delta < 0 then
+      return jsonb_build_object('ok', false, 'error', 'insufficient', 'balance', v_balance);
+    end if;
+    if not p_enforce then
+      v_applied := greatest(p_delta, -v_balance);  -- clamp: never go negative
+    end if;
+    if v_applied = 0 then
+      return jsonb_build_object('ok', true, 'applied', 0, 'duplicate', false, 'balance', v_balance);
+    end if;
+  end if;
+
+  update customers set loyalty_points = v_balance + v_applied where id = p_customer_id;
+
+  insert into loyalty_transactions
+    (customer_id, type, points, balance_after, order_id, pos_sale_id, reward_id, note)
+  values
+    (p_customer_id, p_type, v_applied, v_balance + v_applied,
+     p_order_id, p_pos_sale_id, p_reward_id, coalesce(p_note, ''));
+
+  return jsonb_build_object('ok', true, 'applied', v_applied, 'duplicate', false, 'balance', v_balance + v_applied);
+end;
+$$;
+
+revoke all    on function apply_loyalty_points(text, integer, text, text, text, text, text, boolean) from public, anon, authenticated;
+grant execute on function apply_loyalty_points(text, integer, text, text, text, text, text, boolean) to service_role;
+
+-- RLS — both tables are server-route only (service role); anon gets nothing.
+alter table loyalty_rewards      enable row level security;
+alter table loyalty_transactions enable row level security;
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename = 'loyalty_rewards' and policyname = 'deny_anon_all') then
+    create policy "deny_anon_all" on loyalty_rewards      for all to anon using (false) with check (false);
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'loyalty_transactions' and policyname = 'deny_anon_all') then
+    create policy "deny_anon_all" on loyalty_transactions for all to anon using (false) with check (false);
+  end if;
+end $$;
+
+
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- Verification queries (paste these separately after running the above):
 --
 --   -- new tables present?

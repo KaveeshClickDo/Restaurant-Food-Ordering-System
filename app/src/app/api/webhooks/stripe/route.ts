@@ -34,7 +34,7 @@ import { spendStoreCredit, refundStoreCredit, claimCouponUsage } from "@/lib/sto
 import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
 import { generateGiftCardCode } from "@/lib/giftCardCode";
 import { completeReservationFromSession } from "@/lib/reservations";
-import { rewardLoyaltyPoints } from "@/lib/loyaltyUtils";
+import { rewardLoyaltyPoints, redeemLoyaltyPointsForOrder } from "@/lib/loyaltyUtils";
 
 // Tell Next.js this route handler should NOT parse the body — Stripe needs
 // the raw bytes for signature verification.
@@ -249,6 +249,36 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
     }
   }
 
+  // Loyalty reward gate — debit the points behind the free reward item
+  // (atomic, enforced, idempotent per order id). Unlike the money balances
+  // above, a points shortfall must NOT void the whole paid order: every other
+  // line is fully paid for. Degrade instead — drop the reward line, zero the
+  // stamp, give its unit back to stock, and insert the order without the
+  // freebie. The customer keeps their points.
+  const loyaltyRewardId = orderRow.loyalty_reward_id as string | null;
+  const loyaltyPoints   = Number(orderRow.loyalty_points_spent ?? 0);
+  if (realCustomer && loyaltyRewardId && loyaltyPoints > 0) {
+    const redeem = await redeemLoyaltyPointsForOrder({
+      customerId: orderCustomerId as string,
+      points:     loyaltyPoints,
+      orderId:    orderRow.id as string,
+      rewardId:   loyaltyRewardId,
+    });
+    if (!redeem.ok) {
+      console.error(`[webhooks/stripe] loyalty redeem failed on order ${orderRow.id} (${redeem.reason}) — dropping the reward line.`);
+      const rawItems    = Array.isArray(orderRow.items) ? (orderRow.items as Array<Record<string, unknown>>) : [];
+      const rewardLine  = rawItems.find((i) => i.loyaltyRewardId === loyaltyRewardId);
+      orderRow.items                = rawItems.filter((i) => i.loyaltyRewardId !== loyaltyRewardId);
+      orderRow.loyalty_reward_id    = null;
+      orderRow.loyalty_points_spent = 0;
+      if (stock.ok && rewardLine?.menuItemId) {
+        restoreStock([{ id: String(rewardLine.menuItemId), qty: 1 }]).catch((err) =>
+          console.error("[webhooks/stripe] reward stock restore:", err instanceof Error ? err.message : err),
+        );
+      }
+    }
+  }
+
   const insertRow = {
     ...orderRow,
     payment_status:           "paid",
@@ -294,8 +324,8 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
 
   // AWARD LOYALTY POINTS FOR CARD PAYMENTS
   if (orderRow.customer_id && orderRow.customer_id !== "pos-walk-in" && orderRow.customer_id !== "guest") {
-    // We pass the final total to calculate the points
-    await rewardLoyaltyPoints(orderRow.customer_id as string, Number(orderRow.total));
+    // Net money total; idempotent per order id (Stripe retries award once).
+    await rewardLoyaltyPoints(orderRow.customer_id as string, Number(orderRow.total), { orderId: orderRow.id as string });
   }
 
   // Coupon usage — atomic + limit-aware claim; order is already committed.
