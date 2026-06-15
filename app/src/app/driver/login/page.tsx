@@ -1,26 +1,27 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
-import { useRouter, useSearchParams }    from "next/navigation";
-import Link                              from "next/link";
-import { useApp }                        from "@/context/AppContext";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { useApp } from "@/context/AppContext";
 import { Truck, Eye, EyeOff, AlertCircle, CheckCircle, Loader2 } from "lucide-react";
 import {
   DriverLoginSchema, ResetPasswordRequestSchema, ResetPasswordConfirmSchema,
 } from "@/lib/schemas/auth";
 import { formErrorMessage } from "@/lib/inputUtils";
+import CollectionFooter from "@/components/collection/CollectionFooter";
 
 // ── Inner component (uses useSearchParams — must be inside Suspense) ──────────
 
 function DriverLoginInner() {
   const { driverLogin, settings } = useApp();
-  const router       = useRouter();
+  const router = useRouter();
   const searchParams = useSearchParams();
 
   // Determine initial mode from URL params
   const urlAction = searchParams.get("action");
-  const urlToken  = searchParams.get("token");
-  const urlEmail  = searchParams.get("email");
+  const urlToken = searchParams.get("token");
+  const urlEmail = searchParams.get("email");
 
   type Mode = "login" | "forgot" | "reset";
   const initialMode: Mode = urlAction === "reset" && urlToken ? "reset" : "login";
@@ -28,25 +29,25 @@ function DriverLoginInner() {
   const [mode, setMode] = useState<Mode>(initialMode);
 
   // ── Login state ─────────────────────────────────────────────────────────
-  const [loginEmail,    setLoginEmail]    = useState("");
+  const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-  const [showPwd,       setShowPwd]       = useState(false);
-  const [loginError,    setLoginError]    = useState("");
-  const [loginLoading,  setLoginLoading]  = useState(false);
+  const [showPwd, setShowPwd] = useState(false);
+  const [loginError, setLoginError] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
 
   // ── Forgot password state ────────────────────────────────────────────────
-  const [forgotEmail,   setForgotEmail]   = useState("");
+  const [forgotEmail, setForgotEmail] = useState("");
   const [forgotLoading, setForgotLoading] = useState(false);
-  const [forgotSent,    setForgotSent]    = useState(false);
-  const [forgotError,   setForgotError]   = useState("");
+  const [forgotSent, setForgotSent] = useState(false);
+  const [forgotError, setForgotError] = useState("");
 
   // ── Reset password state ─────────────────────────────────────────────────
   const [resetPassword, setResetPassword] = useState("");
-  const [resetConfirm,  setResetConfirm]  = useState("");
-  const [showReset,     setShowReset]     = useState(false);
-  const [resetLoading,  setResetLoading]  = useState(false);
-  const [resetDone,     setResetDone]     = useState(false);
-  const [resetError,    setResetError]    = useState("");
+  const [resetConfirm, setResetConfirm] = useState("");
+  const [showReset, setShowReset] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetDone, setResetDone] = useState(false);
+  const [resetError, setResetError] = useState("");
 
   // If already signed in, skip the form and go straight to /driver. The /me
   // endpoint does a DB-backed session check (not localStorage), so a stale or
@@ -56,7 +57,7 @@ function DriverLoginInner() {
     if (urlAction === "reset") return;
     fetch("/api/auth/driver/me")
       .then((r) => { if (r.ok) router.replace("/driver"); })
-      .catch(() => {});
+      .catch(() => { });
   }, [urlAction, router]);
 
   // ── Login submit ─────────────────────────────────────────────────────────
@@ -89,9 +90,9 @@ function DriverLoginInner() {
     setForgotLoading(true);
     try {
       await fetch("/api/auth/driver/reset-password", {
-        method:  "POST",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ email: check.data.email }),
+        body: JSON.stringify({ email: check.data.email }),
       });
       // Always show success — endpoint never reveals whether email exists
       setForgotSent(true);
@@ -118,10 +119,10 @@ function DriverLoginInner() {
 
     setResetLoading(true);
     try {
-      const res  = await fetch("/api/auth/driver/reset-password/confirm", {
-        method:  "POST",
+      const res = await fetch("/api/auth/driver/reset-password/confirm", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify(check.data),
+        body: JSON.stringify(check.data),
       });
       const json = await res.json() as { ok: boolean; error?: string };
       if (json.ok) {
@@ -139,249 +140,252 @@ function DriverLoginInner() {
   const restaurantName = settings.restaurant.name;
 
   return (
-    <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm">
+    <div className="min-h-screen h-full bg-slate-900 flex flex-col">
+      <div className="flex-1 flex flex-col items-center justify-center p-4">
+        <div className="w-full max-w-sm">
 
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-orange-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-orange-500/30">
-            <Truck size={28} className="text-white" />
+          {/* Logo */}
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 bg-orange-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-orange-500/30">
+              <Truck size={28} className="text-white" />
+            </div>
+            <h1 className="text-2xl font-extrabold text-white">Driver Portal</h1>
+            <p className="text-gray-400 text-sm mt-1">{restaurantName}</p>
           </div>
-          <h1 className="text-2xl font-extrabold text-white">Driver Portal</h1>
-          <p className="text-gray-400 text-sm mt-1">{restaurantName}</p>
-        </div>
 
-        {/* ── Login form ────────────────────────────────────────────────── */}
-        {mode === "login" && (
-          <div className="bg-gray-800 rounded-2xl p-6 shadow-2xl border border-gray-700">
-            <h2 className="text-white font-bold text-lg mb-5">Sign in to your account</h2>
+          {/* ── Login form ────────────────────────────────────────────────── */}
+          {mode === "login" && (
+            <div className="bg-gray-800 rounded-2xl p-6 shadow-2xl border border-gray-700">
+              <h2 className="text-white font-bold text-lg mb-5">Sign in to your account</h2>
 
-            <form onSubmit={(e) => void handleLogin(e)} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">
-                  Email address
-                </label>
-                <input
-                  type="email"
-                  value={loginEmail}
-                  onChange={(e) => { setLoginEmail(e.target.value); setLoginError(""); }}
-                  placeholder="jane@example.com"
-                  required
-                  autoComplete="username"
-                  className="w-full bg-gray-700 border border-gray-600 text-white placeholder-gray-500 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">
-                  Password
-                </label>
-                <div className="relative">
-                  <input
-                    type={showPwd ? "text" : "password"}
-                    value={loginPassword}
-                    onChange={(e) => { setLoginPassword(e.target.value); setLoginError(""); }}
-                    placeholder="••••••••"
-                    required
-                    autoComplete="current-password"
-                    className="w-full bg-gray-700 border border-gray-600 text-white placeholder-gray-500 rounded-xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPwd((v) => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition"
-                    tabIndex={-1}
-                  >
-                    {showPwd ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-              </div>
-
-              {loginError && (
-                <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2.5">
-                  <AlertCircle size={15} className="text-red-400 flex-shrink-0 mt-0.5" />
-                  <p className="text-red-300 text-xs leading-snug">{loginError}</p>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={loginLoading || !loginEmail || !loginPassword}
-                className="w-full bg-orange-500 hover:bg-orange-400 disabled:bg-gray-600 disabled:text-gray-400 text-white font-bold py-3.5 rounded-xl transition-all active:scale-[0.98] shadow-lg shadow-orange-500/20 mt-1"
-              >
-                {loginLoading ? "Signing in…" : "Sign In"}
-              </button>
-            </form>
-
-            <button
-              onClick={() => setMode("forgot")}
-              className="mt-4 w-full text-center text-xs text-gray-500 hover:text-orange-400 transition"
-            >
-              Forgot password?
-            </button>
-          </div>
-        )}
-
-        {/* ── Forgot password form ──────────────────────────────────────── */}
-        {mode === "forgot" && (
-          <div className="bg-gray-800 rounded-2xl p-6 shadow-2xl border border-gray-700">
-            <h2 className="text-white font-bold text-lg mb-1">Reset your password</h2>
-            <p className="text-gray-400 text-sm mb-5">
-              Enter your email and we will send you a reset link.
-            </p>
-
-            {forgotSent ? (
-              <div className="flex items-start gap-3 bg-green-500/10 border border-green-500/30 rounded-xl px-4 py-3.5">
-                <CheckCircle size={18} className="text-green-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-green-300 text-sm font-semibold">Check your email</p>
-                  <p className="text-green-400/80 text-xs mt-0.5 leading-snug">
-                    If an account exists for that email, a reset link has been sent.
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <form onSubmit={(e) => void handleForgot(e)} className="space-y-4">
+              <form onSubmit={(e) => void handleLogin(e)} className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">
                     Email address
                   </label>
                   <input
                     type="email"
-                    value={forgotEmail}
-                    onChange={(e) => { setForgotEmail(e.target.value); setForgotError(""); }}
+                    value={loginEmail}
+                    onChange={(e) => { setLoginEmail(e.target.value); setLoginError(""); }}
                     placeholder="jane@example.com"
                     required
-                    autoFocus
+                    autoComplete="username"
                     className="w-full bg-gray-700 border border-gray-600 text-white placeholder-gray-500 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
                   />
                 </div>
 
-                {forgotError && (
-                  <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2.5">
-                    <AlertCircle size={15} className="text-red-400 flex-shrink-0 mt-0.5" />
-                    <p className="text-red-300 text-xs leading-snug">{forgotError}</p>
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={forgotLoading || !forgotEmail}
-                  className="w-full bg-orange-500 hover:bg-orange-400 disabled:bg-gray-600 disabled:text-gray-400 text-white font-bold py-3.5 rounded-xl transition-all active:scale-[0.98] shadow-lg shadow-orange-500/20"
-                >
-                  {forgotLoading
-                    ? <Loader2 size={16} className="animate-spin mx-auto" />
-                    : "Send reset link"}
-                </button>
-              </form>
-            )}
-
-            <button
-              onClick={() => { setMode("login"); setForgotSent(false); setForgotError(""); }}
-              className="mt-4 w-full text-center text-xs text-gray-500 hover:text-orange-400 transition"
-            >
-              Back to sign in
-            </button>
-          </div>
-        )}
-
-        {/* ── Set new password form ─────────────────────────────────────── */}
-        {mode === "reset" && (
-          <div className="bg-gray-800 rounded-2xl p-6 shadow-2xl border border-gray-700">
-            <h2 className="text-white font-bold text-lg mb-1">Set new password</h2>
-            <p className="text-gray-400 text-sm mb-5">
-              Choose a new password for your driver account.
-            </p>
-
-            {resetDone ? (
-              <div className="space-y-4">
-                <div className="flex items-start gap-3 bg-green-500/10 border border-green-500/30 rounded-xl px-4 py-3.5">
-                  <CheckCircle size={18} className="text-green-400 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-green-300 text-sm font-semibold">Password updated!</p>
-                    <p className="text-green-400/80 text-xs mt-0.5 leading-snug">
-                      You can now sign in with your new password.
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setMode("login")}
-                  className="w-full bg-orange-500 hover:bg-orange-400 text-white font-bold py-3.5 rounded-xl transition-all active:scale-[0.98] shadow-lg shadow-orange-500/20"
-                >
-                  Sign in
-                </button>
-              </div>
-            ) : (
-              <form onSubmit={(e) => void handleReset(e)} className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">
-                    New password
+                    Password
                   </label>
                   <div className="relative">
                     <input
-                      type={showReset ? "text" : "password"}
-                      value={resetPassword}
-                      onChange={(e) => { setResetPassword(e.target.value); setResetError(""); }}
-                      placeholder="Min 6 characters"
+                      type={showPwd ? "text" : "password"}
+                      value={loginPassword}
+                      onChange={(e) => { setLoginPassword(e.target.value); setLoginError(""); }}
+                      placeholder="••••••••"
                       required
-                      autoFocus
-                      autoComplete="new-password"
+                      autoComplete="current-password"
                       className="w-full bg-gray-700 border border-gray-600 text-white placeholder-gray-500 rounded-xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
                     />
                     <button
                       type="button"
-                      onClick={() => setShowReset((v) => !v)}
+                      onClick={() => setShowPwd((v) => !v)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition"
                       tabIndex={-1}
                     >
-                      {showReset ? <EyeOff size={16} /> : <Eye size={16} />}
+                      {showPwd ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">
-                    Confirm password
-                  </label>
-                  <input
-                    type="password"
-                    value={resetConfirm}
-                    onChange={(e) => { setResetConfirm(e.target.value); setResetError(""); }}
-                    placeholder="Repeat new password"
-                    required
-                    autoComplete="new-password"
-                    className="w-full bg-gray-700 border border-gray-600 text-white placeholder-gray-500 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
-                  />
-                </div>
-
-                {resetError && (
+                {loginError && (
                   <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2.5">
                     <AlertCircle size={15} className="text-red-400 flex-shrink-0 mt-0.5" />
-                    <p className="text-red-300 text-xs leading-snug">{resetError}</p>
+                    <p className="text-red-300 text-xs leading-snug">{loginError}</p>
                   </div>
                 )}
 
                 <button
                   type="submit"
-                  disabled={resetLoading || !resetPassword || !resetConfirm}
-                  className="w-full bg-orange-500 hover:bg-orange-400 disabled:bg-gray-600 disabled:text-gray-400 text-white font-bold py-3.5 rounded-xl transition-all active:scale-[0.98] shadow-lg shadow-orange-500/20"
+                  disabled={loginLoading || !loginEmail || !loginPassword}
+                  className="w-full bg-orange-500 hover:bg-orange-400 disabled:bg-gray-600 disabled:text-gray-400 text-white font-bold py-3.5 rounded-xl transition-all active:scale-[0.98] shadow-lg shadow-orange-500/20 mt-1"
                 >
-                  {resetLoading
-                    ? <Loader2 size={16} className="animate-spin mx-auto" />
-                    : "Set new password"}
+                  {loginLoading ? "Signing in…" : "Sign In"}
                 </button>
               </form>
-            )}
-          </div>
-        )}
 
-        <p className="text-center text-gray-600 text-xs mt-6">
-          Not a driver?{" "}
-          <Link href="/" className="text-gray-500 hover:text-gray-400 font-semibold transition">
-            Back to menu
-          </Link>
-        </p>
+              <button
+                onClick={() => setMode("forgot")}
+                className="mt-4 w-full text-center text-xs text-gray-500 hover:text-orange-400 transition"
+              >
+                Forgot password?
+              </button>
+            </div>
+          )}
+
+          {/* ── Forgot password form ──────────────────────────────────────── */}
+          {mode === "forgot" && (
+            <div className="bg-gray-800 rounded-2xl p-6 shadow-2xl border border-gray-700">
+              <h2 className="text-white font-bold text-lg mb-1">Reset your password</h2>
+              <p className="text-gray-400 text-sm mb-5">
+                Enter your email and we will send you a reset link.
+              </p>
+
+              {forgotSent ? (
+                <div className="flex items-start gap-3 bg-green-500/10 border border-green-500/30 rounded-xl px-4 py-3.5">
+                  <CheckCircle size={18} className="text-green-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-green-300 text-sm font-semibold">Check your email</p>
+                    <p className="text-green-400/80 text-xs mt-0.5 leading-snug">
+                      If an account exists for that email, a reset link has been sent.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={(e) => void handleForgot(e)} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">
+                      Email address
+                    </label>
+                    <input
+                      type="email"
+                      value={forgotEmail}
+                      onChange={(e) => { setForgotEmail(e.target.value); setForgotError(""); }}
+                      placeholder="jane@example.com"
+                      required
+                      autoFocus
+                      className="w-full bg-gray-700 border border-gray-600 text-white placeholder-gray-500 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
+                    />
+                  </div>
+
+                  {forgotError && (
+                    <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2.5">
+                      <AlertCircle size={15} className="text-red-400 flex-shrink-0 mt-0.5" />
+                      <p className="text-red-300 text-xs leading-snug">{forgotError}</p>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={forgotLoading || !forgotEmail}
+                    className="w-full bg-orange-500 hover:bg-orange-400 disabled:bg-gray-600 disabled:text-gray-400 text-white font-bold py-3.5 rounded-xl transition-all active:scale-[0.98] shadow-lg shadow-orange-500/20"
+                  >
+                    {forgotLoading
+                      ? <Loader2 size={16} className="animate-spin mx-auto" />
+                      : "Send reset link"}
+                  </button>
+                </form>
+              )}
+
+              <button
+                onClick={() => { setMode("login"); setForgotSent(false); setForgotError(""); }}
+                className="mt-4 w-full text-center text-xs text-gray-500 hover:text-orange-400 transition"
+              >
+                Back to sign in
+              </button>
+            </div>
+          )}
+
+          {/* ── Set new password form ─────────────────────────────────────── */}
+          {mode === "reset" && (
+            <div className="bg-gray-800 rounded-2xl p-6 shadow-2xl border border-gray-700">
+              <h2 className="text-white font-bold text-lg mb-1">Set new password</h2>
+              <p className="text-gray-400 text-sm mb-5">
+                Choose a new password for your driver account.
+              </p>
+
+              {resetDone ? (
+                <div className="space-y-4">
+                  <div className="flex items-start gap-3 bg-green-500/10 border border-green-500/30 rounded-xl px-4 py-3.5">
+                    <CheckCircle size={18} className="text-green-400 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-green-300 text-sm font-semibold">Password updated!</p>
+                      <p className="text-green-400/80 text-xs mt-0.5 leading-snug">
+                        You can now sign in with your new password.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setMode("login")}
+                    className="w-full bg-orange-500 hover:bg-orange-400 text-white font-bold py-3.5 rounded-xl transition-all active:scale-[0.98] shadow-lg shadow-orange-500/20"
+                  >
+                    Sign in
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={(e) => void handleReset(e)} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">
+                      New password
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showReset ? "text" : "password"}
+                        value={resetPassword}
+                        onChange={(e) => { setResetPassword(e.target.value); setResetError(""); }}
+                        placeholder="Min 6 characters"
+                        required
+                        autoFocus
+                        autoComplete="new-password"
+                        className="w-full bg-gray-700 border border-gray-600 text-white placeholder-gray-500 rounded-xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowReset((v) => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition"
+                        tabIndex={-1}
+                      >
+                        {showReset ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">
+                      Confirm password
+                    </label>
+                    <input
+                      type="password"
+                      value={resetConfirm}
+                      onChange={(e) => { setResetConfirm(e.target.value); setResetError(""); }}
+                      placeholder="Repeat new password"
+                      required
+                      autoComplete="new-password"
+                      className="w-full bg-gray-700 border border-gray-600 text-white placeholder-gray-500 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
+                    />
+                  </div>
+
+                  {resetError && (
+                    <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2.5">
+                      <AlertCircle size={15} className="text-red-400 flex-shrink-0 mt-0.5" />
+                      <p className="text-red-300 text-xs leading-snug">{resetError}</p>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={resetLoading || !resetPassword || !resetConfirm}
+                    className="w-full bg-orange-500 hover:bg-orange-400 disabled:bg-gray-600 disabled:text-gray-400 text-white font-bold py-3.5 rounded-xl transition-all active:scale-[0.98] shadow-lg shadow-orange-500/20"
+                  >
+                    {resetLoading
+                      ? <Loader2 size={16} className="animate-spin mx-auto" />
+                      : "Set new password"}
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
+
+          <p className="text-center text-gray-600 text-xs mt-6">
+            Not a driver?{" "}
+            <Link href="/" className="text-gray-500 hover:text-gray-400 font-semibold transition">
+              Back to menu
+            </Link>
+          </p>
+        </div>
       </div>
+      <CollectionFooter />
     </div>
   );
 }

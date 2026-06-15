@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { UtensilsCrossed, ArrowLeft, ChevronLeft, Loader2 } from "lucide-react";
+import CollectionFooter from "@/components/collection/CollectionFooter";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 // Subset returned by GET /api/waiter/config for the unauthenticated tile picker.
@@ -35,11 +36,10 @@ function PinPad({ value, onChange }: { value: string; onChange: (v: string) => v
               if (k === "⌫") onChange(value.slice(0, -1));
               else if (value.length < 6) onChange(value + k);
             }}
-            className={`h-16 rounded-2xl text-2xl font-bold transition-all active:scale-95 select-none ${
-              k === "⌫"
+            className={`h-16 rounded-2xl text-2xl font-bold transition-all active:scale-95 select-none ${k === "⌫"
                 ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
                 : "bg-slate-700 text-white hover:bg-slate-600 active:bg-orange-500"
-            }`}
+              }`}
           >
             {k}
           </button>
@@ -55,11 +55,11 @@ export default function WaiterLoginPage() {
   const router = useRouter();
 
   const [allWaiters, setAllWaiters] = useState<WaiterTile[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [step, setStep]             = useState<LoginStep>("staff");
-  const [target, setTarget]         = useState<WaiterTile | null>(null);
-  const [pin, setPin]               = useState("");
-  const [pinError, setPinError]     = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [step, setStep] = useState<LoginStep>("staff");
+  const [target, setTarget] = useState<WaiterTile | null>(null);
+  const [pin, setPin] = useState("");
+  const [pinError, setPinError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const pinShakeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -77,7 +77,7 @@ export default function WaiterLoginPage() {
           router.replace("/waiter");
         }
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [router]);
 
   // Load active staff for the tile picker.
@@ -87,7 +87,7 @@ export default function WaiterLoginPage() {
       .then((d: { ok: boolean; waiters?: WaiterTile[] }) => {
         if (d.ok && d.waiters) setAllWaiters(d.waiters);
       })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoading(false));
   }, []);
 
@@ -135,93 +135,95 @@ export default function WaiterLoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 gap-8 h-full">
-      {/* Branding */}
-      <div className="text-center">
-        <div className="w-16 h-16 bg-orange-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <UtensilsCrossed size={28} className="text-white" />
+    <div className="min-h-screen h-full bg-slate-950 flex flex-col">
+      <div className="flex-1 flex flex-col items-center justify-center p-6 gap-8">
+        {/* Branding */}
+        <div className="text-center">
+          <div className="w-16 h-16 bg-orange-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <UtensilsCrossed size={28} className="text-white" />
+          </div>
+          <h1 className="text-white text-2xl font-black">Waiter Login</h1>
+          <p className="text-slate-400 text-sm mt-1">Select your name then enter your PIN</p>
         </div>
-        <h1 className="text-white text-2xl font-black">Waiter Login</h1>
-        <p className="text-slate-400 text-sm mt-1">Select your name then enter your PIN</p>
-      </div>
 
-      {step === "staff" ? (
-        <div className="w-full max-w-sm space-y-3">
-          {loading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 size={24} className="text-orange-500 animate-spin" />
-            </div>
-          ) : allWaiters.length === 0 ? (
-            <p className="text-slate-500 text-center text-sm">No staff configured. Ask an admin to add staff in the Admin → Staff panel.</p>
-          ) : (
-            allWaiters.map((w) => (
-              <button
-                key={w.id}
-                onClick={() => selectStaff(w)}
-                className="w-full flex items-center gap-4 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 rounded-2xl px-5 py-4 transition-all"
-              >
-                <div
-                  className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-base flex-shrink-0"
-                  style={{ backgroundColor: w.avatarColor }}
+        {step === "staff" ? (
+          <div className="w-full max-w-sm space-y-3">
+            {loading ? (
+              <div className="flex justify-center py-8">
+                <Loader2 size={24} className="text-orange-500 animate-spin" />
+              </div>
+            ) : allWaiters.length === 0 ? (
+              <p className="text-slate-500 text-center text-sm">No staff configured. Ask an admin to add staff in the Admin → Staff panel.</p>
+            ) : (
+              allWaiters.map((w) => (
+                <button
+                  key={w.id}
+                  onClick={() => selectStaff(w)}
+                  className="w-full flex items-center gap-4 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 rounded-2xl px-5 py-4 transition-all"
                 >
-                  {initials(w.name)}
-                </div>
-                <div className="text-left flex-1 min-w-0">
-                  <p className="text-white font-bold truncate">{w.name}</p>
-                  <p className="text-slate-400 text-xs capitalize truncate">{w.role}</p>
-                </div>
-                <ChevronLeft size={16} className="text-slate-500 ml-auto rotate-180" />
-              </button>
-            ))
-          )}
-        </div>
-      ) : (
-        <div className="w-full max-w-sm space-y-6">
-          <button
-            onClick={() => { setStep("staff"); setPin(""); setPinError(false); }}
-            className="flex items-center gap-2 text-slate-400 hover:text-white transition text-sm"
-          >
-            <ArrowLeft size={14} /> Back
-          </button>
-
-          {/* Who */}
-          <div className="flex items-center gap-3">
-            <div
-              className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
-              style={{ backgroundColor: target?.avatarColor }}
+                  <div
+                    className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-base flex-shrink-0"
+                    style={{ backgroundColor: w.avatarColor }}
+                  >
+                    {initials(w.name)}
+                  </div>
+                  <div className="text-left flex-1 min-w-0">
+                    <p className="text-white font-bold truncate">{w.name}</p>
+                    <p className="text-slate-400 text-xs capitalize truncate">{w.role}</p>
+                  </div>
+                  <ChevronLeft size={16} className="text-slate-500 ml-auto rotate-180" />
+                </button>
+              ))
+            )}
+          </div>
+        ) : (
+          <div className="w-full max-w-sm space-y-6">
+            <button
+              onClick={() => { setStep("staff"); setPin(""); setPinError(false); }}
+              className="flex items-center gap-2 text-slate-400 hover:text-white transition text-sm"
             >
-              {initials(target?.name ?? "")}
-            </div>
-            <p className="text-white font-semibold">{target?.name}</p>
-          </div>
+              <ArrowLeft size={14} /> Back
+            </button>
 
-          {/* PIN dots */}
-          <div className={`flex justify-center gap-3 ${pinError ? "animate-bounce" : ""}`}>
-            {[0, 1, 2, 3, 4, 5].map((i) => (
+            {/* Who */}
+            <div className="flex items-center gap-3">
               <div
-                key={i}
-                className={`w-4 h-4 rounded-full border-2 transition-all ${
-                  i < pin.length
-                    ? pinError ? "bg-red-500 border-red-500" : "bg-orange-500 border-orange-500"
-                    : "border-slate-600"
-                }`}
-              />
-            ))}
-          </div>
-
-          {submitting ? (
-            <div className="flex justify-center py-2">
-              <Loader2 size={24} className="text-orange-500 animate-spin" />
+                className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+                style={{ backgroundColor: target?.avatarColor }}
+              >
+                {initials(target?.name ?? "")}
+              </div>
+              <p className="text-white font-semibold">{target?.name}</p>
             </div>
-          ) : (
-            <PinPad value={pin} onChange={setPin} />
-          )}
 
-          {pinError && (
-            <p className="text-red-400 text-sm text-center font-medium">Incorrect PIN — try again</p>
-          )}
-        </div>
-      )}
+            {/* PIN dots */}
+            <div className={`flex justify-center gap-3 ${pinError ? "animate-bounce" : ""}`}>
+              {[0, 1, 2, 3, 4, 5].map((i) => (
+                <div
+                  key={i}
+                  className={`w-4 h-4 rounded-full border-2 transition-all ${i < pin.length
+                      ? pinError ? "bg-red-500 border-red-500" : "bg-orange-500 border-orange-500"
+                      : "border-slate-600"
+                    }`}
+                />
+              ))}
+            </div>
+
+            {submitting ? (
+              <div className="flex justify-center py-2">
+                <Loader2 size={24} className="text-orange-500 animate-spin" />
+              </div>
+            ) : (
+              <PinPad value={pin} onChange={setPin} />
+            )}
+
+            {pinError && (
+              <p className="text-red-400 text-sm text-center font-medium">Incorrect PIN — try again</p>
+            )}
+          </div>
+        )}
+      </div>
+      <CollectionFooter />
     </div>
   );
 }

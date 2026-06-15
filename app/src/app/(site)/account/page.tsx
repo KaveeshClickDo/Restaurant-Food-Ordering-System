@@ -1781,7 +1781,7 @@ function RewardsTab() {
             </p>
             <p className="text-xs text-zinc-500 mt-1">
               {storeCredit > 0
-                ? "Automatically applied at online checkout — you can toggle it off before paying."
+                ? "Automatically applied at online checkout - you can toggle it off before paying."
                 : "Issued when an order is refunded as store credit instead of a card return."}
             </p>
           </div>
