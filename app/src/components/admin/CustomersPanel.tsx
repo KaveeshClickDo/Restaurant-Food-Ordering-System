@@ -580,7 +580,7 @@ function ReceiptModal({
   if (vatAmt > 0) {
     // The base amount before store credit/gift cards are applied
     const baseAmount = subtotal + deliveryFee + serviceFee - couponDisc;
-    
+
     if (baseAmount > 0) {
       if (order.vatInclusive) {
         // Math: Rate = (VAT / (Gross - VAT)) * 100

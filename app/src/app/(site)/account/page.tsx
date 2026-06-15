@@ -1667,7 +1667,7 @@ function RewardsTab() {
         )}
         <p className="text-xs text-zinc-500 mt-3">
           Earn {settings.loyaltyPointsPerPound ?? 1} point{(settings.loyaltyPointsPerPound ?? 1) === 1 ? "" : "s"} for
-          every {sym}1 you spend — then trade them for free food below.
+          every {sym}1 you spend - then trade them for free food below.
         </p>
 
         {/* History (collapsible) */}
@@ -1684,7 +1684,7 @@ function RewardsTab() {
                           {t.points >= 0 ? "+" : ""}{t.points.toLocaleString()} points
                         </p>
                         <p className="text-[11px] text-zinc-400 truncate">
-                          {TXN_LABELS[t.type] ?? t.type}{t.note ? ` — ${t.note}` : ""}
+                          {TXN_LABELS[t.type] ?? t.type}{t.note ? ` - ${t.note}` : ""}
                         </p>
                       </div>
                       <p className="text-[11px] text-zinc-400 flex-shrink-0 text-right">
@@ -1706,7 +1706,7 @@ function RewardsTab() {
           <Gift size={18} className="text-orange-500 flex-shrink-0" />
           <h3 className="font-semibold text-zinc-900 text-sm">My Rewards</h3>
         </div>
-        <p className="text-xs text-zinc-500 mb-4">Redeem your points for free items — they&apos;re added to your basket and go out with your next order.</p>
+        <p className="text-xs text-zinc-500 mb-4">Redeem your points for free items - they&apos;re added to your basket and go out with your next order.</p>
 
         {rewardToast && (
           <div className="flex items-center justify-between gap-3 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5 mb-4">
@@ -1720,7 +1720,7 @@ function RewardsTab() {
             <RefreshCw size={14} className="animate-spin" /> Loading…
           </div>
         ) : rewards.length === 0 ? (
-          <p className="text-sm text-zinc-400 py-2">No rewards are available right now — check back soon!</p>
+          <p className="text-sm text-zinc-400 py-2">No rewards are available right now - check back soon!</p>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {rewards.map((r) => {
@@ -1752,8 +1752,8 @@ function RewardsTab() {
                         onClick={() => redeemReward(r)}
                         disabled={!affordable}
                         className={`text-[11.5px] font-bold rounded-full px-3 py-1.5 transition ${affordable
-                            ? "bg-orange-500 hover:bg-orange-600 text-white"
-                            : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
+                          ? "bg-orange-500 hover:bg-orange-600 text-white"
+                          : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
                           }`}
                         title={affordable ? `Redeem for ${r.pointsCost.toLocaleString()} points` : `${shortBy.toLocaleString()} more points needed`}
                       >

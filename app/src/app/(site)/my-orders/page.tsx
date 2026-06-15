@@ -38,12 +38,12 @@ import { resolveStock } from "@/lib/stockUtils";
 // ─── Status config ────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<OrderStatus, { label: string; className: string; icon: React.ReactNode }> = {
-  pending: { label: "Pending", className: "bg-yellow-50 text-yellow-700 border-yellow-200", icon: <Circle size={11} className="fill-yellow-400 text-yellow-400" /> },
-  confirmed: { label: "Confirmed", className: "bg-blue-50 text-blue-700 border-blue-200", icon: <CheckCircle2 size={11} className="text-blue-500" /> },
-  preparing: { label: "Preparing", className: "bg-orange-50 text-orange-700 border-orange-200", icon: <ChefHat size={11} className="text-orange-500" /> },
-  ready: { label: "Ready", className: "bg-purple-50 text-purple-700 border-purple-200", icon: <Package size={11} className="text-purple-500" /> },
-  delivered: { label: "Delivered", className: "bg-green-50 text-green-700 border-green-200", icon: <Truck size={11} className="text-green-600" /> },
-  cancelled: { label: "Cancelled", className: "bg-red-50 text-red-700 border-red-200", icon: <Ban size={11} className="text-red-500" /> },
+    pending: { label: "Pending", className: "bg-yellow-50 text-yellow-700 border-yellow-200", icon: <Circle size={11} className="fill-yellow-400 text-yellow-400" /> },
+    confirmed: { label: "Confirmed", className: "bg-blue-50 text-blue-700 border-blue-200", icon: <CheckCircle2 size={11} className="text-blue-500" /> },
+    preparing: { label: "Preparing", className: "bg-orange-50 text-orange-700 border-orange-200", icon: <ChefHat size={11} className="text-orange-500" /> },
+    ready: { label: "Ready", className: "bg-purple-50 text-purple-700 border-purple-200", icon: <Package size={11} className="text-purple-500" /> },
+    delivered: { label: "Delivered", className: "bg-green-50 text-green-700 border-green-200", icon: <Truck size={11} className="text-green-600" /> },
+    cancelled: { label: "Cancelled", className: "bg-red-50 text-red-700 border-red-200", icon: <Ban size={11} className="text-red-500" /> },
 };
 
 // A refunded order must surface both states — a bare "Cancelled" or
@@ -51,19 +51,19 @@ const STATUS_CONFIG: Record<OrderStatus, { label: string; className: string; ico
 // back (QA #37). Refund state lives on paymentStatus (dine-in refunds keep
 // status "delivered").
 function orderStatusLabel(o: { status: OrderStatus; paymentStatus?: string | null }): string {
-  const base = STATUS_CONFIG[o.status]?.label ?? String(o.status);
-  if (o.paymentStatus === "refunded") return `${base} · Refunded`;
-  if (o.paymentStatus === "partially_refunded") return `${base} · Partial refund`;
-  return base;
+    const base = STATUS_CONFIG[o.status]?.label ?? String(o.status);
+    if (o.paymentStatus === "refunded") return `${base} · Refunded`;
+    if (o.paymentStatus === "partially_refunded") return `${base} · Partial refund`;
+    return base;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+    return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
 // ── Track order modal ───────────────────────────────────────────────
@@ -246,20 +246,20 @@ function ReorderToast({ result, onClose }: { result: ReorderResult; onClose: () 
 // ─── Pure print helper (no DOM ref required) ──────────────────────────────────
 
 function buildPrintHtml(
-  order: Order,
-  customer: Customer,
-  rs: { showLogo: boolean; logoUrl: string; restaurantName: string; phone: string; website: string; email: string; vatNumber: string; thankYouMessage: string; customMessage: string },
-  restaurantAddress: string,
-  sym: string,
+    order: Order,
+    customer: Customer,
+    rs: { showLogo: boolean; logoUrl: string; restaurantName: string; phone: string; website: string; email: string; vatNumber: string; thankYouMessage: string; customMessage: string },
+    restaurantAddress: string,
+    sym: string,
 ): string {
-  const subtotal = order.items.reduce((s, l) => s + l.price * l.qty, 0);
-  const deliveryFee = order.deliveryFee ?? 0;
-  const serviceFee = order.serviceFee ?? 0;
-  const couponDisc = order.couponDiscount ?? 0;
-  const vatAmt = order.vatAmount ?? 0;
-  const vatInclusive = order.vatInclusive ?? true;
+    const subtotal = order.items.reduce((s, l) => s + l.price * l.qty, 0);
+    const deliveryFee = order.deliveryFee ?? 0;
+    const serviceFee = order.serviceFee ?? 0;
+    const couponDisc = order.couponDiscount ?? 0;
+    const vatAmt = order.vatAmount ?? 0;
+    const vatInclusive = order.vatInclusive ?? true;
 
-  return `<!DOCTYPE html>
+    return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8"/>
@@ -320,244 +320,244 @@ function buildPrintHtml(
 // ─── Receipt Modal ────────────────────────────────────────────────────────────
 
 function ReceiptModal({
-  order,
-  customer,
-  onClose,
+    order,
+    customer,
+    onClose,
 }: {
-  order: Order;
-  customer: Customer;
-  onClose: () => void;
+    order: Order;
+    customer: Customer;
+    onClose: () => void;
 }) {
-  const { settings } = useApp();
-  const sym = settings.currency?.symbol ?? "£";
-  const { restaurant, receiptSettings: rs } = settings;
-  const restaurantAddress = [restaurant.addressLine1, restaurant.city, restaurant.postcode].filter(Boolean).join(", ");
+    const { settings } = useApp();
+    const sym = settings.currency?.symbol ?? "£";
+    const { restaurant, receiptSettings: rs } = settings;
+    const restaurantAddress = [restaurant.addressLine1, restaurant.city, restaurant.postcode].filter(Boolean).join(", ");
 
-  const subtotal = order.items.reduce((s, l) => s + l.price * l.qty, 0);
-  const deliveryFee = order.deliveryFee ?? 0;
-  const serviceFee = order.serviceFee ?? 0;
-  const couponDisc = order.couponDiscount ?? 0;
-  const vatAmt = order.vatAmount ?? 0;
-//   const vatRate = settings.taxSettings?.rate ?? 0;
-  const storeCreditUsed = order.storeCreditUsed ?? 0;
-  const giftCardUsed = order.giftCardUsed ?? 0;
+    const subtotal = order.items.reduce((s, l) => s + l.price * l.qty, 0);
+    const deliveryFee = order.deliveryFee ?? 0;
+    const serviceFee = order.serviceFee ?? 0;
+    const couponDisc = order.couponDiscount ?? 0;
+    const vatAmt = order.vatAmount ?? 0;
+    //   const vatRate = settings.taxSettings?.rate ?? 0;
+    const storeCreditUsed = order.storeCreditUsed ?? 0;
+    const giftCardUsed = order.giftCardUsed ?? 0;
 
-  // --- CALCULATE HISTORICAL VAT RATE ---
-  let calculatedVatRate = 0;
-  if (vatAmt > 0) {
-    // The base amount before store credit/gift cards are applied
-    const baseAmount = subtotal + deliveryFee + serviceFee - couponDisc;
-    
-    if (baseAmount > 0) {
-      if (order.vatInclusive) {
-        // Math: Rate = (VAT / (Gross - VAT)) * 100
-        calculatedVatRate = Math.round((vatAmt / (subtotal - vatAmt)) * 100);
-      } else {
-        // Math: Rate = (VAT / Net) * 100
-        calculatedVatRate = Math.round((vatAmt / baseAmount) * 100);
-      }
+    // --- CALCULATE HISTORICAL VAT RATE ---
+    let calculatedVatRate = 0;
+    if (vatAmt > 0) {
+        // The base amount before store credit/gift cards are applied
+        const baseAmount = subtotal + deliveryFee + serviceFee - couponDisc;
+
+        if (baseAmount > 0) {
+            if (order.vatInclusive) {
+                // Math: Rate = (VAT / (Gross - VAT)) * 100
+                calculatedVatRate = Math.round((vatAmt / (subtotal - vatAmt)) * 100);
+            } else {
+                // Math: Rate = (VAT / Net) * 100
+                calculatedVatRate = Math.round((vatAmt / baseAmount) * 100);
+            }
+        }
     }
-  }
-  const vatRate = calculatedVatRate;
+    const vatRate = calculatedVatRate;
 
-  function handlePrint() {
-    const html = buildPrintHtml(order, customer, rs, restaurantAddress, sym);
-    const win = window.open("", "_blank", "width=420,height=720");
-    if (!win) return;
-    win.document.write(html);
-    win.document.close();
-  }
+    function handlePrint() {
+        const html = buildPrintHtml(order, customer, rs, restaurantAddress, sym);
+        const win = window.open("", "_blank", "width=420,height=720");
+        if (!win) return;
+        win.document.write(html);
+        win.document.close();
+    }
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+    return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[90vh] flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
-          <div className="flex items-center gap-2 max-w-[60%]">
-            <Receipt size={16} className="text-orange-500" />
-            <h2 title={`Receipt ${fullOrderNumber(order.id)}`} className="font-bold text-gray-900 text-sm truncate">Receipt {fullOrderNumber(order.id)}</h2>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handlePrint}
-              className="flex items-center gap-1.5 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg transition"
-            >
-              <Printer size={12} /> Print
-            </button>
-            <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition">
-              <X size={13} />
-            </button>
-          </div>
-        </div>
+            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[90vh] flex flex-col overflow-hidden">
+                {/* Header */}
+                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
+                    <div className="flex items-center gap-2 max-w-[60%]">
+                        <Receipt size={16} className="text-orange-500" />
+                        <h2 title={`Receipt ${fullOrderNumber(order.id)}`} className="font-bold text-gray-900 text-sm truncate">Receipt {fullOrderNumber(order.id)}</h2>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={handlePrint}
+                            className="flex items-center gap-1.5 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg transition"
+                        >
+                            <Printer size={12} /> Print
+                        </button>
+                        <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition">
+                            <X size={13} />
+                        </button>
+                    </div>
+                </div>
 
-        {/* Receipt body */}
-        <div className="flex-1 overflow-y-auto p-5 font-mono text-xs space-y-3 text-gray-800">
-          {/* Restaurant header */}
-          <div className="text-center space-y-0.5">
-            {rs.showLogo && rs.logoUrl && (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img src={rs.logoUrl} alt="Logo" className="h-12 object-contain mx-auto mb-1" />
-            )}
-            <p className="font-bold text-base text-gray-900">{rs.restaurantName}</p>
-            {restaurantAddress && <p className="text-gray-500 text-[10px]">{restaurantAddress}</p>}
-            {rs.phone && <p className="text-gray-500">{rs.phone}</p>}
-            {rs.website && <p className="text-gray-500">{rs.website}</p>}
-            {rs.email && <p className="text-gray-500">{rs.email}</p>}
-            {rs.vatNumber && <p className="text-gray-500">VAT: {rs.vatNumber}</p>}
-          </div>
+                {/* Receipt body */}
+                <div className="flex-1 overflow-y-auto p-5 font-mono text-xs space-y-3 text-gray-800">
+                    {/* Restaurant header */}
+                    <div className="text-center space-y-0.5">
+                        {rs.showLogo && rs.logoUrl && (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img src={rs.logoUrl} alt="Logo" className="h-12 object-contain mx-auto mb-1" />
+                        )}
+                        <p className="font-bold text-base text-gray-900">{rs.restaurantName}</p>
+                        {restaurantAddress && <p className="text-gray-500 text-[10px]">{restaurantAddress}</p>}
+                        {rs.phone && <p className="text-gray-500">{rs.phone}</p>}
+                        {rs.website && <p className="text-gray-500">{rs.website}</p>}
+                        {rs.email && <p className="text-gray-500">{rs.email}</p>}
+                        {rs.vatNumber && <p className="text-gray-500">VAT: {rs.vatNumber}</p>}
+                    </div>
 
-          <div className="border-t border-dashed border-gray-300" />
+                    <div className="border-t border-dashed border-gray-300" />
 
-          <div className="text-center space-y-0.5">
-            <p className="font-bold text-sm">RECEIPT</p>
-            <p title={fullOrderNumber(order.id)} className="text-gray-500 break-all">{fullOrderNumber(order.id)}</p>
-            <p className="text-gray-500">{fmtDate(order.date)} at {fmtTime(order.date)}</p>
-          </div>
+                    <div className="text-center space-y-0.5">
+                        <p className="font-bold text-sm">RECEIPT</p>
+                        <p title={fullOrderNumber(order.id)} className="text-gray-500 break-all">{fullOrderNumber(order.id)}</p>
+                        <p className="text-gray-500">{fmtDate(order.date)} at {fmtTime(order.date)}</p>
+                    </div>
 
-          <div className="border-t border-dashed border-gray-300" />
+                    <div className="border-t border-dashed border-gray-300" />
 
-          <div className="space-y-1">
-            <div className="flex justify-between">
-              <span className="text-gray-500">Customer</span>
-              <span className="font-medium">{customer.name}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Type</span>
-              <span className="font-medium">{order.fulfillment === "delivery" ? "🚚 Delivery" : "🏪 Collection"}</span>
-            </div>
-            {order.address && (
-              <div className="flex justify-between gap-4">
-                <span className="text-gray-500 flex-shrink-0">Address</span>
-                <span className="text-right font-medium">{order.address}</span>
-              </div>
-            )}
-            {order.scheduledTime && (
-              <div className="flex justify-between gap-4">
-                <span className="text-gray-500 flex-shrink-0">Scheduled</span>
-                <span className="text-right font-medium text-green-700">{order.scheduledTime}</span>
-              </div>
-            )}
-          </div>
+                    <div className="space-y-1">
+                        <div className="flex justify-between">
+                            <span className="text-gray-500">Customer</span>
+                            <span className="font-medium">{customer.name}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-gray-500">Type</span>
+                            <span className="font-medium">{order.fulfillment === "delivery" ? "🚚 Delivery" : "🏪 Collection"}</span>
+                        </div>
+                        {order.address && (
+                            <div className="flex justify-between gap-4">
+                                <span className="text-gray-500 flex-shrink-0">Address</span>
+                                <span className="text-right font-medium">{order.address}</span>
+                            </div>
+                        )}
+                        {order.scheduledTime && (
+                            <div className="flex justify-between gap-4">
+                                <span className="text-gray-500 flex-shrink-0">Scheduled</span>
+                                <span className="text-right font-medium text-green-700">{order.scheduledTime}</span>
+                            </div>
+                        )}
+                    </div>
 
-          <div className="border-t border-dashed border-gray-300" />
+                    <div className="border-t border-dashed border-gray-300" />
 
-          <div className="space-y-3">
-            {order.items.map((line, i) => {
-              // 1. Process details
-              const v = line.selectedVariations?.map(v => v.label).join(", ");
-              const a = line.selectedAddOns?.map(a => a.name).join(", ");
-              const details = [v, a].filter(Boolean).join(" / ");
+                    <div className="space-y-3">
+                        {order.items.map((line, i) => {
+                            // 1. Process details
+                            const v = line.selectedVariations?.map(v => v.label).join(", ");
+                            const a = line.selectedAddOns?.map(a => a.name).join(", ");
+                            const details = [v, a].filter(Boolean).join(" / ");
 
-              return (
-                <div key={i} className="flex justify-between items-start">
-                  <div className="flex-1 min-w-0">
-                    <span className="block text-sm">
-                      {line.qty}× {line.name}
-                    </span>
+                            return (
+                                <div key={i} className="flex justify-between items-start">
+                                    <div className="flex-1 min-w-0">
+                                        <span className="block text-sm">
+                                            {line.qty}× {line.name}
+                                        </span>
 
-                    {/* 2. Only show details if they exist */}
-                    {details && (
-                      <p className="text-[11px] text-gray-400 leading-tight mt-0.5">
-                        {details}
-                      </p>
+                                        {/* 2. Only show details if they exist */}
+                                        {details && (
+                                            <p className="text-[11px] text-gray-400 leading-tight mt-0.5">
+                                                {details}
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    <span className="text-sm font-medium tabular-nums ml-4">
+                                        {sym}{(line.price * line.qty).toFixed(2)}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    <div className="border-t border-dashed border-gray-300" />
+
+                    <div className="space-y-1">
+                        <div className="flex justify-between text-gray-500">
+                            <span>Subtotal</span><span>{sym}{subtotal.toFixed(2)}</span>
+                        </div>
+                        {order.fulfillment === "delivery" && (
+                            <div className="flex justify-between text-gray-500">
+                                <span>Delivery fee</span><span>{sym}{deliveryFee.toFixed(2)}</span>
+                            </div>
+                        )}
+                        {serviceFee > 0 && (
+                            <div className="flex justify-between text-gray-500">
+                                <span>Service fee</span><span>{sym}{serviceFee.toFixed(2)}</span>
+                            </div>
+                        )}
+                        {couponDisc > 0 && (
+                            <div className="flex justify-between text-green-700 font-semibold">
+                                <span>Coupon ({order.couponCode})</span>
+                                <span>−{sym}{couponDisc.toFixed(2)}</span>
+                            </div>
+                        )}
+                        {vatAmt > 0 && (
+                            <div className={`flex justify-between font-semibold ${order.vatInclusive ? "text-gray-400" : "text-orange-600"}`}>
+                                <span>{order.vatInclusive ? `Incl. VAT (${vatRate}%)` : `VAT (${vatRate}%)`}</span>
+                                <span>{order.vatInclusive ? `${sym}${vatAmt.toFixed(2)}` : `+${sym}${vatAmt.toFixed(2)}`}</span>
+                            </div>
+                        )}
+                        {storeCreditUsed > 0 && (
+                            <div className="flex justify-between text-blue-600 font-semibold">
+                                <span>Store credit applied</span>
+                                <span>−{sym}{storeCreditUsed.toFixed(2)}</span>
+                            </div>
+                        )}
+                        {giftCardUsed > 0 && (
+                            <div className="flex justify-between text-purple-600 font-semibold">
+                                <span>Gift card applied</span>
+                                <span>−{sym}{giftCardUsed.toFixed(2)}</span>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="border-t border-dashed border-gray-300" />
+
+                    <div className="flex justify-between font-bold text-base">
+                        <span>TOTAL</span><span>{sym}{order.total.toFixed(2)}</span>
+                    </div>
+                    {vatAmt > 0 && order.vatInclusive && (
+                        <p className="text-[10px] text-gray-400 text-right">Prices include {vatRate}% VAT</p>
                     )}
-                  </div>
 
-                  <span className="text-sm font-medium tabular-nums ml-4">
-                    {sym}{(line.price * line.qty).toFixed(2)}
-                  </span>
+                    {(order.paymentMethod || order.status) && (
+                        <div className="space-y-1">
+                            {order.paymentMethod && (
+                                <div className="flex justify-between">
+                                    <span className="text-gray-500">Payment</span>
+                                    <span className="font-medium">{order.paymentMethod}</span>
+                                </div>
+                            )}
+                            <div className="flex justify-between">
+                                <span className="text-gray-500">Status</span>
+                                <span className={`font-semibold ${STATUS_CONFIG[order.status].className.split(" ").find((c) => c.startsWith("text-")) ?? "text-gray-900"}`}>
+                                    {orderStatusLabel(order)}
+                                </span>
+                            </div>
+                        </div>
+                    )}
+
+                    {order.note && (
+                        <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 text-amber-700">
+                            Note: {order.note}
+                        </div>
+                    )}
+
+                    <div className="border-t border-dashed border-gray-300" />
+
+                    <div className="text-center space-y-0.5 text-gray-500">
+                        {rs.thankYouMessage && <p className="font-medium text-gray-700">{rs.thankYouMessage}</p>}
+                        {rs.customMessage && <p className="text-[10px] leading-snug whitespace-pre-wrap">{rs.customMessage}</p>}
+                        <p>{rs.restaurantName}</p>
+                    </div>
                 </div>
-              );
-            })}
-          </div>
-
-          <div className="border-t border-dashed border-gray-300" />
-
-          <div className="space-y-1">
-            <div className="flex justify-between text-gray-500">
-              <span>Subtotal</span><span>{sym}{subtotal.toFixed(2)}</span>
             </div>
-            {order.fulfillment === "delivery" && (
-              <div className="flex justify-between text-gray-500">
-                <span>Delivery fee</span><span>{sym}{deliveryFee.toFixed(2)}</span>
-              </div>
-            )}
-            {serviceFee > 0 && (
-              <div className="flex justify-between text-gray-500">
-                <span>Service fee</span><span>{sym}{serviceFee.toFixed(2)}</span>
-              </div>
-            )}
-            {couponDisc > 0 && (
-              <div className="flex justify-between text-green-700 font-semibold">
-                <span>Coupon ({order.couponCode})</span>
-                <span>−{sym}{couponDisc.toFixed(2)}</span>
-              </div>
-            )}
-            {vatAmt > 0 && (
-              <div className={`flex justify-between font-semibold ${order.vatInclusive ? "text-gray-400" : "text-orange-600"}`}>
-                <span>{order.vatInclusive ? `Incl. VAT (${vatRate}%)` : `VAT (${vatRate}%)`}</span>
-                <span>{order.vatInclusive ? `${sym}${vatAmt.toFixed(2)}` : `+${sym}${vatAmt.toFixed(2)}`}</span>
-              </div>
-            )}
-            {storeCreditUsed > 0 && (
-              <div className="flex justify-between text-blue-600 font-semibold">
-                <span>Store credit applied</span>
-                <span>−{sym}{storeCreditUsed.toFixed(2)}</span>
-              </div>
-            )}
-            {giftCardUsed > 0 && (
-              <div className="flex justify-between text-purple-600 font-semibold">
-                <span>Gift card applied</span>
-                <span>−{sym}{giftCardUsed.toFixed(2)}</span>
-              </div>
-            )}
-          </div>
-
-          <div className="border-t border-dashed border-gray-300" />
-
-          <div className="flex justify-between font-bold text-base">
-            <span>TOTAL</span><span>{sym}{order.total.toFixed(2)}</span>
-          </div>
-          {vatAmt > 0 && order.vatInclusive && (
-            <p className="text-[10px] text-gray-400 text-right">Prices include {vatRate}% VAT</p>
-          )}
-
-          {(order.paymentMethod || order.status) && (
-            <div className="space-y-1">
-              {order.paymentMethod && (
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Payment</span>
-                  <span className="font-medium">{order.paymentMethod}</span>
-                </div>
-              )}
-              <div className="flex justify-between">
-                <span className="text-gray-500">Status</span>
-                <span className={`font-semibold ${STATUS_CONFIG[order.status].className.split(" ").find((c) => c.startsWith("text-")) ?? "text-gray-900"}`}>
-                  {orderStatusLabel(order)}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {order.note && (
-            <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 text-amber-700">
-              Note: {order.note}
-            </div>
-          )}
-
-          <div className="border-t border-dashed border-gray-300" />
-
-          <div className="text-center space-y-0.5 text-gray-500">
-            {rs.thankYouMessage && <p className="font-medium text-gray-700">{rs.thankYouMessage}</p>}
-            {rs.customMessage && <p className="text-[10px] leading-snug whitespace-pre-wrap">{rs.customMessage}</p>}
-            <p>{rs.restaurantName}</p>
-          </div>
         </div>
-      </div>
-    </div>
-  );
+    );
 }
 
 // ── Main Page ───────────────────────────────────────────────────────────────
