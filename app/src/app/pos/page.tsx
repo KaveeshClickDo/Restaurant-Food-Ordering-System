@@ -20,6 +20,7 @@ import StaffView from "@/components/pos/StaffView";
 import SettingsView from "@/components/pos/SettingsView";
 import TableStatusView from "@/components/pos/TableStatusView";
 import ReservationsView from "@/components/pos/ReservationsView";
+import CollectionFooter from "@/components/collection/CollectionFooter";
 
 // Top-level POS views that are deep-linkable via ?tab=<view> so a page refresh
 // or shared link keeps the same tab open — mirrors /admin?tab=<id>.
@@ -246,6 +247,7 @@ function POSPageContent() {
           );
         })}
       </nav>
+      <CollectionFooter />
     </div>
   );
 }
