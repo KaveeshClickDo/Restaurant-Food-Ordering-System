@@ -384,6 +384,19 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
   const isActive = !isFullyRefunded && !["delivered", "cancelled"].includes(order.status);
   const canReorder = !isActive && (isFullyRefunded || isPartiallyRefunded || order.status === "delivered");
 
+  const subtotal = order.items.reduce((s, l) => s + l.price * l.qty, 0);
+  const vatAmt = order.vatAmount ?? 0;
+
+  // --- CALCULATE HISTORICAL VAT RATE ---
+  let calculatedVatRate = 0;
+  if (vatAmt > 0) {
+    if (order.vatInclusive) {
+      // Math: Rate = (VAT / (Gross - VAT)) * 100
+      calculatedVatRate = Math.round((vatAmt / (subtotal - vatAmt)) * 100);
+    }
+  }
+  const vatRate = calculatedVatRate;
+
   return (
     <div className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all ${isActive ? "border-zinc-200" : "border-zinc-100"}`}>
       {/* Header row */}
@@ -517,10 +530,10 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
           </div>
 
           {(order.vatAmount ?? 0) > 0 && order.vatInclusive && (
-            <p className="text-right text-xs text-zinc-500">Prices include {settings.taxSettings?.rate}% VAT</p>
+            <p className="text-right text-xs text-zinc-500">Prices include {vatRate}% VAT</p>
           )}
 
-           {(order.paymentMethod || order.status) && (
+          {(order.paymentMethod || order.status) && (
             <div>
               {order.paymentMethod && (
                 <div className="flex justify-between">
@@ -1480,11 +1493,11 @@ interface PurchasedGiftCard {
 }
 
 const TXN_LABELS: Record<string, string> = {
-  earn:            "Points earned",
-  redeem:          "Points used",
-  earn_reversal:   "Refund adjustment",
+  earn: "Points earned",
+  redeem: "Points used",
+  earn_reversal: "Refund adjustment",
   redeem_reversal: "Reward points returned",
-  adjust:          "Balance adjustment",
+  adjust: "Balance adjustment",
 };
 
 function RewardsTab() {
@@ -1627,9 +1640,8 @@ function RewardsTab() {
                 return (
                   <div
                     key={t}
-                    className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full border-2 ${
-                      reached ? "bg-amber-500 border-amber-200" : "bg-white border-zinc-300"
-                    }`}
+                    className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full border-2 ${reached ? "bg-amber-500 border-amber-200" : "bg-white border-zinc-300"
+                      }`}
                     style={{ left: `${pos}%` }}
                   />
                 );
@@ -1739,11 +1751,10 @@ function RewardsTab() {
                       <button
                         onClick={() => redeemReward(r)}
                         disabled={!affordable}
-                        className={`text-[11.5px] font-bold rounded-full px-3 py-1.5 transition ${
-                          affordable
+                        className={`text-[11.5px] font-bold rounded-full px-3 py-1.5 transition ${affordable
                             ? "bg-orange-500 hover:bg-orange-600 text-white"
                             : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
-                        }`}
+                          }`}
                         title={affordable ? `Redeem for ${r.pointsCost.toLocaleString()} points` : `${shortBy.toLocaleString()} more points needed`}
                       >
                         {affordable ? "Redeem" : `${shortBy.toLocaleString()} more pts`}

@@ -571,9 +571,27 @@ function ReceiptModal({
   const serviceFee = order.serviceFee ?? 0;
   const couponDisc = order.couponDiscount ?? 0;
   const vatAmt = order.vatAmount ?? 0;
-  const vatRate = settings.taxSettings?.rate ?? 0;
+  // const vatRate = settings.taxSettings?.rate ?? 0;
   const storeCreditUsed = order.storeCreditUsed ?? 0;
   const giftCardUsed = order.giftCardUsed ?? 0;
+
+  // --- CALCULATE HISTORICAL VAT RATE ---
+  let calculatedVatRate = 0;
+  if (vatAmt > 0) {
+    // The base amount before store credit/gift cards are applied
+    const baseAmount = subtotal + deliveryFee + serviceFee - couponDisc;
+    
+    if (baseAmount > 0) {
+      if (order.vatInclusive) {
+        // Math: Rate = (VAT / (Gross - VAT)) * 100
+        calculatedVatRate = Math.round((vatAmt / (subtotal - vatAmt)) * 100);
+      } else {
+        // Math: Rate = (VAT / Net) * 100
+        calculatedVatRate = Math.round((vatAmt / baseAmount) * 100);
+      }
+    }
+  }
+  const vatRate = calculatedVatRate;
 
   function handlePrint() {
     const html = buildPrintHtml(order, customer, rs, restaurantAddress, sym);
