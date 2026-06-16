@@ -260,11 +260,11 @@ function DisplayCard({ display, expanded, busy, onToggleExpand, onPatch, onDelet
   return (
     <div className={`bg-white rounded-2xl border shadow-sm overflow-hidden ${display.active ? "border-gray-100" : "border-gray-200"}`}>
       {/* Header */}
-      <div className="flex items-center gap-3 p-4">
+      <div className="flex flex-wrap items-center gap-3 p-4">
         <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${display.active ? "bg-orange-100 text-orange-600" : "bg-gray-100 text-gray-400"}`}>
           <Monitor size={18} />
         </div>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-40 flex-1">
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-gray-900 truncate">{display.name}</h3>
             {display.active
@@ -481,7 +481,7 @@ function SettingsSection({ display, onPatch }: { display: Display; onPatch: (p: 
     <div className="space-y-4">
       <h4 className="text-sm font-semibold text-gray-800">Settings</h4>
 
-      <div className="grid sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Name */}
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1.5">Display name</label>
@@ -561,7 +561,7 @@ function SettingsSection({ display, onPatch }: { display: Display; onPatch: (p: 
           <select
             value={display.fit}
             onChange={(e) => onPatch({ fit: e.target.value as "contain" | "cover" })}
-            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300"
+            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-[13.5px] sm:text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300"
           >
             <option value="contain">Contain - show whole poster (letterbox)</option>
             <option value="cover">Cover - fill screen (may crop)</option>
