@@ -620,9 +620,9 @@ function DetailModal({ id, sym, onClose }: { id: string; sym: string; onClose: (
   }, [id]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/40 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-gray-100 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-100">
           <h3 className="font-bold text-gray-900 text-base">Gift card detail</h3>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100"><X size={16} /></button>
         </div>
@@ -631,7 +631,7 @@ function DetailModal({ id, sym, onClose }: { id: string; sym: string; onClose: (
         ) : !card ? (
           <div className="py-16 text-center text-gray-400 text-sm">Not found.</div>
         ) : (
-          <div className="px-6 py-5 space-y-4">
+          <div className="px-4 sm:px-6 py-5 space-y-4">
             <div className="bg-gray-50 rounded-xl p-4">
               <p className="text-2xl font-bold font-mono tracking-wider text-gray-900">{card.code}</p>
               <div className="flex items-center gap-4 mt-2 text-sm">
@@ -650,12 +650,12 @@ function DetailModal({ id, sym, onClose }: { id: string; sym: string; onClose: (
                 {txns.length === 0 ? (
                   <p className="text-sm text-gray-400">No transactions.</p>
                 ) : txns.map((t) => (
-                  <div key={t.id} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg px-3 py-2">
+                  <div key={t.id} className="flex gap-2 items-center justify-between bg-white border border-gray-100 rounded-lg px-3 py-2">
                     <div className="min-w-0">
                       <p className="text-xs font-semibold text-gray-800 capitalize">{t.type}</p>
                       <p className="text-[11px] text-gray-400 truncate">{fmtDate(t.createdAt)}{t.notes ? ` · ${t.notes}` : ""}</p>
                     </div>
-                    <span className={`text-sm font-bold tabular-nums ${t.amount >= 0 ? "text-green-600" : "text-gray-700"}`}>
+                    <span className={`text-sm font-bold tabular-nums shrink-0 ${t.amount >= 0 ? "text-green-600" : "text-gray-700"}`}>
                       {t.amount >= 0 ? "+" : "−"}{sym}{Math.abs(t.amount).toFixed(2)}
                     </span>
                   </div>
