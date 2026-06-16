@@ -1466,6 +1466,49 @@ end $$;
 
 
 -- ═══════════════════════════════════════════════════════════════════════════════
+-- Digital signage / menu boards (public TV poster displays)
+-- ═══════════════════════════════════════════════════════════════════════════════
+--
+-- Each row is one display with its own public URL: /display/<slug>. A display
+-- carries an ordered list of poster images in the `slides` JSONB column
+-- ([{id,imageUrl,order,enabled}], mirroring app_settings.data.footerLogos). One
+-- enabled slide → a static fullscreen poster; several → an auto-looping
+-- slideshow. The public /display/<slug> page is unauthenticated (the middleware
+-- matcher does NOT cover /display); it reads through the service-role API layer
+-- (api/signage/[slug]), while admin CRUD goes through api/admin/signage. Poster
+-- image files live in the lazily-created `signage-images` storage bucket — only
+-- the short public URL is stored here.
+
+create table if not exists signage_displays (
+  id          uuid        primary key default gen_random_uuid(),
+  name        text        not null,
+  slug        text        not null,
+  active      boolean     not null default true,
+  slides      jsonb       not null default '[]',      -- [{id,imageUrl,order,enabled}]
+  interval_ms integer     not null default 8000,      -- ms each slide is shown
+  transition  text        not null default 'fade',    -- 'fade' | 'none'
+  fit         text        not null default 'contain', -- 'contain' | 'cover'
+  background  text        not null default '#000000',
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+-- Slug is the public URL key — unique, case-insensitively.
+create unique index if not exists signage_displays_slug_lower_unique
+  on signage_displays (lower(slug));
+
+-- RLS — server-route only (service role); anon (the browser client) gets
+-- nothing. The public display page reads via the service-role API, so even the
+-- unauthenticated TV never touches this table directly.
+alter table signage_displays enable row level security;
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename = 'signage_displays' and policyname = 'deny_anon_all') then
+    create policy "deny_anon_all" on signage_displays for all to anon using (false) with check (false);
+  end if;
+end $$;
+
+
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- Verification queries (paste these separately after running the above):
 --
 --   -- new tables present?

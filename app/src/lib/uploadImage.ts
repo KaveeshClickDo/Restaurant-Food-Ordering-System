@@ -79,3 +79,38 @@ export async function uploadFloorPlanImage(file: File): Promise<string> {
   }
   return json.url;
 }
+
+// ── Signage poster image (digital menu boards) ────────────────────────────────
+// Largest cap of the three — signage posters run fullscreen on TVs, so they're
+// higher-resolution than dish photos or floor plans.
+// Keep in sync with MAX_BYTES in app/src/app/api/uploads/signage-image/route.ts.
+export const MAX_SIGNAGE_BYTES = 5 * 1024 * 1024; // 5 MB
+export const MAX_SIGNAGE_LABEL = "5 MB";
+
+/** Like imageSizeError, but for the signage upload's larger limit. */
+export function signageSizeError(file: File): string | null {
+  if (!file.type.startsWith("image/")) return "Please choose an image file.";
+  if (file.size > MAX_SIGNAGE_BYTES) {
+    return `Image is too large (${(file.size / 1024 / 1024).toFixed(2)} MB). Maximum is ${MAX_SIGNAGE_LABEL}.`;
+  }
+  return null;
+}
+
+/**
+ * Uploads a signage poster image and resolves to its public URL. Throws an
+ * Error with a user-facing message on validation failure or a non-OK response.
+ */
+export async function uploadSignageImage(file: File): Promise<string> {
+  const err = signageSizeError(file);
+  if (err) throw new Error(err);
+
+  const body = new FormData();
+  body.append("file", file);
+
+  const res = await fetch("/api/uploads/signage-image", { method: "POST", body });
+  const json = (await res.json().catch(() => ({}))) as { ok?: boolean; url?: string; error?: string };
+  if (!res.ok || !json.ok || !json.url) {
+    throw new Error(json.error || "Upload failed. Please try again.");
+  }
+  return json.url;
+}
