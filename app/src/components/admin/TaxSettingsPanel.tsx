@@ -11,20 +11,19 @@ import {
 // ─── Small shared helpers ─────────────────────────────────────────────────────
 
 function Toggle({
-  enabled, onToggle, size = "md",
-}: { enabled: boolean; onToggle: () => void; size?: "sm" | "md" }) {
+  enabled, onToggle, size = "md", disabled = false
+}: { enabled: boolean; onToggle: () => void; size?: "sm" | "md"; disabled?: boolean }) {
   const track = size === "sm" ? "w-9 h-5" : "w-11 h-6";
   const thumb = size === "sm"
     ? `w-3.5 h-3.5 ${enabled ? "translate-x-4" : "translate-x-0.5"}`
     : `w-4 h-4 ${enabled ? "translate-x-6" : "translate-x-1"}`;
   return (
     <button
+      disabled={disabled}
       onClick={onToggle}
       role="switch"
       aria-checked={enabled}
-      className={`relative flex-shrink-0 inline-flex items-center ${track} rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-1 ${
-        enabled ? "bg-green-500" : "bg-gray-300"
-      }`}
+      className={`relative flex-shrink-0 inline-flex items-center ${track} rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-1 ${enabled ? "bg-green-500" : "bg-gray-300"} ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
     >
       <span className={`inline-block bg-white rounded-full shadow-sm transition-transform ${thumb}`} />
     </button>
@@ -44,22 +43,22 @@ function TaxPreview({ draft }: { draft: TaxSettings }) {
   const sym = settings.currency?.symbol ?? "£";
   const exampleSubtotal = 25.00;
   const exampleDelivery = 2.99;
-  const exampleService  = 1.25;
-  const base            = exampleSubtotal + exampleDelivery + exampleService;
+  const exampleService = 1.25;
+  const base = exampleSubtotal + exampleDelivery + exampleService;
 
   let vatAmount = 0;
-  let total     = base;
-  let vatLine   = "";
+  let total = base;
+  let vatLine = "";
 
   if (draft.enabled && draft.rate > 0) {
     if (draft.inclusive) {
       vatAmount = parseFloat((exampleSubtotal * draft.rate / (100 + draft.rate)).toFixed(2));
-      total     = base;                       // total unchanged — VAT is inside the price
-      vatLine   = `Incl. VAT (${draft.rate}%)`;
+      total = base;                       // total unchanged — VAT is inside the price
+      vatLine = `Incl. VAT (${draft.rate}%)`;
     } else {
       vatAmount = parseFloat((exampleSubtotal * draft.rate / 100).toFixed(2));
-      total     = parseFloat((base + vatAmount).toFixed(2));
-      vatLine   = `VAT (${draft.rate}%)`;
+      total = parseFloat((base + vatAmount).toFixed(2));
+      vatLine = `VAT (${draft.rate}%)`;
     }
   }
 
@@ -87,9 +86,8 @@ function TaxPreview({ draft }: { draft: TaxSettings }) {
 
         {/* VAT line */}
         {draft.enabled && draft.showBreakdown && vatAmount > 0 && (
-          <div className={`flex justify-between text-xs font-semibold pt-1 ${
-            draft.inclusive ? "text-gray-400" : "text-orange-600"
-          }`}>
+          <div className={`flex justify-between text-xs font-semibold pt-1 ${draft.inclusive ? "text-gray-400" : "text-orange-600"
+            }`}>
             <span>{vatLine}</span>
             <span>{draft.inclusive ? fmt(vatAmount) : `+${fmt(vatAmount)}`}</span>
           </div>
@@ -111,11 +109,10 @@ function TaxPreview({ draft }: { draft: TaxSettings }) {
 
       {/* Mode chip */}
       {draft.enabled ? (
-        <div className={`mt-3 text-center text-xs font-semibold py-1.5 rounded-lg ${
-          draft.inclusive
+        <div className={`mt-3 text-center text-xs font-semibold py-1.5 rounded-lg ${draft.inclusive
             ? "bg-blue-900/40 text-blue-300"
             : "bg-orange-900/40 text-orange-300"
-        }`}>
+          }`}>
           {draft.inclusive ? "VAT-Inclusive mode" : "VAT-Exclusive mode — adds to total"}
         </div>
       ) : (
@@ -136,7 +133,16 @@ export default function TaxSettingsPanel() {
   const [rateError, setRateError] = useState("");
 
   function patch(p: Partial<TaxSettings>) {
-    setDraft((d) => ({ ...d, ...p }));
+    setDraft((d) => {
+      const next = { ...d, ...p };
+
+      // If VAT is enabled AND mode is Exclusive, force breakdown to true
+      if (next.enabled && !next.inclusive) {
+        next.showBreakdown = true;
+      }
+
+      return next;
+    });
     setRateError("");
     setSaved(false);
   }
@@ -208,9 +214,8 @@ export default function TaxSettingsPanel() {
                     value={draft.rate}
                     placeholder="e.g. 20 for 20%"
                     onChange={(e) => patch({ rate: parseFloat(e.target.value) })}
-                    className={`w-full px-4 pr-10 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition ${
-                      rateError ? "border-red-400 bg-red-50" : "border-gray-200"
-                    }`}
+                    className={`w-full px-4 pr-10 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition ${rateError ? "border-red-400 bg-red-50" : "border-gray-200"
+                      }`}
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">%</span>
                 </div>
@@ -233,16 +238,14 @@ export default function TaxSettingsPanel() {
                 {/* Inclusive */}
                 <button
                   onClick={() => patch({ inclusive: true })}
-                  className={`text-left px-4 py-4 rounded-2xl border-2 transition ${
-                    draft.inclusive
+                  className={`text-left px-4 py-4 rounded-2xl border-2 transition ${draft.inclusive
                       ? "border-blue-500 bg-blue-50"
                       : "border-gray-200 hover:border-gray-300 bg-white"
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center gap-2 mb-2">
-                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-                      draft.inclusive ? "border-blue-500" : "border-gray-300"
-                    }`}>
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${draft.inclusive ? "border-blue-500" : "border-gray-300"
+                      }`}>
                       {draft.inclusive && <div className="w-2 h-2 rounded-full bg-blue-500" />}
                     </div>
                     <span className={`text-sm font-bold ${draft.inclusive ? "text-blue-700" : "text-gray-700"}`}>
@@ -257,16 +260,14 @@ export default function TaxSettingsPanel() {
                 {/* Exclusive */}
                 <button
                   onClick={() => patch({ inclusive: false })}
-                  className={`text-left px-4 py-4 rounded-2xl border-2 transition ${
-                    !draft.inclusive
+                  className={`text-left px-4 py-4 rounded-2xl border-2 transition ${!draft.inclusive
                       ? "border-orange-500 bg-orange-50"
                       : "border-gray-200 hover:border-gray-300 bg-white"
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center gap-2 mb-2">
-                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-                      !draft.inclusive ? "border-orange-500" : "border-gray-300"
-                    }`}>
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${!draft.inclusive ? "border-orange-500" : "border-gray-300"
+                      }`}>
                       {!draft.inclusive && <div className="w-2 h-2 rounded-full bg-orange-500" />}
                     </div>
                     <span className={`text-sm font-bold ${!draft.inclusive ? "text-orange-700" : "text-gray-700"}`}>
@@ -287,13 +288,20 @@ export default function TaxSettingsPanel() {
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Show VAT breakdown</p>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    Display the VAT line in cart, checkout, printed receipts, and order emails
+                    {!draft.inclusive
+                      ? "Breakdown must be visible when using exclusive tax to ensure transparency for your customers."
+                      : "Display the VAT line in cart, checkout, printed receipts, and order emails."}
                   </p>
                 </div>
                 <Toggle
                   size="sm"
                   enabled={draft.showBreakdown}
-                  onToggle={() => patch({ showBreakdown: !draft.showBreakdown })}
+                  disabled={!draft.inclusive} // Locks the toggle if Exclusive is selected
+                  onToggle={() => {
+                    if (draft.inclusive) {
+                      patch({ showBreakdown: !draft.showBreakdown });
+                    }
+                  }}
                 />
               </div>
             </div>
@@ -301,11 +309,10 @@ export default function TaxSettingsPanel() {
             {/* Save */}
             <button
               onClick={handleSave}
-              className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-semibold text-sm transition-all ${
-                saved
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-semibold text-sm transition-all ${saved
                   ? "bg-green-100 text-green-700"
                   : "bg-orange-500 hover:bg-orange-600 text-white"
-              }`}
+                }`}
             >
               {saved ? <><CheckCircle size={15} /> Saved!</> : "Save tax settings"}
             </button>
