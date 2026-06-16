@@ -349,6 +349,8 @@ export function buildVarMap(
   const primaryColor = settings.colors?.primaryColor ?? "#f97316";
   const sym = settings.currency?.symbol || "£";
 
+  const tax = settings.taxSettings;
+
   const itemsHtml = order.items
     .map((i) => {
 
@@ -409,7 +411,7 @@ export function buildVarMap(
       <td style="padding:4px 8px;text-align:right;color:#16a34a;font-weight:600">−${sym}${order.couponDiscount.toFixed(2)}</td>
     </tr>`;
   }
-  if (order.vatAmount && order.vatAmount > 0) {
+  if (order.vatAmount && order.vatAmount > 0 && tax.showBreakdown) {
     const vatLabel = order.vatInclusive ? `VAT incl. (${vatRate}%)` : `VAT (${vatRate}%)`;
     const vatColor = order.vatInclusive ? "#9ca3af" : primaryColor;
     const vatPrefix = order.vatInclusive ? "" : "+";
@@ -442,7 +444,7 @@ export function buildVarMap(
       <td style="padding:8px;text-align:right;font-weight:700;font-size:15px;color:#111827;border-top:2px solid #e5e7eb">${sym}${order.total.toFixed(2)}</td>
     </tr>`;
 
-  const vatNote = order.vatAmount && order.vatAmount > 0 && order.vatInclusive
+  const vatNote = order.vatAmount && order.vatAmount > 0 && order.vatInclusive && tax.showBreakdown
     ? `<p style="margin:4px 0 0 0;font-size:11px;color:#9ca3af;text-align:right">Prices include ${vatRate}% VAT</p>`
     : "";
 
@@ -572,7 +574,7 @@ export function buildPreviewVarMap(settings: AdminSettings): Record<string, stri
       <td style="padding:4px 8px;color:#6b7280">Service fee (${settings.restaurant.serviceFee}%)</td>
       <td style="padding:4px 8px;text-align:right;color:#6b7280">${sym}${previewService.toFixed(2)}</td>
     </tr>`;
-  if (previewVatEnabled && previewVatAmt > 0) {
+  if (previewVatEnabled && previewVatAmt > 0 && settings.taxSettings?.showBreakdown) {
     const vatLabel = previewInclusive ? `VAT incl. (${previewVatRate}%)` : `VAT (${previewVatRate}%)`;
     const vatColor = previewInclusive ? "#9ca3af" : primaryColor;
     const vatPrefix = previewInclusive ? "" : "+";
@@ -588,7 +590,7 @@ export function buildPreviewVarMap(settings: AdminSettings): Record<string, stri
       <td style="padding:8px;text-align:right;font-weight:700;font-size:15px;color:#111827;border-top:2px solid #e5e7eb">${sym}${previewTotal.toFixed(2)}</td>
     </tr>`;
 
-  const previewVatNote = previewVatEnabled && previewVatAmt > 0 && previewInclusive
+  const previewVatNote = previewVatEnabled && previewVatAmt > 0 && previewInclusive && settings.taxSettings?.showBreakdown
     ? `<p style="margin:4px 0 0 0;font-size:11px;color:#9ca3af;text-align:right">Prices include ${previewVatRate}% VAT</p>`
     : "";
 
@@ -620,7 +622,7 @@ export function buildPreviewVarMap(settings: AdminSettings): Record<string, stri
     restaurant_name: settings.restaurant.name,
     restaurant_phone: settings.restaurant.phone,
     restaurant_address: restAddr,
-    order_vat: previewVatEnabled && previewVatAmt > 0
+    order_vat: previewVatEnabled && previewVatAmt > 0 && settings.taxSettings?.showBreakdown
       ? buildVatString(previewVatAmt, previewInclusive, settings)
       : "",
     // Preview always shows the block populated (it represents the delivery flow).

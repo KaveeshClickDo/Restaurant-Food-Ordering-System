@@ -396,6 +396,8 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
     }
   }
   const vatRate = calculatedVatRate;
+  const tax = settings.taxSettings;
+  const showVat = order.vatInclusive ? tax.showBreakdown : true;
 
   return (
     <div className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all ${isActive ? "border-zinc-200" : "border-zinc-100"}`}>
@@ -497,7 +499,7 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
             )}
 
             {/* VAT */}
-            {(order.vatAmount ?? 0) > 0 && (
+            {(order.vatAmount ?? 0) > 0 && showVat && (
               <div className={`flex justify-between text-xs font-medium ${order.vatInclusive ? "text-zinc-400" : "text-orange-600"}`}>
                 <span>{order.vatInclusive ? `Incl. VAT` : `VAT`}</span>
                 <span className="tabular-nums">{order.vatInclusive ? "" : "+"}{sym}{order.vatAmount!.toFixed(2)}</span>
@@ -529,7 +531,7 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
             </span>
           </div>
 
-          {(order.vatAmount ?? 0) > 0 && order.vatInclusive && (
+          {(order.vatAmount ?? 0) > 0 && order.vatInclusive && showVat && (
             <p className="text-right text-xs text-zinc-500">Prices include {vatRate}% VAT</p>
           )}
 

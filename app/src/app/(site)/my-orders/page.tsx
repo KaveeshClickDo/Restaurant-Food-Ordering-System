@@ -251,6 +251,7 @@ function buildPrintHtml(
     rs: { showLogo: boolean; logoUrl: string; restaurantName: string; phone: string; website: string; email: string; vatNumber: string; thankYouMessage: string; customMessage: string },
     restaurantAddress: string,
     sym: string,
+    showVat: boolean,
 ): string {
     const subtotal = order.items.reduce((s, l) => s + l.price * l.qty, 0);
     const deliveryFee = order.deliveryFee ?? 0;
@@ -302,10 +303,10 @@ function buildPrintHtml(
   ${order.fulfillment === "delivery" ? `<div class="row"><span>Delivery fee</span><span>${sym}${deliveryFee.toFixed(2)}</span></div>` : ""}
   ${serviceFee > 0 ? `<div class="row"><span>Service fee</span><span>${sym}${serviceFee.toFixed(2)}</span></div>` : ""}
   ${couponDisc > 0 ? `<div class="row" style="color:#16a34a;font-weight:600"><span>Coupon (${order.couponCode ?? ""})</span><span>-${sym}${couponDisc.toFixed(2)}</span></div>` : ""}
-  ${vatAmt > 0 ? `<div class="row" style="color:${vatInclusive ? "#9ca3af" : "#ea580c"};font-weight:600"><span>${vatInclusive ? "Incl. VAT" : "VAT"}</span><span>${vatInclusive ? "" : "+"}${sym}${vatAmt.toFixed(2)}</span></div>` : ""}
+  ${vatAmt > 0 && showVat ? `<div class="row" style="color:${vatInclusive ? "#9ca3af" : "#ea580c"};font-weight:600"><span>${vatInclusive ? "Incl. VAT" : "VAT"}</span><span>${vatInclusive ? "" : "+"}${sym}${vatAmt.toFixed(2)}</span></div>` : ""}
   <div class="d"></div>
   <div class="tot"><span>TOTAL</span><span>${sym}${order.total.toFixed(2)}</span></div>
-  ${vatAmt > 0 && vatInclusive ? `<div class="c sm" style="margin-top:3px">Prices include VAT</div>` : ""}
+  ${vatAmt > 0 && vatInclusive && showVat ? `<div class="c sm" style="margin-top:3px">Prices include VAT</div>` : ""}
   ${order.paymentMethod ? `<div class="row" style="margin-top:6px"><span>Payment:</span><span>${order.paymentMethod}</span></div>` : ""}
   <div class="row"><span>Status:</span><span>${order.status.charAt(0).toUpperCase() + order.status.slice(1)}</span></div>
   <div class="d"></div>
@@ -332,6 +333,8 @@ function ReceiptModal({
     const sym = settings.currency?.symbol ?? "£";
     const { restaurant, receiptSettings: rs } = settings;
     const restaurantAddress = [restaurant.addressLine1, restaurant.city, restaurant.postcode].filter(Boolean).join(", ");
+    const tax = settings.taxSettings;
+    const showVat = order.vatInclusive ? tax.showBreakdown : true;
 
     const subtotal = order.items.reduce((s, l) => s + l.price * l.qty, 0);
     const deliveryFee = order.deliveryFee ?? 0;
@@ -361,7 +364,7 @@ function ReceiptModal({
     const vatRate = calculatedVatRate;
 
     function handlePrint() {
-        const html = buildPrintHtml(order, customer, rs, restaurantAddress, sym);
+        const html = buildPrintHtml(order, customer, rs, restaurantAddress, sym, showVat );
         const win = window.open("", "_blank", "width=420,height=720");
         if (!win) return;
         win.document.write(html);
@@ -495,7 +498,7 @@ function ReceiptModal({
                                 <span>−{sym}{couponDisc.toFixed(2)}</span>
                             </div>
                         )}
-                        {vatAmt > 0 && (
+                        {vatAmt > 0 && showVat && (
                             <div className={`flex justify-between font-semibold ${order.vatInclusive ? "text-gray-400" : "text-orange-600"}`}>
                                 <span>{order.vatInclusive ? `Incl. VAT (${vatRate}%)` : `VAT (${vatRate}%)`}</span>
                                 <span>{order.vatInclusive ? `${sym}${vatAmt.toFixed(2)}` : `+${sym}${vatAmt.toFixed(2)}`}</span>
@@ -520,7 +523,7 @@ function ReceiptModal({
                     <div className="flex justify-between font-bold text-base">
                         <span>TOTAL</span><span>{sym}{order.total.toFixed(2)}</span>
                     </div>
-                    {vatAmt > 0 && order.vatInclusive && (
+                    {vatAmt > 0 && order.vatInclusive && showVat && (
                         <p className="text-[10px] text-gray-400 text-right">Prices include {vatRate}% VAT</p>
                     )}
 
