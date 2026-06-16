@@ -76,6 +76,34 @@ export const AdminGiftCardVoidSchema = z.object({
   reason: z.string().trim().min(1, "A reason is required for the audit log.").max(500),
 });
 
+// ── Pre-issue an INACTIVE card ───────────────────────────────────────────────
+// Mints a card with a value + code but NO payment, NO recipient. It cannot be
+// redeemed and is NOT booked as income until an admin activates it at the point
+// of physical sale. The whole point: a code copied off a physical card on the
+// counter is worthless until that activation happens.
+export const AdminGiftCardInactiveCreateSchema = z.object({
+  amount: Money
+    .refine((n) => n >= 1, "Amount must be at least £1.")
+    .refine((n) => n <= 1000, "Amount must be £1,000 or less."),
+  /** Free-form note stored on the initial 'issue' ledger row. */
+  notes: z.string().trim().max(500).optional(),
+});
+
+// ── Activate a pre-issued (inactive) card ────────────────────────────────────
+// The sale moment. Recipient email + payment method are REQUIRED here (the card
+// is being sold for money) — this is when finance recognises the income, the
+// expiry clock starts, and the delivery email goes out, exactly like a normal
+// admin counter sale.
+export const AdminGiftCardActivateSchema = z.object({
+  paymentMethod: z.enum(["cash", "card"]),
+  recipientEmail: Email,
+  recipientName:  z.string().trim().max(120).optional(),
+  personalMessage: z.string().trim().max(500).optional(),
+  notes: z.string().trim().max(500).optional(),
+  /** If true, sends the delivery email after activating. */
+  sendEmail: z.boolean().optional().default(true),
+});
+
 // ── Refund routing into a gift card ──────────────────────────────────────────
 // The shape that gets posted to /api/admin/orders/[id]/refund when the chosen
 // method is "gift_card". The route resolves which gift card to credit from

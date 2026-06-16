@@ -27,6 +27,7 @@ function rowToGiftCard(row: any) {
     personalMessage:    row.personal_message ?? undefined,
     expiresAt:          row.expires_at ?? undefined,
     deliveredAt:        row.delivered_at ?? undefined,
+    activatedAt:        row.activated_at ?? undefined,
     createdAt:          row.created_at,
   };
 }

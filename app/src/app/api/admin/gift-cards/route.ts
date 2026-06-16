@@ -28,6 +28,7 @@ function rowToGiftCard(row: any) {
     personalMessage:    row.personal_message ?? undefined,
     expiresAt:          row.expires_at ?? undefined,
     deliveredAt:        row.delivered_at ?? undefined,
+    activatedAt:        row.activated_at ?? undefined,
     createdAt:          row.created_at,
   };
 }
@@ -47,7 +48,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     .order("created_at", { ascending: false })
     .limit(500);
 
-  if (status && ["active", "redeemed", "voided", "expired"].includes(status)) {
+  if (status && ["inactive", "active", "redeemed", "voided", "expired"].includes(status)) {
     q = q.eq("status", status);
   }
 
@@ -76,6 +77,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     stats: {
       total:           rows.length,
       activeCount:     rows.filter((r) => r.status === "active").length,
+      inactiveCount:   rows.filter((r) => r.status === "inactive").length,
       totalOutstanding: parseFloat(totalOutstanding.toFixed(2)),
     },
   });

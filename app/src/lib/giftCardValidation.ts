@@ -17,6 +17,7 @@ import { normaliseGiftCardCode } from "@/lib/giftCardCode";
 export type GiftCardLookupError =
   | "invalid_format"
   | "not_found"
+  | "inactive"
   | "voided"
   | "expired"
   | "depleted";
@@ -92,6 +93,19 @@ export async function lookupActiveGiftCard(rawCode: string): Promise<GiftCardLoo
 
   // Status checks. Order matters for UX — show the most specific reason
   // first so the customer knows whether to retry, top up, or contact us.
+
+  // Pre-issued cards carry a balance but are NOT redeemable until an admin
+  // activates them at the point of sale. Without this guard a code photographed
+  // off a physical card on the counter could be spent the moment a real
+  // customer activates it — the whole reason the inactive stage exists.
+  if (data.status === "inactive") {
+    return {
+      ok: false,
+      error: "inactive",
+      message: "This gift card hasn't been activated yet. Please contact the restaurant.",
+    };
+  }
+
   if (data.status === "voided") {
     return {
       ok: false,

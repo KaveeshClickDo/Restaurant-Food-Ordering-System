@@ -803,7 +803,7 @@ create table if not exists gift_cards (
   initial_amount           numeric(10,2) not null check (initial_amount > 0),
   balance                  numeric(10,2) not null check (balance >= 0),
   status                   text        not null default 'active'
-                                       check (status in ('active','redeemed','voided','expired')),
+                                       check (status in ('inactive','active','redeemed','voided','expired')),
   issued_to_email          text,
   issued_to_name           text,
   -- Buyer attribution — set when the purchase was made by a logged-in customer.
@@ -833,6 +833,27 @@ create unique index if not exists gift_cards_code_lower_unique
 alter table gift_cards add column if not exists payment_method text;
 alter table gift_cards add column if not exists payment_ref    text;
 
+-- Pre-issued (inactive) gift card support. An inactive card is minted with a
+-- value + code but NO payment, NO recipient — it sits UNREDEEMABLE until an
+-- admin activates it at the point of physical sale. This is how physical cards
+-- on a counter stay safe: a code copied off the rack is worthless because the
+-- card holds no spendable balance until it's sold & activated.
+-- activated_at stamps the sale moment so finance recognises the income in the
+-- ACTIVATION period, not the (earlier) creation period — see
+-- /api/admin/gift-cards/[id]/activate and /api/admin/gift-card-sales.
+alter table gift_cards add column if not exists activated_at timestamptz;
+
+-- Widen the status check to allow 'inactive' on already-created DBs (the inline
+-- definition above only applies on a fresh install).
+do $$
+begin
+  if exists (select 1 from information_schema.constraint_column_usage where constraint_name = 'gift_cards_status_check') then
+    alter table gift_cards drop constraint gift_cards_status_check;
+  end if;
+  alter table gift_cards
+    add constraint gift_cards_status_check check (status in ('inactive','active','redeemed','voided','expired'));
+end $$;
+
 -- Append-only audit log. Every state change on gift_cards (issue, redeem,
 -- refund, void, adjust) produces one row here. Never updated, never deleted.
 -- balance_after is a snapshot for reconciliation (without it you'd need to
@@ -840,7 +861,7 @@ alter table gift_cards add column if not exists payment_ref    text;
 create table if not exists gift_card_transactions (
   id              text        primary key default gen_random_uuid()::text,
   gift_card_id    text        not null references gift_cards(id) on delete cascade,
-  type            text        not null check (type in ('issue','redeem','refund','void','adjust')),
+  type            text        not null check (type in ('issue','redeem','refund','void','adjust','activate')),
   amount          numeric(10,2) not null,
   balance_after   numeric(10,2) not null,
   -- Exactly one of order_id / pos_sale_id is set for redeem/refund rows;
@@ -851,6 +872,17 @@ create table if not exists gift_card_transactions (
   notes           text,
   created_at      timestamptz not null default now()
 );
+
+-- Widen the txn type check to allow 'activate' (the audit row written when an
+-- inactive pre-issued card is sold & activated) on already-created DBs.
+do $$
+begin
+  if exists (select 1 from information_schema.constraint_column_usage where constraint_name = 'gift_card_transactions_type_check') then
+    alter table gift_card_transactions drop constraint gift_card_transactions_type_check;
+  end if;
+  alter table gift_card_transactions
+    add constraint gift_card_transactions_type_check check (type in ('issue','redeem','refund','void','adjust','activate'));
+end $$;
 
 -- ── display_auth — Customer Display screen password ──────────────────────────
 -- Single-row table (id=1) gating the public /customer-display order board.

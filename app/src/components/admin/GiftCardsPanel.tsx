@@ -5,8 +5,9 @@ import { useApp } from "@/context/AppContext";
 import type { GiftCard, GiftCardTransaction, GiftCardStatus } from "@/types";
 import {
   Gift, Plus, Search, Loader2, CheckCircle, AlertCircle, X,
-  Ban, Mail, Eye, TrendingUp,
+  Ban, Mail, Eye, TrendingUp, Power, Printer,
 } from "lucide-react";
+import { buildGiftCardPrintHtml } from "./_giftCardPrint";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -16,6 +17,7 @@ function fmtDate(iso?: string) {
 }
 
 const STATUS_STYLES: Record<GiftCardStatus, string> = {
+  inactive: "bg-slate-100 text-slate-600 border-slate-300",
   active:   "bg-green-50 text-green-700 border-green-200",
   redeemed: "bg-gray-100 text-gray-500 border-gray-200",
   voided:   "bg-red-50 text-red-700 border-red-200",
@@ -34,13 +36,14 @@ export default function GiftCardsPanel() {
   const sym = settings.currency?.symbol ?? "£";
 
   const [cards,    setCards]    = useState<GiftCard[]>([]);
-  const [stats,    setStats]    = useState({ total: 0, activeCount: 0, totalOutstanding: 0 });
+  const [stats,    setStats]    = useState({ total: 0, activeCount: 0, inactiveCount: 0, totalOutstanding: 0 });
   const [loading,  setLoading]  = useState(true);
   const [filter,   setFilter]   = useState<StatusFilter>("all");
   const [search,   setSearch]   = useState("");
   const [toasts,   setToasts]   = useState<Toast[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [activateTarget, setActivateTarget] = useState<GiftCard | null>(null);
 
   function addToast(message: string, ok: boolean) {
     const id = ++toastId;
@@ -70,6 +73,17 @@ export default function GiftCardsPanel() {
   }, [filter, search]);
 
   useEffect(() => { void fetchCards(); }, [fetchCards]);
+
+  // Open a print-ready window with the card artwork. Used for inactive cards so
+  // they can be printed and displayed in store (the code is worthless until the
+  // card is activated at the point of sale).
+  function printCard(card: GiftCard) {
+    const html = buildGiftCardPrintHtml(card, settings.restaurant, sym);
+    const win = window.open("", "_blank", "width=560,height=760");
+    if (!win) { addToast("Allow pop-ups to print the card.", false); return; }
+    win.document.write(html);
+    win.document.close();
+  }
 
   // Per-row in-flight guard for resend/void.
   const rowInFlight = useRef<Set<string>>(new Set());
@@ -138,7 +152,10 @@ export default function GiftCardsPanel() {
             </div>
             <div>
               <h2 className="text-lg font-bold text-gray-900">Gift Cards</h2>
-              <p className="text-xs text-gray-500">{stats.total} cards · {stats.activeCount} active</p>
+              <p className="text-xs text-gray-500">
+                {stats.total} cards · {stats.activeCount} active
+                {stats.inactiveCount > 0 ? ` · ${stats.inactiveCount} inactive` : ""}
+              </p>
             </div>
           </div>
           <button
@@ -161,7 +178,7 @@ export default function GiftCardsPanel() {
 
         {/* Filter pills */}
         <div className="flex gap-1.5 mt-4 flex-wrap">
-          {(["all", "active", "redeemed", "voided", "expired"] as StatusFilter[]).map((f) => (
+          {(["all", "active", "inactive", "redeemed", "voided", "expired"] as StatusFilter[]).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -219,15 +236,18 @@ export default function GiftCardsPanel() {
                 </div>
 
                 <div className="flex items-center gap-4 sm:gap-6">
-                  <div className="text-right">
-                    <p className="text-sm font-bold text-gray-900 tabular-nums">{sym}{c.balance.toFixed(2)}</p>
-                    <p className="text-[10px] text-gray-400">of {sym}{c.initialAmount.toFixed(2)}</p>
-                  </div>
-
-                  <div className="flex items-center gap-1 flex-shrink-0 transition">
+                  <div className="flex items-center gap-1 shrink-0 transition">
                     <button onClick={() => setDetailId(c.id)} title="View history" className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition">
                       <Eye size={14} />
                     </button>
+                    <button onClick={() => printCard(c)} title="Print card" className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-slate-700 hover:bg-slate-100 transition">
+                      <Printer size={14} />
+                    </button>
+                    {c.status === "inactive" && (
+                      <button onClick={() => setActivateTarget(c)} className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-semibold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 transition">
+                        <Power size={13} /> Activate
+                      </button>
+                    )}
                     {c.issuedToEmail && c.status !== "voided" && (
                       <button onClick={() => void resend(c)} title="Resend email" className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition">
                         <Mail size={14} />
@@ -238,6 +258,10 @@ export default function GiftCardsPanel() {
                         <Ban size={14} />
                       </button>
                     )}
+                  </div>
+                  <div className="w-24 text-right shrink-0">
+                    <p className="text-sm font-bold text-gray-900 tabular-nums">{sym}{c.balance.toFixed(2)}</p>
+                    <p className="text-[10px] text-gray-400 tabular-nums">of {sym}{c.initialAmount.toFixed(2)}</p>
                   </div>
                 </div>
               </div>
@@ -251,6 +275,15 @@ export default function GiftCardsPanel() {
       )}
       {detailId && (
         <DetailModal id={detailId} sym={sym} onClose={() => setDetailId(null)} />
+      )}
+      {activateTarget && (
+        <ActivateCardModal
+          card={activateTarget}
+          sym={sym}
+          onClose={() => setActivateTarget(null)}
+          onActivated={() => { setActivateTarget(null); void fetchCards(); }}
+          addToast={addToast}
+        />
       )}
       {voidTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
@@ -291,6 +324,7 @@ function IssueCardModal({ sym, onClose, onIssued, addToast }: {
   onIssued: () => void;
   addToast: (m: string, ok: boolean) => void;
 }) {
+  const [mode, setMode] = useState<"sell" | "inactive">("sell");
   const [amount, setAmount] = useState("25");
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "card">("cash");
   const [email, setEmail] = useState("");
@@ -301,25 +335,35 @@ function IssueCardModal({ sym, onClose, onIssued, addToast }: {
   const [issuing, setIssuing] = useState(false);
   const [issuedCode, setIssuedCode] = useState<string | null>(null);
 
+  const inactive = mode === "inactive";
+
   async function handleIssue() {
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) { addToast("Enter a valid amount.", false); return; }
-    if (sendEmail && !email.trim()) { addToast("Email required to send the card.", false); return; }
+    if (!inactive && sendEmail && !email.trim()) { addToast("Email required to send the card.", false); return; }
     setIssuing(true);
     try {
-      const res = await fetch("/api/admin/gift-cards", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount: amt,
-          paymentMethod,
-          recipientEmail: email.trim() || undefined,
-          recipientName:  name.trim() || undefined,
-          personalMessage: message.trim() || undefined,
-          notes: notes.trim() || undefined,
-          sendEmail,
-        }),
-      });
+      // Inactive cards go to a separate endpoint — no payment, no recipient, not
+      // booked as income until activated at the point of sale.
+      const res = inactive
+        ? await fetch("/api/admin/gift-cards/inactive", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ amount: amt, notes: notes.trim() || undefined }),
+          })
+        : await fetch("/api/admin/gift-cards", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              amount: amt,
+              paymentMethod,
+              recipientEmail: email.trim() || undefined,
+              recipientName:  name.trim() || undefined,
+              personalMessage: message.trim() || undefined,
+              notes: notes.trim() || undefined,
+              sendEmail,
+            }),
+          });
       const json = await res.json() as { ok: boolean; code?: string; error?: string };
       if (json.ok && json.code) {
         setIssuedCode(json.code);
@@ -338,7 +382,7 @@ function IssueCardModal({ sym, onClose, onIssued, addToast }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-100 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h3 className="font-bold text-gray-900 text-base">{issuedCode ? "Card issued" : "Issue gift card"}</h3>
+          <h3 className="font-bold text-gray-900 text-base">{issuedCode ? (inactive ? "Inactive card created" : "Card issued") : "Issue gift card"}</h3>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100"><X size={16} /></button>
         </div>
 
@@ -349,15 +393,47 @@ function IssueCardModal({ sym, onClose, onIssued, addToast }: {
               <p className="text-xs text-gray-500 uppercase tracking-wide">Gift card code</p>
               <p className="text-2xl font-bold font-mono tracking-wider text-gray-900 mt-1">{issuedCode}</p>
             </div>
-            <p className="text-sm text-gray-500">{sendEmail && email ? `Emailed to ${email}.` : "Hand this code to the recipient."}</p>
+            <p className="text-sm text-gray-500">
+              {inactive
+                ? "Not active yet — it holds no spendable balance until you activate it at the point of sale."
+                : (sendEmail && email ? `Emailed to ${email}.` : "Hand this code to the recipient.")}
+            </p>
             <button onClick={onClose} className="w-full px-4 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold">Done</button>
           </div>
         ) : (
           <div className="px-6 py-5 space-y-4">
+            {/* Mode: sell now (active) vs pre-issue (inactive, activate later) */}
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { key: "sell",     label: "Sell now",      hint: "Active · booked as income" },
+                { key: "inactive", label: "Create inactive", hint: "No payment · activate at sale" },
+              ] as const).map((m) => (
+                <button
+                  key={m.key}
+                  type="button"
+                  onClick={() => setMode(m.key)}
+                  className={`px-3 py-2.5 rounded-xl border text-left transition ${
+                    mode === m.key
+                      ? "border-orange-500 bg-orange-50"
+                      : "border-gray-200 bg-gray-50 hover:bg-gray-100"
+                  }`}
+                >
+                  <span className={`block text-sm font-semibold ${mode === m.key ? "text-orange-700" : "text-gray-700"}`}>{m.label}</span>
+                  <span className="block text-[10px] text-gray-400 mt-0.5">{m.hint}</span>
+                </button>
+              ))}
+            </div>
+
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Amount ({sym})</label>
               <input type="number" min="1" step="1" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
             </div>
+            {inactive && (
+              <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                Creates a card with a code but no balance to spend until you activate it at the counter. Safe to print and display — a copied code is worthless until sold.
+              </p>
+            )}
+            {!inactive && (<>
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Paid by</label>
               <div className="grid grid-cols-2 gap-2">
@@ -390,22 +466,135 @@ function IssueCardModal({ sym, onClose, onIssued, addToast }: {
               <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Personal message</label>
               <textarea rows={2} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Optional — appears in the email" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-500" />
             </div>
+            </>)}
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Internal note</label>
               <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Goodwill — complaint #42" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
             </div>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={sendEmail} onChange={(e) => setSendEmail(e.target.checked)} className="accent-orange-500" />
-              <span className="text-sm text-gray-700">Email the card to the recipient</span>
-            </label>
+            {!inactive && (
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={sendEmail} onChange={(e) => setSendEmail(e.target.checked)} className="accent-orange-500" />
+                <span className="text-sm text-gray-700">Email the card to the recipient</span>
+              </label>
+            )}
             <div className="flex gap-3 pt-1">
               <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50">Cancel</button>
               <button onClick={() => void handleIssue()} disabled={issuing} className="flex-1 px-4 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold disabled:opacity-60 flex items-center justify-center gap-2">
-                {issuing && <Loader2 size={14} className="animate-spin" />} Issue Card
+                {issuing && <Loader2 size={14} className="animate-spin" />} {inactive ? "Create Card" : "Issue Card"}
               </button>
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Activate (sell) an inactive card ───────────────────────────────────────
+
+function ActivateCardModal({ card, sym, onClose, onActivated, addToast }: {
+  card: GiftCard;
+  sym: string;
+  onClose: () => void;
+  onActivated: () => void;
+  addToast: (m: string, ok: boolean) => void;
+}) {
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "card">("cash");
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [message, setMessage] = useState("");
+  const [notes, setNotes] = useState("");
+  const [sendEmail, setSendEmail] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  async function handleActivate() {
+    if (!email.trim()) { addToast("Recipient email is required to activate.", false); return; }
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/gift-cards/${card.id}/activate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethod,
+          recipientEmail: email.trim(),
+          recipientName:  name.trim() || undefined,
+          personalMessage: message.trim() || undefined,
+          notes: notes.trim() || undefined,
+          sendEmail,
+        }),
+      });
+      const json = await res.json() as { ok: boolean; error?: string };
+      if (json.ok) {
+        addToast(`${card.code} activated${sendEmail ? ` · emailed to ${email.trim()}` : ""}.`, true);
+        onActivated();
+      } else {
+        addToast(json.error ?? "Failed to activate card.", false);
+      }
+    } catch {
+      addToast("Connection error.", false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-100 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <h3 className="font-bold text-gray-900 text-base">Activate &amp; sell card</h3>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100"><X size={16} /></button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+            <p className="text-lg font-bold font-mono tracking-wider text-gray-900">{card.code}</p>
+            <p className="text-xs text-slate-500 mt-0.5">Value {sym}{card.balance.toFixed(2)} · books as income on activation</p>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Paid by</label>
+            <div className="grid grid-cols-2 gap-2">
+              {(["cash", "card"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setPaymentMethod(m)}
+                  className={`px-3 py-2.5 rounded-xl border text-sm font-semibold capitalize transition ${
+                    paymentMethod === m
+                      ? "border-orange-500 bg-orange-50 text-orange-700"
+                      : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100"
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Recipient email <span className="text-red-500">*</span></label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="recipient@example.com" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Recipient name</label>
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Optional" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Personal message</label>
+            <textarea rows={2} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Optional — appears in the email" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Internal note</label>
+            <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={sendEmail} onChange={(e) => setSendEmail(e.target.checked)} className="accent-orange-500" />
+            <span className="text-sm text-gray-700">Email the card to the recipient</span>
+          </label>
+          <div className="flex gap-3 pt-1">
+            <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50">Cancel</button>
+            <button onClick={() => void handleActivate()} disabled={busy} className="flex-1 px-4 py-2.5 rounded-xl bg-green-600 hover:bg-green-700 text-white text-sm font-semibold disabled:opacity-60 flex items-center justify-center gap-2">
+              {busy ? <Loader2 size={14} className="animate-spin" /> : <Power size={14} />} Activate
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

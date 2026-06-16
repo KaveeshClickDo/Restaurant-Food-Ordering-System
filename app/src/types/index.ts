@@ -778,7 +778,7 @@ export interface CustomerPosSale {
 // customer), so the same code can be redeemed across surfaces and over
 // multiple orders until depleted. See plan in plans/zesty-petting-pumpkin.md.
 
-export type GiftCardStatus = "active" | "redeemed" | "voided" | "expired";
+export type GiftCardStatus = "inactive" | "active" | "redeemed" | "voided" | "expired";
 
 export interface GiftCard {
   id: string;
@@ -797,6 +797,9 @@ export interface GiftCard {
   expiresAt?: string;        // ISO
   stripePaymentIntentId?: string;
   deliveredAt?: string;      // ISO — set when the delivery email was sent
+  /** Set when a pre-issued (inactive) card is sold & activated. Drives the
+   *  income-recognition date in the gift-card-sales finance report. */
+  activatedAt?: string;      // ISO
   createdAt: string;         // ISO
 }
 
@@ -805,7 +808,8 @@ export type GiftCardTransactionType =
   | "redeem"
   | "refund"
   | "void"
-  | "adjust";
+  | "adjust"
+  | "activate";
 
 export interface GiftCardTransaction {
   id: string;
