@@ -2,7 +2,7 @@
 
 /**
  * Bill view for one occupied table: consolidates that table's active orders,
- * applies discount / tip / gift card, prints or emails the pending bill, and
+ * applies discount / tip / service-fee / gift card, prints or emails the pending bill, and
  * settles by cash or card (with an explicit confirm step — settling flips the
  * orders to "delivered" and can't be undone). Senior staff can void from here.
  *
@@ -17,6 +17,7 @@ import { useApp } from "@/context/AppContext";
 import {
   ArrowLeft, Receipt, Loader2, ClipboardList, Percent, BadgeDollarSign,
   AlertTriangle, Banknote, CreditCard, Gift, X,
+  DollarSign,
 } from "lucide-react";
 import CollectionFooter from "@/components/collection/CollectionFooter";
 import { computeTax, taxSurcharge } from "@/lib/taxUtils";
@@ -54,16 +55,19 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
   const [gcInput, setGcInput] = useState("");
   const [gcError, setGcError] = useState("");
   const [gcLooking, setGcLooking] = useState(false);
-  // Bill-level manual discount (percentage, like POS) + table-service tip.
+  // Bill-level manual discount (percentage, like POS) + table-service tip + table-service fee.
   // Discount is senior/head-waiter only; both flow into the settle total and
   // the receipt.
   const [billDiscountPct, setBillDiscountPct] = useState(0);
   const [billDiscountNote, setBillDiscountNote] = useState("");
   const [billTip, setBillTip] = useState(0);
+  const [billServiceFee, setBillServiceFee] = useState(0);
   const [showBillDiscount, setShowBillDiscount] = useState(false);
   const [showBillTip, setShowBillTip] = useState(false);
+  const [showBillServiceFee, setShowBillServiceFee] = useState(false);
   const [discountInput, setDiscountInput] = useState("");
   const [tipInput, setTipInput] = useState("");
+  const [serviceFeeInput, setServiceFeeInput] = useState("");
   const [voidRefundTarget, setVoidRefundTarget] = useState<{
     mode: "void" | "refund";
     orderIds: string[];
@@ -71,7 +75,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
     tableLabel: string;
   } | null>(null);
 
-  // Clear bill-level tender extras (gift card, discount, tip) so a settled
+  // Clear bill-level tender extras (gift card, discount, tip, service-fee) so a settled
   // bill never carries values into the receipt-overlay state.
   function resetBillExtras() {
     setBillGiftCard(null);
@@ -80,10 +84,13 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
     setBillDiscountPct(0);
     setBillDiscountNote("");
     setBillTip(0);
+    setBillServiceFee(0);
     setDiscountInput("");
     setTipInput("");
+    setServiceFeeInput("");
     setShowBillDiscount(false);
     setShowBillTip(false);
+    setShowBillServiceFee(false);
   }
 
   // Load this table's active orders once on mount (the view remounts per
@@ -155,7 +162,8 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
     const tax = computeTax(afterDiscount, appSettings);
     const vatAmount = tax.enabled ? round2(tax.vatAmount) : 0;
     const tipAmount = round2(billTip);
-    const total = round2(afterDiscount + taxSurcharge(tax) + tipAmount);
+    const serviceFeeAmount = round2(billServiceFee);
+    const total = round2(afterDiscount + taxSurcharge(tax) + tipAmount + serviceFeeAmount);
     const gcAmount = billGiftCard ? round2(Math.min(billGiftCard.balance, total)) : 0;
     let res: Response;
     try {
@@ -169,6 +177,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
           ...(discountAmount > 0 ? { discountAmount, discountNote: billDiscountNote.trim() || undefined } : {}),
           ...(vatAmount > 0 ? { vatAmount, vatInclusive: tax.inclusive } : {}),
           ...(tipAmount > 0 ? { tipAmount } : {}),
+          ...(serviceFeeAmount > 0 ? { serviceFeeAmount } : {}),
           ...(billGiftCard && gcAmount > 0 ? { giftCardCode: billGiftCard.code, giftCardUsed: gcAmount } : {}),
         }),
       });
@@ -214,6 +223,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
       vatInclusive: vatAmount > 0 ? tax.inclusive : undefined,
       vatRate: vatAmount > 0 ? appSettings.taxSettings?.rate : undefined,
       tipAmount: tipAmount > 0 ? tipAmount : undefined,
+      serviceFeeAmount: serviceFeeAmount > 0 ? serviceFeeAmount : undefined,
       total,
       giftCardUsed: gcAmount > 0 ? gcAmount : undefined,
       paymentMethod: method,
@@ -230,7 +240,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
   const afterDiscount = round2(billSubtotal - billDiscountAmount);
   // VAT synced from the admin Tax & VAT setting — same rate/mode as online + POS.
   const billTax = computeTax(afterDiscount, appSettings);
-  const billTotal = round2(afterDiscount + taxSurcharge(billTax) + billTip);
+  const billTotal = round2(afterDiscount + taxSurcharge(billTax) + billTip + billServiceFee);
   const giftCardApplied = billGiftCard ? round2(Math.min(billGiftCard.balance, billTotal)) : 0;
   const dueAfterGiftCard = Math.max(0, round2(billTotal - giftCardApplied));
   const canDiscount = waiter?.role === "senior";
@@ -264,6 +274,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
       vatInclusive: billTax.enabled && billTax.vatAmount > 0 ? billTax.inclusive : undefined,
       vatRate: billTax.enabled && billTax.vatAmount > 0 ? appSettings.taxSettings?.rate : undefined,
       tipAmount: billTip > 0 ? billTip : undefined,
+      serviceFeeAmount: billServiceFee > 0 ? billServiceFee : undefined,
       total: billTotal,
       paymentMethod: "pending",
       orderIds: billOrders.map(o => o.id),
@@ -332,7 +343,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                   </div>
                   {/* Totals breakdown */}
                   <div className="px-5 py-4 border-t border-slate-700 bg-slate-800/50 space-y-1.5">
-                    {(billDiscountAmount > 0 || billTip > 0 || (billTax.enabled && billTax.vatAmount > 0)) && (
+                    {(billDiscountAmount > 0 || billTip > 0 || billServiceFee > 0 || (billTax.enabled && billTax.vatAmount > 0)) && (
                       <>
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-slate-400">Subtotal</span>
@@ -356,6 +367,12 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                             <span className="text-slate-300">{fmtCur(billTip, sym)}</span>
                           </div>
                         )}
+                        {billServiceFee > 0 && (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-slate-400">Service Fee</span>
+                            <span className="text-slate-300">{fmtCur(billServiceFee, sym)}</span>
+                          </div>
+                        )}
                       </>
                     )}
                     <div className="flex items-center justify-between pt-1">
@@ -365,8 +382,8 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                   </div>
                 </div>
 
-                {/* Discount + Tip controls */}
-                <div className="grid grid-cols-2 gap-2">
+                {/* Discount + Tip + Service Fee controls */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   <button
                     onClick={() => { if (!canDiscount) return; setDiscountInput(billDiscountPct ? String(billDiscountPct) : ""); setShowBillDiscount(true); }}
                     disabled={!canDiscount}
@@ -376,7 +393,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                       : "bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-600"
                       } disabled:opacity-40 disabled:cursor-not-allowed`}
                   >
-                    <Percent size={14} />
+                    <Percent size={14} className="flex-shrink-0" />
                     {billDiscountAmount > 0 ? `Discount ${billDiscountPct}%` : "Discount"}
                   </button>
                   <button
@@ -386,9 +403,21 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                       : "bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-600"
                       }`}
                   >
-                    <BadgeDollarSign size={14} />
+                    <BadgeDollarSign size={14} className="flex-shrink-0" />
                     {billTip > 0 ? `Tip ${fmtCur(billTip, sym)}` : "Tip"}
                   </button>
+                  <div className="grid col-span-2 sm:col-span-1">
+                    <button
+                      onClick={() => { setServiceFeeInput(billServiceFee ? String(billServiceFee) : ""); setShowBillServiceFee(true); }}
+                      className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition ${billServiceFee > 0
+                        ? "bg-blue-500/15 border-blue-500/40 text-blue-300"
+                        : "bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-600"
+                        }`}
+                    >
+                      <DollarSign size={14} className="flex-shrink-0" />
+                      {billServiceFee > 0 ? `Service Fee ${fmtCur(billServiceFee, sym)}` : "Service Fee"}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Waiter note */}
@@ -517,6 +546,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
               billVatInclusive={billTax.inclusive}
               billVatRate={appSettings.taxSettings?.rate}
               billTip={billTip}
+              billServiceFee={billServiceFee}
               billTotal={billTotal}
               orderIds={billOrders.map(o => o.id)}
             />
@@ -610,6 +640,40 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
               <button onClick={() => { setBillTip(0); setTipInput(""); setShowBillTip(false); }}
                 className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition">Clear</button>
               <button onClick={() => { setBillTip(Math.max(0, Math.round((parseFloat(tipInput) || 0) * 100) / 100)); setShowBillTip(false); }}
+                className="py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold text-sm transition">Apply</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Service Fee modal — preset % of subtotal + custom amount */}
+      {showBillServiceFee && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-xs p-5 shadow-2xl">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-white font-bold">Add Service Fee</h3>
+              <button onClick={() => setShowBillServiceFee(false)} className="text-slate-400 hover:text-white"><X size={18} /></button>
+            </div>
+            <p className="text-slate-400 text-xs mb-2">Service Fee ({fmtCur(billSubtotal, sym)} subtotal)</p>
+            <div className="flex gap-1.5 mb-4">
+              {[5, 10, 12, 15, 20].map((v) => (
+                <button key={v} onClick={() => setServiceFeeInput((Math.round(billSubtotal * (v / 100) * 100) / 100).toFixed(2))}
+                  className="flex-1 py-2 rounded-lg text-xs font-bold bg-slate-700 text-slate-300 hover:bg-slate-600 transition">
+                  {v}%
+                </button>
+              ))}
+            </div>
+            <div className="bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 mb-5 flex items-center gap-2">
+              <span className="text-slate-500 text-lg font-bold">{sym}</span>
+              <input type="number" step="0.01" min={0} value={serviceFeeInput}
+                onChange={(e) => setServiceFeeInput(e.target.value)}
+                placeholder="0.00"
+                className="flex-1 min-w-0 bg-transparent text-white text-lg font-bold outline-none placeholder-slate-600" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => { setBillServiceFee(0); setServiceFeeInput(""); setShowBillServiceFee(false); }}
+                className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition">Clear</button>
+              <button onClick={() => { setBillServiceFee(Math.max(0, Math.round((parseFloat(serviceFeeInput) || 0) * 100) / 100)); setShowBillServiceFee(false); }}
                 className="py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold text-sm transition">Apply</button>
             </div>
           </div>

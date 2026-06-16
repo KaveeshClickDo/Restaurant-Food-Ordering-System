@@ -35,8 +35,8 @@ export interface WaiterReceipt {
   waiterName: string;
   date: string;                // ISO
   items: { name: string; qty: number; price: number }[];
-  /** Pre-discount/tip sum of items. Optional — when absent the receipt has no
-   *  discount/tip and `total` is shown alone (back-compat). */
+  /** Pre-discount/tip/service fee sum of items. Optional — when absent the receipt has no
+   *  discount/tip/service fee and `total` is shown alone (back-compat). */
   subtotal?: number;
   /** Bill-level manual discount (money) and its reason. */
   discountAmount?: number;
@@ -49,7 +49,9 @@ export interface WaiterReceipt {
   vatRate?: number;
   /** Table-service tip (money). */
   tipAmount?: number;
-  /** Final amount owed = subtotal − discount + (exclusive VAT) + tip. */
+  /** Service fee (money). */
+  serviceFeeAmount?: number;
+  /** Final amount owed = subtotal − discount + (exclusive VAT) + tip + serviceFee */
   total: number;
   /** Amount paid by gift card. The cash/card amount collected is
    *  total − giftCardUsed. */

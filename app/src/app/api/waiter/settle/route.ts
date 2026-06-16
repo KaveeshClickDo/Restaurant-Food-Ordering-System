@@ -18,14 +18,14 @@ export async function POST(req: NextRequest) {
   const parsed = await parseBody(req, WaiterSettleSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const { orderIds, tableLabel, paymentMethod, giftCardCode, giftCardUsed,
-          discountAmount, discountNote, tipAmount, vatAmount, vatInclusive } = parsed.data;
+          discountAmount, discountNote, tipAmount, serviceFeeAmount, vatAmount, vatInclusive } = parsed.data;
 
   const round2 = (n: number) => Math.round(n * 100) / 100;
 
   try {
     // Fetch the orders being settled up-front: we need their combined subtotal
     // to clamp the discount + gift card, and the first row is the anchor that
-    // carries the bill-level discount / tip / gift-card stamps.
+    // carries the bill-level discount / tip / service-fee / gift-card stamps.
     const { data: orderRows } = await supabaseAdmin
       .from("orders")
       .select("id, total")
@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
     // owed (mirrors the POS server-side guard). Tip is additive, never negative.
     const discount = Math.min(Math.max(0, Number(discountAmount ?? 0)), subtotal);
     const tip      = Math.max(0, Number(tipAmount ?? 0));
+    const serviceFee = Math.max(0, Number(serviceFeeAmount ?? 0));
     // VAT synced from the admin Tax & VAT setting (computed client-side, same as
     // POS). Inclusive VAT is already inside the item prices, so it does NOT add
     // to the total — it's recorded for reporting only. Exclusive VAT is added on
@@ -48,11 +49,11 @@ export async function POST(req: NextRequest) {
     const vat       = Math.max(0, Number(vatAmount ?? 0));
     const inclusive = vatInclusive ?? false;
     const vatSurcharge = inclusive ? 0 : vat;
-    // Final amount owed after discount, exclusive-VAT, and tip.
-    const finalTotal = round2(subtotal - discount + vatSurcharge + tip);
+    // Final amount owed after discount, exclusive-VAT, tip and service fee.
+    const finalTotal = round2(subtotal - discount + vatSurcharge + tip + serviceFee);
 
     // ── Gift card tender (optional) ────────────────────────────────────────
-    // Applied across the table's combined bill AFTER discount + tip, clamped to
+    // Applied across the table's combined bill AFTER discount + tip + service-fee, clamped to
     // the final amount owed. The redemption (atomic balance debit) runs FIRST,
     // as a gate: if the card can't back the amount (a concurrent settle on
     // another terminal drained it), we refuse to settle rather than apply a
@@ -109,12 +110,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     }
 
-    // Stamp the bill-level discount + tip + VAT on the anchor order and fold the
-    // net (−discount +exclusiveVAT +tip) into its total, so Σ(order.total) across
+    // Stamp the bill-level discount + tip + service-fee + VAT on the anchor order and fold the
+    // net (−discount +exclusiveVAT +tip + service-fee) into its total, so Σ(order.total) across
     // the bill equals the final amount owed — keeping reports / refunds accurate
     // without touching the other orders' line items. vat_amount is recorded
     // regardless of mode so the Finance Reports VAT breakdown includes dine-in.
-    if (anchorOrderId && (discount > 0 || tip > 0 || vat > 0)) {
+    if (anchorOrderId && (discount > 0 || tip > 0 || serviceFee > 0 || vat > 0)) {
       const anchorOriginal = Number(anchor?.total ?? 0);
       await supabaseAdmin
         .from("orders")
@@ -122,9 +123,10 @@ export async function POST(req: NextRequest) {
           discount_amount: discount,
           discount_note:   discountNote?.trim() || null,
           tip_amount:      tip,
+          service_fee:     serviceFee,
           vat_amount:      vat,
           vat_inclusive:   inclusive,
-          total:           round2(anchorOriginal - discount + vatSurcharge + tip),
+          total:           round2(anchorOriginal - discount + vatSurcharge + tip + serviceFee),
         })
         .eq("id", anchorOrderId);
     }

@@ -22,10 +22,12 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
   const [completedSale, setCompletedSale] = useState<POSSale | null>(null);
   const [showDiscount, setShowDiscount] = useState(false);
   const [showTip, setShowTip] = useState(false);
-  const { completeSale, grandTotal, discount, setDiscount, tipAmount, setTipAmount, settings: s, customers, assignedCustomer, setAssignedCustomer } = usePOS();
+  const [showServiceFee, setShowServiceFee] = useState(false);
+  const { completeSale, grandTotal, discount, setDiscount, tipAmount, setTipAmount, serviceFeeAmount, setServiceFeeAmount, settings: s, customers, assignedCustomer, setAssignedCustomer } = usePOS();
   const [discountInput, setDiscountInput] = useState(discount.pct.toString());
   const [discountNote, setDiscountNote] = useState(discount.note);
   const [tipCustom, setTipCustom] = useState("");
+  const [serviceFeeCustom, setServiceFeeCustom] = useState("");
   const [customerSearch, setCustomerSearch] = useState("");
 
   const sortedCats = [...categories].sort((a, b) => a.order - b.order);
@@ -208,6 +210,41 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
               <button onClick={() => { if (tipCustom) setTipAmount(parseFloat(tipCustom) || 0); setShowTip(false); }}
                 className="py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold text-sm transition-colors">
                 Apply Tip
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Service Fee modal */}
+      {showServiceFee && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm p-5 shadow-2xl">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-white font-bold">Add Service Fee</h3>
+              <button onClick={() => setShowServiceFee(false)} className="text-slate-400 hover:text-white"><X size={18} /></button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
+              {[5, 8, 10, 12, 15, 20].map((pct) => {
+                const amt = (grandTotal - serviceFeeAmount) * (pct / 100);
+                return (
+                  <button key={pct} onClick={() => setServiceFeeAmount(parseFloat(amt.toFixed(2)))}
+                    className={`py-3 rounded-xl text-sm font-bold transition-all ${serviceFeeAmount === parseFloat(amt.toFixed(2)) ? "bg-amber-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}>
+                    {pct}% · {fmt(amt, s.currencySymbol)}
+                  </button>
+                );
+              })}
+            </div>
+            <input type="number" step="0.01" min={0} value={serviceFeeCustom} onChange={(e) => setServiceFeeCustom(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white text-base sm:text-lg font-bold outline-none focus:border-amber-500 mb-5" placeholder="Custom amount" />
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => { setServiceFeeAmount(0); setServiceFeeCustom(""); setShowServiceFee(false); }}
+                className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">
+                Clear
+              </button>
+              <button onClick={() => { if (serviceFeeCustom) setServiceFeeAmount(parseFloat(serviceFeeCustom) || 0); setShowServiceFee(false); }}
+                className="py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold text-sm transition-colors">
+                Apply 
               </button>
             </div>
           </div>
@@ -486,6 +523,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
             onSelectCustomer={() => { setShowCustomer(true); }}
             onOpenDiscount={() => { setShowDiscount(true); }}
             onOpenTip={() => { setShowTip(true); }}
+            onOpenServiceFee={() => { setShowServiceFee(true); }}
           />
         </div>
       </div>

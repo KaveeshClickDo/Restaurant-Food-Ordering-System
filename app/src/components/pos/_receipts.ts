@@ -98,6 +98,7 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, restauran
     ${sale.discountAmount > 0 ? row(`Discount${sale.discountNote ? ` (${sale.discountNote})` : ""}`, `-${sym}${sale.discountAmount.toFixed(2)}`, false, "#16a34a") : ""}
     ${sale.taxAmount > 0 ? row(vatLabel, `${vatSign}${sym}${sale.taxAmount.toFixed(2)}`, false, "#6b7280") : ""}
     ${sale.tipAmount > 0 ? row("Tip", `${sym}${sale.tipAmount.toFixed(2)}`) : ""}
+    ${sale.serviceFeeAmount > 0 ? row("Service Fee", `${sym}${sale.serviceFeeAmount.toFixed(2)}`) : ""}
     ${row("TOTAL", `${sym}${sale.total.toFixed(2)}`, true)}
     ${paymentHtml}
   </table>

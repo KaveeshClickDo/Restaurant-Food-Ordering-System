@@ -34,6 +34,7 @@ export const PosSaleCreateSchema = z.object({
   taxRate:        z.number().nonnegative().optional(),
   taxInclusive:   z.boolean().optional(),
   tipAmount:      Money.optional(),
+  serviceFeeAmount: Money.optional(),
   total:          Money.optional(),
   // 'gift_card' is allowed for the case where a gift card fully covers the
   // sale (no cash/card remainder). Partial coverage keeps cash/card/split and

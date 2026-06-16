@@ -519,6 +519,7 @@ create table if not exists pos_sales (
   tax_rate        numeric     not null default 0,
   tax_inclusive   boolean     not null default false,
   tip_amount      numeric     not null default 0,
+  service_fee_amount     numeric     not null default 0,
   total           numeric     not null,
   payment_method  text        not null check (payment_method in ('cash','card','split','gift_card')),
   payments        jsonb       not null default '[]',
@@ -910,6 +911,11 @@ alter table orders     add column if not exists gift_card_id   text references g
 alter table orders     add column if not exists gift_card_used numeric(10,2) not null default 0;
 alter table pos_sales  add column if not exists gift_card_id   text references gift_cards(id);
 alter table pos_sales  add column if not exists gift_card_used numeric(10,2) not null default 0;
+
+
+-- ── Service fee columns on consuming tables ───────────────────────────────────
+-- For recording the non-refundable service fee collected on dine-in orders.
+alter table pos_sales  add column if not exists service_fee_amount numeric not null default 0;
 
 -- ── Session versioning for staff roles ───────────────────────────────────────
 -- Embedded in the HMAC session token so admin-initiated credential changes

@@ -264,6 +264,7 @@ export interface POSSale {
   taxRate: number;       // rate at time of sale, e.g. 20
   taxInclusive: boolean; // whether VAT was included in item prices
   tipAmount: number;
+  serviceFeeAmount: number;
   total: number;
   paymentMethod: POSPaymentMethod;
   payments: POSSplitPayment[];

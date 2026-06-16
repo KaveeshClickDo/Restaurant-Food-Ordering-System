@@ -120,7 +120,9 @@ interface POSContextValue {
   discount: { pct: number; note: string };
   setDiscount: React.Dispatch<React.SetStateAction<{ pct: number; note: string }>>;
   tipAmount: number;
+  serviceFeeAmount: number;
   setTipAmount: React.Dispatch<React.SetStateAction<number>>;
+  setServiceFeeAmount: React.Dispatch<React.SetStateAction<number>>;
   kitchenNote: string;
   setKitchenNote: React.Dispatch<React.SetStateAction<string>>;
   assignedCustomer: POSCustomer | null;
@@ -422,6 +424,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   const [cart, setCart] = useState<POSCartItem[]>([]);
   const [discount, setDiscount] = useState({ pct: 0, note: "" });
   const [tipAmount, setTipAmount] = useState(0);
+  const [serviceFeeAmount, setServiceFeeAmount] = useState(0);
   const [kitchenNote, setKitchenNote] = useState("");
   const [assignedCustomer, setAssignedCustomer] = useState<POSCustomer | null>(null);
 
@@ -837,6 +840,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     setCart([]);
     setDiscount({ pct: 0, note: "" });
     setTipAmount(0);
+    setServiceFeeAmount(0);
     setKitchenNote("");
     setAssignedCustomer(null);
     // Bug #11 — clear in-memory customers so the next operator on this
@@ -932,6 +936,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     setCart([]);
     setDiscount({ pct: 0, note: "" });
     setTipAmount(0);
+    setServiceFeeAmount(0);
     setKitchenNote("");
     setAssignedCustomer(null);
   }, []);
@@ -952,8 +957,8 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     : afterDiscount * (settings.taxRate / 100);
 
   const grandTotalRaw = settings.taxInclusive
-    ? afterDiscount + tipAmount
-    : afterDiscount + taxAmountRaw + tipAmount;
+    ? afterDiscount + tipAmount + serviceFeeAmount
+    : afterDiscount + taxAmountRaw + tipAmount + serviceFeeAmount;
 
   const subtotal       = round2(subtotalRaw);
   const discountAmount = round2(discountAmountRaw);
@@ -978,8 +983,8 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       ? after - after / (1 + settings.taxRate / 100)
       : after * (settings.taxRate / 100);
     const total = settings.taxInclusive
-      ? after + tipAmount
-      : after + tax + tipAmount;
+      ? after + tipAmount + serviceFeeAmount
+      : after + tax + tipAmount + serviceFeeAmount;
 
     const cashPayment = payments.filter((p) => p.method === "cash").reduce((s, p) => s + p.amount, 0);
     const change = cashTendered !== undefined ? cashTendered - cashPayment : undefined;
@@ -999,6 +1004,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       taxRate: settings.taxRate,
       taxInclusive: settings.taxInclusive,
       tipAmount: round2(tipAmount),
+      serviceFeeAmount: round2(serviceFeeAmount),
       total: round2(total),
       paymentMethod,
       payments: payments.map((p) => ({ ...p, amount: round2(p.amount) })),
@@ -1092,7 +1098,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
     clearCart();
     return { sale };
-  }, [cart, discount, tipAmount, kitchenNote, settings, currentStaff, assignedCustomer, clearCart, fetchCustomers]);
+  }, [cart, discount, tipAmount, serviceFeeAmount, kitchenNote, settings, currentStaff, assignedCustomer, clearCart, fetchCustomers]);
 
   const voidSale = useCallback(async (
     saleId: string,
@@ -1261,6 +1267,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       cart, addToCart, updateCartQty, removeFromCart, clearCart, updateCartNote,
       discount, setDiscount,
       tipAmount, setTipAmount,
+      serviceFeeAmount, setServiceFeeAmount,
       kitchenNote, setKitchenNote,
       assignedCustomer, setAssignedCustomer,
       subtotal, discountAmount, taxAmount, grandTotal,

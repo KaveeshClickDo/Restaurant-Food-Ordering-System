@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
   // ─── Server-side totals recompute (F-INS-3b) ────────────────────────────────
   // Subtotal is derived from items via cartLineTotal — clients cannot under-
   // declare it. Total is then derived from subtotal − discount + tax (when
-  // tax is exclusive) + tip, and compared to the body's claimed total. A
+  // tax is exclusive) + tip + service-fee, and compared to the body's claimed total. A
   // divergence beyond a few pence is rejected outright; up to that tolerance
   // we accept the body figure (clients format with 2dp rounding which can
   // introduce sub-cent drift after multi-item discounts).
@@ -106,6 +106,7 @@ export async function POST(req: NextRequest) {
   const discountAmount = Number(body.discountAmount ?? 0);
   const taxAmount      = Number(body.taxAmount      ?? 0);
   const tipAmount      = Number(body.tipAmount      ?? 0);
+  const serviceFeeAmount = Number(body.serviceFeeAmount ?? 0);
   const taxInclusive   = Boolean(body.taxInclusive  ?? false);
 
   // Hard cap on discount: it can never exceed the pre-tax subtotal. Anything
@@ -122,7 +123,7 @@ export async function POST(req: NextRequest) {
   // When tax is inclusive the tax is already inside subtotalServer; when
   // exclusive we add it. Discounts always reduce the pre-tax base.
   const totalServer = parseFloat((
-    subtotalServer - discountAmount + tipAmount + (taxInclusive ? 0 : taxAmount)
+    subtotalServer - discountAmount + tipAmount + serviceFeeAmount + (taxInclusive ? 0 : taxAmount)
   ).toFixed(2));
 
   const SUBTOTAL_TOLERANCE = 0.05; // 5p — guards against per-line rounding drift
@@ -136,7 +137,7 @@ export async function POST(req: NextRequest) {
   }
   if (Math.abs(totalServer - Number(body.total ?? 0)) > TOTAL_TOLERANCE) {
     return NextResponse.json(
-      { ok: false, error: "Total does not match items + tax + tip − discount.", totalServer },
+      { ok: false, error: "Total does not match items + tax + tip + service fee − discount.", totalServer },
       { status: 400 },
     );
   }
@@ -275,6 +276,7 @@ export async function POST(req: NextRequest) {
     tax_rate:        Number(body.taxRate ?? 0),
     tax_inclusive:   taxInclusive,
     tip_amount:      tipAmount,
+    service_fee_amount: serviceFeeAmount,
     total:           totalServer,
     payment_method:  body.paymentMethod  ?? "cash",
     payments:        body.payments       ?? [],
@@ -420,8 +422,12 @@ async function pushToKDS(sale: POSSale, kitchenNote?: string): Promise<{ ok: boo
     items,
     note:           noteParts.join(" | "),
     payment_method: sale.paymentMethod,
+    service_fee:    sale.serviceFeeAmount,
     vat_amount:     sale.taxAmount,
     vat_inclusive:  sale.taxInclusive,
+    tip_amount:     sale.tipAmount,
+    discount_amount: sale.discountAmount,
+    discount_note:  sale.discountNote,
     // Carry the gift-card-covered amount onto the mirror so the admin Finance
     // Reports (which read `orders`, not `pos_sales`) can net it out of POS
     // revenue. pos_sales stays the source of truth for the redemption itself.

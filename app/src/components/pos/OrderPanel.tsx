@@ -5,6 +5,7 @@ import { cartLineTotal, cartLineSaving } from "@/types/pos";
 import {
   ShoppingCart, Trash2, Users, Star, ChevronRight,
   Minus, Plus, Percent, BadgeDollarSign, CreditCard,
+  DollarSign,
 } from "lucide-react";
 import { fmt } from "./_utils";
 
@@ -13,15 +14,17 @@ export default function OrderPanel({
   onSelectCustomer,
   onOpenDiscount,
   onOpenTip,
+  onOpenServiceFee,
 }: {
   onCharge: () => void;
   onSelectCustomer: () => void;
   onOpenDiscount: () => void;
   onOpenTip: () => void;
+  onOpenServiceFee: () => void;
 }) {
   const {
     cart, updateCartQty, clearCart,
-    subtotal, discountAmount, taxAmount, grandTotal, tipAmount,
+    subtotal, discountAmount, taxAmount, grandTotal, tipAmount, serviceFeeAmount,
     discount, settings, assignedCustomer, currentStaff,
     kitchenNote, setKitchenNote,
   } = usePOS();
@@ -84,16 +87,18 @@ export default function OrderPanel({
                     ))}
                     {item.note && <p className="text-orange-400 text-xs italic mt-0.5">&ldquo;{item.note}&rdquo;</p>}
                     {/* Offer savings badge */}
-                    {(() => { const saving = cartLineSaving(item); return saving > 0 ? (
-                      <p className="text-amber-400 text-[10px] font-semibold mt-0.5">
-                        Save {fmt(saving, settings.currencySymbol)} offer applied
-                      </p>
-                    ) : null; })()}
+                    {(() => {
+                      const saving = cartLineSaving(item); return saving > 0 ? (
+                        <p className="text-amber-400 text-[10px] font-semibold mt-0.5">
+                          Save {fmt(saving, settings.currencySymbol)} offer applied
+                        </p>
+                      ) : null;
+                    })()}
                   </div>
                   <div className="text-right flex-shrink-0">
                     {(() => {
                       const total = cartLineTotal(item);
-                      const full  = item.price * item.quantity;
+                      const full = item.price * item.quantity;
                       return total < full ? (
                         <>
                           <p className="text-amber-400 font-bold text-sm">{fmt(total, settings.currencySymbol)}</p>
@@ -133,33 +138,43 @@ export default function OrderPanel({
       {cart.length > 0 && (
         <div className="border-t border-slate-700/50 p-4 space-y-3">
           {/* Action row */}
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 gap-2">
             <button
               onClick={onOpenDiscount}
               disabled={!currentStaff?.permissions.canApplyDiscount}
               title={!currentStaff?.permissions.canApplyDiscount ? "Manager or Admin required" : undefined}
-              className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition-all ${
-                !currentStaff?.permissions.canApplyDiscount
+              className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition-all ${!currentStaff?.permissions.canApplyDiscount
                   ? "bg-slate-800/40 text-slate-600 border border-slate-700/40 cursor-not-allowed"
                   : discount.pct > 0
                     ? "bg-green-500/20 text-green-400 border border-green-500/40"
                     : "bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-600"
-              }`}
+                }`}
             >
-              <Percent size={12} />
-              {discount.pct > 0 ? `${discount.pct}% off` : "Discount"}
+              <Percent size={12} className="flex-shrink-0" />
+              {discount.pct > 0 ? `Discount ${discount.pct}% ` : "Discount"}
             </button>
             <button
               onClick={onOpenTip}
-              className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition-all ${
-                tipAmount > 0
+              className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition-all ${tipAmount > 0
                   ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
                   : "bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-600"
-              }`}
+                }`}
             >
-              <BadgeDollarSign size={12} />
-              {tipAmount > 0 ? fmt(tipAmount, settings.currencySymbol) : "Tip"}
+              <BadgeDollarSign size={12} className="flex-shrink-0" />
+              {tipAmount > 0 ? `Tip ${fmt(tipAmount, settings.currencySymbol)}` : "Tip"}
             </button>
+            <div className="grid col-span-2 sm:col-span-1 md:col-span-2 ">
+              <button
+                onClick={onOpenServiceFee}
+                className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition-all ${serviceFeeAmount > 0
+                    ? "bg-blue-500/15 border-blue-500/40 text-blue-300"
+                    : "bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-600"
+                  }`}
+              >
+                <DollarSign size={12} className="flex-shrink-0" />
+                {serviceFeeAmount > 0 ? `Service Fee ${fmt(serviceFeeAmount, settings.currencySymbol)}` : "Service Fee"}
+              </button>
+            </div>
           </div>
 
           {/* Totals */}
@@ -185,6 +200,11 @@ export default function OrderPanel({
             {tipAmount > 0 && (
               <div className="flex justify-between text-sm text-amber-400">
                 <span>Tip</span><span>{fmt(tipAmount, settings.currencySymbol)}</span>
+              </div>
+            )}
+            {serviceFeeAmount > 0 && (
+              <div className="flex justify-between text-sm text-blue-400">
+                <span>Service Fee</span><span>{fmt(serviceFeeAmount, settings.currencySymbol)}</span>
               </div>
             )}
             <div className="flex justify-between text-white font-bold text-lg pt-2 border-t border-slate-700">

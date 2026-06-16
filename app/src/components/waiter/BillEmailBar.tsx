@@ -12,7 +12,7 @@ import { Printer, Loader2, CheckCircle2, Mail } from "lucide-react";
 import type { WaiterReceipt } from "./_types";
 import { buildReceiptHtml } from "./_receiptHtml";
 
-export default function BillEmailBar({ onPrint, tableLabel, waiterName, consolidatedLines, billSubtotal, billDiscountAmount, billDiscountNote, billVatAmount, billVatInclusive, billVatRate, billTip, billTotal, orderIds }: {
+export default function BillEmailBar({ onPrint, tableLabel, waiterName, consolidatedLines, billSubtotal, billDiscountAmount, billDiscountNote, billVatAmount, billVatInclusive, billVatRate, billTip, billServiceFee, billTotal, orderIds }: {
   onPrint: () => void;
   tableLabel: string;
   waiterName: string;
@@ -24,6 +24,7 @@ export default function BillEmailBar({ onPrint, tableLabel, waiterName, consolid
   billVatInclusive: boolean;
   billVatRate?: number;
   billTip: number;
+  billServiceFee: number;
   billTotal: number;
   orderIds: string[];
 }) {
@@ -48,6 +49,7 @@ export default function BillEmailBar({ onPrint, tableLabel, waiterName, consolid
       vatInclusive: billVatAmount > 0 ? billVatInclusive : undefined,
       vatRate: billVatAmount > 0 ? billVatRate : undefined,
       tipAmount: billTip > 0 ? billTip : undefined,
+      serviceFeeAmount: billServiceFee > 0 ? billServiceFee : undefined,
       total: billTotal,
       paymentMethod: "pending",
       orderIds,

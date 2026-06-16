@@ -202,6 +202,9 @@ export function buildReceipt(order: Order, settings: AdminSettings): number[] {
   if (order.tipAmount && order.tipAmount > 0) {
     b.twoCol("Tip", fmt(order.tipAmount, sym), W);
   }
+  if (order.serviceFee && order.serviceFee > 0) {
+    b.twoCol("Service Fee", fmt(order.serviceFee, sym), W);
+  }
   if (order.changeGiven !== undefined && order.changeGiven > 0) {
     b.twoCol("Change", fmt(order.changeGiven, sym), W);
   }
@@ -560,6 +563,7 @@ export function printReceiptBrowser(
   lines.push(dbl);
   lines.push(twoCol("TOTAL", fmt(order.total, sym)));
   if (order.tipAmount && order.tipAmount > 0) lines.push(twoCol("Tip", fmt(order.tipAmount, sym)));
+  if (order.serviceFee && order.serviceFee > 0) lines.push(twoCol("Service Fee", fmt(order.serviceFee, sym)));
   if (order.changeGiven !== undefined && order.changeGiven > 0) lines.push(twoCol("Change", fmt(order.changeGiven, sym)));
   if (showVat && vatInclusive) lines.push(center(`Prices include ${vatRate}% VAT`));
   lines.push(dbl);

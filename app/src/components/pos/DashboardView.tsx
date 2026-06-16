@@ -7,7 +7,7 @@ import { POSSale } from "@/types/pos";
 import {
   AlertTriangle, BadgeDollarSign, Banknote, BarChart3, CreditCard, Download,
   Flame, Gift, Mail, Package, Percent, Printer, Receipt, RefreshCw,
-  RotateCcw, Search, Shuffle, Tag, Trash2, TrendingUp, Trophy, Users, Utensils,
+  RotateCcw, Search, Shuffle, Tag, Trash2, TrendingUp, Trophy, Users, Utensils, DollarSign,
 } from "lucide-react";
 import { fmt, fmtPct, fmtDate, fmtTime, relTime } from "./_utils";
 import { buildDineInReceiptHtml, dineInRefundState, type DineInOrder } from "./_receipts";
@@ -189,6 +189,7 @@ export default function DashboardView() {
   const totalTransactions = todaySales.length + todayDineInSettled.length;
   const todayAvgOrder = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
   const totalTips = todaySalesActive.reduce((sum, s) => sum + s.tipAmount, 0);
+  const totalServiceFees = todaySalesActive.reduce((sum, s) => sum + s.serviceFeeAmount, 0);
 
   const itemCounts: Record<string, { name: string; count: number; revenue: number }> = {};
   for (const sale of sales.filter((s) => !s.voided)) {
@@ -292,6 +293,7 @@ export default function DashboardView() {
   const rRevenue = rMoneyBearing.reduce((s, x) => s + rSaleNet(x), 0);
   const rTax = rFiltered.reduce((s, x) => s + x.taxAmount, 0);
   const rTips = rFiltered.reduce((s, x) => s + x.tipAmount, 0);
+  const rServiceFees = rFiltered.reduce((s, x) => s + x.serviceFeeAmount, 0);
   const rDiscounts = rFiltered.reduce((s, x) => s + x.discountAmount, 0);
   const rAvgOrder = rMoneyBearing.length > 0 ? rRevenue / rMoneyBearing.length : 0;
   const rCost = rFiltered.reduce((sum, sale) =>
@@ -458,6 +460,7 @@ export default function DashboardView() {
                 { label: "Transactions", value: `${totalTransactions}`, sub: todayDineInSettled.length > 0 ? `${todaySales.length} POS · ${todayDineInSettled.length} dine-in` : undefined, icon: Receipt, color: "text-blue-400", bg: "bg-blue-500/10" },
                 { label: "Average Order", value: fmt(todayAvgOrder, sym), sub: "POS + dine-in", icon: BarChart3, color: "text-purple-400", bg: "bg-purple-500/10" },
                 { label: "Tips Collected", value: fmt(totalTips, sym), sub: "POS only", icon: BadgeDollarSign, color: "text-amber-400", bg: "bg-amber-500/10" },
+                { label: "Service Fees", value: fmt(totalServiceFees, sym), sub: "POS only", icon: DollarSign, color: "text-blue-400", bg: "bg-blue-500/10" },
               ].map((card) => (
                 <div key={card.label} className="bg-slate-800 border border-slate-700 rounded-2xl p-3 sm:p-5">
                   <div className={`w-10 h-10 ${card.bg} rounded-xl flex items-center justify-center mb-3`}>
@@ -783,6 +786,7 @@ export default function DashboardView() {
                       { label: "VAT Collected", value: fmt(rTax, sym), sub: "excl. voided", icon: Percent, color: "text-amber-400", bg: "bg-amber-500/10" },
                       { label: "Tips", value: fmt(rTips, sym), sub: "staff tips", icon: BadgeDollarSign, color: "text-pink-400", bg: "bg-pink-500/10" },
                       { label: "Discounts", value: fmt(rDiscounts, sym), sub: "reductions applied", icon: Tag, color: "text-red-400", bg: "bg-red-500/10" },
+                      { label: "Service Fees", value: fmt(rServiceFees, sym), sub: `${rFiltered.length} txns`, icon: DollarSign, color: "text-blue-400", bg: "bg-blue-500/10" },
                     ].map((card) => (
                       <div key={card.label} className="bg-slate-800 border border-slate-700 rounded-2xl p-3 sm:p-4">
                         <div className={`w-9 h-9 ${card.bg} rounded-xl flex items-center justify-center mb-2.5`}>
@@ -897,6 +901,7 @@ export default function DashboardView() {
                             ["Discounts", `–${fmt(rDiscounts, sym)}`, "text-red-400"],
                             ["VAT Collected", fmt(rTax, sym), "text-amber-400"],
                             ["Tips", fmt(rTips, sym), "text-pink-400"],
+                            ["Service Fees", fmt(rServiceFees, sym), "text-blue-400"],
                             ["Total Revenue", fmt(rRevenue, sym), "font-bold text-white"],
                             ["Est. COGS", `–${fmt(rCost, sym)}`, "text-slate-500"],
                             ["Gross Profit", fmt(grossProfit, sym), "font-semibold text-green-400"],

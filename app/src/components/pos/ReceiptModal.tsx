@@ -122,7 +122,11 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
               <span>Tip</span><span>{fmt(sale.tipAmount, sym)}</span>
             </div>
           )}
-
+          {sale.serviceFeeAmount > 0 && (
+            <div className="flex justify-between">
+              <span>Service Fee</span><span>{fmt(sale.serviceFeeAmount, sym)}</span>
+            </div>
+          )}
           <div className="flex justify-between font-bold text-base mt-2 pt-2 border-t border-gray-300">
             <span>TOTAL</span><span>{fmt(sale.total, sym)}</span>
           </div>

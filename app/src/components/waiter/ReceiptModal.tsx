@@ -95,7 +95,7 @@ export default function ReceiptModal({ receipt, onClose, onRefund }: { receipt: 
 
           {/* Total + payment */}
           <div className="space-y-1">
-            {((receipt.discountAmount ?? 0) > 0 || (receipt.tipAmount ?? 0) > 0 || (receipt.vatAmount ?? 0) > 0) && (
+            {((receipt.discountAmount ?? 0) > 0 || (receipt.tipAmount ?? 0) > 0 || (receipt.vatAmount ?? 0) > 0 || (receipt.serviceFeeAmount ?? 0) > 0) && (
               <>
                 <div className="flex items-center justify-between">
                   <span className="text-slate-400 text-xs">Subtotal</span>
@@ -117,6 +117,12 @@ export default function ReceiptModal({ receipt, onClose, onRefund }: { receipt: 
                   <div className="flex items-center justify-between">
                     <span className="text-slate-400 text-xs">Tip</span>
                     <span className="text-slate-300 text-xs">{fmtCur(receipt.tipAmount ?? 0, sym)}</span>
+                  </div>
+                )}
+                {(receipt.serviceFeeAmount ?? 0) > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400 text-xs">Service Fee</span>
+                    <span className="text-slate-300 text-xs">{fmtCur(receipt.serviceFeeAmount ?? 0, sym)}</span>
                   </div>
                 )}
               </>

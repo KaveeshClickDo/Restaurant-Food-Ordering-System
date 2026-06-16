@@ -19,17 +19,19 @@ export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string,
   const amountPaid = Math.max(0, receipt.total - giftUsed);
   const rcptDiscount = receipt.discountAmount ?? 0;
   const rcptTip = receipt.tipAmount ?? 0;
+  const rcptServiceFee = receipt.serviceFeeAmount ?? 0;
   const rcptVat = receipt.vatAmount ?? 0;
   const rcptSubtotal = receipt.subtotal ?? receipt.total;
   const vatLabel = receipt.vatInclusive
     ? `Incl. VAT${receipt.vatRate ? ` (${receipt.vatRate}%)` : ""}`
     : `VAT${receipt.vatRate ? ` (${receipt.vatRate}%)` : ""}`;
-  // Subtotal / Discount / VAT / Tip lines only appear when something applies.
-  const breakdownHtml = (rcptDiscount > 0 || rcptTip > 0 || rcptVat > 0)
+  // Subtotal / Discount / VAT / Tip / ServiceFee lines only appear when something applies.
+  const breakdownHtml = (rcptDiscount > 0 || rcptTip > 0 || rcptVat > 0 || rcptServiceFee > 0)
     ? `<tr><td style="font-size:11px;color:#6b7280">Subtotal</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${rcptSubtotal.toFixed(2)}</td></tr>
        ${rcptDiscount > 0 ? `<tr><td style="font-size:11px;color:#16a34a">Discount${receipt.discountNote ? ` (${receipt.discountNote})` : ""}</td><td style="font-size:11px;color:#16a34a;text-align:right">−${sym}${rcptDiscount.toFixed(2)}</td></tr>` : ""}
        ${rcptVat > 0 ? `<tr><td style="font-size:11px;color:#6b7280">${vatLabel}</td><td style="font-size:11px;color:#6b7280;text-align:right">${receipt.vatInclusive ? "" : "+"}${sym}${rcptVat.toFixed(2)}</td></tr>` : ""}
-       ${rcptTip > 0 ? `<tr><td style="font-size:11px;color:#6b7280">Tip</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${rcptTip.toFixed(2)}</td></tr>` : ""}`
+       ${rcptTip > 0 ? `<tr><td style="font-size:11px;color:#6b7280">Tip</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${rcptTip.toFixed(2)}</td></tr>` : ""}
+       ${rcptServiceFee > 0 ? `<tr><td style="font-size:11px;color:#6b7280">Service Fee</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${rcptServiceFee.toFixed(2)}</td></tr>` : ""}`
     : "";
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Receipt</title></head>

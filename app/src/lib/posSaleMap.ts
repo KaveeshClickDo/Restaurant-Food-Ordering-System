@@ -26,6 +26,7 @@ export type PosSaleRow = {
   tax_rate: number;
   tax_inclusive: boolean;
   tip_amount: number;
+  service_fee_amount: number;
   total: number;
   payment_method: "cash" | "card" | "split";
   payments: { method: "cash" | "card"; amount: number }[];
@@ -57,6 +58,7 @@ export function rowToSale(r: PosSaleRow): POSSale {
     taxRate:        Number(r.tax_rate),
     taxInclusive:   r.tax_inclusive,
     tipAmount:      Number(r.tip_amount),
+    serviceFeeAmount: Number(r.service_fee_amount),
     total:          Number(r.total),
     paymentMethod:  r.payment_method,
     payments:       r.payments ?? [],

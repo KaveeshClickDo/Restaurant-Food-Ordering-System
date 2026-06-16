@@ -147,7 +147,7 @@ function buildHourlyBuckets(sales: POSSale[]) {
 
 // CSV export
 function exportCSV(sales: POSSale[], sym: string) {
-  const header = ["Receipt No","Date","Time","Staff","Customer","Items",`Subtotal (${sym})`,`Discount (${sym})`,`VAT (${sym})`,`Tip (${sym})`,`Total (${sym})`,"Payment","Voided","Void Reason"].join(",");
+  const header = ["Receipt No","Date","Time","Staff","Customer","Items",`Subtotal (${sym})`,`Discount (${sym})`,`VAT (${sym})`,`Tip (${sym})`,`Service Fee (${sym})`,`Total (${sym})`,"Payment","Voided","Void Reason"].join(",");
   const rows = sales.map((s) => [
     s.receiptNo,
     fmtDate(s.date),
@@ -159,6 +159,7 @@ function exportCSV(sales: POSSale[], sym: string) {
     s.discountAmount.toFixed(2),
     s.taxAmount.toFixed(2),
     s.tipAmount.toFixed(2),
+    s.serviceFeeAmount.toFixed(2),
     s.total.toFixed(2),
     s.paymentMethod,
     s.voided ? "Yes" : "No",
@@ -296,6 +297,7 @@ export default function POSReportsPanel() {
   const giftCardRedeemed = filtered.reduce((s, x) => s + (x.giftCardUsed ?? 0), 0);
   const taxCollected  = filtered.reduce((s, x) => s + x.taxAmount, 0);
   const tipsTotal     = filtered.reduce((s, x) => s + x.tipAmount, 0);
+  const serviceFeesTotal = filtered.reduce((s, x) => s + x.serviceFeeAmount, 0);
   const discountTotal = filtered.reduce((s, x) => s + x.discountAmount, 0);
   const avgOrder      = moneyBearing.length > 0 ? revenue / moneyBearing.length : 0;
   const voidedCount   = inRange.filter((s) => s.voided).length;
@@ -450,6 +452,7 @@ export default function POSReportsPanel() {
             <KpiCard label="VIP Booking Fees" value={fmtCur(vipFeesTotal, sym)}   sub={`${vipFeesInRange.length} reservation${vipFeesInRange.length === 1 ? "" : "s"} · till`} icon={Crown} color="text-amber-700" bg="bg-amber-50" />
             <KpiCard label="Tips"             value={fmtCur(tipsTotal, sym)}      sub="staff tips"                         icon={BadgeDollarSign} color="text-pink-600"   bg="bg-pink-50" />
             <KpiCard label="Discounts Given"  value={fmtCur(discountTotal, sym)}  sub="reductions applied"                 icon={Tag}             color="text-red-600"    bg="bg-red-50" />
+            <KpiCard label="Service Fees"     value={fmtCur(serviceFeesTotal, sym)} sub={`${filtered.length} sales`}       icon={CreditCard}     color="text-indigo-600" bg="bg-indigo-50" />
             <KpiCard label="Refunded"         value={fmtCur(refundedTotal, sym)}  sub={`${refundedCount} txn${refundedCount === 1 ? "" : "s"}`} icon={RotateCcw} color="text-teal-600"  bg="bg-teal-50" />
             {giftCardRedeemed > 0 && (
               <KpiCard label="Gift Card Redeemed" value={fmtCur(giftCardRedeemed, sym)} sub="settled · not revenue" icon={Gift} color="text-fuchsia-600" bg="bg-fuchsia-50" />
@@ -626,9 +629,10 @@ export default function POSReportsPanel() {
                     {([
                       ["Gross Sales (subtotal)",   fmtCur(filtered.reduce((s,x)=>s+x.subtotal,0), sym),  "text-gray-900"],
                       ["Discounts Applied",        `–${fmtCur(discountTotal, sym)}`,                      "text-red-600"],
-                      ["Net Sales",               fmtCur(revenue - tipsTotal - taxCollected, sym),        "text-gray-900"],
+                      ["Net Sales",               fmtCur(revenue - tipsTotal - taxCollected - serviceFeesTotal, sym),        "text-gray-900"],
                       ["VAT Collected",            fmtCur(taxCollected, sym),                             "text-amber-600"],
                       ["Tips",                    fmtCur(tipsTotal, sym),                                 "text-pink-600"],
+                      ["Service Fees",            fmtCur(serviceFeesTotal, sym),                          "text-indigo-600"],
                       ["Sales Revenue",           fmtCur(revenue, sym),                                   "text-gray-900"],
                       ...(vipFeesTotal > 0
                         ? [["VIP Booking Fees",    fmtCur(vipFeesTotal, sym),                             "text-amber-700"] as [string, string, string]]
