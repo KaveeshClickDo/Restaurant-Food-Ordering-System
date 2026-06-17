@@ -23,11 +23,11 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
   const [showDiscount, setShowDiscount] = useState(false);
   const [showTip, setShowTip] = useState(false);
   const [showServiceFee, setShowServiceFee] = useState(false);
-  const { completeSale, grandTotal, discount, setDiscount, tipAmount, setTipAmount, serviceFeeAmount, setServiceFeeAmount, settings: s, customers, assignedCustomer, setAssignedCustomer } = usePOS();
+  const { completeSale, grandTotal, discount, setDiscount, tipAmount, setTipAmount, serviceFeePct, setServiceFeePct, settings: s, customers, assignedCustomer, setAssignedCustomer } = usePOS();
   const [discountInput, setDiscountInput] = useState(discount.pct.toString());
   const [discountNote, setDiscountNote] = useState(discount.note);
   const [tipCustom, setTipCustom] = useState("");
-  const [serviceFeeCustom, setServiceFeeCustom] = useState("");
+  const [serviceFeeInput, setServiceFeeInput] = useState(serviceFeePct.pct.toString());
   const [customerSearch, setCustomerSearch] = useState("");
 
   const sortedCats = [...categories].sort((a, b) => a.order - b.order);
@@ -224,27 +224,32 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
               <h3 className="text-white font-bold">Add Service Fee</h3>
               <button onClick={() => setShowServiceFee(false)} className="text-slate-400 hover:text-white"><X size={18} /></button>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
-              {[5, 8, 10, 12, 15, 20].map((pct) => {
-                const amt = (grandTotal - serviceFeeAmount) * (pct / 100);
+            <div className="flex gap-1 sm:gap-2 mb-4">
+              {[5, 8, 10, 12, 15, 20].map((v) => {
                 return (
-                  <button key={pct} onClick={() => setServiceFeeAmount(parseFloat(amt.toFixed(2)))}
-                    className={`py-3 rounded-xl text-sm font-bold transition-all ${serviceFeeAmount === parseFloat(amt.toFixed(2)) ? "bg-amber-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}>
-                    {pct}% · {fmt(amt, s.currencySymbol)}
+                  <button key={v} onClick={() => setServiceFeeInput(v.toString())}
+                    className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${serviceFeeInput === v.toString() ? "bg-orange-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}>
+                    {v}%
                   </button>
                 );
               })}
             </div>
-            <input type="number" step="0.01" min={0} value={serviceFeeCustom} onChange={(e) => setServiceFeeCustom(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white text-base sm:text-lg font-bold outline-none focus:border-amber-500 mb-5" placeholder="Custom amount" />
+            <input type="number" step="0.1" min={0} max={100} value={serviceFeeInput} onChange={(e) => setServiceFeeInput(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white text-base sm:text-lg font-bold outline-none focus:border-amber-500 mb-5" placeholder="Custom %" />
             <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => { setServiceFeeAmount(0); setServiceFeeCustom(""); setShowServiceFee(false); }}
+              <button onClick={() => { setServiceFeePct({ pct: 0 }); setServiceFeeInput("0"); setShowServiceFee(false); }}
                 className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">
                 Clear
               </button>
-              <button onClick={() => { if (serviceFeeCustom) setServiceFeeAmount(parseFloat(serviceFeeCustom) || 0); setShowServiceFee(false); }}
+              <button onClick={() => {
+                const raw = parseFloat(serviceFeeInput) || 0;
+                const clamped = Math.max(0, Math.min(raw, 100));
+                setServiceFeePct({ pct: clamped });
+                setServiceFeeInput(clamped.toString());
+                setShowServiceFee(false);
+              }}
                 className="py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold text-sm transition-colors">
-                Apply 
+                Apply
               </button>
             </div>
           </div>
@@ -444,8 +449,8 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
                     <div className="p-3 w-full">
                       <p className="text-white text-xs font-semibold leading-snug mb-1 line-clamp-2">{product.name}</p>
                       {product.description && (
-                          <p className="text-slate-500 text-[11px] mt-0.5 line-clamp-1">{product.description}</p>
-                        )}
+                        <p className="text-slate-500 text-[11px] mt-0.5 line-clamp-1">{product.description}</p>
+                      )}
                       <div className="flex items-center justify-between gap-1">
                         {/* Simple per-unit offer: show discounted + strikethrough */}
                         {offerPrice !== null ? (

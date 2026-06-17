@@ -24,7 +24,7 @@ export default function OrderPanel({
 }) {
   const {
     cart, updateCartQty, clearCart,
-    subtotal, discountAmount, taxAmount, grandTotal, tipAmount, serviceFeeAmount,
+    subtotal, discountAmount, taxAmount, grandTotal, tipAmount, serviceFeeAmount, serviceFeePct,
     discount, settings, assignedCustomer, currentStaff,
     kitchenNote, setKitchenNote,
   } = usePOS();
@@ -166,13 +166,13 @@ export default function OrderPanel({
             <div className="grid col-span-2 sm:col-span-1 md:col-span-2 ">
               <button
                 onClick={onOpenServiceFee}
-                className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition-all ${serviceFeeAmount > 0
+                className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition-all ${serviceFeePct.pct > 0
                     ? "bg-blue-500/15 border-blue-500/40 text-blue-300"
                     : "bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-600"
                   }`}
               >
                 <DollarSign size={12} className="flex-shrink-0" />
-                {serviceFeeAmount > 0 ? `Service Fee ${fmt(serviceFeeAmount, settings.currencySymbol)}` : "Service Fee"}
+                {serviceFeePct.pct > 0 ? `Service Fee ${serviceFeePct.pct}%` : "Service Fee"}
               </button>
             </div>
           </div>
@@ -204,7 +204,7 @@ export default function OrderPanel({
             )}
             {serviceFeeAmount > 0 && (
               <div className="flex justify-between text-sm text-blue-400">
-                <span>Service Fee</span><span>{fmt(serviceFeeAmount, settings.currencySymbol)}</span>
+                <span>Service Fee ({serviceFeePct.pct}%)</span><span>{fmt(serviceFeeAmount, settings.currencySymbol)}</span>
               </div>
             )}
             <div className="flex justify-between text-white font-bold text-lg pt-2 border-t border-slate-700">
