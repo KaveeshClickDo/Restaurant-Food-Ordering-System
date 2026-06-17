@@ -370,7 +370,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                         )}
                         {billServiceFee > 0 && (
                           <div className="flex items-center justify-between text-sm">
-                            <span className="text-slate-400">Service Fee (${billServicePct}%)</span>
+                            <span className="text-slate-400">Service Fee ({billServicePct}%)</span>
                             <span className="text-slate-300">{fmtCur(billServiceFee, sym)}</span>
                           </div>
                         )}
