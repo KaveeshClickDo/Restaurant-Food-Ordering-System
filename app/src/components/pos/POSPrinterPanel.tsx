@@ -15,7 +15,7 @@ const POS_CONNECTION_OPTIONS = [
 type POSConnectionMode = "network" | "bluetooth" | "usb" | "browser";
 
 export default function POSPrinterPanel({ appSettings }: { appSettings: import("@/types").AdminSettings }) {
-  const { updateSettings } = useApp();
+  const { updateSettingsViaPos } = useApp();
   const p = appSettings.printer;
 
   const [draft, setDraft] = useState({
@@ -48,7 +48,7 @@ export default function POSPrinterPanel({ appSettings }: { appSettings: import("
   }
 
   function handleSave() {
-    updateSettings({ printer: { ...p, ...draft } });
+    updateSettingsViaPos({ printer: { ...p, ...draft } });
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   }

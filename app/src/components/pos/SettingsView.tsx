@@ -12,7 +12,7 @@ type SaveKey = "general" | "receipt" | "smtp";
 
 export default function SettingsView() {
   const { settings, setSettings, sales, exportSales } = usePOS();
-  const { settings: appSettings, updateSettings } = useApp();
+  const { settings: appSettings, updateSettingsViaPos } = useApp();
   const [local, setLocal] = useState({ ...settings });
   const [tab, setTab] = useState<"general" | "menu" | "receipt" | "hardware">("general");
   // Persistence is synchronous (localStorage), so we flash a brief "Saved"
@@ -33,7 +33,7 @@ export default function SettingsView() {
     // If saving the general tab, also push the shared settings back to the global DB
     if (key === "general") {
 
-      updateSettings({
+      updateSettingsViaPos({
         // Update Tax settings in the global config to match
         taxSettings: {
           ...(appSettings.taxSettings || {}),

@@ -148,6 +148,11 @@ interface AppContextValue {
   cartCount: number;
   settings: AdminSettings;
   updateSettings: (patch: Partial<AdminSettings>) => void;
+  /** POS-scoped settings write — updates local state like updateSettings, but
+   *  persists via PATCH /api/pos/settings (POS canAccessSettings) instead of
+   *  the admin-only /api/admin/settings, so the POS app saves tax/printer on a
+   *  POS-only device. The server only honours the taxSettings/printer slice. */
+  updateSettingsViaPos: (patch: Partial<AdminSettings>) => void;
   /** Re-fetch dining tables into settings.diningTables (no server write).
    *  Poll this on surfaces that gate UI on the table list (POS, waiter) so
    *  admin add/remove-table changes show without a full reload. */
@@ -971,6 +976,22 @@ export function AppProvider({
     setSettings((prev) => {
       const next = { ...prev, ...patch };
       persistSettings(next);
+      return next;
+    }),
+  []);
+
+  // Same local-state behaviour as updateSettings, but the network write goes to
+  // the POS-scoped endpoint so a POS-only device (no admin cookie) can save the
+  // tax + printer slice. The server whitelists those keys, so passing the patch
+  // straight through is safe — any non-whitelisted field is ignored.
+  const updateSettingsViaPos = useCallback((patch: Partial<AdminSettings>) =>
+    setSettings((prev) => {
+      const next = { ...prev, ...patch };
+      fetch("/api/pos/settings", {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(patch),
+      }).catch(() => {});
       return next;
     }),
   []);
@@ -1918,7 +1939,7 @@ export function AppProvider({
     <AppContext.Provider
       value={{
         cart, addToCart, removeFromCart, updateQty, clearCart, cartTotal, cartCount,
-        settings, updateSettings, refreshDiningTables, isOpen,
+        settings, updateSettings, updateSettingsViaPos, refreshDiningTables, isOpen,
         fulfillment, setFulfillment, scheduledTime, setScheduledTime,
         categories, menuItems,
         addCategory, updateCategory, deleteCategory, reorderCategories,

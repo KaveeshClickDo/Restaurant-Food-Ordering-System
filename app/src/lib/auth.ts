@@ -257,6 +257,32 @@ export const getPosSession      = () => readStaffSession(COOKIE_POS,     "pos");
 export const getCollectionSession = () => readStaffSession(COOKIE_COLLECTION, "collection");
 export const getAdminSession    = () => readSession(COOKIE_ADMIN);
 
+/**
+ * Returns the first valid session across admin + every staff surface, or null.
+ *
+ * For shared *utility* routes (e.g. POST /api/email) that several operator
+ * surfaces legitimately call from their OWN device — each surface carries only
+ * its own cookie, so any one of them is sufficient. This is the right gate for
+ * a generic capability; it is NOT a substitute for a resource-specific guard
+ * (admin data, POS permissions, etc.).
+ *
+ * Admin is checked first (cookie-only, no DB round-trip). Each staff reader
+ * returns null cheaply when its cookie is absent (no DB hit), so on a real
+ * single-surface device at most ONE session_version lookup runs.
+ */
+export async function getAnyStaffSession(): Promise<SessionPayload | null> {
+  const admin = await getAdminSession();
+  if (admin) return admin;
+  const [pos, waiter, kitchen, collection, driver] = await Promise.all([
+    getPosSession(),
+    getWaiterSession(),
+    getKitchenSession(),
+    getCollectionSession(),
+    getDriverSession(),
+  ]);
+  return pos ?? waiter ?? kitchen ?? collection ?? driver ?? null;
+}
+
 // ── Shared responses ──────────────────────────────────────────────────────────
 export const unauthorizedJson = () =>
   NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });

@@ -142,3 +142,40 @@ export const PrintSchema = z.object({
   port:  z.number().int().min(1).max(65535),
   bytes: z.array(z.number().int().min(0).max(255)).min(1, "bytes required.").max(65_536, "Payload too large."),
 });
+
+// ── POS-scoped settings patch ────────────────────────────────────────────────
+// The POS Settings screen persists only this slice of the global settings blob
+// (tax rate/inclusive, receipt-printer config) via PATCH /api/pos/settings, so
+// a POS-only device doesn't need an admin cookie. `.strict()` on both sub-
+// objects rejects unknown keys — POS can never widen its write surface beyond
+// taxSettings + printer (the route ignores everything else regardless).
+export const PosSettingsPatchSchema = z
+  .object({
+    taxSettings: z
+      .object({
+        enabled:       z.boolean().optional(),
+        rate:          z.number().min(0).max(100).optional(),
+        inclusive:     z.boolean().optional(),
+        showBreakdown: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    printer: z
+      .object({
+        enabled:          z.boolean().optional(),
+        name:             z.string().optional(),
+        connection:       z.enum(["network", "usb", "bluetooth", "browser"]).optional(),
+        ip:               z.string().optional(),
+        port:             z.number().int().min(1).max(65535).optional(),
+        bluetoothAddress: z.string().optional(),
+        bluetoothName:    z.string().optional(),
+        autoPrint:        z.boolean().optional(),
+        paperWidth:       z.number().int().optional(),
+        allowedIps:       z.array(z.string()).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .refine((d) => d.taxSettings !== undefined || d.printer !== undefined, {
+    message: "Provide taxSettings and/or printer to update.",
+  });

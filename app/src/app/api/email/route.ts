@@ -1,13 +1,20 @@
 /**
  * POST /api/email
  *
- * Ad-hoc email relay for POS operators (the dine-in-receipt email feature).
- * Admin tooling uses its own /api/admin/email route — there is no admin bypass
- * here.
+ * Shared transactional-email relay for the operator surfaces — POS dine-in /
+ * sale receipts and the waiter app's "email receipt / email bill" feature.
+ * Both surfaces run on their own device with only their own session cookie, so
+ * this route accepts ANY authenticated staff session (admin, pos, waiter,
+ * kitchen, collection, driver) rather than one surface's credential. It is a
+ * generic utility, not a privileged resource — hence the broad gate plus a
+ * per-session rate limit to blunt abuse from a compromised staff login.
+ *
+ * Admin tooling has its own /api/admin/email route; customer-facing
+ * transactional emails (order confirmation, password reset, verification) are
+ * sent in-process by lib/emailServer.ts and never hit this route.
  *
  * The actual transport (Resend HTTP API vs SMTP) is resolved inside the
- * dispatcher at lib/emailSender.ts based on env vars — this route just
- * authorises the caller and forwards the payload.
+ * dispatcher at lib/emailSender.ts based on env vars.
  *
  * Required env (one of):
  *   RESEND_API_KEY                         — Resend HTTP API key
@@ -15,33 +22,30 @@
  *
  * Optional:
  *   EMAIL_FROM / EMAIL_FROM_NAME           — sender address + display name
- *
- * Customer-facing transactional emails (order confirmation, password reset,
- * verification) are sent in-process by lib/emailServer.ts and never hit this
- * route.
  */
 
 import { NextResponse } from "next/server";
-import { unauthorizedJson } from "@/lib/auth";
+import { getAnyStaffSession, unauthorizedJson } from "@/lib/auth";
 import { sendEmail, emailConfigured } from "@/lib/emailSender";
 import { parseBody } from "@/lib/apiValidation";
 import { EmailRelaySchema } from "@/lib/schemas/pos";
-import { requirePosPermission } from "@/lib/posPermissions";
+import { rateLimit } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 
-async function isElevatedStaff(): Promise<boolean> {
-  // F-PU-5: previously any POS / waiter / kitchen session could send arbitrary
-  // email. Waiter and kitchen are blocked entirely (shared PINs / not a
-  // documented use case for this route). For POS we allow the dine-in-receipt
-  // email feature, but only for operators with `canAccessSettings` (i.e. POS
-  // admin / manager, not cashier). Website admins use /api/admin/email instead.
-  const gate = await requirePosPermission("canAccessSettings");
-  return gate.ok;
-}
-
 export async function POST(request: Request) {
-  if (!await isElevatedStaff()) return unauthorizedJson();
+  // Any signed-in staff surface may relay a receipt/bill email from its own
+  // device (previously gated on POS `canAccessSettings`, which 401'd the waiter
+  // app and 403'd POS cashiers — both legitimate callers).
+  const session = await getAnyStaffSession();
+  if (!session) return unauthorizedJson();
+
+  // The payload carries an arbitrary recipient + HTML body, so cap throughput
+  // per session to keep this from being usable as a spam cannon.
+  const { limited } = rateLimit(`email:${session.role}:${session.id}`, 30, 60_000);
+  if (limited) {
+    return NextResponse.json({ ok: false, error: "Too many emails. Please wait a minute." }, { status: 429 });
+  }
 
   const parsed = await parseBody(request, EmailRelaySchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
