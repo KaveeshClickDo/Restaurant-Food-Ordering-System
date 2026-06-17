@@ -29,14 +29,30 @@ export async function PUT(
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const { status } = parsed.data;
 
-  const { error } = await supabaseAdmin
+  // The id is either an online / POS order or a dine-in kitchen ticket. Advance
+  // the order first; if nothing matched, advance the matching dine-in ticket.
+  const { data: updatedOrders, error } = await supabaseAdmin
     .from("orders")
     .update({ status })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
 
   if (error) {
-    console.error("kds/orders/[id]/status PUT:", error.message);
+    console.error("kds/orders/[id]/status PUT (order):", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
+
+  if (!updatedOrders || updatedOrders.length === 0) {
+    // Dine-in kitchen ticket — advance it. No customer email (walk-in bill).
+    const { error: ticketErr } = await supabaseAdmin
+      .from("dine_in_tickets")
+      .update({ status })
+      .eq("id", id);
+    if (ticketErr) {
+      console.error("kds/orders/[id]/status PUT (ticket):", ticketErr.message);
+      return NextResponse.json({ ok: false, error: ticketErr.message }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true });
   }
 
   // Notify the customer of the status change — mirrors the admin Online Orders

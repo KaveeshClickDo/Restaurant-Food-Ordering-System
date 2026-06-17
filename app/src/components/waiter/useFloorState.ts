@@ -43,12 +43,14 @@ export function useFloorState(polling: boolean): FloorState {
   const [reservations, setReservations] = useState<WaiterReservation[]>([]);
   const [dismissedReady, setDismissedReady] = useState<Set<string>>(new Set());
 
-  // ── Active dine-in orders (occupancy + kitchen status) ──────────────────────
-  // The endpoint already filters fulfillment=dine-in; we keep only rows that
-  // still hold a table.
+  // ── Active dine-in tickets (occupancy + kitchen status) ─────────────────────
+  // Reads the per-round kitchen tickets (one per original order / add-more), not
+  // the single settle-time bill: occupancy, ready-to-serve and the kitchen panel
+  // are all per-round. Same response shape as the old /api/waiter/orders poll
+  // (ok + orders[]), so only the URL changed.
   const refreshOrders = useCallback(async () => {
     try {
-      const r = await fetch("/api/waiter/orders", { cache: "no-store" });
+      const r = await fetch("/api/waiter/tickets", { cache: "no-store" });
       if (!r.ok) return;
       const json = await r.json() as {
         ok: boolean;

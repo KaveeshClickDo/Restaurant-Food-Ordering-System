@@ -110,6 +110,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     }
 
+    // Close out the bill's kitchen tickets so the settled table leaves the KDS
+    // and the /waiter floor. Best-effort — the bill is already delivered above.
+    const { error: ticketErr } = await supabaseAdmin
+      .from("dine_in_tickets")
+      .update({ status: "delivered" })
+      .in("order_id", orderIds)
+      .not("status", "in", '("delivered","cancelled")');
+    if (ticketErr) console.error("[waiter/settle] ticket close-out:", ticketErr.message);
+
     // Stamp the bill-level discount + tip + service-fee + VAT on the anchor order and fold the
     // net (−discount +exclusiveVAT +tip + service-fee) into its total, so Σ(order.total) across
     // the bill equals the final amount owed — keeping reports / refunds accurate

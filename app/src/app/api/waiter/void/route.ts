@@ -101,6 +101,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Cancel the bill's kitchen tickets too, so they leave the KDS + floor.
+    // Best-effort — the bill rows are already cancelled above.
+    const { error: ticketErr } = await supabaseAdmin
+      .from("dine_in_tickets")
+      .update({ status: "cancelled" })
+      .in("order_id", orderIds)
+      .not("status", "in", '("delivered","cancelled")');
+    if (ticketErr) console.error("[waiter/void] ticket cancel:", ticketErr.message);
+
     return NextResponse.json({ ok: true, voided: voidedRows.length });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unexpected error";

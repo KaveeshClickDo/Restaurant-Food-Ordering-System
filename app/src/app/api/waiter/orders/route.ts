@@ -131,38 +131,103 @@ export async function POST(req: NextRequest) {
     if (kitchenNote) noteParts.push(kitchenNote);
     const note = noteParts.join(" · ");
 
-    const baseRow = {
-      id:             crypto.randomUUID(),
-      customer_id:    POS_CUSTOMER_ID,
-      date:           new Date().toISOString(),
-      status:         "pending",
-      fulfillment:    "dine-in",
-      total:          total ?? items.reduce((s, i) => s + i.price * i.qty, 0),
+    // ── One bill per table; each placement is its own kitchen ticket ──────────
+    // The table's running tab is a SINGLE `orders` row (the bill): the first
+    // order opens it, every "add more" appends to it. Each round — the original
+    // and every add-more — is its own `dine_in_tickets` row, so the KDS shows
+    // discrete tickets that never mutate while the bill stays one order for
+    // admin / finance / POS / settlement. See schema.sql (dine_in_tickets).
+    const roundTotal = total ?? items.reduce((s, i) => s + i.price * i.qty, 0);
+    const nowIso = new Date().toISOString();
+
+    // Find the table's currently-open bill (active = not yet settled / voided).
+    let openBillQ = supabaseAdmin
+      .from("orders")
+      .select("id, items, total")
+      .eq("fulfillment", "dine-in")
+      .not("status", "in", '("delivered","cancelled")')
+      .order("date", { ascending: false })
+      .limit(1);
+    openBillQ = tableId ? openBillQ.eq("table_id", tableId) : openBillQ.eq("table_label", tableLabel);
+    const { data: openBill } = await openBillQ.maybeSingle();
+
+    let billId: string;
+    if (openBill) {
+      // Append this round to the open bill (aggregate items + total so the
+      // single order always reflects the whole table).
+      billId = openBill.id as string;
+      const mergedItems = [...(Array.isArray(openBill.items) ? openBill.items : []), ...items];
+      const { error: updErr } = await supabaseAdmin
+        .from("orders")
+        .update({ items: mergedItems, total: Number(openBill.total ?? 0) + roundTotal })
+        .eq("id", billId);
+      if (updErr) {
+        restoreStock(stockItems).catch((err) =>
+          console.error("[waiter/orders] restore after bill update error:", err instanceof Error ? err.message : err));
+        console.error("waiter/orders POST (bill update):", updErr.message);
+        return NextResponse.json({ ok: false, error: updErr.message }, { status: 500 });
+      }
+    } else {
+      // Open a new bill for the table.
+      billId = crypto.randomUUID();
+      const baseRow = {
+        id:             billId,
+        customer_id:    POS_CUSTOMER_ID,
+        date:           nowIso,
+        status:         "pending",
+        fulfillment:    "dine-in",
+        total:          roundTotal,
+        items,
+        note,
+        payment_method: "table-service",
+      };
+      // Structural table link (matches reservations.table_id) so occupancy /
+      // availability can join orders↔tables without parsing the note.
+      const row = { ...baseRow, table_id: tableId ?? null, table_label: tableLabel };
+      let { error } = await supabaseAdmin.from("orders").insert(row);
+      // Pre-migration DB without the table columns — retry without them.
+      if (error && (error.message?.includes("table_id") || error.message?.includes("table_label"))) {
+        ({ error } = await supabaseAdmin.from("orders").insert(baseRow));
+      }
+      if (error) {
+        restoreStock(stockItems).catch((err) =>
+          console.error("[waiter/orders] restore after insert error:", err instanceof Error ? err.message : err));
+        console.error("waiter/orders POST (bill insert):", error.message);
+        return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      }
+    }
+
+    // Round number = existing tickets for this bill + 1.
+    const { count: priorRounds } = await supabaseAdmin
+      .from("dine_in_tickets")
+      .select("id", { count: "exact", head: true })
+      .eq("order_id", billId);
+
+    // The kitchen ticket for THIS round — the KDS + waiter floor read these.
+    const ticketId = crypto.randomUUID();
+    const { error: ticketErr } = await supabaseAdmin.from("dine_in_tickets").insert({
+      id:          ticketId,
+      order_id:    billId,
+      table_id:    tableId ?? null,
+      table_label: tableLabel,
+      round_no:    (priorRounds ?? 0) + 1,
       items,
+      status:      "pending",
       note,
-      payment_method: "table-service",
-    };
-    // Structural table link (matches reservations.table_id) so occupancy /
-    // availability can join orders↔tables without parsing the note. The note is
-    // still written above for the kitchen display.
-    const row = { ...baseRow, table_id: tableId ?? null, table_label: tableLabel };
-
-    let { error } = await supabaseAdmin.from("orders").insert(row);
-    // Pre-migration DB without the new columns — retry without them so the order
-    // still goes through (occupancy falls back to note-parsing for these rows).
-    if (error && (error.message?.includes("table_id") || error.message?.includes("table_label"))) {
-      ({ error } = await supabaseAdmin.from("orders").insert(baseRow));
-    }
-    if (error) {
-      // Insert failed after successful decrement — give the units back.
+      date:        nowIso,
+    });
+    if (ticketErr) {
+      // Best-effort: the bill already carries this round's items, but without a
+      // ticket the kitchen won't see it — give stock back and report. (No cross-
+      // table transaction over the REST API; mirrors the best-effort stock
+      // handling already used on this path.)
       restoreStock(stockItems).catch((err) =>
-        console.error("[waiter/orders] restore after insert error:", err instanceof Error ? err.message : err),
-      );
-      console.error("waiter/orders POST:", error.message);
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+        console.error("[waiter/orders] restore after ticket insert error:", err instanceof Error ? err.message : err));
+      console.error("waiter/orders POST (ticket insert):", ticketErr.message);
+      return NextResponse.json({ ok: false, error: ticketErr.message }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, orderId: row.id });
+    return NextResponse.json({ ok: true, orderId: billId, ticketId });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unexpected error";
     console.error("[waiter/orders]", message);

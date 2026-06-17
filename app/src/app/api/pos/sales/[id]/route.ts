@@ -19,7 +19,7 @@ import { PosSaleVoidSchema }         from "@/lib/schemas/pos";
 import { requirePosPermission }      from "@/lib/posPermissions";
 import { restoreStock, type StockItem } from "@/lib/stockMutation";
 import { moneyPaidGross }            from "@/lib/giftCardMoney";
-import { reverseEarnedPoints }       from "@/lib/loyaltyUtils";
+import { deductLoyaltyPoints }       from "@/lib/loyaltyUtils";
 import type { POSCartItem }          from "@/types/pos";
 
 export async function PATCH(
@@ -100,12 +100,14 @@ export async function PATCH(
     return NextResponse.json({ ok: true, id: existing.id, alreadyVoided: true });
   }
 
-  // Reverse the loyalty points this sale earned — the sale is annulled, so the
-  // customer keeps no purchase behind those points. Server-side and bounded by
-  // the ledger (used to be a client-side absolute-value PATCH). Runs only when
-  // THIS request flipped the row (`updated` non-null), so retries are no-ops.
-  reverseEarnedPoints(updated.customer_id as string | null, { posSaleId: id }).catch((err) =>
-    console.error(`[pos/sales/${id}] loyalty reversal on void:`, err instanceof Error ? err.message : err),
+  // Claw back loyalty points in proportion to the money actually refunded —
+  // points follow the money, mirroring the online refund path. A void with no
+  // refund keeps the points (the till kept the money, so the customer keeps the
+  // points they paid for); a refund reverses only what was handed back. Capped
+  // at what THIS sale earned and bounded by the ledger, so retries / replays are
+  // no-ops. Runs only when THIS request flipped the row (`updated` non-null).
+  deductLoyaltyPoints(updated.customer_id as string | null, refundAmount ?? 0, { posSaleId: id, note: "POS void refund" }).catch((err) =>
+    console.error(`[pos/sales/${id}] loyalty clawback on void:`, err instanceof Error ? err.message : err),
   );
 
   // Restore stock for every catalogued line. Best-effort — a failure here just

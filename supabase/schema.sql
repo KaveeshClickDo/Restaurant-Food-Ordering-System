@@ -227,6 +227,39 @@ create index if not exists orders_dine_in_table_idx
 -- original decrement never ran.
 alter table orders add column if not exists oversold boolean not null default false;
 
+-- ── Dine-in kitchen tickets (rounds) ─────────────────────────────────────────
+-- A dine-in table bill is ONE `orders` row (the running tab). Each round the
+-- waiter fires — the first order and every "add more" — is a separate row here,
+-- so the KDS shows them as discrete kitchen tickets that never mutate, while the
+-- bill stays a single order for admin / finance / POS / settlement.
+--
+-- Source of truth split:
+--   • `orders` (one dine-in row per table)  → admin, finance, POS dashboard, settle
+--   • `dine_in_tickets` (one row per round) → KDS feed + /waiter floor occupancy,
+--     kitchen status and ready-to-serve. The kitchen advances `status` HERE
+--     (pending → confirmed → preparing → ready), never on the bill.
+-- Online + POS keep flowing through `orders` to the KDS unchanged; only dine-in
+-- kitchen units move here.
+create table if not exists dine_in_tickets (
+  id          text        primary key,
+  order_id    text        not null references orders(id) on delete cascade,
+  table_id    text,
+  table_label text,
+  round_no    integer     not null default 1,
+  items       jsonb       not null default '[]',
+  status      text        not null default 'pending',
+  note        text,
+  oversold    boolean     not null default false,
+  date        timestamptz not null default now()
+);
+
+-- KDS feed: active tickets, oldest first (mirrors the orders ACTIVE_STATUSES read).
+create index if not exists dine_in_tickets_status_idx on dine_in_tickets (status, date);
+-- Floor occupancy + a table's currently-open rounds.
+create index if not exists dine_in_tickets_table_idx on dine_in_tickets (table_id) where table_id is not null;
+-- All rounds belonging to one bill.
+create index if not exists dine_in_tickets_order_idx on dine_in_tickets (order_id);
+
 -- Stock-status CHECK so a typo or bad client can't store an arbitrary string
 -- in stock_status (which resolveStock would silently treat as "in_stock"
 -- and let through). Allowed values match the enum used app-wide. Dropped
