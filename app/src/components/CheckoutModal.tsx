@@ -340,11 +340,13 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   // any cart-level offers (bogo/multibuy/qty_discount) snapshotted on each
   // line; per-unit offers are already in i.price.
   const baseCartTotal = cartSubtotal(cart);
-  const deliveryFee = isDelivery ? (zone?.fee ?? settings.restaurant.deliveryFee) : 0;
-  const serviceFee = baseCartTotal * (settings.restaurant.serviceFee / 100);
   const couponDiscount = appliedCoupon?.discountAmount ?? 0;
-  const tax = computeTax(baseCartTotal, settings);
-  const adjustedTotal = Math.max(0, baseCartTotal + deliveryFee + serviceFee + taxSurcharge(tax) - couponDiscount);
+  const netTotal = Math.max(0, baseCartTotal - couponDiscount);
+  const serviceFee = netTotal * (settings.restaurant.serviceFee / 100);
+  const deliveryFee = isDelivery ? (zone?.fee ?? settings.restaurant.deliveryFee) : 0;
+  const taxableTotal = netTotal + serviceFee + deliveryFee;
+  const tax = computeTax(baseCartTotal, taxableTotal, settings);
+  const adjustedTotal = Math.max(0, taxableTotal + taxSurcharge(tax));
   const storeCreditApplied = useCredit ? Math.min(availableCredit, adjustedTotal) : 0;
   // Gift card applies after coupon + store credit, capped by the remaining
   // total. Order of operations matches the server (orderValidation.ts).
@@ -1086,23 +1088,10 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
               ))}
             </ul>
             <div className="mt-3 pt-3 border-t border-gray-200 space-y-1">
-              {isDelivery && (
-                <div className="flex justify-between text-xs text-gray-500">
-                  <span>Delivery fee{zone ? ` (${zone.name})` : ""}</span>
-                  <span>{sym}{deliveryFee.toFixed(2)}</span>
-                </div>
-              )}
-              <div className="flex justify-between text-xs text-gray-500">
-                <span>Service fee ({settings.restaurant.serviceFee}%)</span>
-                <span>{sym}{serviceFee.toFixed(2)}</span>
+              <div className="flex justify-between text-[13px] text-gray-700">
+                <span>Subtotal</span>
+                <span>{sym}{baseCartTotal.toFixed(2)}</span>
               </div>
-              {tax.enabled && tax.showBreakdown && tax.vatAmount > 0 && (
-                <div className={`flex justify-between text-xs font-semibold ${tax.inclusive ? "text-gray-400" : "text-orange-600"
-                  }`}>
-                  <span>{tax.label}</span>
-                  <span>{tax.inclusive ? `${sym}${tax.vatAmount.toFixed(2)}` : `+${sym}${tax.vatAmount.toFixed(2)}`}</span>
-                </div>
-              )}
               {appliedCoupon && (
                 <div className="flex justify-between text-xs text-green-700 font-semibold">
                   <span className="flex items-center gap-1">
@@ -1111,6 +1100,24 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                   <span>−{sym}{appliedCoupon.discountAmount.toFixed(2)}</span>
                 </div>
               )}
+              <div className="flex justify-between text-xs text-gray-500">
+                <span>Service fee ({settings.restaurant.serviceFee}%)</span>
+                <span>{sym}{serviceFee.toFixed(2)}</span>
+              </div>
+              {isDelivery && (
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>Delivery fee{zone ? ` (${zone.name})` : ""}</span>
+                  <span>{sym}{deliveryFee.toFixed(2)}</span>
+                </div>
+              )}
+              {tax.enabled && tax.showBreakdown && tax.vatAmount > 0 && (
+                <div className={`flex justify-between text-xs font-semibold ${tax.inclusive ? "text-gray-400" : "text-orange-600"
+                  }`}>
+                  <span>{tax.label}</span>
+                  <span>{tax.inclusive ? `${sym}${tax.vatAmount.toFixed(2)}` : `+${sym}${tax.vatAmount.toFixed(2)}`}</span>
+                </div>
+              )}
+
               {storeCreditApplied > 0 && (
                 <div className="flex justify-between text-xs text-teal-700 font-semibold">
                   <span className="flex items-center gap-1">

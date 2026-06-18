@@ -41,7 +41,7 @@ export interface TaxResult {
  * @param cartSubtotal – sum of (item.price × qty), before delivery / service
  *                       fees and before coupon discount.
  */
-export function computeTax(cartSubtotal: number, settings: AdminSettings): TaxResult {
+export function computeTax(cartSubtotal: number, taxableTotal: number, settings: AdminSettings): TaxResult {
   const tax = settings.taxSettings;
 
   const disabled: TaxResult = {
@@ -66,7 +66,7 @@ export function computeTax(cartSubtotal: number, settings: AdminSettings): TaxRe
     };
   } else {
     // Add VAT on top: vatAmount = subtotal × rate / 100
-    const vatAmount = parseFloat((cartSubtotal * rate / 100).toFixed(2));
+    const vatAmount = parseFloat((taxableTotal * rate / 100).toFixed(2));
     return {
       enabled: true,
       vatAmount,

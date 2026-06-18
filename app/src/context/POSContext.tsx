@@ -33,6 +33,7 @@ const SEED_SETTINGS: POSSettings = {
   businessName: "",
   taxRate: 20,
   taxInclusive: true,
+  showBreakdown: true,
   defaultTipOptions: [10, 15, 20, 25],
   receiptFooter: "Thank you for dining with us!",
   currencySymbol: "£",
@@ -132,6 +133,7 @@ interface POSContextValue {
   subtotal: number;
   discountAmount: number;
   taxAmount: number;
+  afterTaxTotal: number;
   grandTotal: number;
   // Actions
   // completeSale is async — the receipt_no is server-allocated from
@@ -604,13 +606,14 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   const adminTax = appSettings.taxSettings;
   const adminTaxRate      = adminTax?.enabled ? (adminTax.rate ?? 0) : 0;
   const adminTaxInclusive = adminTax?.inclusive ?? true;
+  const adminTaxShowBreakdown = adminTax?.showBreakdown ?? true;
   useEffect(() => {
     setSettings((p) =>
-      p.taxRate === adminTaxRate && p.taxInclusive === adminTaxInclusive
+      p.taxRate === adminTaxRate && p.taxInclusive === adminTaxInclusive && p.showBreakdown === adminTaxShowBreakdown
         ? p
-        : { ...p, taxRate: adminTaxRate, taxInclusive: adminTaxInclusive },
+        : { ...p, taxRate: adminTaxRate, taxInclusive: adminTaxInclusive, showBreakdown: adminTaxShowBreakdown },
     );
-  }, [adminTaxRate, adminTaxInclusive]);
+  }, [adminTaxRate, adminTaxInclusive, adminTaxShowBreakdown]);
 
   // (Loyalty configuration no longer lives in POSSettings — earning happens
   // server-side in /api/pos/sales using the admin rate from app_settings.)
@@ -952,21 +955,22 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   const subtotalRaw = cart.reduce((sum, l) => sum + cartLineTotal(l), 0);
   const discountAmountRaw = subtotalRaw * (discount.pct / 100);
   const afterDiscount = subtotalRaw - discountAmountRaw;
-
   const serviceFeeAmountRaw = afterDiscount * (serviceFeePct.pct / 100);
+  const taxBase = afterDiscount + serviceFeeAmountRaw; 
 
   const taxAmountRaw = settings.taxInclusive
-    ? afterDiscount - afterDiscount / (1 + settings.taxRate / 100)
-    : afterDiscount * (settings.taxRate / 100);
+    ? subtotalRaw * settings.taxRate / (100 + settings.taxRate)
+    : taxBase * (settings.taxRate / 100);
 
-  const grandTotalRaw = settings.taxInclusive
-    ? afterDiscount + tipAmount + serviceFeeAmountRaw
-    : afterDiscount + taxAmountRaw + tipAmount + serviceFeeAmountRaw;
+  const afterTaxTotalRaw = taxBase + (settings.taxInclusive ? 0 : taxAmountRaw);
+
+  const grandTotalRaw = afterTaxTotalRaw + tipAmount;
 
   const subtotal       = round2(subtotalRaw);
   const discountAmount = round2(discountAmountRaw);
   const serviceFeeAmount = round2(serviceFeeAmountRaw);
   const taxAmount      = round2(taxAmountRaw);
+  const afterTaxTotal   = round2(afterTaxTotalRaw);
   const grandTotal     = round2(grandTotalRaw);
 
   // ── Complete sale ─────────────────────────────────────────────────────────
@@ -984,12 +988,12 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     const disc = sub * (discount.pct / 100);
     const after = sub - disc;
     const serviceFee = after * (serviceFeePct.pct / 100);
+    const taxBase = after + serviceFee; 
     const tax = settings.taxInclusive
-      ? after - after / (1 + settings.taxRate / 100)
-      : after * (settings.taxRate / 100);
-    const total = settings.taxInclusive
-      ? after + tipAmount + serviceFee
-      : after + tax + tipAmount + serviceFee;
+      ? sub * settings.taxRate / (100 + settings.taxRate)
+      : taxBase * (settings.taxRate / 100);
+    const afterTax = taxBase + (settings.taxInclusive ? 0 : tax);
+    const total = afterTax + tipAmount;
 
     const cashPayment = payments.filter((p) => p.method === "cash").reduce((s, p) => s + p.amount, 0);
     const change = cashTendered !== undefined ? cashTendered - cashPayment : undefined;
@@ -1275,7 +1279,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       serviceFeePct, setServiceFeePct, serviceFeeAmount,
       kitchenNote, setKitchenNote,
       assignedCustomer, setAssignedCustomer,
-      subtotal, discountAmount, taxAmount, grandTotal,
+      subtotal, discountAmount, taxAmount, afterTaxTotal, grandTotal,
       completeSale, voidSale,
       clockIn, clockOut, isClocked,
       exportSales,

@@ -144,10 +144,10 @@ export default function OrderPanel({
               disabled={!currentStaff?.permissions.canApplyDiscount}
               title={!currentStaff?.permissions.canApplyDiscount ? "Manager or Admin required" : undefined}
               className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition-all ${!currentStaff?.permissions.canApplyDiscount
-                  ? "bg-slate-800/40 text-slate-600 border border-slate-700/40 cursor-not-allowed"
-                  : discount.pct > 0
-                    ? "bg-green-500/20 text-green-400 border border-green-500/40"
-                    : "bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-600"
+                ? "bg-slate-800/40 text-slate-600 border border-slate-700/40 cursor-not-allowed"
+                : discount.pct > 0
+                  ? "bg-green-500/20 text-green-400 border border-green-500/40"
+                  : "bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-600"
                 }`}
             >
               <Percent size={12} className="flex-shrink-0" />
@@ -156,8 +156,8 @@ export default function OrderPanel({
             <button
               onClick={onOpenTip}
               className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition-all ${tipAmount > 0
-                  ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
-                  : "bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-600"
+                ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
+                : "bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-600"
                 }`}
             >
               <BadgeDollarSign size={12} className="flex-shrink-0" />
@@ -167,8 +167,8 @@ export default function OrderPanel({
               <button
                 onClick={onOpenServiceFee}
                 className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition-all ${serviceFeePct.pct > 0
-                    ? "bg-blue-500/15 border-blue-500/40 text-blue-300"
-                    : "bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-600"
+                  ? "bg-blue-500/15 border-blue-500/40 text-blue-300"
+                  : "bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-600"
                   }`}
               >
                 <DollarSign size={12} className="flex-shrink-0" />
@@ -187,7 +187,12 @@ export default function OrderPanel({
                 <span>Discount ({discount.pct}%)</span><span>-{fmt(discountAmount, settings.currencySymbol)}</span>
               </div>
             )}
-            {settings.taxInclusive && taxAmount > 0 && (
+            {serviceFeeAmount > 0 && (
+              <div className="flex justify-between text-sm text-blue-400">
+                <span>Service Fee ({serviceFeePct.pct}%)</span><span>{fmt(serviceFeeAmount, settings.currencySymbol)}</span>
+              </div>
+            )}
+            {settings.taxInclusive && taxAmount > 0 && settings.showBreakdown && (
               <div className="flex justify-between text-xs text-slate-500">
                 <span>VAT ({settings.taxRate}% incl.)</span><span>{fmt(taxAmount, settings.currencySymbol)}</span>
               </div>
@@ -202,11 +207,7 @@ export default function OrderPanel({
                 <span>Tip</span><span>{fmt(tipAmount, settings.currencySymbol)}</span>
               </div>
             )}
-            {serviceFeeAmount > 0 && (
-              <div className="flex justify-between text-sm text-blue-400">
-                <span>Service Fee ({serviceFeePct.pct}%)</span><span>{fmt(serviceFeeAmount, settings.currencySymbol)}</span>
-              </div>
-            )}
+
             <div className="flex justify-between text-white font-bold text-lg pt-2 border-t border-slate-700">
               <span>Total</span><span>{fmt(grandTotal, settings.currencySymbol)}</span>
             </div>

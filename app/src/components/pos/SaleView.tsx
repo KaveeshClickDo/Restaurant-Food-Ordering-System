@@ -23,7 +23,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
   const [showDiscount, setShowDiscount] = useState(false);
   const [showTip, setShowTip] = useState(false);
   const [showServiceFee, setShowServiceFee] = useState(false);
-  const { completeSale, grandTotal, discount, setDiscount, tipAmount, setTipAmount, serviceFeePct, setServiceFeePct, settings: s, customers, assignedCustomer, setAssignedCustomer } = usePOS();
+  const { completeSale, afterTaxTotal, grandTotal, discount, setDiscount, tipAmount, setTipAmount, serviceFeePct, setServiceFeePct, settings: s, customers, assignedCustomer, setAssignedCustomer } = usePOS();
   const [discountInput, setDiscountInput] = useState(discount.pct.toString());
   const [discountNote, setDiscountNote] = useState(discount.note);
   const [tipCustom, setTipCustom] = useState("");
@@ -191,7 +191,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
               {s.defaultTipOptions.map((pct) => {
-                const amt = (grandTotal - tipAmount) * (pct / 100);
+                const amt = afterTaxTotal * (pct / 100);
                 return (
                   <button key={pct} onClick={() => setTipAmount(parseFloat(amt.toFixed(2)))}
                     className={`py-3 rounded-xl text-sm font-bold transition-all ${tipAmount === parseFloat(amt.toFixed(2)) ? "bg-amber-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}>

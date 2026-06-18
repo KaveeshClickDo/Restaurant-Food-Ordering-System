@@ -259,6 +259,8 @@ function buildPrintHtml(
     const couponDisc = order.couponDiscount ?? 0;
     const vatAmt = order.vatAmount ?? 0;
     const vatInclusive = order.vatInclusive ?? true;
+    const storeCreditUsed = order.storeCreditUsed ?? 0;
+    const giftCardUsed = order.giftCardUsed ?? 0;
 
     return `<!DOCTYPE html>
 <html>
@@ -304,6 +306,8 @@ function buildPrintHtml(
   ${serviceFee > 0 ? `<div class="row"><span>Service fee</span><span>${sym}${serviceFee.toFixed(2)}</span></div>` : ""}
   ${couponDisc > 0 ? `<div class="row" style="color:#16a34a;font-weight:600"><span>Coupon (${order.couponCode ?? ""})</span><span>-${sym}${couponDisc.toFixed(2)}</span></div>` : ""}
   ${vatAmt > 0 && showVat ? `<div class="row" style="color:${vatInclusive ? "#9ca3af" : "#ea580c"};font-weight:600"><span>${vatInclusive ? "Incl. VAT" : "VAT"}</span><span>${vatInclusive ? "" : "+"}${sym}${vatAmt.toFixed(2)}</span></div>` : ""}
+  ${storeCreditUsed > 0 ? `<div class="row" style="color:#2563eb;font-weight:600"><span>Store credit applied</span><span>-${sym}${storeCreditUsed.toFixed(2)}</span></div>` : ""}
+  ${giftCardUsed > 0 ? `<div class="row" style="color:#8b5cf6;font-weight:600"><span>Gift card applied</span><span>-${sym}${giftCardUsed.toFixed(2)}</span></div>` : ""}
   <div class="d"></div>
   <div class="tot"><span>TOTAL</span><span>${sym}${order.total.toFixed(2)}</span></div>
   ${vatAmt > 0 && vatInclusive && showVat ? `<div class="c sm" style="margin-top:3px">Prices include VAT</div>` : ""}

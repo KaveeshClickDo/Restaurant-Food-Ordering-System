@@ -50,8 +50,9 @@ export default function Cart({ onMobileClose, onOrderPlaced }: CartProps) {
   const sym = settings.currency?.symbol ?? "£";
   const delivery = fulfillment === "delivery" ? deliveryFee : 0;
   const service = cartTotal * (serviceFee / 100);
-  const tax = computeTax(cartTotal, settings);
-  const grandTotal = cartTotal + delivery + service + taxSurcharge(tax);
+  const taxableTotal = cartTotal + delivery + service; 
+  const tax = computeTax(cartTotal, taxableTotal, settings);
+  const grandTotal = taxableTotal + taxSurcharge(tax);
   const shortfall = minOrder - cartTotal;
   const canCheckout = cartTotal >= minOrder && cart.length > 0 && (isOpen || !!scheduledTime) && !hasBlockedLines;
 
@@ -175,14 +176,14 @@ export default function Cart({ onMobileClose, onOrderPlaced }: CartProps) {
                   <span>Delivery fee</span><span className="tabular-nums">{sym}{delivery.toFixed(2)}</span>
                 </div>
               )}
-              {fulfillment === "collection" && (
-                <div className="flex justify-between text-[13px] text-zinc-500">
-                  <span>Collection</span><span className="text-emerald-600 font-medium">Free</span>
-                </div>
-              )}
               {serviceFee > 0 && (
                 <div className="flex justify-between text-[13px] text-zinc-500">
                   <span>Service fee ({serviceFee}%)</span><span className="tabular-nums">{sym}{service.toFixed(2)}</span>
+                </div>
+              )}
+              {fulfillment === "collection" && (
+                <div className="flex justify-between text-[13px] text-zinc-500">
+                  <span>Collection</span><span className="text-emerald-600 font-medium">Free</span>
                 </div>
               )}
               {tax.enabled && tax.showBreakdown && tax.vatAmount > 0 && (

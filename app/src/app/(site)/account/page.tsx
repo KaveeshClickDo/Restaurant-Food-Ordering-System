@@ -471,7 +471,7 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
             {/* Subtotal */}
             <div className="flex justify-between text-xs text-zinc-500">
               <span>Subtotal</span>
-              <span className="tabular-nums">{sym}{(order.items.reduce((s, l) => s + l.price * l.qty, 0)).toFixed(2)}</span>
+              <span className="tabular-nums">{sym}{subtotal.toFixed(2)}</span>
             </div>
 
             {/* Delivery Fee */}

@@ -7,7 +7,9 @@ import { parseTableLabelFromNote } from "@/lib/tableLabel";
 import {
   Circle, CheckCircle2, ChefHat, Package, Truck, Ban,
   RefreshCw, Search, Bike, ShoppingBag, Tablet, UtensilsCrossed, ClipboardList,
+  Receipt,
 } from "lucide-react";
+import { ReceiptModal } from "./ReceiptModal";
 
 type RangePreset = "all" | "today" | "7d" | "30d" | "custom";
 
@@ -108,6 +110,9 @@ export default function OrderHistoryPanel() {
   const [customTo, setCustomTo] = useState("");
   const lastKey = useRef<string>("");
 
+  // State for receipt modal
+  const [viewingReceipt, setViewingReceipt] = useState<RawOrder | null>(null);
+
   // Resolve the preset into ISO from/to bounds (local-day aligned).
   const { fromISO, toISO } = useMemo(() => {
     const startOfDay = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
@@ -206,8 +211,8 @@ export default function OrderHistoryPanel() {
               key={t.id}
               onClick={() => { setTab(t.id); setSearch(""); }}
               className={`flex items-center gap-2 pl-2.5 pr-2.5 sm:pr-3 py-2 rounded-xl text-sm font-semibold border transition ${isActive
-                  ? "bg-white border-orange-300 text-gray-900 shadow-sm ring-1 ring-orange-200"
-                  : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
+                ? "bg-white border-orange-300 text-gray-900 shadow-sm ring-1 ring-orange-200"
+                : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
                 }`}
             >
               <span className={`w-6 h-6 rounded-lg flex items-center justify-center ${isActive ? TAB_ACCENT[t.id] : "bg-gray-100 text-gray-400"}`}>
@@ -304,7 +309,16 @@ export default function OrderHistoryPanel() {
                     </p>
                   )}
                 </div>
-                <span className="font-bold text-gray-900 text-base flex-shrink-0 tabular-nums">{sym}{Number(o.total ?? 0).toFixed(2)}</span>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <span className="font-bold text-gray-900 text-base tabular-nums">{sym}{Number(o.total ?? 0).toFixed(2)}</span>
+                  <button
+                    onClick={() => setViewingReceipt(o)}
+                    title="View Receipt"
+                    className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-50 hover:bg-gray-100 text-gray-500 transition-colors border border-gray-200"
+                  >
+                    <Receipt size={12} />
+                  </button>
+                </div>
               </div>
             );
           })}
@@ -316,6 +330,45 @@ export default function OrderHistoryPanel() {
           ? "Showing the most recent 5,000 orders. Narrow the date range to see older records."
           : "Showing all orders in the selected date range (up to 5,000)."}
       </p>
+
+      {/* Receipt modal */}
+      {viewingReceipt && (
+        <ReceiptModal
+          order={{
+            id: viewingReceipt.id,
+            date: viewingReceipt.date,
+            status: viewingReceipt.status as any,
+            fulfillment: viewingReceipt.fulfillment as any || "collection",
+            paymentMethod: viewingReceipt.payment_method || "cash",
+            paymentStatus: viewingReceipt.payment_status as any,
+            total: viewingReceipt.total,
+            items: viewingReceipt.items as any || [],
+            note: viewingReceipt.note || undefined,
+            // Map the missing financial fields
+            // If they aren't fetched in `RawOrder`, you may need to add them to your SQL query and RawOrder interface.
+            deliveryFee: (viewingReceipt as any).delivery_fee || 0,
+            serviceFee: (viewingReceipt as any).service_fee || 0,
+            discountAmount: (viewingReceipt as any).discount_amount || 0,
+            discountNote: (viewingReceipt as any).discount_note || undefined,
+            couponDiscount: (viewingReceipt as any).coupon_discount || 0,
+            couponCode: (viewingReceipt as any).coupon_code || undefined,
+            vatAmount: (viewingReceipt as any).vat_amount || 0,
+            vatInclusive: (viewingReceipt as any).vat_inclusive ?? true,
+            tipAmount: (viewingReceipt as any).tip_amount || 0,
+            storeCreditUsed: (viewingReceipt as any).store_credit_used || 0,
+            giftCardUsed: (viewingReceipt as any).gift_card_used || 0,
+            address: (viewingReceipt as any).address || undefined,
+            tableLabel: (viewingReceipt as any).table_label || undefined,
+            staffName: (viewingReceipt as any).staff_name || undefined,
+          } as any} 
+          
+          customer={{
+            id: viewingReceipt.customer_id || "guest",
+            name: viewingReceipt.customer?.name || "Guest Customer",
+          } as any}
+          onClose={() => setViewingReceipt(null)}
+        />
+      )}
     </div>
   );
 }

@@ -300,6 +300,7 @@ export interface POSSettings {
   businessName: string;
   taxRate: number;
   taxInclusive: boolean;
+  showBreakdown: boolean;
   defaultTipOptions: number[]; // [10, 15, 20, 25]
   receiptFooter: string;
   currencySymbol: string;
