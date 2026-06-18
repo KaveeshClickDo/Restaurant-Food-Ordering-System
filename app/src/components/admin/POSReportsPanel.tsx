@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   TrendingUp, Receipt, BarChart3, Users, Percent, BadgeDollarSign,
   Download, RefreshCw, Tag, CreditCard, Banknote, Shuffle,
@@ -118,8 +118,10 @@ function getDateRange(period: Period, customStart: string, customEnd: string): [
   }
 }
 
-// Build daily buckets for a date range
-function buildDailyBuckets(sales: POSSale[], start: Date, end: Date) {
+// Build daily buckets for a date range. `valueOf` picks the per-sale amount —
+// pass `saleNet` so the chart sums retained income (gift card + refund netted),
+// matching the revenue KPI and letting partial-refund voids contribute correctly.
+function buildDailyBuckets(sales: POSSale[], start: Date, end: Date, valueOf: (s: POSSale) => number = (s) => s.total) {
   const map: Record<string, number> = {};
   const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
   const endDay  = new Date(end.getFullYear(), end.getMonth(), end.getDate());
@@ -129,7 +131,7 @@ function buildDailyBuckets(sales: POSSale[], start: Date, end: Date) {
   }
   for (const s of sales) {
     const key = new Date(s.date).toDateString();
-    if (key in map) map[key] = (map[key] ?? 0) + s.total;
+    if (key in map) map[key] = (map[key] ?? 0) + valueOf(s);
   }
   return Object.entries(map).map(([key, revenue]) => {
     const d = new Date(key);
@@ -138,16 +140,16 @@ function buildDailyBuckets(sales: POSSale[], start: Date, end: Date) {
   });
 }
 
-// Build hourly buckets 0-23
-function buildHourlyBuckets(sales: POSSale[]) {
+// Build hourly buckets 0-23. `valueOf` as above.
+function buildHourlyBuckets(sales: POSSale[], valueOf: (s: POSSale) => number = (s) => s.total) {
   const map: number[] = Array(24).fill(0);
-  for (const s of sales) map[new Date(s.date).getHours()] += s.total;
+  for (const s of sales) map[new Date(s.date).getHours()] += valueOf(s);
   return map;
 }
 
 // CSV export
 function exportCSV(sales: POSSale[], sym: string) {
-  const header = ["Receipt No","Date","Time","Staff","Customer","Items",`Subtotal (${sym})`,`Discount (${sym})`,`VAT (${sym})`,`Tip (${sym})`,`Service Fee (${sym})`,`Total (${sym})`,"Payment","Voided","Void Reason"].join(",");
+  const header = ["Receipt No","Date","Time","Staff","Customer","Items",`Subtotal (${sym})`,`Discount (${sym})`,`VAT (${sym})`,`Tip (${sym})`,`Service Fee (${sym})`,`Total (${sym})`,`Refund (${sym})`,`Net Kept (${sym})`,"Payment","Voided","Void Reason"].join(",");
   const rows = sales.map((s) => [
     s.receiptNo,
     fmtDate(s.date),
@@ -161,6 +163,8 @@ function exportCSV(sales: POSSale[], sym: string) {
     s.tipAmount.toFixed(2),
     s.serviceFeeAmount.toFixed(2),
     s.total.toFixed(2),
+    (s.refundAmount ?? 0).toFixed(2),
+    Math.max(0, moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0)).toFixed(2),
     s.paymentMethod,
     s.voided ? "Yes" : "No",
     `"${s.voidReason ?? ""}"`,
@@ -213,7 +217,9 @@ export default function POSReportsPanel() {
   const [txSearch, setTxSearch]     = useState("");
   const [sortField, setSortField]   = useState<"date" | "total">("date");
   const [sortDir, setSortDir]       = useState<"desc" | "asc">("desc");
-  const [showVoided, setShowVoided] = useState(false);
+  // Default ON: voided sales are real history (often money was kept), so admins
+  // should see them without hunting for a toggle — mirrors Order History.
+  const [showVoided, setShowVoided] = useState(true);
 
   // Sales come from the DB (pos_sales table) so reports aggregate across all
   // tills. Products are still read from localStorage because the cost field
@@ -258,18 +264,38 @@ export default function POSReportsPanel() {
       return d >= startDate && d <= endDate;
     }), [sales, startDate, endDate]);
 
-  const filtered = useMemo(() => inRange.filter((s) => !s.voided), [inRange]);
-  // Money-bearing = sales whose money (partly) stuck: non-voided, PLUS voided
-  // sales that were only partially refunded (the retained portion is real
-  // revenue). A void with NO refund is a cancelled sale and contributes nothing.
-  // Mirrors the POS Dashboard Overview, so a partial refund reduces revenue by
-  // the refunded amount — not the whole sale.
-  const moneyBearing = useMemo(
-    () => inRange.filter((s) => !s.voided || (s.refundAmount ?? 0) > 0),
+  // Net money kept on a sale = money paid (gift card excluded) − refund.
+  // useCallback so it's reference-stable and safe to use in chart useMemo deps.
+  const saleNet = useCallback(
+    (s: POSSale) => Math.max(0, moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0)),
+    [],
+  );
+
+  // Strictly non-voided sales. Drives the transactions-list "Show voided" toggle
+  // only — every money metric below uses `filtered`/`moneyBearing` instead.
+  const nonVoided = useMemo(() => inRange.filter((s) => !s.voided), [inRange]);
+  // `filtered` = completed sales whose money fully stuck: never-voided PLUS
+  // voided-with-NO-refund. A void with no refund means the till took the money
+  // and never handed it back, so it's a real sale for every GROSS figure (VAT,
+  // tips, items, staff, payment mix). Partially/fully refunded voids are NOT
+  // here — part of their money went back, so their retained slice is counted by
+  // `moneyBearing` (revenue) alone, not in the gross component lines.
+  const filtered = useMemo(
+    () => inRange.filter((s) => !s.voided || (s.refundAmount ?? 0) === 0),
     [inRange],
   );
-  // Net money kept on a sale = money paid (gift card excluded) − refund.
-  const saleNet = (s: POSSale) => Math.max(0, moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0));
+  // Revenue-bearing = `filtered` PLUS partially-refunded voids (retained portion
+  // is real income). Fully-refunded voids net to £0 via saleNet and drop out.
+  // Mirrors the POS Dashboard Overview.
+  const moneyBearing = useMemo(
+    () => inRange.filter((s) => !s.voided || moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0) > 0),
+    [inRange],
+  );
+  // Income retained from VOIDED sales (no-refund = full money, partial = the
+  // kept slice). Surfaced as an audit line so admins can see money kept on voids.
+  const voidKeptRevenue = moneyBearing
+    .filter((s) => s.voided)
+    .reduce((sum, s) => sum + saleNet(s), 0);
 
   // VIP booking fees collected at the till in the same date window. Back-office
   // (admin) bookings share the cash/card payment_method, so the server's
@@ -317,16 +343,22 @@ export default function POSReportsPanel() {
   const marginPct   = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
 
   // ── Payment mix ─────────────────────────────────────────────────────────────
+  // Payment mix counts money-bearing sales (incl. partial-refund voids) — method
+  // + net amount are both known per sale, so this split is exact (unlike items).
   const payMix = { cash: 0, card: 0, split: 0 };
-  for (const s of filtered) { const k = s.paymentMethod as keyof typeof payMix; payMix[k] = (payMix[k] ?? 0) + 1; }
-  const payTotal = filtered.length || 1;
+  for (const s of moneyBearing) { const k = s.paymentMethod as keyof typeof payMix; payMix[k] = (payMix[k] ?? 0) + 1; }
+  const payTotal = moneyBearing.length || 1;
 
   // ── Daily chart ─────────────────────────────────────────────────────────────
-  const dailyBuckets = useMemo(() => buildDailyBuckets(filtered, startDate, endDate), [filtered, startDate, endDate]);
+  // Charts run off `moneyBearing` with the NET value (saleNet), so a partially-
+  // refunded void contributes its retained slice and the chart totals reconcile
+  // with the revenue KPI. Best-sellers below stay on `filtered` (item-level
+  // refund split isn't recorded, so a partial refund can't be apportioned).
+  const dailyBuckets = useMemo(() => buildDailyBuckets(moneyBearing, startDate, endDate, saleNet), [moneyBearing, startDate, endDate, saleNet]);
   const maxDaily = Math.max(...dailyBuckets.map((d) => d.revenue), 1);
 
   // ── Hourly heatmap ──────────────────────────────────────────────────────────
-  const hourlyBuckets = useMemo(() => buildHourlyBuckets(filtered), [filtered]);
+  const hourlyBuckets = useMemo(() => buildHourlyBuckets(moneyBearing, saleNet), [moneyBearing, saleNet]);
   const maxHourly = Math.max(...hourlyBuckets, 1);
 
   // ── Best sellers ────────────────────────────────────────────────────────────
@@ -342,11 +374,14 @@ export default function POSReportsPanel() {
   const maxItemRev  = bestSellers[0]?.revenue || 1;
 
   // ── Staff performance ────────────────────────────────────────────────────────
+  // Runs off `moneyBearing` with NET revenue (saleNet), so a partially-refunded
+  // void credits the staffer only the retained slice and the leaderboard totals
+  // reconcile with overall revenue.
   const staffStats: Record<string, { name: string; sales: number; revenue: number; avgOrder: number }> = {};
-  for (const sale of filtered) {
+  for (const sale of moneyBearing) {
     if (!staffStats[sale.staffId]) staffStats[sale.staffId] = { name: sale.staffName, sales: 0, revenue: 0, avgOrder: 0 };
     staffStats[sale.staffId].sales++;
-    staffStats[sale.staffId].revenue += moneyPaidGross(sale.total, sale.giftCardUsed);
+    staffStats[sale.staffId].revenue += saleNet(sale);
   }
   const staffPerf = Object.values(staffStats)
     .map((s) => ({ ...s, avgOrder: s.sales > 0 ? s.revenue / s.sales : 0 }))
@@ -354,7 +389,7 @@ export default function POSReportsPanel() {
   const maxStaffRev = staffPerf[0]?.revenue || 1;
 
   // ── Transactions tab ────────────────────────────────────────────────────────
-  const txSource = showVoided ? inRange : filtered;
+  const txSource = showVoided ? inRange : nonVoided;
   const txFiltered = txSource.filter((s) => {
     if (!txSearch.trim()) return true;
     const q = txSearch.toLowerCase();
@@ -387,9 +422,9 @@ export default function POSReportsPanel() {
         <div>
           <h2 className="text-xl font-bold text-gray-900">POS Finance Reports</h2>
           <p className="text-gray-500 text-sm mt-0.5">
-            {filtered.length} transactions · {fmtCur(revenue + vipFeesTotal, sym)} revenue
+            {moneyBearing.length} transactions · {fmtCur(revenue + vipFeesTotal, sym)} revenue
             {vipFeesInRange.length > 0 && <span className="ml-1 text-amber-500">(incl. {fmtCur(vipFeesTotal, sym)} VIP fees)</span>}
-            {voidedCount > 0 && <span className="ml-2 text-red-400">({voidedCount} voided)</span>}
+            {voidedCount > 0 && <span className="ml-2 text-red-400">({voidedCount} voided{voidKeptRevenue > 0 ? `, ${fmtCur(voidKeptRevenue, sym)} kept` : ""})</span>}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -397,7 +432,7 @@ export default function POSReportsPanel() {
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 text-gray-600 text-[13px] sm:text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
             <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} /> Refresh
           </button>
-          <button onClick={() => exportCSV(showVoided ? inRange : filtered, sym)}
+          <button onClick={() => exportCSV(showVoided ? inRange : nonVoided, sym)}
             className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-[13px] sm:text-sm font-semibold transition-colors">
             <Download size={14} /> Export CSV
           </button>
@@ -433,7 +468,9 @@ export default function POSReportsPanel() {
       </div>
 
       {/* ── Empty state ───────────────────────────────────────────────────── */}
-      {filtered.length === 0 && vipFeesInRange.length === 0 && (
+      {/* Guard on inRange (not `filtered`) so a period that is ALL voided still
+          renders the report + transactions tab instead of "No sales found". */}
+      {inRange.length === 0 && vipFeesInRange.length === 0 && (
         <div className="bg-white border border-gray-100 rounded-2xl p-12 text-center shadow-sm">
           <BarChart3 size={36} className="mx-auto text-gray-300 mb-3" />
           <p className="text-gray-500 font-medium">No sales found for this period</p>
@@ -441,19 +478,22 @@ export default function POSReportsPanel() {
         </div>
       )}
 
-      {(filtered.length > 0 || vipFeesInRange.length > 0) && (
+      {(inRange.length > 0 || vipFeesInRange.length > 0) && (
         <>
           {/* ── KPI cards ──────────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
-            <KpiCard label="Total Revenue"    value={fmtCur(revenue + vipFeesTotal, sym)} sub={vipFeesTotal > 0 ? `${filtered.length} sales + ${fmtCur(vipFeesTotal, sym)} VIP fees` : `${filtered.length} txns`} icon={TrendingUp} color="text-green-600"  bg="bg-green-50" />
-            <KpiCard label="Average Order"    value={fmtCur(avgOrder, sym)}       sub={`${filtered.length} sales`}         icon={Receipt}         color="text-blue-600"   bg="bg-blue-50" />
+            <KpiCard label="Total Revenue"    value={fmtCur(revenue + vipFeesTotal, sym)} sub={vipFeesTotal > 0 ? `${moneyBearing.length} sales + ${fmtCur(vipFeesTotal, sym)} VIP fees` : `${moneyBearing.length} txns`} icon={TrendingUp} color="text-green-600"  bg="bg-green-50" />
+            <KpiCard label="Average Order"    value={fmtCur(avgOrder, sym)}       sub={`${moneyBearing.length} sales`}     icon={Receipt}         color="text-blue-600"   bg="bg-blue-50" />
             <KpiCard label="Gross Profit"     value={fmtCur(grossProfit, sym)}    sub={`Margin ${fmtPct(marginPct)}`}      icon={BarChart3}       color="text-purple-600" bg="bg-purple-50" />
-            <KpiCard label="VAT Collected"    value={fmtCur(taxCollected, sym)}   sub="excl. voided"                       icon={Percent}         color="text-amber-600"  bg="bg-amber-50" />
+            <KpiCard label="VAT Collected"    value={fmtCur(taxCollected, sym)}   sub="excl. refunded"                     icon={Percent}         color="text-amber-600"  bg="bg-amber-50" />
             <KpiCard label="VIP Booking Fees" value={fmtCur(vipFeesTotal, sym)}   sub={`${vipFeesInRange.length} reservation${vipFeesInRange.length === 1 ? "" : "s"} · till`} icon={Crown} color="text-amber-700" bg="bg-amber-50" />
             <KpiCard label="Tips"             value={fmtCur(tipsTotal, sym)}      sub="staff tips"                         icon={BadgeDollarSign} color="text-pink-600"   bg="bg-pink-50" />
             <KpiCard label="Discounts Given"  value={fmtCur(discountTotal, sym)}  sub="reductions applied"                 icon={Tag}             color="text-red-600"    bg="bg-red-50" />
             <KpiCard label="Service Fees"     value={fmtCur(serviceFeesTotal, sym)} sub={`${filtered.length} sales`}       icon={CreditCard}     color="text-indigo-600" bg="bg-indigo-50" />
             <KpiCard label="Refunded"         value={fmtCur(refundedTotal, sym)}  sub={`${refundedCount} txn${refundedCount === 1 ? "" : "s"}`} icon={RotateCcw} color="text-teal-600"  bg="bg-teal-50" />
+            {voidKeptRevenue > 0 && (
+              <KpiCard label="Kept from Voids" value={fmtCur(voidKeptRevenue, sym)} sub="income retained on voided sales" icon={AlertTriangle} color="text-amber-600" bg="bg-amber-50" />
+            )}
             {giftCardRedeemed > 0 && (
               <KpiCard label="Gift Card Redeemed" value={fmtCur(giftCardRedeemed, sym)} sub="settled · not revenue" icon={Gift} color="text-fuchsia-600" bg="bg-fuchsia-50" />
             )}
@@ -573,7 +613,7 @@ export default function POSReportsPanel() {
                        ["split","Split","bg-purple-500","text-purple-700",Shuffle]] as [string,string,string,string,React.ComponentType<{size?:number;className?:string}>][]).map(([key,label,bar,txt,Icon]) => {
                       const count = payMix[key as keyof typeof payMix] ?? 0;
                       const pct   = (count / payTotal) * 100;
-                      const rev   = filtered.filter((s) => s.paymentMethod === key).reduce((s, x) => s + moneyPaidGross(x.total, x.giftCardUsed), 0);
+                      const rev   = moneyBearing.filter((s) => s.paymentMethod === key).reduce((s, x) => s + saleNet(x), 0);
                       return (
                         <div key={key}>
                           <div className="flex items-center justify-between mb-1">
@@ -634,6 +674,9 @@ export default function POSReportsPanel() {
                       ["Tips",                    fmtCur(tipsTotal, sym),                                 "text-pink-600"],
                       ["Service Fees",            fmtCur(serviceFeesTotal, sym),                          "text-indigo-600"],
                       ["Sales Revenue",           fmtCur(revenue, sym),                                   "text-gray-900"],
+                      ...(voidKeptRevenue > 0
+                        ? [["— incl. kept from voided sales", fmtCur(voidKeptRevenue, sym),               "text-amber-600"] as [string, string, string]]
+                        : []),
                       ...(vipFeesTotal > 0
                         ? [["VIP Booking Fees",    fmtCur(vipFeesTotal, sym),                             "text-amber-700"] as [string, string, string]]
                         : []),
@@ -791,8 +834,29 @@ export default function POSReportsPanel() {
                             </span>
                           )}
                         </td>
-                        <td className={`px-5 py-3 text-right font-semibold ${sale.voided ? "text-red-400 line-through" : "text-gray-900"}`}>
-                          {fmtCur(sale.total, sym)}
+                        <td className="px-5 py-3 text-right">
+                          {(() => {
+                            const net = saleNet(sale);
+                            // Strike through only when the money is truly gone (fully
+                            // refunded). A no-refund void kept the cash, so its total
+                            // shows normally with a "kept" note — not as a loss.
+                            const fullyRefunded = sale.voided && net === 0;
+                            return (
+                              <>
+                                <span className={`font-semibold ${fullyRefunded ? "text-red-400 line-through" : "text-gray-900"}`}>
+                                  {fmtCur(sale.total, sym)}
+                                </span>
+                                {sale.voided && (sale.refundAmount ?? 0) > 0 && (
+                                  <div className="text-[10px] text-teal-600 mt-0.5">
+                                    −{fmtCur(sale.refundAmount ?? 0, sym)} refunded{net > 0 ? ` · ${fmtCur(net, sym)} kept` : ""}
+                                  </div>
+                                )}
+                                {sale.voided && (sale.refundAmount ?? 0) === 0 && (
+                                  <div className="text-[10px] text-amber-600 mt-0.5">kept · no refund</div>
+                                )}
+                              </>
+                            );
+                          })()}
                         </td>
                       </tr>
                     ))}
@@ -800,9 +864,11 @@ export default function POSReportsPanel() {
                   {txSorted.length > 0 && (
                     <tfoot>
                       <tr className="bg-gray-50 border-t-2 border-gray-200">
-                        <td colSpan={6} className="px-5 py-3 text-xs font-semibold text-gray-600">Total ({txSorted.filter(s=>!s.voided).length} sales)</td>
+                        <td colSpan={6} className="px-5 py-3 text-xs font-semibold text-gray-600">
+                          Retained income ({txSorted.filter((s) => !s.voided || saleNet(s) > 0).length} money-bearing)
+                        </td>
                         <td className="px-5 py-3 text-right font-bold text-gray-900">
-                          {fmtCur(txSorted.filter(s=>!s.voided).reduce((s,x)=>s+x.total,0), sym)}
+                          {fmtCur(txSorted.reduce((s, x) => s + saleNet(x), 0), sym)}
                         </td>
                       </tr>
                     </tfoot>

@@ -32,7 +32,10 @@ export function getPOSDateRange(period: POSPeriod, customStart: string, customEn
   }
 }
 
-export function posDailyBuckets(sales: POSSale[], start: Date, end: Date) {
+// `valueOf` picks the per-sale amount — pass `rSaleNet` so the chart sums
+// retained income (gift card + refund netted), letting partial-refund voids
+// contribute their kept slice and reconcile with the revenue KPI.
+export function posDailyBuckets(sales: POSSale[], start: Date, end: Date, valueOf: (s: POSSale) => number = (s) => s.total) {
   const map: Record<string, number> = {};
   const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
   const endDay  = new Date(end.getFullYear(),  end.getMonth(),   end.getDate());
@@ -42,7 +45,7 @@ export function posDailyBuckets(sales: POSSale[], start: Date, end: Date) {
   }
   for (const s of sales) {
     const key = new Date(s.date).toDateString();
-    if (key in map) map[key] = (map[key] ?? 0) + s.total;
+    if (key in map) map[key] = (map[key] ?? 0) + valueOf(s);
   }
   return Object.entries(map).map(([key, revenue]) => ({
     label:   new Date(key).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }),
@@ -50,9 +53,9 @@ export function posDailyBuckets(sales: POSSale[], start: Date, end: Date) {
   }));
 }
 
-export function posHourlyBuckets(sales: POSSale[]) {
+export function posHourlyBuckets(sales: POSSale[], valueOf: (s: POSSale) => number = (s) => s.total) {
   const map: number[] = Array(24).fill(0);
-  for (const s of sales) map[new Date(s.date).getHours()] += s.total;
+  for (const s of sales) map[new Date(s.date).getHours()] += valueOf(s);
   return map;
 }
 
