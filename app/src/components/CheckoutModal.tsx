@@ -1002,7 +1002,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
           <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <CheckCircle size={32} className="text-green-500" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Order placed! 🎉</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Order placed! </h2>
           <p className="text-gray-500 text-sm leading-relaxed">
             Thank you for your order. A confirmation has been sent to{" "}
             <span className="font-medium text-gray-700">{form.email || "your email"}</span>.
