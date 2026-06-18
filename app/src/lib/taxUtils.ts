@@ -41,7 +41,7 @@ export interface TaxResult {
  * @param cartSubtotal – sum of (item.price × qty), before delivery / service
  *                       fees and before coupon discount.
  */
-export function computeTax(cartSubtotal: number, settings: AdminSettings): TaxResult {
+export function computeTax(cartSubtotal: number, taxableTotal: number, settings: AdminSettings): TaxResult {
   const tax = settings.taxSettings;
 
   const disabled: TaxResult = {
@@ -54,8 +54,10 @@ export function computeTax(cartSubtotal: number, settings: AdminSettings): TaxRe
   const rate = Math.max(0, Math.min(100, tax.rate ?? 20));
 
   if (tax.inclusive) {
-    // Extract embedded VAT: vatAmount = subtotal × rate / (100 + rate)
-    const vatAmount = parseFloat((cartSubtotal * rate / (100 + rate)).toFixed(2));
+    // Extract embedded VAT from the taxable base (net goods + taxable fees), so a
+    // discount/fee is reflected in the recorded VAT (VAT is due on the discounted
+    // consideration). vatAmount = taxableTotal × rate / (100 + rate)
+    const vatAmount = parseFloat((taxableTotal * rate / (100 + rate)).toFixed(2));
     return {
       enabled: true,
       vatAmount,
@@ -66,7 +68,7 @@ export function computeTax(cartSubtotal: number, settings: AdminSettings): TaxRe
     };
   } else {
     // Add VAT on top: vatAmount = subtotal × rate / 100
-    const vatAmount = parseFloat((cartSubtotal * rate / 100).toFixed(2));
+    const vatAmount = parseFloat((taxableTotal * rate / 100).toFixed(2));
     return {
       enabled: true,
       vatAmount,

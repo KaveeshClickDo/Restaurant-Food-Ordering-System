@@ -706,6 +706,8 @@ export interface Order {
    *  the points atomically at order insert / payment capture. */
   loyaltyRewardId?: string;
   // POS-only fields (not set on online orders)
+  discountAmount?: number;  // discount applied at the POS terminal
+  discountNote?: string;    // free-text note for the discount
   tipAmount?: number;      // tip collected at the POS terminal
   changeGiven?: number;    // cash change given back to the customer
 }

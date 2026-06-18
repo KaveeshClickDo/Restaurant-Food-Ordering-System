@@ -10,6 +10,28 @@ import MenuTab from "./settings/MenuTab";
 
 type SaveKey = "general" | "receipt" | "smtp";
 
+// ─── Small shared helpers ─────────────────────────────────────────────────────
+
+function Toggle({
+  enabled, onToggle, size = "sm", disabled = false
+}: { enabled: boolean; onToggle: () => void; size?: "sm" | "md"; disabled?: boolean }) {
+  const track = size === "sm" ? "w-6.5 h-4.5" : "w-9 h-5";
+  const thumb = size === "sm"
+    ? `w-2.5 h-2.5 ${enabled ? "translate-x-2.5" : "translate-x-0.5"}`
+    : `w-4 h-4 ${enabled ? "translate-x-6" : "translate-x-1"}`;
+  return (
+    <button
+      disabled={disabled}
+      onClick={onToggle}
+      role="switch"
+      aria-checked={enabled}
+      className={`relative flex-shrink-0 inline-flex items-center ${track} rounded-full transition-colors focus:outline-none border-3 ${enabled ? "border-green-500" : "border-slate-500"} ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+    >
+      <span className={`inline-block border-3 ${enabled ?  'border-green-400' : 'border-slate-500'} rounded-full shadow-sm transition-transform ${thumb}`} />
+    </button>
+  );
+}
+
 export default function SettingsView() {
   const { settings, setSettings, sales, exportSales } = usePOS();
   const { settings: appSettings, updateSettingsViaPos } = useApp();
@@ -39,6 +61,7 @@ export default function SettingsView() {
           ...(appSettings.taxSettings || {}),
           rate: local.taxRate,
           inclusive: local.taxInclusive,
+          showBreakdown: local.showBreakdown, 
         }
       });
     }
@@ -176,7 +199,7 @@ export default function SettingsView() {
 
                   {/* Exclusive VAT */}
                   <button
-                    onClick={() => setLocal((p) => ({ ...p, taxInclusive: false }))}
+                    onClick={() => setLocal((p) => ({ ...p, taxInclusive: false, showBreakdown: true }))}
                     className={`text-left p-4 rounded-2xl border-2 transition-all ${!local.taxInclusive
                       ? "border-orange-500 bg-orange-500/10"
                       : "border-slate-600 bg-slate-900 hover:border-slate-500"
@@ -205,6 +228,31 @@ export default function SettingsView() {
                   {local.taxInclusive
                     ? `Inclusive VAT — ${local.taxRate}% extracted from price at checkout`
                     : `Exclusive VAT — ${local.taxRate}% added on top at checkout`}
+                </div>
+              </div>
+
+              {/* Show breakdown toggle */}
+              <div className="pt-2 border-t border-slate-700">
+                <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold mb-3">Display Options</p>
+                <div className="flex items-center justify-between gap-4 py-1">
+                  <div>
+                    <p className="text-sm font-semibold text-white">Show VAT breakdown</p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {!local.taxInclusive
+                        ? "Breakdown must be visible when using exclusive tax to ensure transparency for your customers."
+                        : "Display the VAT line in cart, checkout, printed receipts, and order emails."}
+                    </p>
+                  </div>
+                  <Toggle
+                    size="sm"
+                    enabled={local.showBreakdown}
+                    disabled={!local.taxInclusive} // Locks the toggle if Exclusive is selected
+                    onToggle={() => {
+                      if (local.taxInclusive) {
+                        setLocal((p) => ({ ...p, showBreakdown: !p.showBreakdown }));
+                      }
+                    }}
+                  />
                 </div>
               </div>
 

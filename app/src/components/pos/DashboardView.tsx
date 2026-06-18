@@ -55,6 +55,12 @@ export default function DashboardView() {
       staffName: n.match(/Staff:\s*([^·\n]+)/)?.[1]?.trim() ?? "—",
       covers: parseInt(n.match(/(\d+)\s+cover/)?.[1] ?? "0"),
       items: (o.items as DineInOrder["items"]) ?? [],
+      discountAmount: o.discount_amount != null ? Number(o.discount_amount) : undefined,
+      discountNote: n.match(/Discount:\s*([^·\n]+)/)?.[1]?.trim() ?? undefined,
+      vatAmount: o.vat_amount != null ? Number(o.vat_amount) : undefined,
+      vatInclusive: o.vat_inclusive != null ? Boolean(o.vat_inclusive) : undefined,
+      tipAmount: o.tip_amount != null ? Number(o.tip_amount) : undefined,
+      serviceFeeAmount: o.service_fee != null ? Number(o.service_fee) : undefined,
       total: Number(o.total),
       status: o.status as string,
       paymentStatus: (o.payment_status as string) ?? undefined,
@@ -481,7 +487,7 @@ export default function DashboardView() {
         {dashTab === "overview" && (
           <>
             {/* KPI cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-4">
               {[
                 { label: "Today's Revenue", value: fmt(totalRevenue, sym), sub: diRevToday > 0 ? `incl. ${fmt(diRevToday, sym)} dine-in` : undefined, icon: TrendingUp, color: "text-green-400", bg: "bg-green-500/10" },
                 { label: "Transactions", value: `${totalTransactions}`, sub: todayDineInSettled.length > 0 ? `${todaySales.length} POS · ${todayDineInSettled.length} dine-in` : undefined, icon: Receipt, color: "text-blue-400", bg: "bg-blue-500/10" },
@@ -807,7 +813,7 @@ export default function DashboardView() {
               <>
                 {/* POS KPI cards — only shown when POS has data */}
                 {inRange.length > 0 && (
-                  <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2 sm:gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
                     {[
                       { label: "POS Revenue", value: fmt(rRevenue, sym), sub: `${rMoneyBearing.length} txns`, icon: TrendingUp, color: "text-green-400", bg: "bg-green-500/10" },
                       { label: "Avg Order", value: fmt(rAvgOrder, sym), sub: "per transaction", icon: Receipt, color: "text-blue-400", bg: "bg-blue-500/10" },

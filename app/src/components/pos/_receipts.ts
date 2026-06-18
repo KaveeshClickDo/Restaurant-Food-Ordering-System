@@ -6,6 +6,14 @@ export interface DineInOrder {
   staffName: string;
   covers: number;
   items: { name: string; qty: number; price: number }[];
+  subtotal?: number;
+  discountAmount?: number;
+  discountNote?: string;
+  vatAmount?: number;
+  vatInclusive?: boolean;
+  vatRate?: number;
+  tipAmount?: number;
+  serviceFeeAmount?: number;
   total: number;
   status: string;
   /** Money state ("paid"/"refunded"/"partially_refunded"…) — refunds live here, not on status. */
@@ -80,7 +88,7 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, restauran
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#f9fafb;font-family:monospace">
 <div style="max-width:360px;margin:24px auto;background:#fff;border-radius:12px;padding:24px">
   <div style="text-align:center;margin-bottom:16px">
-    ${settings.receiptShowLogo && settings.receiptLogoUrl?.trim() ? `<div style="margin-bottom:12px;display:block;"><img src="${settings.receiptLogoUrl.trim()}" alt="Logo" style="max-height:40px;width:auto;display:inline-block;vertical-align:middle;" /></div>`: ""}
+    ${settings.receiptShowLogo && settings.receiptLogoUrl?.trim() ? `<div style="margin-bottom:12px;display:block;"><img src="${settings.receiptLogoUrl.trim()}" alt="Logo" style="max-height:40px;width:auto;display:inline-block;vertical-align:middle;" /></div>` : ""}
     <div style="font-weight:700;font-size:16px;letter-spacing:1px">${restaurantName}</div>
     ${settings.receiptPhone ? `<div style="font-size:11px;color:#6b7280">${settings.receiptPhone}</div>` : ""}
     ${settings.receiptWebsite ? `<div style="font-size:11px;color:#6b7280">${settings.receiptWebsite}</div>` : ""}
@@ -96,7 +104,7 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, restauran
   <table style="width:100%;border-collapse:collapse">
     ${row("Subtotal", `${sym}${sale.subtotal.toFixed(2)}`)}
     ${sale.discountAmount > 0 ? row(`Discount${sale.discountNote ? ` (${sale.discountNote})` : ""}`, `-${sym}${sale.discountAmount.toFixed(2)}`, false, "#16a34a") : ""}
-    ${sale.taxAmount > 0 ? row(vatLabel, `${vatSign}${sym}${sale.taxAmount.toFixed(2)}`, false, "#6b7280") : ""}
+    ${sale.taxAmount > 0 && settings.showBreakdown ? row(vatLabel, `${vatSign}${sym}${sale.taxAmount.toFixed(2)}`, false, "#6b7280") : ""}
     ${sale.tipAmount > 0 ? row("Tip", `${sym}${sale.tipAmount.toFixed(2)}`) : ""}
     ${sale.serviceFeeAmount > 0 ? row("Service Fee", `${sym}${sale.serviceFeeAmount.toFixed(2)}`) : ""}
     ${row("TOTAL", `${sym}${sale.total.toFixed(2)}`, true)}
@@ -111,6 +119,27 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, restauran
 export function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings, restaurantNameOverride?: string): string {
   const name = (restaurantNameOverride || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant").toUpperCase();
   const sym = settings.currencySymbol;
+  const subtotal = order.items.reduce((s, l) => s + l.price * l.qty, 0);
+
+  const discountAmount = order.discountAmount || 0;
+  const tipAmount = order.tipAmount || 0;
+  const serviceFee = order.serviceFeeAmount || 0;
+  const vatAmount = order.vatAmount || 0;
+  const giftCardUsed = order.giftCardUsed || 0;
+  const amountPaid = Math.max(0, order.total - giftCardUsed);
+  const effectiveVatRate = order.vatRate != null ? order.vatRate : settings.taxRate;
+  const vatLabel = order.vatInclusive
+    ? `Incl. VAT${effectiveVatRate ? ` (${effectiveVatRate}%)` : ""}`
+    : `VAT${effectiveVatRate ? ` (${effectiveVatRate}%)` : ""}`;
+
+  const breakdownHtml = (discountAmount > 0 || tipAmount > 0 || vatAmount > 0 || serviceFee > 0)
+    ? `<tr><td style="font-size:11px;color:#6b7280">Subtotal</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${subtotal.toFixed(2)}</td></tr>
+       ${discountAmount > 0 ? `<tr><td style="font-size:11px;color:#16a34a">Discount${order.discountNote ? ` (${order.discountNote})` : ""}</td><td style="font-size:11px;color:#16a34a;text-align:right">−${sym}${discountAmount.toFixed(2)}</td></tr>` : ""}
+       ${vatAmount > 0 ? `<tr><td style="font-size:11px;color:#6b7280">${vatLabel}</td><td style="font-size:11px;color:#6b7280;text-align:right">${order.vatInclusive ? "" : "+"}${sym}${vatAmount.toFixed(2)}</td></tr>` : ""}
+       ${tipAmount > 0 ? `<tr><td style="font-size:11px;color:#6b7280">Tip</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${tipAmount.toFixed(2)}</td></tr>` : ""}
+       ${serviceFee > 0 ? `<tr><td style="font-size:11px;color:#6b7280">Service Fee</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${serviceFee.toFixed(2)}</td></tr>` : ""}`
+    : "";
+
   const itemsHtml = order.items.map((it) =>
     `<tr><td style="padding:2px 0;font-size:12px">${it.name} ×${it.qty}</td><td style="padding:2px 0;font-size:12px;text-align:right">${sym}${(it.price * it.qty).toFixed(2)}</td></tr>`
   ).join("");
@@ -130,10 +159,13 @@ export function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings
   <table style="width:100%;border-collapse:collapse">${itemsHtml}</table>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
   <table style="width:100%;border-collapse:collapse">
+    ${breakdownHtml}
     <tr><td style="font-size:13px;font-weight:700">TOTAL</td><td style="font-size:13px;font-weight:700;text-align:right">${sym}${order.total.toFixed(2)}</td></tr>
-    <tr><td style="font-size:11px;color:#6b7280">Payment</td><td style="font-size:11px;color:#6b7280;text-align:right">${payLabel}</td></tr>
+    ${giftCardUsed > 0 ? `<tr><td style="font-size:11px;color:#7c3aed">Gift card</td><td style="font-size:11px;color:#7c3aed;text-align:right">−${sym}${giftCardUsed.toFixed(2)}</td></tr>
+    <tr><td style="font-size:12px;font-weight:700">PAID (${payLabel})</td><td style="font-size:12px;font-weight:700;text-align:right">${sym}${amountPaid.toFixed(2)}</td></tr>` : `<tr><td style="font-size:11px;color:#6b7280">Payment</td><td style="font-size:11px;color:#6b7280;text-align:right">${payLabel}</td></tr>`}
   </table>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
   ${settings.receiptThankYouMessage ? `<div style="text-align:center;font-weight:600;font-size:12px">${settings.receiptThankYouMessage}</div>` : ""}
 </div></body></html>`;
 }
+

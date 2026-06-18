@@ -111,7 +111,7 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
               <span>-{fmt(sale.discountAmount, sym)}</span>
             </div>
           )}
-          {sale.taxAmount > 0 && (
+          {sale.taxAmount > 0 && settings.showBreakdown && (
             <div className="flex justify-between text-gray-500">
               <span>{vatLabel}</span>
               <span>{vatSign}{fmt(sale.taxAmount, sym)}</span>

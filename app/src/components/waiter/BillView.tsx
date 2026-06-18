@@ -61,7 +61,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
   const [billDiscountPct, setBillDiscountPct] = useState(0);
   const [billDiscountNote, setBillDiscountNote] = useState("");
   const [billTip, setBillTip] = useState(0);
-  const [billServiceFee, setBillServiceFee] = useState(0);
+  const [billServicePct, setBillServicePct] = useState(0);
   const [showBillDiscount, setShowBillDiscount] = useState(false);
   const [showBillTip, setShowBillTip] = useState(false);
   const [showBillServiceFee, setShowBillServiceFee] = useState(false);
@@ -84,7 +84,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
     setBillDiscountPct(0);
     setBillDiscountNote("");
     setBillTip(0);
-    setBillServiceFee(0);
+    setBillServicePct(0);
     setDiscountInput("");
     setTipInput("");
     setServiceFeeInput("");
@@ -159,11 +159,12 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
     const subtotal = round2(billOrders.reduce((s, o) => s + o.total, 0));
     const discountAmount = round2(subtotal * (billDiscountPct / 100));
     const afterDiscount = round2(subtotal - discountAmount);
-    const tax = computeTax(afterDiscount, appSettings);
+    const serviceFeeAmount = round2(afterDiscount * (billServicePct / 100));
+    const taxBase = afterDiscount + serviceFeeAmount; 
+    const tax = computeTax(subtotal, taxBase, appSettings);
     const vatAmount = tax.enabled ? round2(tax.vatAmount) : 0;
     const tipAmount = round2(billTip);
-    const serviceFeeAmount = round2(billServiceFee);
-    const total = round2(afterDiscount + taxSurcharge(tax) + tipAmount + serviceFeeAmount);
+    const total = round2(taxBase + taxSurcharge(tax) + tipAmount);
     const gcAmount = billGiftCard ? round2(Math.min(billGiftCard.balance, total)) : 0;
     let res: Response;
     try {
@@ -238,9 +239,12 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
   const billSubtotal = round2(billOrders.reduce((s, o) => s + o.total, 0));
   const billDiscountAmount = round2(billSubtotal * (billDiscountPct / 100));
   const afterDiscount = round2(billSubtotal - billDiscountAmount);
+  const billServiceFee = round2(afterDiscount * (billServicePct / 100));
+  const taxBase = afterDiscount + billServiceFee; 
   // VAT synced from the admin Tax & VAT setting — same rate/mode as online + POS.
-  const billTax = computeTax(afterDiscount, appSettings);
-  const billTotal = round2(afterDiscount + taxSurcharge(billTax) + billTip + billServiceFee);
+  const billTax = computeTax(billSubtotal, taxBase, appSettings);
+  const billAfterTax = round2(taxBase + taxSurcharge(billTax));
+  const billTotal = round2(billAfterTax + billTip);
   const giftCardApplied = billGiftCard ? round2(Math.min(billGiftCard.balance, billTotal)) : 0;
   const dueAfterGiftCard = Math.max(0, round2(billTotal - giftCardApplied));
   const canDiscount = waiter?.role === "senior";
@@ -275,6 +279,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
       vatRate: billTax.enabled && billTax.vatAmount > 0 ? appSettings.taxSettings?.rate : undefined,
       tipAmount: billTip > 0 ? billTip : undefined,
       serviceFeeAmount: billServiceFee > 0 ? billServiceFee : undefined,
+      giftCardUsed: giftCardApplied > 0 ? giftCardApplied : undefined,
       total: billTotal,
       paymentMethod: "pending",
       orderIds: billOrders.map(o => o.id),
@@ -355,7 +360,13 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                             <span className="text-emerald-400">−{fmtCur(billDiscountAmount, sym)}</span>
                           </div>
                         )}
-                        {billTax.enabled && billTax.vatAmount > 0 && (
+                        {billServiceFee > 0 && (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-slate-400">Service Fee ({billServicePct}%)</span>
+                            <span className="text-slate-300">{fmtCur(billServiceFee, sym)}</span>
+                          </div>
+                        )}
+                        {billTax.enabled && billTax.vatAmount > 0 && appSettings.taxSettings?.showBreakdown && (
                           <div className="flex items-center justify-between text-sm">
                             <span className="text-slate-400">{billTax.inclusive ? `Incl. VAT (${appSettings.taxSettings?.rate}%)` : `VAT (${appSettings.taxSettings?.rate}%)`}</span>
                             <span className="text-slate-300">{billTax.inclusive ? "" : "+"}{fmtCur(billTax.vatAmount, sym)}</span>
@@ -365,12 +376,6 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                           <div className="flex items-center justify-between text-sm">
                             <span className="text-slate-400">Tip</span>
                             <span className="text-slate-300">{fmtCur(billTip, sym)}</span>
-                          </div>
-                        )}
-                        {billServiceFee > 0 && (
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="text-slate-400">Service Fee</span>
-                            <span className="text-slate-300">{fmtCur(billServiceFee, sym)}</span>
                           </div>
                         )}
                       </>
@@ -408,14 +413,14 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                   </button>
                   <div className="grid col-span-2 sm:col-span-1">
                     <button
-                      onClick={() => { setServiceFeeInput(billServiceFee ? String(billServiceFee) : ""); setShowBillServiceFee(true); }}
+                      onClick={() => { setServiceFeeInput(billServicePct ? String(billServicePct) : ""); setShowBillServiceFee(true); }}
                       className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition ${billServiceFee > 0
                         ? "bg-blue-500/15 border-blue-500/40 text-blue-300"
                         : "bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-600"
                         }`}
                     >
                       <DollarSign size={14} className="flex-shrink-0" />
-                      {billServiceFee > 0 ? `Service Fee ${fmtCur(billServiceFee, sym)}` : "Service Fee"}
+                      {billServiceFee > 0 ? `Service Fee ${billServicePct}%` : "Service Fee"}
                     </button>
                   </div>
                 </div>
@@ -547,6 +552,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
               billVatRate={appSettings.taxSettings?.rate}
               billTip={billTip}
               billServiceFee={billServiceFee}
+              giftCardApplied={giftCardApplied}
               billTotal={billTotal}
               orderIds={billOrders.map(o => o.id)}
             />
@@ -620,10 +626,10 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
               <h3 className="text-white font-bold">Add Tip</h3>
               <button onClick={() => setShowBillTip(false)} className="text-slate-400 hover:text-white"><X size={18} /></button>
             </div>
-            <p className="text-slate-400 text-xs mb-2">Tip ({fmtCur(billSubtotal, sym)} subtotal)</p>
+            <p className="text-slate-400 text-xs mb-2">Tip ({fmtCur(billAfterTax, sym)} total)</p>
             <div className="flex gap-1.5 mb-4">
               {[10, 12.5, 15].map((v) => (
-                <button key={v} onClick={() => setTipInput((Math.round(billSubtotal * (v / 100) * 100) / 100).toFixed(2))}
+                <button key={v} onClick={() => setTipInput((Math.round(billAfterTax * (v / 100) * 100) / 100).toFixed(2))}
                   className="flex-1 py-2 rounded-lg text-xs font-bold bg-slate-700 text-slate-300 hover:bg-slate-600 transition">
                   {v}%
                 </button>
@@ -649,32 +655,36 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
       {/* Service Fee modal — preset % of subtotal + custom amount */}
       {showBillServiceFee && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-xs p-5 shadow-2xl">
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm p-5 shadow-2xl">
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-white font-bold">Add Service Fee</h3>
               <button onClick={() => setShowBillServiceFee(false)} className="text-slate-400 hover:text-white"><X size={18} /></button>
             </div>
-            <p className="text-slate-400 text-xs mb-2">Service Fee ({fmtCur(billSubtotal, sym)} subtotal)</p>
-            <div className="flex gap-1.5 mb-4">
-              {[5, 10, 12, 15, 20].map((v) => (
-                <button key={v} onClick={() => setServiceFeeInput((Math.round(billSubtotal * (v / 100) * 100) / 100).toFixed(2))}
-                  className="flex-1 py-2 rounded-lg text-xs font-bold bg-slate-700 text-slate-300 hover:bg-slate-600 transition">
-                  {v}%
-                </button>
-              ))}
+            <div className="flex gap-1 sm:gap-2 mb-4">
+              {[5, 8, 10, 12, 15, 20].map((v) => {
+                return (
+                  <button key={v} onClick={() => setServiceFeeInput(v.toString())}
+                    className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${serviceFeeInput === v.toString() ? "bg-orange-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}>
+                    {v}%
+                  </button>
+                );
+              })}
             </div>
-            <div className="bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 mb-5 flex items-center gap-2">
-              <span className="text-slate-500 text-lg font-bold">{sym}</span>
-              <input type="number" step="0.01" min={0} value={serviceFeeInput}
-                onChange={(e) => setServiceFeeInput(e.target.value)}
-                placeholder="0.00"
-                className="flex-1 min-w-0 bg-transparent text-white text-lg font-bold outline-none placeholder-slate-600" />
-            </div>
+            <input type="number" step="0.1" min={0} max={100} value={serviceFeeInput} onChange={(e) => setServiceFeeInput(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white text-base sm:text-lg font-bold outline-none focus:border-amber-500 mb-5" placeholder="Custom %" />
             <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => { setBillServiceFee(0); setServiceFeeInput(""); setShowBillServiceFee(false); }}
-                className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition">Clear</button>
-              <button onClick={() => { setBillServiceFee(Math.max(0, Math.round((parseFloat(serviceFeeInput) || 0) * 100) / 100)); setShowBillServiceFee(false); }}
-                className="py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold text-sm transition">Apply</button>
+              <button onClick={() => { setBillServicePct(0); setServiceFeeInput("0"); setShowBillServiceFee(false); }}
+                className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">
+                Clear
+              </button>
+              <button onClick={() => {
+                const raw = parseFloat(serviceFeeInput) || 0;
+                setBillServicePct(Math.max(0, Math.min(100, raw)));
+                setShowBillServiceFee(false);
+              }}
+                className="py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold text-sm transition-colors">
+                Apply
+              </button>
             </div>
           </div>
         </div>

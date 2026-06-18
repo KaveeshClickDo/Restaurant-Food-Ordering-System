@@ -33,6 +33,7 @@ const SEED_SETTINGS: POSSettings = {
   businessName: "",
   taxRate: 20,
   taxInclusive: true,
+  showBreakdown: true,
   defaultTipOptions: [10, 15, 20, 25],
   receiptFooter: "Thank you for dining with us!",
   currencySymbol: "£",
@@ -120,9 +121,10 @@ interface POSContextValue {
   discount: { pct: number; note: string };
   setDiscount: React.Dispatch<React.SetStateAction<{ pct: number; note: string }>>;
   tipAmount: number;
+  serviceFeePct: { pct: number; };
+  setServiceFeePct: React.Dispatch<React.SetStateAction<{ pct: number; }>>;
   serviceFeeAmount: number;
   setTipAmount: React.Dispatch<React.SetStateAction<number>>;
-  setServiceFeeAmount: React.Dispatch<React.SetStateAction<number>>;
   kitchenNote: string;
   setKitchenNote: React.Dispatch<React.SetStateAction<string>>;
   assignedCustomer: POSCustomer | null;
@@ -131,6 +133,7 @@ interface POSContextValue {
   subtotal: number;
   discountAmount: number;
   taxAmount: number;
+  afterTaxTotal: number;
   grandTotal: number;
   // Actions
   // completeSale is async — the receipt_no is server-allocated from
@@ -424,7 +427,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   const [cart, setCart] = useState<POSCartItem[]>([]);
   const [discount, setDiscount] = useState({ pct: 0, note: "" });
   const [tipAmount, setTipAmount] = useState(0);
-  const [serviceFeeAmount, setServiceFeeAmount] = useState(0);
+  const [serviceFeePct, setServiceFeePct] = useState({ pct: 0 });
   const [kitchenNote, setKitchenNote] = useState("");
   const [assignedCustomer, setAssignedCustomer] = useState<POSCustomer | null>(null);
 
@@ -603,13 +606,14 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   const adminTax = appSettings.taxSettings;
   const adminTaxRate      = adminTax?.enabled ? (adminTax.rate ?? 0) : 0;
   const adminTaxInclusive = adminTax?.inclusive ?? true;
+  const adminTaxShowBreakdown = adminTax?.showBreakdown ?? true;
   useEffect(() => {
     setSettings((p) =>
-      p.taxRate === adminTaxRate && p.taxInclusive === adminTaxInclusive
+      p.taxRate === adminTaxRate && p.taxInclusive === adminTaxInclusive && p.showBreakdown === adminTaxShowBreakdown
         ? p
-        : { ...p, taxRate: adminTaxRate, taxInclusive: adminTaxInclusive },
+        : { ...p, taxRate: adminTaxRate, taxInclusive: adminTaxInclusive, showBreakdown: adminTaxShowBreakdown },
     );
-  }, [adminTaxRate, adminTaxInclusive]);
+  }, [adminTaxRate, adminTaxInclusive, adminTaxShowBreakdown]);
 
   // (Loyalty configuration no longer lives in POSSettings — earning happens
   // server-side in /api/pos/sales using the admin rate from app_settings.)
@@ -840,7 +844,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     setCart([]);
     setDiscount({ pct: 0, note: "" });
     setTipAmount(0);
-    setServiceFeeAmount(0);
+    setServiceFeePct({ pct: 0 });
     setKitchenNote("");
     setAssignedCustomer(null);
     // Bug #11 — clear in-memory customers so the next operator on this
@@ -936,7 +940,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     setCart([]);
     setDiscount({ pct: 0, note: "" });
     setTipAmount(0);
-    setServiceFeeAmount(0);
+    setServiceFeePct({ pct: 0 });
     setKitchenNote("");
     setAssignedCustomer(null);
   }, []);
@@ -951,18 +955,25 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   const subtotalRaw = cart.reduce((sum, l) => sum + cartLineTotal(l), 0);
   const discountAmountRaw = subtotalRaw * (discount.pct / 100);
   const afterDiscount = subtotalRaw - discountAmountRaw;
+  const serviceFeeAmountRaw = afterDiscount * (serviceFeePct.pct / 100);
+  const taxBase = afterDiscount + serviceFeeAmountRaw; 
 
+  // Inclusive VAT is the tax embedded in the taxable base (net goods + service
+  // fee), NOT the raw items — so a discount/fee is reflected in the recorded VAT.
+  // Mirrors the exclusive branch, which already uses `taxBase`.
   const taxAmountRaw = settings.taxInclusive
-    ? afterDiscount - afterDiscount / (1 + settings.taxRate / 100)
-    : afterDiscount * (settings.taxRate / 100);
+    ? taxBase * settings.taxRate / (100 + settings.taxRate)
+    : taxBase * (settings.taxRate / 100);
 
-  const grandTotalRaw = settings.taxInclusive
-    ? afterDiscount + tipAmount + serviceFeeAmount
-    : afterDiscount + taxAmountRaw + tipAmount + serviceFeeAmount;
+  const afterTaxTotalRaw = taxBase + (settings.taxInclusive ? 0 : taxAmountRaw);
+
+  const grandTotalRaw = afterTaxTotalRaw + tipAmount;
 
   const subtotal       = round2(subtotalRaw);
   const discountAmount = round2(discountAmountRaw);
+  const serviceFeeAmount = round2(serviceFeeAmountRaw);
   const taxAmount      = round2(taxAmountRaw);
+  const afterTaxTotal   = round2(afterTaxTotalRaw);
   const grandTotal     = round2(grandTotalRaw);
 
   // ── Complete sale ─────────────────────────────────────────────────────────
@@ -979,12 +990,15 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     const sub = cart.reduce((s, l) => s + cartLineTotal(l), 0);
     const disc = sub * (discount.pct / 100);
     const after = sub - disc;
+    const serviceFee = after * (serviceFeePct.pct / 100);
+    const taxBase = after + serviceFee; 
+    // Inclusive VAT measured from the taxable base (post-discount), matching the
+    // live calc above — this is the value persisted to the sale record.
     const tax = settings.taxInclusive
-      ? after - after / (1 + settings.taxRate / 100)
-      : after * (settings.taxRate / 100);
-    const total = settings.taxInclusive
-      ? after + tipAmount + serviceFeeAmount
-      : after + tax + tipAmount + serviceFeeAmount;
+      ? taxBase * settings.taxRate / (100 + settings.taxRate)
+      : taxBase * (settings.taxRate / 100);
+    const afterTax = taxBase + (settings.taxInclusive ? 0 : tax);
+    const total = afterTax + tipAmount;
 
     const cashPayment = payments.filter((p) => p.method === "cash").reduce((s, p) => s + p.amount, 0);
     const change = cashTendered !== undefined ? cashTendered - cashPayment : undefined;
@@ -1004,7 +1018,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       taxRate: settings.taxRate,
       taxInclusive: settings.taxInclusive,
       tipAmount: round2(tipAmount),
-      serviceFeeAmount: round2(serviceFeeAmount),
+      serviceFeeAmount: round2(serviceFee),
       total: round2(total),
       paymentMethod,
       payments: payments.map((p) => ({ ...p, amount: round2(p.amount) })),
@@ -1098,7 +1112,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
     clearCart();
     return { sale };
-  }, [cart, discount, tipAmount, serviceFeeAmount, kitchenNote, settings, currentStaff, assignedCustomer, clearCart, fetchCustomers]);
+  }, [cart, discount, tipAmount, serviceFeePct, kitchenNote, settings, currentStaff, assignedCustomer, clearCart, fetchCustomers]);
 
   const voidSale = useCallback(async (
     saleId: string,
@@ -1267,10 +1281,10 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       cart, addToCart, updateCartQty, removeFromCart, clearCart, updateCartNote,
       discount, setDiscount,
       tipAmount, setTipAmount,
-      serviceFeeAmount, setServiceFeeAmount,
+      serviceFeePct, setServiceFeePct, serviceFeeAmount,
       kitchenNote, setKitchenNote,
       assignedCustomer, setAssignedCustomer,
-      subtotal, discountAmount, taxAmount, grandTotal,
+      subtotal, discountAmount, taxAmount, afterTaxTotal, grandTotal,
       completeSale, voidSale,
       clockIn, clockOut, isClocked,
       exportSales,

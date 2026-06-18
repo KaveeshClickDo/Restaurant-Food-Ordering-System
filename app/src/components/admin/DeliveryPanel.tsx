@@ -135,7 +135,7 @@ const STATUS_CONFIG: Record<OrderStatus, {
 // back (QA #37). Refund state lives on paymentStatus, not status.
 function orderStatusLabel(o: { status: OrderStatus; paymentStatus?: string | null }): string {
   const base = STATUS_CONFIG[o.status]?.label ?? String(o.status);
-  if (o.paymentStatus === "refunded")           return `${base} · Refunded`;
+  if (o.paymentStatus === "refunded") return `${base} · Refunded`;
   if (o.paymentStatus === "partially_refunded") return `${base} · Partial refund`;
   return base;
 }
@@ -245,8 +245,8 @@ function KanbanCard({
             <div className="flex items-center gap-1.5 flex-wrap">
               <span title={fullOrderNumber(order.id)} className="text-xs font-mono text-gray-400 truncate max-w-[140px]">{fullOrderNumber(order.id)}</span>
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold border flex items-center gap-1 ${order.fulfillment === "delivery"
-                  ? "bg-blue-50 text-blue-600 border-blue-100"
-                  : "bg-teal-50 text-teal-600 border-teal-100"
+                ? "bg-blue-50 text-blue-600 border-blue-100"
+                : "bg-teal-50 text-teal-600 border-teal-100"
                 }`}>
                 {order.fulfillment === "delivery" ? <Bike size={9} /> : <Store size={9} />}
                 {order.fulfillment === "delivery" ? "Delivery" : "Collection"}
@@ -336,6 +336,21 @@ function OrderModal({ order, onClose, onStatusChange, onRequestCancel }: {
     ? ["pending", "confirmed", "preparing", "ready"]
     : ["pending", "confirmed", "preparing", "ready", "delivered"];
 
+  const subtotal = order.items.reduce((s, l) => s + l.price * l.qty, 0);
+  const vatAmt = order.vatAmount ?? 0;
+
+  // --- CALCULATE HISTORICAL VAT RATE ---
+  let calculatedVatRate = 0;
+  if (vatAmt > 0) {
+    if (order.vatInclusive) {
+      // Math: Rate = (VAT / (Gross - VAT)) * 100
+      calculatedVatRate = Math.round((vatAmt / (subtotal - vatAmt)) * 100);
+    }
+  }
+  const vatRate = calculatedVatRate;
+  const tax = settings.taxSettings;
+  const showVat = order.vatInclusive ? tax.showBreakdown : true;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
@@ -374,8 +389,8 @@ function OrderModal({ order, onClose, onStatusChange, onRequestCancel }: {
             </div>
 
             <div className={`text-[11px] px-2.5 py-1 rounded-full font-semibold border flex items-center gap-1 ${order.fulfillment === "delivery"
-                ? "bg-blue-50 text-blue-600 border-blue-100"
-                : "bg-teal-50 text-teal-600 border-teal-100"
+              ? "bg-blue-50 text-blue-600 border-blue-100"
+              : "bg-teal-50 text-teal-600 border-teal-100"
               }`}>
               {order.fulfillment === "delivery" ? <Bike size={11} /> : <Store size={11} />}
               {order.fulfillment === "delivery" ? "Delivery" : "Collection"}
@@ -422,11 +437,10 @@ function OrderModal({ order, onClose, onStatusChange, onRequestCancel }: {
                       <div key={step} className="flex items-center flex-1 last:flex-none">
                         <div className="relative flex justify-center">
                           <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ring-2 transition-all ${active ? "ring-indigo-300 bg-indigo-500 scale-125" :
-                              done ? "ring-indigo-100 bg-indigo-400" : "ring-gray-200 bg-gray-200"
+                            done ? "ring-indigo-100 bg-indigo-400" : "ring-gray-200 bg-gray-200"
                             }`} />
-                          <span className={`absolute top-5 whitespace-nowrap text-[8px] sm:text-[9px] font-medium ${active ? "text-indigo-600" : "text-gray-300"} ${
-                            i === 0 ? "left-0" : i === DS_STEPS.length - 1 ? "right-0" : "left-1/2 -translate-x-1/2"
-                          }`}>
+                          <span className={`absolute top-5 whitespace-nowrap text-[8px] sm:text-[9px] font-medium ${active ? "text-indigo-600" : "text-gray-300"} ${i === 0 ? "left-0" : i === DS_STEPS.length - 1 ? "right-0" : "left-1/2 -translate-x-1/2"
+                            }`}>
                             {DS_CONFIG[step].label.split(" ").slice(0, 3).join(" ")}
                           </span>
                         </div>
@@ -469,10 +483,72 @@ function OrderModal({ order, onClose, onStatusChange, onRequestCancel }: {
                 );
               })}
             </div>
-            <div className="border-t border-gray-100 mt-3 pt-3 flex justify-between font-bold text-gray-900 text-sm">
-              <span>Total</span>
-              <span>{sym}{order.total.toFixed(2)}</span>
+            <div className="border-t border-gray-100 border-dashed mt-4 pt-3 space-y-1.5">
+              {/* Subtotal */}
+              <div className="flex justify-between text-xs text-gray-500">
+                <span>Subtotal</span>
+                <span className="tabular-nums">{sym}{subtotal.toFixed(2)}</span>
+              </div>
+
+              {/* Delivery Fee */}
+              {order.fulfillment === "delivery" && (
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>Delivery fee</span>
+                  <span className="tabular-nums">{sym}{(order.deliveryFee ?? 0).toFixed(2)}</span>
+                </div>
+              )}
+
+              {/* Service Fee */}
+              {(order.serviceFee ?? 0) > 0 && (
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>Service fee</span>
+                  <span className="tabular-nums">{sym}{order.serviceFee!.toFixed(2)}</span>
+                </div>
+              )}
+
+              {/* Coupon */}
+              {(order.couponDiscount ?? 0) > 0 && (
+                <div className="flex justify-between text-xs text-green-600 font-medium">
+                  <span>Coupon {order.couponCode ? `(${order.couponCode})` : ""}</span>
+                  <span className="tabular-nums">−{sym}{order.couponDiscount!.toFixed(2)}</span>
+                </div>
+              )}
+
+              {/* VAT */}
+              {(order.vatAmount ?? 0) > 0 && showVat && (
+                <div className={`flex justify-between text-xs font-medium ${order.vatInclusive ? "text-zinc-400" : "text-orange-600"}`}>
+                  <span>{order.vatInclusive ? `Incl. VAT` : `VAT`}</span>
+                  <span className="tabular-nums">{order.vatInclusive ? "" : "+"}{sym}{order.vatAmount!.toFixed(2)}</span>
+                </div>
+              )}
+
+              {/* Store Credit */}
+              {(order.storeCreditUsed ?? 0) > 0 && (
+                <div className="flex justify-between text-xs text-blue-600 font-medium">
+                  <span>Store credit applied</span>
+                  <span className="tabular-nums">−{sym}{order.storeCreditUsed!.toFixed(2)}</span>
+                </div>
+              )}
+
+              {/* Gift Card */}
+              {(order.giftCardUsed ?? 0) > 0 && (
+                <div className="flex justify-between text-xs text-purple-600 font-medium">
+                  <span>Gift card applied</span>
+                  <span className="tabular-nums">−{sym}{order.giftCardUsed!.toFixed(2)}</span>
+                </div>
+              )}
             </div>
+
+            {/* Final Total */}
+            <div className="border-t border-gray-200 mt-3 pt-3 flex justify-between font-bold text-gray-900">
+              <span className="text-sm">Total</span>
+              <span className="text-lg tabular-nums leading-none">{sym}{order.total.toFixed(2)}</span>
+            </div>
+
+            {/* VAT inclusive helper note */}
+            {(order.vatAmount ?? 0) > 0 && order.vatInclusive && showVat && (
+              <p className="text-[10px] text-gray-400 text-right mt-1">Prices include {vatRate}% VAT</p>
+            )}
           </div>
 
           {/* Note */}
@@ -494,11 +570,10 @@ function OrderModal({ order, onClose, onStatusChange, onRequestCancel }: {
                   <div key={s} className="flex items-center flex-1 last:flex-none">
                     <div className="relative flex justify-center">
                       <div className={`w-3 h-3 rounded-full flex-shrink-0 ring-2 transition-all ${current ? "ring-orange-400 bg-orange-500 scale-125" :
-                          done ? "ring-orange-200 bg-orange-400" : "ring-gray-200 bg-gray-200"
+                        done ? "ring-orange-200 bg-orange-400" : "ring-gray-200 bg-gray-200"
                         }`} />
-                      <span className={`absolute top-6 whitespace-nowrap text-[8px] sm:text-[9px] font-medium ${order.status === s ? "text-orange-500" : "text-gray-300"} ${
-                         i === FLOW.length - 1 ? "-right-3" : "left-1/2 -translate-x-1/2"
-                      }`}>
+                      <span className={`absolute top-6 whitespace-nowrap text-[8px] sm:text-[9px] font-medium ${order.status === s ? "text-orange-500" : "text-gray-300"} ${i === FLOW.length - 1 ? "-right-3" : "left-1/2 -translate-x-1/2"
+                        }`}>
                         {STATUS_CONFIG[s].label}
                       </span>
                     </div>
@@ -526,7 +601,7 @@ function OrderModal({ order, onClose, onStatusChange, onRequestCancel }: {
               {/* Delivery orders at "ready" are handed off to the driver — admin cannot mark delivered */}
               {!adminCanAdvanceModal && order.status === "ready" && (
                 <div className="w-full flex items-center justify-center gap-2 bg-purple-50 border border-purple-200 text-purple-700 font-semibold px-2 py-3 rounded-xl text-xs sm:text-sm">
-                  <Truck size={15} className="flex-shrink-0"/>
+                  <Truck size={15} className="flex-shrink-0" />
                   Awaiting driver pickup — driver will mark as delivered
                 </div>
               )}
@@ -695,8 +770,8 @@ export default function DeliveryPanel() {
               key={f}
               onClick={() => setFulfillmentFilter(f)}
               className={`flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition capitalize ${fulfillmentFilter === f
-                  ? "bg-orange-500 text-white shadow-sm"
-                  : "text-gray-500 hover:text-gray-700"
+                ? "bg-orange-500 text-white shadow-sm"
+                : "text-gray-500 hover:text-gray-700"
                 }`}
             >
               {f === "delivery" && <Bike size={11} />}
@@ -817,8 +892,8 @@ export default function DeliveryPanel() {
                       </td>
                       <td className="px-4 py-3 hidden sm:table-cell">
                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border flex items-center gap-1 w-fit ${order.fulfillment === "delivery"
-                            ? "bg-blue-50 text-blue-600 border-blue-100"
-                            : "bg-teal-50 text-teal-600 border-teal-100"
+                          ? "bg-blue-50 text-blue-600 border-blue-100"
+                          : "bg-teal-50 text-teal-600 border-teal-100"
                           }`}>
                           {order.fulfillment === "delivery" ? <Bike size={9} /> : <Store size={9} />}
                           {order.fulfillment === "delivery" ? "Delivery" : "Collection"}
@@ -882,7 +957,7 @@ export default function DeliveryPanel() {
                       onClick={() => { const t = cancelTarget; setCancelTarget(null); setRefundCancelTarget(t); }}
                       className="w-full flex items-center justify-center gap-2 bg-teal-500 hover:bg-teal-400 text-white text-sm font-bold px-2 py-2.5 rounded-lg transition"
                     >
-                      <RotateCcw size={14} className="flex-shrink-0"/> Refund + cancel order
+                      <RotateCcw size={14} className="flex-shrink-0" /> Refund + cancel order
                     </button>
                     <p className="text-xs text-gray-500">
                       Or use “Cancel without refund” below to cancel and handle the refund later

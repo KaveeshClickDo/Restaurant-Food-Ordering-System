@@ -7,7 +7,10 @@ import { parseTableLabelFromNote } from "@/lib/tableLabel";
 import {
   Circle, CheckCircle2, ChefHat, Package, Truck, Ban,
   RefreshCw, ShoppingBag, TrendingUp, Clock, UtensilsCrossed, Tablet,
+  Receipt,
 } from "lucide-react";
+import { ReceiptModal } from "./ReceiptModal";
+import { Customer, Order } from "@/types";
 
 // Read-only monitoring board for POS counter sales or dine-in (table-service)
 // orders. Mirrors the Online Orders board's at-a-glance stats + live status,
@@ -18,15 +21,33 @@ import {
 type Source = "pos" | "dine-in";
 
 interface RawOrder {
-  id:              string;
-  date:            string;
-  status:          string;
-  payment_status:  string | null;
-  total:           number;
-  items:           { name: string; qty: number; price: number }[] | null;
-  note:            string | null;
-  fulfillment:     string | null;
-  payment_method:  string | null;
+  id: string;
+  date: string;
+  status: string;
+  payment_status: string | null;
+  total: number;
+  items: { name: string; qty: number; price: number }[] | null;
+  note: string | null;
+  fulfillment: string | null;
+  payment_method: string | null;
+  customer_id: string | null;
+  customer?: { name?: string | null } | null;
+  // Financial / detail fields used to render the receipt. Optional because they
+  // are only present when the orders query selects them.
+  delivery_fee?: number | null;
+  service_fee?: number | null;
+  discount_amount?: number | null;
+  discount_note?: string | null;
+  coupon_discount?: number | null;
+  coupon_code?: string | null;
+  vat_amount?: number | null;
+  vat_inclusive?: boolean | null;
+  tip_amount?: number | null;
+  store_credit_used?: number | null;
+  gift_card_used?: number | null;
+  address?: string | null;
+  table_label?: string | null;
+  staff_name?: string | null;
 }
 
 // Refund state lives on payment_status, so any status can carry it — a voided
@@ -34,18 +55,18 @@ interface RawOrder {
 // completed order is "Completed · Partial refund".
 function statusLabel(o: RawOrder): string {
   const base = STATUS_CONFIG[o.status]?.label ?? o.status;
-  if (o.payment_status === "refunded")           return `${base} · Refunded`;
+  if (o.payment_status === "refunded") return `${base} · Refunded`;
   if (o.payment_status === "partially_refunded") return `${base} · Partial refund`;
   return base;
 }
 
 const STATUS_CONFIG: Record<string, { label: string; badge: string; dot: string; icon: React.ReactNode }> = {
-  pending:            { label: "Pending",            badge: "bg-yellow-50 text-yellow-700 border-yellow-200", dot: "bg-yellow-400",  icon: <Circle size={11} className="fill-yellow-400 text-yellow-400" /> },
-  confirmed:          { label: "Confirmed",          badge: "bg-blue-50 text-blue-700 border-blue-200",       dot: "bg-blue-500",    icon: <CheckCircle2 size={11} className="text-blue-500" /> },
-  preparing:          { label: "Preparing",          badge: "bg-orange-50 text-orange-700 border-orange-200", dot: "bg-orange-500",  icon: <ChefHat size={11} className="text-orange-500" /> },
-  ready:              { label: "Ready",              badge: "bg-purple-50 text-purple-700 border-purple-200", dot: "bg-purple-500",  icon: <Package size={11} className="text-purple-500" /> },
-  delivered:          { label: "Completed",          badge: "bg-green-50 text-green-700 border-green-200",    dot: "bg-green-500",   icon: <Truck size={11} className="text-green-600" /> },
-  cancelled:          { label: "Cancelled",          badge: "bg-red-50 text-red-700 border-red-200",          dot: "bg-red-400",     icon: <Ban size={11} className="text-red-500" /> },
+  pending: { label: "Pending", badge: "bg-yellow-50 text-yellow-700 border-yellow-200", dot: "bg-yellow-400", icon: <Circle size={11} className="fill-yellow-400 text-yellow-400" /> },
+  confirmed: { label: "Confirmed", badge: "bg-blue-50 text-blue-700 border-blue-200", dot: "bg-blue-500", icon: <CheckCircle2 size={11} className="text-blue-500" /> },
+  preparing: { label: "Preparing", badge: "bg-orange-50 text-orange-700 border-orange-200", dot: "bg-orange-500", icon: <ChefHat size={11} className="text-orange-500" /> },
+  ready: { label: "Ready", badge: "bg-purple-50 text-purple-700 border-purple-200", dot: "bg-purple-500", icon: <Package size={11} className="text-purple-500" /> },
+  delivered: { label: "Completed", badge: "bg-green-50 text-green-700 border-green-200", dot: "bg-green-500", icon: <Truck size={11} className="text-green-600" /> },
+  cancelled: { label: "Cancelled", badge: "bg-red-50 text-red-700 border-red-200", dot: "bg-red-400", icon: <Ban size={11} className="text-red-500" /> },
 };
 
 const ACTIVE_STATUSES = ["pending", "confirmed", "preparing", "ready"];
@@ -78,9 +99,9 @@ function StatCard({ label, value, sub, icon, accent }: {
 }) {
   const colors = {
     orange: "bg-orange-50 text-orange-500",
-    green:  "bg-green-50 text-green-500",
+    green: "bg-green-50 text-green-500",
     purple: "bg-purple-50 text-purple-500",
-    blue:   "bg-blue-50 text-blue-500",
+    blue: "bg-blue-50 text-blue-500",
   };
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
@@ -94,7 +115,7 @@ function StatCard({ label, value, sub, icon, accent }: {
   );
 }
 
-function OrderCard({ o, source, sym }: { o: RawOrder; source: Source; sym: string }) {
+function OrderCard({ o, source, sym, onViewReceipt }: { o: RawOrder; source: Source; sym: string; onViewReceipt: (o: RawOrder) => void }) {
   const cfg = STATUS_CONFIG[o.status] ?? STATUS_CONFIG.pending;
   const itemCount = (o.items ?? []).reduce((s, i) => s + (i.qty ?? 0), 0);
   const itemSummary = (o.items ?? []).map((i) => `${i.qty}× ${i.name}`).join(", ");
@@ -116,7 +137,16 @@ function OrderCard({ o, source, sym }: { o: RawOrder; source: Source; sym: strin
           </p>
         )}
       </div>
-      <span className="font-bold text-gray-900 text-base flex-shrink-0 tabular-nums">{sym}{Number(o.total ?? 0).toFixed(2)}</span>
+      <div className="flex items-center gap-3 flex-shrink-0">
+        <span className="font-bold text-gray-900 text-base tabular-nums">{sym}{Number(o.total ?? 0).toFixed(2)}</span>
+        <button
+          onClick={() => onViewReceipt(o)}
+          title="View Receipt"
+          className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-50 hover:bg-gray-100 text-gray-500 transition-colors border border-gray-200"
+        >
+          <Receipt size={14} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -127,6 +157,9 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
   const [orders, setOrders] = useState<RawOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const lastKey = useRef<string>("");
+
+  // State for receipt modal
+  const [viewingReceipt, setViewingReceipt] = useState<RawOrder | null>(null);
 
   const fetchOrders = useCallback(async (isInitial = false) => {
     if (isInitial) setLoading(true);
@@ -158,16 +191,16 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
   const isRefunded = (o: RawOrder) =>
     o.payment_status === "refunded" || o.payment_status === "partially_refunded";
 
-  const active         = orders.filter((o) => ACTIVE_STATUSES.includes(o.status))
-                               .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const active = orders.filter((o) => ACTIVE_STATUSES.includes(o.status))
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   const completedToday = orders.filter((o) => isToday(o.date) && o.status === "delivered" && !isRefunded(o))
-                               .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  const earnedToday    = completedToday.reduce((s, o) => s + Number(o.total ?? 0), 0);
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const earnedToday = completedToday.reduce((s, o) => s + Number(o.total ?? 0), 0);
   // Voided POS sales land on the mirror order as "cancelled" (with refund state
   // on payment_status); refunded dine-in orders stay "delivered" but carry
   // payment_status. Surface all of them for today.
-  const voidedToday    = orders.filter((o) => isToday(o.date) && (o.status === "cancelled" || isRefunded(o)))
-                               .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const voidedToday = orders.filter((o) => isToday(o.date) && (o.status === "cancelled" || isRefunded(o)))
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const isPos = source === "pos";
   const heading = isPos ? "POS Orders" : "Dine-in Orders";
@@ -198,9 +231,9 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard label="Active now"      value={active.length}        sub={active.length === 0 ? "All clear" : "in progress"} icon={<ShoppingBag size={16} />}  accent="orange" />
-        <StatCard label="Completed today" value={completedToday.length} sub="orders"                                          icon={<CheckCircle2 size={16} />} accent="green" />
-        <StatCard label="Earned today"    value={`${sym}${earnedToday.toFixed(2)}`} sub="completed orders"                    icon={<TrendingUp size={16} />}   accent="purple" />
+        <StatCard label="Active now" value={active.length} sub={active.length === 0 ? "All clear" : "in progress"} icon={<ShoppingBag size={16} />} accent="orange" />
+        <StatCard label="Completed today" value={completedToday.length} sub="orders" icon={<CheckCircle2 size={16} />} accent="green" />
+        <StatCard label="Earned today" value={`${sym}${earnedToday.toFixed(2)}`} sub="completed orders" icon={<TrendingUp size={16} />} accent="purple" />
       </div>
 
       {/* Active orders */}
@@ -218,7 +251,7 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {active.map((o) => <OrderCard key={o.id} o={o} source={source} sym={sym} />)}
+            {active.map((o) => <OrderCard key={o.id} o={o} source={source} sym={sym} onViewReceipt={setViewingReceipt} />)}
           </div>
         )}
       </div>
@@ -232,7 +265,7 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
             <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{completedToday.length}</span>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {completedToday.map((o) => <OrderCard key={o.id} o={o} source={source} sym={sym} />)}
+            {completedToday.map((o) => <OrderCard key={o.id} o={o} source={source} sym={sym} onViewReceipt={setViewingReceipt} />)}
           </div>
         </div>
       )}
@@ -246,9 +279,47 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
             <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{voidedToday.length}</span>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {voidedToday.map((o) => <OrderCard key={o.id} o={o} source={source} sym={sym} />)}
+            {voidedToday.map((o) => <OrderCard key={o.id} o={o} source={source} sym={sym} onViewReceipt={setViewingReceipt} />)}
           </div>
         </div>
+      )}
+
+      {/* Receipt modal */}
+      {viewingReceipt && (
+        <ReceiptModal
+          order={{
+            id: viewingReceipt.id,
+            date: viewingReceipt.date,
+            status: viewingReceipt.status,
+            fulfillment: viewingReceipt.fulfillment || "collection",
+            paymentMethod: viewingReceipt.payment_method || "cash",
+            paymentStatus: viewingReceipt.payment_status,
+            total: viewingReceipt.total,
+            items: viewingReceipt.items || [],
+            note: viewingReceipt.note || undefined,
+            // Financial fields — present only when the orders query selects them.
+            deliveryFee: viewingReceipt.delivery_fee || 0,
+            serviceFee: viewingReceipt.service_fee || 0,
+            discountAmount: viewingReceipt.discount_amount || 0,
+            discountNote: viewingReceipt.discount_note || undefined,
+            couponDiscount: viewingReceipt.coupon_discount || 0,
+            couponCode: viewingReceipt.coupon_code || undefined,
+            vatAmount: viewingReceipt.vat_amount || 0,
+            vatInclusive: viewingReceipt.vat_inclusive ?? true,
+            tipAmount: viewingReceipt.tip_amount || 0,
+            storeCreditUsed: viewingReceipt.store_credit_used || 0,
+            giftCardUsed: viewingReceipt.gift_card_used || 0,
+            address: viewingReceipt.address || undefined,
+            tableLabel: viewingReceipt.table_label || undefined,
+            staffName: viewingReceipt.staff_name || undefined,
+          } as unknown as Order}
+
+          customer={{
+            id: viewingReceipt.customer_id || "guest",
+            name: viewingReceipt.customer?.name || "Guest Customer",
+          } as unknown as Customer}
+          onClose={() => setViewingReceipt(null)}
+        />
       )}
     </div>
   );

@@ -7,7 +7,10 @@ import { parseTableLabelFromNote } from "@/lib/tableLabel";
 import {
   Circle, CheckCircle2, ChefHat, Package, Truck, Ban,
   RefreshCw, Search, Bike, ShoppingBag, Tablet, UtensilsCrossed, ClipboardList,
+  Receipt,
 } from "lucide-react";
+import { ReceiptModal } from "./ReceiptModal";
+import { Customer, Order } from "@/types";
 
 type RangePreset = "all" | "today" | "7d" | "30d" | "custom";
 
@@ -32,6 +35,22 @@ interface RawOrder {
   payment_method: string | null;
   customer_id: string | null;
   customer?: { name?: string | null } | null;
+  // Financial / detail fields used to render the receipt. Optional because they
+  // are only present when the orders query selects them.
+  delivery_fee?: number | null;
+  service_fee?: number | null;
+  discount_amount?: number | null;
+  discount_note?: string | null;
+  coupon_discount?: number | null;
+  coupon_code?: string | null;
+  vat_amount?: number | null;
+  vat_inclusive?: boolean | null;
+  tip_amount?: number | null;
+  store_credit_used?: number | null;
+  gift_card_used?: number | null;
+  address?: string | null;
+  table_label?: string | null;
+  staff_name?: string | null;
 }
 
 // A refunded order must surface both states — a bare "Cancelled" or
@@ -107,6 +126,9 @@ export default function OrderHistoryPanel() {
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const lastKey = useRef<string>("");
+
+  // State for receipt modal
+  const [viewingReceipt, setViewingReceipt] = useState<RawOrder | null>(null);
 
   // Resolve the preset into ISO from/to bounds (local-day aligned).
   const { fromISO, toISO } = useMemo(() => {
@@ -206,8 +228,8 @@ export default function OrderHistoryPanel() {
               key={t.id}
               onClick={() => { setTab(t.id); setSearch(""); }}
               className={`flex items-center gap-2 pl-2.5 pr-2.5 sm:pr-3 py-2 rounded-xl text-sm font-semibold border transition ${isActive
-                  ? "bg-white border-orange-300 text-gray-900 shadow-sm ring-1 ring-orange-200"
-                  : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
+                ? "bg-white border-orange-300 text-gray-900 shadow-sm ring-1 ring-orange-200"
+                : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
                 }`}
             >
               <span className={`w-6 h-6 rounded-lg flex items-center justify-center ${isActive ? TAB_ACCENT[t.id] : "bg-gray-100 text-gray-400"}`}>
@@ -304,7 +326,16 @@ export default function OrderHistoryPanel() {
                     </p>
                   )}
                 </div>
-                <span className="font-bold text-gray-900 text-base flex-shrink-0 tabular-nums">{sym}{Number(o.total ?? 0).toFixed(2)}</span>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <span className="font-bold text-gray-900 text-base tabular-nums">{sym}{Number(o.total ?? 0).toFixed(2)}</span>
+                  <button
+                    onClick={() => setViewingReceipt(o)}
+                    title="View Receipt"
+                    className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-50 hover:bg-gray-100 text-gray-500 transition-colors border border-gray-200"
+                  >
+                    <Receipt size={12} />
+                  </button>
+                </div>
               </div>
             );
           })}
@@ -316,6 +347,44 @@ export default function OrderHistoryPanel() {
           ? "Showing the most recent 5,000 orders. Narrow the date range to see older records."
           : "Showing all orders in the selected date range (up to 5,000)."}
       </p>
+
+      {/* Receipt modal */}
+      {viewingReceipt && (
+        <ReceiptModal
+          order={{
+            id: viewingReceipt.id,
+            date: viewingReceipt.date,
+            status: viewingReceipt.status,
+            fulfillment: viewingReceipt.fulfillment || "collection",
+            paymentMethod: viewingReceipt.payment_method || "cash",
+            paymentStatus: viewingReceipt.payment_status,
+            total: viewingReceipt.total,
+            items: viewingReceipt.items || [],
+            note: viewingReceipt.note || undefined,
+            // Financial fields — present only when the orders query selects them.
+            deliveryFee: viewingReceipt.delivery_fee || 0,
+            serviceFee: viewingReceipt.service_fee || 0,
+            discountAmount: viewingReceipt.discount_amount || 0,
+            discountNote: viewingReceipt.discount_note || undefined,
+            couponDiscount: viewingReceipt.coupon_discount || 0,
+            couponCode: viewingReceipt.coupon_code || undefined,
+            vatAmount: viewingReceipt.vat_amount || 0,
+            vatInclusive: viewingReceipt.vat_inclusive ?? true,
+            tipAmount: viewingReceipt.tip_amount || 0,
+            storeCreditUsed: viewingReceipt.store_credit_used || 0,
+            giftCardUsed: viewingReceipt.gift_card_used || 0,
+            address: viewingReceipt.address || undefined,
+            tableLabel: viewingReceipt.table_label || undefined,
+            staffName: viewingReceipt.staff_name || undefined,
+          } as unknown as Order}
+
+          customer={{
+            id: viewingReceipt.customer_id || "guest",
+            name: viewingReceipt.customer?.name || "Guest Customer",
+          } as unknown as Customer}
+          onClose={() => setViewingReceipt(null)}
+        />
+      )}
     </div>
   );
 }
