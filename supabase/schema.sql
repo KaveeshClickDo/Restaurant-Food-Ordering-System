@@ -1130,6 +1130,7 @@ alter table categories             enable row level security;
 alter table menu_items             enable row level security;
 alter table customers              enable row level security;
 alter table orders                 enable row level security;
+alter table dine_in_tickets        enable row level security;
 alter table drivers                enable row level security;
 alter table reservations           enable row level security;
 alter table reservation_customers  enable row level security;
@@ -1217,6 +1218,10 @@ create policy "deny_anon_all" on drivers
 
 drop policy if exists "deny_anon_all" on pos_staff;
 create policy "deny_anon_all" on pos_staff
+  for all to anon using (false) with check (false);
+
+drop policy if exists "deny_anon_all" on dine_in_tickets;
+create policy "deny_anon_all" on dine_in_tickets
   for all to anon using (false) with check (false);
 
 drop policy if exists "deny_anon_all" on pos_sales;
