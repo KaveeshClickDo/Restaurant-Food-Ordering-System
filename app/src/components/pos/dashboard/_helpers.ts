@@ -32,33 +32,6 @@ export function getPOSDateRange(period: POSPeriod, customStart: string, customEn
   }
 }
 
-// `valueOf` picks the per-sale amount — pass `rSaleNet` so the chart sums
-// retained income (gift card + refund netted), letting partial-refund voids
-// contribute their kept slice and reconcile with the revenue KPI.
-export function posDailyBuckets(sales: POSSale[], start: Date, end: Date, valueOf: (s: POSSale) => number = (s) => s.total) {
-  const map: Record<string, number> = {};
-  const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-  const endDay  = new Date(end.getFullYear(),  end.getMonth(),   end.getDate());
-  while (cursor <= endDay) {
-    map[cursor.toDateString()] = 0;
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  for (const s of sales) {
-    const key = new Date(s.date).toDateString();
-    if (key in map) map[key] = (map[key] ?? 0) + valueOf(s);
-  }
-  return Object.entries(map).map(([key, revenue]) => ({
-    label:   new Date(key).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }),
-    revenue,
-  }));
-}
-
-export function posHourlyBuckets(sales: POSSale[], valueOf: (s: POSSale) => number = (s) => s.total) {
-  const map: number[] = Array(24).fill(0);
-  for (const s of sales) map[new Date(s.date).getHours()] += valueOf(s);
-  return map;
-}
-
 export function posExportCSV(sales: POSSale[], sym: string) {
   const header = ["Receipt No","Date","Time","Staff","Customer","Items",`Subtotal (${sym})`,`Discount (${sym})`,`VAT (${sym})`,`Tip (${sym})`,`Service Fee (${sym})`,`Total (${sym})`,"Payment","Voided","Void Reason"].join(",");
   const rows = sales.map((s) => [

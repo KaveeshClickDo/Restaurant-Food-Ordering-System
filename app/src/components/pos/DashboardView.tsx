@@ -14,8 +14,7 @@ import { buildDineInReceiptHtml, dineInRefundState, type DineInOrder } from "./_
 import { moneyPaidGross } from "@/lib/giftCardMoney";
 import { parseTableLabelFromNote } from "@/lib/tableLabel";
 import {
-  type POSPeriod, POS_PERIODS, getPOSDateRange,
-  posDailyBuckets, posHourlyBuckets, posExportCSV,
+  type POSPeriod, POS_PERIODS, getPOSDateRange, posExportCSV,
 } from "./dashboard/_helpers";
 import VoidSaleModal from "./dashboard/VoidSaleModal";
 import DineInActionModal, { type DineInAction } from "./dashboard/DineInActionModal";
@@ -412,10 +411,6 @@ export default function DashboardView() {
     (s: POSSale) => Math.max(0, moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0)),
     [],
   );
-  const voidedCount = inRange.filter((s) => s.voided).length;
-  // Income retained from voided sales (no-refund = full, partial = kept slice).
-  const rVoidKeptRevenue = rMoneyBearing.filter((s) => s.voided).reduce((sum, s) => sum + rSaleNet(s), 0);
-
   // KPIs — revenue is money paid (gift card netted out) − refund, so a partial
   // refund reduces it by the amount returned, not the whole sale.
   const rRevenue = rMoneyBearing.reduce((s, x) => s + rSaleNet(x), 0);
@@ -423,36 +418,27 @@ export default function DashboardView() {
   const rTips = rFiltered.reduce((s, x) => s + x.tipAmount, 0);
   const rServiceFees = rFiltered.reduce((s, x) => s + x.serviceFeeAmount, 0);
   const rDiscounts = rFiltered.reduce((s, x) => s + x.discountAmount, 0);
-  const rAvgOrder = rMoneyBearing.length > 0 ? rRevenue / rMoneyBearing.length : 0;
   const rCost = rFiltered.reduce((sum, sale) =>
     sum + sale.items.reduce((s, item) => s + (costMap[item.productId] ?? 0) * item.quantity, 0), 0);
   const grossProfit = rRevenue - rCost;
   const marginPct = rRevenue > 0 ? (grossProfit / rRevenue) * 100 : 0;
 
-  // Payment mix (reports)
-  // Payment mix counts money-bearing sales (incl. partial-refund voids) — method
-  // + net amount are both known per sale, so this split is exact (unlike items).
-  const rPayMix = { cash: 0, card: 0, split: 0, gift_card: 0 };
-  for (const s of rMoneyBearing) rPayMix[s.paymentMethod] = (rPayMix[s.paymentMethod] ?? 0) + 1;
-  const rPayTotal = rMoneyBearing.length || 1;
-
-  // Charts run off `rMoneyBearing` with the NET value (rSaleNet), so a partially-
-  // refunded void contributes its retained slice and the chart reconciles with
-  // the revenue KPI. Best-sellers below stay on `rFiltered` (item-level refund
-  // split isn't recorded, so a partial refund can't be apportioned per item).
-  const dailyBuckets = useMemo(() => posDailyBuckets(rMoneyBearing, startDate, endDate, rSaleNet), [rMoneyBearing, startDate, endDate, rSaleNet]);
-  const maxDaily = Math.max(...dailyBuckets.map((d) => d.revenue), 1);
-  const hourlyBuckets = useMemo(() => posHourlyBuckets(rMoneyBearing, rSaleNet), [rMoneyBearing, rSaleNet]);
-  const maxHourly = Math.max(...hourlyBuckets, 1);
-
-  // Best sellers (reports)
+  // Best sellers (reports) — POS + dine-in merged, keyed by item NAME (dine-in
+  // items carry no productId, so the same dish sold at the till and at a table
+  // lands in one row). POS uses kept sales (rFiltered); dine-in uses settled,
+  // non-refunded orders (item-level refunds can't be apportioned), mirroring POS.
   const rItemStats: Record<string, { name: string; qty: number; revenue: number }> = {};
+  const addItemStat = (name: string, qty: number, price: number) => {
+    if (!rItemStats[name]) rItemStats[name] = { name, qty: 0, revenue: 0 };
+    rItemStats[name].qty += qty;
+    rItemStats[name].revenue += price * qty;
+  };
   for (const sale of rFiltered) {
-    for (const item of sale.items) {
-      if (!rItemStats[item.productId]) rItemStats[item.productId] = { name: item.name, qty: 0, revenue: 0 };
-      rItemStats[item.productId].qty += item.quantity;
-      rItemStats[item.productId].revenue += item.price * item.quantity;
-    }
+    for (const item of sale.items) addItemStat(item.name, item.quantity, item.price);
+  }
+  for (const o of reportsDineIn) {
+    if (o.status !== "delivered" || dineInRefundState(o) !== null) continue;
+    for (const it of o.items) addItemStat(it.name, it.qty, it.price);
   }
   const rBestSellers = Object.values(rItemStats).sort((a, b) => b.revenue - a.revenue).slice(0, 15);
   const maxItemRev = rBestSellers[0]?.revenue || 1;
@@ -483,8 +469,6 @@ export default function DashboardView() {
     0,
   );
   const diAvgOrder = diMoneyBearing.length > 0 ? diRevenue / diMoneyBearing.length : 0;
-  const diPayMix = { cash: 0, card: 0, "table-service": 0 } as Record<string, number>;
-  for (const o of diSettled) diPayMix[o.paymentMethod] = (diPayMix[o.paymentMethod] ?? 0) + 1;
   const diTotalCovers = diSettled.reduce((s, o) => s + o.covers, 0);
   const diStaffStats: Record<string, { name: string; orders: number; revenue: number; covers: number; items: number }> = {};
   for (const o of diSettled) {
@@ -498,6 +482,59 @@ export default function DashboardView() {
   const diStaffPerf = Object.values(diStaffStats).sort((a, b) => b.revenue - a.revenue);
   const maxDiRevenue = diStaffPerf[0]?.revenue || 1;
   const combinedRevenue = rRevenue + diRevenue;
+  // Dine-in "kept" extras (settled, non-refunded — mirrors POS rFiltered): a
+  // refunded table's tip / VAT / discount / service-fee went back with the refund.
+  const diTips        = diSettled.reduce((s, o) => s + (o.tipAmount ?? 0), 0);
+  const diVat         = diSettled.reduce((s, o) => s + (o.vatAmount ?? 0), 0);
+  const diDiscounts   = diSettled.reduce((s, o) => s + (o.discountAmount ?? 0), 0);
+  const diServiceFees = diSettled.reduce((s, o) => s + (o.serviceFeeAmount ?? 0), 0);
+  // Combined POS + dine-in KPI figures for the selected period. Gross profit
+  // stays POS-only — dine-in items carry no cost, so COGS can't be derived.
+  const combinedTxns        = rMoneyBearing.length + diMoneyBearing.length;
+  const combinedAvgOrder    = combinedTxns > 0 ? combinedRevenue / combinedTxns : 0;
+  const combinedVat         = rTax + diVat;
+  const combinedTips        = rTips + diTips;
+  const combinedDiscounts   = rDiscounts + diDiscounts;
+  const combinedServiceFees = rServiceFees + diServiceFees;
+
+  // ── Reports charts + payment mix — POS + dine-in combined ─────────────────
+  // Both sides net out gift card + refund (rSaleNet / diSaleNet) so the bars and
+  // the payment split reconcile with the Combined Revenue KPI. Computed after the
+  // dine-in stats above; inline (not memoised) like the other dine-in reductions.
+  const diSaleNet = (o: DineInOrder) => Math.max(0, moneyPaidGross(o.total, o.giftCardUsed) - (o.refundedAmount ?? 0));
+  // Daily revenue, split POS vs dine-in for a stacked bar.
+  const dailyBuckets = (() => {
+    const map = new Map<string, { label: string; pos: number; dineIn: number }>();
+    const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+    const endDay = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+    while (cursor <= endDay) {
+      map.set(cursor.toDateString(), {
+        label: cursor.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }),
+        pos: 0, dineIn: 0,
+      });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    for (const s of rMoneyBearing) { const b = map.get(new Date(s.date).toDateString()); if (b) b.pos += rSaleNet(s); }
+    for (const o of diMoneyBearing) { const b = map.get(new Date(o.date).toDateString()); if (b) b.dineIn += diSaleNet(o); }
+    return Array.from(map.values()).map((d) => ({ ...d, total: d.pos + d.dineIn }));
+  })();
+  const maxDaily = Math.max(...dailyBuckets.map((d) => d.total), 1);
+  // Busiest hours — combined net revenue per hour of day (0–23).
+  const hourlyBuckets = (() => {
+    const map: number[] = Array(24).fill(0);
+    for (const s of rMoneyBearing) map[new Date(s.date).getHours()] += rSaleNet(s);
+    for (const o of diMoneyBearing) map[new Date(o.date).getHours()] += diSaleNet(o);
+    return map;
+  })();
+  const maxHourly = Math.max(...hourlyBuckets, 1);
+  // Combined payment mix — counts + net revenue per method across both channels.
+  // POS methods: gift_card/cash/card/split; dine-in adds "table-service" and folds
+  // cash/card/gift_card into the shared rows.
+  const cPayCount: Record<string, number> = { gift_card: 0, cash: 0, card: 0, split: 0, "table-service": 0 };
+  const cPayRev:   Record<string, number> = { gift_card: 0, cash: 0, card: 0, split: 0, "table-service": 0 };
+  for (const s of rMoneyBearing) { cPayCount[s.paymentMethod] = (cPayCount[s.paymentMethod] ?? 0) + 1; cPayRev[s.paymentMethod] = (cPayRev[s.paymentMethod] ?? 0) + rSaleNet(s); }
+  for (const o of diMoneyBearing) { cPayCount[o.paymentMethod] = (cPayCount[o.paymentMethod] ?? 0) + 1; cPayRev[o.paymentMethod] = (cPayRev[o.paymentMethod] ?? 0) + diSaleNet(o); }
+  const cPayTotal = combinedTxns || 1;
 
   // Transactions
   const txSource = showVoided ? inRange : rNonVoided;
@@ -523,6 +560,7 @@ export default function DashboardView() {
     { key: "cash", label: "Cash", bar: "bg-green-500", Icon: Banknote },
     { key: "card", label: "Card", bar: "bg-blue-500", Icon: CreditCard },
     { key: "split", label: "Split", bar: "bg-purple-700", Icon: Shuffle },
+    { key: "table-service", label: "Table Service", bar: "bg-violet-500", Icon: Utensils },
   ] as const;
 
   return (
@@ -533,23 +571,23 @@ export default function DashboardView() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h2 className="text-white font-bold text-xl">Sales Dashboard</h2>
-            <p className="text-slate-400 text-sm mt-1">
-              {dashTab === "overview" ? (
-                `Today · ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}`
-              ) : dashTab === "dine-in" ? (
-                (() => {
-                  const settled = dineInOrders.filter((o) => o.status === "delivered" && dineInRefundState(o) === null).length;
-                  const open    = dineInOrders.filter((o) => o.status !== "delivered" && o.status !== "cancelled").length;
-                  const refunded = dineInOrders.filter((o) => dineInRefundState(o) !== null).length;
-                  const revenue = dineInOrders
-                    .filter((o) => o.status === "delivered")
-                    .reduce((s, o) => s + (o.total - (o.refundedAmount ?? 0)), 0);
-                  return `${open} open · ${settled} settled · ${fmt(revenue, sym)} revenue${refunded > 0 ? ` · ${refunded} refunded` : ""}`;
-                })()
-              ) : (
-                `${rMoneyBearing.length} transactions · ${fmt(rRevenue, sym)} revenue${voidedCount > 0 ? ` · ${voidedCount} voided${rVoidKeptRevenue > 0 ? ` (${fmt(rVoidKeptRevenue, sym)} kept)` : ""}` : ""}`
-              )}
-            </p>
+            {dashTab !== "reports" && (
+              <p className="text-slate-400 text-sm mt-1">
+                {dashTab === "overview" ? (
+                  `Today · ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}`
+                ) : (
+                  (() => {
+                    const settled = dineInOrders.filter((o) => o.status === "delivered" && dineInRefundState(o) === null).length;
+                    const open    = dineInOrders.filter((o) => o.status !== "delivered" && o.status !== "cancelled").length;
+                    const refunded = dineInOrders.filter((o) => dineInRefundState(o) !== null).length;
+                    const revenue = dineInOrders
+                      .filter((o) => o.status === "delivered")
+                      .reduce((s, o) => s + (o.total - (o.refundedAmount ?? 0)), 0);
+                    return `${open} open · ${settled} settled · ${fmt(revenue, sym)} revenue${refunded > 0 ? ` · ${refunded} refunded` : ""}`;
+                  })()
+                )}
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {dashTab === "reports" && (
@@ -920,41 +958,21 @@ export default function DashboardView() {
               </div>
             )}
 
-            {/* Dine-In only KPI strip — visible when POS has no sales but dine-in does */}
-            {inRange.length === 0 && diSettled.length > 0 && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-                  {[
-                    { label: "Dine-In Revenue", value: fmt(diRevenue, sym), color: "text-violet-300", bg: "bg-violet-500/10", icon: Utensils },
-                    { label: "Tables Served", value: String(diSettled.length), color: "text-white", bg: "bg-slate-700", icon: Receipt },
-                    { label: "Avg Bill", value: fmt(diAvgOrder, sym), color: "text-emerald-300", bg: "bg-emerald-500/10", icon: TrendingUp },
-                    { label: "Covers", value: diTotalCovers > 0 ? String(diTotalCovers) : "—", color: "text-blue-300", bg: "bg-blue-500/10", icon: Users },
-                  ].map(({ label, value, color, bg, icon: Icon }) => (
-                    <div key={label} className="bg-slate-800 border border-slate-700 rounded-2xl p-3 sm:p-4">
-                      <div className={`w-9 h-9 ${bg} rounded-xl flex items-center justify-center mb-2.5`}>
-                        <Icon size={17} className={color} />
-                      </div>
-                      <p className={`text-lg sm:text-xl font-bold ${color}`}>{value}</p>
-                      <p className="text-slate-400 text-[11px] mt-0.5">{label}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {(inRange.length > 0 || diSettled.length > 0 || reportsDineInLoading) && (
               <>
-                {/* POS KPI cards — only shown when POS has data */}
-                {inRange.length > 0 && (
+                {/* Combined POS + dine-in KPI cards. Always shown when either channel
+                    has data — replaces the old POS-only cards + dine-in-only strip.
+                    Gross Profit stays POS-scoped (dine-in carries no item cost). */}
+                {(inRange.length > 0 || diSettled.length > 0) && (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
                     {[
-                      { label: "POS Revenue", value: fmt(rRevenue, sym), sub: `${rMoneyBearing.length} txns`, icon: TrendingUp, color: "text-green-400", bg: "bg-green-500/10" },
-                      { label: "Avg Order", value: fmt(rAvgOrder, sym), sub: "per transaction", icon: Receipt, color: "text-blue-400", bg: "bg-blue-500/10" },
-                      { label: "Gross Profit", value: fmt(grossProfit, sym), sub: `${fmtPct(marginPct)} margin`, icon: BarChart3, color: "text-purple-400", bg: "bg-purple-500/10" },
-                      { label: "VAT Collected", value: fmt(rTax, sym), sub: "excl. refunded", icon: Percent, color: "text-amber-400", bg: "bg-amber-500/10" },
-                      { label: "Tips", value: fmt(rTips, sym), sub: "staff tips", icon: BadgeDollarSign, color: "text-pink-400", bg: "bg-pink-500/10" },
-                      { label: "Discounts", value: fmt(rDiscounts, sym), sub: "reductions applied", icon: Tag, color: "text-red-400", bg: "bg-red-500/10" },
-                      { label: "Service Fees", value: fmt(rServiceFees, sym), sub: `${rFiltered.length} txns`, icon: DollarSign, color: "text-blue-400", bg: "bg-blue-500/10" },
+                      { label: "Total Revenue", value: fmt(combinedRevenue, sym), sub: `${rMoneyBearing.length} POS · ${diMoneyBearing.length} dine-in`, icon: TrendingUp, color: "text-green-400", bg: "bg-green-500/10" },
+                      { label: "Avg Order", value: fmt(combinedAvgOrder, sym), sub: "per order", icon: Receipt, color: "text-blue-400", bg: "bg-blue-500/10" },
+                      { label: "Gross Profit", value: fmt(grossProfit, sym), sub: `${fmtPct(marginPct)} margin · POS`, icon: BarChart3, color: "text-purple-400", bg: "bg-purple-500/10" },
+                      { label: "VAT Collected", value: fmt(combinedVat, sym), sub: "excl. refunded", icon: Percent, color: "text-amber-400", bg: "bg-amber-500/10" },
+                      { label: "Tips", value: fmt(combinedTips, sym), sub: "POS + dine-in", icon: BadgeDollarSign, color: "text-pink-400", bg: "bg-pink-500/10" },
+                      { label: "Discounts", value: fmt(combinedDiscounts, sym), sub: "reductions applied", icon: Tag, color: "text-red-400", bg: "bg-red-500/10" },
+                      { label: "Service Fees", value: fmt(combinedServiceFees, sym), sub: "POS + dine-in", icon: DollarSign, color: "text-blue-400", bg: "bg-blue-500/10" },
                     ].map((card) => (
                       <div key={card.label} className="bg-slate-800 border border-slate-700 rounded-2xl p-3 sm:p-4">
                         <div className={`w-9 h-9 ${card.bg} rounded-xl flex items-center justify-center mb-2.5`}>
@@ -982,26 +1000,43 @@ export default function DashboardView() {
                 {/* ── Overview sub-tab ─────────────────────────────────────── */}
                 {reportTab === "overview" && (
                   <div className="space-y-4">
-                    {/* Daily chart */}
+                    {/* Daily chart — stacked POS + dine-in */}
                     <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
-                      <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2">
-                        <BarChart3 size={16} className="text-orange-400" /> Revenue by Day
-                      </h3>
+                      <div className="flex items-center justify-between mb-4 gap-3">
+                        <h3 className="text-white font-semibold text-sm flex items-center gap-2">
+                          <BarChart3 size={16} className="text-orange-400" /> Revenue by Day
+                        </h3>
+                        <div className="flex items-center gap-3 text-[10px] text-slate-400">
+                          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500 inline-block" /> POS</span>
+                          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-violet-500 inline-block" /> Dine-in</span>
+                        </div>
+                      </div>
                       {dailyBuckets.length <= 1 ? (
                         <p className="text-slate-500 text-sm">Select a wider date range to see the daily chart.</p>
                       ) : (
                         <div className="flex items-end gap-1" style={{ height: 140 }}>
-                          {dailyBuckets.map((d, i) => (
-                            <div key={i} className="flex-1 flex flex-col items-center gap-1" title={`${d.label}: ${fmt(d.revenue, sym)}`}>
-                              <div className="w-full flex items-end justify-center" style={{ height: 110 }}>
-                                <div className={`w-full rounded-t-md transition-all ${d.revenue > 0 ? "bg-orange-500" : "bg-slate-700"}`}
-                                  style={{ height: `${Math.max(4, (d.revenue / maxDaily) * 100)}%` }} />
+                          {dailyBuckets.map((d, i) => {
+                            const areaH = 110;
+                            return (
+                            <div key={i} className="flex-1 flex flex-col items-center gap-1"
+                              title={`${d.label}\nPOS: ${fmt(d.pos, sym)}\nDine-in: ${fmt(d.dineIn, sym)}\nTotal: ${fmt(d.total, sym)}`}>
+                              <div className="w-full flex flex-col-reverse" style={{ height: areaH }}>
+                                {d.total <= 0 ? (
+                                  <div className="w-full rounded bg-slate-700" style={{ height: 4 }} />
+                                ) : (
+                                  <>
+                                    <div className="w-full bg-orange-500 transition-all"
+                                      style={{ height: (d.pos / maxDaily) * areaH, borderTopLeftRadius: d.dineIn > 0 ? 0 : 4, borderTopRightRadius: d.dineIn > 0 ? 0 : 4 }} />
+                                    <div className="w-full bg-violet-500 transition-all rounded-t" style={{ height: (d.dineIn / maxDaily) * areaH }} />
+                                  </>
+                                )}
                               </div>
                               {dailyBuckets.length <= 14 && (
                                 <span className="text-[9px] text-slate-500 text-center leading-tight">{d.label.split(" ").slice(0, 2).join(" ")}</span>
                               )}
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -1013,10 +1048,13 @@ export default function DashboardView() {
                           <CreditCard size={16} className="text-blue-400" /> Payment Methods
                         </h3>
                         <div className="space-y-3">
-                          {reportPaymentRows.map(({ key, label, bar, Icon }) => {
-                            const count = rPayMix[key];
-                            const pct = (count / rPayTotal) * 100;
-                            const rev = rMoneyBearing.filter((s) => s.paymentMethod === key).reduce((s, x) => s + rSaleNet(x), 0);
+                          {reportPaymentRows
+                            // Table Service is dine-in only — hide on POS-only periods.
+                            .filter(({ key }) => key !== "table-service" || (cPayCount["table-service"] ?? 0) > 0)
+                            .map(({ key, label, bar, Icon }) => {
+                            const count = cPayCount[key] ?? 0;
+                            const pct = (count / cPayTotal) * 100;
+                            const rev = cPayRev[key] ?? 0;
                             return (
                               <div key={key}>
                                 <div className="flex items-center justify-between mb-1">
@@ -1150,24 +1188,6 @@ export default function DashboardView() {
                             <p className="text-white font-bold text-lg">{fmt(diAvgOrder, sym)}</p>
                             <p className="text-slate-500 text-xs">Avg Bill</p>
                           </div>
-                        </div>
-                        <div className="space-y-2">
-                          <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Payment Methods</p>
-                          {(Object.entries(diPayMix) as [string, number][]).filter(([, v]) => v > 0).map(([key, count]) => {
-                            const pct = (count / diSettled.length) * 100;
-                            const label = key === "cash" ? "Cash" : key === "card" ? "Card" : key === "gift_card" ? "Gift Card" : "Table Service";
-                            const color = key === "cash" ? "bg-green-500" : key === "card" ? "bg-blue-500" : key === "gift_card" ? "bg-purple-400" : "bg-violet-500";
-                            return (
-                              <div key={key}>
-                                <div className="flex justify-between text-xs text-slate-400 mb-1">
-                                  <span>{label}</span><span>{count} orders · {fmtPct(pct)}</span>
-                                </div>
-                                <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
-                                  <div className={`h-full ${color} rounded-full`} style={{ width: `${pct}%` }} />
-                                </div>
-                              </div>
-                            );
-                          })}
                         </div>
                       </div>
                     )}
