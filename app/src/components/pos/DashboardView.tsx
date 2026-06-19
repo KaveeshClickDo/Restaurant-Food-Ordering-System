@@ -20,6 +20,26 @@ import {
 import VoidSaleModal from "./dashboard/VoidSaleModal";
 import DineInActionModal, { type DineInAction } from "./dashboard/DineInActionModal";
 
+// Compact tender label for the Recent Transactions rows (POS + dine-in). A gift
+// card is a separate instrument layered on the cash/card/split remainder, so we
+// surface it as "<method> · Gift Card". When the card covered the whole sale the
+// remainder method is "gift_card" (POS) or never tagged / "table-service"
+// (dine-in) — both render as a plain "Gift Card".
+function tenderLabel(method: string | undefined, giftCardUsed = 0): string {
+  const base =
+    method === "cash" ? "Cash" :
+    method === "card" ? "Card" :
+    method === "split" ? "Split" :
+    method === "gift_card" ? "Gift Card" :
+    "Table Service"; // "table-service" or any unrecognised value
+  if (giftCardUsed > 0) {
+    // Whole bill on the card → just "Gift Card", no redundant prefix.
+    if (method === "gift_card" || method === "table-service" || !method) return "Gift Card";
+    return `${base} · Gift Card`;
+  }
+  return base;
+}
+
 export default function DashboardView() {
   const { sales, products, settings, currentStaff } = usePOS();
   const { settings: appSettings } = useApp();
@@ -41,6 +61,10 @@ export default function DashboardView() {
   const [dineInEmailSt, setDineInEmailSt] = useState<Record<string, "idle" | "sending" | "sent" | "error">>({});
   // ── Today's dine-in: always-loaded for Overview KPIs ───────────────────────
   const [todayDineIn, setTodayDineIn] = useState<DineInOrder[]>([]);
+  // ── Last-7-days dine-in: feeds the Overview "Revenue — Last 7 Days" chart ───
+  const [weekDineIn, setWeekDineIn] = useState<DineInOrder[]>([]);
+  // ── Recent dine-in (broad): feeds the Overview "Best Sellers (All Time)" list ─
+  const [allTimeDineIn, setAllTimeDineIn] = useState<DineInOrder[]>([]);
 
   // ── Reports dine-in: all settled dine-in orders for the selected period ─────
   const [reportsDineIn, setReportsDineIn] = useState<DineInOrder[]>([]);
@@ -87,11 +111,44 @@ export default function DashboardView() {
     } catch { /* network blip — keep last-known */ }
   }, []);
 
-  // Refresh today's dine-in whenever the Overview tab is (re)entered. It feeds
-  // the Overview KPIs only, so there's no reason to poll it from other tabs.
+  // Last 7 calendar days (incl. today), 00:00 → 23:59, for the Overview revenue
+  // chart. Higher limit than the today-only fetch since it spans a week.
+  const refreshWeekDineIn = useCallback(async () => {
+    const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - 6); weekStart.setHours(0, 0, 0, 0);
+    const weekEnd = new Date(); weekEnd.setHours(23, 59, 59, 999);
+    const params = new URLSearchParams({
+      from: weekStart.toISOString(),
+      to: weekEnd.toISOString(),
+      limit: "1000",
+    });
+    try {
+      const r = await fetch(`/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
+      if (!r.ok) return;
+      const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
+      if (!json.ok || !json.orders) return;
+      setWeekDineIn(json.orders.map(mapDineInRow));
+    } catch { /* network blip — keep last-known */ }
+  }, []);
+
+  // Broad dine-in pull (no date filter, most-recent first) for the all-time best
+  // sellers list. Mirrors POS `sales`, which is itself the most-recent ~1000 rows
+  // — so "All Time" is "recent history" on both sides. Not polled: aggregate
+  // item ranks barely move in 6s, so a fetch on tab-entry is enough.
+  const refreshAllTimeDineIn = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/pos/orders/dine-in?limit=2000`, { cache: "no-store" });
+      if (!r.ok) return;
+      const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
+      if (!json.ok || !json.orders) return;
+      setAllTimeDineIn(json.orders.map(mapDineInRow));
+    } catch { /* network blip — keep last-known */ }
+  }, []);
+
+  // Refresh today's + this week's dine-in whenever the Overview tab is (re)entered.
+  // They feed the Overview KPIs/chart only, so there's no reason to poll from other tabs.
   useEffect(() => {
-    if (dashTab === "overview") refreshTodayDineIn();
-  }, [dashTab, refreshTodayDineIn]);
+    if (dashTab === "overview") { refreshTodayDineIn(); refreshWeekDineIn(); refreshAllTimeDineIn(); }
+  }, [dashTab, refreshTodayDineIn, refreshWeekDineIn, refreshAllTimeDineIn]);
 
   // isInitial=true shows the loading spinner (first open / tab switch). Background
   // polls run silently and keep the last-known list on a network blip — no flicker.
@@ -195,31 +252,76 @@ export default function DashboardView() {
   const totalRevenue = posRevenue + diRevToday;
   const totalTransactions = todaySales.length + todayDineInSettled.length;
   const todayAvgOrder = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
-  const totalTips = todaySalesActive.reduce((sum, s) => sum + s.tipAmount, 0);
-  const totalServiceFees = todaySalesActive.reduce((sum, s) => sum + s.serviceFeeAmount, 0);
+  // Fully-kept dine-in slice — mirror todaySalesActive: settled tables that were
+  // NOT refunded. A refunded table's tip/service fee went back with the refund,
+  // so only never-refunded settled rows feed these KPIs.
+  const todayDineInActive = todayDineInSettled.filter((o) => dineInRefundState(o) === null);
+  const diTipsToday = todayDineInActive.reduce((sum, o) => sum + (o.tipAmount ?? 0), 0);
+  const diServiceFeesToday = todayDineInActive.reduce((sum, o) => sum + (o.serviceFeeAmount ?? 0), 0);
+  // POS + dine-in combined.
+  const totalTips = todaySalesActive.reduce((sum, s) => sum + s.tipAmount, 0) + diTipsToday;
+  const totalServiceFees = todaySalesActive.reduce((sum, s) => sum + s.serviceFeeAmount, 0) + diServiceFeesToday;
 
   // "Kept" = never-voided + voided-with-no-refund (money fully retained).
   const isKept = (s: POSSale) => !s.voided || (s.refundAmount ?? 0) === 0;
+  // POS + dine-in merged. Keyed by item NAME (dine-in items carry no productId),
+  // so the same dish sold at the till and at a table lands in one row. POS uses
+  // kept sales; dine-in uses settled, non-refunded orders (item-level refunds
+  // can't be apportioned), mirroring the POS isKept rule.
   const itemCounts: Record<string, { name: string; count: number; revenue: number }> = {};
+  const addItem = (name: string, qty: number, price: number) => {
+    if (!itemCounts[name]) itemCounts[name] = { name, count: 0, revenue: 0 };
+    itemCounts[name].count += qty;
+    itemCounts[name].revenue += price * qty;
+  };
   for (const sale of sales.filter(isKept)) {
-    for (const item of sale.items) {
-      if (!itemCounts[item.productId]) itemCounts[item.productId] = { name: item.name, count: 0, revenue: 0 };
-      itemCounts[item.productId].count += item.quantity;
-      itemCounts[item.productId].revenue += item.price * item.quantity;
-    }
+    for (const item of sale.items) addItem(item.name, item.quantity, item.price);
+  }
+  for (const o of allTimeDineIn) {
+    if (o.status !== "delivered" || dineInRefundState(o) !== null) continue;
+    for (const it of o.items) addItem(it.name, it.qty, it.price);
   }
   const bestSellersOverview = Object.values(itemCounts).sort((a, b) => b.count - a.count).slice(0, 8);
 
-  const last7: { label: string; revenue: number }[] = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(); d.setDate(d.getDate() - i);
-    const rev = sales.filter((s) => isKept(s) && new Date(s.date).toDateString() === d.toDateString()).reduce((s, x) => s + x.total, 0);
-    last7.push({ label: d.toLocaleDateString("en-GB", { weekday: "short" }), revenue: rev });
-  }
-  const maxRev = Math.max(...last7.map((d) => d.revenue), 1);
+  // Last-7-days revenue, split POS vs dine-in, netting gift card + refund exactly
+  // like the KPI cards so today's bar reconciles with "Today's Revenue".
+  const last7 = (() => {
+    const days = [] as { weekday: string; dayLabel: string; pos: number; dineIn: number; isToday: boolean }[];
+    const byKey = new Map<string, number>();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      byKey.set(d.toDateString(), days.length);
+      days.push({
+        weekday: d.toLocaleDateString("en-GB", { weekday: "short" }),
+        dayLabel: d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
+        pos: 0, dineIn: 0, isToday: i === 0,
+      });
+    }
+    for (const s of sales) {
+      const i = byKey.get(new Date(s.date).toDateString());
+      if (i === undefined) continue;
+      days[i].pos += Math.max(0, moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0));
+    }
+    for (const o of weekDineIn) {
+      if (o.status !== "delivered") continue;
+      const i = byKey.get(new Date(o.date).toDateString());
+      if (i === undefined) continue;
+      days[i].dineIn += Math.max(0, moneyPaidGross(o.total, o.giftCardUsed) - (o.refundedAmount ?? 0));
+    }
+    return days.map((d) => ({ ...d, total: d.pos + d.dineIn }));
+  })();
+  const maxRev = Math.max(...last7.map((d) => d.total), 1);
+  const week7Total = last7.reduce((s, d) => s + d.total, 0);
+  const week7Avg = week7Total / 7;
+  // Compact axis label: £950 → "£950", £1,250 → "£1.3k". Keeps 7 narrow bars legible.
+  const fmtCompact = (v: number) => v <= 0 ? "" : v >= 1000 ? `${sym}${(v / 1000).toFixed(1)}k` : `${sym}${Math.round(v)}`;
 
-  const overviewPayMix = { cash: 0, card: 0, split: 0, gift_card: 0 };
+  // Combined POS + dine-in. POS methods: gift_card/cash/card/split; dine-in adds
+  // its own "table-service" (cash/card fold into the shared rows). Denominator is
+  // totalTransactions (POS + settled dine-in), so the split reflects all takings.
+  const overviewPayMix: Record<string, number> = { gift_card: 0, cash: 0, card: 0, split: 0, "table-service": 0 };
   for (const s of todaySales) overviewPayMix[s.paymentMethod] = (overviewPayMix[s.paymentMethod] || 0) + 1;
+  for (const o of todayDineInSettled) overviewPayMix[o.paymentMethod] = (overviewPayMix[o.paymentMethod] || 0) + 1;
   const overviewPayTotal = totalTransactions || 1;
 
   const costMap: Record<string, number> = {};
@@ -278,12 +380,12 @@ export default function DashboardView() {
     const id = setInterval(() => {
       // Poll only the active tab's data — and silently (default isInitial=false),
       // so background refreshes never tear down the visible list/cards.
-      if (dashTab === "overview") refreshTodayDineIn();
+      if (dashTab === "overview") { refreshTodayDineIn(); refreshWeekDineIn(); }
       if (dashTab === "dine-in")  refreshDineInTab();
       if (dashTab === "reports")  refreshReportsDineIn();
     }, 6_000);
     return () => clearInterval(id);
-  }, [dashTab, refreshTodayDineIn, refreshDineInTab, refreshReportsDineIn]);
+  }, [dashTab, refreshTodayDineIn, refreshWeekDineIn, refreshDineInTab, refreshReportsDineIn]);
 
   const inRange = useMemo(
     () => sales.filter((s) => { const d = new Date(s.date); return d >= startDate && d <= endDate; }),
@@ -492,8 +594,8 @@ export default function DashboardView() {
                 { label: "Today's Revenue", value: fmt(totalRevenue, sym), sub: diRevToday > 0 ? `incl. ${fmt(diRevToday, sym)} dine-in` : undefined, icon: TrendingUp, color: "text-green-400", bg: "bg-green-500/10" },
                 { label: "Transactions", value: `${totalTransactions}`, sub: todayDineInSettled.length > 0 ? `${todaySales.length} POS · ${todayDineInSettled.length} dine-in` : undefined, icon: Receipt, color: "text-blue-400", bg: "bg-blue-500/10" },
                 { label: "Average Order", value: fmt(todayAvgOrder, sym), sub: "POS + dine-in", icon: BarChart3, color: "text-purple-400", bg: "bg-purple-500/10" },
-                { label: "Tips Collected", value: fmt(totalTips, sym), sub: "POS only", icon: BadgeDollarSign, color: "text-amber-400", bg: "bg-amber-500/10" },
-                { label: "Service Fees", value: fmt(totalServiceFees, sym), sub: "POS only", icon: DollarSign, color: "text-blue-400", bg: "bg-blue-500/10" },
+                { label: "Tips Collected", value: fmt(totalTips, sym), sub: diTipsToday > 0 ? `incl. ${fmt(diTipsToday, sym)} dine-in` : undefined, icon: BadgeDollarSign, color: "text-amber-400", bg: "bg-amber-500/10" },
+                { label: "Service Fees", value: fmt(totalServiceFees, sym), sub: diServiceFeesToday > 0 ? `incl. ${fmt(diServiceFeesToday, sym)} dine-in` : undefined, icon: DollarSign, color: "text-blue-400", bg: "bg-blue-500/10" },
               ].map((card) => (
                 <div key={card.label} className="bg-slate-800 border border-slate-700 rounded-2xl p-3 sm:p-5">
                   <div className={`w-10 h-10 ${card.bg} rounded-xl flex items-center justify-center mb-3`}>
@@ -528,21 +630,48 @@ export default function DashboardView() {
             )}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* Revenue last-7 chart */}
+              {/* Revenue last-7 chart — stacked POS + dine-in per day */}
               <div className="lg:col-span-2 bg-slate-800 border border-slate-700 rounded-2xl p-5">
-                <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2">
-                  <BarChart3 size={16} className="text-orange-400" /> Revenue — Last 7 Days
-                </h3>
-                <div className="flex items-end gap-2 h-32">
-                  {last7.map((d, i) => (
-                    <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                      <div className="w-full flex items-end justify-center" style={{ height: "100px" }}>
-                        <div className={`w-full rounded-t-lg transition-all ${i === 6 ? "bg-orange-500" : "bg-slate-600"}`}
-                          style={{ height: `${Math.max(4, (d.revenue / maxRev) * 100)}%` }} />
+                <div className="flex items-start justify-between gap-3 mb-1">
+                  <h3 className="text-white font-semibold text-sm flex items-center gap-2">
+                    <BarChart3 size={16} className="text-orange-400" /> Revenue — Last 7 Days
+                  </h3>
+                  <div className="text-right leading-tight flex-shrink-0">
+                    <p className="text-white font-bold text-sm">{fmt(week7Total, sym)}</p>
+                    <p className="text-slate-500 text-[10px]">{fmt(week7Avg, sym)}/day avg</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 mb-4 text-[10px] text-slate-400">
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500 inline-block" /> POS</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-violet-500 inline-block" /> Dine-in</span>
+                </div>
+                <div className="flex items-end gap-2">
+                  {last7.map((d, i) => {
+                    const areaH = 96;
+                    const posH = (d.pos / maxRev) * areaH;
+                    const diH = (d.dineIn / maxRev) * areaH;
+                    return (
+                      <div key={i} className="flex-1 flex flex-col items-center gap-1 min-w-0"
+                        title={`${d.weekday} ${d.dayLabel}\nPOS: ${fmt(d.pos, sym)}\nDine-in: ${fmt(d.dineIn, sym)}\nTotal: ${fmt(d.total, sym)}`}>
+                        <span className="text-[9px] font-semibold text-slate-300 leading-none h-3 truncate w-full text-center">
+                          {fmtCompact(d.total)}
+                        </span>
+                        <div className="w-full flex flex-col-reverse" style={{ height: areaH }}>
+                          {d.total <= 0 ? (
+                            <div className="w-full rounded bg-slate-700" style={{ height: 3 }} />
+                          ) : (
+                            <>
+                              <div className="w-full bg-orange-500 transition-all"
+                                style={{ height: posH, borderTopLeftRadius: d.dineIn > 0 ? 0 : 4, borderTopRightRadius: d.dineIn > 0 ? 0 : 4 }} />
+                              <div className="w-full bg-violet-500 transition-all rounded-t" style={{ height: diH }} />
+                            </>
+                          )}
+                        </div>
+                        <span className={`text-[10px] leading-none ${d.isToday ? "text-orange-400 font-bold" : "text-slate-400"}`}>{d.weekday}</span>
+                        <span className={`text-[9px] leading-none ${d.isToday ? "text-orange-400/80" : "text-slate-600"}`}>{d.isToday ? "Today" : d.dayLabel.split(" ")[0]}</span>
                       </div>
-                      <span className="text-slate-500 text-[10px]">{d.label}</span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
@@ -552,12 +681,16 @@ export default function DashboardView() {
                   <CreditCard size={16} className="text-blue-400" /> Payment Mix
                 </h3>
                 <div className="space-y-3">
-                  {([["gift_card", "Gift Card", "bg-purple-400"], ["cash", "Cash", "bg-green-500"], ["card", "Card", "bg-blue-500"], ["split", "Split", "bg-purple-700"]] as [string, string, string][]).map(([key, label, color]) => {
-                    const pct = ((overviewPayMix[key as keyof typeof overviewPayMix] ?? 0) / overviewPayTotal) * 100;
+                  {([["gift_card", "Gift Card", "bg-purple-400"], ["cash", "Cash", "bg-green-500"], ["card", "Card", "bg-blue-500"], ["split", "Split", "bg-purple-700"], ["table-service", "Table Service", "bg-violet-500"]] as [string, string, string][])
+                    // Table Service is dine-in only — hide the row on POS-only days to avoid a permanent "0 txns" line.
+                    .filter(([key]) => key !== "table-service" || (overviewPayMix["table-service"] ?? 0) > 0)
+                    .map(([key, label, color]) => {
+                    const count = overviewPayMix[key] ?? 0;
+                    const pct = (count / overviewPayTotal) * 100;
                     return (
                       <div key={key}>
                         <div className="flex justify-between text-xs text-slate-400 mb-1">
-                          <span>{label}</span><span>{overviewPayMix[key as keyof typeof overviewPayMix] ?? 0} txns</span>
+                          <span>{label}</span><span>{count} txns</span>
                         </div>
                         <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
                           <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${pct}%` }} />
@@ -634,7 +767,7 @@ export default function DashboardView() {
                               </div>
                               <div className="flex-1 min-w-0">
                                 <p className="text-white text-sm font-medium">#{sale.receiptNo} · {sale.staffName}</p>
-                                <p className="text-slate-400 text-xs">{sale.items.length} item{sale.items.length !== 1 ? "s" : ""} · {sale.paymentMethod} · {relTime(sale.date)}</p>
+                                <p className="text-slate-400 text-xs">{sale.items.length} item{sale.items.length !== 1 ? "s" : ""} · {tenderLabel(sale.paymentMethod, sale.giftCardUsed ?? 0)} · {relTime(sale.date)}</p>
                                 {sale.voided && sale.voidReason && <p className="text-red-400 text-xs italic">Void: {sale.voidReason}</p>}
                                 {sale.voided && sale.refundMethod && sale.refundMethod !== "none" && (
                                   <p className="text-xs mt-0.5 flex items-center gap-1">
@@ -710,7 +843,7 @@ export default function DashboardView() {
                                   {order.staffName && order.staffName !== "—" && <span className="text-slate-400"> · {order.staffName}</span>}
                                 </p>
                                 <p className="text-slate-400 text-xs">
-                                  {order.items.reduce((s, i) => s + i.qty, 0)} items · {order.paymentMethod === "cash" ? "Cash" : order.paymentMethod === "card" ? "Card" : "Table Service"} · {relTime(order.date)}
+                                  {order.items.reduce((s, i) => s + i.qty, 0)} items · {tenderLabel(order.paymentMethod, order.giftCardUsed ?? 0)} · {relTime(order.date)}
                                 </p>
                                 {isRefunded && refundedAmt > 0 && (
                                   <p className="text-amber-400 text-xs mt-0.5 flex items-center gap-1">
