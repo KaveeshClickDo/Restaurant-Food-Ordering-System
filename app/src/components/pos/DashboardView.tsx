@@ -1432,10 +1432,10 @@ export default function DashboardView() {
                                 <td className="px-5 py-3 text-slate-300">{sale.staffName}</td>
                                 <td className="px-5 py-3 text-slate-500 text-xs">{sale.customerName ?? "—"}</td>
                                 <td className="px-5 py-3">
-                                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${sale.paymentMethod === "cash" ? "bg-green-500/20 text-green-400" :
+                                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${sale.paymentMethod === "cash" ? "bg-green-500/20 text-green-400" :
                                     sale.paymentMethod === "card" ? "bg-blue-500/20  text-blue-400" :
                                       "bg-purple-500/20 text-purple-400"
-                                    }`}>{sale.paymentMethod}</span>
+                                    }`}>{tenderLabel(sale.paymentMethod, sale.giftCardUsed ?? 0)}</span>
                                   {sale.voided && sale.refundMethod && sale.refundMethod !== "none" && (
                                     <div className={`mt-1 text-[10px] flex items-center gap-1 font-semibold ${sale.refundMethod === "cash" ? "text-green-400" : "text-blue-400"
                                       }`}>
@@ -1688,9 +1688,9 @@ export default function DashboardView() {
                                   <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                                     Settled
                                   </span>
-                                  {order.paymentMethod && order.paymentMethod !== "table-service" && (
+                                  {((order.paymentMethod && order.paymentMethod !== "table-service") || (order.giftCardUsed ?? 0) > 0) && (
                                     <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-600/50 text-slate-400 border border-slate-600">
-                                      {order.paymentMethod.charAt(0).toUpperCase() + order.paymentMethod.slice(1)}
+                                      {tenderLabel(order.paymentMethod, order.giftCardUsed ?? 0)}
                                     </span>
                                   )}
                                 </div>
