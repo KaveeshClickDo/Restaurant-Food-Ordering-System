@@ -681,7 +681,7 @@ export default function DashboardView() {
                   <CreditCard size={16} className="text-blue-400" /> Payment Mix
                 </h3>
                 <div className="space-y-3">
-                  {([["gift_card", "Gift Card", "bg-purple-400"], ["cash", "Cash", "bg-green-500"], ["card", "Card", "bg-blue-500"], ["split", "Split", "bg-purple-700"], ["table-service", "Table Service", "bg-violet-500"]] as [string, string, string][])
+                  {([["gift_card", "Fully Gift Card", "bg-purple-400"], ["cash", "Cash", "bg-green-500"], ["card", "Card", "bg-blue-500"], ["split", "Split", "bg-purple-700"], ["table-service", "Table Service", "bg-violet-500"]] as [string, string, string][])
                     // Table Service is dine-in only — hide the row on POS-only days to avoid a permanent "0 txns" line.
                     .filter(([key]) => key !== "table-service" || (overviewPayMix["table-service"] ?? 0) > 0)
                     .map(([key, label, color]) => {
@@ -1155,8 +1155,8 @@ export default function DashboardView() {
                           <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Payment Methods</p>
                           {(Object.entries(diPayMix) as [string, number][]).filter(([, v]) => v > 0).map(([key, count]) => {
                             const pct = (count / diSettled.length) * 100;
-                            const label = key === "cash" ? "Cash" : key === "card" ? "Card" : "Table Service";
-                            const color = key === "cash" ? "bg-green-500" : key === "card" ? "bg-blue-500" : "bg-violet-500";
+                            const label = key === "cash" ? "Cash" : key === "card" ? "Card" : key === "gift_card" ? "Gift Card" : "Table Service";
+                            const color = key === "cash" ? "bg-green-500" : key === "card" ? "bg-blue-500" : key === "gift_card" ? "bg-purple-400" : "bg-violet-500";
                             return (
                               <div key={key}>
                                 <div className="flex justify-between text-xs text-slate-400 mb-1">

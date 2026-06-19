@@ -14,7 +14,7 @@ export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string,
     </tr>`
   ).join("");
 
-  const payLabel = receipt.paymentMethod === "cash" ? "Cash" : receipt.paymentMethod === "card" ? "Card" : "Table Service";
+  const payLabel = receipt.paymentMethod === "cash" ? "Cash" : receipt.paymentMethod === "card" ? "Card" : receipt.paymentMethod === "gift_card" ? "Gift Card" : "Table Service";
   const giftUsed = receipt.giftCardUsed ?? 0;
   const amountPaid = Math.max(0, receipt.total - giftUsed);
   const rcptDiscount = receipt.discountAmount ?? 0;
