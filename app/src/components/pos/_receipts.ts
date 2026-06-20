@@ -55,33 +55,25 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, restauran
   }).join("");
 
   let paymentHtml = "";
-  const gcAmount = sale.giftCard?.amount ?? 0;
-
-  // 1. Show the gift card deduction first
-  if (sale.giftCard) {
-    const codeStr = sale.giftCard.code ? ` (..${sale.giftCard.code.slice(-4)})` : "";
-    paymentHtml += `<tr><td style="font-size:11px;color:#6b7280">Gift Card${codeStr}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${sale.giftCard.amount.toFixed(2)}</td></tr>`;
-  }
 
   // 2. Show the remaining amount paid by Cash/Card/Split
-  if (sale.paymentMethod === "split") {
+  if (sale.paymentMethod === "gift_card") {
+    // Do nothing: the bill was fully covered by the gift card.
+    // (The gift card deduction is already displayed above the total line).
+  } else if (sale.paymentMethod === "split") {
     paymentHtml += sale.payments.map((p) =>
       `<tr><td style="font-size:11px;color:#6b7280;text-transform:capitalize">${p.method}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${p.amount.toFixed(2)}</td></tr>`
     ).join("");
   } else if (sale.paymentMethod === "cash") {
-    const cashPaid = sale.cashTendered ?? (sale.total - gcAmount);
+    const cashPaid = sale.cashTendered ?? (sale.total);
     paymentHtml += `<tr><td style="font-size:11px;color:#6b7280">Cash</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${cashPaid.toFixed(2)}</td></tr>`;
     if ((sale.changeGiven ?? 0) > 0) {
       paymentHtml += `<tr><td style="font-size:11px;color:#6b7280">Change</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${sale.changeGiven!.toFixed(2)}</td></tr>`;
     }
-  } else if (sale.paymentMethod === "gift_card") {
-    // Covered entirely by gift card. (Fallback safety if sale.giftCard was missing)
-    if (!sale.giftCard) {
-      paymentHtml += `<tr><td style="font-size:11px;color:#6b7280">Gift Card</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${sale.total.toFixed(2)}</td></tr>`;
-    }
-  } else {
+  } 
+  else {
     // Card or other payment methods
-    const charged = sale.total - gcAmount;
+    const charged = sale.total;
     paymentHtml += `<tr><td style="font-size:11px;color:#6b7280;text-transform:capitalize">${sale.paymentMethod}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${charged.toFixed(2)}</td></tr>`;
   }
 
@@ -107,6 +99,7 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, restauran
     ${sale.taxAmount > 0 && settings.showBreakdown ? row(vatLabel, `${vatSign}${sym}${sale.taxAmount.toFixed(2)}`, false, "#6b7280") : ""}
     ${sale.tipAmount > 0 ? row("Tip", `${sym}${sale.tipAmount.toFixed(2)}`) : ""}
     ${sale.serviceFeeAmount > 0 ? row("Service Fee", `${sym}${sale.serviceFeeAmount.toFixed(2)}`) : ""}
+    ${sale.giftCard ? row("Gift card applied", `-${sym}${sale.giftCard.amount.toFixed(2)}`, false, '#8b5cf6') : ""}
     ${row("TOTAL", `${sym}${sale.total.toFixed(2)}`, true)}
     ${paymentHtml}
   </table>
@@ -126,7 +119,6 @@ export function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings
   const serviceFee = order.serviceFeeAmount || 0;
   const vatAmount = order.vatAmount || 0;
   const giftCardUsed = order.giftCardUsed || 0;
-  const amountPaid = Math.max(0, order.total - giftCardUsed);
   const effectiveVatRate = order.vatRate != null ? order.vatRate : settings.taxRate;
   const vatLabel = order.vatInclusive
     ? `Incl. VAT${effectiveVatRate ? ` (${effectiveVatRate}%)` : ""}`
@@ -137,7 +129,9 @@ export function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings
        ${discountAmount > 0 ? `<tr><td style="font-size:11px;color:#16a34a">Discount${order.discountNote ? ` (${order.discountNote})` : ""}</td><td style="font-size:11px;color:#16a34a;text-align:right">−${sym}${discountAmount.toFixed(2)}</td></tr>` : ""}
        ${vatAmount > 0 ? `<tr><td style="font-size:11px;color:#6b7280">${vatLabel}</td><td style="font-size:11px;color:#6b7280;text-align:right">${order.vatInclusive ? "" : "+"}${sym}${vatAmount.toFixed(2)}</td></tr>` : ""}
        ${tipAmount > 0 ? `<tr><td style="font-size:11px;color:#6b7280">Tip</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${tipAmount.toFixed(2)}</td></tr>` : ""}
-       ${serviceFee > 0 ? `<tr><td style="font-size:11px;color:#6b7280">Service Fee</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${serviceFee.toFixed(2)}</td></tr>` : ""}`
+       ${serviceFee > 0 ? `<tr><td style="font-size:11px;color:#6b7280">Service Fee</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${serviceFee.toFixed(2)}</td></tr>` : ""}
+      ${giftCardUsed > 0 ? `<tr><td style="font-size:11px;color:#8b5cf6">Gift card applied</td><td style="font-size:11px;color:#8b5cf6;text-align:right">−${sym}${giftCardUsed.toFixed(2)}</td></tr>` : ""}`
+
     : "";
 
   const itemsHtml = order.items.map((it) =>
@@ -161,8 +155,7 @@ export function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings
   <table style="width:100%;border-collapse:collapse">
     ${breakdownHtml}
     <tr><td style="font-size:13px;font-weight:700">TOTAL</td><td style="font-size:13px;font-weight:700;text-align:right">${sym}${order.total.toFixed(2)}</td></tr>
-    ${giftCardUsed > 0 ? `<tr><td style="font-size:11px;color:#7c3aed">Gift card</td><td style="font-size:11px;color:#7c3aed;text-align:right">−${sym}${giftCardUsed.toFixed(2)}</td></tr>
-    <tr><td style="font-size:12px;font-weight:700">PAID (${payLabel})</td><td style="font-size:12px;font-weight:700;text-align:right">${sym}${amountPaid.toFixed(2)}</td></tr>` : `<tr><td style="font-size:11px;color:#6b7280">Payment</td><td style="font-size:11px;color:#6b7280;text-align:right">${payLabel}</td></tr>`}
+    <tr><td style="font-size:11px;color:#6b7280">Payment</td><td style="font-size:11px;color:#6b7280;text-align:right">${payLabel}</td></tr>
   </table>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
   ${settings.receiptThankYouMessage ? `<div style="text-align:center;font-weight:600;font-size:12px">${settings.receiptThankYouMessage}</div>` : ""}

@@ -24,7 +24,7 @@ export default function DineInActionModal({
   // net of anything already refunded (the server enforces the same cap).
   const refundable = Math.max(
     0,
-    action.order.total - (action.order.giftCardUsed ?? 0) - (action.order.refundedAmount ?? 0),
+    action.order.total - (action.order.refundedAmount ?? 0),
   );
 
   const [reason,       setReason]       = useState("");
@@ -118,11 +118,11 @@ export default function DineInActionModal({
                     placeholder={`Max ${sym}${refundable.toFixed(2)}`}
                     className="w-full bg-slate-700 border border-slate-600 text-white placeholder-slate-500 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-amber-500" />
                 )}
-                {(action.order.giftCardUsed ?? 0) > 0 && (
+                {/* {(action.order.giftCardUsed ?? 0) > 0 && (
                   <p className="text-[11px] text-slate-400 mt-2">
                     {sym}{(action.order.giftCardUsed ?? 0).toFixed(2)} of this bill was paid by gift card and is non-refundable.
                   </p>
-                )}
+                )} */}
               </div>
               <div>
                 <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">Return Method</p>

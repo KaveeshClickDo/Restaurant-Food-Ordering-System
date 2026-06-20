@@ -49,8 +49,11 @@ export async function POST(req: NextRequest) {
     const vat       = Math.max(0, Number(vatAmount ?? 0));
     const inclusive = vatInclusive ?? false;
     const vatSurcharge = inclusive ? 0 : vat;
-    // Final amount owed after discount, exclusive-VAT, tip and service fee.
-    const finalTotal = round2(subtotal - discount + vatSurcharge + tip + serviceFee);
+    const giftCard = Math.max(0, Number(giftCardUsed ?? 0));
+    // Grand amount owed after discount, exclusive-VAT, tip and service fee.
+    const grandTotal = round2(subtotal - discount + vatSurcharge + tip + serviceFee);
+    // Final amount owed after gift card redemption (clamped to the grand total).
+    // const finalTotal = round2(grandTotal - giftCard);
 
     // ── Gift card tender (optional) ────────────────────────────────────────
     // Applied across the table's combined bill AFTER discount + tip + service-fee, clamped to
@@ -67,7 +70,7 @@ export async function POST(req: NextRequest) {
       giftCardId = lookup.card.id;
       giftCardAmount = clampGiftCardAmount({
         cardBalance:  lookup.card.balance,
-        runningTotal: finalTotal,
+        runningTotal: grandTotal,
         requested:    giftCardUsed,
       });
 
@@ -124,7 +127,7 @@ export async function POST(req: NextRequest) {
     // the bill equals the final amount owed — keeping reports / refunds accurate
     // without touching the other orders' line items. vat_amount is recorded
     // regardless of mode so the Finance Reports VAT breakdown includes dine-in.
-    if (anchorOrderId && (discount > 0 || tip > 0 || serviceFee > 0 || vat > 0)) {
+    if (anchorOrderId && (discount > 0 || tip > 0 || serviceFee > 0 || vat > 0 || giftCardAmount > 0)) {
       const anchorOriginal = Number(anchor?.total ?? 0);
       await supabaseAdmin
         .from("orders")
@@ -135,7 +138,7 @@ export async function POST(req: NextRequest) {
           service_fee:     serviceFee,
           vat_amount:      vat,
           vat_inclusive:   inclusive,
-          total:           round2(anchorOriginal - discount + vatSurcharge + tip + serviceFee),
+          total:           round2(anchorOriginal - discount + vatSurcharge + tip + serviceFee - giftCardAmount),
         })
         .eq("id", anchorOrderId);
     }

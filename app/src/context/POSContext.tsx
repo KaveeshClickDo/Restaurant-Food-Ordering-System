@@ -998,7 +998,9 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       ? taxBase * settings.taxRate / (100 + settings.taxRate)
       : taxBase * (settings.taxRate / 100);
     const afterTax = taxBase + (settings.taxInclusive ? 0 : tax);
-    const total = afterTax + tipAmount;
+    const grandTotal = afterTax + tipAmount;
+    const gcAmount = giftCard?.amount ?? 0;
+    const total = Math.max(0, grandTotal - gcAmount);    
 
     const cashPayment = payments.filter((p) => p.method === "cash").reduce((s, p) => s + p.amount, 0);
     const change = cashTendered !== undefined ? cashTendered - cashPayment : undefined;
@@ -1086,7 +1088,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       // read-modify-write PATCH lost points to races between terminals and
       // network failures. Here we only bump the local spend/visit display
       // and re-fetch so the authoritative points balance lands in state.
-      const moneyPaid = Math.max(0, round2(total - (giftCard?.amount ?? 0)));
+      const moneyPaid = round2(total);
       setCustomers((prev) =>
         prev.map((c) =>
           c.id === assignedCustomer.id

@@ -18,7 +18,6 @@ import { parseBody }                 from "@/lib/apiValidation";
 import { PosSaleVoidSchema }         from "@/lib/schemas/pos";
 import { requirePosPermission }      from "@/lib/posPermissions";
 import { restoreStock, type StockItem } from "@/lib/stockMutation";
-import { moneyPaidGross }            from "@/lib/giftCardMoney";
 import { deductLoyaltyPoints }       from "@/lib/loyaltyUtils";
 import type { POSCartItem }          from "@/types/pos";
 
@@ -49,13 +48,11 @@ export async function PATCH(
     const refundGate = await requirePosPermission("canIssueRefund");
     if (!refundGate.ok) return refundGate.response;
 
-    // Cap the refund at money actually collected. A gift card is prepaid money,
-    // so the gift-card-covered portion is non-refundable: moneyPaid = total −
-    // gift_card_used. Guards against refunding more cash than was taken.
+    // Cap the refund at money actually collected. Guards against refunding more cash than was taken.
     const { data: saleForCap } = await supabaseAdmin
       .from("pos_sales").select("total, gift_card_used, voided").eq("id", id).maybeSingle();
     if (saleForCap && !saleForCap.voided) {
-      const moneyPaid = moneyPaidGross(saleForCap.total, saleForCap.gift_card_used);
+      const moneyPaid = saleForCap.total;
       if (refundAmount > moneyPaid + 0.001) {
         return NextResponse.json(
           { ok: false, error: `Refund (${refundAmount}) cannot exceed the ${moneyPaid.toFixed(2)} paid by cash/card. The gift-card portion is non-refundable.` },
@@ -136,11 +133,11 @@ export async function PATCH(
     voided_at:   new Date().toISOString(),
   };
   if (refundAmount !== null) {
-    // Full vs partial is judged against money PAID (gift card excluded), so a
+    // Full vs partial is judged against money PAID, so a
     // refund of the entire cash/card portion correctly reads as "refunded".
     const { data: saleRow } = await supabaseAdmin
       .from("pos_sales").select("total, gift_card_used").eq("id", id).maybeSingle();
-    const moneyPaid = moneyPaidGross(saleRow?.total, saleRow?.gift_card_used);
+    const moneyPaid = saleRow?.total;
     const isFullRefund = refundAmount >= moneyPaid - 0.001;
     orderPatch.refunded_amount = refundAmount;
     orderPatch.payment_status  = isFullRefund ? "refunded" : "partially_refunded";

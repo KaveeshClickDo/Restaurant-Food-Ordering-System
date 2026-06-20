@@ -127,6 +127,12 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
               <span>Service Fee</span><span>{fmt(sale.serviceFeeAmount, sym)}</span>
             </div>
           )}
+          {sale.giftCard && (
+            <div className="flex justify-between text-purple-600">
+              <span>Gift Card Applied</span>
+              <span>−{fmt(sale.giftCard.amount, sym)}</span>
+            </div>
+          )}
           <div className="flex justify-between font-bold text-base mt-2 pt-2 border-t border-gray-300">
             <span>TOTAL</span><span>{fmt(sale.total, sym)}</span>
           </div>
@@ -134,12 +140,12 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
           {/* ── Payment breakdown ─────────────────────────────── */}
           <div className="mt-1 space-y-0.5">
             {/* 1. Show the gift card deduction first */}
-            {sale.giftCard && (
+            {/* {sale.giftCard && (
               <div className="flex justify-between text-gray-500">
                 <span>Gift Card {sale.giftCard.code ? `(..${sale.giftCard.code.slice(-4)})` : ""}</span>
                 <span>{fmt(sale.giftCard.amount, sym)}</span>
               </div>
-            )}
+            )} */}
 
             {/* 2. Show the remaining amount paid by Cash/Card/Split */}
             {sale.paymentMethod === "split" ? (
@@ -152,7 +158,7 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
               <>
                 <div className="flex justify-between text-gray-500">
                   <span>Cash</span>
-                  <span>{fmt(sale.cashTendered ?? (sale.total - (sale.giftCard?.amount ?? 0)), sym)}</span>
+                  <span>{fmt(sale.cashTendered ?? (sale.total), sym)}</span>
                 </div>
                 {(sale.changeGiven ?? 0) > 0 && (
                   <div className="flex justify-between text-gray-500">
@@ -171,7 +177,7 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
               <div className="flex justify-between text-gray-500 capitalize">
                 <span>{sale.paymentMethod}</span>
                 {/* Deduct gift card amount so Card shows the exact remaining balance */}
-                <span>{fmt(sale.total - (sale.giftCard?.amount ?? 0), sym)}</span>
+                <span>{fmt(sale.total, sym)}</span>
               </div>
             )}
           </div>

@@ -11,7 +11,6 @@
 import { NextResponse }  from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getCustomerSession, unauthorizedJson } from "@/lib/auth";
-import { moneyPaidGross } from "@/lib/giftCardMoney";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapOrder(o: any) {
@@ -114,12 +113,10 @@ export async function GET() {
   ]);
 
   const posSpend = (posSalesData ?? []).reduce((sum, s) => {
-    // POS sales store the GROSS goods value with the gift-card-covered portion
-    // kept separately in gift_card_used. A gift card is prepaid money (counted
-    // as income when it was sold), so net it out — only the real cash/card paid
+    // POS sales store the net - only the real cash/card paid
     // is this customer's spend. Matches /api/admin/customers/list + /api/pos/
-    // customers, which already use moneyPaidGross.
-    const total  = moneyPaidGross(s.total, s.gift_card_used);
+    // customers
+    const total  = s.total; // net of gift card
     const refund = Number(s.refund_amount) || 0;
     if (s.voided && refund <= 0) return sum; // reversed, no money kept
     return sum + Math.max(0, total - refund);

@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
   // ─── Server-side totals recompute (F-INS-3b) ────────────────────────────────
   // Subtotal is derived from items via cartLineTotal — clients cannot under-
   // declare it. Total is then derived from subtotal − discount + tax (when
-  // tax is exclusive) + tip + service-fee, and compared to the body's claimed total. A
+  // tax is exclusive) + tip + service-fee - giftcard, and compared to the body's claimed total. A
   // divergence beyond a few pence is rejected outright; up to that tolerance
   // we accept the body figure (clients format with 2dp rounding which can
   // introduce sub-cent drift after multi-item discounts).
@@ -108,6 +108,7 @@ export async function POST(req: NextRequest) {
   const tipAmount      = Number(body.tipAmount      ?? 0);
   const serviceFeeAmount = Number(body.serviceFeeAmount ?? 0);
   const taxInclusive   = Boolean(body.taxInclusive  ?? false);
+  const giftCardAmount = Number(body.giftCardUsed    ?? 0);
 
   // Hard cap on discount: it can never exceed the pre-tax subtotal. Anything
   // larger would imply paying the customer to take the food. The client UI
@@ -120,11 +121,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // The Grand Total of the goods
   // When tax is inclusive the tax is already inside subtotalServer; when
   // exclusive we add it. Discounts always reduce the pre-tax base.
-  const totalServer = parseFloat((
-    subtotalServer - discountAmount + tipAmount + serviceFeeAmount + (taxInclusive ? 0 : taxAmount)
-  ).toFixed(2));
+  const grandTotalServer = subtotalServer - discountAmount + tipAmount + serviceFeeAmount + (taxInclusive ? 0 : taxAmount);
+
+  // The final total EXPECTED in the request body (Goods minus Gift Card)
+  const totalServer = parseFloat(Math.max(0, grandTotalServer - giftCardAmount).toFixed(2));
 
   const SUBTOTAL_TOLERANCE = 0.05; // 5p — guards against per-line rounding drift
   const TOTAL_TOLERANCE    = 0.05;
@@ -255,7 +258,7 @@ export async function POST(req: NextRequest) {
     giftCardId   = lookup.card.id;
     giftCardUsed = clampGiftCardAmount({
       cardBalance:  lookup.card.balance,
-      runningTotal: totalServer,
+      runningTotal: grandTotalServer,
       requested:    giftCardClaim,
     });
   }
@@ -354,7 +357,7 @@ export async function POST(req: NextRequest) {
   // per sale id, so outbox replays can't double-award.
   const saleCustomerId = row.customer_id as string | null;
   if (saleCustomerId && saleCustomerId !== POS_CUSTOMER_ID) {
-    const moneyPaid = Math.max(0, parseFloat((totalServer - giftCardUsed).toFixed(2)));
+    const moneyPaid = totalServer;
     await rewardLoyaltyPoints(saleCustomerId, moneyPaid, { posSaleId: String(body.id) });
   }
 

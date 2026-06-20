@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import { fmt, fmtPct, fmtDate, fmtTime, relTime } from "./_utils";
 import { buildDineInReceiptHtml, dineInRefundState, type DineInOrder } from "./_receipts";
-import { moneyPaidGross } from "@/lib/giftCardMoney";
 import { parseTableLabelFromNote } from "@/lib/tableLabel";
 import {
   type POSPeriod, POS_PERIODS, getPOSDateRange,
@@ -28,10 +27,10 @@ import DineInActionModal, { type DineInAction } from "./dashboard/DineInActionMo
 function tenderLabel(method: string | undefined, giftCardUsed = 0): string {
   const base =
     method === "cash" ? "Cash" :
-    method === "card" ? "Card" :
-    method === "split" ? "Split" :
-    method === "gift_card" ? "Gift Card" :
-    "Table Service"; // "table-service" or any unrecognised value
+      method === "card" ? "Card" :
+        method === "split" ? "Split" :
+          method === "gift_card" ? "Gift Card" :
+            "Table Service"; // "table-service" or any unrecognised value
   if (giftCardUsed > 0) {
     // Whole bill on the card → just "Gift Card", no redundant prefix.
     if (method === "gift_card" || method === "table-service" || !method) return "Gift Card";
@@ -158,10 +157,10 @@ export default function DashboardView() {
     if (isInitial) setDineInLoading(true);
     try {
       const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-      const todayEnd   = new Date(); todayEnd.setHours(23, 59, 59, 999);
+      const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
       const params = new URLSearchParams({
         from: todayStart.toISOString(),
-        to:   todayEnd.toISOString(),
+        to: todayEnd.toISOString(),
       });
       const r = await fetch(`/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
       if (!r.ok) { if (isInitial) setDineInOrders([]); return; }
@@ -230,7 +229,7 @@ export default function DashboardView() {
     if (new Date(s.date).toDateString() !== today) return false;
     if (!s.voided) return true;
     // Voided but money (partly) kept — no-refund = full, partial = retained slice.
-    return moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0) > 0;
+    return s.total - (s.refundAmount ?? 0) > 0;
   });
   // Fully-kept slice — tips/service fees on a refunded sale went back with the
   // refund, so only never-voided + voided-with-no-refund rows feed those KPIs.
@@ -242,11 +241,11 @@ export default function DashboardView() {
   // Revenue = money paid (gift card netted out) − refund. A gift card is
   // prepaid money, so its redeemed portion isn't revenue at spend time.
   const posRevenue = todaySales.reduce(
-    (sum, s) => sum + Math.max(0, moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0)),
+    (sum, s) => sum + Math.max(0, s.total - (s.refundAmount ?? 0)),
     0,
   );
   const diRevToday = todayDineInSettled.reduce(
-    (sum, o) => sum + Math.max(0, moneyPaidGross(o.total, o.giftCardUsed) - (o.refundedAmount ?? 0)),
+    (sum, o) => sum + Math.max(0, o.total - (o.refundedAmount ?? 0)),
     0,
   );
   const totalRevenue = posRevenue + diRevToday;
@@ -300,13 +299,13 @@ export default function DashboardView() {
     for (const s of sales) {
       const i = byKey.get(new Date(s.date).toDateString());
       if (i === undefined) continue;
-      days[i].pos += Math.max(0, moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0));
+      days[i].pos += Math.max(0, s.total - (s.refundAmount ?? 0));
     }
     for (const o of weekDineIn) {
       if (o.status !== "delivered") continue;
       const i = byKey.get(new Date(o.date).toDateString());
       if (i === undefined) continue;
-      days[i].dineIn += Math.max(0, moneyPaidGross(o.total, o.giftCardUsed) - (o.refundedAmount ?? 0));
+      days[i].dineIn += Math.max(0, o.total - (o.refundedAmount ?? 0));
     }
     return days.map((d) => ({ ...d, total: d.pos + d.dineIn }));
   })();
@@ -381,8 +380,8 @@ export default function DashboardView() {
       // Poll only the active tab's data — and silently (default isInitial=false),
       // so background refreshes never tear down the visible list/cards.
       if (dashTab === "overview") { refreshTodayDineIn(); refreshWeekDineIn(); }
-      if (dashTab === "dine-in")  refreshDineInTab();
-      if (dashTab === "reports")  refreshReportsDineIn();
+      if (dashTab === "dine-in") refreshDineInTab();
+      if (dashTab === "reports") refreshReportsDineIn();
     }, 6_000);
     return () => clearInterval(id);
   }, [dashTab, refreshTodayDineIn, refreshWeekDineIn, refreshDineInTab, refreshReportsDineIn]);
@@ -404,12 +403,12 @@ export default function DashboardView() {
   // Revenue-bearing = `rFiltered` PLUS partially-refunded voids (retained slice
   // is real income). Fully-refunded voids net to £0 via rSaleNet and drop out.
   const rMoneyBearing = useMemo(
-    () => inRange.filter((s) => !s.voided || moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0) > 0),
+    () => inRange.filter((s) => !s.voided || s.total - (s.refundAmount ?? 0) > 0),
     [inRange],
   );
   // useCallback so it's reference-stable and safe to use in chart useMemo deps.
   const rSaleNet = useCallback(
-    (s: POSSale) => Math.max(0, moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0)),
+    (s: POSSale) => Math.max(0, s.total - (s.refundAmount ?? 0)),
     [],
   );
   const voidedCount = inRange.filter((s) => s.voided).length;
@@ -423,6 +422,7 @@ export default function DashboardView() {
   const rTips = rFiltered.reduce((s, x) => s + x.tipAmount, 0);
   const rServiceFees = rFiltered.reduce((s, x) => s + x.serviceFeeAmount, 0);
   const rDiscounts = rFiltered.reduce((s, x) => s + x.discountAmount, 0);
+  const giftCardRedeemed = rFiltered.reduce((s, x) => s + (x.giftCardUsed ?? 0), 0);
   const rAvgOrder = rMoneyBearing.length > 0 ? rRevenue / rMoneyBearing.length : 0;
   const rCost = rFiltered.reduce((sum, sale) =>
     sum + sale.items.reduce((s, item) => s + (costMap[item.productId] ?? 0) * item.quantity, 0), 0);
@@ -475,11 +475,11 @@ export default function DashboardView() {
   const diVoided = reportsDineIn.filter(o => o.status === "cancelled");
   const diRefundedOrders = reportsDineIn.filter(o => dineInRefundState(o) !== null);
   // Revenue-bearing dine-in = settled PLUS (partially) refunded — the retained
-  // portion is real revenue. Net out gift card + refund, just like POS sales,
+  // portion is real revenue. Net out refund, just like POS sales,
   // so a partial refund reduces revenue by the amount returned, not the whole bill.
   const diMoneyBearing = [...diSettled, ...diRefundedOrders];
   const diRevenue = diMoneyBearing.reduce(
-    (s, o) => s + Math.max(0, moneyPaidGross(o.total, o.giftCardUsed) - (o.refundedAmount ?? 0)),
+    (s, o) => s + Math.max(0, o.total - (o.refundedAmount ?? 0)),
     0,
   );
   const diAvgOrder = diMoneyBearing.length > 0 ? diRevenue / diMoneyBearing.length : 0;
@@ -539,7 +539,7 @@ export default function DashboardView() {
               ) : dashTab === "dine-in" ? (
                 (() => {
                   const settled = dineInOrders.filter((o) => o.status === "delivered" && dineInRefundState(o) === null).length;
-                  const open    = dineInOrders.filter((o) => o.status !== "delivered" && o.status !== "cancelled").length;
+                  const open = dineInOrders.filter((o) => o.status !== "delivered" && o.status !== "cancelled").length;
                   const refunded = dineInOrders.filter((o) => dineInRefundState(o) !== null).length;
                   const revenue = dineInOrders
                     .filter((o) => o.status === "delivered")
@@ -685,19 +685,19 @@ export default function DashboardView() {
                     // Table Service is dine-in only — hide the row on POS-only days to avoid a permanent "0 txns" line.
                     .filter(([key]) => key !== "table-service" || (overviewPayMix["table-service"] ?? 0) > 0)
                     .map(([key, label, color]) => {
-                    const count = overviewPayMix[key] ?? 0;
-                    const pct = (count / overviewPayTotal) * 100;
-                    return (
-                      <div key={key}>
-                        <div className="flex justify-between text-xs text-slate-400 mb-1">
-                          <span>{label}</span><span>{count} txns</span>
+                      const count = overviewPayMix[key] ?? 0;
+                      const pct = (count / overviewPayTotal) * 100;
+                      return (
+                        <div key={key}>
+                          <div className="flex justify-between text-xs text-slate-400 mb-1">
+                            <span>{label}</span><span>{count} txns</span>
+                          </div>
+                          <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                            <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${pct}%` }} />
+                          </div>
                         </div>
-                        <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
-                          <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${pct}%` }} />
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
                 </div>
                 <div className="mt-4 pt-4 border-t border-slate-700">
                   <p className="text-slate-400 text-xs">Overall Margin</p>
@@ -955,6 +955,7 @@ export default function DashboardView() {
                       { label: "Tips", value: fmt(rTips, sym), sub: "staff tips", icon: BadgeDollarSign, color: "text-pink-400", bg: "bg-pink-500/10" },
                       { label: "Discounts", value: fmt(rDiscounts, sym), sub: "reductions applied", icon: Tag, color: "text-red-400", bg: "bg-red-500/10" },
                       { label: "Service Fees", value: fmt(rServiceFees, sym), sub: `${rFiltered.length} txns`, icon: DollarSign, color: "text-blue-400", bg: "bg-blue-500/10" },
+                      { label: "Gift Cards Redeemed", value: fmt(giftCardRedeemed, sym), sub: "settled · not revenue", icon: Gift, color: "text-purple-700", bg: "bg-purple-700/10" },
                     ].map((card) => (
                       <div key={card.label} className="bg-slate-800 border border-slate-700 rounded-2xl p-3 sm:p-4">
                         <div className={`w-9 h-9 ${card.bg} rounded-xl flex items-center justify-center mb-2.5`}>
@@ -1398,59 +1399,64 @@ export default function DashboardView() {
                               // no-refund/partial void kept money, so keep it legible.
                               const fullyRefunded = sale.voided && net === 0;
                               return (
-                              <tr key={sale.id} className={`hover:bg-slate-700/30 transition-colors ${fullyRefunded ? "opacity-40" : sale.voided ? "opacity-70" : ""}`}>
-                                <td className="px-5 py-3 font-mono text-xs text-slate-300">
-                                  <div>#{sale.receiptNo}</div>
-                                  {sale.voided && (
-                                    <span className="text-[10px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-semibold">VOID</span>
-                                  )}
-                                </td>
-                                <td className="px-5 py-3 text-slate-400 text-xs whitespace-nowrap">
-                                  {fmtDate(sale.date)}<br />
-                                  <span className="text-slate-600">{fmtTime(sale.date)}</span>
-                                </td>
-                                <td className="px-5 py-3 text-slate-300">{sale.staffName}</td>
-                                <td className="px-5 py-3 text-slate-500 text-xs">{sale.customerName ?? "—"}</td>
-                                <td className="px-5 py-3">
-                                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${sale.paymentMethod === "cash" ? "bg-green-500/20 text-green-400" :
-                                    sale.paymentMethod === "card" ? "bg-blue-500/20  text-blue-400" :
-                                      "bg-purple-500/20 text-purple-400"
-                                    }`}>{sale.paymentMethod}</span>
-                                  {sale.voided && sale.refundMethod && sale.refundMethod !== "none" && (
-                                    <div className={`mt-1 text-[10px] flex items-center gap-1 font-semibold ${sale.refundMethod === "cash" ? "text-green-400" : "text-blue-400"
-                                      }`}>
-                                      {sale.refundMethod === "cash" ? <Banknote size={10} /> : <CreditCard size={10} />}
-                                      Refund {fmt(sale.refundAmount ?? 0, sym)}
-                                    </div>
-                                  )}
-                                  {sale.voided && sale.refundMethod === "none" && (
-                                    <div className="mt-1 text-[10px] text-slate-500 font-semibold">No refund</div>
-                                  )}
-                                </td>
-                                <td className="px-5 py-3 text-right">
-                                  <span className={`font-semibold ${fullyRefunded ? "text-red-400 line-through" : "text-white"}`}>
-                                    {fmt(sale.total, sym)}
-                                  </span>
-                                  {sale.voided && net > 0 && (
-                                    <div className="text-[10px] text-amber-400 mt-0.5">{fmt(net, sym)} kept</div>
-                                  )}
-                                </td>
-                                {currentStaff?.permissions.canVoidSale && (
-                                  <td className="px-4 py-3 text-center">
-                                    {!sale.voided ? (
-                                      <button
-                                        onClick={() => { openVoidModal(sale.id); }}
-                                        title="Void transaction"
-                                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 transition-all"
-                                      >
-                                        <Trash2 size={11} /> Void
-                                      </button>
-                                    ) : (
-                                      <span className="text-slate-600 text-[11px]">Voided</span>
+                                <tr key={sale.id} className={`hover:bg-slate-700/30 transition-colors ${fullyRefunded ? "opacity-40" : sale.voided ? "opacity-70" : ""}`}>
+                                  <td className="px-5 py-3 font-mono text-xs text-slate-300">
+                                    <div>#{sale.receiptNo}</div>
+                                    {sale.voided && (
+                                      <span className="text-[10px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-semibold">VOID</span>
                                     )}
                                   </td>
-                                )}
-                              </tr>
+                                  <td className="px-5 py-3 text-slate-400 text-xs whitespace-nowrap">
+                                    {fmtDate(sale.date)}<br />
+                                    <span className="text-slate-600">{fmtTime(sale.date)}</span>
+                                  </td>
+                                  <td className="px-5 py-3 text-slate-300">{sale.staffName}</td>
+                                  <td className="px-5 py-3 text-slate-500 text-xs">{sale.customerName ?? "—"}</td>
+                                  <td className="px-5 py-3">
+                                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${sale.paymentMethod === "cash" ? "bg-green-500/20 text-green-400" :
+                                      sale.paymentMethod === "card" ? "bg-blue-500/20  text-blue-400" :
+                                        "bg-purple-500/20 text-purple-400"
+                                      }`}>{sale.paymentMethod}</span>
+                                    {(sale.giftCardUsed ?? 0) > 0 && (
+                                      <span className="ml-1 text-xs px-2 py-0.5 rounded-full font-medium bg-purple-400/10 text-purple-500 inline-flex items-center gap-1">
+                                        <Gift size={11} /> {fmt(sale.giftCardUsed ?? 0, sym)}
+                                      </span>
+                                    )}
+                                    {sale.voided && sale.refundMethod && sale.refundMethod !== "none" && (
+                                      <div className={`mt-1 text-[10px] flex items-center gap-1 font-semibold ${sale.refundMethod === "cash" ? "text-green-400" : "text-blue-400"
+                                        }`}>
+                                        {sale.refundMethod === "cash" ? <Banknote size={10} /> : <CreditCard size={10} />}
+                                        Refund {fmt(sale.refundAmount ?? 0, sym)}
+                                      </div>
+                                    )}
+                                    {sale.voided && sale.refundMethod === "none" && (
+                                      <div className="mt-1 text-[10px] text-slate-500 font-semibold">No refund</div>
+                                    )}
+                                  </td>
+                                  <td className="px-5 py-3 text-right">
+                                    <span className={`font-semibold ${fullyRefunded ? "text-red-400 line-through" : "text-white"}`}>
+                                      {fmt(sale.total, sym)}
+                                    </span>
+                                    {sale.voided && net > 0 && (
+                                      <div className="text-[10px] text-amber-400 mt-0.5">{fmt(net, sym)} kept</div>
+                                    )}
+                                  </td>
+                                  {currentStaff?.permissions.canVoidSale && (
+                                    <td className="px-4 py-3 text-center">
+                                      {!sale.voided ? (
+                                        <button
+                                          onClick={() => { openVoidModal(sale.id); }}
+                                          title="Void transaction"
+                                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 transition-all"
+                                        >
+                                          <Trash2 size={11} /> Void
+                                        </button>
+                                      ) : (
+                                        <span className="text-slate-600 text-[11px]">Voided</span>
+                                      )}
+                                    </td>
+                                  )}
+                                </tr>
                               );
                             })}
                           </tbody>
@@ -1495,36 +1501,35 @@ export default function DashboardView() {
                               {reportsDineIn.map((o) => {
                                 const refundState = dineInRefundState(o);
                                 return (
-                                <tr key={o.id} className="hover:bg-slate-700/30 transition-colors">
-                                  <td className="px-5 py-3 text-slate-400 text-xs whitespace-nowrap">
-                                    {new Date(o.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}{" "}
-                                    {new Date(o.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                  </td>
-                                  <td className="px-5 py-3 text-white font-semibold">T{o.tableLabel}</td>
-                                  <td className="px-5 py-3 text-slate-300">{o.staffName}</td>
-                                  <td className="px-5 py-3 text-slate-400 text-xs max-w-[180px] truncate">
-                                    {o.items.map(it => `${it.qty}× ${it.name}`).join(", ")}
-                                  </td>
-                                  <td className="px-5 py-3">
-                                    <span className={`text-xs whitespace-nowrap font-semibold px-2 py-0.5 rounded-full ${
-                                      refundState === "refunded" ? "bg-amber-500/20 text-amber-300" :
+                                  <tr key={o.id} className="hover:bg-slate-700/30 transition-colors">
+                                    <td className="px-5 py-3 text-slate-400 text-xs whitespace-nowrap">
+                                      {new Date(o.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}{" "}
+                                      {new Date(o.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                    </td>
+                                    <td className="px-5 py-3 text-white font-semibold">T{o.tableLabel}</td>
+                                    <td className="px-5 py-3 text-slate-300">{o.staffName}</td>
+                                    <td className="px-5 py-3 text-slate-400 text-xs max-w-[180px] truncate">
+                                      {o.items.map(it => `${it.qty}× ${it.name}`).join(", ")}
+                                    </td>
+                                    <td className="px-5 py-3">
+                                      <span className={`text-xs whitespace-nowrap font-semibold px-2 py-0.5 rounded-full ${refundState === "refunded" ? "bg-amber-500/20 text-amber-300" :
                                         refundState === "partially_refunded" ? "bg-amber-500/15 text-amber-400" :
                                           o.status === "delivered" ? "bg-emerald-500/20 text-emerald-300" :
                                             o.status === "cancelled" ? "bg-red-500/20 text-red-400" :
                                               "bg-blue-500/20 text-blue-300"
-                                      }`}>
-                                      {refundState === "refunded" ? "Refunded" :
-                                        refundState === "partially_refunded" ? "Part. Refund" :
-                                          o.status === "delivered" ? "Settled" :
-                                            o.status === "cancelled" ? "Voided" :
-                                              o.status.charAt(0).toUpperCase() + o.status.slice(1)}
-                                    </span>
-                                  </td>
-                                  <td className={`px-5 py-3 text-right font-bold ${o.status === "cancelled" ? "text-red-400 line-through opacity-50" :
-                                    refundState === "refunded" ? "text-amber-400 line-through opacity-70" :
-                                      "text-white"
-                                    }`}>{fmt(o.total, sym)}</td>
-                                </tr>
+                                        }`}>
+                                        {refundState === "refunded" ? "Refunded" :
+                                          refundState === "partially_refunded" ? "Part. Refund" :
+                                            o.status === "delivered" ? "Settled" :
+                                              o.status === "cancelled" ? "Voided" :
+                                                o.status.charAt(0).toUpperCase() + o.status.slice(1)}
+                                      </span>
+                                    </td>
+                                    <td className={`px-5 py-3 text-right font-bold ${o.status === "cancelled" ? "text-red-400 line-through opacity-50" :
+                                      refundState === "refunded" ? "text-amber-400 line-through opacity-70" :
+                                        "text-white"
+                                      }`}>{fmt(o.total, sym)}</td>
+                                  </tr>
                                 );
                               })}
                             </tbody>

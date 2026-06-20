@@ -14,7 +14,6 @@ import { requireWaiterAuth } from "@/lib/waiterAuth";
 import { getWaiterSession } from "@/lib/auth";
 import { parseBody } from "@/lib/apiValidation";
 import { WaiterRefundSchema } from "@/lib/schemas/waiter";
-import { moneyPaidGross } from "@/lib/giftCardMoney";
 
 interface RefundRecord {
   id: string;
@@ -77,7 +76,7 @@ export async function POST(req: NextRequest) {
   // status stays "delivered" after a refund, so the fetch above no longer
   // filters out already-refunded orders — without the cap a repeat request
   // could return more money than was ever taken.
-  const moneyCap      = round2(orders.reduce((s, o) => s + moneyPaidGross(o.total, o.gift_card_used), 0));
+  const moneyCap      = round2(orders.reduce((s, o) => s + o.total, 0));
   const priorRefunded = round2(orders.reduce((s, o) => s + (Number(o.refunded_amount) || 0), 0));
   const remaining     = round2(moneyCap - priorRefunded);
   if (refundAmount > remaining + 0.001) {
@@ -95,9 +94,9 @@ export async function POST(req: NextRequest) {
   const processedBy = actorName;
 
   // Distribute the refund across orders in proportion to each order's MONEY
-  // paid (gift card netted out) so a multi-order table bill splits fairly.
+  // paid so a multi-order table bill splits fairly.
   const updates = orders.map((o) => {
-    const orderMoney = moneyPaidGross(o.total, o.gift_card_used);
+    const orderMoney = o.total;
     const orderShare = moneyCap > 0 ? (orderMoney / moneyCap) * refundAmount : 0;
     const roundedShare = round2(orderShare);
 

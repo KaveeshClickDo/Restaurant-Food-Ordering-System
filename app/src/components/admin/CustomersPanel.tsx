@@ -1027,6 +1027,78 @@ function CustomerDrawer({
                               Voided{sale.voidReason ? ` — ${sale.voidReason}` : ""}
                             </div>
                           )}
+
+                          {/* Receipt actions */}
+                          <div className="pt-1">
+                            <p className="text-xs font-semibold text-gray-500 mb-2 flex items-center gap-1">
+                              <Receipt size={11} /> Receipt
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {/* View Receipt */}
+                              <button
+                                onClick={() => {
+                                  // Map POS Sale to Order format for ReceiptModal
+                                  const mappedOrder = {
+                                    id: sale.receiptNo ?? sale.id,
+                                    date: sale.date,
+                                    status: sale.voided ? "cancelled" : "delivered",
+                                    fulfillment: "collection", // POS is essentially collection
+                                    paymentMethod: sale.paymentMethod,
+                                    paymentStatus: sale.voided ? "refunded" : "paid",
+                                    total: sale.total,
+                                    items: sale.items,
+                                    serviceFee: sale.serviceFee || 0,
+                                    discountAmount: sale.discountAmount || 0,
+                                    discountNote: sale.discountNote || undefined,
+                                    vatAmount: sale.vatAmount || 0,
+                                    vatInclusive: sale.vatInclusive ?? true,
+                                    tipAmount: sale.tipAmount || 0,
+                                    giftCardUsed: sale.giftCardUsed || 0,
+                                    staffName: sale.staffName || undefined,
+                                    customerId: sale.staffId || sale.id,
+                                  } as any;
+                                  setReceiptOrder(mappedOrder);
+                                }}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-white text-gray-700 border-gray-200 hover:border-orange-300 hover:text-orange-600 transition"
+                              >
+                                <Receipt size={11} /> View Receipt
+                              </button>
+
+                              {/* Reprint */}
+                              <button
+                                onClick={() => {
+                                  const mappedOrder = {
+                                    id: sale.receiptNo ?? sale.id,
+                                    date: sale.date,
+                                    status: sale.voided ? "cancelled" : "delivered",
+                                    fulfillment: "collection", // POS is essentially collection
+                                    paymentMethod: sale.paymentMethod,
+                                    paymentStatus: sale.voided ? "refunded" : "paid",
+                                    total: sale.total,
+                                    items: sale.items,
+                                    serviceFee: sale.serviceFee || 0,
+                                    discountAmount: sale.discountAmount || 0,
+                                    discountNote: sale.discountNote || undefined,
+                                    vatAmount: sale.vatAmount || 0,
+                                    vatInclusive: sale.vatInclusive ?? true,
+                                    tipAmount: sale.tipAmount || 0,
+                                    giftCardUsed: sale.giftCardUsed || 0,
+                                    staffName: sale.staffName || undefined,
+                                  } as any;
+                                  setReceiptOrder(mappedOrder);
+                                  // small delay so modal renders before auto-print
+                                  setTimeout(() => {
+                                    document.getElementById(`print-btn-${sale.id}`)?.click();
+                                  }, 80);
+                                }}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:text-blue-600 transition"
+                              >
+                                <Printer size={11} /> Reprint
+                              </button>
+                            </div>
+                          </div>
+
+
                         </div>
                       )}
                     </div>

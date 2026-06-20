@@ -19,7 +19,6 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { orderSpendContribution } from "@/lib/customerSpend";
-import { moneyPaidGross } from "@/lib/giftCardMoney";
 
 interface AggregateBucket {
   spend: number;
@@ -33,12 +32,9 @@ interface AggregateBucket {
 // the two payment fields the helper reads.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function spendContribution(o: any): { amount: number; counts: boolean } {
-  // Dine-in / POS orders store the GROSS goods value with the gift card kept
-  // separately; online orders already store net. Net the gift card out of the
-  // gross channels so a gift-card-paid order doesn't inflate lifetime spend
-  // (the card was already counted as income when it was bought).
+  // Dine-in / POS orders / online orders already store net. 
   const isGross = o.fulfillment === "dine-in" || o.customer_id === "pos-walk-in";
-  const total = isGross ? moneyPaidGross(o.total, o.gift_card_used) : o.total;
+  const total = o.total;
   return orderSpendContribution({
     status:         o.status,
     paymentStatus:  o.payment_status,
@@ -72,7 +68,14 @@ function mapPosSale(s: any) {
     paymentMethod: s.payment_method || undefined,
     voided:        s.voided ?? false,
     voidReason:    s.void_reason || undefined,
-    refundAmount:  s.refund_amount != null ? Number(s.refund_amount) : undefined,
+    refundAmount:  s.refund_amount ? Number(s.refund_amount) : undefined,
+    giftCardUsed:  s.gift_card_used ? Number(s.gift_card_used) : undefined,
+    serviceFee:    s.service_fee_amount  ? Number(s.service_fee_amount)     : undefined,
+    discountAmount: s.discount_amount ? Number(s.discount_amount) : undefined,
+    discountNote:  s.discount_note || undefined,
+    vatAmount:     s.vat_amount ? Number(s.vat_amount) : undefined,
+    vatInclusive:  s.vat_inclusive ?? undefined,
+    tipAmount:     s.tip_amount ? Number(s.tip_amount) : undefined,
   };
 }
 
@@ -177,7 +180,7 @@ export async function GET() {
       .order("date", { ascending: false }),
     supabaseAdmin
       .from("pos_sales")
-      .select("id, receipt_no, customer_id, staff_name, table_number, items, total, payment_method, voided, void_reason, refund_amount, gift_card_used, date")
+      .select("*")
       .not("customer_id", "is", null)
       .order("date", { ascending: false }),
   ]);
@@ -229,7 +232,7 @@ export async function GET() {
   }
   for (const s of posSales ?? []) {
     if (!s.customer_id) continue;
-    const moneyTotal = moneyPaidGross(s.total, s.gift_card_used); // net of gift card
+    const moneyTotal = s.total; // net 
     const refund = Number(s.refund_amount) || 0;
     if (s.voided && refund <= 0) continue; // reversed, no money kept
     bumpAgg(s.customer_id, Math.max(0, moneyTotal - refund), s.date);

@@ -125,29 +125,24 @@ export default function ReceiptModal({ receipt, onClose, onRefund }: { receipt: 
                     <span className="text-slate-300 text-xs">{fmtCur(receipt.serviceFeeAmount ?? 0, sym)}</span>
                   </div>
                 )}
+                {(receipt.giftCardUsed ?? 0) > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-purple-400 text-xs">Gift card applied</span>
+                    <span className="text-purple-400 text-xs">−{fmtCur(receipt.giftCardUsed ?? 0, sym)}</span>
+                  </div>
+                )}
               </>
             )}
             <div className="flex items-center justify-between">
               <span className="text-white font-black text-base">TOTAL</span>
               <span className="text-white font-black text-xl">{fmtCur(receipt.total, sym)}</span>
             </div>
-            {(receipt.giftCardUsed ?? 0) > 0 ? (
-              <>
-                <div className="flex items-center justify-between">
-                  <span className="text-orange-300 text-xs">Gift card</span>
-                  <span className="text-orange-300 text-xs">−{fmtCur(receipt.giftCardUsed ?? 0, sym)}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-white font-bold text-sm">Paid ({payLabel})</span>
-                  <span className="text-white font-bold text-sm">{fmtCur(Math.max(0, receipt.total - (receipt.giftCardUsed ?? 0)), sym)}</span>
-                </div>
-              </>
-            ) : (
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400 text-xs">Payment</span>
-                <span className="text-slate-300 text-xs">{payLabel}</span>
-              </div>
-            )}
+
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400 text-sm">Payment</span>
+              <span className="text-slate-300 text-sm">{payLabel}</span>
+            </div>
+
           </div>
 
           {rs?.thankYouMessage && (

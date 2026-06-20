@@ -11,8 +11,8 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
   // A gift card is prepaid money, so its portion is non-refundable. A refund can
   // only return what was actually paid by cash/card: moneyPaid = total − gift
   // card used. Default + cap the refund to that.
-  const giftUsed  = sale.giftCardUsed ?? 0;
-  const moneyPaid = Math.max(0, sale.total - giftUsed);
+  // const giftUsed  = sale.giftCardUsed ?? 0;
+  const moneyPaid = sale.total;
   const [voidReason, setVoidReason]   = useState("");
   const [refundMethod, setRefundMethod] = useState<"cash" | "card" | "none">(sale.paymentMethod === "card" ? "card" : "cash");
   const [refundAmount, setRefundAmount] = useState(moneyPaid.toFixed(2));
@@ -112,11 +112,11 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
                   Partial refund — {fmt(moneyPaid - parseFloat(refundAmount), settings.currencySymbol)} retained
                 </p>
               )}
-              {giftUsed > 0 && (
+              {/* {giftUsed > 0 && (
                 <p className="text-purple-300 text-xs mt-1">
                   {fmt(giftUsed, settings.currencySymbol)} paid by gift card is non-refundable · max refund {fmt(moneyPaid, settings.currencySymbol)}
                 </p>
-              )}
+              )} */}
             </div>
           )}
 

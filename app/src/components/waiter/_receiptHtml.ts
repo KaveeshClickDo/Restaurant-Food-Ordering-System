@@ -16,7 +16,6 @@ export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string,
 
   const payLabel = receipt.paymentMethod === "cash" ? "Cash" : receipt.paymentMethod === "card" ? "Card" : "Table Service";
   const giftUsed = receipt.giftCardUsed ?? 0;
-  const amountPaid = Math.max(0, receipt.total - giftUsed);
   const rcptDiscount = receipt.discountAmount ?? 0;
   const rcptTip = receipt.tipAmount ?? 0;
   const rcptServiceFee = receipt.serviceFeeAmount ?? 0;
@@ -31,7 +30,8 @@ export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string,
        ${rcptDiscount > 0 ? `<tr><td style="font-size:11px;color:#16a34a">Discount${receipt.discountNote ? ` (${receipt.discountNote})` : ""}</td><td style="font-size:11px;color:#16a34a;text-align:right">−${sym}${rcptDiscount.toFixed(2)}</td></tr>` : ""}
        ${rcptServiceFee > 0 ? `<tr><td style="font-size:11px;color:#6b7280">Service Fee</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${rcptServiceFee.toFixed(2)}</td></tr>` : ""}
        ${rcptVat > 0 ? `<tr><td style="font-size:11px;color:#6b7280">${vatLabel}</td><td style="font-size:11px;color:#6b7280;text-align:right">${receipt.vatInclusive ? "" : "+"}${sym}${rcptVat.toFixed(2)}</td></tr>` : ""}
-       ${rcptTip > 0 ? `<tr><td style="font-size:11px;color:#6b7280">Tip</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${rcptTip.toFixed(2)}</td></tr>` : ""}`
+       ${rcptTip > 0 ? `<tr><td style="font-size:11px;color:#6b7280">Tip</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${rcptTip.toFixed(2)}</td></tr>` : ""}
+       ${giftUsed > 0 ? `<tr><td style="font-size:11px;color:#8b5cf6">Gift card applied</td><td style="font-size:11px;color:#8b5cf6;text-align:right">−${sym}${giftUsed.toFixed(2)}</td></tr>` : ""}`
     : "";
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Receipt</title></head>
@@ -52,8 +52,7 @@ export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string,
   <table style="width:100%;border-collapse:collapse">
     ${breakdownHtml}
     <tr><td style="font-size:13px;font-weight:700">TOTAL</td><td style="font-size:13px;font-weight:700;text-align:right">${sym}${receipt.total.toFixed(2)}</td></tr>
-    ${giftUsed > 0 ? `<tr><td style="font-size:11px;color:#7c3aed">Gift card</td><td style="font-size:11px;color:#7c3aed;text-align:right">−${sym}${giftUsed.toFixed(2)}</td></tr>
-    <tr><td style="font-size:12px;font-weight:700">PAID (${payLabel})</td><td style="font-size:12px;font-weight:700;text-align:right">${sym}${amountPaid.toFixed(2)}</td></tr>` : `<tr><td style="font-size:11px;color:#6b7280">Payment</td><td style="font-size:11px;color:#6b7280;text-align:right">${payLabel}</td></tr>`}
+    <tr><td style="font-size:11px;color:#6b7280">Payment</td><td style="font-size:11px;color:#6b7280;text-align:right">${payLabel}</td></tr>
   </table>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
   ${thankYou ? `<div style="text-align:center;font-weight:600;color:#374151;font-size:12px">${thankYou}</div>` : ""}

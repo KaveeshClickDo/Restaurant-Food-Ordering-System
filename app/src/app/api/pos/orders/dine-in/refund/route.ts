@@ -10,7 +10,7 @@
  *
  * Dine-in orders store the GROSS goods total with the gift-card-covered portion
  * kept separately in gift_card_used. A gift card is prepaid money, so only the
- * cash/card portion (moneyPaidGross) is refundable — the refund is capped at it.
+ * cash/card portion (total) is refundable — the refund is capped at it.
  *
  * Uses the service-role key — the anon role cannot UPDATE orders.
  */
@@ -20,7 +20,6 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requirePosPermission } from "@/lib/posPermissions";
 import { parseBody } from "@/lib/apiValidation";
 import { PosDineInRefundSchema } from "@/lib/schemas/pos";
-import { moneyPaidGross } from "@/lib/giftCardMoney";
 
 interface RefundRecord {
   id: string;
@@ -66,7 +65,7 @@ export async function POST(req: NextRequest) {
 
   // Refundable money = cash/card collected (gift card excluded), net of any
   // prior refunds on these orders.
-  const moneyCap      = round2(orders.reduce((s, o) => s + moneyPaidGross(o.total, o.gift_card_used), 0));
+  const moneyCap      = round2(orders.reduce((s, o) => s + o.total, 0));
   const priorRefunded = round2(orders.reduce((s, o) => s + (Number(o.refunded_amount) || 0), 0));
   const remaining     = round2(moneyCap - priorRefunded);
   if (refundAmount > remaining + 0.001) {
@@ -83,9 +82,9 @@ export async function POST(req: NextRequest) {
   const processedAt      = new Date().toISOString();
 
   // Distribute the refund across orders in proportion to each order's MONEY paid
-  // (gift card netted out) so a multi-order table bill splits fairly.
+  // so a multi-order table bill splits fairly.
   const updates = orders.map((o) => {
-    const orderMoney   = moneyPaidGross(o.total, o.gift_card_used);
+    const orderMoney   = o.total;
     const orderShare   = moneyCap > 0 ? (orderMoney / moneyCap) * refundAmount : 0;
     const roundedShare = round2(orderShare);
 

@@ -160,12 +160,13 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
     const discountAmount = round2(subtotal * (billDiscountPct / 100));
     const afterDiscount = round2(subtotal - discountAmount);
     const serviceFeeAmount = round2(afterDiscount * (billServicePct / 100));
-    const taxBase = afterDiscount + serviceFeeAmount; 
+    const taxBase = afterDiscount + serviceFeeAmount;
     const tax = computeTax(subtotal, taxBase, appSettings);
     const vatAmount = tax.enabled ? round2(tax.vatAmount) : 0;
     const tipAmount = round2(billTip);
-    const total = round2(taxBase + taxSurcharge(tax) + tipAmount);
-    const gcAmount = billGiftCard ? round2(Math.min(billGiftCard.balance, total)) : 0;
+    const grandTotal = round2(taxBase + taxSurcharge(tax) + tipAmount);
+    const gcAmount = billGiftCard ? round2(Math.min(billGiftCard.balance, grandTotal)) : 0;
+    const total = round2(Math.max(0, grandTotal - gcAmount));
     let res: Response;
     try {
       res = await fetch("/api/waiter/settle", {
@@ -240,7 +241,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
   const billDiscountAmount = round2(billSubtotal * (billDiscountPct / 100));
   const afterDiscount = round2(billSubtotal - billDiscountAmount);
   const billServiceFee = round2(afterDiscount * (billServicePct / 100));
-  const taxBase = afterDiscount + billServiceFee; 
+  const taxBase = afterDiscount + billServiceFee;
   // VAT synced from the admin Tax & VAT setting — same rate/mode as online + POS.
   const billTax = computeTax(billSubtotal, taxBase, appSettings);
   const billAfterTax = round2(taxBase + taxSurcharge(billTax));
@@ -280,7 +281,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
       tipAmount: billTip > 0 ? billTip : undefined,
       serviceFeeAmount: billServiceFee > 0 ? billServiceFee : undefined,
       giftCardUsed: giftCardApplied > 0 ? giftCardApplied : undefined,
-      total: billTotal,
+      total: dueAfterGiftCard,
       paymentMethod: "pending",
       orderIds: billOrders.map(o => o.id),
     };
@@ -348,7 +349,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                   </div>
                   {/* Totals breakdown */}
                   <div className="px-5 py-4 border-t border-slate-700 bg-slate-800/50 space-y-1.5">
-                    {(billDiscountAmount > 0 || billTip > 0 || billServiceFee > 0 || (billTax.enabled && billTax.vatAmount > 0)) && (
+                    {(billDiscountAmount > 0 || billTip > 0 || billServiceFee > 0 || (billTax.enabled && billTax.vatAmount > 0) || (billGiftCard && giftCardApplied > 0)) && (
                       <>
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-slate-400">Subtotal</span>
@@ -378,11 +379,17 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                             <span className="text-slate-300">{fmtCur(billTip, sym)}</span>
                           </div>
                         )}
+                        {billGiftCard && giftCardApplied > 0 && (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-purple-400">Gift Card Applied</span>
+                            <span className="text-purple-400">−{fmtCur(giftCardApplied, sym)}</span>
+                          </div>
+                        )}
                       </>
                     )}
                     <div className="flex items-center justify-between pt-1">
                       <span className="text-slate-300 text-sm font-semibold">Total</span>
-                      <span className="text-white text-lg sm:text-xl md:text-2xl font-black">{fmtCur(billTotal, sym)}</span>
+                      <span className="text-white text-lg sm:text-xl md:text-2xl font-black">{fmtCur(dueAfterGiftCard, sym)}</span>
                     </div>
                   </div>
                 </div>
@@ -553,7 +560,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
               billTip={billTip}
               billServiceFee={billServiceFee}
               giftCardApplied={giftCardApplied}
-              billTotal={billTotal}
+              billTotal={dueAfterGiftCard}
               orderIds={billOrders.map(o => o.id)}
             />
           )}
@@ -565,7 +572,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                 onClick={() => setVoidRefundTarget({
                   mode: "void",
                   orderIds: billOrders.map(o => o.id),
-                  total: billTotal,
+                  total: dueAfterGiftCard,
                   tableLabel: table.label,
                 })}
                 className="w-full flex items-center justify-center gap-2 py-2.5 bg-transparent border border-red-900/50 hover:border-red-700 text-red-500 hover:text-red-400 text-sm font-medium rounded-2xl transition"
