@@ -26,7 +26,7 @@ import type { WaiterStaff, DiningTable } from "@/types";
 import type { BillOrder, WaiterReceipt } from "./_types";
 import { fmtCur } from "./_utils";
 import { buildReceiptHtml } from "./_receiptHtml";
-import ReceiptModal from "./ReceiptModal";
+import DineInReceiptModal from "./ReceiptModal";
 import BillEmailBar from "./BillEmailBar";
 import VoidRefundModal from "./VoidRefundModal";
 
@@ -699,7 +699,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
 
       {/* Receipt modal — overlays bill view after payment */}
       {receipt && (
-        <ReceiptModal
+        <DineInReceiptModal
           receipt={receipt}
           onClose={() => {
             setReceipt(null);

@@ -18,6 +18,8 @@ import {
 } from "./dashboard/_helpers";
 import VoidSaleModal from "./dashboard/VoidSaleModal";
 import DineInActionModal, { type DineInAction } from "./dashboard/DineInActionModal";
+import ReceiptModal from "./ReceiptModal";
+import DineInReceiptModal from "../waiter/ReceiptModal";
 
 // Compact tender label for the Recent Transactions rows (POS + dine-in). A gift
 // card is a separate instrument layered on the cash/card/split remainder, so we
@@ -68,6 +70,10 @@ export default function DashboardView() {
   // ── Reports dine-in: all settled dine-in orders for the selected period ─────
   const [reportsDineIn, setReportsDineIn] = useState<DineInOrder[]>([]);
   const [reportsDineInLoading, setReportsDineInLoading] = useState(false);
+
+  // Currently-viewed receipt (POS or dine-in) in the Recent Transactions list. Separate states for each
+  const [viewingPosReceipt, setViewingPosReceipt] = useState<POSSale | null>(null);
+  const [viewingDineInReceipt, setViewingDineInReceipt] = useState<DineInOrder | null>(null);
 
   // Shared row mapper ─────────────────────────────────────────────────────────
   function mapDineInRow(o: Record<string, unknown>): DineInOrder {
@@ -779,15 +785,24 @@ export default function DashboardView() {
                                 )}
                               </div>
                             </div>
-                            <div className="flex gap-5 ml-8">
+                            <div className="flex items-center gap-4 ml-4">
                               <p className={`font-bold text-sm flex-shrink-0 ${sale.voided ? "text-red-400 line-through" : "text-white"}`}>
                                 {fmt(sale.total, sym)}
                               </p>
-                              {!sale.voided && currentStaff?.permissions.canVoidSale && (
-                                <button onClick={() => openVoidModal(sale.id)} className="text-slate-500 hover:text-red-400 transition-colors flex-shrink-0" title="Void sale">
-                                  <Trash2 size={14} />
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => setViewingPosReceipt(sale)}
+                                  title="View Receipt"
+                                  className="flex items-center justify-center w-6 h-6 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors border border-slate-700 hover:border-slate-500 flex-shrink-0"
+                                >
+                                  <Receipt size={13} />
                                 </button>
-                              )}
+                                {!sale.voided && currentStaff?.permissions.canVoidSale && (
+                                  <button onClick={() => openVoidModal(sale.id)} className="flex items-center justify-center w-6 h-6 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors border border-slate-700 hover:border-slate-500 flex-shrink-0" title="Void sale">
+                                    <Trash2 size={13} />
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </div>
                         );
@@ -854,13 +869,20 @@ export default function DashboardView() {
                               </div>
 
                             </div>
-                            <div className="flex gap-5 ml-8">
+                            <div className="flex items-center gap-4 ml-4">
                               <div className="text-right flex-shrink-0">
                                 <p className={`font-bold text-sm ${isRefunded || isCancelled ? "text-amber-400 line-through opacity-80" : "text-white"}`}>
                                   {fmt(order.total, sym)}
                                 </p>
                                 <p className={`text-[10px] ${labelCls}`}>{label}</p>
                               </div>
+                              <button
+                                onClick={() => setViewingDineInReceipt(order)}
+                                title="View Receipt"
+                                className="flex items-center justify-center w-6 h-6 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors border border-slate-700 hover:border-slate-500 flex-shrink-0"
+                              >
+                                <Receipt size={13} />
+                              </button>
                             </div>
                           </div>
                         );
@@ -1385,9 +1407,8 @@ export default function DashboardView() {
                                 onClick={() => toggleSort("total")}>
                                 Total {sortField === "total" ? (sortDir === "desc" ? "↓" : "↑") : ""}
                               </th>
-                              {currentStaff?.permissions.canVoidSale && (
-                                <th className="px-4 py-3 text-xs text-slate-500 font-semibold" />
-                              )}
+                              <th className="px-4 py-3 text-xs text-slate-500 font-semibold"></th>
+
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-700/30">
@@ -1441,21 +1462,32 @@ export default function DashboardView() {
                                       <div className="text-[10px] text-amber-400 mt-0.5">{fmt(net, sym)} kept</div>
                                     )}
                                   </td>
-                                  {currentStaff?.permissions.canVoidSale && (
-                                    <td className="px-4 py-3 text-center">
-                                      {!sale.voided ? (
-                                        <button
-                                          onClick={() => { openVoidModal(sale.id); }}
-                                          title="Void transaction"
-                                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 transition-all"
-                                        >
-                                          <Trash2 size={11} /> Void
-                                        </button>
-                                      ) : (
-                                        <span className="text-slate-600 text-[11px]">Voided</span>
+                                  <td className="px-4 py-3 text-right">
+                                    <div className="flex justify-end items-center gap-2">
+                                      <button
+                                        onClick={() => setViewingPosReceipt(sale)}
+                                        title="View Receipt"
+                                        className="flex items-center justify-center w-7 h-7 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
+                                      >
+                                        <Receipt size={13} />
+                                      </button>
+
+                                      {currentStaff?.permissions.canVoidSale && (
+                                        !sale.voided ? (
+                                          <button
+                                            onClick={() => { openVoidModal(sale.id); }}
+                                            title="Void transaction"
+                                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 transition-all"
+                                          >
+                                            <Trash2 size={11} /> Void
+                                          </button>
+                                        ) : (
+                                          <span className="text-slate-600 text-[11px] px-2.5">Voided</span>
+                                        )
                                       )}
-                                    </td>
-                                  )}
+                                    </div>
+                                  </td>
+
                                 </tr>
                               );
                             })}
@@ -1463,12 +1495,13 @@ export default function DashboardView() {
                           {txSorted.length > 0 && (
                             <tfoot>
                               <tr className="bg-slate-900/60 border-t-2 border-slate-600">
-                                <td colSpan={currentStaff?.permissions.canVoidSale ? 6 : 5} className="px-5 py-3 text-xs font-semibold text-slate-400">
+                                <td colSpan={currentStaff?.permissions.canVoidSale ? 5 : 4} className="px-5 py-3 text-xs font-semibold text-slate-400">
                                   Retained income ({txSorted.filter((s) => !s.voided || rSaleNet(s) > 0).length} money-bearing)
                                 </td>
                                 <td className="px-5 py-3 text-right font-bold text-white">
                                   {fmt(txSorted.reduce((s, x) => s + rSaleNet(x), 0), sym)}
                                 </td>
+                                <td className="px-15 py-3"></td>
                               </tr>
                             </tfoot>
                           )}
@@ -1495,6 +1528,7 @@ export default function DashboardView() {
                                 <th className="px-5 py-3 text-xs font-semibold text-slate-400">Items</th>
                                 <th className="px-5 py-3 text-xs font-semibold text-slate-400">Status</th>
                                 <th className="px-5 py-3 text-xs font-semibold text-slate-400 text-right">Total</th>
+                                <th className="px-4 py-3 text-xs font-semibold text-slate-400"></th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-700/40">
@@ -1529,6 +1563,18 @@ export default function DashboardView() {
                                       refundState === "refunded" ? "text-amber-400 line-through opacity-70" :
                                         "text-white"
                                       }`}>{fmt(o.total, sym)}</td>
+
+                                    <td className="px-4 py-3 text-right">
+                                      <button
+                                        onClick={() => {
+                                          setViewingDineInReceipt(o);
+                                        }}
+                                        title="View Receipt"
+                                        className="flex items-center justify-center w-7 h-7 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors ml-auto"
+                                      >
+                                        <Receipt size={13} />
+                                      </button>
+                                    </td>
                                   </tr>
                                 );
                               })}
@@ -1541,6 +1587,7 @@ export default function DashboardView() {
                                 <td className="px-5 py-3 text-right font-bold text-violet-300">
                                   {fmt(diSettled.reduce((s, o) => s + o.total, 0), sym)}
                                 </td>
+                                <td className="px-5 py-3"></td>
                               </tr>
                             </tfoot>
                           </table>
@@ -1793,6 +1840,36 @@ export default function DashboardView() {
       {/* Void + Refund modal (POS sale) */}
       {voidTargetSale && (
         <VoidSaleModal sale={voidTargetSale} onClose={() => setVoidTargetSale(null)} />
+      )}
+
+      {/* ── Receipt Modals ── */}
+      {viewingPosReceipt && (
+        <ReceiptModal
+          sale={viewingPosReceipt}
+          onClose={() => setViewingPosReceipt(null)}
+        />
+      )}
+
+      {viewingDineInReceipt && (
+        <DineInReceiptModal
+          receipt={{
+            tableLabel: viewingDineInReceipt.tableLabel,
+            waiterName: viewingDineInReceipt.staffName,
+            date: viewingDineInReceipt.date,
+            items: viewingDineInReceipt.items,
+            subtotal: viewingDineInReceipt.items.reduce((s, it) => s + (it.price * it.qty), 0),
+            discountAmount: viewingDineInReceipt.discountAmount,
+            discountNote: viewingDineInReceipt.discountNote,
+            vatAmount: viewingDineInReceipt.vatAmount,
+            vatInclusive: viewingDineInReceipt.vatInclusive,
+            tipAmount: viewingDineInReceipt.tipAmount,
+            serviceFeeAmount: viewingDineInReceipt.serviceFeeAmount,
+            giftCardUsed: viewingDineInReceipt.giftCardUsed,
+            total: viewingDineInReceipt.total,
+            orderIds: [viewingDineInReceipt.id],
+          }}
+          onClose={() => setViewingDineInReceipt(null)}
+        />
       )}
     </div>
   );

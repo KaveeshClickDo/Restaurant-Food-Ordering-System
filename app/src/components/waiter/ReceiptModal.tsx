@@ -15,7 +15,7 @@ import type { WaiterReceipt } from "./_types";
 import { fmtCur } from "./_utils";
 import { buildReceiptHtml } from "./_receiptHtml";
 
-export default function ReceiptModal({ receipt, onClose, onRefund }: { receipt: WaiterReceipt; onClose: () => void; onRefund?: () => void }) {
+export default function DineInReceiptModal({ receipt, onClose, onRefund }: { receipt: WaiterReceipt; onClose: () => void; onRefund?: () => void }) {
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
   const rs = settings.receiptSettings;
