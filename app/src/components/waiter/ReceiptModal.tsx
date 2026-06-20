@@ -49,7 +49,13 @@ export default function DineInReceiptModal({ receipt, onClose, onRefund }: { rec
   }
 
   const items = receipt.items;
-  const payLabel = receipt.paymentMethod === "cash" ? "Cash" : receipt.paymentMethod === "card" ? "Card" : "Table Service";
+  const payLabel = receipt.paymentMethod === "cash"
+    ? "Cash"
+    : receipt.paymentMethod === "card"
+      ? "Card"
+      : receipt.paymentMethod === "gift_card"
+        ? "Gift Card"
+        : "Table Service";
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -95,7 +101,7 @@ export default function DineInReceiptModal({ receipt, onClose, onRefund }: { rec
 
           {/* Total + payment */}
           <div className="space-y-1">
-            {((receipt.discountAmount ?? 0) > 0 || (receipt.tipAmount ?? 0) > 0 || (receipt.vatAmount ?? 0) > 0 || (receipt.serviceFeeAmount ?? 0) > 0) && (
+            {((receipt.discountAmount ?? 0) > 0 || (receipt.tipAmount ?? 0) > 0 || (receipt.vatAmount ?? 0) > 0 || (receipt.serviceFeeAmount ?? 0) > 0 || (receipt.giftCardUsed ?? 0) > 0) && (
               <>
                 <div className="flex items-center justify-between">
                   <span className="text-slate-400 text-xs">Subtotal</span>

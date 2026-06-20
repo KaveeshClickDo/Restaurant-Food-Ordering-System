@@ -14,7 +14,13 @@ export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string,
     </tr>`
   ).join("");
 
-  const payLabel = receipt.paymentMethod === "cash" ? "Cash" : receipt.paymentMethod === "card" ? "Card" : "Table Service";
+  const payLabel = receipt.paymentMethod === "cash" 
+    ? "Cash" 
+    : receipt.paymentMethod === "card" 
+      ? "Card" 
+      : receipt.paymentMethod === "gift_card"
+        ? "Gift Card"
+        : "Table Service";
   const giftUsed = receipt.giftCardUsed ?? 0;
   const rcptDiscount = receipt.discountAmount ?? 0;
   const rcptTip = receipt.tipAmount ?? 0;
@@ -25,7 +31,7 @@ export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string,
     ? `Incl. VAT${receipt.vatRate ? ` (${receipt.vatRate}%)` : ""}`
     : `VAT${receipt.vatRate ? ` (${receipt.vatRate}%)` : ""}`;
   // Subtotal / Discount / VAT / Tip / ServiceFee lines only appear when something applies.
-  const breakdownHtml = (rcptDiscount > 0 || rcptTip > 0 || rcptVat > 0 || rcptServiceFee > 0)
+  const breakdownHtml = (rcptDiscount > 0 || rcptTip > 0 || rcptVat > 0 || rcptServiceFee > 0 || giftUsed > 0)
     ? `<tr><td style="font-size:11px;color:#6b7280">Subtotal</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${rcptSubtotal.toFixed(2)}</td></tr>
        ${rcptDiscount > 0 ? `<tr><td style="font-size:11px;color:#16a34a">Discount${receipt.discountNote ? ` (${receipt.discountNote})` : ""}</td><td style="font-size:11px;color:#16a34a;text-align:right">−${sym}${rcptDiscount.toFixed(2)}</td></tr>` : ""}
        ${rcptServiceFee > 0 ? `<tr><td style="font-size:11px;color:#6b7280">Service Fee</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${rcptServiceFee.toFixed(2)}</td></tr>` : ""}

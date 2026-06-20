@@ -137,7 +137,13 @@ export function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings
   const itemsHtml = order.items.map((it) =>
     `<tr><td style="padding:2px 0;font-size:12px">${it.name} ×${it.qty}</td><td style="padding:2px 0;font-size:12px;text-align:right">${sym}${(it.price * it.qty).toFixed(2)}</td></tr>`
   ).join("");
-  const payLabel = order.paymentMethod === "cash" ? "Cash" : order.paymentMethod === "card" ? "Card" : "Table Service";
+   const payLabel = order.paymentMethod === "cash" 
+    ? "Cash" 
+    : order.paymentMethod === "card" 
+      ? "Card" 
+      : order.paymentMethod === "gift_card"
+        ? "Gift Card"
+        : "Table Service";
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#f9fafb;font-family:monospace">
 <div style="max-width:320px;margin:24px auto;background:#fff;border-radius:12px;padding:24px">
   <div style="text-align:center;margin-bottom:16px">

@@ -56,7 +56,7 @@ export interface WaiterReceipt {
   /** Amount paid by gift card. The cash/card amount collected is
    *  total − giftCardUsed. */
   giftCardUsed?: number;
-  paymentMethod?: "cash" | "card" | "pending";
+  paymentMethod?: "cash" | "card" | "gift_card" | "pending";
   orderIds: string[];
 }
 

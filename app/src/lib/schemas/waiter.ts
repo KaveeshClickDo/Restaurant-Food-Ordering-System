@@ -14,7 +14,7 @@ export const WaiterRefundSchema = z.object({
 export const WaiterSettleSchema = z.object({
   orderIds:      NonEmptyIdArray,
   tableLabel:    NonEmptyString,
-  paymentMethod: z.enum(["cash", "card"]).optional(),
+  paymentMethod: z.enum(["cash", "card", "gift_card"]).optional(),
   // Optional gift card tender applied across the table's combined bill. The
   // server looks up + clamps the amount and stamps it on the first order of
   // the batch, then redeems against that order id.

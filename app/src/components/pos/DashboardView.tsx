@@ -1867,6 +1867,7 @@ export default function DashboardView() {
             giftCardUsed: viewingDineInReceipt.giftCardUsed,
             total: viewingDineInReceipt.total,
             orderIds: [viewingDineInReceipt.id],
+            paymentMethod: viewingDineInReceipt.paymentMethod as "cash" | "card" | "gift_card" | "pending"
           }}
           onClose={() => setViewingDineInReceipt(null)}
         />

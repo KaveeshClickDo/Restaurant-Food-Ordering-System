@@ -48,7 +48,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
   const [billLoading, setBillLoading] = useState(true);
   const [paying, setPaying] = useState(false);
   // Pending settle confirmation (the chosen method) — null means no prompt visible.
-  const [settleConfirm, setSettleConfirm] = useState<"cash" | "card" | null>(null);
+  const [settleConfirm, setSettleConfirm] = useState<"cash" | "card" | "gift_card" | null>(null);
   // Gift card applied to the bill (bearer code). Reduces the amount due; the
   // remainder is settled by cash/card as normal.
   const [billGiftCard, setBillGiftCard] = useState<{ code: string; balance: number } | null>(null);
@@ -152,7 +152,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
     }
   }
 
-  async function payBill(method: "cash" | "card") {
+  async function payBill(method: "cash" | "card" | "gift_card") {
     if (billOrders.length === 0 || paying) return;
     setPaying(true);
     const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -451,7 +451,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                   <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2.5">
                     <AlertTriangle size={14} className="text-amber-400 flex-shrink-0 mt-0.5" />
                     <p className="text-amber-300 text-xs">
-                      Settle Table {table.label} as {settleConfirm === "cash" ? "Cash" : "Card"}? This marks all orders as delivered and cannot be undone.
+                      Settle Table {table.label} as {settleConfirm === "cash" ? "Cash" : settleConfirm === "card" ? "Card" : "Gift Card"}? This marks all orders as delivered and cannot be undone.
                     </p>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -465,11 +465,15 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                     <button
                       onClick={() => { const m = settleConfirm; setSettleConfirm(null); payBill(m); }}
                       disabled={paying}
-                      className={`flex items-center text-sm sm:text-base justify-center gap-2 px-2 py-3 rounded-2xl text-white font-bold transition disabled:opacity-50 ${settleConfirm === "cash" ? "bg-emerald-700 hover:bg-emerald-600" : "bg-blue-600 hover:bg-blue-500"}`}
+                      className={`flex items-center text-sm sm:text-base justify-center gap-2 px-2 py-3 rounded-2xl text-white font-bold transition disabled:opacity-50 ${settleConfirm === "cash" ? "bg-emerald-700 hover:bg-emerald-600" :
+                          settleConfirm === "card" ? "bg-blue-600 hover:bg-blue-500" :
+                            "bg-purple-500 hover:bg-purple-600"}`}
                     >
                       {paying
                         ? <Loader2 size={18} className="animate-spin" />
-                        : settleConfirm === "cash" ? <Banknote size={18} className="hidden sm:block" /> : <CreditCard size={18} className="hidden sm:block" />}
+                        : settleConfirm === "cash" ? <Banknote size={18} className="hidden sm:block" />
+                          : settleConfirm === "card" ? <CreditCard size={18} className="hidden sm:block" />
+                            : <Gift size={18} className="hidden sm:block" />}
                       Confirm Settle
                     </button>
                   </div>
@@ -512,33 +516,43 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                     </div>
                   )}
 
-                  <p className="text-slate-400 text-xs font-bold uppercase tracking-widest text-center mb-2">
-                    {dueAfterGiftCard <= 0 && billGiftCard ? "Fully covered by gift card" : "Select Payment Method"}
-                  </p>
-                  <div className="grid grid-cols-2 gap-3">
+                  {/* ── Dynamic Payment Selection ── */}
+                  {dueAfterGiftCard <= 0 && billGiftCard ? (
+                    // IF FULLY COVERED: Show single Purple Button
                     <button
-                      onClick={() => setSettleConfirm("cash")}
+                      onClick={() => setSettleConfirm("gift_card")}
                       disabled={paying}
-                      className="flex flex-col items-center gap-1 md:gap-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 active:scale-[0.97] text-white font-bold py-2 md:py-5 rounded-2xl transition-all"
+                      className="w-full flex items-center justify-center gap-2 bg-[#a855f7] hover:bg-[#9333ea] disabled:opacity-50 active:scale-[0.97] text-white font-bold py-4 rounded-2xl transition-all mt-2"
                     >
-                      {paying ? <Loader2 size={22} className="animate-spin" /> : <Banknote size={22} />}
-                      <span className="text-sm">Pay by Cash</span>
+                      {paying ? <Loader2 size={20} className="animate-spin" /> : <Gift size={20} />}
+                      <span className="text-[15px]">Complete · paid by gift card</span>
                     </button>
-                    <button
-                      onClick={() => setSettleConfirm("card")}
-                      disabled={paying}
-                      className="flex flex-col items-center gap-1 md:gap-2  bg-blue-600 hover:bg-blue-500 disabled:opacity-50 active:scale-[0.97] text-white font-bold py-2 md:py-5 rounded-2xl transition-all"
-                    >
-                      {paying ? <Loader2 size={22} className="animate-spin" /> : <CreditCard size={22} />}
-                      <span className="text-sm">Pay by Card</span>
-                    </button>
-                  </div>
-                  <button
-                    onClick={() => onExit(false)}
-                    className="w-full pt-3 text-slate-500 hover:text-slate-300 text-sm font-medium transition"
-                  >
-                    Back to Tables
-                  </button>
+                  ) : (
+                    // IF BALANCE REMAINS: Show standard Cash / Card buttons
+                    <>
+                      <p className="text-slate-400 text-xs font-bold uppercase tracking-widest text-center mb-2">
+                        Select Payment Method
+                      </p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          onClick={() => setSettleConfirm("cash")}
+                          disabled={paying}
+                          className="flex flex-col items-center gap-1 md:gap-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 active:scale-[0.97] text-white font-bold py-2 md:py-5 rounded-2xl transition-all"
+                        >
+                          {paying ? <Loader2 size={22} className="animate-spin" /> : <Banknote size={22} />}
+                          <span className="text-sm">Pay by Cash</span>
+                        </button>
+                        <button
+                          onClick={() => setSettleConfirm("card")}
+                          disabled={paying}
+                          className="flex flex-col items-center gap-1 md:gap-2  bg-blue-600 hover:bg-blue-500 disabled:opacity-50 active:scale-[0.97] text-white font-bold py-2 md:py-5 rounded-2xl transition-all"
+                        >
+                          {paying ? <Loader2 size={22} className="animate-spin" /> : <CreditCard size={22} />}
+                          <span className="text-sm">Pay by Card</span>
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </>
               )}
             </div>
