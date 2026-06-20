@@ -1038,25 +1038,24 @@ function CustomerDrawer({
                               <button
                                 onClick={() => {
                                   // Map POS Sale to Order format for ReceiptModal
-                                  const mappedOrder = {
+                                  const mappedOrder: Order = {
                                     id: sale.receiptNo ?? sale.id,
+                                    customerId: customer.id,
                                     date: sale.date,
                                     status: sale.voided ? "cancelled" : "delivered",
-                                    fulfillment: "collection", // POS is essentially collection
+                                    fulfillment: "collection",
                                     paymentMethod: sale.paymentMethod,
                                     paymentStatus: sale.voided ? "refunded" : "paid",
                                     total: sale.total,
                                     items: sale.items,
-                                    serviceFee: sale.serviceFee || 0,
-                                    discountAmount: sale.discountAmount || 0,
-                                    discountNote: sale.discountNote || undefined,
-                                    vatAmount: sale.vatAmount || 0,
+                                    serviceFee: sale.serviceFee ?? 0,
+                                    discountAmount: sale.discountAmount ?? 0,
+                                    discountNote: sale.discountNote,
+                                    vatAmount: sale.vatAmount ?? 0,
                                     vatInclusive: sale.vatInclusive ?? true,
-                                    tipAmount: sale.tipAmount || 0,
-                                    giftCardUsed: sale.giftCardUsed || 0,
-                                    staffName: sale.staffName || undefined,
-                                    customerId: sale.staffId || sale.id,
-                                  } as any;
+                                    tipAmount: sale.tipAmount ?? 0,
+                                    giftCardUsed: sale.giftCardUsed ?? 0,
+                                  };
                                   setReceiptOrder(mappedOrder);
                                 }}
                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-white text-gray-700 border-gray-200 hover:border-orange-300 hover:text-orange-600 transition"
@@ -1067,24 +1066,24 @@ function CustomerDrawer({
                               {/* Reprint */}
                               <button
                                 onClick={() => {
-                                  const mappedOrder = {
+                                 const mappedOrder: Order = {
                                     id: sale.receiptNo ?? sale.id,
+                                    customerId: customer.id,
                                     date: sale.date,
                                     status: sale.voided ? "cancelled" : "delivered",
-                                    fulfillment: "collection", // POS is essentially collection
+                                    fulfillment: "collection",
                                     paymentMethod: sale.paymentMethod,
                                     paymentStatus: sale.voided ? "refunded" : "paid",
                                     total: sale.total,
                                     items: sale.items,
-                                    serviceFee: sale.serviceFee || 0,
-                                    discountAmount: sale.discountAmount || 0,
-                                    discountNote: sale.discountNote || undefined,
-                                    vatAmount: sale.vatAmount || 0,
+                                    serviceFee: sale.serviceFee ?? 0,
+                                    discountAmount: sale.discountAmount ?? 0,
+                                    discountNote: sale.discountNote,
+                                    vatAmount: sale.vatAmount ?? 0,
                                     vatInclusive: sale.vatInclusive ?? true,
-                                    tipAmount: sale.tipAmount || 0,
-                                    giftCardUsed: sale.giftCardUsed || 0,
-                                    staffName: sale.staffName || undefined,
-                                  } as any;
+                                    tipAmount: sale.tipAmount ?? 0,
+                                    giftCardUsed: sale.giftCardUsed ?? 0,
+                                  };
                                   setReceiptOrder(mappedOrder);
                                   // small delay so modal renders before auto-print
                                   setTimeout(() => {

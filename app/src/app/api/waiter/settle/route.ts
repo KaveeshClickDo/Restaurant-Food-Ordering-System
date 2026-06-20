@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     const vat       = Math.max(0, Number(vatAmount ?? 0));
     const inclusive = vatInclusive ?? false;
     const vatSurcharge = inclusive ? 0 : vat;
-    const giftCard = Math.max(0, Number(giftCardUsed ?? 0));
+    // const giftCard = Math.max(0, Number(giftCardUsed ?? 0));
     // Grand amount owed after discount, exclusive-VAT, tip and service fee.
     const grandTotal = round2(subtotal - discount + vatSurcharge + tip + serviceFee);
     // Final amount owed after gift card redemption (clamped to the grand total).
