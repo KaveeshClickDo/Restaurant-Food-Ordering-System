@@ -17,6 +17,7 @@ import {
 } from "./dashboard/_helpers";
 import VoidSaleModal from "./dashboard/VoidSaleModal";
 import DineInActionModal, { type DineInAction } from "./dashboard/DineInActionModal";
+import ReceiptModal from "./ReceiptModal";
 
 // Compact tender label for the Recent Transactions rows (POS + dine-in). A gift
 // card is a separate instrument layered on the cash/card/split remainder, so we
@@ -48,6 +49,8 @@ export default function DashboardView() {
 
   // Void + refund modal (POS sales)
   const [voidTargetSale, setVoidTargetSale] = useState<POSSale | null>(null);
+  // Receipt currently open from a POS transaction row (overview list / reports table).
+  const [viewingPosReceipt, setViewingPosReceipt] = useState<POSSale | null>(null);
 
   // Dine-in void / refund
   const [diAction, setDiAction] = useState<DineInAction | null>(null);
@@ -832,6 +835,9 @@ export default function DashboardView() {
                                   </p>
                                 )}
                               </div>
+                              <button onClick={() => setViewingPosReceipt(sale)} className="text-slate-500 hover:text-orange-400 transition-colors flex-shrink-0" title="View receipt">
+                                <Receipt size={14} />
+                              </button>
                               {!sale.voided && currentStaff?.permissions.canVoidSale && (
                                 <button onClick={() => openVoidModal(sale.id)} className="text-slate-500 hover:text-red-400 transition-colors flex-shrink-0" title="Void sale">
                                   <Trash2 size={14} />
@@ -1421,14 +1427,12 @@ export default function DashboardView() {
                                 onClick={() => toggleSort("total")}>
                                 Total {sortField === "total" ? (sortDir === "desc" ? "↓" : "↑") : ""}
                               </th>
-                              {currentStaff?.permissions.canVoidSale && (
-                                <th className="px-4 py-3 text-xs text-slate-500 font-semibold" />
-                              )}
+                              <th className="px-4 py-3 text-xs text-slate-500 font-semibold" />
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-700/30">
                             {txSorted.length === 0 ? (
-                              <tr><td colSpan={currentStaff?.permissions.canVoidSale ? 7 : 6} className="px-5 py-8 text-center text-slate-500 text-sm">No transactions found</td></tr>
+                              <tr><td colSpan={7} className="px-5 py-8 text-center text-slate-500 text-sm">No transactions found</td></tr>
                             ) : txSorted.map((sale) => {
                               const net = rSaleNet(sale);
                               // Fully refunded = money truly gone → dim + strike. A
@@ -1477,21 +1481,30 @@ export default function DashboardView() {
                                     <div className="text-[10px] text-amber-400 mt-0.5">{fmt(net, sym)} kept</div>
                                   )}
                                 </td>
-                                {currentStaff?.permissions.canVoidSale && (
-                                  <td className="px-4 py-3 text-center">
-                                    {!sale.voided ? (
-                                      <button
-                                        onClick={() => { openVoidModal(sale.id); }}
-                                        title="Void transaction"
-                                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 transition-all"
-                                      >
-                                        <Trash2 size={11} /> Void
-                                      </button>
-                                    ) : (
-                                      <span className="text-slate-600 text-[11px]">Voided</span>
+                                <td className="px-4 py-3 text-center">
+                                  <div className="flex items-center justify-center gap-2">
+                                    <button
+                                      onClick={() => setViewingPosReceipt(sale)}
+                                      title="View receipt"
+                                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-600/40 text-slate-300 hover:bg-slate-600/70 border border-slate-600/40 transition-all"
+                                    >
+                                      <Receipt size={11} /> Receipt
+                                    </button>
+                                    {currentStaff?.permissions.canVoidSale && (
+                                      !sale.voided ? (
+                                        <button
+                                          onClick={() => { openVoidModal(sale.id); }}
+                                          title="Void transaction"
+                                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 transition-all"
+                                        >
+                                          <Trash2 size={11} /> Void
+                                        </button>
+                                      ) : (
+                                        <span className="text-slate-600 text-[11px]">Voided</span>
+                                      )
                                     )}
-                                  </td>
-                                )}
+                                  </div>
+                                </td>
                               </tr>
                               );
                             })}
@@ -1499,7 +1512,7 @@ export default function DashboardView() {
                           {txSorted.length > 0 && (
                             <tfoot>
                               <tr className="bg-slate-900/60 border-t-2 border-slate-600">
-                                <td colSpan={currentStaff?.permissions.canVoidSale ? 6 : 5} className="px-5 py-3 text-xs font-semibold text-slate-400">
+                                <td colSpan={6} className="px-5 py-3 text-xs font-semibold text-slate-400">
                                   Retained income ({txSorted.filter((s) => !s.voided || rSaleNet(s) > 0).length} money-bearing)
                                 </td>
                                 <td className="px-5 py-3 text-right font-bold text-white">
@@ -1849,6 +1862,11 @@ export default function DashboardView() {
       {/* Void + Refund modal (POS sale) */}
       {voidTargetSale && (
         <VoidSaleModal sale={voidTargetSale} onClose={() => setVoidTargetSale(null)} />
+      )}
+
+      {/* POS transaction receipt viewer */}
+      {viewingPosReceipt && (
+        <ReceiptModal sale={viewingPosReceipt} onClose={() => setViewingPosReceipt(null)} />
       )}
     </div>
   );
