@@ -19,12 +19,12 @@ export default function DineInActionModal({
 }) {
   const { settings } = usePOS();
   const sym = settings.currencySymbol;
-  // A gift card is prepaid money, so only the cash/card portion of the bill is
-  // refundable. Cap "full" and the partial input at money actually collected,
-  // net of anything already refunded (the server enforces the same cap).
+  // A gift card is prepaid money, so only the cash/card portion is refundable —
+  // and `total` is stored net of the gift card. Cap "full" and the partial input
+  // at money collected, net of anything already refunded (server enforces it too).
   const refundable = Math.max(
     0,
-    action.order.total - (action.order.giftCardUsed ?? 0) - (action.order.refundedAmount ?? 0),
+    action.order.total - (action.order.refundedAmount ?? 0),
   );
 
   const [reason,       setReason]       = useState("");

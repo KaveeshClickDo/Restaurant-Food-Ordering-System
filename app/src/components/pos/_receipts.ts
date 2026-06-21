@@ -55,12 +55,15 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, restauran
   }).join("");
 
   let paymentHtml = "";
-  const gcAmount = sale.giftCard?.amount ?? 0;
+  // `total` is stored NET (gift card already deducted). Re-add the card for the
+  // gross goods TOTAL line; payments below (gift + cash/card) sum back to gross.
+  const gcAmount   = sale.giftCardUsed ?? sale.giftCard?.amount ?? 0;
+  const grossTotal = Math.round((sale.total + gcAmount) * 100) / 100;
 
   // 1. Show the gift card deduction first
-  if (sale.giftCard) {
-    const codeStr = sale.giftCard.code ? ` (..${sale.giftCard.code.slice(-4)})` : "";
-    paymentHtml += `<tr><td style="font-size:11px;color:#6b7280">Gift Card${codeStr}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${sale.giftCard.amount.toFixed(2)}</td></tr>`;
+  if (gcAmount > 0) {
+    const codeStr = sale.giftCard?.code ? ` (..${sale.giftCard.code.slice(-4)})` : "";
+    paymentHtml += `<tr><td style="font-size:11px;color:#6b7280">Gift Card${codeStr}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${gcAmount.toFixed(2)}</td></tr>`;
   }
 
   // 2. Show the remaining amount paid by Cash/Card/Split
@@ -69,19 +72,16 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, restauran
       `<tr><td style="font-size:11px;color:#6b7280;text-transform:capitalize">${p.method}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${p.amount.toFixed(2)}</td></tr>`
     ).join("");
   } else if (sale.paymentMethod === "cash") {
-    const cashPaid = sale.cashTendered ?? (sale.total - gcAmount);
+    const cashPaid = sale.cashTendered ?? sale.total;
     paymentHtml += `<tr><td style="font-size:11px;color:#6b7280">Cash</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${cashPaid.toFixed(2)}</td></tr>`;
     if ((sale.changeGiven ?? 0) > 0) {
       paymentHtml += `<tr><td style="font-size:11px;color:#6b7280">Change</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${sale.changeGiven!.toFixed(2)}</td></tr>`;
     }
   } else if (sale.paymentMethod === "gift_card") {
-    // Covered entirely by gift card. (Fallback safety if sale.giftCard was missing)
-    if (!sale.giftCard) {
-      paymentHtml += `<tr><td style="font-size:11px;color:#6b7280">Gift Card</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${sale.total.toFixed(2)}</td></tr>`;
-    }
+    // Covered entirely by gift card — the deduction line above already shows it.
   } else {
-    // Card or other payment methods
-    const charged = sale.total - gcAmount;
+    // Card or other payment methods — total is already net = the amount charged.
+    const charged = sale.total;
     paymentHtml += `<tr><td style="font-size:11px;color:#6b7280;text-transform:capitalize">${sale.paymentMethod}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${charged.toFixed(2)}</td></tr>`;
   }
 
@@ -107,7 +107,7 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, restauran
     ${sale.taxAmount > 0 && settings.showBreakdown ? row(vatLabel, `${vatSign}${sym}${sale.taxAmount.toFixed(2)}`, false, "#6b7280") : ""}
     ${sale.tipAmount > 0 ? row("Tip", `${sym}${sale.tipAmount.toFixed(2)}`) : ""}
     ${sale.serviceFeeAmount > 0 ? row("Service Fee", `${sym}${sale.serviceFeeAmount.toFixed(2)}`) : ""}
-    ${row("TOTAL", `${sym}${sale.total.toFixed(2)}`, true)}
+    ${row("TOTAL", `${sym}${grossTotal.toFixed(2)}`, true)}
     ${paymentHtml}
   </table>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
@@ -126,7 +126,10 @@ export function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings
   const serviceFee = order.serviceFeeAmount || 0;
   const vatAmount = order.vatAmount || 0;
   const giftCardUsed = order.giftCardUsed || 0;
-  const amountPaid = Math.max(0, order.total - giftCardUsed);
+  // `total` is stored NET (gift card already deducted): it IS the money paid.
+  // Re-add the card for the gross goods TOTAL line.
+  const amountPaid = order.total;
+  const grossTotal = Math.round((order.total + giftCardUsed) * 100) / 100;
   const effectiveVatRate = order.vatRate != null ? order.vatRate : settings.taxRate;
   const vatLabel = order.vatInclusive
     ? `Incl. VAT${effectiveVatRate ? ` (${effectiveVatRate}%)` : ""}`
@@ -160,7 +163,7 @@ export function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
   <table style="width:100%;border-collapse:collapse">
     ${breakdownHtml}
-    <tr><td style="font-size:13px;font-weight:700">TOTAL</td><td style="font-size:13px;font-weight:700;text-align:right">${sym}${order.total.toFixed(2)}</td></tr>
+    <tr><td style="font-size:13px;font-weight:700">TOTAL</td><td style="font-size:13px;font-weight:700;text-align:right">${sym}${grossTotal.toFixed(2)}</td></tr>
     ${giftCardUsed > 0 ? `<tr><td style="font-size:11px;color:#7c3aed">Gift card</td><td style="font-size:11px;color:#7c3aed;text-align:right">−${sym}${giftCardUsed.toFixed(2)}</td></tr>
     <tr><td style="font-size:12px;font-weight:700">PAID (${payLabel})</td><td style="font-size:12px;font-weight:700;text-align:right">${sym}${amountPaid.toFixed(2)}</td></tr>` : `<tr><td style="font-size:11px;color:#6b7280">Payment</td><td style="font-size:11px;color:#6b7280;text-align:right">${payLabel}</td></tr>`}
   </table>

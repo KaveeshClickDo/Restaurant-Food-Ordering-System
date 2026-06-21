@@ -16,12 +16,15 @@ export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string,
 
   const payLabel = receipt.paymentMethod === "cash" ? "Cash" : receipt.paymentMethod === "card" ? "Card" : receipt.paymentMethod === "gift_card" ? "Gift Card" : "Table Service";
   const giftUsed = receipt.giftCardUsed ?? 0;
-  const amountPaid = Math.max(0, receipt.total - giftUsed);
+  // `total` is stored NET (gift card already deducted): it IS the money paid.
+  // Re-add the card for the gross goods TOTAL line.
+  const amountPaid = receipt.total;
+  const grossTotal = Math.round((receipt.total + giftUsed) * 100) / 100;
   const rcptDiscount = receipt.discountAmount ?? 0;
   const rcptTip = receipt.tipAmount ?? 0;
   const rcptServiceFee = receipt.serviceFeeAmount ?? 0;
   const rcptVat = receipt.vatAmount ?? 0;
-  const rcptSubtotal = receipt.subtotal ?? receipt.total;
+  const rcptSubtotal = receipt.subtotal ?? grossTotal;
   const vatLabel = receipt.vatInclusive
     ? `Incl. VAT${receipt.vatRate ? ` (${receipt.vatRate}%)` : ""}`
     : `VAT${receipt.vatRate ? ` (${receipt.vatRate}%)` : ""}`;
@@ -51,7 +54,7 @@ export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string,
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
   <table style="width:100%;border-collapse:collapse">
     ${breakdownHtml}
-    <tr><td style="font-size:13px;font-weight:700">TOTAL</td><td style="font-size:13px;font-weight:700;text-align:right">${sym}${receipt.total.toFixed(2)}</td></tr>
+    <tr><td style="font-size:13px;font-weight:700">TOTAL</td><td style="font-size:13px;font-weight:700;text-align:right">${sym}${grossTotal.toFixed(2)}</td></tr>
     ${giftUsed > 0 ? `<tr><td style="font-size:11px;color:#7c3aed">Gift card</td><td style="font-size:11px;color:#7c3aed;text-align:right">−${sym}${giftUsed.toFixed(2)}</td></tr>
     <tr><td style="font-size:12px;font-weight:700">PAID (${payLabel})</td><td style="font-size:12px;font-weight:700;text-align:right">${sym}${amountPaid.toFixed(2)}</td></tr>` : `<tr><td style="font-size:11px;color:#6b7280">Payment</td><td style="font-size:11px;color:#6b7280;text-align:right">${payLabel}</td></tr>`}
   </table>

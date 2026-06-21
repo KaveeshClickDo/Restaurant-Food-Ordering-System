@@ -50,6 +50,10 @@ export default function ReceiptModal({ receipt, onClose, onRefund }: { receipt: 
 
   const items = receipt.items;
   const payLabel = receipt.paymentMethod === "cash" ? "Cash" : receipt.paymentMethod === "card" ? "Card" : receipt.paymentMethod === "gift_card" ? "Gift Card" : "Table Service";
+  // `total` is stored NET (gift card already deducted): it IS the money paid.
+  // Re-add the card for the gross goods TOTAL line.
+  const giftUsed = receipt.giftCardUsed ?? 0;
+  const grossTotal = Math.round((receipt.total + giftUsed) * 100) / 100;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -99,7 +103,7 @@ export default function ReceiptModal({ receipt, onClose, onRefund }: { receipt: 
               <>
                 <div className="flex items-center justify-between">
                   <span className="text-slate-400 text-xs">Subtotal</span>
-                  <span className="text-slate-300 text-xs">{fmtCur(receipt.subtotal ?? receipt.total, sym)}</span>
+                  <span className="text-slate-300 text-xs">{fmtCur(receipt.subtotal ?? grossTotal, sym)}</span>
                 </div>
                 {(receipt.discountAmount ?? 0) > 0 && (
                   <div className="flex items-center justify-between">
@@ -129,7 +133,7 @@ export default function ReceiptModal({ receipt, onClose, onRefund }: { receipt: 
             )}
             <div className="flex items-center justify-between">
               <span className="text-white font-black text-base">TOTAL</span>
-              <span className="text-white font-black text-xl">{fmtCur(receipt.total, sym)}</span>
+              <span className="text-white font-black text-xl">{fmtCur(grossTotal, sym)}</span>
             </div>
             {(receipt.giftCardUsed ?? 0) > 0 ? (
               <>
@@ -139,7 +143,7 @@ export default function ReceiptModal({ receipt, onClose, onRefund }: { receipt: 
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-white font-bold text-sm">Paid ({payLabel})</span>
-                  <span className="text-white font-bold text-sm">{fmtCur(Math.max(0, receipt.total - (receipt.giftCardUsed ?? 0)), sym)}</span>
+                  <span className="text-white font-bold text-sm">{fmtCur(receipt.total, sym)}</span>
                 </div>
               </>
             ) : (

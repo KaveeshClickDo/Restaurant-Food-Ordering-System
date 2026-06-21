@@ -124,20 +124,52 @@ export async function POST(req: NextRequest) {
     // the bill equals the final amount owed — keeping reports / refunds accurate
     // without touching the other orders' line items. vat_amount is recorded
     // regardless of mode so the Finance Reports VAT breakdown includes dine-in.
-    if (anchorOrderId && (discount > 0 || tip > 0 || serviceFee > 0 || vat > 0)) {
-      const anchorOriginal = Number(anchor?.total ?? 0);
-      await supabaseAdmin
-        .from("orders")
-        .update({
-          discount_amount: discount,
-          discount_note:   discountNote?.trim() || null,
-          tip_amount:      tip,
-          service_fee:     serviceFee,
-          vat_amount:      vat,
-          vat_inclusive:   inclusive,
-          total:           round2(anchorOriginal - discount + vatSurcharge + tip + serviceFee),
-        })
-        .eq("id", anchorOrderId);
+    // We persist the REAL money taken per order row — gift card already
+    // deducted — mirroring online orders, so reports/refunds read `total`
+    // directly without ever re-subtracting the gift card. The bill-level
+    // discount/tip/VAT/fee fold into the anchor; the gift card is then spread
+    // across the bill (anchor first) so Σ(order.total) equals net money paid
+    // and no row is stored negative. Gross goods value stays recoverable as
+    // total + gift_card_used (used by receipts).
+    const hasAdjustments = discount > 0 || tip > 0 || serviceFee > 0 || vat > 0;
+    if (anchorOrderId && (hasAdjustments || giftCardAmount > 0)) {
+      // Gross amount each row carries (bill-level extras fold into the anchor).
+      const grossFor = (r: { id: string; total: number | null }) =>
+        r.id === anchorOrderId
+          ? round2(Number(r.total ?? 0) - discount + vatSurcharge + tip + serviceFee)
+          : round2(Number(r.total ?? 0));
+
+      // Anchor first so the gift card eats its share before the other rows.
+      const ordered = [...rows].sort((a, b) =>
+        a.id === anchorOrderId ? -1 : b.id === anchorOrderId ? 1 : 0,
+      );
+
+      let remainingGift = giftCardAmount;
+      for (const r of ordered) {
+        const gross    = grossFor(r);
+        const deduct   = Math.min(gross, Math.max(0, remainingGift));
+        remainingGift  = round2(remainingGift - deduct);
+        const net      = round2(gross - deduct);
+        const isAnchor = r.id === anchorOrderId;
+
+        // Non-anchor rows untouched by the gift card keep their stored total.
+        if (!isAnchor && deduct === 0) continue;
+
+        await supabaseAdmin
+          .from("orders")
+          .update({
+            ...(isAnchor && hasAdjustments ? {
+              discount_amount: discount,
+              discount_note:   discountNote?.trim() || null,
+              tip_amount:      tip,
+              service_fee:     serviceFee,
+              vat_amount:      vat,
+              vat_inclusive:   inclusive,
+            } : {}),
+            total: net,
+          })
+          .eq("id", r.id);
+      }
     }
 
     // (Gift card was already debited as a gate above, before settling.)

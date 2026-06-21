@@ -382,8 +382,20 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                     )}
                     <div className="flex items-center justify-between pt-1">
                       <span className="text-slate-300 text-sm font-semibold">Total</span>
-                      <span className="text-white text-lg sm:text-xl md:text-2xl font-black">{fmtCur(billTotal, sym)}</span>
+                      <span className={`text-lg sm:text-xl md:text-2xl font-black ${giftCardApplied > 0 ? "text-slate-400" : "text-white"}`}>{fmtCur(billTotal, sym)}</span>
                     </div>
+                    {giftCardApplied > 0 && (
+                      <>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-purple-300 flex items-center gap-1"><Gift size={13} className="flex-shrink-0" /> Gift Card</span>
+                          <span className="text-purple-300">−{fmtCur(giftCardApplied, sym)}</span>
+                        </div>
+                        <div className="flex items-center justify-between pt-0.5">
+                          <span className="text-slate-300 text-sm font-semibold">{dueAfterGiftCard <= 0 ? "Paid by gift card" : "Due"}</span>
+                          <span className="text-emerald-300 text-lg sm:text-xl md:text-2xl font-black">{fmtCur(dueAfterGiftCard, sym)}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 

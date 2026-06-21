@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useApp } from "@/context/AppContext";
 import { fullOrderNumber } from "@/lib/orderNumber";
-import { moneyPaidGross } from "@/lib/giftCardMoney";
 import { paymentMethodLabel } from "@/lib/paymentMethodLabel";
 import {
   TrendingUp, ShoppingBag, RotateCcw, Percent, CreditCard,
@@ -470,11 +469,10 @@ export default function OnlineReportsPanel() {
     const active       = filtered.filter(isActive);
     const moneyBearing = filtered.filter(isMoneyBearing);
     const cancelled    = filtered.filter((o) => o.status === "cancelled");
-    // Revenue per order = real money collected. Online orders already store the
-    // net total; POS / dine-in store gross, so net the gift card out for those —
-    // a gift card is income when SOLD, not when it's spent.
-    const orderRevenue = (o: RawOrder) =>
-      orderSource(o) === "online" ? o.total : moneyPaidGross(o.total, o.gift_card_used);
+    // Revenue per order = real money collected. Every channel stores the net
+    // total (gift card already excluded) — a gift card is income when SOLD, not
+    // when it's spent — so `total` is the money in.
+    const orderRevenue = (o: RawOrder) => o.total;
     const revenue   = moneyBearing.reduce((s, o) => s + orderRevenue(o), 0);
     const refunds   = moneyBearing.reduce((s, o) => s + (o.refunded_amount ?? 0), 0);
     const vat       = moneyBearing.reduce((s, o) => s + (o.vat_amount ?? 0), 0);

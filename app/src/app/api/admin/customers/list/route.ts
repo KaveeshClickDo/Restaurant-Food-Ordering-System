@@ -19,7 +19,6 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { orderSpendContribution } from "@/lib/customerSpend";
-import { moneyPaidGross } from "@/lib/giftCardMoney";
 
 interface AggregateBucket {
   spend: number;
@@ -33,20 +32,18 @@ interface AggregateBucket {
 // the two payment fields the helper reads.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function spendContribution(o: any): { amount: number; counts: boolean } {
-  // Dine-in / POS orders store the GROSS goods value with the gift card kept
-  // separately; online orders already store net. Net the gift card out of the
-  // gross channels so a gift-card-paid order doesn't inflate lifetime spend
-  // (the card was already counted as income when it was bought).
-  const isGross = o.fulfillment === "dine-in" || o.customer_id === "pos-walk-in";
-  const total = isGross ? moneyPaidGross(o.total, o.gift_card_used) : o.total;
+  // All channels (online, POS, dine-in) store the NET total — the gift card is
+  // already deducted before save — so `total` is the real money paid. The card
+  // was counted as income when it was bought, so it never inflates spend here.
+  const total = Number(o.total) || 0;
   return orderSpendContribution({
     status:         o.status,
     paymentStatus:  o.payment_status,
     total,
     refundedAmount: o.refunded_amount,
-    // Same staff-side test as isGross: till/dine-in rows never update
-    // payment_status, so the helper's unpaid exclusion must skip them.
-    staffOrder:     isGross,
+    // Till/dine-in rows never update payment_status, so the helper's unpaid
+    // exclusion must skip them.
+    staffOrder:     o.fulfillment === "dine-in" || o.customer_id === "pos-walk-in",
   });
 }
 
@@ -229,7 +226,7 @@ export async function GET() {
   }
   for (const s of posSales ?? []) {
     if (!s.customer_id) continue;
-    const moneyTotal = moneyPaidGross(s.total, s.gift_card_used); // net of gift card
+    const moneyTotal = Number(s.total) || 0; // total is already net of gift card
     const refund = Number(s.refund_amount) || 0;
     if (s.voided && refund <= 0) continue; // reversed, no money kept
     bumpAgg(s.customer_id, Math.max(0, moneyTotal - refund), s.date);

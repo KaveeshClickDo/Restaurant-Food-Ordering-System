@@ -30,6 +30,11 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
     : `VAT (${taxRate}%)`;
   const vatSign = taxInclusive ? "" : "+";
 
+  // `total` is stored NET (gift card already deducted). Re-add the card to show
+  // the gross goods TOTAL; the net `total` is the real money paid by cash/card.
+  const giftAmt    = sale.giftCardUsed ?? sale.giftCard?.amount ?? 0;
+  const grossTotal = Math.round((sale.total + giftAmt) * 100) / 100;
+
   async function sendEmail() {
     if (!emailTo.trim()) return;
     setEmailStatus("sending");
@@ -128,16 +133,16 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
             </div>
           )}
           <div className="flex justify-between font-bold text-base mt-2 pt-2 border-t border-gray-300">
-            <span>TOTAL</span><span>{fmt(sale.total, sym)}</span>
+            <span>TOTAL</span><span>{fmt(grossTotal, sym)}</span>
           </div>
 
           {/* ── Payment breakdown ─────────────────────────────── */}
           <div className="mt-1 space-y-0.5">
             {/* 1. Show the gift card deduction first */}
-            {sale.giftCard && (
+            {giftAmt > 0 && (
               <div className="flex justify-between text-gray-500">
-                <span>Gift Card {sale.giftCard.code ? `(..${sale.giftCard.code.slice(-4)})` : ""}</span>
-                <span>{fmt(sale.giftCard.amount, sym)}</span>
+                <span>Gift Card {sale.giftCard?.code ? `(..${sale.giftCard.code.slice(-4)})` : ""}</span>
+                <span>{fmt(giftAmt, sym)}</span>
               </div>
             )}
 
@@ -152,7 +157,7 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
               <>
                 <div className="flex justify-between text-gray-500">
                   <span>Cash</span>
-                  <span>{fmt(sale.cashTendered ?? (sale.total - (sale.giftCard?.amount ?? 0)), sym)}</span>
+                  <span>{fmt(sale.cashTendered ?? sale.total, sym)}</span>
                 </div>
                 {(sale.changeGiven ?? 0) > 0 && (
                   <div className="flex justify-between text-gray-500">
@@ -161,17 +166,13 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
                 )}
               </>
             ) : sale.paymentMethod === "gift_card" ? (
-              // Covered entirely by gift card, no remaining balance.
-              !sale.giftCard && (
-                <div className="flex justify-between text-gray-500 capitalize">
-                  <span>Gift Card</span><span>{fmt(sale.total, sym)}</span>
-                </div>
-              )
+              // Covered entirely by gift card — the deduction line above shows it.
+              null
             ) : (
               <div className="flex justify-between text-gray-500 capitalize">
                 <span>{sale.paymentMethod}</span>
-                {/* Deduct gift card amount so Card shows the exact remaining balance */}
-                <span>{fmt(sale.total - (sale.giftCard?.amount ?? 0), sym)}</span>
+                {/* total is already net of the gift card = the amount charged */}
+                <span>{fmt(sale.total, sym)}</span>
               </div>
             )}
           </div>

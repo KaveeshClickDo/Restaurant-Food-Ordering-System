@@ -6,7 +6,6 @@ import {
   Download, RefreshCw, Tag, CreditCard, Banknote, Shuffle,
   Trophy, Package, ChevronUp, ChevronDown, AlertTriangle, RotateCcw, Crown, Gift,
 } from "lucide-react";
-import { moneyPaidGross } from "@/lib/giftCardMoney";
 
 interface VipFeeRow {
   id: string;
@@ -164,7 +163,7 @@ function exportCSV(sales: POSSale[], sym: string) {
     s.serviceFeeAmount.toFixed(2),
     s.total.toFixed(2),
     (s.refundAmount ?? 0).toFixed(2),
-    Math.max(0, moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0)).toFixed(2),
+    Math.max(0, s.total - (s.refundAmount ?? 0)).toFixed(2),
     s.paymentMethod,
     s.voided ? "Yes" : "No",
     `"${s.voidReason ?? ""}"`,
@@ -267,7 +266,7 @@ export default function POSReportsPanel() {
   // Net money kept on a sale = money paid (gift card excluded) − refund.
   // useCallback so it's reference-stable and safe to use in chart useMemo deps.
   const saleNet = useCallback(
-    (s: POSSale) => Math.max(0, moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0)),
+    (s: POSSale) => Math.max(0, s.total - (s.refundAmount ?? 0)),
     [],
   );
 
@@ -288,7 +287,7 @@ export default function POSReportsPanel() {
   // is real income). Fully-refunded voids net to £0 via saleNet and drop out.
   // Mirrors the POS Dashboard Overview.
   const moneyBearing = useMemo(
-    () => inRange.filter((s) => !s.voided || moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0) > 0),
+    () => inRange.filter((s) => !s.voided || s.total - (s.refundAmount ?? 0) > 0),
     [inRange],
   );
   // Income retained from VOIDED sales (no-refund = full money, partial = the
