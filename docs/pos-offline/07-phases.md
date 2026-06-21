@@ -129,7 +129,10 @@ tablet (Android 8.0+, no printer needed).
 > **Remaining (needs Android toolchain, off this machine):**
 > `CAPACITOR_API_URL=… npm run build:capacitor` → `npx cap sync` →
 > `npx cap open android`, then the **first on-device rebuild/test** since
-> the merge. Optional: `getDbSettings()` hoist.
+> the merge. (The `getDbSettings()` hoist 1.5.1/1.5.5 proposed is **not
+> needed** and would mildly regress offline first-paint — see
+> [09-decisions.md § 2026-06-22](./09-decisions.md). Real offline settings
+> are Phase 1.6's SQLite cache.)
 
 After Phase 1, the Android tablet still needs internet on **first
 launch** to load the `/pos` page over HTTPS. Phase 1.5 closes this gap

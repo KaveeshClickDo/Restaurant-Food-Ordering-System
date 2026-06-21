@@ -10,6 +10,40 @@ stay where they are; newer ones go on top.
 
 ---
 
+## 2026-06-22 § getDbSettings() hoist is NOT needed — keep the server fetch (it's the offline first-paint fallback)
+
+**Decision:** Leave [layout.tsx](../../app/src/app/layout.tsx) `getDbSettings()`
+as-is (server-side, runs at build time for the Capacitor export). Do **not**
+hoist it client-side as 07-phases.md § 1.5.1/1.5.5 proposed.
+
+**Why the plan's two premises were both wrong:**
+1. *"Static export fails because of the root-layout server fetch."* It
+   doesn't — `npm run build:capacitor` succeeds with `getDbSettings()` in
+   place (a build-time fetch is normal SSG; `revalidate` is ignored
+   gracefully under export). Verified 2026-06-22.
+2. *"Hoisting fixes offline settings."* It doesn't. The POS reads tax
+   rate / VAT mode / currency from `appSettings` (AppContext), and
+   [AppContext.tsx:692-703](../../app/src/context/AppContext.tsx#L692-L703)
+   already re-fetches `app_settings` from Supabase **client-side on every
+   mount**, overwriting the baked `initialData`. So:
+   - **Online** bundled APK → AppContext refetch corrects settings anyway;
+     the hoist changes nothing.
+   - **Offline** cold-start → a client-side hoist fetch would *also* fail
+     (no network); real offline settings come from Phase 1.6's SQLite
+     `settings_snapshot`, not from the layout.
+
+**Bonus — keeping it is strictly better for offline:** with
+`getDbSettings()` left in, the export bakes the *real* build-time settings
+as the offline first-paint fallback (until Phase 1.6's live cache lands).
+Hoisting would replace that with hard-coded defaults → wrong VAT on a cold
+offline boot. So the "optional refinement" is actually a mild regression
+for the offline goal; dropped from the Phase 1.5 remaining list.
+
+**Caveat:** the build environment should have `NEXT_PUBLIC_SUPABASE_URL` +
+`SUPABASE_SERVICE_ROLE_KEY` set during `build:capacitor` so the baked
+fallback is real settings, not defaults. If absent, getDbSettings returns
+null → defaults baked (harmless online, suboptimal offline pre-1.6).
+
 ## 2026-06-22 § Capacitor static export: route quarantine + single gated next.config (not a separate config file)
 
 **Decision:** The Capacitor static export is produced by
