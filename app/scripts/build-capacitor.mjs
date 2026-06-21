@@ -60,14 +60,15 @@ try {
   console.log(`[build:capacitor] quarantined ${moved.length} non-POS entries:`, moved.join(", "));
 
   // The export bundles no /api/* routes, so apiBase() must point POS fetches at
-  // the deployed backend. Inline the server URL (from CAPACITOR_SERVER_URL —
-  // the same var capacitor.config.ts uses) as NEXT_PUBLIC_API_BASE_URL.
-  const serverUrl = (process.env.CAPACITOR_SERVER_URL ?? "").replace(/\/$/, "");
-  if (!serverUrl) {
+  // the deployed backend. Inline CAPACITOR_API_URL as NEXT_PUBLIC_API_BASE_URL.
+  // (Deliberately NOT CAPACITOR_SERVER_URL — that var flips capacitor.config.ts
+  // into server mode at `npx cap sync`, the opposite of a bundled build.)
+  const apiUrl = (process.env.CAPACITOR_API_URL ?? "").replace(/\/$/, "");
+  if (!apiUrl) {
     console.warn(
-      "[build:capacitor] WARNING: CAPACITOR_SERVER_URL not set — apiBase() will " +
-      "be empty, so the bundled APK cannot reach the backend. Set it for a real " +
-      "build, e.g. CAPACITOR_SERVER_URL=https://yourapp.vercel.app npm run build:capacitor",
+      "[build:capacitor] WARNING: CAPACITOR_API_URL not set — apiBase() will be " +
+      "empty, so the bundled APK cannot reach the backend. Set it for a real " +
+      "build, e.g. CAPACITOR_API_URL=https://yourapp.vercel.app npm run build:capacitor",
     );
   }
 
@@ -77,7 +78,7 @@ try {
     env: {
       ...process.env,
       CAPACITOR_BUILD: "1",
-      NEXT_PUBLIC_API_BASE_URL: serverUrl,
+      NEXT_PUBLIC_API_BASE_URL: apiUrl,
     },
   });
 } finally {

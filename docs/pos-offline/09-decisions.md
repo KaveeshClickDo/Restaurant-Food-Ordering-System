@@ -50,9 +50,12 @@ originally sketched.
   `""` on web (same-origin, unchanged), and the build-time
   `NEXT_PUBLIC_API_BASE_URL` (from `CAPACITOR_SERVER_URL`) in the
   Capacitor build. Verified the URL is inlined into the export bundle.
-- `capacitor.config.ts` bundled mode (`webDir: "out"`, drop the
-  `server.url` throw) + `npx cap sync android` to copy `out/` into the
-  APK.
+- ~~`capacitor.config.ts` bundled mode~~ **DONE 2026-06-22.** Config is
+  now dual-mode: `CAPACITOR_SERVER_URL` set → server mode (dev
+  hot-reload), unset → bundled mode (`webDir:"out"`, offline APK). The
+  apiBase URL for bundled builds comes from a separate `CAPACITOR_API_URL`
+  (build:capacitor) so it can't accidentally re-enable server mode.
+  Remaining is the off-machine step: `npx cap sync android` + APK build.
 - Optional: hoist `getDbSettings()` client-side so the APK doesn't bake
   build-time settings (non-blocking — export already succeeds).
 

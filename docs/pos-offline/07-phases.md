@@ -124,9 +124,12 @@ tablet (Android 8.0+, no printer needed).
 > `CAPACITOR_SERVER_URL` in the Capacitor build (verified inlined).
 > As-built mechanism (route quarantine + single env-gated
 > `next.config.ts`) is in [09-decisions.md § 2026-06-22](./09-decisions.md).
-> **Remaining:** `capacitor.config.ts` bundled mode (`webDir:"out"`, drop
-> `server.url`) + `npx cap sync` (needs Android toolchain); optional
-> `getDbSettings()` hoist.
+> `capacitor.config.ts` is now **dual-mode**: `CAPACITOR_SERVER_URL` set →
+> server mode (dev); unset → bundled mode (`webDir:"out"`, offline).
+> **Remaining (needs Android toolchain, off this machine):**
+> `CAPACITOR_API_URL=… npm run build:capacitor` → `npx cap sync` →
+> `npx cap open android`, then the **first on-device rebuild/test** since
+> the merge. Optional: `getDbSettings()` hoist.
 
 After Phase 1, the Android tablet still needs internet on **first
 launch** to load the `/pos` page over HTTPS. Phase 1.5 closes this gap
