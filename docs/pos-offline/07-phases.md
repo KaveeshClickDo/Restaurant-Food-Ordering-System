@@ -116,6 +116,15 @@ tablet (Android 8.0+, no printer needed).
 
 ## Phase 1.5 — Bundled assets · cold-start UI offline
 
+> **Status (2026-06-22):** static export working. `npm run build:capacitor`
+> exports `/pos` + `/pos/login` to `out/pos/index.html` etc. (both
+> `○ Static`); the web build is unaffected. As-built mechanism (route
+> quarantine + single env-gated `next.config.ts`, not a separate config
+> file) is recorded in [09-decisions.md § 2026-06-22](./09-decisions.md).
+> **Remaining:** `apiBase()` wiring (export bundles no `/api/*`),
+> `capacitor.config.ts` bundled mode + `npx cap sync`, optional
+> `getDbSettings()` hoist.
+
 After Phase 1, the Android tablet still needs internet on **first
 launch** to load the `/pos` page over HTTPS. Phase 1.5 closes this gap
 by bundling the static export of the POS routes into the APK itself.

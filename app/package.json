@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
+    "build:capacitor": "node scripts/build-capacitor.mjs",
     "start": "next start",
     "lint": "eslint",
     "db:migrate": "node --env-file=.env.local migrate.mjs && npx tsx --env-file=.env.local seed-settings.ts",

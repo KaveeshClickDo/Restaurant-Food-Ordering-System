@@ -10,6 +10,51 @@ stay where they are; newer ones go on top.
 
 ---
 
+## 2026-06-22 § Capacitor static export: route quarantine + single gated next.config (not a separate config file)
+
+**Decision:** The Capacitor static export is produced by
+[scripts/build-capacitor.mjs](../../app/scripts/build-capacitor.mjs)
+(run via `npm run build:capacitor`), which temporarily moves every
+`src/app` entry except the POS routes into `.cap-quarantine/`, runs
+`CAPACITOR_BUILD=1 next build`, then restores them (try/finally; also
+self-heals on startup). The export options (`output:"export"`,
+`trailingSlash:true`, `images.unoptimized`, and dropping
+`rewrites()`/`headers()`) live in the existing
+[next.config.ts](../../app/next.config.ts) gated by `CAPACITOR_BUILD`,
+**not** in a separate `next.config.capacitor.ts` as 07-phases.md
+originally sketched.
+
+**Why:**
+- `output:"export"` is global — Next tries to export *every* route and
+  hard-fails on the first of the ~80 `/api/*` route handlers
+  (`Page "/api/…" is missing "generateStaticParams()"`). There is no
+  built-in "export only these routes" flag, so the non-POS routes must
+  physically leave the build graph. Quarantine-and-restore is the
+  least-bad mechanism; git is the safety net (all quarantined dirs are
+  committed, so `git checkout -- src/app` always recovers).
+- A single env-gated `next.config.ts` is simpler and less drift-prone
+  than a second config file (Next has no first-class "use this other
+  config" switch; you'd juggle file renames). One file, one
+  `CAPACITOR_BUILD` flag, both builds verified.
+
+**Verified 2026-06-22:**
+- `npm run build` (web) → `/pos` `○ Static`, `width=device-width`.
+- `npm run build:capacitor` → exports only `/pos` + `/pos/login` to
+  `out/pos/index.html` + `out/pos/login/index.html`, both `○ Static`,
+  viewport `initial-scale=0.6` baked in. Routes restored cleanly
+  (`git status` clean afterward).
+
+**Still open before the bundle is a working APK:**
+- `apiBase()` wiring — the export bundles **no** `/api/*` routes, so
+  every `fetch("/api/…")` in the POS tree must target the remote server
+  (`apiBase() + "/api/…"`) when running bundled. ~30–50 call sites.
+  Until this lands, the exported app renders but can't reach the backend.
+- `capacitor.config.ts` bundled mode (`webDir: "out"`, drop the
+  `server.url` throw) + `npx cap sync android` to copy `out/` into the
+  APK.
+- Optional: hoist `getDbSettings()` client-side so the APK doesn't bake
+  build-time settings (non-blocking — export already succeeds).
+
 ## 2026-06-22 § CORRECTION: server-side UA detection in the root layout blocks static export — move Capacitor branches to build-time
 
 **Decision:** Capacitor-only behaviour that affects the initial HTML
