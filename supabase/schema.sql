@@ -585,6 +585,43 @@ create table if not exists pos_clock_entries (
 create unique index if not exists uniq_pos_clock_open
   on pos_clock_entries (staff_id) where clock_out is null;
 
+-- POS terminals — one row per physical Android tablet registered to ring up
+-- offline sales. Created on the device's first successful online PIN login;
+-- updated on every subsequent sync. `prefix` namespaces offline-minted
+-- receipt numbers so two tablets can never collide on pos_sales.receipt_no
+-- (e.g. terminal T1 produces 'T1-1042', T2 produces 'T2-1042'). Online web
+-- POS continues to use the pos_receipt_seq default and never references
+-- this table — pos_sales.terminal_id stays NULL for those rows.
+create table if not exists pos_terminals (
+  id                 text        primary key default gen_random_uuid()::text,
+  -- Human-readable label set in admin (e.g. "Front counter", "Bar").
+  label              text        not null,
+  -- Short receipt prefix, 1–4 chars [A-Z0-9] enforced application-side. Unique
+  -- across active terminals so receipt strings never collide.
+  prefix             text        not null,
+  -- Per-terminal monotonic counter. Incremented client-side, validated
+  -- server-side on sync. Persisted as a backup if the device's local counter
+  -- is lost (e.g. user wipes app data).
+  next_seq_no        integer     not null default 1,
+  -- Device fingerprint hash. Used to detect "same device re-registering
+  -- after a wipe" vs. "different device steals an existing prefix".
+  device_fingerprint text        not null default '',
+  -- Activity bookkeeping for an admin "online terminals" dashboard. Nullable
+  -- so a freshly-created terminal that has never synced reads correctly.
+  last_seen_at       timestamptz,
+  last_sync_at       timestamptz,
+  active             boolean     not null default true,
+  created_at         timestamptz not null default now()
+);
+
+-- Prefix must be unique among ACTIVE terminals. Deactivated terminals keep
+-- their prefix recorded for audit history without blocking re-use.
+create unique index if not exists uniq_pos_terminals_prefix_active
+  on pos_terminals (prefix) where active = true;
+
+create index if not exists idx_pos_terminals_active
+  on pos_terminals (active) where active = true;
+
 -- Case-insensitive unique label. Closes the race window where two concurrent
 -- POSTs could each pass the application-level duplicate check before either
 -- INSERT commits. Application code still does a friendly pre-check; this is
@@ -950,6 +987,27 @@ alter table pos_sales  add column if not exists gift_card_used numeric(10,2) not
 -- For recording the non-refundable service fee collected on dine-in orders.
 alter table pos_sales  add column if not exists service_fee_amount numeric not null default 0;
 
+-- ── Offline POS terminal columns ─────────────────────────────────────────────
+-- Populated for sales minted on a registered Android tablet (offline or online).
+-- NULL for sales rung up on the online web POS, which doesn't register a
+-- terminal — preserves identical semantics for existing reads.
+--
+--   terminal_id         FK to pos_terminals; on terminal deactivation we set
+--                       null rather than cascade, so audit / tax history survives
+--                       a terminal's lifecycle.
+--   client_created_at   when the sale was rung up on the tablet, vs. the
+--                       server-side `created_at` which is the sync time. Admin
+--                       reports / tax reconciliation use this for offline sales.
+--   synced_at           when the row landed on the server. Defaults to now() so
+--                       online inserts continue to behave the same; offline-then-
+--                       synced rows record the moment of sync.
+alter table pos_sales add column if not exists terminal_id        text references pos_terminals(id) on delete set null;
+alter table pos_sales add column if not exists client_created_at  timestamptz;
+alter table pos_sales add column if not exists synced_at          timestamptz default now();
+
+create index if not exists idx_pos_sales_terminal_id
+  on pos_sales (terminal_id) where terminal_id is not null;
+
 -- ── Session versioning for staff roles ───────────────────────────────────────
 -- Embedded in the HMAC session token so admin-initiated credential changes
 -- (password/PIN/email) or deactivation immediately invalidate all live
@@ -1138,6 +1196,7 @@ alter table reservation_waitlist   enable row level security;
 alter table pos_staff              enable row level security;
 alter table pos_sales              enable row level security;
 alter table pos_clock_entries      enable row level security;
+alter table pos_terminals          enable row level security;
 alter table waiters                enable row level security;
 alter table kitchen_staff          enable row level security;
 alter table collection_staff       enable row level security;
@@ -1230,6 +1289,10 @@ create policy "deny_anon_all" on pos_sales
 
 drop policy if exists "deny_anon_all" on pos_clock_entries;
 create policy "deny_anon_all" on pos_clock_entries
+  for all to anon using (false) with check (false);
+
+drop policy if exists "deny_anon_all" on pos_terminals;
+create policy "deny_anon_all" on pos_terminals
   for all to anon using (false) with check (false);
 
 drop policy if exists "deny_anon_all" on waiters;

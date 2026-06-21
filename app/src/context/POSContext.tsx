@@ -2,13 +2,15 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-const uuid = () => crypto.randomUUID();
+import { uuid } from "@/lib/uuid";
 import {
   POSStaff, POSProduct, POSCategory, POSModifier, POSCartItem, POSSale, POSCustomer,
   POSSettings, POSClockEntry, POSCartModifier, getOfferPrice, cartLineTotal, isOfferActive,
 } from "@/types/pos";
 import { useApp } from "@/context/AppContext";
 import { supabase } from "@/lib/supabase";
+import { isCapacitorAndroid } from "@/lib/capacitorBridge";
+import { enqueueSale } from "@/lib/posOutbox";
 
 // Module-scope so the value is stable across renders (used by the idle-logout effect).
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
@@ -1003,10 +1005,27 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     const cashPayment = payments.filter((p) => p.method === "cash").reduce((s, p) => s + p.amount, 0);
     const change = cashTendered !== undefined ? cashTendered - cashPayment : undefined;
 
-    // Build the payload. receiptNo is intentionally omitted — the server
-    // assigns it atomically from pos_receipt_seq so two tills can't collide.
+    // ── Offline-tablet provenance fields (Capacitor Android only) ──────────
+    // We stamp `clientCreatedAt` on every Capacitor sale so admin reports can
+    // tell tablet-rung-up sales from web-rung-up sales at a glance — Phase 1
+    // treats it as an audit field, Phase 1.6 makes it tax-significant for
+    // offline-then-synced rows.
+    //
+    // We deliberately do NOT pre-mint `receiptNo`. The server's
+    // `pos_receipt_seq` default ('R' || nextval) is the canonical allocator
+    // and we want online Capacitor sales to use it just like web sales do —
+    // otherwise every Capacitor sale would carry an OFF-… number even when
+    // synced live. The OFF-… receipt is minted ONLY in the offline-fallback
+    // branch below, when the network POST has actually failed.
+    const onAndroid = isCapacitorAndroid();
+    const clientCreatedAt = onAndroid ? new Date().toISOString() : undefined;
+
+    const saleId = uuid();
+    const saleDate = new Date().toISOString();
+    // Build the payload. On web (`onAndroid = false`) the new offline fields
+    // stay undefined and the existing server allocator runs exactly as before.
     const payload = {
-      id: uuid(),
+      id: saleId,
       items: [...cart],
       subtotal: round2(sub),
       discountAmount: round2(disc),
@@ -1032,8 +1051,11 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       staffName: currentStaff?.name ?? "",
       customerId: assignedCustomer?.id,
       customerName: assignedCustomer?.name,
-      date: new Date().toISOString(),
+      date: saleDate,
       voided: false,
+      // Stamp client time on every Capacitor sale (Phase 1 — opaque
+      // pass-through field). The server keeps `created_at` independently.
+      ...(clientCreatedAt ? { clientCreatedAt } : {}),
     };
 
     let sale: POSSale | null = null;
@@ -1072,6 +1094,57 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (err) {
       console.error("completeSale network error:", err);
+    }
+
+    // ── Offline fallback (Capacitor Android only) ─────────────────────────
+    // The server is unreachable (network error) OR returned a 5xx. Queue the
+    // sale to the local outbox so it can be drained on reconnect, and return
+    // an optimistic POSSale to the caller so the receipt modal can open and
+    // the cashier can hand the receipt to the customer. The outbox drain in
+    // pos/page.tsx re-POSTs every queued sale; the server is idempotent on
+    // payload.id (see /api/pos/sales § "Idempotency pre-check") so a later
+    // online retry is a safe 200/409 no-op.
+    //
+    // 4xx responses (validation, permission denied, stock conflict) are NOT
+    // queued — they carry a clear `serverError` we surface to the cashier
+    // directly. Replay would hit the same gate.
+    if (!sale && onAndroid && !serverError) {
+      // Mint the OFF-… receipt only NOW that we know we're going offline.
+      // Pre-minting would have made every online Capacitor sale carry an
+      // OFF-… number too (the server uses whatever receiptNo arrives in
+      // the payload, overriding pos_receipt_seq's R-… default).
+      const provisionalReceiptNo = `OFF-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 4).toUpperCase()}`;
+      // Re-attach receiptNo to the queued payload so the drain pass sends it
+      // to the server. The optimistic POSSale shown to the cashier carries
+      // the same number so the printed receipt matches the DB row on sync.
+      const offlinePayload = { ...payload, receiptNo: provisionalReceiptNo };
+      const enqueued = await enqueueSale(offlinePayload);
+      if (enqueued) {
+        sale = {
+          id:             saleId,
+          receiptNo:      provisionalReceiptNo,
+          items:          payload.items,
+          subtotal:       payload.subtotal,
+          discountAmount: payload.discountAmount,
+          discountNote:   payload.discountNote || undefined,
+          taxAmount:      payload.taxAmount,
+          taxRate:        payload.taxRate,
+          taxInclusive:   payload.taxInclusive,
+          tipAmount:      payload.tipAmount,
+          serviceFeeAmount: payload.serviceFeeAmount,
+          total:          payload.total,
+          paymentMethod:  payload.paymentMethod,
+          payments:       payload.payments,
+          cashTendered:   payload.cashTendered,
+          changeGiven:    payload.changeGiven,
+          staffId:        payload.staffId,
+          staffName:      payload.staffName,
+          customerId:     payload.customerId,
+          customerName:   payload.customerName,
+          date:           payload.date,
+          voided:         false,
+        };
+      }
     }
 
     if (!sale) return { sale: null, error: serverError };

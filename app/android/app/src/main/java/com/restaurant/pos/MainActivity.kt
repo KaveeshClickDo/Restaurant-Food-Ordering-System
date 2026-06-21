@@ -13,6 +13,17 @@ import com.restaurant.pos.plugins.TcpPrinterPlugin
  *  - UsbPrinterPlugin        → window.Capacitor.Plugins.UsbPrinter
  *  - TcpPrinterPlugin        → window.Capacitor.Plugins.TcpPrinter
  *
+ * @capacitor-community/sqlite is auto-registered by `npx cap sync android`
+ * (it ships as a normal Capacitor plugin discovered from package.json) so it
+ * does NOT need a registerPlugin() call here.
+ *
+ * Background sync workers (OutboxSyncWorker, MenuSyncWorker) are intentionally
+ * NOT scheduled in Phase 1. The JS-side drain in pos/page.tsx pushes the
+ * outbox whenever the WebView is open AND connectivity is restored — this
+ * covers the dominant "cashier reopens the app and reconnects" case. Closed-
+ * app background sync is deferred to a later phase per
+ * docs/pos-offline/09-decisions.md.
+ *
  * After registering, open Android Studio → Build → Generate Signed APK.
  */
 class MainActivity : BridgeActivity() {
@@ -25,5 +36,14 @@ class MainActivity : BridgeActivity() {
         registerPlugin(TcpPrinterPlugin::class.java)
 
         super.onCreate(savedInstanceState)
+
+        // Enable wide viewport so the WebView respects <meta name="viewport"
+        // content="width=NNNN"> directives. Android WebView defaults these to
+        // false, which means our server-side `width=1920` for the POS layout
+        // would be silently ignored — the WebView would always render at
+        // device-width regardless. With both flags set to true, the page
+        // renders at the CSS-pixel canvas we asked for and scales to fit.
+        bridge.webView.settings.useWideViewPort = true
+        bridge.webView.settings.loadWithOverviewMode = true
     }
 }

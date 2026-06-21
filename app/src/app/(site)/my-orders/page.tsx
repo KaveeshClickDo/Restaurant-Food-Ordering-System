@@ -1,5 +1,6 @@
 "use client";
 
+import { uuid } from "@/lib/uuid";
 import { useState, useEffect } from "react";
 import { useApp } from "@/context/AppContext";
 import { useRouter } from "next/navigation";
@@ -705,7 +706,7 @@ export default function MyOrdersPage() {
 
             // Add to Cart with ALL data
             addToCart({
-                id: crypto.randomUUID(),
+                id: uuid(),
                 menuItemId: menuItem.id,
                 name: menuItem.name,
                 price: currentPrice,

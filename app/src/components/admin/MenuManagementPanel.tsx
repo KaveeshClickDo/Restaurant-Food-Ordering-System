@@ -1,5 +1,6 @@
 "use client";
 
+import { uuid } from "@/lib/uuid";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { Category, MealPeriod, MenuItem, Variation, AddOn, MenuItemOffer } from "@/types";
@@ -54,7 +55,7 @@ const DIETARY_COLORS: Record<string, string> = {
 
 function blankItem(categoryId: string): MenuItem {
   return {
-    id: crypto.randomUUID(),
+    id: uuid(),
     categoryId,
     name: "",
     description: "",
@@ -69,15 +70,15 @@ function blankItem(categoryId: string): MenuItem {
 }
 
 function blankCategory(parentId?: string): Category {
-  return { id: crypto.randomUUID(), name: "", emoji: "🍽️", parentId: parentId ?? null };
+  return { id: uuid(), name: "", emoji: "🍽️", parentId: parentId ?? null };
 }
 
 function blankVariation(): Variation {
-  return { id: crypto.randomUUID(), name: "", required: true, options: [{ id: crypto.randomUUID(), label: "", price: 0 }] };
+  return { id: uuid(), name: "", required: true, options: [{ id: uuid(), label: "", price: 0 }] };
 }
 
 function blankAddOn(): AddOn {
-  return { id: crypto.randomUUID(), name: "", price: 0 };
+  return { id: uuid(), name: "", price: 0 };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1170,7 +1171,7 @@ function ItemModal({
   function addVariationOption(varIdx: number) {
     setForm((f) => {
       const v = [...(f.variations ?? [])];
-      v[varIdx] = { ...v[varIdx], options: [...v[varIdx].options, { id: crypto.randomUUID(), label: "", price: 0 }] };
+      v[varIdx] = { ...v[varIdx], options: [...v[varIdx].options, { id: uuid(), label: "", price: 0 }] };
       return { ...f, variations: v };
     });
   }

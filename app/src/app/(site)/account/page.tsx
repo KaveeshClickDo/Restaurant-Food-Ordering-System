@@ -1,5 +1,6 @@
 "use client";
 
+import { uuid } from "@/lib/uuid";
 import { Suspense, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -837,7 +838,7 @@ function AddressesTab() {
       updateSavedAddress(user.id, { ...existing, ...form, lat, lng });
     } else {
       addSavedAddress(user.id, {
-        id: crypto.randomUUID(),
+        id: uuid(),
         createdAt: new Date().toISOString(),
         isDefault: addresses.length === 0,
         ...form,
@@ -2097,7 +2098,7 @@ function AccountPageContent() {
 
       // Add to Cart with ALL data
       addToCart({
-        id: crypto.randomUUID(),
+        id: uuid(),
         menuItemId: menuItem.id,
         name: menuItem.name,
         price: currentPrice,
