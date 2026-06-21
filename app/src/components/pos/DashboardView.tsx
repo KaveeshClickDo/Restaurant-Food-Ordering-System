@@ -18,6 +18,7 @@ import {
 import VoidSaleModal from "./dashboard/VoidSaleModal";
 import DineInActionModal, { type DineInAction } from "./dashboard/DineInActionModal";
 import ReceiptModal from "./ReceiptModal";
+import DineInReceiptModal from "../waiter/ReceiptModal";
 
 // Compact tender label for the Recent Transactions rows (POS + dine-in). A gift
 // card is a separate instrument layered on the cash/card/split remainder, so we
@@ -51,6 +52,8 @@ export default function DashboardView() {
   const [voidTargetSale, setVoidTargetSale] = useState<POSSale | null>(null);
   // Receipt currently open from a POS transaction row (overview list / reports table).
   const [viewingPosReceipt, setViewingPosReceipt] = useState<POSSale | null>(null);
+  // Receipt currently open from a dine-in order row (overview list / reports table).
+  const [viewingDineInReceipt, setViewingDineInReceipt] = useState<DineInOrder | null>(null);
 
   // Dine-in void / refund
   const [diAction, setDiAction] = useState<DineInAction | null>(null);
@@ -578,23 +581,23 @@ export default function DashboardView() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h2 className="text-white font-bold text-xl">Sales Dashboard</h2>
-            {dashTab !== "reports" && (
-              <p className="text-slate-400 text-sm mt-1">
-                {dashTab === "overview" ? (
-                  `Today · ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}`
-                ) : (
-                  (() => {
-                    const settled = dineInOrders.filter((o) => o.status === "delivered" && dineInRefundState(o) === null).length;
-                    const open    = dineInOrders.filter((o) => o.status !== "delivered" && o.status !== "cancelled").length;
-                    const refunded = dineInOrders.filter((o) => dineInRefundState(o) !== null).length;
-                    const revenue = dineInOrders
-                      .filter((o) => o.status === "delivered")
-                      .reduce((s, o) => s + (o.total - (o.refundedAmount ?? 0)), 0);
-                    return `${open} open · ${settled} settled · ${fmt(revenue, sym)} revenue${refunded > 0 ? ` · ${refunded} refunded` : ""}`;
-                  })()
-                )}
-              </p>
-            )}
+            <p className="text-slate-400 text-sm mt-1">
+              {dashTab === "overview" ? (
+                `Today · ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}`
+              ) : dashTab === "dine-in" ? (
+                (() => {
+                  const settled = dineInOrders.filter((o) => o.status === "delivered" && dineInRefundState(o) === null).length;
+                  const open    = dineInOrders.filter((o) => o.status !== "delivered" && o.status !== "cancelled").length;
+                  const refunded = dineInOrders.filter((o) => dineInRefundState(o) !== null).length;
+                  const revenue = dineInOrders
+                    .filter((o) => o.status === "delivered")
+                    .reduce((s, o) => s + (o.total - (o.refundedAmount ?? 0)), 0);
+                  return `${open} open · ${settled} settled · ${fmt(revenue, sym)} revenue${refunded > 0 ? ` · ${refunded} refunded` : ""}`;
+                })()
+              ) : (
+                `${rMoneyBearing.length} transactions · ${fmt(rRevenue, sym)} revenue`
+              )}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {dashTab === "reports" && (
@@ -921,6 +924,9 @@ export default function DashboardView() {
                                 )}
                                 <p className={`text-[10px] ${labelCls}`}>{label}</p>
                               </div>
+                              <button onClick={() => setViewingDineInReceipt(order)} className="text-slate-500 hover:text-orange-400 transition-colors flex-shrink-0 self-center" title="View receipt">
+                                <Receipt size={14} />
+                              </button>
                             </div>
                           </div>
                         );
@@ -1544,6 +1550,7 @@ export default function DashboardView() {
                                 <th className="px-5 py-3 text-xs font-semibold text-slate-400">Items</th>
                                 <th className="px-5 py-3 text-xs font-semibold text-slate-400">Status</th>
                                 <th className="px-5 py-3 text-xs font-semibold text-slate-400 text-right">Total</th>
+                                <th className="px-5 py-3 text-xs font-semibold text-slate-400" />
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-700/40">
@@ -1586,6 +1593,11 @@ export default function DashboardView() {
                                       </div>
                                     )}
                                   </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <button onClick={() => setViewingDineInReceipt(o)} title="View receipt" className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors ml-auto">
+                                      <Receipt size={13} />
+                                    </button>
+                                  </td>
                                 </tr>
                                 );
                               })}
@@ -1598,6 +1610,7 @@ export default function DashboardView() {
                                 <td className="px-5 py-3 text-right font-bold text-violet-300">
                                   {fmt(diSettled.reduce((s, o) => s + o.total, 0), sym)}
                                 </td>
+                                <td />
                               </tr>
                             </tfoot>
                           </table>
@@ -1867,6 +1880,30 @@ export default function DashboardView() {
       {/* POS transaction receipt viewer */}
       {viewingPosReceipt && (
         <ReceiptModal sale={viewingPosReceipt} onClose={() => setViewingPosReceipt(null)} />
+      )}
+
+      {/* Dine-in receipt viewer */}
+      {viewingDineInReceipt && (
+        <DineInReceiptModal
+          receipt={{
+            tableLabel: viewingDineInReceipt.tableLabel,
+            waiterName: viewingDineInReceipt.staffName,
+            date: viewingDineInReceipt.date,
+            items: viewingDineInReceipt.items,
+            subtotal: viewingDineInReceipt.items.reduce((s, it) => s + it.price * it.qty, 0),
+            discountAmount: viewingDineInReceipt.discountAmount,
+            discountNote: viewingDineInReceipt.discountNote,
+            vatAmount: viewingDineInReceipt.vatAmount,
+            vatInclusive: viewingDineInReceipt.vatInclusive,
+            tipAmount: viewingDineInReceipt.tipAmount,
+            serviceFeeAmount: viewingDineInReceipt.serviceFeeAmount,
+            giftCardUsed: viewingDineInReceipt.giftCardUsed,
+            total: viewingDineInReceipt.total,
+            orderIds: [viewingDineInReceipt.id],
+            paymentMethod: viewingDineInReceipt.paymentMethod as "cash" | "card" | "gift_card" | "pending",
+          }}
+          onClose={() => setViewingDineInReceipt(null)}
+        />
       )}
     </div>
   );
