@@ -769,12 +769,21 @@ export interface CustomerPosSale {
   date: string;              // ISO
   staffName?: string;
   tableNumber?: number;
-  items: { name: string; qty: number; price: number }[];
+  items: OrderLine[];
   total: number;
   paymentMethod?: string;
   voided?: boolean;
   voidReason?: string;
   refundAmount?: number;
+  giftCardUsed?: number;
+  discountAmount?: number;  
+  discountNote?: string;    
+  tipAmount?: number;    
+  changeGiven?: number;   
+  serviceFee?: number;      
+  vatAmount?: number;       
+  vatInclusive?: boolean;  
+  staffId?: string;    
 }
 
 // ─── Gift cards (code-based / transferable) ──────────────────────────────────
