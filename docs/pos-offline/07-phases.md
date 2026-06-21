@@ -50,7 +50,7 @@ without internet, queue them locally, and sync when reconnected.
 - `app/src/app/api/pos/sales/route.ts` — accept optional `receiptNo` + `terminalId` + `clientCreatedAt`. Server-side validation that the prefix matches the calling session's terminal. **The schema for these is finalised in Phase 2; in Phase 1 the route accepts them as opaque pass-throughs only when present.**
 
 **Verified already in place (no edit needed):**
-- `PaymentModal.tsx` already accepts `isOffline` (line 12) AND already disables Card / Split with "Requires internet" copy when `isOffline = true` (lines 193-212). Phase 1 changes nothing here.
+- `PaymentModal.tsx` already accepts `isOffline` (line 12). Card / Split stay **enabled** offline (the standalone terminal authorises independently); only the gift card input is disabled and the banner shows "confirm card on terminal before tapping Payment Received." See [09-decisions.md § 2026-05-29](./09-decisions.md). Phase 1 changes nothing here.
 - `SaleView.tsx` already passes `isOffline` through to PaymentModal (line 96). No change.
 - `pos/page.tsx` already wires `useConnectivity()` and passes `isOffline={!isOnline}` to SaleView (lines 65, 215). The existing offline banner (lines 197-209) stays; we add a sibling "pending sync" banner.
 - The 7-tab nav, permission gating, `?tab=` deep-linking, dining-tables polling — all stay untouched.
@@ -78,8 +78,9 @@ tablet (Android 8.0+, no printer needed).
 3. ✅ With airplane mode on the tablet, cashier can still log in
    (cached session cookie carries over from the prior online session
    — Phase 4 adds first-time-offline login), add items to cart, and
-   complete a **cash** sale. Card / Split buttons are disabled with a
-   clear "Requires internet" label.
+   complete a **cash or card** sale. Card / Split stay enabled (the
+   standalone terminal authorises on its own); only gift card is
+   disabled with a clear "unavailable offline" label.
 4. ✅ Offline-completed sale appears in the on-screen sales history
    immediately, marked with a "Pending sync" badge.
 5. ✅ Bottom of `/pos` shows "1 sale pending sync" indicator. Indicator

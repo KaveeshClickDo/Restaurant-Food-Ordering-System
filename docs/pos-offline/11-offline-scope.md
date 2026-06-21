@@ -239,8 +239,12 @@ banners). The top-bar cloud icon is part of Phase 1.5.
 
 ## Scope statements summary
 
-- **Phase 1 offline mode is for cash sales only.** Card, split-with-card,
-  and gift card are blocked offline by deliberate design.
+- **Phase 1 offline mode supports cash AND card sales.** Card and
+  split-with-card are allowed offline (the standalone card terminal
+  authorises independently; the POS only records the result — see
+  [09-decisions.md § 2026-05-29](./09-decisions.md) and the "Why card
+  payments ARE allowed offline" note above). Only gift card is blocked
+  offline, because it needs a live balance lookup.
 - **Receipt printing offline requires Phase 6** (native plugins
   verified on hardware). Until then, offline sales display on screen
   and email on sync.

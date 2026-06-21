@@ -174,7 +174,11 @@ dedicated docs that go deeper:
 Read those three before designing any feature that touches offline
 state. Headline scope, for quick reference:
 
-**Cash sales work offline. Card and gift card payments do not.**
+**Cash AND card sales work offline; gift card payments do not.** Card
+works because the physical card terminal is standalone — it authorises
+on its own connection and the POS only records the result (see
+[09-decisions.md § 2026-05-29](./09-decisions.md)). Gift cards stay
+blocked offline because they need a live `gift_cards` balance lookup.
 Receipt printing offline depends on Phase 6 hardware verification.
 Reports during a partial-sync state show a clear "may be incomplete"
 banner. Hard time-bound: tablet refuses new sales beyond 7 days
