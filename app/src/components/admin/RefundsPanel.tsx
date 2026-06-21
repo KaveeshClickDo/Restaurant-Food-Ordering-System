@@ -281,12 +281,10 @@ export function RefundModal({
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
   const refundedAmount = order.refundedAmount ?? 0;
-  // Refundable money = what the customer actually paid. Online orders store the
-  // NET total (gift card already excluded); dine-in stores GROSS, so net the
-  // gift card out. The gift-card-covered portion is never refundable.
-  const moneyPaid = order.fulfillment === "dine-in"
-    ? Math.max(0, order.total - (order.giftCardUsed ?? 0))
-    : order.total;
+  // Refundable money = what the customer actually paid. Every channel stores the
+  // NET total (gift card already excluded — it's prepaid, never refundable), so
+  // `total` is the refundable cash/card amount.
+  const moneyPaid = order.total;
   const maxRefundable = Math.max(0, moneyPaid - refundedAmount);
 
   const [amount, setAmount]     = useState(maxRefundable.toFixed(2));

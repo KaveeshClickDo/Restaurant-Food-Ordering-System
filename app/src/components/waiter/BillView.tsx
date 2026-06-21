@@ -225,7 +225,9 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
       vatRate: vatAmount > 0 ? appSettings.taxSettings?.rate : undefined,
       tipAmount: tipAmount > 0 ? tipAmount : undefined,
       serviceFeeAmount: serviceFeeAmount > 0 ? serviceFeeAmount : undefined,
-      total,
+      // Store NET money paid (gift card already deducted); the receipt re-adds
+      // gift_card_used to show the gross goods line. Avoids double-counting.
+      total: Math.max(0, round2(total - gcAmount)),
       giftCardUsed: gcAmount > 0 ? gcAmount : undefined,
       paymentMethod: method,
       orderIds: billOrders.map((o) => o.id),
@@ -280,7 +282,8 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
       tipAmount: billTip > 0 ? billTip : undefined,
       serviceFeeAmount: billServiceFee > 0 ? billServiceFee : undefined,
       giftCardUsed: giftCardApplied > 0 ? giftCardApplied : undefined,
-      total: billTotal,
+      // NET money paid; the receipt re-adds gift_card_used for the gross line.
+      total: dueAfterGiftCard,
       paymentMethod: "pending",
       orderIds: billOrders.map(o => o.id),
     };
@@ -382,8 +385,20 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                     )}
                     <div className="flex items-center justify-between pt-1">
                       <span className="text-slate-300 text-sm font-semibold">Total</span>
-                      <span className="text-white text-lg sm:text-xl md:text-2xl font-black">{fmtCur(billTotal, sym)}</span>
+                      <span className={`text-lg sm:text-xl md:text-2xl font-black ${giftCardApplied > 0 ? "text-slate-400" : "text-white"}`}>{fmtCur(billTotal, sym)}</span>
                     </div>
+                    {giftCardApplied > 0 && (
+                      <>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-purple-300 flex items-center gap-1"><Gift size={13} className="flex-shrink-0" /> Gift Card</span>
+                          <span className="text-purple-300">−{fmtCur(giftCardApplied, sym)}</span>
+                        </div>
+                        <div className="flex items-center justify-between pt-0.5">
+                          <span className="text-slate-300 text-sm font-semibold">{dueAfterGiftCard <= 0 ? "Paid by gift card" : "Due"}</span>
+                          <span className="text-emerald-300 text-lg sm:text-xl md:text-2xl font-black">{fmtCur(dueAfterGiftCard, sym)}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 

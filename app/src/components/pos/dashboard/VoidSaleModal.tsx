@@ -8,11 +8,11 @@ import { fmt } from "../_utils";
 
 export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClose: () => void }) {
   const { settings, voidSale } = usePOS();
-  // A gift card is prepaid money, so its portion is non-refundable. A refund can
-  // only return what was actually paid by cash/card: moneyPaid = total − gift
-  // card used. Default + cap the refund to that.
+  // A gift card is prepaid money, so its portion is non-refundable. `total` is
+  // stored net of the gift card, so it IS the refundable cash/card amount.
+  // giftUsed drives the "non-refundable" note shown to the cashier below.
   const giftUsed  = sale.giftCardUsed ?? 0;
-  const moneyPaid = Math.max(0, sale.total - giftUsed);
+  const moneyPaid = Math.max(0, sale.total);
   const [voidReason, setVoidReason]   = useState("");
   const [refundMethod, setRefundMethod] = useState<"cash" | "card" | "none">(sale.paymentMethod === "card" ? "card" : "cash");
   const [refundAmount, setRefundAmount] = useState(moneyPaid.toFixed(2));

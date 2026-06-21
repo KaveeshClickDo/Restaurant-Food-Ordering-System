@@ -24,7 +24,6 @@ import { paypalFetch, paypalIsConfigured, toPaypalAmount } from "@/lib/paypalSer
 import { parseBody }                            from "@/lib/apiValidation";
 import { AdminRefundSchema }                    from "@/lib/schemas/waiter";
 import { restoreStock, type StockItem }         from "@/lib/stockMutation";
-import { moneyPaidGross }                       from "@/lib/giftCardMoney";
 import { deductLoyaltyPoints, refundRedeemedPoints } from "@/lib/loyaltyUtils";
 import { sendOrderStatusEmail }                 from "@/lib/emailServer";
 
@@ -60,12 +59,10 @@ export async function POST(
   const round2 = (n: number) => parseFloat(n.toFixed(2));
   const orderTotal = Number(orderRow.total);
   // Refundable money = what the customer actually paid in cash / card / gateway.
-  // Online orders store the NET total (gift card already excluded); dine-in/POS
-  // store GROSS, so net the gift card out. The gift-card-covered portion is
-  // never refundable — a gift card is prepaid money (see the gift card model).
-  const moneyCap = orderRow.fulfillment === "dine-in"
-    ? moneyPaidGross(orderTotal, orderRow.gift_card_used)
-    : orderTotal;
+  // Every channel stores the NET total (gift card already excluded), so that IS
+  // the refundable cap. The gift-card-covered portion is never refundable — a
+  // gift card is prepaid money (see the gift card model).
+  const moneyCap = orderTotal;
   const priorRefunds = Array.isArray(orderRow.refunds) ? orderRow.refunds.length : 0;
   const submittedRefunds = body.refunds ?? [];
   if (submittedRefunds.length < priorRefunds) {

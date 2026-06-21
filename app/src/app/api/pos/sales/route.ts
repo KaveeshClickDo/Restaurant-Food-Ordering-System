@@ -260,6 +260,12 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // Net total = real money collected = gross bill − gift card. We STORE the net
+  // (mirroring online orders) so every reader/report uses `total` directly and
+  // never has to subtract the gift card again. The gross goods value stays
+  // recoverable as total + gift_card_used (used by receipts).
+  const netTotal = Math.max(0, Math.round((totalServer - giftCardUsed) * 100) / 100);
+
   const row = {
     id:              body.id,
     date:            body.date ?? new Date().toISOString(),
@@ -277,7 +283,7 @@ export async function POST(req: NextRequest) {
     tax_inclusive:   taxInclusive,
     tip_amount:      tipAmount,
     service_fee_amount: serviceFeeAmount,
-    total:           totalServer,
+    total:           netTotal,
     payment_method:  body.paymentMethod  ?? "cash",
     payments:        body.payments       ?? [],
     cash_tendered:   body.cashTendered   ?? null,

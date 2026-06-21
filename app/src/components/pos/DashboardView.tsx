@@ -11,13 +11,14 @@ import {
 } from "lucide-react";
 import { fmt, fmtPct, fmtDate, fmtTime, relTime } from "./_utils";
 import { buildDineInReceiptHtml, dineInRefundState, type DineInOrder } from "./_receipts";
-import { moneyPaidGross } from "@/lib/giftCardMoney";
 import { parseTableLabelFromNote } from "@/lib/tableLabel";
 import {
   type POSPeriod, POS_PERIODS, getPOSDateRange, posExportCSV,
 } from "./dashboard/_helpers";
 import VoidSaleModal from "./dashboard/VoidSaleModal";
 import DineInActionModal, { type DineInAction } from "./dashboard/DineInActionModal";
+import ReceiptModal from "./ReceiptModal";
+import DineInReceiptModal from "../waiter/ReceiptModal";
 
 // Compact tender label for the Recent Transactions rows (POS + dine-in). A gift
 // card is a separate instrument layered on the cash/card/split remainder, so we
@@ -49,6 +50,10 @@ export default function DashboardView() {
 
   // Void + refund modal (POS sales)
   const [voidTargetSale, setVoidTargetSale] = useState<POSSale | null>(null);
+  // Receipt currently open from a POS transaction row (overview list / reports table).
+  const [viewingPosReceipt, setViewingPosReceipt] = useState<POSSale | null>(null);
+  // Receipt currently open from a dine-in order row (overview list / reports table).
+  const [viewingDineInReceipt, setViewingDineInReceipt] = useState<DineInOrder | null>(null);
 
   // Dine-in void / refund
   const [diAction, setDiAction] = useState<DineInAction | null>(null);
@@ -229,7 +234,7 @@ export default function DashboardView() {
     if (new Date(s.date).toDateString() !== today) return false;
     if (!s.voided) return true;
     // Voided but money (partly) kept — no-refund = full, partial = retained slice.
-    return moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0) > 0;
+    return s.total - (s.refundAmount ?? 0) > 0;
   });
   // Fully-kept slice — tips/service fees on a refunded sale went back with the
   // refund, so only never-voided + voided-with-no-refund rows feed those KPIs.
@@ -241,11 +246,11 @@ export default function DashboardView() {
   // Revenue = money paid (gift card netted out) − refund. A gift card is
   // prepaid money, so its redeemed portion isn't revenue at spend time.
   const posRevenue = todaySales.reduce(
-    (sum, s) => sum + Math.max(0, moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0)),
+    (sum, s) => sum + Math.max(0, s.total - (s.refundAmount ?? 0)),
     0,
   );
   const diRevToday = todayDineInSettled.reduce(
-    (sum, o) => sum + Math.max(0, moneyPaidGross(o.total, o.giftCardUsed) - (o.refundedAmount ?? 0)),
+    (sum, o) => sum + Math.max(0, o.total - (o.refundedAmount ?? 0)),
     0,
   );
   const totalRevenue = posRevenue + diRevToday;
@@ -299,13 +304,13 @@ export default function DashboardView() {
     for (const s of sales) {
       const i = byKey.get(new Date(s.date).toDateString());
       if (i === undefined) continue;
-      days[i].pos += Math.max(0, moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0));
+      days[i].pos += Math.max(0, s.total - (s.refundAmount ?? 0));
     }
     for (const o of weekDineIn) {
       if (o.status !== "delivered") continue;
       const i = byKey.get(new Date(o.date).toDateString());
       if (i === undefined) continue;
-      days[i].dineIn += Math.max(0, moneyPaidGross(o.total, o.giftCardUsed) - (o.refundedAmount ?? 0));
+      days[i].dineIn += Math.max(0, o.total - (o.refundedAmount ?? 0));
     }
     return days.map((d) => ({ ...d, total: d.pos + d.dineIn }));
   })();
@@ -403,12 +408,12 @@ export default function DashboardView() {
   // Revenue-bearing = `rFiltered` PLUS partially-refunded voids (retained slice
   // is real income). Fully-refunded voids net to £0 via rSaleNet and drop out.
   const rMoneyBearing = useMemo(
-    () => inRange.filter((s) => !s.voided || moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0) > 0),
+    () => inRange.filter((s) => !s.voided || s.total - (s.refundAmount ?? 0) > 0),
     [inRange],
   );
   // useCallback so it's reference-stable and safe to use in chart useMemo deps.
   const rSaleNet = useCallback(
-    (s: POSSale) => Math.max(0, moneyPaidGross(s.total, s.giftCardUsed) - (s.refundAmount ?? 0)),
+    (s: POSSale) => Math.max(0, s.total - (s.refundAmount ?? 0)),
     [],
   );
   // KPIs — revenue is money paid (gift card netted out) − refund, so a partial
@@ -465,7 +470,7 @@ export default function DashboardView() {
   // so a partial refund reduces revenue by the amount returned, not the whole bill.
   const diMoneyBearing = [...diSettled, ...diRefundedOrders];
   const diRevenue = diMoneyBearing.reduce(
-    (s, o) => s + Math.max(0, moneyPaidGross(o.total, o.giftCardUsed) - (o.refundedAmount ?? 0)),
+    (s, o) => s + Math.max(0, o.total - (o.refundedAmount ?? 0)),
     0,
   );
   const diAvgOrder = diMoneyBearing.length > 0 ? diRevenue / diMoneyBearing.length : 0;
@@ -496,12 +501,17 @@ export default function DashboardView() {
   const combinedTips        = rTips + diTips;
   const combinedDiscounts   = rDiscounts + diDiscounts;
   const combinedServiceFees = rServiceFees + diServiceFees;
+  // Gift cards redeemed across settled POS + dine-in — money taken off bills by
+  // gift cards. NOT revenue: that income was booked when the card was sold.
+  const giftCardRedeemed =
+    rFiltered.reduce((s, x) => s + (x.giftCardUsed ?? 0), 0) +
+    diSettled.reduce((s, o) => s + (o.giftCardUsed ?? 0), 0);
 
   // ── Reports charts + payment mix — POS + dine-in combined ─────────────────
   // Both sides net out gift card + refund (rSaleNet / diSaleNet) so the bars and
   // the payment split reconcile with the Combined Revenue KPI. Computed after the
   // dine-in stats above; inline (not memoised) like the other dine-in reductions.
-  const diSaleNet = (o: DineInOrder) => Math.max(0, moneyPaidGross(o.total, o.giftCardUsed) - (o.refundedAmount ?? 0));
+  const diSaleNet = (o: DineInOrder) => Math.max(0, o.total - (o.refundedAmount ?? 0));
   // Daily revenue, split POS vs dine-in for a stacked bar.
   const dailyBuckets = (() => {
     const map = new Map<string, { label: string; pos: number; dineIn: number }>();
@@ -571,23 +581,23 @@ export default function DashboardView() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h2 className="text-white font-bold text-xl">Sales Dashboard</h2>
-            {dashTab !== "reports" && (
-              <p className="text-slate-400 text-sm mt-1">
-                {dashTab === "overview" ? (
-                  `Today · ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}`
-                ) : (
-                  (() => {
-                    const settled = dineInOrders.filter((o) => o.status === "delivered" && dineInRefundState(o) === null).length;
-                    const open    = dineInOrders.filter((o) => o.status !== "delivered" && o.status !== "cancelled").length;
-                    const refunded = dineInOrders.filter((o) => dineInRefundState(o) !== null).length;
-                    const revenue = dineInOrders
-                      .filter((o) => o.status === "delivered")
-                      .reduce((s, o) => s + (o.total - (o.refundedAmount ?? 0)), 0);
-                    return `${open} open · ${settled} settled · ${fmt(revenue, sym)} revenue${refunded > 0 ? ` · ${refunded} refunded` : ""}`;
-                  })()
-                )}
-              </p>
-            )}
+            <p className="text-slate-400 text-sm mt-1">
+              {dashTab === "overview" ? (
+                `Today · ${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}`
+              ) : dashTab === "dine-in" ? (
+                (() => {
+                  const settled = dineInOrders.filter((o) => o.status === "delivered" && dineInRefundState(o) === null).length;
+                  const open    = dineInOrders.filter((o) => o.status !== "delivered" && o.status !== "cancelled").length;
+                  const refunded = dineInOrders.filter((o) => dineInRefundState(o) !== null).length;
+                  const revenue = dineInOrders
+                    .filter((o) => o.status === "delivered")
+                    .reduce((s, o) => s + (o.total - (o.refundedAmount ?? 0)), 0);
+                  return `${open} open · ${settled} settled · ${fmt(revenue, sym)} revenue${refunded > 0 ? ` · ${refunded} refunded` : ""}`;
+                })()
+              ) : (
+                `${rMoneyBearing.length} transactions · ${fmt(rRevenue, sym)} revenue`
+              )}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {dashTab === "reports" && (
@@ -818,9 +828,19 @@ export default function DashboardView() {
                               </div>
                             </div>
                             <div className="flex gap-5 ml-8">
-                              <p className={`font-bold text-sm flex-shrink-0 ${sale.voided ? "text-red-400 line-through" : "text-white"}`}>
-                                {fmt(sale.total, sym)}
-                              </p>
+                              <div className="text-right flex-shrink-0">
+                                <p className={`font-bold text-sm ${sale.voided ? "text-red-400 line-through" : "text-white"}`}>
+                                  {fmt(sale.total, sym)}
+                                </p>
+                                {(sale.giftCardUsed ?? 0) > 0 && (
+                                  <p className="text-[10px] text-purple-300 flex items-center gap-0.5 justify-end">
+                                    <Gift size={9} className="flex-shrink-0" /> −{fmt(sale.giftCardUsed ?? 0, sym)}
+                                  </p>
+                                )}
+                              </div>
+                              <button onClick={() => setViewingPosReceipt(sale)} className="text-slate-500 hover:text-orange-400 transition-colors flex-shrink-0" title="View receipt">
+                                <Receipt size={14} />
+                              </button>
                               {!sale.voided && currentStaff?.permissions.canVoidSale && (
                                 <button onClick={() => openVoidModal(sale.id)} className="text-slate-500 hover:text-red-400 transition-colors flex-shrink-0" title="Void sale">
                                   <Trash2 size={14} />
@@ -897,8 +917,16 @@ export default function DashboardView() {
                                 <p className={`font-bold text-sm ${isRefunded || isCancelled ? "text-amber-400 line-through opacity-80" : "text-white"}`}>
                                   {fmt(order.total, sym)}
                                 </p>
+                                {(order.giftCardUsed ?? 0) > 0 && (
+                                  <p className="text-[10px] text-purple-300 flex items-center gap-0.5 justify-end">
+                                    <Gift size={9} className="flex-shrink-0" /> −{fmt(order.giftCardUsed ?? 0, sym)}
+                                  </p>
+                                )}
                                 <p className={`text-[10px] ${labelCls}`}>{label}</p>
                               </div>
+                              <button onClick={() => setViewingDineInReceipt(order)} className="text-slate-500 hover:text-orange-400 transition-colors flex-shrink-0 self-center" title="View receipt">
+                                <Receipt size={14} />
+                              </button>
                             </div>
                           </div>
                         );
@@ -973,6 +1001,7 @@ export default function DashboardView() {
                       { label: "Tips", value: fmt(combinedTips, sym), sub: "POS + dine-in", icon: BadgeDollarSign, color: "text-pink-400", bg: "bg-pink-500/10" },
                       { label: "Discounts", value: fmt(combinedDiscounts, sym), sub: "reductions applied", icon: Tag, color: "text-red-400", bg: "bg-red-500/10" },
                       { label: "Service Fees", value: fmt(combinedServiceFees, sym), sub: "POS + dine-in", icon: DollarSign, color: "text-blue-400", bg: "bg-blue-500/10" },
+                      { label: "Gift Cards Redeemed", value: fmt(giftCardRedeemed, sym), sub: "settled · not revenue", icon: Gift, color: "text-purple-300", bg: "bg-purple-500/10" },
                     ].map((card) => (
                       <div key={card.label} className="bg-slate-800 border border-slate-700 rounded-2xl p-3 sm:p-4">
                         <div className={`w-9 h-9 ${card.bg} rounded-xl flex items-center justify-center mb-2.5`}>
@@ -1404,14 +1433,12 @@ export default function DashboardView() {
                                 onClick={() => toggleSort("total")}>
                                 Total {sortField === "total" ? (sortDir === "desc" ? "↓" : "↑") : ""}
                               </th>
-                              {currentStaff?.permissions.canVoidSale && (
-                                <th className="px-4 py-3 text-xs text-slate-500 font-semibold" />
-                              )}
+                              <th className="px-4 py-3 text-xs text-slate-500 font-semibold" />
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-700/30">
                             {txSorted.length === 0 ? (
-                              <tr><td colSpan={currentStaff?.permissions.canVoidSale ? 7 : 6} className="px-5 py-8 text-center text-slate-500 text-sm">No transactions found</td></tr>
+                              <tr><td colSpan={7} className="px-5 py-8 text-center text-slate-500 text-sm">No transactions found</td></tr>
                             ) : txSorted.map((sale) => {
                               const net = rSaleNet(sale);
                               // Fully refunded = money truly gone → dim + strike. A
@@ -1451,25 +1478,39 @@ export default function DashboardView() {
                                   <span className={`font-semibold ${fullyRefunded ? "text-red-400 line-through" : "text-white"}`}>
                                     {fmt(sale.total, sym)}
                                   </span>
+                                  {(sale.giftCardUsed ?? 0) > 0 && (
+                                    <div className="text-[10px] text-purple-300 mt-0.5 flex items-center gap-0.5 justify-end">
+                                      <Gift size={9} className="flex-shrink-0" /> −{fmt(sale.giftCardUsed ?? 0, sym)}
+                                    </div>
+                                  )}
                                   {sale.voided && net > 0 && (
                                     <div className="text-[10px] text-amber-400 mt-0.5">{fmt(net, sym)} kept</div>
                                   )}
                                 </td>
-                                {currentStaff?.permissions.canVoidSale && (
-                                  <td className="px-4 py-3 text-center">
-                                    {!sale.voided ? (
-                                      <button
-                                        onClick={() => { openVoidModal(sale.id); }}
-                                        title="Void transaction"
-                                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 transition-all"
-                                      >
-                                        <Trash2 size={11} /> Void
-                                      </button>
-                                    ) : (
-                                      <span className="text-slate-600 text-[11px]">Voided</span>
+                                <td className="px-4 py-3 text-center">
+                                  <div className="flex items-center justify-center gap-2">
+                                    <button
+                                      onClick={() => setViewingPosReceipt(sale)}
+                                      title="View receipt"
+                                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-600/40 text-slate-300 hover:bg-slate-600/70 border border-slate-600/40 transition-all"
+                                    >
+                                      <Receipt size={11} /> Receipt
+                                    </button>
+                                    {currentStaff?.permissions.canVoidSale && (
+                                      !sale.voided ? (
+                                        <button
+                                          onClick={() => { openVoidModal(sale.id); }}
+                                          title="Void transaction"
+                                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 transition-all"
+                                        >
+                                          <Trash2 size={11} /> Void
+                                        </button>
+                                      ) : (
+                                        <span className="text-slate-600 text-[11px]">Voided</span>
+                                      )
                                     )}
-                                  </td>
-                                )}
+                                  </div>
+                                </td>
                               </tr>
                               );
                             })}
@@ -1477,7 +1518,7 @@ export default function DashboardView() {
                           {txSorted.length > 0 && (
                             <tfoot>
                               <tr className="bg-slate-900/60 border-t-2 border-slate-600">
-                                <td colSpan={currentStaff?.permissions.canVoidSale ? 6 : 5} className="px-5 py-3 text-xs font-semibold text-slate-400">
+                                <td colSpan={6} className="px-5 py-3 text-xs font-semibold text-slate-400">
                                   Retained income ({txSorted.filter((s) => !s.voided || rSaleNet(s) > 0).length} money-bearing)
                                 </td>
                                 <td className="px-5 py-3 text-right font-bold text-white">
@@ -1509,6 +1550,7 @@ export default function DashboardView() {
                                 <th className="px-5 py-3 text-xs font-semibold text-slate-400">Items</th>
                                 <th className="px-5 py-3 text-xs font-semibold text-slate-400">Status</th>
                                 <th className="px-5 py-3 text-xs font-semibold text-slate-400 text-right">Total</th>
+                                <th className="px-5 py-3 text-xs font-semibold text-slate-400" />
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-700/40">
@@ -1543,7 +1585,19 @@ export default function DashboardView() {
                                   <td className={`px-5 py-3 text-right font-bold ${o.status === "cancelled" ? "text-red-400 line-through opacity-50" :
                                     refundState === "refunded" ? "text-amber-400 line-through opacity-70" :
                                       "text-white"
-                                    }`}>{fmt(o.total, sym)}</td>
+                                    }`}>
+                                    {fmt(o.total, sym)}
+                                    {(o.giftCardUsed ?? 0) > 0 && (
+                                      <div className="text-[10px] font-semibold text-purple-300 mt-0.5 flex items-center gap-0.5 justify-end">
+                                        <Gift size={9} className="flex-shrink-0" /> −{fmt(o.giftCardUsed ?? 0, sym)}
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <button onClick={() => setViewingDineInReceipt(o)} title="View receipt" className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors ml-auto">
+                                      <Receipt size={13} />
+                                    </button>
+                                  </td>
                                 </tr>
                                 );
                               })}
@@ -1556,6 +1610,7 @@ export default function DashboardView() {
                                 <td className="px-5 py-3 text-right font-bold text-violet-300">
                                   {fmt(diSettled.reduce((s, o) => s + o.total, 0), sym)}
                                 </td>
+                                <td />
                               </tr>
                             </tfoot>
                           </table>
@@ -1700,7 +1755,12 @@ export default function DashboardView() {
                                 </p>
                               </div>
                               <div className="text-right">
-                                <p className="text-slate-300 font-bold text-lg sm:text-xl">{settings.currencySymbol}{order.total.toFixed(2)}</p>
+                                <p className="text-slate-300 font-bold text-lg sm:text-xl">{fmt(order.total, sym)}</p>
+                                {(order.giftCardUsed ?? 0) > 0 && (
+                                  <p className="text-[11px] text-purple-300 flex items-center gap-0.5 justify-end mt-0.5">
+                                    <Gift size={10} className="flex-shrink-0" /> −{fmt(order.giftCardUsed ?? 0, sym)} gift card
+                                  </p>
+                                )}
                               </div>
                             </div>
                             <div className="border-t border-slate-700/50 pt-3 mb-4">
@@ -1781,7 +1841,14 @@ export default function DashboardView() {
                                   <span>{new Date(order.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                                 </p>
                               </div>
-                              <p className="text-slate-500 font-bold text-lg sm:text-xl line-through">{sym}{order.total.toFixed(2)}</p>
+                              <div className="text-right">
+                                <p className="text-slate-500 font-bold text-lg sm:text-xl line-through">{fmt(order.total, sym)}</p>
+                                {(order.giftCardUsed ?? 0) > 0 && (
+                                  <p className="text-[11px] text-purple-300/70 flex items-center gap-0.5 justify-end mt-0.5">
+                                    <Gift size={10} className="flex-shrink-0" /> −{fmt(order.giftCardUsed ?? 0, sym)} gift card
+                                  </p>
+                                )}
+                              </div>
                             </div>
                           </div>
                         ))}
@@ -1808,6 +1875,35 @@ export default function DashboardView() {
       {/* Void + Refund modal (POS sale) */}
       {voidTargetSale && (
         <VoidSaleModal sale={voidTargetSale} onClose={() => setVoidTargetSale(null)} />
+      )}
+
+      {/* POS transaction receipt viewer */}
+      {viewingPosReceipt && (
+        <ReceiptModal sale={viewingPosReceipt} onClose={() => setViewingPosReceipt(null)} />
+      )}
+
+      {/* Dine-in receipt viewer */}
+      {viewingDineInReceipt && (
+        <DineInReceiptModal
+          receipt={{
+            tableLabel: viewingDineInReceipt.tableLabel,
+            waiterName: viewingDineInReceipt.staffName,
+            date: viewingDineInReceipt.date,
+            items: viewingDineInReceipt.items,
+            subtotal: viewingDineInReceipt.items.reduce((s, it) => s + it.price * it.qty, 0),
+            discountAmount: viewingDineInReceipt.discountAmount,
+            discountNote: viewingDineInReceipt.discountNote,
+            vatAmount: viewingDineInReceipt.vatAmount,
+            vatInclusive: viewingDineInReceipt.vatInclusive,
+            tipAmount: viewingDineInReceipt.tipAmount,
+            serviceFeeAmount: viewingDineInReceipt.serviceFeeAmount,
+            giftCardUsed: viewingDineInReceipt.giftCardUsed,
+            total: viewingDineInReceipt.total,
+            orderIds: [viewingDineInReceipt.id],
+            paymentMethod: viewingDineInReceipt.paymentMethod as "cash" | "card" | "gift_card" | "pending",
+          }}
+          onClose={() => setViewingDineInReceipt(null)}
+        />
       )}
     </div>
   );
