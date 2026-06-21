@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import { apiBase } from "@/lib/apiBase";
 import { useRouter } from "next/navigation";
 import { uuid } from "@/lib/uuid";
 import {
@@ -277,7 +278,7 @@ function syncMenuToSupabase(products: POSProduct[], categories: POSCategory[]) {
       };
     });
 
-  fetch("/api/pos/menu", {
+  fetch(apiBase() + "/api/pos/menu", {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
     body:    JSON.stringify({ categories: catRows, products: productRows }),
@@ -438,7 +439,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // response. Mutations call the REST endpoints directly and re-fetch.
   const refreshPosStaff = useCallback(async () => {
     try {
-      const res = await fetch("/api/pos/staff");
+      const res = await fetch(apiBase() + "/api/pos/staff");
       if (!res.ok) return;
       const json = await res.json() as { ok: boolean; staff?: POSStaff[] };
       if (json.ok && Array.isArray(json.staff)) setStaff(json.staff);
@@ -451,7 +452,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     name: string; email?: string; role: "admin" | "manager" | "cashier";
     pin: string; hourlyRate?: number; avatarColor?: string;
   }) => {
-    const res = await fetch("/api/pos/staff", {
+    const res = await fetch(apiBase() + "/api/pos/staff", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify(input),
@@ -466,7 +467,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     name?: string; email?: string; role?: "admin" | "manager" | "cashier";
     pin?: string; active?: boolean; hourlyRate?: number; avatarColor?: string;
   }) => {
-    const res = await fetch(`/api/pos/staff/${id}`, {
+    const res = await fetch(`${apiBase()}/api/pos/staff/${id}`, {
       method:  "PATCH",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify(patch),
@@ -478,7 +479,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   }, [refreshPosStaff]);
 
   const deletePosStaff = useCallback(async (id: string) => {
-    const res = await fetch(`/api/pos/staff/${id}`, { method: "DELETE" });
+    const res = await fetch(`${apiBase()}/api/pos/staff/${id}`, { method: "DELETE" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json.ok) return { ok: false, error: json.error ?? "Failed to delete staff" };
     await refreshPosStaff();
@@ -488,7 +489,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // ── Sales — DB-backed (pos_sales table) ──────────────────────────────────
   const fetchSales = useCallback(async () => {
     try {
-      const res = await fetch("/api/pos/sales");
+      const res = await fetch(apiBase() + "/api/pos/sales");
       if (!res.ok) return;
       const json = await res.json() as { ok: boolean; sales?: POSSale[] };
       if (json.ok && Array.isArray(json.sales)) setSales(json.sales);
@@ -498,7 +499,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // ── Clock entries — DB-backed (pos_clock_entries table) ─────────────────
   const fetchClockEntries = useCallback(async () => {
     try {
-      const res = await fetch("/api/pos/clock");
+      const res = await fetch(apiBase() + "/api/pos/clock");
       if (!res.ok) return;
       const json = await res.json() as { ok: boolean; entries?: POSClockEntry[] };
       if (json.ok && Array.isArray(json.entries)) setClockEntries(json.entries);
@@ -511,7 +512,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // lastVisit (computed server-side from orders + pos_sales) stay accurate.
   const fetchCustomers = useCallback(async () => {
     try {
-      const res = await fetch("/api/pos/customers");
+      const res = await fetch(apiBase() + "/api/pos/customers");
       if (!res.ok) return;
       const json = await res.json() as { ok: boolean; customers?: POSCustomer[] };
       if (json.ok && Array.isArray(json.customers)) setCustomers(json.customers);
@@ -523,7 +524,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     tags?: string[]; loyaltyPoints?: number; giftCardBalance?: number;
   }) => {
     try {
-      const res = await fetch("/api/pos/customers", {
+      const res = await fetch(apiBase() + "/api/pos/customers", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(input),
@@ -542,7 +543,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     tags?: string[]; loyaltyPoints?: number; giftCardBalance?: number;
   }) => {
     try {
-      const res = await fetch(`/api/pos/customers/${id}`, {
+      const res = await fetch(`${apiBase()}/api/pos/customers/${id}`, {
         method:  "PATCH",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(patch),
@@ -558,7 +559,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
   const deleteCustomer = useCallback(async (id: string) => {
     try {
-      const res = await fetch(`/api/pos/customers/${id}`, { method: "DELETE" });
+      const res = await fetch(`${apiBase()}/api/pos/customers/${id}`, { method: "DELETE" });
       const json = await res.json().catch(() => ({})) as {
         ok?: boolean;
         error?: string;
@@ -630,7 +631,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // If Supabase is empty we seed it from the current localStorage/seed data so the
   // waiter app immediately has a menu to show.
   useEffect(() => {
-    fetch("/api/pos/menu")
+    fetch(apiBase() + "/api/pos/menu")
       .then((r) => { if (!r.ok) throw new Error(`/api/pos/menu ${r.status}`); return r.json(); })
       .then((d: { ok: boolean; categories: Record<string,unknown>[]; items: Record<string,unknown>[] }) => {
         if (!d.ok) return;
@@ -747,7 +748,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // The browser never compares PINs — and never sees other staff's PINs.
   const login = useCallback(async (staffId: string, pin: string): Promise<boolean> => {
     try {
-      const res = await fetch("/api/pos/auth", {
+      const res = await fetch(apiBase() + "/api/pos/auth", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ staffId, pin }),
@@ -808,14 +809,14 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       // login, currentStaffRef becomes non-null and probing resumes.
       if (initialAuthChecked.current && currentStaffRef.current === null) return;
       try {
-        const r = await fetch("/api/pos/auth", { cache: "no-store" });
+        const r = await fetch(apiBase() + "/api/pos/auth", { cache: "no-store" });
         if (!active) return;
         initialAuthChecked.current = true;
         if (r.status === 401) {
           if (currentStaffRef.current !== null) {
             setCurrentStaff(null);
             lastStaffKey = "";
-            fetch("/api/pos/auth", { method: "DELETE" }).catch(() => {});
+            fetch(apiBase() + "/api/pos/auth", { method: "DELETE" }).catch(() => {});
             router.replace("/pos/login");
           }
           return;
@@ -859,7 +860,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem("pos_customers");
     } catch { /* ignore — quota / private browsing */ }
     // Clear the server-side session cookie.
-    fetch("/api/pos/auth", { method: "DELETE" }).catch(() => {});
+    fetch(apiBase() + "/api/pos/auth", { method: "DELETE" }).catch(() => {});
   }, []);
 
   // ── Idle-timeout auto-logout ──────────────────────────────────────────────
@@ -1061,7 +1062,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     let sale: POSSale | null = null;
     let serverError: string | undefined;
     try {
-      const res = await fetch("/api/pos/sales", {
+      const res = await fetch(apiBase() + "/api/pos/sales", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(payload),
@@ -1198,7 +1199,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     if (!sale) return { ok: false, error: "Sale not found." };
 
     try {
-      const res = await fetch(`/api/pos/sales/${saleId}`, {
+      const res = await fetch(`${apiBase()}/api/pos/sales/${saleId}`, {
         method:  "PATCH",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ voidReason: reason, refundMethod, refundAmount }),
@@ -1246,7 +1247,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     const member = staff.find((s) => s.id === staffId);
     if (!member) return false;
     try {
-      const res = await fetch("/api/pos/clock", {
+      const res = await fetch(apiBase() + "/api/pos/clock", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ action: "in", staffId, staffName: member.name }),
@@ -1272,7 +1273,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     const member = staff.find((s) => s.id === staffId);
     if (!member) return false;
     try {
-      const res = await fetch("/api/pos/clock", {
+      const res = await fetch(apiBase() + "/api/pos/clock", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ action: "out", staffId, staffName: member.name }),
@@ -1328,7 +1329,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         ? { ...p, stockQty: payload.stockQty, stockStatus: undefined, trackStock: true }
         : { ...p, stockQty: undefined, stockStatus: payload.stockStatus, trackStock: false };
     }));
-    fetch(`/api/admin/menu/${id}/stock`, {
+    fetch(`${apiBase()}/api/admin/menu/${id}/stock`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

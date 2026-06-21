@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { apiBase } from "@/lib/apiBase";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { useApp } from "@/context/AppContext";
 import {
@@ -124,7 +125,7 @@ export default function ReservationsView() {
     try {
       // allowPast=1 for walk-ins: the slot is the current (slightly past) one,
       // and occupancy is judged by who's physically at the table right now.
-      const res  = await fetch(`/api/reservations/availability?date=${date}&time=${time}&partySize=${party}${allowPast ? "&allowPast=1" : ""}`);
+      const res  = await fetch(`${apiBase()}/api/reservations/availability?date=${date}&time=${time}&partySize=${party}${allowPast ? "&allowPast=1" : ""}`);
       const json = await res.json() as { ok: boolean; availableTables?: AvailTablePos[]; upcomingByTable?: Record<string, string> };
       setAddAvailTables(json.ok ? (json.availableTables ?? []) : []);
       setAddUpcoming(json.ok ? (json.upcomingByTable ?? {}) : {});
@@ -156,7 +157,7 @@ export default function ReservationsView() {
       if (!addDate || !addTime) return;
       if (addSource !== "walk-in" && isSlotPastRes(addTime, addDate)) return;
       const allowPast = addSource === "walk-in" ? "&allowPast=1" : "";
-      fetch(`/api/reservations/availability?date=${addDate}&time=${addTime}&partySize=${addParty}${allowPast}`)
+      fetch(`${apiBase()}/api/reservations/availability?date=${addDate}&time=${addTime}&partySize=${addParty}${allowPast}`)
         .then((r) => r.json())
         .then((json: { ok: boolean; availableTables?: AvailTablePos[]; upcomingByTable?: Record<string, string> }) => {
           if (json.ok) {
@@ -225,7 +226,7 @@ export default function ReservationsView() {
     }
     setAddSaving(true); setAddError("");
     try {
-      const res  = await fetch("/api/pos/reservations", {
+      const res  = await fetch(apiBase() + "/api/pos/reservations", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           tableId: addTableMeta.id, tableLabel: addTableMeta.label,
@@ -250,7 +251,7 @@ export default function ReservationsView() {
   const fetchRows = useCallback(async (isInitial = false) => {
     try {
       const params = new URLSearchParams({ date: filterDate });
-      const r = await fetch(`/api/pos/reservations?${params}`, { cache: "no-store" });
+      const r = await fetch(`${apiBase()}/api/pos/reservations?${params}`, { cache: "no-store" });
       if (!r.ok) {
         if (r.status !== 401) console.error("ReservationsView fetch:", r.status);
         return;
@@ -309,7 +310,7 @@ export default function ReservationsView() {
     statusInFlight.current.add(resId);
     setActioning(resId);
     try {
-      await fetch(`/api/pos/reservations/${resId}`, {
+      await fetch(`${apiBase()}/api/pos/reservations/${resId}`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { apiBase } from "@/lib/apiBase";
 import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
 import { POSSale } from "@/types/pos";
@@ -44,7 +45,7 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
       const fromName = settings.smtpFromName?.trim() || effectiveName;
       const subject = `Your receipt from ${fromName} — #${sale.receiptNo}`;
       // SMTP credentials are read from server-side env vars in /api/email
-      const res = await fetch("/api/email", {
+      const res = await fetch(apiBase() + "/api/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ to: emailTo.trim(), subject, html }),

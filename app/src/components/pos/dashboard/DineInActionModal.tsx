@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { apiBase } from "@/lib/apiBase";
 import { usePOS } from "@/context/POSContext";
 import { X, AlertTriangle, RotateCcw, Banknote, CreditCard, Loader2 } from "lucide-react";
 import { fmt } from "../_utils";
@@ -41,7 +42,7 @@ export default function DineInActionModal({
     inFlight.current = true;
     setLoading(true); setError(null);
     try {
-      const res = await fetch("/api/pos/orders/dine-in/void", {
+      const res = await fetch(apiBase() + "/api/pos/orders/dine-in/void", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderIds: [action.order.id], reason: reason.trim() }),
@@ -64,7 +65,7 @@ export default function DineInActionModal({
     inFlight.current = true;
     setLoading(true); setError(null);
     try {
-      const res = await fetch("/api/pos/orders/dine-in/refund", {
+      const res = await fetch(apiBase() + "/api/pos/orders/dine-in/refund", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderIds: [action.order.id], refundAmount: amt, refundMethod, reason: reason.trim() }),

@@ -28,6 +28,7 @@
  */
 
 import { isCapacitorAndroid } from "./capacitorBridge";
+import { apiBase } from "@/lib/apiBase";
 import {
   outboxAdd,
   outboxList,
@@ -177,7 +178,7 @@ export async function drainOutbox(): Promise<DrainResult> {
       await outboxUpdate(entry.id, { status: "syncing", lastAttemptAt: nowIso });
 
       try {
-        const res = await fetch("/api/pos/sales", {
+        const res = await fetch(apiBase() + "/api/pos/sales", {
           method:  "POST",
           headers: { "Content-Type": "application/json" },
           body:    JSON.stringify(entry.payload),

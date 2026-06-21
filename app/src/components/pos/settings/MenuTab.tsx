@@ -1,6 +1,7 @@
 "use client";
 
 import { uuid } from "@/lib/uuid";
+import { apiBase } from "@/lib/apiBase";
 import { useState } from "react";
 import { usePOS } from "@/context/POSContext";
 import { POSProduct, POSCategory, POSOffer, getOfferPrice, isOfferActive } from "@/types/pos";
@@ -239,7 +240,7 @@ export default function MenuTab() {
     // in-store-only item) or just drop it from the in_store channel (a both-
     // channel item stays on the online menu). Either way it leaves the till.
     try {
-      const res = await fetch(`/api/pos/menu/${id}`, { method: "DELETE" });
+      const res = await fetch(`${apiBase()}/api/pos/menu/${id}`, { method: "DELETE" });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         alert(j.error || "Couldn't remove the item. Please try again.");

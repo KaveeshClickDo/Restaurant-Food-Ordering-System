@@ -11,6 +11,8 @@
  * Realtime payloads never exceed the limit.
  */
 
+import { apiBase } from "@/lib/apiBase";
+
 // Keep in sync with MAX_BYTES in app/src/app/api/uploads/menu-image/route.ts.
 export const MAX_IMAGE_BYTES = 1024 * 1024; // 1 MB
 export const MAX_IMAGE_LABEL = "1 MB";
@@ -38,7 +40,7 @@ export async function uploadMenuImage(file: File): Promise<string> {
   const body = new FormData();
   body.append("file", file);
 
-  const res = await fetch("/api/uploads/menu-image", { method: "POST", body });
+  const res = await fetch(apiBase() + "/api/uploads/menu-image", { method: "POST", body });
   const json = (await res.json().catch(() => ({}))) as { ok?: boolean; url?: string; error?: string };
   if (!res.ok || !json.ok || !json.url) {
     throw new Error(json.error || "Upload failed. Please try again.");
@@ -72,7 +74,7 @@ export async function uploadFloorPlanImage(file: File): Promise<string> {
   const body = new FormData();
   body.append("file", file);
 
-  const res = await fetch("/api/uploads/floor-plan", { method: "POST", body });
+  const res = await fetch(apiBase() + "/api/uploads/floor-plan", { method: "POST", body });
   const json = (await res.json().catch(() => ({}))) as { ok?: boolean; url?: string; error?: string };
   if (!res.ok || !json.ok || !json.url) {
     throw new Error(json.error || "Upload failed. Please try again.");
@@ -107,7 +109,7 @@ export async function uploadSignageImage(file: File): Promise<string> {
   const body = new FormData();
   body.append("file", file);
 
-  const res = await fetch("/api/uploads/signage-image", { method: "POST", body });
+  const res = await fetch(apiBase() + "/api/uploads/signage-image", { method: "POST", body });
   const json = (await res.json().catch(() => ({}))) as { ok?: boolean; url?: string; error?: string };
   if (!res.ok || !json.ok || !json.url) {
     throw new Error(json.error || "Upload failed. Please try again.");

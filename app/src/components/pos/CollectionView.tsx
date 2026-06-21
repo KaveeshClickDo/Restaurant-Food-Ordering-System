@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { apiBase } from "@/lib/apiBase";
 import {
   ShoppingBag, Banknote, CheckCircle2, RefreshCw, Clock,
   User, Loader2, ChefHat, CalendarClock, AlertCircle,
@@ -70,7 +71,7 @@ export default function CollectionView() {
   const refresh = useCallback(async (showSpinner = false) => {
     if (showSpinner) setLoading(true);
     try {
-      const r = await fetch("/api/pos/orders/collection", { cache: "no-store" });
+      const r = await fetch(apiBase() + "/api/pos/orders/collection", { cache: "no-store" });
       if (!r.ok) { if (showSpinner) setOrders([]); return; }
       const json = await r.json() as { ok: boolean; orders?: CollectionOrder[] };
       if (json.ok && Array.isArray(json.orders)) setOrders(json.orders);
@@ -93,7 +94,7 @@ export default function CollectionView() {
   // Take payment for an unpaid order → settle (paid + delivered + loyalty).
   async function settlePayment(order: CollectionOrder, method: "cash" | "card" | "split") {
     setError("");
-    const r = await fetch(`/api/pos/orders/${order.id}/settle`, {
+    const r = await fetch(`${apiBase()}/api/pos/orders/${order.id}/settle`, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({ paymentMethod: method }),
@@ -111,7 +112,7 @@ export default function CollectionView() {
     setError("");
     setMarkingId(order.id);
     try {
-      const r = await fetch(`/api/pos/orders/${order.id}/collected`, { method: "PUT" });
+      const r = await fetch(`${apiBase()}/api/pos/orders/${order.id}/collected`, { method: "PUT" });
       const json = await r.json().catch(() => ({})) as { ok?: boolean; error?: string };
       if (!r.ok || !json.ok) setError(json.error ?? "Could not mark collected. Please try again.");
     } catch {

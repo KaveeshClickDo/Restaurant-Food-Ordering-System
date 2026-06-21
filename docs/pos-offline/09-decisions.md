@@ -45,10 +45,11 @@ originally sketched.
   (`git status` clean afterward).
 
 **Still open before the bundle is a working APK:**
-- `apiBase()` wiring — the export bundles **no** `/api/*` routes, so
-  every `fetch("/api/…")` in the POS tree must target the remote server
-  (`apiBase() + "/api/…"`) when running bundled. ~30–50 call sites.
-  Until this lands, the exported app renders but can't reach the backend.
+- ~~`apiBase()` wiring~~ **DONE 2026-06-22.** All 47 POS-tree `/api/*`
+  fetches now go through `apiBase()` ([lib/apiBase.ts](../../app/src/lib/apiBase.ts)):
+  `""` on web (same-origin, unchanged), and the build-time
+  `NEXT_PUBLIC_API_BASE_URL` (from `CAPACITOR_SERVER_URL`) in the
+  Capacitor build. Verified the URL is inlined into the export bundle.
 - `capacitor.config.ts` bundled mode (`webDir: "out"`, drop the
   `server.url` throw) + `npx cap sync android` to copy `out/` into the
   APK.

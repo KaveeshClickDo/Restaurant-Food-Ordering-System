@@ -59,10 +59,26 @@ try {
   }
   console.log(`[build:capacitor] quarantined ${moved.length} non-POS entries:`, moved.join(", "));
 
+  // The export bundles no /api/* routes, so apiBase() must point POS fetches at
+  // the deployed backend. Inline the server URL (from CAPACITOR_SERVER_URL —
+  // the same var capacitor.config.ts uses) as NEXT_PUBLIC_API_BASE_URL.
+  const serverUrl = (process.env.CAPACITOR_SERVER_URL ?? "").replace(/\/$/, "");
+  if (!serverUrl) {
+    console.warn(
+      "[build:capacitor] WARNING: CAPACITOR_SERVER_URL not set — apiBase() will " +
+      "be empty, so the bundled APK cannot reach the backend. Set it for a real " +
+      "build, e.g. CAPACITOR_SERVER_URL=https://yourapp.vercel.app npm run build:capacitor",
+    );
+  }
+
   execSync("next build", {
     cwd: appDir,
     stdio: "inherit",
-    env: { ...process.env, CAPACITOR_BUILD: "1" },
+    env: {
+      ...process.env,
+      CAPACITOR_BUILD: "1",
+      NEXT_PUBLIC_API_BASE_URL: serverUrl,
+    },
   });
 } finally {
   restore();

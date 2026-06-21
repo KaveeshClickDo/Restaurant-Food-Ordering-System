@@ -116,13 +116,16 @@ tablet (Android 8.0+, no printer needed).
 
 ## Phase 1.5 — Bundled assets · cold-start UI offline
 
-> **Status (2026-06-22):** static export working. `npm run build:capacitor`
-> exports `/pos` + `/pos/login` to `out/pos/index.html` etc. (both
-> `○ Static`); the web build is unaffected. As-built mechanism (route
-> quarantine + single env-gated `next.config.ts`, not a separate config
-> file) is recorded in [09-decisions.md § 2026-06-22](./09-decisions.md).
-> **Remaining:** `apiBase()` wiring (export bundles no `/api/*`),
-> `capacitor.config.ts` bundled mode + `npx cap sync`, optional
+> **Status (2026-06-22):** static export + API wiring working.
+> `npm run build:capacitor` exports `/pos` + `/pos/login` to
+> `out/pos/index.html` etc. (both `○ Static`); the web build is
+> unaffected. `apiBase()` ([lib/apiBase.ts](../../app/src/lib/apiBase.ts))
+> now prefixes all 47 POS-tree `/api/*` fetches — empty on web, the baked
+> `CAPACITOR_SERVER_URL` in the Capacitor build (verified inlined).
+> As-built mechanism (route quarantine + single env-gated
+> `next.config.ts`) is in [09-decisions.md § 2026-06-22](./09-decisions.md).
+> **Remaining:** `capacitor.config.ts` bundled mode (`webDir:"out"`, drop
+> `server.url`) + `npx cap sync` (needs Android toolchain); optional
 > `getDbSettings()` hoist.
 
 After Phase 1, the Android tablet still needs internet on **first

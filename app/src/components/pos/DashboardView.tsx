@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { apiBase } from "@/lib/apiBase";
 import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
 import { POSSale } from "@/types/pos";
@@ -107,7 +108,7 @@ export default function DashboardView() {
       to: todayEnd.toISOString(),
     });
     try {
-      const r = await fetch(`/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
+      const r = await fetch(`${apiBase()}/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
       if (!r.ok) return;
       const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
       if (!json.ok || !json.orders) return;
@@ -126,7 +127,7 @@ export default function DashboardView() {
       limit: "1000",
     });
     try {
-      const r = await fetch(`/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
+      const r = await fetch(`${apiBase()}/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
       if (!r.ok) return;
       const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
       if (!json.ok || !json.orders) return;
@@ -140,7 +141,7 @@ export default function DashboardView() {
   // item ranks barely move in 6s, so a fetch on tab-entry is enough.
   const refreshAllTimeDineIn = useCallback(async () => {
     try {
-      const r = await fetch(`/api/pos/orders/dine-in?limit=2000`, { cache: "no-store" });
+      const r = await fetch(`${apiBase()}/api/pos/orders/dine-in?limit=2000`, { cache: "no-store" });
       if (!r.ok) return;
       const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
       if (!json.ok || !json.orders) return;
@@ -167,7 +168,7 @@ export default function DashboardView() {
         from: todayStart.toISOString(),
         to:   todayEnd.toISOString(),
       });
-      const r = await fetch(`/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
+      const r = await fetch(`${apiBase()}/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
       if (!r.ok) { if (isInitial) setDineInOrders([]); return; }
       const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
       if (!json.ok || !json.orders) { if (isInitial) setDineInOrders([]); return; }
@@ -194,7 +195,7 @@ export default function DashboardView() {
     try {
       const effectiveName = appSettings.restaurant?.name || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant";
       const html = buildDineInReceiptHtml(order, settings, effectiveName);
-      const res = await fetch("/api/email", {
+      const res = await fetch(apiBase() + "/api/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ to: email, subject: `Your receipt from ${effectiveName} — Table ${order.tableLabel}`, html }),
@@ -361,7 +362,7 @@ export default function DashboardView() {
         to: endDate.toISOString(),
         limit: "500",
       });
-      const r = await fetch(`/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
+      const r = await fetch(`${apiBase()}/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
       if (!r.ok) { if (isInitial) setReportsDineIn([]); return; }
       const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
       if (!json.ok || !json.orders) { if (isInitial) setReportsDineIn([]); return; }

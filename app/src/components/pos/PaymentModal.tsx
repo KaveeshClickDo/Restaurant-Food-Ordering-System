@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { apiBase } from "@/lib/apiBase";
 import { X, Banknote, CreditCard, Shuffle, ChevronRight, AlertTriangle, Gift, Loader2 } from "lucide-react";
 import { fmt } from "./_utils";
 
@@ -58,7 +59,7 @@ export default function PaymentModal({
     setGcError("");
     setGcLookingUp(true);
     try {
-      const res = await fetch("/api/gift-cards/lookup", {
+      const res = await fetch(apiBase() + "/api/gift-cards/lookup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code }),
