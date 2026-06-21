@@ -1500,6 +1500,7 @@ const TXN_LABELS: Record<string, string> = {
   earn_reversal: "Refund adjustment",
   redeem_reversal: "Reward points returned",
   adjust: "Balance adjustment",
+  expire: "Points expired",
 };
 
 function RewardsTab() {
@@ -1516,6 +1517,7 @@ function RewardsTab() {
   const [tiers, setTiers] = useState<number[]>([]);
   const [loadingRewards, setLoadingRewards] = useState(true);
   const [history, setHistory] = useState<LoyaltyTransaction[]>([]);
+  const [nextExpiry, setNextExpiry] = useState<{ points: number; expiresAt: string } | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [rewardToast, setRewardToast] = useState<string | null>(null);
 
@@ -1542,8 +1544,15 @@ function RewardsTab() {
     (async () => {
       try {
         const res = await fetch("/api/loyalty/history", { cache: "no-store" });
-        const json = await res.json() as { ok: boolean; transactions?: LoyaltyTransaction[] };
-        if (json.ok) setHistory(json.transactions ?? []);
+        const json = await res.json() as {
+          ok: boolean;
+          transactions?: LoyaltyTransaction[];
+          nextExpiry?: { points: number; expiresAt: string } | null;
+        };
+        if (json.ok) {
+          setHistory(json.transactions ?? []);
+          setNextExpiry(json.nextExpiry ?? null);
+        }
       } catch { /* history is non-critical */ }
     })();
   }, [currentUser]);
@@ -1671,6 +1680,13 @@ function RewardsTab() {
           Earn {settings.loyaltyPointsPerPound ?? 1} point{(settings.loyaltyPointsPerPound ?? 1) === 1 ? "" : "s"} for
           every {sym}1 you spend - then trade them for free food below.
         </p>
+        {nextExpiry && (
+          <p className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mt-3">
+            {nextExpiry.points.toLocaleString()} point{nextExpiry.points === 1 ? "" : "s"} expire on{" "}
+            {new Date(nextExpiry.expiresAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
+            {" "}— use them before then. Your oldest points are always spent first.
+          </p>
+        )}
 
         {/* History (collapsible) */}
         {showHistory && history.length > 0 && (

@@ -18,6 +18,7 @@ import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
 import { parseBody }                            from "@/lib/apiValidation";
 import { AdminCustomerUpdateSchema }            from "@/lib/schemas/customer";
+import { setLoyaltyPointsAbsolute }             from "@/lib/loyaltyUtils";
 
 // Synthetic ids the customer drawer / list endpoint surfaces — never backed
 // by a real DB row, so destructive ops against them must be rejected.
@@ -47,17 +48,28 @@ export async function PUT(
   if (data.email_verified  !== undefined) updates.email_verified    = data.email_verified;
   if (data.active          !== undefined) updates.active            = data.active;
   if (data.notes           !== undefined) updates.notes             = data.notes;
-  if (data.loyaltyPoints   !== undefined) updates.loyalty_points    = data.loyaltyPoints;
   if (data.giftCardBalance !== undefined) updates.gift_card_balance = data.giftCardBalance;
+  // loyalty_points is NOT written directly — it's the cached sum of the FIFO
+  // lot ledger. A manual edit is routed through setLoyaltyPointsAbsolute below.
+  const setLoyalty = data.loyaltyPoints !== undefined;
 
-  if (Object.keys(updates).length === 0) {
+  if (Object.keys(updates).length === 0 && !setLoyalty) {
     return NextResponse.json({ ok: false, error: "No fields to update." }, { status: 400 });
   }
 
-  const { error } = await supabaseAdmin.from("customers").update(updates).eq("id", id);
-  if (error) {
-    console.error("admin/customers/[id] PUT:", error.message);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (Object.keys(updates).length > 0) {
+    const { error } = await supabaseAdmin.from("customers").update(updates).eq("id", id);
+    if (error) {
+      console.error("admin/customers/[id] PUT:", error.message);
+      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    }
+  }
+
+  if (setLoyalty) {
+    const res = await setLoyaltyPointsAbsolute(id, data.loyaltyPoints as number, "Admin adjustment");
+    if (!res.ok) {
+      return NextResponse.json({ ok: false, error: res.error ?? "Could not update loyalty points." }, { status: 500 });
+    }
   }
   return NextResponse.json({ ok: true });
 }

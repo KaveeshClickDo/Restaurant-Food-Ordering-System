@@ -20,6 +20,7 @@ import { parseBody } from "@/lib/apiValidation";
 import { PosCustomerCreateSchema } from "@/lib/schemas/customer";
 import { orderSpendContribution } from "@/lib/customerSpend";
 import { moneyPaidGross } from "@/lib/giftCardMoney";
+import { setLoyaltyPointsAbsolute } from "@/lib/loyaltyUtils";
 
 const POS_WALK_IN_ID = "pos-walk-in";
 
@@ -166,7 +167,9 @@ export async function POST(req: NextRequest) {
     favourites:        [] as string[],
     saved_addresses:   [],
     store_credit:      0,
-    loyalty_points:    body.loyaltyPoints   ?? 0,
+    // loyalty_points is the cached sum of the FIFO lot ledger — seed it via
+    // setLoyaltyPointsAbsolute after insert so a lot + ledger row are written.
+    loyalty_points:    0,
     gift_card_balance: body.giftCardBalance ?? 0,
     notes:             body.notes ?? "",
   };
@@ -187,6 +190,12 @@ export async function POST(req: NextRequest) {
     }
     console.error("POST /api/pos/customers:", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
+
+  // Seed any opening loyalty balance through the lot ledger (never the column).
+  if ((body.loyaltyPoints ?? 0) > 0) {
+    const res = await setLoyaltyPointsAbsolute(id, body.loyaltyPoints as number, "Opening balance");
+    if (res.ok) data.loyalty_points = res.balance ?? body.loyaltyPoints;
   }
 
   const customer = mapRow(data, { spend: 0, visits: 0, lastVisit: null });

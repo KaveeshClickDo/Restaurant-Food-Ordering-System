@@ -22,15 +22,25 @@ export default function LoyaltyPanel() {
 
   // Earning rate — string state so users can clear the input while typing.
   const [pointsPer, setPointsPer] = useState(settings.loyaltyPointsPerPound?.toString() || "1");
+  // Expiry window in months; "0" (or empty) = points never expire.
+  const [expiryMonths, setExpiryMonths] = useState(
+    settings.loyaltyPointsExpiryMonths != null ? String(settings.loyaltyPointsExpiryMonths) : "0",
+  );
   const [saved, setSaved] = useState(false);
 
   // Re-sync local state when settings load from Supabase after mount
   useEffect(() => {
     setPointsPer(settings.loyaltyPointsPerPound?.toString() || "1");
   }, [settings.loyaltyPointsPerPound]);
+  useEffect(() => {
+    setExpiryMonths(settings.loyaltyPointsExpiryMonths != null ? String(settings.loyaltyPointsExpiryMonths) : "0");
+  }, [settings.loyaltyPointsExpiryMonths]);
 
   function handleSave() {
-    updateSettings({ loyaltyPointsPerPound: parseFloat(pointsPer) || 0 });
+    updateSettings({
+      loyaltyPointsPerPound: parseFloat(pointsPer) || 0,
+      loyaltyPointsExpiryMonths: Math.max(0, Math.floor(parseInt(expiryMonths, 10) || 0)),
+    });
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   }
@@ -131,43 +141,62 @@ export default function LoyaltyPanel() {
             <Gift size={18} className="text-purple-600 flex-shrink-0" />
           </div>
           <div>
-            <h2 className="font-bold text-gray-900">Earning rate</h2>
-            <p className="text-xs text-gray-400">How many points customers collect per {sym}1 of real money spent</p>
+            <h2 className="font-bold text-gray-900">Earning &amp; expiry</h2>
+            <p className="text-xs text-gray-400">How many points customers collect per {sym}1, and how long they last</p>
           </div>
         </div>
 
-        <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-              Points per {sym}
-            </label>
-            <input
-              type="number"
-              step="0.5"
-              min="0"
-              value={pointsPer}
-              onChange={(e) => { setPointsPer(e.target.value); setSaved(false); }}
-              placeholder="1"
-              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-400 transition"
-            />
-            <p className="mt-1 text-[11px] text-gray-400">
-              Points accrue on real money paid only — gift card and store credit portions never earn.
-            </p>
-          </div>
-          <div className="flex items-end pb-5">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleSave}
-                className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-xl transition"
-              >
-                Save earning rate
-              </button>
-              {saved && (
-                <span className="flex items-center gap-1.5 text-sm text-green-600 font-medium">
-                  <CheckCircle2 size={16} /> Saved
-                </span>
-              )}
+        <div className="p-6 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                Points per {sym}
+              </label>
+              <input
+                type="number"
+                step="0.5"
+                min="0"
+                value={pointsPer}
+                onChange={(e) => { setPointsPer(e.target.value); setSaved(false); }}
+                placeholder="1"
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-400 transition"
+              />
+              <p className="mt-1 text-[11px] text-gray-400">
+                Points accrue on real money paid only — gift card and store credit portions never earn.
+              </p>
             </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                Points expire after (months)
+              </label>
+              <input
+                type="number"
+                step="1"
+                min="0"
+                value={expiryMonths}
+                onChange={(e) => { setExpiryMonths(e.target.value); setSaved(false); }}
+                placeholder="0"
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-400 transition"
+              />
+              <p className="mt-1 text-[11px] text-gray-400">
+                {Number(expiryMonths) > 0
+                  ? `Points earned now expire ${expiryMonths} month${Number(expiryMonths) === 1 ? "" : "s"} later. Oldest points are spent first. Existing balances never expire.`
+                  : "Set to 0 to keep points forever. Existing balances are never affected retroactively."}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleSave}
+              className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-xl transition"
+            >
+              Save settings
+            </button>
+            {saved && (
+              <span className="flex items-center gap-1.5 text-sm text-green-600 font-medium">
+                <CheckCircle2 size={16} /> Saved
+              </span>
+            )}
           </div>
         </div>
       </div>

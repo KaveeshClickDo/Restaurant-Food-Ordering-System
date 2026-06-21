@@ -37,5 +37,22 @@ export async function GET() {
     createdAt:    typeof r.created_at === "string" ? r.created_at : new Date(r.created_at).toISOString(),
   }));
 
-  return NextResponse.json({ ok: true, transactions });
+  // Soonest-expiring live lot, so the account page can warn "X points expire on …".
+  // Never-expiring lots (expires_at null) are excluded.
+  const { data: lot } = await supabaseAdmin
+    .from("loyalty_lots")
+    .select("points_remaining, expires_at")
+    .eq("customer_id", session.id)
+    .gt("points_remaining", 0)
+    .not("expires_at", "is", null)
+    .gt("expires_at", new Date().toISOString())
+    .order("expires_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  const nextExpiry = lot
+    ? { points: Number(lot.points_remaining), expiresAt: String(lot.expires_at) }
+    : null;
+
+  return NextResponse.json({ ok: true, transactions, nextExpiry });
 }

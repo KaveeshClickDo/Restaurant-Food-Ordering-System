@@ -129,5 +129,6 @@ export const DEFAULT_SETTINGS: AdminSettings = {
     maxAmount: 500,
     expiryMonths: 12,
   },
-  loyaltyPointsPerPound: 1
+  loyaltyPointsPerPound: 1,
+  loyaltyPointsExpiryMonths: 1
 };

@@ -20,6 +20,7 @@ import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { ROLE_PERMISSIONS } from "@/types/pos";
 import { parseBody } from "@/lib/apiValidation";
 import { UserUpdateSchema, UserDeleteSchema } from "@/lib/schemas/staff";
+import { setLoyaltyPointsAbsolute } from "@/lib/loyaltyUtils";
 
 const HASH_ROUNDS = 10;
 
@@ -47,13 +48,21 @@ export async function PATCH(
     // write to the same columns.
     if (body.notes           !== undefined) updates.notes             = body.notes;
     if (body.tags            !== undefined) updates.tags              = body.tags;
-    if (body.loyaltyPoints   !== undefined) updates.loyalty_points    = body.loyaltyPoints;
     if (body.giftCardBalance !== undefined) updates.gift_card_balance = body.giftCardBalance;
-    if (Object.keys(updates).length === 0) {
+    // loyalty_points is the cached sum of the FIFO lot ledger — route manual
+    // edits through setLoyaltyPointsAbsolute instead of writing the column.
+    const setLoyalty = body.loyaltyPoints !== undefined;
+    if (Object.keys(updates).length === 0 && !setLoyalty) {
       return NextResponse.json({ ok: false, error: "No fields to update." }, { status: 400 });
     }
-    const { error } = await supabaseAdmin.from("customers").update(updates).eq("id", id);
-    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    if (Object.keys(updates).length > 0) {
+      const { error } = await supabaseAdmin.from("customers").update(updates).eq("id", id);
+      if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    }
+    if (setLoyalty) {
+      const res = await setLoyaltyPointsAbsolute(id, body.loyaltyPoints as number, "Admin adjustment");
+      if (!res.ok) return NextResponse.json({ ok: false, error: res.error ?? "Could not update loyalty points." }, { status: 500 });
+    }
     return NextResponse.json({ ok: true });
   }
 

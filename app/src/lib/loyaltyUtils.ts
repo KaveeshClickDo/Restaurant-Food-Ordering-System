@@ -39,6 +39,9 @@ interface ApplyArgs {
   note?: string;
   /** true → fail with "insufficient" instead of clamping (redeem gate). */
   enforce?: boolean;
+  /** ISO expiry stamped on the lot a CREDIT (positive delta) opens; null/undefined
+   *  = never expires. Ignored for debits, which drain existing lots FIFO. */
+  expiresAt?: string | null;
 }
 
 export async function applyLoyaltyPoints(args: ApplyArgs): Promise<LoyaltyApplyResult> {
@@ -51,6 +54,7 @@ export async function applyLoyaltyPoints(args: ApplyArgs): Promise<LoyaltyApplyR
     p_reward_id:   args.rewardId ?? null,
     p_note:        args.note ?? "",
     p_enforce:     args.enforce ?? false,
+    p_expires_at:  args.expiresAt ?? null,
   });
   if (error) {
     console.error("[loyalty] apply_loyalty_points rpc:", error.message);
@@ -74,6 +78,22 @@ export async function getLoyaltyRate(): Promise<number> {
   return Number.isFinite(rate) && rate >= 0 ? rate : 1;
 }
 
+/** Live expiry window (months) from app_settings. 0 = points never expire. */
+export async function getLoyaltyExpiryMonths(): Promise<number> {
+  const { data } = await supabaseAdmin
+    .from("app_settings").select("data").eq("id", 1).single();
+  const months = Number(data?.data?.loyaltyPointsExpiryMonths);
+  return Number.isFinite(months) && months > 0 ? Math.floor(months) : 0;
+}
+
+/** ISO timestamp `months` from now, or null when expiry is disabled (≤ 0). */
+function expiryFromMonths(months: number): string | null {
+  if (!months || months <= 0) return null;
+  const d = new Date();
+  d.setMonth(d.getMonth() + months);
+  return d.toISOString();
+}
+
 /**
  * Award points for money actually collected on an order / POS sale.
  * Idempotent per orderId / posSaleId — safe to call from webhook retries.
@@ -89,6 +109,7 @@ export async function rewardLoyaltyPoints(
     const rate = await getLoyaltyRate();
     const points = Math.floor(moneyPaid * rate);
     if (points <= 0) return;
+    const expiresAt = expiryFromMonths(await getLoyaltyExpiryMonths());
     const res = await applyLoyaltyPoints({
       customerId,
       delta: points,
@@ -96,6 +117,7 @@ export async function rewardLoyaltyPoints(
       orderId: ref.orderId ?? null,
       posSaleId: ref.posSaleId ?? null,
       note: ref.note ?? "",
+      expiresAt,
     });
     if (res.ok && !res.duplicate) {
       console.log(`[Loyalty] Awarded ${res.applied} points to ${customerId}`);
@@ -222,6 +244,9 @@ export async function refundRedeemedPoints(orderId: string): Promise<void> {
     const customerId = String(data[0].customer_id);
     const redeemed = data.reduce((s, r) => s + Math.abs(Number(r.points ?? 0)), 0);
     if (redeemed <= 0) return;
+    // Returned points re-enter as a fresh lot with a new expiry window — the
+    // original lot they were redeemed from is long gone.
+    const expiresAt = expiryFromMonths(await getLoyaltyExpiryMonths());
     await applyLoyaltyPoints({
       customerId,
       delta: redeemed,
@@ -229,8 +254,45 @@ export async function refundRedeemedPoints(orderId: string): Promise<void> {
       orderId,
       rewardId: data[0].reward_id ? String(data[0].reward_id) : null,
       note: "Order cancelled — reward points returned",
+      expiresAt,
     });
   } catch (err) {
     console.error("[Loyalty] Failed to refund redeemed points:", err);
   }
+}
+
+/**
+ * Set a customer's balance to an absolute target — the manual-edit path used by
+ * admin / POS customer screens. It NEVER writes customers.loyalty_points
+ * directly (that cached column is derived from the lot ledger now): it computes
+ * the delta against the current balance and routes it through the RPC as an
+ * `adjust`, so the lots, ledger and cache all stay in sync. Manual top-ups open
+ * a never-expiring lot; reductions drain lots FIFO.
+ */
+export async function setLoyaltyPointsAbsolute(
+  customerId: string,
+  target: number,
+  note = "Manual adjustment",
+): Promise<LoyaltyApplyResult> {
+  const tgt = Math.max(0, Math.trunc(Number(target) || 0));
+  // Use the LIVE (non-expired) lot sum rather than the cached column: for a
+  // dormant customer the cache can still count points the daily sweep hasn't
+  // cleared yet. The RPC expires those same due lots before applying our delta,
+  // so basing the delta on the live sum lands the target exactly.
+  const { data } = await supabaseAdmin
+    .from("loyalty_lots")
+    .select("points_remaining")
+    .eq("customer_id", customerId)
+    .gt("points_remaining", 0)
+    .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`);
+  const current = (data ?? []).reduce((s, r) => s + Number(r.points_remaining ?? 0), 0);
+  const delta = tgt - current;
+  if (delta === 0) return { ok: true, applied: 0, duplicate: false, balance: current };
+  return applyLoyaltyPoints({
+    customerId,
+    delta,
+    type: "adjust",
+    note,
+    expiresAt: null, // manual top-ups don't expire; reductions ignore this
+  });
 }

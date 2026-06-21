@@ -546,6 +546,9 @@ export interface AdminSettings {
   taxSettings: TaxSettings;
   restaurant: RestaurantInfo;
   loyaltyPointsPerPound: number; // points per £ spent
+  /** Months a newly earned point lives before it expires (FIFO lots).
+   *  0 or unset = points never expire. Existing balances are grandfathered. */
+  loyaltyPointsExpiryMonths?: number;
   schedule: WeekSchedule;
   manualClosed: boolean;
   /** Stripe publishable key — safe to expose to the browser. */

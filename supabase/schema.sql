@@ -1429,37 +1429,136 @@ create table if not exists loyalty_transactions (
   id            text        primary key default gen_random_uuid()::text,
   customer_id   text        not null references customers(id) on delete cascade,
   type          text        not null check (type in
-                  ('earn','redeem','earn_reversal','redeem_reversal','adjust')),
+                  ('earn','redeem','earn_reversal','redeem_reversal','adjust','expire')),
   points        integer     not null,
   balance_after integer     not null,
   order_id      text,
   pos_sale_id   text,
   reward_id     text        references loyalty_rewards(id) on delete set null,
   note          text        not null default '',
-  -- Reserved for a future expiry feature; unused for now.
+  -- Legacy column from before lot-based expiry; the live expiry date now lives
+  -- on loyalty_lots.expires_at, not here. Kept for backwards compatibility.
   expires_at    timestamptz,
   created_at    timestamptz not null default now()
 );
+-- Older deploys created loyalty_transactions before 'expire' existed; widen the
+-- check constraint in place so the FIFO sweep can write expiry rows.
+do $$ begin
+  alter table loyalty_transactions drop constraint if exists loyalty_transactions_type_check;
+  alter table loyalty_transactions add  constraint loyalty_transactions_type_check
+    check (type in ('earn','redeem','earn_reversal','redeem_reversal','adjust','expire'));
+end $$;
 
 create index if not exists idx_loyalty_txns_customer on loyalty_transactions(customer_id, created_at desc);
 create index if not exists idx_loyalty_txns_order    on loyalty_transactions(order_id)    where order_id    is not null;
 create index if not exists idx_loyalty_txns_pos_sale on loyalty_transactions(pos_sale_id) where pos_sale_id is not null;
 create index if not exists idx_loyalty_rewards_item  on loyalty_rewards(menu_item_id);
 
+-- ── Points lots (FIFO expiry) ────────────────────────────────────────────────
+-- Every credit (earn / redeem_reversal / positive adjust) opens a *lot*: a
+-- bucket of points with its own expiry. Debits (redeem / earn_reversal / negative
+-- adjust / expire) consume lots SOONEST-EXPIRY-FIRST, so the points a customer is
+-- about to lose are always spent before longer-lived ones. customers.loyalty_points
+-- is the cached sum of every lot's points_remaining that has not yet expired.
+--
+--   expires_at NULL  → never expires (grandfathered balances, or expiry disabled
+--                      when loyaltyPointsExpiryMonths is 0/unset at earn time).
+--
+-- This resolves the "which earning did a redemption come from?" ambiguity by
+-- policy: redemptions drain the oldest-expiring lot first (FIFO).
+create table if not exists loyalty_lots (
+  id                 text        primary key default gen_random_uuid()::text,
+  customer_id        text        not null references customers(id) on delete cascade,
+  points_total       integer     not null check (points_total > 0),
+  points_remaining   integer     not null check (points_remaining >= 0 and points_remaining <= points_total),
+  source_order_id    text,
+  source_pos_sale_id text,
+  note               text        not null default '',
+  earned_at          timestamptz not null default now(),
+  expires_at         timestamptz,            -- null = never expires
+  created_at         timestamptz not null default now()
+);
+-- FIFO consumption order: soonest expiry first, never-expiring (null) last.
+create index if not exists idx_loyalty_lots_fifo  on loyalty_lots(customer_id, expires_at asc nulls last, earned_at asc) where points_remaining > 0;
+-- Sweep lookup: live lots that have a due expiry.
+create index if not exists idx_loyalty_lots_sweep on loyalty_lots(expires_at) where points_remaining > 0 and expires_at is not null;
+
+-- Grandfather existing balances: every customer who already holds points (and has
+-- no lots yet) gets one never-expiring lot for their current balance, so the
+-- cached customers.loyalty_points stays exactly in sync with the new lot model.
+-- Idempotent — a customer with any lot is skipped.
+insert into loyalty_lots (customer_id, points_total, points_remaining, note, expires_at)
+select id, loyalty_points, loyalty_points, 'Grandfathered balance (pre-expiry)', null
+  from customers
+ where coalesce(loyalty_points, 0) > 0
+   and not exists (select 1 from loyalty_lots l where l.customer_id = customers.id);
+
 -- Redemption stamp on orders — which reward this order carries and what it
 -- cost in points. Mirrors the gift_card_id / gift_card_used pattern.
 alter table orders add column if not exists loyalty_reward_id    text references loyalty_rewards(id) on delete set null;
 alter table orders add column if not exists loyalty_points_spent integer not null default 0;
 
--- The single atomic mutation for loyalty points.
---   p_delta    signed points to apply.
---   p_enforce  true  → fail with 'insufficient' if balance + delta < 0 (redeem).
---              false → clamp the debit so the balance floors at 0 (reversals).
--- Dedupe: for types earn / redeem / redeem_reversal, a second call with the
--- same order_id (or pos_sale_id) is a no-op success — this is what makes
--- webhook retries and POS outbox replays safe. earn_reversal and adjust are
+-- Expire a single customer's due lots in one shot: zero every lot whose
+-- expires_at has passed, drop the cached balance by the same amount, and write
+-- ONE 'expire' ledger row. Returns the points expired (0 if none). The caller
+-- MUST already hold the customer row lock (apply_loyalty_points / the sweep do).
+-- Idempotent: once a lot's points_remaining hits 0 it is never revisited.
+create or replace function _expire_loyalty_lots(p_customer_id text)
+returns integer
+language plpgsql
+as $$
+declare
+  v_expired integer;
+  v_balance integer;
+begin
+  select coalesce(sum(points_remaining), 0) into v_expired
+    from loyalty_lots
+   where customer_id = p_customer_id
+     and points_remaining > 0
+     and expires_at is not null
+     and expires_at <= now();
+
+  if v_expired <= 0 then
+    return 0;
+  end if;
+
+  update loyalty_lots
+     set points_remaining = 0
+   where customer_id = p_customer_id
+     and points_remaining > 0
+     and expires_at is not null
+     and expires_at <= now();
+
+  update customers
+     set loyalty_points = greatest(coalesce(loyalty_points, 0) - v_expired, 0)
+   where id = p_customer_id
+   returning loyalty_points into v_balance;
+
+  -- note left blank: the UI labels `expire` rows "Points expired" already, so a
+  -- note here would render the phrase twice ("Points expired - Points expired").
+  insert into loyalty_transactions
+    (customer_id, type, points, balance_after, note)
+  values
+    (p_customer_id, 'expire', -v_expired, coalesce(v_balance, 0), '');
+
+  return v_expired;
+end;
+$$;
+
+-- The single atomic mutation for loyalty points (FIFO lot model).
+--   p_delta       signed points to apply.
+--   p_expires_at  expiry stamped on the lot a CREDIT opens (null = never).
+--   p_enforce     true  → fail with 'insufficient' if balance + delta < 0 (redeem).
+--                 false → clamp the debit so the balance floors at 0 (reversals).
+-- A positive delta opens a lot; a negative delta drains lots soonest-expiry-first.
+-- Before anything is applied the customer's due lots are expired in-line, so the
+-- cached balance is always current for active customers (the cron sweep covers
+-- dormant ones). Dedupe: for types earn / redeem / redeem_reversal a second call
+-- with the same order_id (or pos_sale_id) is a no-op success — this is what makes
+-- webhook retries and POS outbox replays safe. earn_reversal / adjust / expire are
 -- intentionally NOT deduped (an order can take several partial refunds); their
 -- callers compute the remaining-reversible amount from the ledger first.
+drop function if exists apply_loyalty_points(text, integer, text, text, text, text, text, boolean);
 create or replace function apply_loyalty_points(
   p_customer_id text,
   p_delta       integer,
@@ -1468,26 +1567,33 @@ create or replace function apply_loyalty_points(
   p_pos_sale_id text default null,
   p_reward_id   text default null,
   p_note        text default '',
-  p_enforce     boolean default false
+  p_enforce     boolean default false,
+  p_expires_at  timestamptz default null
 ) returns jsonb
 language plpgsql
 as $$
 declare
-  v_balance integer;
-  v_applied integer;
+  v_balance   integer;
+  v_applied   integer;
+  v_remaining integer;
+  v_take      integer;
+  r           record;
 begin
   if p_delta = 0 then
     return jsonb_build_object('ok', true, 'applied', 0, 'duplicate', false);
   end if;
 
   -- Lock the customer row first: all concurrent loyalty ops on this customer
-  -- serialise here, which also makes the dedupe check below race-free.
+  -- serialise here, which also makes the dedupe + FIFO drain below race-free.
   select loyalty_points into v_balance
     from customers where id = p_customer_id for update;
   if not found then
     return jsonb_build_object('ok', false, 'error', 'not_found');
   end if;
-  v_balance := coalesce(v_balance, 0);
+
+  -- Expire-on-touch: clear any due lots before reading the working balance.
+  perform _expire_loyalty_lots(p_customer_id);
+  select coalesce(loyalty_points, 0) into v_balance from customers where id = p_customer_id;
 
   if p_type in ('earn','redeem','redeem_reversal') then
     if (p_order_id is not null and exists (
@@ -1500,17 +1606,42 @@ begin
     end if;
   end if;
 
-  v_applied := p_delta;
-  if p_delta < 0 then
+  if p_delta > 0 then
+    -- CREDIT: open a lot. The cached balance equals Σ(live lot remainders), so
+    -- adding a lot and bumping the cache keeps the invariant.
+    v_applied := p_delta;
+    insert into loyalty_lots
+      (customer_id, points_total, points_remaining, source_order_id, source_pos_sale_id, note, expires_at)
+    values
+      (p_customer_id, v_applied, v_applied, p_order_id, p_pos_sale_id, coalesce(p_note, ''), p_expires_at);
+  else
+    -- DEBIT: drain live lots soonest-expiry-first (FIFO).
     if p_enforce and v_balance + p_delta < 0 then
       return jsonb_build_object('ok', false, 'error', 'insufficient', 'balance', v_balance);
     end if;
+    v_applied := p_delta;
     if not p_enforce then
       v_applied := greatest(p_delta, -v_balance);  -- clamp: never go negative
     end if;
     if v_applied = 0 then
       return jsonb_build_object('ok', true, 'applied', 0, 'duplicate', false, 'balance', v_balance);
     end if;
+
+    v_remaining := -v_applied;  -- positive amount still to consume
+    for r in
+      select id, points_remaining
+        from loyalty_lots
+       where customer_id = p_customer_id
+         and points_remaining > 0
+         and (expires_at is null or expires_at > now())
+       order by expires_at asc nulls last, earned_at asc, id asc
+       for update
+    loop
+      exit when v_remaining <= 0;
+      v_take := least(r.points_remaining, v_remaining);
+      update loyalty_lots set points_remaining = points_remaining - v_take where id = r.id;
+      v_remaining := v_remaining - v_take;
+    end loop;
   end if;
 
   update customers set loyalty_points = v_balance + v_applied where id = p_customer_id;
@@ -1525,18 +1656,78 @@ begin
 end;
 $$;
 
-revoke all    on function apply_loyalty_points(text, integer, text, text, text, text, text, boolean) from public, anon, authenticated;
-grant execute on function apply_loyalty_points(text, integer, text, text, text, text, text, boolean) to service_role;
+-- Global sweep — expire due lots for EVERY customer that has one. Locks each
+-- customer row before expiring (serialising with apply_loyalty_points), so it is
+-- safe to run alongside live traffic. Scheduled daily by pg_cron (see the
+-- cron.schedule block below).
+create or replace function expire_loyalty_points()
+returns jsonb
+language plpgsql
+as $$
+declare
+  r           record;
+  v_points    integer;
+  v_total     integer := 0;
+  v_customers integer := 0;
+begin
+  for r in
+    select distinct customer_id
+      from loyalty_lots
+     where points_remaining > 0
+       and expires_at is not null
+       and expires_at <= now()
+  loop
+    perform 1 from customers where id = r.customer_id for update;
+    v_points := _expire_loyalty_lots(r.customer_id);
+    if v_points > 0 then
+      v_total     := v_total + v_points;
+      v_customers := v_customers + 1;
+    end if;
+  end loop;
+  return jsonb_build_object('ok', true, 'customers', v_customers, 'points', v_total);
+end;
+$$;
 
--- RLS — both tables are server-route only (service role); anon gets nothing.
+revoke all    on function apply_loyalty_points(text, integer, text, text, text, text, text, boolean, timestamptz) from public, anon, authenticated;
+grant execute on function apply_loyalty_points(text, integer, text, text, text, text, text, boolean, timestamptz) to service_role;
+revoke all    on function _expire_loyalty_lots(text)   from public, anon, authenticated;
+grant execute on function _expire_loyalty_lots(text)   to service_role;
+revoke all    on function expire_loyalty_points()      from public, anon, authenticated;
+grant execute on function expire_loyalty_points()      to service_role;
+
+-- ── Daily expiry sweep schedule (Supabase pg_cron) ───────────────────────────
+-- Runs expire_loyalty_points() every day at 00:05 UTC so DORMANT customers' due
+-- lots are cleared even if they never transact (active customers are expired
+-- in-line by apply_loyalty_points). This is the whole scheduler — no web server,
+-- no HTTP route and no CRON_SECRET are involved; pg_cron calls the function
+-- directly inside Postgres.
+--
+-- NO-OP until the pg_cron extension is enabled. Enable it ONCE in the Supabase
+-- dashboard (Database → Extensions → "pg_cron"), then re-run this schema. The
+-- block is idempotent — it replaces any prior job of the same name.
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    if exists (select 1 from cron.job where jobname = 'loyalty-expiry-daily') then
+      perform cron.unschedule('loyalty-expiry-daily');
+    end if;
+    perform cron.schedule('loyalty-expiry-daily', '5 0 * * *', 'select expire_loyalty_points();');
+  end if;
+end $$;
+
+-- RLS — all three tables are server-route only (service role); anon gets nothing.
 alter table loyalty_rewards      enable row level security;
 alter table loyalty_transactions enable row level security;
+alter table loyalty_lots         enable row level security;
 do $$ begin
   if not exists (select 1 from pg_policies where tablename = 'loyalty_rewards' and policyname = 'deny_anon_all') then
     create policy "deny_anon_all" on loyalty_rewards      for all to anon using (false) with check (false);
   end if;
   if not exists (select 1 from pg_policies where tablename = 'loyalty_transactions' and policyname = 'deny_anon_all') then
     create policy "deny_anon_all" on loyalty_transactions for all to anon using (false) with check (false);
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'loyalty_lots' and policyname = 'deny_anon_all') then
+    create policy "deny_anon_all" on loyalty_lots         for all to anon using (false) with check (false);
   end if;
 end $$;
 
