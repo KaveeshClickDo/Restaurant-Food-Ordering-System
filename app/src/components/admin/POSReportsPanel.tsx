@@ -120,7 +120,8 @@ function getDateRange(period: Period, customStart: string, customEnd: string): [
 }
 
 // Build daily buckets for a date range. `valueOf` picks the per-sale amount —
-// pass `saleNet` so the chart sums retained income (gift card + refund netted),
+// pass `saleNet` so the chart sums retained income (refund netted; total is
+// already stored net of gift card),
 // matching the revenue KPI and letting partial-refund voids contribute correctly.
 function buildDailyBuckets(sales: POSSale[], start: Date, end: Date, valueOf: (s: POSSale) => number = (s) => s.total) {
   const map: Record<string, number> = {};

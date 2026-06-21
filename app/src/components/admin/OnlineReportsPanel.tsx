@@ -60,8 +60,8 @@ interface RawOrder {
   // (otherwise their revenue and refunds silently disappear from finance).
   payment_status:   string | null;
   customer_id:      string;
-  // Gift-card-covered portion. Online orders store net total (gift card already
-  // excluded); POS/dine-in store gross, so revenue nets it out via orderRevenue.
+  // Gift-card-covered portion (kept for receipts/breakdown). Every channel now
+  // stores the NET total — gift card already excluded — so revenue = order total.
   gift_card_used:   number | null;
   items:            { name: string; qty: number; price: number }[];
 }
