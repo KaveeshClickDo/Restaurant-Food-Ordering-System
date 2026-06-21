@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import { headers } from "next/headers";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { AppProvider } from "@/context/AppContext";
@@ -94,20 +93,23 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-// ── Viewport — Capacitor-aware ───────────────────────────────────────────────
+// ── Viewport — Capacitor-aware (build-time gated) ────────────────────────────
 // Web visitors (any browser, including a mobile browser hitting /pos directly)
 // get the default `width=device-width` so the page is responsive normally.
-// The Capacitor Android shell appends "RestaurantPOS" to its User-Agent (set
-// in capacitor.config.ts → appendUserAgent), and that token is what we
-// detect here to serve a wider viewport so the POS layout has the CSS-pixel
-// height it needs on high-DPI phone screens. Set in the INITIAL HTML so the
-// Android WebView applies it before computing layout — overriding viewport
-// after page load is unreliable on Android WebViews.
+// The Capacitor build needs a wider viewport so the POS layout has the
+// CSS-pixel height it needs on high-DPI phone screens, baked into the INITIAL
+// HTML (overriding viewport after page load is unreliable on Android WebViews).
+//
+// We branch at BUILD time via the CAPACITOR_BUILD env flag — NOT per request.
+// The earlier approach read the User-Agent via headers() here, but headers() is
+// a Next.js dynamic function: calling it in the root layout forces every route
+// into `ƒ Dynamic` rendering, which makes `output: "export"` (the offline APK
+// bundle, Phase 1.5) impossible. Build-time gating keeps `/pos` `○ Static`.
+// See 09-decisions.md § 2026-06-22.
+const IS_CAPACITOR_BUILD = process.env.CAPACITOR_BUILD === "1";
 
-export async function generateViewport(): Promise<Viewport> {
-  const ua = (await headers()).get("user-agent") ?? "";
-  const isCapacitor = ua.includes("RestaurantPOS");
-  if (isCapacitor) {
+export function generateViewport(): Viewport {
+  if (IS_CAPACITOR_BUILD) {
     // ONLY `initial-scale`, NO `width`. Why:
     //   • With `width=1920` + `initial-scale=0.6`, the page renders at 1920
     //     CSS pixels wide and is then scaled to 60% visually = 1152

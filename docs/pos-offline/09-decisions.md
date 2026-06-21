@@ -10,6 +10,53 @@ stay where they are; newer ones go on top.
 
 ---
 
+## 2026-06-22 § CORRECTION: server-side UA detection in the root layout blocks static export — move Capacitor branches to build-time
+
+**Decision:** Capacitor-only behaviour that affects the initial HTML
+(currently just the viewport) must branch at **build time**, not per
+request. [layout.tsx](../../app/src/app/layout.tsx) `generateViewport()`
+no longer calls `headers().get("user-agent")`; it reads a build-time env
+flag (`CAPACITOR_BUILD`) instead. The Capacitor static-export build sets
+it; the web build leaves it unset and keeps `width: device-width`.
+
+**Why this corrects the 2026-06-03 viewport entry:** That entry called
+the UA-detection pattern (`appendUserAgent: "RestaurantPOS"` →
+`headers().get("user-agent")` in a server component) "the blueprint for
+*all* future Capacitor-only behaviour." That guidance is **wrong for any
+build we intend to statically export.** Reading `headers()` is a Next.js
+*dynamic function*: calling it anywhere in the root layout opts **every
+route** into per-request server rendering (`ƒ Dynamic`), which makes
+`output: "export"` impossible. Phase 0 verified `/pos` was `○ Static`;
+the 2026-06-03 viewport fix silently flipped the whole app to `ƒ` —
+unnoticed because the app was running in Capacitor **server mode** at the
+time, where dynamic rendering is harmless. It only becomes a blocker at
+**Phase 1.5** (bundled static assets for true offline cold-start).
+
+It was a correct fix for server mode, made before the static-export goal
+was in scope, and the cross-phase conflict was never recorded. This entry
+records it.
+
+**How to apply:**
+- Capacitor-only logic in the **root layout / metadata / viewport** →
+  gate on `process.env.CAPACITOR_BUILD` (build-time), never `headers()`.
+- Capacitor-only logic in **client components** → keep using
+  `isCapacitorAndroid()` (`Capacitor.isNativePlatform()`); that's
+  client-runtime and does not affect static-ness.
+- Never call `headers()`, `cookies()`, or `draftMode()` from the root
+  layout subtree that the Capacitor export depends on.
+- The wide viewport (`initialScale: 0.6`) is unchanged in behaviour — it
+  now ships baked into the Capacitor build instead of being chosen per
+  request. The `appendUserAgent: "RestaurantPOS"` token stays useful for
+  *server-side logging* of Capacitor hits, just not for viewport gating.
+
+**Still open (full Phase 1.5):** the root layout's `getDbSettings()`
+fetch is fine for a normal web build but must be hoisted out of the
+server render for a true `output: "export"` build (it would otherwise
+bake build-time settings into the APK). Tracked in
+[07-phases.md § 1.5.5](./07-phases.md). This entry only removes the
+`headers()` blocker; the export-config + getDbSettings hoist is the
+remaining 1.5 work.
+
 ## 2026-06-03 § Receipt mint timing: `OFF-…` minted INSIDE the offline fallback only, not upfront
 
 **Decision:** [POSContext.completeSale](../../app/src/context/POSContext.tsx)
