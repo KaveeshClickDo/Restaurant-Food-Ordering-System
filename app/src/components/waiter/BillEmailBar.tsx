@@ -52,7 +52,8 @@ export default function BillEmailBar({ onPrint, tableLabel, waiterName, consolid
       tipAmount: billTip > 0 ? billTip : undefined,
       serviceFeeAmount: billServiceFee > 0 ? billServiceFee : undefined,
       giftCardUsed: giftCardApplied > 0 ? giftCardApplied : undefined,
-      total: billTotal,
+      // NET money paid; the receipt re-adds gift_card_used for the gross line.
+      total: Math.max(0, Math.round((billTotal - giftCardApplied) * 100) / 100),
       paymentMethod: "pending",
       orderIds,
     };

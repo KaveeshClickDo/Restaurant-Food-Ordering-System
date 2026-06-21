@@ -225,7 +225,9 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
       vatRate: vatAmount > 0 ? appSettings.taxSettings?.rate : undefined,
       tipAmount: tipAmount > 0 ? tipAmount : undefined,
       serviceFeeAmount: serviceFeeAmount > 0 ? serviceFeeAmount : undefined,
-      total,
+      // Store NET money paid (gift card already deducted); the receipt re-adds
+      // gift_card_used to show the gross goods line. Avoids double-counting.
+      total: Math.max(0, round2(total - gcAmount)),
       giftCardUsed: gcAmount > 0 ? gcAmount : undefined,
       paymentMethod: method,
       orderIds: billOrders.map((o) => o.id),
@@ -280,7 +282,8 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
       tipAmount: billTip > 0 ? billTip : undefined,
       serviceFeeAmount: billServiceFee > 0 ? billServiceFee : undefined,
       giftCardUsed: giftCardApplied > 0 ? giftCardApplied : undefined,
-      total: billTotal,
+      // NET money paid; the receipt re-adds gift_card_used for the gross line.
+      total: dueAfterGiftCard,
       paymentMethod: "pending",
       orderIds: billOrders.map(o => o.id),
     };
