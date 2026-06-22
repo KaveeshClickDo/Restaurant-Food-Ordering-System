@@ -427,7 +427,7 @@ export default function POSReportsPanel() {
           <p className="text-gray-500 text-sm mt-0.5">
             {moneyBearing.length} transactions · {fmtCur(revenue + vipFeesTotal, sym)} revenue
             {vipFeesInRange.length > 0 && <span className="ml-1 text-amber-500">(incl. {fmtCur(vipFeesTotal, sym)} VIP fees)</span>}
-            {voidedCount > 0 && <span className="ml-2 text-red-400">({voidedCount} voided{voidKeptRevenue > 0 ? `, ${fmtCur(voidKeptRevenue, sym)} kept` : ""})</span>}
+            {voidedCount > 0 && <span className="ml-2 text-red-400">({voidedCount} voided)</span>}
           </p>
         </div>
         <div className="flex items-center gap-2">
