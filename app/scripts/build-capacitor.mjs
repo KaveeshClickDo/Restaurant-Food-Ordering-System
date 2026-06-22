@@ -86,16 +86,20 @@ try {
   // the export only produced out/pos/index.html (the / home route is
   // quarantined). Write a tiny root redirect so the APK opens into the POS.
   const outIndex = join(appDir, "out", "index.html");
+  // Redirect to the EXPLICIT index.html FILE with an ABSOLUTE path. Capacitor's
+  // local server serves real files directly but does NOT resolve a folder path
+  // like "/pos/" to "/pos/index.html" — it SPA-falls-back to root index.html,
+  // which (with a relative redirect) caused an infinite /pos/pos/pos/… loop.
   writeFileSync(
     outIndex,
     `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Restaurant POS</title>
-<meta http-equiv="refresh" content="0; url=./pos/">
-<script>location.replace("./pos/" + location.search + location.hash);</script>
+<meta http-equiv="refresh" content="0; url=/pos/index.html">
+<script>location.replace("/pos/index.html");</script>
 </head><body></body></html>
 `,
   );
-  console.log("[build:capacitor] wrote out/index.html (redirect → ./pos/).");
+  console.log("[build:capacitor] wrote out/index.html (redirect → /pos/index.html).");
 } finally {
   restore();
   console.log("[build:capacitor] restored quarantined routes.");
