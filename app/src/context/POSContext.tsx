@@ -12,6 +12,13 @@ import { useApp } from "@/context/AppContext";
 import { supabase } from "@/lib/supabase";
 import { isCapacitorAndroid } from "@/lib/capacitorBridge";
 import { enqueueSale } from "@/lib/posOutbox";
+import { kvGet, kvSet } from "@/lib/posLocalDb";
+
+// On-device cache keys (Phase 1.6). kvGet/kvSet are Capacitor-only (no-ops on
+// web), so these write-throughs are harmless in the browser and only serve the
+// bundled APK's cold-start offline path.
+const CACHE_MENU  = "menu_snapshot";
+const CACHE_STAFF = "staff_picker_snapshot";
 
 // Module-scope so the value is stable across renders (used by the idle-logout effect).
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
@@ -442,8 +449,19 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch(apiBase() + "/api/pos/staff");
       if (!res.ok) return;
       const json = await res.json() as { ok: boolean; staff?: POSStaff[] };
-      if (json.ok && Array.isArray(json.staff)) setStaff(json.staff);
-    } catch { /* network — leave staff state untouched */ }
+      if (json.ok && Array.isArray(json.staff)) {
+        setStaff(json.staff);
+        // Write-through so the login picker shows profiles on a cold offline
+        // start (Phase 1.6). Capacitor-only; no-op on web. Note: pin_hash is
+        // stripped by the API, so offline PIN *validation* still needs Phase 4.
+        void kvSet(CACHE_STAFF, json.staff);
+      }
+    } catch {
+      // Offline: show the last cached staff picker instead of an empty
+      // "POS not configured" screen. No-op on web (kvGet → null).
+      const cached = await kvGet<POSStaff[]>(CACHE_STAFF);
+      if (cached && cached.length > 0) setStaff(cached);
+    }
   }, []);
 
   useEffect(() => { refreshPosStaff(); }, [refreshPosStaff]);
@@ -631,27 +649,36 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // If Supabase is empty we seed it from the current localStorage/seed data so the
   // waiter app immediately has a menu to show.
   useEffect(() => {
-    fetch(apiBase() + "/api/pos/menu")
-      .then((r) => { if (!r.ok) throw new Error(`/api/pos/menu ${r.status}`); return r.json(); })
-      .then((d: { ok: boolean; categories: Record<string,unknown>[]; items: Record<string,unknown>[] }) => {
+    type MenuSnapshot = { categories: Record<string, unknown>[]; items: Record<string, unknown>[] };
+    // Map raw server/cache rows into POS state — identical for both paths so the
+    // cached menu renders exactly like a live one.
+    const applyMenu = (d: MenuSnapshot) => {
+      setCategories((prev) =>
+        d.categories.map((row, i) => rowToPOSCategory(row, i, prev.find((c) => c.id === row.id))),
+      );
+      setProducts((prev) =>
+        d.items.map((row) => rowToPOSProduct(row, prev.find((p) => p.id === row.id))),
+      );
+    };
+    (async () => {
+      try {
+        const r = await fetch(apiBase() + "/api/pos/menu");
+        if (!r.ok) throw new Error(`/api/pos/menu ${r.status}`);
+        const d = (await r.json()) as { ok: boolean } & MenuSnapshot;
         if (!d.ok) return;
-        // Always apply the server's response — including empty arrays. An
-        // empty server reply means the menu IS empty (fresh DB, full wipe);
-        // skipping the setState would leave whatever was already in memory
-        // and that stale list would then get pushed back to the DB by the
-        // debounced sync after the next realtime menu event.
-        setCategories((prev) =>
-          d.categories.map((row, i) =>
-            rowToPOSCategory(row, i, prev.find((c) => c.id === row.id)),
-          ),
-        );
-        setProducts((prev) =>
-          d.items.map((row) =>
-            rowToPOSProduct(row, prev.find((p) => p.id === row.id)),
-          ),
-        );
-      })
-      .catch(() => { /* network error — leave state as-is until next mount */ });
+        // Always apply the server's response — including empty arrays (an empty
+        // reply means the menu IS empty, e.g. a fresh DB).
+        applyMenu(d);
+        // Write-through to the on-device cache so a cold-start offline boot can
+        // render the menu (Phase 1.6). Capacitor-only; no-op on web.
+        void kvSet(CACHE_MENU, { categories: d.categories, items: d.items });
+      } catch {
+        // Offline / server down: fall back to the last cached menu so the Sale
+        // tab is usable from a cold offline start. No-op on web (kvGet → null).
+        const cached = await kvGet<MenuSnapshot>(CACHE_MENU);
+        if (cached) applyMenu(cached);
+      }
+    })();
   }, []);
 
   // Debounced push: whenever the POS menu changes, sync to Supabase so the
