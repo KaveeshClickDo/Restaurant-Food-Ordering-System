@@ -542,8 +542,28 @@ export default function DashboardView() {
   // cash/card/gift_card into the shared rows.
   const cPayCount: Record<string, number> = { gift_card: 0, cash: 0, card: 0, split: 0, "table-service": 0 };
   const cPayRev:   Record<string, number> = { gift_card: 0, cash: 0, card: 0, split: 0, "table-service": 0 };
-  for (const s of rMoneyBearing) { cPayCount[s.paymentMethod] = (cPayCount[s.paymentMethod] ?? 0) + 1; cPayRev[s.paymentMethod] = (cPayRev[s.paymentMethod] ?? 0) + rSaleNet(s); }
-  for (const o of diMoneyBearing) { cPayCount[o.paymentMethod] = (cPayCount[o.paymentMethod] ?? 0) + 1; cPayRev[o.paymentMethod] = (cPayRev[o.paymentMethod] ?? 0) + diSaleNet(o); }
+  for (const s of rMoneyBearing) { 
+    cPayCount[s.paymentMethod] = (cPayCount[s.paymentMethod] ?? 0) + 1; 
+    
+    // If it's a gift card transaction, use the redemption value.
+    // Otherwise, use the standard net cash revenue.
+    const revenueValue = s.paymentMethod === "gift_card" 
+      ? (s.giftCardUsed ?? 0) 
+      : rSaleNet(s);
+
+    cPayRev[s.paymentMethod] = (cPayRev[s.paymentMethod] ?? 0) + revenueValue; 
+  }
+  for (const o of diMoneyBearing) { 
+    cPayCount[o.paymentMethod] = (cPayCount[o.paymentMethod] ?? 0) + 1; 
+
+    // If it's a gift card transaction, use the redemption value.
+    // Otherwise, use the standard net cash revenue.
+    const revenueValue = o.paymentMethod === "gift_card" 
+      ? (o.giftCardUsed ?? 0) 
+      : diSaleNet(o);
+
+    cPayRev[o.paymentMethod] = (cPayRev[o.paymentMethod] ?? 0) + revenueValue; 
+  }
   const cPayTotal = combinedTxns || 1;
 
   // Transactions
@@ -1137,6 +1157,7 @@ export default function DashboardView() {
                             ["VAT Collected", fmt(rTax, sym), "text-amber-400"],
                             ["Tips", fmt(rTips, sym), "text-pink-400"],
                             ["Service Fees", fmt(rServiceFees, sym), "text-blue-400"],
+                            ["Gift Cards Redeemed", `–${fmt(giftCardRedeemed, sym)}`, "text-purple-300"],
                             ["Total Revenue", fmt(rRevenue, sym), "font-bold text-white"],
                             ["Est. COGS", `–${fmt(rCost, sym)}`, "text-slate-500"],
                             ["Gross Profit", fmt(grossProfit, sym), "font-semibold text-green-400"],

@@ -608,12 +608,15 @@ export default function POSReportsPanel() {
                     <CreditCard size={16} className="text-blue-500" /> Payment Methods
                   </h3>
                   <div className="space-y-3">
-                    {([["cash", "Cash", "bg-green-500", "text-green-700", Banknote],
+                    {([["gift_card", "Gift Card", "bg-fuchsia-600", "text-fuchsia-700", Gift],
+                    ["cash", "Cash", "bg-green-500", "text-green-700", Banknote],
                     ["card", "Card", "bg-blue-500", "text-blue-700", CreditCard],
                     ["split", "Split", "bg-purple-500", "text-purple-700", Shuffle]] as [string, string, string, string, React.ComponentType<{ size?: number; className?: string }>][]).map(([key, label, bar, txt, Icon]) => {
                       const count = payMix[key as keyof typeof payMix] ?? 0;
                       const pct = (count / payTotal) * 100;
-                      const rev = moneyBearing.filter((s) => s.paymentMethod === key).reduce((s, x) => s + saleNet(x), 0);
+                      const rev = moneyBearing
+                        .filter((s) => s.paymentMethod === key)
+                        .reduce((s, x) => s + (key === "gift_card" ? (x.giftCardUsed ?? x.total) : saleNet(x)), 0);
                       return (
                         <div key={key}>
                           <div className="flex items-center justify-between mb-1">
@@ -673,6 +676,7 @@ export default function POSReportsPanel() {
                       ["VAT Collected", fmtCur(taxCollected, sym), "text-amber-600"],
                       ["Tips", fmtCur(tipsTotal, sym), "text-pink-600"],
                       ["Service Fees", fmtCur(serviceFeesTotal, sym), "text-indigo-600"],
+                      ["Gift Card Redeemed", `–${fmtCur(giftCardRedeemed, sym)}`, "text-fuchsia-600"],
                       ["Sales Revenue", fmtCur(revenue, sym), "text-gray-900"],
                       ...(voidKeptRevenue > 0
                         ? [["— incl. kept from voided sales", fmtCur(voidKeptRevenue, sym), "text-amber-600"] as [string, string, string]]
