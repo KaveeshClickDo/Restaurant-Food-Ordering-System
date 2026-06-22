@@ -9,6 +9,7 @@
 
 import type { AdminSettings, Order } from "@/types";
 import { fullOrderNumber } from "@/lib/orderNumber";
+import { apiBase } from "@/lib/apiBase";
 
 // ─── ESC/POS byte constants ──────────────────────────────────────────────────
 
@@ -287,7 +288,7 @@ export async function sendToPrinter(
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15_000);
     try {
-      const res  = await fetch(endpoint, {
+      const res  = await fetch(apiBase() + endpoint, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ ip, port, bytes }),
