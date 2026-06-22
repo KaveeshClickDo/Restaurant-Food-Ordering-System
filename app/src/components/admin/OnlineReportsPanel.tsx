@@ -9,6 +9,7 @@ import {
   Download, Printer, RefreshCw, CalendarDays, ChevronDown,
   ArrowUpRight, ArrowDownRight, Minus, Crown, Gift,
 } from "lucide-react";
+import { parseTableLabelFromNote } from "@/lib/tableLabel";
 
 interface VipFeeRow {
   id: string;
@@ -64,6 +65,7 @@ interface RawOrder {
   // stores the NET total — gift card already excluded — so revenue = order total.
   gift_card_used:   number | null;
   items:            { name: string; qty: number; price: number }[];
+  note:             string | null;
 }
 
 type Preset = "today" | "yesterday" | "7d" | "30d" | "month" | "lastMonth" | "year" | "custom";
@@ -212,6 +214,26 @@ function groupByMonth(orders: RawOrder[]): { label: string; revenue: number; cou
 
 function dateRangeDays(start: Date, end: Date) {
   return Math.ceil((end.getTime() - start.getTime()) / 86_400_000);
+}
+
+function getDisplayOrderId(o: RawOrder) {
+  const note = o.note || "";
+  const source = orderSource(o);
+
+  if (source === "pos") {
+    // Extracts "R1002" from "... Receipt: R1002"
+    const match = note.match(/Receipt:\s*(\S+)/);
+    return match ? `#${match[1]}` : fullOrderNumber(o.id);
+  }
+
+  if (source === "dine-in") {
+    // Extracts "T1" using your existing helper
+    const label = parseTableLabelFromNote(note);
+    return label ? `#Table ${label}` : fullOrderNumber(o.id);
+  }
+
+  // Online orders use standard order ID
+  return fullOrderNumber(o.id);
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -540,13 +562,13 @@ export default function OnlineReportsPanel() {
     const feeAsOrders = vipFeesForSource.map((f) => ({
       id: f.id, date: f.created_at, status: "confirmed", total: Number(f.vip_fee ?? 0),
       fulfillment: "booking", refunded_amount: 0, vat_amount: 0, vat_inclusive: false,
-      payment_method: f.payment_method, payment_status: "paid", customer_id: "", gift_card_used: 0, items: [],
+      payment_method: f.payment_method, payment_status: "paid", customer_id: "", gift_card_used: 0, items: [], note: ""
     })) as RawOrder[];
     // Gift card sales likewise fold in so the chart total matches Gross Revenue.
     const giftAsOrders = giftCardSalesForSource.map((g) => ({
       id: g.id, date: g.created_at, status: "confirmed", total: Number(g.amount ?? 0),
       fulfillment: "gift_card", refunded_amount: 0, vat_amount: 0, vat_inclusive: false,
-      payment_method: g.origin, payment_status: "paid", customer_id: "", gift_card_used: 0, items: [],
+      payment_method: g.origin, payment_status: "paid", customer_id: "", gift_card_used: 0, items: [], note: ""
     })) as RawOrder[];
     const combined = [...filtered, ...feeAsOrders, ...giftAsOrders];
     const days = dateRangeDays(startDate, endDate);
@@ -634,7 +656,7 @@ export default function OnlineReportsPanel() {
       for (const o of refundedOrders) {
         lines.push(row([
           new Date(o.date).toLocaleDateString("en-GB"),
-          o.id,
+          getDisplayOrderId(o),
           o.status,
           o.total.toFixed(2),
           (o.refunded_amount ?? 0).toFixed(2),
@@ -649,7 +671,7 @@ export default function OnlineReportsPanel() {
     for (const o of filtered) {
       lines.push(row([
         new Date(o.date).toLocaleDateString("en-GB"),
-        o.id,
+        getDisplayOrderId(o),
         o.status,
         orderSource(o) === "pos" ? "POS" : orderSource(o) === "dine-in" ? "Dine-in" : "Online",
         o.fulfillment,
@@ -1050,8 +1072,8 @@ export default function OnlineReportsPanel() {
                       <td className="py-2.5 pr-4 text-gray-500">
                         {new Date(o.date).toLocaleDateString("en-GB")}
                       </td>
-                      <td title={fullOrderNumber(o.id)} className="py-2.5 pr-4 font-mono text-xs text-gray-500 truncate max-w-[160px]">
-                        {fullOrderNumber(o.id)}
+                      <td title={getDisplayOrderId(o)} className="py-2.5 pr-4 font-mono text-xs text-gray-500 truncate max-w-[160px]">
+                        {getDisplayOrderId(o)}
                       </td>
                       <td className="py-2.5 pr-4">
                         <span className={`inline-flex whitespace-nowrap items-center px-2 py-0.5 rounded-full text-xs font-semibold text-white ${STATUS_COLORS[o.status] ?? "bg-gray-400"}`}>

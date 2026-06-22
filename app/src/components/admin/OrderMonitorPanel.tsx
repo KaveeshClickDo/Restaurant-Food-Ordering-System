@@ -293,15 +293,15 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
               if (source === "pos") {
                 // Extracts "R1002" from "... Receipt: R1002"
                 const match = note.match(/Receipt:\s*(\S+)/);
-                return match ? match[1] : fullOrderNumber(viewingReceipt.id);
+                return match ? match[1] : (viewingReceipt.id);
               }
               if (source === "dine-in") {
                 // Extracts "T1" from "... Table T1 ..." using your lib helper
                 const label = parseTableLabelFromNote(note);
-                return label ? `Table ${label}` : "Dine-in";
+                return label ? `Table ${label}` : (viewingReceipt.id);
               }
               // Online orders use the standard order number
-              return fullOrderNumber(viewingReceipt.id);
+              return (viewingReceipt.id);
             })(),
             date: viewingReceipt.date,
             status: viewingReceipt.status,
