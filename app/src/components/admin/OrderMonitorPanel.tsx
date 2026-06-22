@@ -288,7 +288,21 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
       {viewingReceipt && (
         <ReceiptModal
           order={{
-            id: viewingReceipt.id,
+            id: (() => {
+              const note = viewingReceipt.note || "";
+              if (source === "pos") {
+                // Extracts "R1002" from "... Receipt: R1002"
+                const match = note.match(/Receipt:\s*(\S+)/);
+                return match ? match[1] : fullOrderNumber(viewingReceipt.id);
+              }
+              if (source === "dine-in") {
+                // Extracts "T1" from "... Table T1 ..." using your lib helper
+                const label = parseTableLabelFromNote(note);
+                return label ? `Table ${label}` : "Dine-in";
+              }
+              // Online orders use the standard order number
+              return fullOrderNumber(viewingReceipt.id);
+            })(),
             date: viewingReceipt.date,
             status: viewingReceipt.status,
             fulfillment: viewingReceipt.fulfillment || "collection",
