@@ -249,13 +249,15 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
               <div className="flex items-center gap-3 mb-5">
                 <div className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold bg-orange-500 text-white shadow-sm">
                   {isDelivery ? <Bike className="w-3.5 h-3.5" /> : <ShoppingBag className="w-3.5 h-3.5" />}
-                  {isDelivery ? "Delivery" : "Collection"}
-                </div>
-                <div className="px-1 py-1.5 text-orange-700 rounded-lg text-xs font-bold flex items-center">
-                  {/* {isDelivery ? <Bike size={14} /> : <ShoppingBag size={14} />} */}
-                  Available for {isDelivery ? "Delivery" : "Collection"} only
+                  {isDelivery ? "Delivery Only" : "Collection Only"}
                 </div>
               </div>
+              // <div className="flex items-center gap-2 mb-5">
+              //   <div className="px-3 py-1.5 bg-orange-100 text-orange-700 rounded-lg text-xs font-bold flex items-center gap-2">
+              //     {isDelivery ? <Bike size={14} /> : <ShoppingBag size={14} />}
+              //     Available for {isDelivery ? "Delivery" : "Collection"} only
+              //   </div>
+              // </div>
             )}
 
 
