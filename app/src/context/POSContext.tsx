@@ -138,6 +138,9 @@ interface POSContextValue {
    *  mount. Pages should wait on this before treating a null currentStaff as
    *  "logged out" — otherwise a refresh bounces to /pos/login mid-hydration. */
   sessionLoading: boolean;
+  /** true after an offline login until the server revalidates online; while set,
+   *  void/refund are blocked and the UI should indicate "verifying". */
+  pendingRevalidation: boolean;
   login: (staffId: string, pin: string) => Promise<boolean>;
   logout: () => void;
   // Data
@@ -471,6 +474,16 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // and the menu-sync gate so neither has to depend on currentStaff directly.
   const currentStaffRef = useRef<POSStaff | null>(null);
   useEffect(() => { currentStaffRef.current = currentStaff; }, [currentStaff]);
+  // Phase 4 hardening: true after an OFFLINE login until the server revalidates
+  // the session online (checkSession success). While set, destructive actions
+  // (void/refund) are blocked — the cached PIN could be stale (admin reset it
+  // while offline). The ref lets voidSale read it without a deps change.
+  const [pendingRevalidation, setPendingRevalidation] = useState(false);
+  const pendingRevalRef = useRef(false);
+  const markPendingReval = useCallback((v: boolean) => {
+    pendingRevalRef.current = v;
+    setPendingRevalidation(v);
+  }, []);
   const [staff, setStaff] = useState<POSStaff[]>([]);
   // products + categories are NOT cached in localStorage. The DB is the single
   // source of truth — same pattern as customers (Bug #11). Caching them used
@@ -901,8 +914,9 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     const staffRec = picker?.find((s) => s.id === staffId && s.active !== false);
     if (!staffRec) return false;
     setCurrentStaff(staffRec);
+    markPendingReval(true); // unverified until the server confirms on reconnect
     return true;
-  }, []);
+  }, [markPendingReval]);
 
   const login = useCallback(async (staffId: string, pin: string): Promise<boolean> => {
     try {
@@ -986,6 +1000,10 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         }
         const d = await r.json() as { ok: boolean; staff?: POSStaff };
         if (active && d.ok && d.staff) {
+          // Server confirmed the session is valid (session_version + active
+          // checked server-side) — clear any pending-revalidation hold from an
+          // earlier offline login.
+          markPendingReval(false);
           const key = JSON.stringify(d.staff);
           if (key !== lastStaffKey) {
             lastStaffKey = key;
@@ -1003,7 +1021,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     checkSession();
     const id = setInterval(checkSession, 15_000);
     return () => { active = false; clearInterval(id); };
-  }, [router]);
+  }, [router, markPendingReval]);
 
   const logout = useCallback(() => {
     setCurrentStaff(null);
@@ -1357,6 +1375,12 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     refundMethod?: "cash" | "card" | "none",
     refundAmount?: number,
   ): Promise<{ ok: boolean; error?: string }> => {
+    // Block destructive actions while the session is unverified (logged in
+    // offline; awaiting the first online revalidation). The cached PIN could be
+    // stale, so we don't allow a void/refund until the server confirms identity.
+    if (pendingRevalRef.current) {
+      return { ok: false, error: "Reconnecting to verify your login — try again in a moment." };
+    }
     // 1. Locate the target sale first to read its customer details
     const sale = sales.find((s) => s.id === saleId);
     if (!sale) return { ok: false, error: "Sale not found." };
@@ -1506,7 +1530,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <POSContext.Provider value={{
-      currentStaff, sessionLoading, login, logout,
+      currentStaff, sessionLoading, pendingRevalidation, login, logout,
       staff, addPosStaff, updatePosStaff, deletePosStaff, refreshPosStaff,
       products, setProducts, updateProductStock,
       imageCache, menuCachedAt,

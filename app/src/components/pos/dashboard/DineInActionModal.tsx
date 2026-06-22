@@ -18,8 +18,11 @@ export default function DineInActionModal({
   onClose: () => void;
   onComplete: () => void;
 }) {
-  const { settings } = usePOS();
+  const { settings, pendingRevalidation } = usePOS();
   const sym = settings.currencySymbol;
+  // Block dine-in void/refund while the session is unverified (offline login
+  // awaiting online revalidation) — mirrors the voidSale gate in POSContext.
+  const revalMsg = "Reconnecting to verify your login — try again in a moment.";
   // A gift card is prepaid money, so only the cash/card portion is refundable —
   // and `total` is stored net of the gift card. Cap "full" and the partial input
   // at money collected, net of anything already refunded (server enforces it too).
@@ -38,6 +41,7 @@ export default function DineInActionModal({
 
   async function submitVoid() {
     if (inFlight.current) return;
+    if (pendingRevalidation) { setError(revalMsg); return; }
     if (!reason.trim()) { setError("Please enter a reason."); return; }
     inFlight.current = true;
     setLoading(true); setError(null);
@@ -58,6 +62,7 @@ export default function DineInActionModal({
 
   async function submitRefund() {
     if (inFlight.current) return;
+    if (pendingRevalidation) { setError(revalMsg); return; }
     if (!reason.trim()) { setError("Please enter a reason."); return; }
     const amt = refundType === "full" ? refundable : parseFloat(refundAmtStr);
     if (isNaN(amt) || amt <= 0) { setError("Enter a valid refund amount."); return; }
