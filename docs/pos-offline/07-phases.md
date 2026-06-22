@@ -435,6 +435,19 @@ add `pos_sales.oversold` + `pos_oversell_events` table.
 
 ## Phase 4 — Offline PIN auth
 
+> **Status (2026-06-22): core COMPLETE — device-verified.** Full cold-start
+> offline flow confirmed on a real phone: airplane mode → cold boot → staff
+> picker (1.6 cache) → **offline PIN login** (local bcrypt) → menu (1.6 cache)
+> → ring sale (Phase 1 outbox) → reconnect → sync. Design + reused-cookie
+> rationale in [09-decisions.md § 2026-06-22](./09-decisions.md).
+>
+> **Before a real customer release (deferred, tracked here):**
+> 1. 🔒 **Encrypt the on-device credentials cache** (Android Keystore) — the
+>    bcrypt hash currently sits in plain SQLite; a 6-digit PIN is brute-forceable
+>    against a stolen hash DB. See § 4.3.
+> 2. `pendingRevalidation` gate on void/refund until first reconnect-revalidation.
+> 3. Native background sync worker (sync while app fully closed) — optional.
+
 After this phase, a cashier can log into the POS from a fresh terminal
 boot with no internet. The bcrypt PIN check happens locally against a
 cached `pin_hash`, with server-side revalidation on every reconnect.
