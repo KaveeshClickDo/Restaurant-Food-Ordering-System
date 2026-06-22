@@ -13,7 +13,7 @@
 
 import { execSync } from "node:child_process";
 import {
-  existsSync, mkdirSync, readdirSync, renameSync, rmSync,
+  existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync,
 } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -81,6 +81,21 @@ try {
       NEXT_PUBLIC_API_BASE_URL: apiUrl,
     },
   });
+
+  // Capacitor's webDir entry point must be index.html at the root of out/, but
+  // the export only produced out/pos/index.html (the / home route is
+  // quarantined). Write a tiny root redirect so the APK opens into the POS.
+  const outIndex = join(appDir, "out", "index.html");
+  writeFileSync(
+    outIndex,
+    `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Restaurant POS</title>
+<meta http-equiv="refresh" content="0; url=./pos/">
+<script>location.replace("./pos/" + location.search + location.hash);</script>
+</head><body></body></html>
+`,
+  );
+  console.log("[build:capacitor] wrote out/index.html (redirect → ./pos/).");
 } finally {
   restore();
   console.log("[build:capacitor] restored quarantined routes.");
