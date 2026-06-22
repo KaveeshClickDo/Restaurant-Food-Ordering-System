@@ -13,12 +13,44 @@ import { supabase } from "@/lib/supabase";
 import { isCapacitorAndroid } from "@/lib/capacitorBridge";
 import { enqueueSale } from "@/lib/posOutbox";
 import { kvGet, kvSet } from "@/lib/posLocalDb";
+import bcrypt from "bcryptjs";
 
-// On-device cache keys (Phase 1.6). kvGet/kvSet are Capacitor-only (no-ops on
-// web), so these write-throughs are harmless in the browser and only serve the
-// bundled APK's cold-start offline path.
+// On-device cache keys (Phase 1.6 / 4). kvGet/kvSet are Capacitor-only (no-ops
+// on web), so these write-throughs are harmless in the browser and only serve
+// the bundled APK's cold-start offline path.
 const CACHE_MENU  = "menu_snapshot";
 const CACHE_STAFF = "staff_picker_snapshot";
+// Phase 4: per-staff bcrypt hashes for offline PIN login, keyed by staffId.
+// Only staff who have logged in online ON THIS DEVICE accumulate here.
+const CACHE_CREDS = "staff_credentials";
+
+type CachedCred = { pinHash: string; sessionVersion: number };
+
+/**
+ * After a successful ONLINE login, fetch the caller's own credentials and cache
+ * the bcrypt hash so they can log in offline later. Capacitor-only; the server
+ * endpoint returns only the session owner's row. Failures are non-fatal — the
+ * cashier is already logged in; they just won't have offline login until a
+ * future online login succeeds in caching.
+ */
+async function cachePosCredentials(staffId: string): Promise<void> {
+  if (!isCapacitorAndroid()) return;
+  try {
+    const res = await fetch(apiBase() + "/api/pos/staff/credentials");
+    if (!res.ok) return;
+    const json = await res.json() as {
+      ok: boolean;
+      credentials?: { staffId: string; pinHash: string; sessionVersion: number };
+    };
+    if (!json.ok || !json.credentials?.pinHash) return;
+    const map = (await kvGet<Record<string, CachedCred>>(CACHE_CREDS)) ?? {};
+    map[staffId] = {
+      pinHash:        json.credentials.pinHash,
+      sessionVersion: json.credentials.sessionVersion,
+    };
+    await kvSet(CACHE_CREDS, map);
+  } catch { /* offline / network — skip; offline login just won't be available */ }
+}
 
 // Module-scope so the value is stable across renders (used by the idle-logout effect).
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
@@ -773,6 +805,27 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // Server-authoritative login: the PIN is validated by /api/pos/auth, which
   // sets the httpOnly pos_staff_session cookie and returns the staff record.
   // The browser never compares PINs — and never sees other staff's PINs.
+  // Offline PIN login (Phase 4): when the server is unreachable, validate the
+  // PIN locally with bcrypt against the cached hash for this staffId, then set
+  // currentStaff from the cached picker. The session cookie from the last online
+  // login (native cookie jar) is reused to sync queued sales on reconnect; the
+  // 15s checkSession poll revalidates against the server once back online (and
+  // logs out if the PIN was reset / staff deactivated — session_version bump).
+  // Capacitor-only; returns false on web (no cached creds).
+  const offlineLogin = useCallback(async (staffId: string, pin: string): Promise<boolean> => {
+    if (!isCapacitorAndroid()) return false;
+    const creds = await kvGet<Record<string, CachedCred>>(CACHE_CREDS);
+    const entry = creds?.[staffId];
+    if (!entry?.pinHash) return false;
+    const ok = await bcrypt.compare(pin, entry.pinHash);
+    if (!ok) return false;
+    const picker = await kvGet<POSStaff[]>(CACHE_STAFF);
+    const staffRec = picker?.find((s) => s.id === staffId && s.active !== false);
+    if (!staffRec) return false;
+    setCurrentStaff(staffRec);
+    return true;
+  }, []);
+
   const login = useCallback(async (staffId: string, pin: string): Promise<boolean> => {
     try {
       const res = await fetch(apiBase() + "/api/pos/auth", {
@@ -780,15 +833,20 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ staffId, pin }),
       });
+      // A reachable server gave a definitive answer (200 ok, or 401/429 reject).
+      // Do NOT fall back to offline validation on a server reject.
       if (!res.ok) return false;
       const json = await res.json() as { ok: boolean; staff?: POSStaff };
       if (!json.ok || !json.staff) return false;
       setCurrentStaff(json.staff);
+      // Cache this staff's hash so they can log in offline next time (Capacitor).
+      void cachePosCredentials(staffId);
       return true;
     } catch {
-      return false;
+      // Server unreachable → try offline PIN validation against the cached hash.
+      return offlineLogin(staffId, pin);
     }
-  }, []);
+  }, [offlineLogin]);
 
   // ── Session hydration on mount ────────────────────────────────────────────
   // Read the server session (httpOnly cookie) and populate currentStaff. Any

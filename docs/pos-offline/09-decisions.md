@@ -10,6 +10,40 @@ stay where they are; newer ones go on top.
 
 ---
 
+## 2026-06-22 § Phase 4 offline PIN login — reuse the cookie, don't store the PIN
+
+**Decision:** Offline login validates the PIN locally with bcrypt against a
+cached hash, then **reuses the existing session cookie** (native cookie jar from
+the last online login) for sync. We do NOT store the plaintext PIN and do NOT
+mint a client-side session token.
+
+- New `GET /api/pos/staff/credentials` returns **only the caller's own**
+  `pin_hash` + `session_version` (session-gated, rate-limited 5/min).
+- `POSContext.login()`: online success → also caches `{pinHash, sessionVersion}`
+  keyed by staffId (`staff_credentials` in kv_cache, Capacitor-only). On a
+  network failure it falls back to `offlineLogin()` → `bcrypt.compare` against
+  the cached hash → `setCurrentStaff` from the cached picker.
+- **Reconnect / invalidation is already handled** by the existing 15s
+  `checkSession()` poll: it GETs `/api/pos/auth` with the jar cookie, which the
+  server validates against the live `session_version` + `active`. So an
+  admin PIN reset or deactivation forces a re-login on reconnect with no new
+  code. The offline window is the only exposure (bounded; plan 4.2 #5).
+
+**Why reuse-cookie over a client session token:** the queued-sale drain POSTs
+`/api/pos/sales` which requires the httpOnly cookie. Reusing the jar cookie
+means sync "just works" on reconnect (within the 8h cookie life). If the cookie
+expired during a long outage, the reconnect probe 401s → online re-login →
+fresh cookie. No plaintext PIN ever persisted.
+
+**Deferred (follow-ups, not blocking the flow):**
+- `pendingRevalidation` gate on destructive actions (void/refund) until the
+  first online revalidation — those already fail offline (server-only), so low
+  risk; add before multi-cashier production.
+- **Encrypt the on-device credentials table** with a device-bound key (Android
+  Keystore). v1 stores the bcrypt hash in plain SQLite; a 6-digit PIN is
+  brute-forceable against a stolen hash DB given time. Required before a real
+  customer release. See 07-phases § 4.3.
+
 ## 2026-06-22 § getDbSettings() hoist is NOT needed — keep the server fetch (it's the offline first-paint fallback)
 
 **Decision:** Leave [layout.tsx](../../app/src/app/layout.tsx) `getDbSettings()`
