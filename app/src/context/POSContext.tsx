@@ -23,8 +23,34 @@ const CACHE_STAFF = "staff_picker_snapshot";
 // Phase 4: per-staff bcrypt hashes for offline PIN login, keyed by staffId.
 // Only staff who have logged in online ON THIS DEVICE accumulate here.
 const CACHE_CREDS = "staff_credentials";
+// 1.6 polish: menu item images as base64 data URLs, keyed by their (unique-per-
+// upload) Supabase URL. Kept SEPARATE from `products` so base64 never reaches
+// the menu-sync push (which would re-bloat menu_items — the bug uploadImage.ts
+// fixed). Render swaps to the cached copy; products always hold the real URL.
+const CACHE_IMAGES = "menu_images";
 
 type CachedCred = { pinHash: string; sessionVersion: number };
+
+/**
+ * Download a remote image as a base64 data URL for offline display. Best-effort:
+ * returns null on any failure (the UI then falls back to the live URL / emoji).
+ * Capacitor's native HTTP handles the cross-origin Supabase fetch.
+ */
+async function fetchImageAsDataUrl(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise<string | null>((resolve) => {
+      const fr = new FileReader();
+      fr.onloadend = () => resolve(typeof fr.result === "string" ? fr.result : null);
+      fr.onerror   = () => resolve(null);
+      fr.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
 
 /**
  * After a successful ONLINE login, fetch the caller's own credentials and cache
@@ -122,6 +148,8 @@ interface POSContextValue {
   refreshPosStaff: () => Promise<void>;
   products: POSProduct[];
   setProducts: React.Dispatch<React.SetStateAction<POSProduct[]>>;
+  /** url → base64 dataURL cache for offline item images (Capacitor-only). */
+  imageCache: Record<string, string>;
   /** Dedicated stock writer for POS-admin / manager. Goes through
    *  /api/admin/menu/[id]/stock (which accepts POS canManageMenu too), so
    *  stock writes bypass the debounced bulk sync that strips stock fields. */
@@ -449,6 +477,44 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // rows into menu_items. Start empty, hydrate from /api/pos/menu on mount.
   const [products, setProducts] = useState<POSProduct[]>([]);
   const [categories, setCategories] = useState<POSCategory[]>([]);
+  // 1.6 polish: base64 image cache (url → dataURL) for offline display. Loaded
+  // from the encrypted SQLite cache on mount; refreshed on each online menu
+  // load. Capacitor-only (empty on web). SaleView reads it to render item
+  // photos with no network.
+  const [imageCache, setImageCache] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!isCapacitorAndroid()) return;
+    kvGet<Record<string, string>>(CACHE_IMAGES)
+      .then((m) => { if (m) setImageCache(m); })
+      .catch(() => {});
+  }, []);
+
+  // Download + cache menu images (online), pruning any URL no longer in the
+  // menu. Because image URLs are unique per upload, a changed/removed image is
+  // simply a different/absent URL — so this self-invalidates with no versioning.
+  const cacheMenuImages = useCallback(async (items: Record<string, unknown>[]) => {
+    if (!isCapacitorAndroid()) return;
+    const urls = Array.from(new Set(
+      items
+        .map((r) => r.image)
+        .filter((u): u is string => typeof u === "string" && /^https?:\/\//.test(u)),
+    ));
+    const existing = (await kvGet<Record<string, string>>(CACHE_IMAGES)) ?? {};
+    const next: Record<string, string> = {};
+    let added = false;
+    for (const u of urls) {
+      if (existing[u]) { next[u] = existing[u]; continue; }   // already cached
+      const data = await fetchImageAsDataUrl(u);
+      if (data) { next[u] = data; added = true; }
+    }
+    // `next` holds only current URLs → prunes removed/changed ones. Only persist
+    // when something actually changed (added, or a prune shrank the set).
+    if (added || Object.keys(next).length !== Object.keys(existing).length) {
+      await kvSet(CACHE_IMAGES, next);
+      setImageCache(next);
+    }
+  }, []);
+
   // sales + clockEntries are DB-backed (pos_sales / pos_clock_entries tables).
   // They start empty and are hydrated from the API once the staff session
   // resolves below.
@@ -704,6 +770,8 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         // Write-through to the on-device cache so a cold-start offline boot can
         // render the menu (Phase 1.6). Capacitor-only; no-op on web.
         void kvSet(CACHE_MENU, { categories: d.categories, items: d.items });
+        // Cache the item images too, so photos show offline (1.6 polish).
+        void cacheMenuImages(d.items);
       } catch {
         // Offline / server down: fall back to the last cached menu so the Sale
         // tab is usable from a cold offline start. No-op on web (kvGet → null).
@@ -711,7 +779,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         if (cached) applyMenu(cached);
       }
     })();
-  }, []);
+  }, [cacheMenuImages]);
 
   // Debounced push: whenever the POS menu changes, sync to Supabase so the
   // waiter app (via AppContext Realtime) sees the update immediately.
@@ -1431,6 +1499,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       currentStaff, sessionLoading, login, logout,
       staff, addPosStaff, updatePosStaff, deletePosStaff, refreshPosStaff,
       products, setProducts, updateProductStock,
+      imageCache,
       categories, setCategories,
       sales,
       customers, setCustomers,

@@ -12,7 +12,7 @@ import OrderPanel from "./OrderPanel";
 import { resolveStock, isAvailable, LOW_STOCK_THRESHOLD } from "@/lib/stockUtils";
 
 export default function SaleView({ isOffline = false }: { isOffline?: boolean }) {
-  const { products, categories, addToCart, settings, cart } = usePOS();
+  const { products, categories, addToCart, settings, cart, imageCache } = usePOS();
   const [activeCategory, setActiveCategory] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [modifierProduct, setModifierProduct] = useState<POSProduct | null>(null);
@@ -407,7 +407,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
                       <div className="w-full aspect-[5/3] max-h-[75px] relative flex-shrink-0 overflow-hidden">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          src={product.imageUrl}
+                          src={imageCache[product.imageUrl] ?? product.imageUrl}
                           alt={product.name}
                           className="absolute inset-0 w-full h-full object-cover"
                         />
