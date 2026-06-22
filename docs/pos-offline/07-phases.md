@@ -222,6 +222,17 @@ entries stuck in `syncing` status — per
 
 ## Phase 1.6 — Data cache hydration · cold-start data offline
 
+> **Status (2026-06-22): core + polish done.** All write-through/read-fallback
+> caches landed in `kv_cache` (encrypted): menu, **menu item images** (base64,
+> self-invalidating on unique-per-upload URLs), staff picker, **staff
+> credentials** (Phase 4), settings (offline tax/currency = last-known, not
+> build-time), and customers. UI: stale-cache "menu last updated N ago" banner
+> when offline + >4h. Image caching device-verified. **Not done (deferred):**
+> the conflict-policy schema columns (`customers.updated_at`, `staff_was_active`,
+> `clock_drift_seconds`) + admin badges (§ 1.6.1/1.6.2) and local stock-decrement
+> UI (§ 1.6.3 #8) — these are audit/UX refinements, not offline-usability
+> blockers. Phase 4 hardening (DB encryption + pendingRevalidation gate) done.
+
 After Phase 1.5 the UI renders offline; this phase makes the UI
 **usable** offline by populating menu / customer / settings caches and
 serving them when the server is unreachable. Also lands the schema +
