@@ -493,9 +493,6 @@ export default function POSReportsPanel() {
             <KpiCard label="Discounts Given" value={fmtCur(discountTotal, sym)} sub="reductions applied" icon={Tag} color="text-red-600" bg="bg-red-50" />
             <KpiCard label="Service Fees" value={fmtCur(serviceFeesTotal, sym)} sub={`${filtered.length} sales`} icon={CreditCard} color="text-indigo-600" bg="bg-indigo-50" />
             <KpiCard label="Refunded" value={fmtCur(refundedTotal, sym)} sub={`${refundedCount} txn${refundedCount === 1 ? "" : "s"}`} icon={RotateCcw} color="text-teal-600" bg="bg-teal-50" />
-            {voidKeptRevenue > 0 && (
-              <KpiCard label="Kept from Voids" value={fmtCur(voidKeptRevenue, sym)} sub="income retained on voided sales" icon={AlertTriangle} color="text-amber-600" bg="bg-amber-50" />
-            )}
             {giftCardRedeemed > 0 && (
               <KpiCard label="Gift Card Redeemed" value={fmtCur(giftCardRedeemed, sym)} sub="settled · not revenue" icon={Gift} color="text-fuchsia-600" bg="bg-fuchsia-50" />
             )}

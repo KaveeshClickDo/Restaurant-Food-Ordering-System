@@ -118,14 +118,15 @@ export async function GET() {
     if (!counts) continue;
     ensure(o.customer_id).spend += amount;
   }
-  // POS sales add to spend (net, skipping reversed-no-money) AND count as the
-  // visit/last-visit metrics.
+  // POS sales add to spend (net of any refund) AND count as the visit/last-visit
+  // metrics. A voided-but-not-refunded sale kept the money, so it still counts
+  // (mirrors an online cancel+no-refund); a full refund nets to £0.
   for (const s of posSales ?? []) {
     if (!s.customer_id) continue;
     const b = ensure(s.customer_id);
     const moneyTotal = Number(s.total) || 0; // total is already net of gift card
     const refund = Number(s.refund_amount) || 0;
-    if (!(s.voided && refund <= 0)) b.spend += Math.max(0, moneyTotal - refund);
+    b.spend += Math.max(0, moneyTotal - refund);
     b.visits += 1;
     const iso = typeof s.date === "string" ? s.date : new Date(s.date as string).toISOString();
     if (!b.lastVisit || iso > b.lastVisit) b.lastVisit = iso;
