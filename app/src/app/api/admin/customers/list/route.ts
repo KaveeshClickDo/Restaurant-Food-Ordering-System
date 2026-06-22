@@ -180,7 +180,7 @@ export async function GET() {
       .order("date", { ascending: false }),
     supabaseAdmin
       .from("pos_sales")
-      .select("id, receipt_no, customer_id, staff_name, table_number, items, total, payment_method, voided, void_reason, refund_amount, gift_card_used, tax_amount, tip_amount, service_fee_amount, discount_amount, date")
+      .select("id, receipt_no, customer_id, staff_name, table_number, items, total, payment_method, voided, void_reason, refund_amount, gift_card_used, tax_amount, tax_inclusive, tip_amount, service_fee_amount, discount_amount, date")
       .not("customer_id", "is", null)
       .order("date", { ascending: false }),
   ]);
