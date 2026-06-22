@@ -87,6 +87,17 @@ CREATE TABLE IF NOT EXISTS kv_cache (
 
 let dbPromise: Promise<LocalDbHandle | null> | null = null;
 
+// 256-bit random passphrase for the encrypted on-device DB. Generated once per
+// device and persisted by the plugin in the Android Keystore-backed secure
+// store (setEncryptionSecret) — it never leaves the device and is never shown.
+// crypto.getRandomValues is available because the bundled app runs in a secure
+// context (https://localhost).
+function generateDbSecret(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 async function openDb(): Promise<LocalDbHandle | null> {
   if (!isCapacitorAndroid()) return null;
   try {
@@ -95,18 +106,37 @@ async function openDb(): Promise<LocalDbHandle | null> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sqlite = new (mod as any).SQLiteConnection((mod as any).CapacitorSQLite);
 
-    // Some plugin versions require an explicit "is the connection already
-    // open" probe before createConnection. Wrap both paths.
-    let conn: LocalDbHandle;
+    // ── Encryption-at-rest (Phase 4 hardening) ───────────────────────────────
+    // The DB holds cached bcrypt PIN hashes; a 6-digit PIN is brute-forceable
+    // against a stolen plaintext-hash file, so the DB is encrypted with a
+    // device-bound key. Ensure the secret exists first — the plugin stores it
+    // in the Android Keystore-backed secure store; we only ever set it once.
     try {
-      const isOpen = await sqlite.isConnection(DB_NAME, false);
-      if (isOpen?.result) {
-        conn = await sqlite.retrieveConnection(DB_NAME, false);
-      } else {
-        conn = await sqlite.createConnection(DB_NAME, false, "no-encryption", DB_VERSION, false);
-      }
-    } catch {
-      conn = await sqlite.createConnection(DB_NAME, false, "no-encryption", DB_VERSION, false);
+      const stored = await sqlite.isSecretStored();
+      if (!stored?.result) await sqlite.setEncryptionSecret(generateDbSecret());
+    } catch (e) {
+      console.error("[posLocalDb] encryption secret setup failed:", e);
+    }
+
+    let conn: LocalDbHandle;
+    const isOpen = await sqlite.isConnection(DB_NAME, false).catch(() => null);
+    if (isOpen?.result) {
+      conn = await sqlite.retrieveConnection(DB_NAME, false);
+    } else {
+      // Choose the encryption mode:
+      //   • legacy plaintext DB from a pre-encryption build → "encryption"
+      //     migrates it IN PLACE (data — incl. any queued outbox sales — kept).
+      //   • already-encrypted DB → "secret" opens it with the stored key.
+      //   • fresh install (no DB yet) → "secret" creates a new encrypted DB.
+      let mode = "secret";
+      try {
+        const exists = (await sqlite.isDatabase(DB_NAME))?.result;
+        if (exists) {
+          const enc = (await sqlite.isDatabaseEncrypted(DB_NAME))?.result;
+          mode = enc ? "secret" : "encryption";
+        }
+      } catch { /* default to "secret" */ }
+      conn = await sqlite.createConnection(DB_NAME, true, mode, DB_VERSION, false);
     }
 
     await conn.open();
