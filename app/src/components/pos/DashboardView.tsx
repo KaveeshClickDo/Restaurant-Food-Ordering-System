@@ -615,7 +615,7 @@ export default function DashboardView() {
                   return `${open} open · ${settled} settled · ${fmt(revenue, sym)} revenue${refunded > 0 ? ` · ${refunded} refunded` : ""}`;
                 })()
               ) : (
-                `${rMoneyBearing.length} transactions · ${fmt(rRevenue, sym)} revenue`
+                `${totalTransactions} transactions · ${fmt(combinedRevenue, sym)} revenue`
               )}
             </p>
           </div>
@@ -991,7 +991,7 @@ export default function DashboardView() {
             {/* Empty state — only when both POS and dine-in have nothing. Guard on
                 inRange (all POS sales incl. voided), NOT rFiltered, so a period of
                 only voided/refunded sales still renders the report. */}
-            {inRange.length === 0 && diSettled.length === 0 && !reportsDineInLoading && (
+            {inRange.length === 0 && diSettled.length === 0 && !reportsDineInLoading && combinedRevenue <= 0 && (
               <div className="bg-slate-800 border border-slate-700 rounded-2xl p-12 text-center">
                 <BarChart3 size={36} className="mx-auto text-slate-600 mb-3" />
                 <p className="text-slate-400 font-medium">No sales found for this period</p>
@@ -1006,12 +1006,12 @@ export default function DashboardView() {
               </div>
             )}
 
-            {(inRange.length > 0 || diSettled.length > 0 || reportsDineInLoading) && (
+            {(inRange.length > 0 || diSettled.length > 0 || reportsDineInLoading || combinedRevenue > 0 || totalTransactions > 0) && (
               <>
                 {/* Combined POS + dine-in KPI cards. Always shown when either channel
                     has data — replaces the old POS-only cards + dine-in-only strip.
                     Gross Profit stays POS-scoped (dine-in carries no item cost). */}
-                {(inRange.length > 0 || diSettled.length > 0) && (
+                {(inRange.length > 0 || diSettled.length > 0 || combinedRevenue > 0) && (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
                     {[
                       { label: "Total Revenue", value: fmt(combinedRevenue, sym), sub: `${rMoneyBearing.length} POS · ${diMoneyBearing.length} dine-in`, icon: TrendingUp, color: "text-green-400", bg: "bg-green-500/10" },
