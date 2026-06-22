@@ -87,6 +87,16 @@ const config: CapacitorConfig = {
   },
 
   plugins: {
+    // Route window.fetch/XHR through the native HTTP layer. Essential in bundled
+    // mode: the WebView origin is https://localhost but the API lives at a
+    // different origin (CAPACITOR_API_URL — laptop or deployed). Native requests
+    // bypass browser CORS + mixed-content restrictions and persist the POS
+    // session cookie in the native cookie jar (browser SameSite/Secure rules
+    // would otherwise drop a cross-site cookie). Without this the bundled app
+    // can render but never load data or stay logged in.
+    CapacitorHttp: {
+      enabled: true,
+    },
     SplashScreen: {
       launchShowDuration: 800,
       backgroundColor: "#0f172a",

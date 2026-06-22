@@ -54,7 +54,18 @@ try {
   mkdirSync(quarantine, { recursive: true });
   for (const name of readdirSync(routesDir)) {
     if (KEEP.has(name)) continue;
-    renameSync(join(routesDir, name), join(quarantine, name));
+    try {
+      renameSync(join(routesDir, name), join(quarantine, name));
+    } catch (e) {
+      if (e && (e.code === "EPERM" || e.code === "EBUSY")) {
+        throw new Error(
+          `\n[build:capacitor] Could not move src/app/${name} — a file lock is holding it.\n` +
+          `   Stop the dev server (Ctrl+C in the 'npm run dev' terminal) and re-run.\n` +
+          `   Next's dev server locks src/app on Windows, which blocks the route quarantine.\n`,
+        );
+      }
+      throw e;
+    }
     moved.push(name);
   }
   console.log(`[build:capacitor] quarantined ${moved.length} non-POS entries:`, moved.join(", "));
