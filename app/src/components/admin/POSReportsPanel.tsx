@@ -823,8 +823,8 @@ export default function POSReportsPanel() {
                         <td className="px-5 py-3 text-gray-500 text-xs whitespace-nowrap">{sale.items.length} item{sale.items.length !== 1 ? "s" : ""}</td>
                         <td className="px-5 py-3">
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${sale.paymentMethod === "cash" ? "bg-green-100 text-green-700" :
-                              sale.paymentMethod === "card" ? "bg-blue-100 text-blue-700" :
-                                "bg-purple-100 text-purple-700"
+                            sale.paymentMethod === "card" ? "bg-blue-100 text-blue-700" :
+                              "bg-purple-100 text-purple-700"
                             }`}>{sale.paymentMethod}</span>
                           {(sale.giftCardUsed ?? 0) > 0 && (
                             <span className="ml-1 text-xs px-2 py-0.5 rounded-full font-medium bg-fuchsia-100 text-fuchsia-700 inline-flex items-center gap-0.5">
@@ -899,7 +899,15 @@ export default function POSReportsPanel() {
             paymentMethod: viewingReceipt.paymentMethod,
             paymentStatus: viewingReceipt.voided ? "refunded" : "paid",
             total: viewingReceipt.total,
-            items: viewingReceipt.items || [],
+            items: (viewingReceipt.items || []).map((item: any) => ({
+              qty: item.quantity,
+              name: item.name,
+              price: item.price,
+              selectedAddOns: (item.modifiers || []).map((m: any) => ({
+                name: m.optionLabel
+              })),
+              selectedVariations: [],
+            })),
             serviceFee: viewingReceipt.serviceFeeAmount || 0,
             discountAmount: viewingReceipt.discountAmount || 0,
             discountNote: viewingReceipt.discountNote || undefined,
