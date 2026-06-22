@@ -10,7 +10,7 @@ import { onPendingChange, pendingCount, drainOutbox } from "@/lib/posOutbox";
 import {
   ChefHat, LogOut, WifiOff, RefreshCw, Cloud,
   ShoppingCart, LayoutDashboard, Users, UserCog, Settings2,
-  UtensilsCrossed, CalendarDays, PackageCheck,
+  UtensilsCrossed, CalendarDays, PackageCheck, History,
 } from "lucide-react";
 import { getInitials } from "@/components/pos/_utils";
 import type { View } from "@/components/pos/_types";
@@ -28,6 +28,16 @@ import CollectionFooter from "@/components/collection/CollectionFooter";
 // or shared link keeps the same tab open — mirrors /admin?tab=<id>.
 const TAB_VIEWS: View[] = ["sale", "collection", "dashboard", "customers", "tables", "reservations", "staff", "settings"];
 
+// Show the "menu may be outdated" banner only after the cached menu is older
+// than this (4h) — short outages shouldn't nag the cashier.
+const MENU_STALE_MS = 4 * 60 * 60 * 1000;
+function formatAge(ms: number): string {
+  const h = Math.floor(ms / 3_600_000);
+  if (h < 24) return `${h} hour${h === 1 ? "" : "s"}`;
+  const d = Math.floor(h / 24);
+  return `${d} day${d === 1 ? "" : "s"}`;
+}
+
 export default function POSPage() {
   // useSearchParams() must be read inside a Suspense boundary (Next.js app router).
   return (
@@ -40,7 +50,7 @@ export default function POSPage() {
 function POSPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { currentStaff, sessionLoading, logout, settings } = usePOS();
+  const { currentStaff, sessionLoading, logout, settings, menuCachedAt } = usePOS();
   const { settings: appSettings, refreshDiningTables } = useApp();
 
   // Honor ?tab=<view> on first paint so a refresh / shared link lands on the
@@ -254,6 +264,18 @@ function POSPageContent() {
             {isOnline
               ? `Syncing ${outboxCount} offline sale${outboxCount > 1 ? "s" : ""}…`
               : `${outboxCount} sale${outboxCount > 1 ? "s" : ""} pending sync — will upload when reconnected.`}
+          </p>
+        </div>
+      )}
+
+      {/* Stale-cache banner — when offline and the cached menu is old, warn the
+          cashier that prices/items may be out of date (1.6). Self-clears once
+          back online (menuCachedAt → null on a live load). */}
+      {!isOnline && menuCachedAt !== null && (Date.now() - menuCachedAt > MENU_STALE_MS) && (
+        <div className="flex-shrink-0 bg-orange-500/10 border-b border-orange-500/30 px-4 py-2 flex items-center gap-3">
+          <History size={14} className="text-orange-400 flex-shrink-0" />
+          <p className="text-orange-300 text-xs font-medium flex-1">
+            Menu last updated {formatAge(Date.now() - menuCachedAt)} ago — items/prices may be outdated. Reconnect to refresh.
           </p>
         </div>
       )}

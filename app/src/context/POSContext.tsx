@@ -150,6 +150,8 @@ interface POSContextValue {
   setProducts: React.Dispatch<React.SetStateAction<POSProduct[]>>;
   /** url → base64 dataURL cache for offline item images (Capacitor-only). */
   imageCache: Record<string, string>;
+  /** epoch-ms the rendered menu was last refreshed online, or null if live. */
+  menuCachedAt: number | null;
   /** Dedicated stock writer for POS-admin / manager. Goes through
    *  /api/admin/menu/[id]/stock (which accepts POS canManageMenu too), so
    *  stock writes bypass the debounced bulk sync that strips stock fields. */
@@ -477,6 +479,10 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // rows into menu_items. Start empty, hydrate from /api/pos/menu on mount.
   const [products, setProducts] = useState<POSProduct[]>([]);
   const [categories, setCategories] = useState<POSCategory[]>([]);
+  // 1.6 polish: when the rendered menu came from the on-device cache, this is
+  // the epoch-ms it was last refreshed online (null = live/fresh). pos/page
+  // shows a "cached N ago — may be outdated" banner when offline + old.
+  const [menuCachedAt, setMenuCachedAt] = useState<number | null>(null);
   // 1.6 polish: base64 image cache (url → dataURL) for offline display. Loaded
   // from the encrypted SQLite cache on mount; refreshed on each online menu
   // load. Capacitor-only (empty on web). SaleView reads it to render item
@@ -747,7 +753,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // If Supabase is empty we seed it from the current localStorage/seed data so the
   // waiter app immediately has a menu to show.
   useEffect(() => {
-    type MenuSnapshot = { categories: Record<string, unknown>[]; items: Record<string, unknown>[] };
+    type MenuSnapshot = { categories: Record<string, unknown>[]; items: Record<string, unknown>[]; cachedAt?: number };
     // Map raw server/cache rows into POS state — identical for both paths so the
     // cached menu renders exactly like a live one.
     const applyMenu = (d: MenuSnapshot) => {
@@ -767,16 +773,20 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         // Always apply the server's response — including empty arrays (an empty
         // reply means the menu IS empty, e.g. a fresh DB).
         applyMenu(d);
+        setMenuCachedAt(null); // live data
         // Write-through to the on-device cache so a cold-start offline boot can
         // render the menu (Phase 1.6). Capacitor-only; no-op on web.
-        void kvSet(CACHE_MENU, { categories: d.categories, items: d.items });
+        void kvSet(CACHE_MENU, { cachedAt: Date.now(), categories: d.categories, items: d.items });
         // Cache the item images too, so photos show offline (1.6 polish).
         void cacheMenuImages(d.items);
       } catch {
         // Offline / server down: fall back to the last cached menu so the Sale
         // tab is usable from a cold offline start. No-op on web (kvGet → null).
         const cached = await kvGet<MenuSnapshot>(CACHE_MENU);
-        if (cached) applyMenu(cached);
+        if (cached) {
+          applyMenu(cached);
+          setMenuCachedAt(cached.cachedAt ?? null);
+        }
       }
     })();
   }, [cacheMenuImages]);
@@ -1499,7 +1509,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       currentStaff, sessionLoading, login, logout,
       staff, addPosStaff, updatePosStaff, deletePosStaff, refreshPosStaff,
       products, setProducts, updateProductStock,
-      imageCache,
+      imageCache, menuCachedAt,
       categories, setCategories,
       sales,
       customers, setCustomers,
