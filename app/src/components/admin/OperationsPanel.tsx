@@ -106,8 +106,8 @@ export default function OperationsPanel() {
             type="number" step="5" min="5"
           />
 
-          <div className="col-span-full pt-0 border-t border-gray-50 mt-1">
-            <label className="block text-xs font-semibold text-gray-600 mb-2">
+          <div className="pt-0 border-t border-gray-50">
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">
               Available Order Types
             </label>
             <div className="flex flex-wrap gap-3">
@@ -117,15 +117,15 @@ export default function OperationsPanel() {
                   if (restaurant.collectionEnabled === false && restaurant.deliveryEnabled !== false) return;
                   update({ deliveryEnabled: !restaurant.deliveryEnabled });
                 }}
-                className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-all ${restaurant.deliveryEnabled !== false
-                  ? "border-orange-500 bg-orange-50 text-orange-700"
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-1 rounded-xl border transition-all ${restaurant.deliveryEnabled !== false
+                  ? "border-orange-400 bg-orange-50 text-orange-700"
                   : "border-gray-100 bg-white text-gray-400 opacity-60"
                   }`}
               >
-                <Bike size={18} />
+                <Bike size={17} />
                 <div className="text-left">
-                  <p className="text-sm font-bold">Delivery</p>
-                  <p className="text-[10px] opacity-70">Courier to door</p>
+                  <p className="text-[13px] font-semibold leading-tight">Delivery</p>
+                  <p className="text-[9px] opacity-70">Courier to door</p>
                 </div>
               </button>
 
@@ -135,15 +135,15 @@ export default function OperationsPanel() {
                   if (restaurant.deliveryEnabled === false && restaurant.collectionEnabled !== false) return;
                   update({ collectionEnabled: !restaurant.collectionEnabled });
                 }}
-                className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-all ${restaurant.collectionEnabled !== false
-                  ? "border-orange-500 bg-orange-50 text-orange-700"
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-1 rounded-xl border transition-all ${restaurant.collectionEnabled !== false
+                  ? "border-orange-400 bg-orange-50 text-orange-700"
                   : "border-gray-100 bg-white text-gray-400 opacity-60"
                   }`}
               >
-                <ShoppingBag size={18} />
+                <ShoppingBag size={17} />
                 <div className="text-left">
-                  <p className="text-sm font-bold">Collection</p>
-                  <p className="text-[10px] opacity-70">Customer pick-up</p>
+                  <p className="text-[13px] font-semibold leading-tight">Collection</p>
+                  <p className="text-[9px] opacity-70">Customer pick-up</p>
                 </div>
               </button>
             </div>
