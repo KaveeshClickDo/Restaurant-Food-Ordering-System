@@ -116,23 +116,27 @@ tablet (Android 8.0+, no printer needed).
 
 ## Phase 1.5 — Bundled assets · cold-start UI offline
 
-> **Status (2026-06-22):** static export + API wiring working.
-> `npm run build:capacitor` exports `/pos` + `/pos/login` to
-> `out/pos/index.html` etc. (both `○ Static`); the web build is
-> unaffected. `apiBase()` ([lib/apiBase.ts](../../app/src/lib/apiBase.ts))
-> now prefixes all 47 POS-tree `/api/*` fetches — empty on web, the baked
-> `CAPACITOR_SERVER_URL` in the Capacitor build (verified inlined).
-> As-built mechanism (route quarantine + single env-gated
-> `next.config.ts`) is in [09-decisions.md § 2026-06-22](./09-decisions.md).
-> `capacitor.config.ts` is now **dual-mode**: `CAPACITOR_SERVER_URL` set →
-> server mode (dev); unset → bundled mode (`webDir:"out"`, offline).
-> **Remaining (needs Android toolchain, off this machine):**
-> `CAPACITOR_API_URL=… npm run build:capacitor` → `npx cap sync` →
-> `npx cap open android`, then the **first on-device rebuild/test** since
-> the merge. (The `getDbSettings()` hoist 1.5.1/1.5.5 proposed is **not
-> needed** and would mildly regress offline first-paint — see
-> [09-decisions.md § 2026-06-22](./09-decisions.md). Real offline settings
-> are Phase 1.6's SQLite cache.)
+> **Status (2026-06-22): ✅ COMPLETE — device-verified.** All five acceptance
+> criteria met. The bundled APK installs, cold-starts offline (UI renders),
+> logs in online, rings sales, queues sales offline mid-session, and drains/
+> syncs on reconnect — confirmed on a real phone (laptop dev backend). This
+> run also device-validated Phase 1's outbox.
+>
+> Build: `CAPACITOR_API_URL=… npm run build:capacitor` exports `/pos` +
+> `/pos/login` (`○ Static`) with `apiBase()` prefixing all 47 POS-tree
+> `/api/*` calls; web build unaffected. As-built mechanism (route quarantine
+> + single env-gated `next.config.ts`, root `index.html` redirect,
+> dual-mode `capacitor.config.ts`, `CapacitorHttp` for cross-origin) is in
+> [09-decisions.md § 2026-06-22](./09-decisions.md).
+>
+> Criterion #5 (stuck-`syncing` auto-recovery, [13 Case 8](./13-conflict-resolution.md))
+> landed 2026-06-22 in `posOutbox.drainOutbox()` — resets entries orphaned in
+> `syncing` > 2 min back to `pending`.
+>
+> The `getDbSettings()` hoist 1.5.1/1.5.5 proposed is **not needed** (would
+> mildly regress offline first-paint) — see 09-decisions. Real offline
+> settings/menu/staff are **Phase 1.6's** SQLite cache (cold-start offline
+> currently renders the UI but has no data — expected).
 
 After Phase 1, the Android tablet still needs internet on **first
 launch** to load the `/pos` page over HTTPS. Phase 1.5 closes this gap

@@ -40,6 +40,12 @@ import {
 
 const MAX_ATTEMPTS  = 5;
 const BASE_DELAY_MS = 2_000;          // 2s, 4s, 8s, 16s, 32s
+// An entry stuck in 'syncing' this long was orphaned by a drain that died
+// mid-flight (app closed / crashed between the syncing stamp and the delete).
+// Reset it to 'pending' so the next drain retries it — otherwise that sale is
+// stranded forever. Comfortably longer than the per-request timeout so a
+// genuinely in-flight POST is never reset. See 13-conflict-resolution.md Case 8.
+const STUCK_SYNCING_MS = 120_000;     // 2 min
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -154,6 +160,21 @@ export async function drainOutbox(): Promise<DrainResult> {
   draining = true;
 
   try {
+    // Recover entries orphaned in 'syncing' by an earlier drain that was killed
+    // mid-flight (app closed / crashed). Without this they're never re-listed
+    // (the drain only walks 'pending') and the sale is stranded. The server is
+    // idempotent on payload.id, so re-POSTing a sale that may have already
+    // landed is safe (returns 200/409 → dequeued). See 13 Case 8.
+    const stuck = await outboxList("syncing");
+    for (const e of stuck) {
+      const age = e.lastAttemptAt
+        ? Date.now() - new Date(e.lastAttemptAt).getTime()
+        : Infinity;
+      if (age > STUCK_SYNCING_MS) {
+        await outboxUpdate(e.id, { status: "pending" });
+      }
+    }
+
     const pending = await outboxList("pending");
     if (pending.length === 0) return summary;
 
