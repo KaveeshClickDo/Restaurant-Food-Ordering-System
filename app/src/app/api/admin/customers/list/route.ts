@@ -70,6 +70,12 @@ function mapPosSale(s: any) {
     voided:        s.voided ?? false,
     voidReason:    s.void_reason || undefined,
     refundAmount:  s.refund_amount != null ? Number(s.refund_amount) : undefined,
+    giftCardUsed:  s.gift_card_used ? Number(s.gift_card_used) : undefined,
+    tipAmount:     s.tip_amount ? Number(s.tip_amount) : undefined,
+    vatAmount:     s.tax_amount      ? Number(s.tax_amount)      : undefined,
+    vatInclusive:  s.tax_inclusive   ?? undefined,
+    serviceFee:    s.service_fee_amount     ? Number(s.service_fee_amount)     : undefined,
+    discountAmount: s.discount_amount        ? Number(s.discount_amount)        : undefined,
   };
 }
 
@@ -174,7 +180,7 @@ export async function GET() {
       .order("date", { ascending: false }),
     supabaseAdmin
       .from("pos_sales")
-      .select("id, receipt_no, customer_id, staff_name, table_number, items, total, payment_method, voided, void_reason, refund_amount, gift_card_used, date")
+      .select("id, receipt_no, customer_id, staff_name, table_number, items, total, payment_method, voided, void_reason, refund_amount, gift_card_used, tax_amount, tip_amount, service_fee_amount, discount_amount, date")
       .not("customer_id", "is", null)
       .order("date", { ascending: false }),
   ]);
