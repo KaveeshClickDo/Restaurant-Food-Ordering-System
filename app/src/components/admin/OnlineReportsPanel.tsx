@@ -9,6 +9,7 @@ import {
   Download, Printer, RefreshCw, CalendarDays, ChevronDown,
   ArrowUpRight, ArrowDownRight, Minus, Crown, Gift,
 } from "lucide-react";
+import { parseTableLabelFromNote } from "@/lib/tableLabel";
 
 interface VipFeeRow {
   id: string;
@@ -47,35 +48,36 @@ interface GiftCardSaleRow {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface RawOrder {
-  id:               string;
-  date:             string;
-  status:           string;
-  total:            number;
-  fulfillment:      string;
-  refunded_amount:  number | null;
-  vat_amount:       number | null;
-  vat_inclusive:    boolean | null;
-  payment_method:   string | null;
+  id: string;
+  date: string;
+  status: string;
+  total: number;
+  fulfillment: string;
+  refunded_amount: number | null;
+  vat_amount: number | null;
+  vat_inclusive: boolean | null;
+  payment_method: string | null;
   // Required so cancelled-but-paid orders still appear in the audit
   // (otherwise their revenue and refunds silently disappear from finance).
-  payment_status:   string | null;
-  customer_id:      string;
+  payment_status: string | null;
+  customer_id: string;
   // Gift-card-covered portion (kept for receipts/breakdown). Every channel now
   // stores the NET total — gift card already excluded — so revenue = order total.
-  gift_card_used:   number | null;
-  items:            { name: string; qty: number; price: number }[];
+  gift_card_used: number | null;
+  items: { name: string; qty: number; price: number }[];
+  note: string | null;
 }
 
 type Preset = "today" | "yesterday" | "7d" | "30d" | "month" | "lastMonth" | "year" | "custom";
-type Source  = "all" | "online" | "pos" | "dine-in" | "admin";
+type Source = "all" | "online" | "pos" | "dine-in" | "admin";
 
 // Long human label for a source tab — used in CSV export + print/summary headers.
 function sourceLabelLong(s: Source): string {
-  return s === "all"     ? "All sources"
-       : s === "online"  ? "Online orders only"
-       : s === "pos"     ? "POS counter orders only"
-       : s === "dine-in" ? "Dine-in orders only"
-       :                   "Admin bookings only";
+  return s === "all" ? "All sources"
+    : s === "online" ? "Online orders only"
+      : s === "pos" ? "POS counter orders only"
+        : s === "dine-in" ? "Dine-in orders only"
+          : "Admin bookings only";
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -91,13 +93,13 @@ function startOfDay(d: Date) {
 }
 
 function getPresetRange(p: Preset): [Date, Date] {
-  const now   = new Date();
+  const now = new Date();
   const today = startOfDay(now);
   switch (p) {
-    case "today":     return [today, now];
+    case "today": return [today, now];
     case "yesterday": {
       const y = new Date(today); y.setDate(y.getDate() - 1);
-      const e = new Date(y);    e.setHours(23, 59, 59, 999);
+      const e = new Date(y); e.setHours(23, 59, 59, 999);
       return [y, e];
     }
     case "7d": {
@@ -124,8 +126,10 @@ function getPresetRange(p: Preset): [Date, Date] {
 }
 
 function fmtPresetLabel(p: Preset): string {
-  return { today:"Today", yesterday:"Yesterday", "7d":"Last 7 Days", "30d":"Last 30 Days",
-           month:"This Month", lastMonth:"Last Month", year:"This Year", custom:"Custom" }[p];
+  return {
+    today: "Today", yesterday: "Yesterday", "7d": "Last 7 Days", "30d": "Last 30 Days",
+    month: "This Month", lastMonth: "Last Month", year: "This Year", custom: "Custom"
+  }[p];
 }
 
 // Waiter dine-in orders are written to the orders table with fulfillment
@@ -145,7 +149,7 @@ function isPOS(o: RawOrder) {
 // Online = anything that isn't counter POS or dine-in.
 function orderSource(o: RawOrder): Exclude<Source, "all"> {
   if (isDineIn(o)) return "dine-in";
-  if (isPOS(o))    return "pos";
+  if (isPOS(o)) return "pos";
   return "online";
 }
 
@@ -166,13 +170,13 @@ function isActive(o: RawOrder) {
 // to online orders.
 function isMoneyBearing(o: RawOrder) {
   if (orderSource(o) === "online"
-      && (o.payment_status === "unpaid" || o.payment_status === "failed")) {
+    && (o.payment_status === "unpaid" || o.payment_status === "failed")) {
     return false;
   }
   if (o.status !== "cancelled") return true;
   return o.payment_status === "paid"
-      || o.payment_status === "partially_refunded"
-      || o.payment_status === "refunded";
+    || o.payment_status === "partially_refunded"
+    || o.payment_status === "refunded";
 }
 
 // Group daily totals for the bar chart
@@ -193,12 +197,12 @@ function groupByDay(orders: RawOrder[]): { label: string; revenue: number; count
 }
 
 function groupByMonth(orders: RawOrder[]): { label: string; revenue: number; count: number }[] {
-  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const map = new Map<string, { revenue: number; count: number }>();
   for (const o of orders) {
     if (!isMoneyBearing(o)) continue;
     const d = new Date(o.date);
-    const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2,"0")}`;
+    const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, "0")}`;
     const cur = map.get(key) ?? { revenue: 0, count: 0 };
     map.set(key, { revenue: cur.revenue + o.total, count: cur.count + 1 });
   }
@@ -214,15 +218,35 @@ function dateRangeDays(start: Date, end: Date) {
   return Math.ceil((end.getTime() - start.getTime()) / 86_400_000);
 }
 
+function getDisplayOrderId(o: RawOrder) {
+  const note = o.note || "";
+  const source = orderSource(o);
+
+  if (source === "pos") {
+    // Extracts "R1002" from "... Receipt: R1002"
+    const match = note.match(/Receipt:\s*(\S+)/);
+    return match ? `#${match[1]}` : fullOrderNumber(o.id);
+  }
+
+  if (source === "dine-in") {
+    // Extracts "T1" using your existing helper
+    const label = parseTableLabelFromNote(note);
+    return label ? `#Table ${label}` : fullOrderNumber(o.id);
+  }
+
+  // Online orders use standard order ID
+  return fullOrderNumber(o.id);
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function StatCard({
   label, value, sub, icon: Icon, accent, trend,
 }: {
-  label:  string;
-  value:  string;
-  sub?:   string;
-  icon:   React.ComponentType<{ size?: number; className?: string }>;
+  label: string;
+  value: string;
+  sub?: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
   accent: string;
   trend?: "up" | "down" | "neutral";
 }) {
@@ -238,10 +262,9 @@ function StatCard({
       <div>
         <p className="text-lg sm:text-xl md:text-2xl font-black text-gray-900 tracking-tight">{value}</p>
         {sub && (
-          <p className={`text-xs font-medium mt-1 flex items-center gap-1 ${
-            trend === "up" ? "text-emerald-600" : trend === "down" ? "text-red-500" : "text-gray-400"
-          }`}>
-            {trend && <TrendIcon size={11} className="flex-shrink-0"/>}
+          <p className={`text-xs font-medium mt-1 flex items-center gap-1 ${trend === "up" ? "text-emerald-600" : trend === "down" ? "text-red-500" : "text-gray-400"
+            }`}>
+            {trend && <TrendIcon size={11} className="flex-shrink-0" />}
             {sub}
           </p>
         )}
@@ -260,11 +283,11 @@ function BarChart({ data, sym }: { data: { label: string; revenue: number; count
   const maxRev = Math.max(...data.map((d) => d.revenue), 1);
   const W = 600, H = 200;
   const pad = { t: 12, r: 12, b: 32, l: 52 };
-  const cW  = W - pad.l - pad.r;
-  const cH  = H - pad.t - pad.b;
-  const n   = data.length;
+  const cW = W - pad.l - pad.r;
+  const cH = H - pad.t - pad.b;
+  const n = data.length;
   const slotW = cW / n;
-  const barW  = Math.max(4, Math.min(slotW * 0.65, 32));
+  const barW = Math.max(4, Math.min(slotW * 0.65, 32));
 
   const ticks = [0, 0.25, 0.5, 0.75, 1];
 
@@ -286,9 +309,9 @@ function BarChart({ data, sym }: { data: { label: string; revenue: number; count
 
       {/* Bars */}
       {data.map((d, i) => {
-        const x  = pad.l + i * slotW + slotW / 2 - barW / 2;
+        const x = pad.l + i * slotW + slotW / 2 - barW / 2;
         const bH = Math.max(2, (d.revenue / maxRev) * cH);
-        const y  = pad.t + cH - bH;
+        const y = pad.t + cH - bH;
         const showLabel = n <= 14 || i % Math.ceil(n / 14) === 0;
         return (
           <g key={i}>
@@ -349,19 +372,19 @@ export default function OnlineReportsPanel() {
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
   const cur = (n: number) => fmtCur(n, sym);
-  const [preset,      setPreset]      = useState<Preset>("30d");
+  const [preset, setPreset] = useState<Preset>("30d");
   const [customStart, setCustomStart] = useState("");
-  const [customEnd,   setCustomEnd]   = useState("");
-  const [source,      setSource]      = useState<Source>("all");
-  const [orders,      setOrders]      = useState<RawOrder[]>([]);
+  const [customEnd, setCustomEnd] = useState("");
+  const [source, setSource] = useState<Source>("all");
+  const [orders, setOrders] = useState<RawOrder[]>([]);
   // VIP booking fees collected online (Stripe / PayPal). Tracked separately
   // from orders because they're not in the orders table — they live on the
   // reservations row.
-  const [vipFees,     setVipFees]     = useState<VipFeeRow[]>([]);
+  const [vipFees, setVipFees] = useState<VipFeeRow[]>([]);
   // Gift card SALES (prepaid money). Online + admin slices come from the
   // gift_cards table via /api/admin/gift-card-sales.
   const [giftCardSales, setGiftCardSales] = useState<GiftCardSaleRow[]>([]);
-  const [loading,     setLoading]     = useState(false);
+  const [loading, setLoading] = useState(false);
   const [lastFetched, setLastFetched] = useState<Date | null>(null);
   const [showPresetMenu, setShowPresetMenu] = useState(false);
 
@@ -390,14 +413,14 @@ export default function OnlineReportsPanel() {
         ? [new Date(customStart + "T00:00:00"), new Date(customEnd + "T23:59:59")]
         : getPresetRange(preset);
       const params = new URLSearchParams({
-        from:  from.toISOString(),
-        to:    to.toISOString(),
+        from: from.toISOString(),
+        to: to.toISOString(),
         limit: "10000",
       });
       const feeParams = new URLSearchParams({
         source: "all",
-        from:   from.toISOString(),
-        to:     to.toISOString(),
+        from: from.toISOString(),
+        to: to.toISOString(),
       });
       const [ordersRes, feesRes, gcRes] = await Promise.all([
         fetch(`/api/admin/orders?${params}`, { cache: "no-store" }),
@@ -436,7 +459,7 @@ export default function OnlineReportsPanel() {
   // into Gross/Net revenue and the revenue chart so the headline numbers match.
   const vipFeesForSource = useMemo(() => {
     if (source === "dine-in") return [];
-    if (source === "all")     return vipFees;
+    if (source === "all") return vipFees;
     return vipFees.filter((f) => vipFeeSource(f) === source);
   }, [vipFees, source]);
   const vipFeeTotal = useMemo(
@@ -466,19 +489,19 @@ export default function OnlineReportsPanel() {
     // view so paid-then-cancelled orders aren't silently dropped from the
     // financial picture. Order count, fulfilment split etc. keep the
     // operational view — "completed orders" still means non-cancelled.
-    const active       = filtered.filter(isActive);
+    const active = filtered.filter(isActive);
     const moneyBearing = filtered.filter(isMoneyBearing);
-    const cancelled    = filtered.filter((o) => o.status === "cancelled");
+    const cancelled = filtered.filter((o) => o.status === "cancelled");
     // Revenue per order = real money collected. Every channel stores the net
     // total (gift card already excluded) — a gift card is income when SOLD, not
     // when it's spent — so `total` is the money in.
     const orderRevenue = (o: RawOrder) => o.total;
-    const revenue   = moneyBearing.reduce((s, o) => s + orderRevenue(o), 0);
-    const refunds   = moneyBearing.reduce((s, o) => s + (o.refunded_amount ?? 0), 0);
-    const vat       = moneyBearing.reduce((s, o) => s + (o.vat_amount ?? 0), 0);
-    const netRev    = revenue - refunds;
-    const count     = active.length;
-    const aov       = moneyBearing.length === 0 ? 0 : revenue / moneyBearing.length;
+    const revenue = moneyBearing.reduce((s, o) => s + orderRevenue(o), 0);
+    const refunds = moneyBearing.reduce((s, o) => s + (o.refunded_amount ?? 0), 0);
+    const vat = moneyBearing.reduce((s, o) => s + (o.vat_amount ?? 0), 0);
+    const netRev = revenue - refunds;
+    const count = active.length;
+    const aov = moneyBearing.length === 0 ? 0 : revenue / moneyBearing.length;
     // Gift card value redeemed against orders in this window — reconciliation
     // only (already booked as income at card sale, so NOT part of revenue).
     // Deliberately NOT the moneyBearing filter: redemption timing differs from
@@ -502,7 +525,13 @@ export default function OnlineReportsPanel() {
     for (const o of moneyBearing) {
       const key = paymentMethodLabel(o.payment_method, orderSource(o) !== "online");
       const cur = payMap.get(key) ?? { revenue: 0, count: 0 };
-      payMap.set(key, { revenue: cur.revenue + orderRevenue(o), count: cur.count + 1 });
+
+      // CHECK: If the payment method is gift_card, use the 'gift_card_used' value.
+      // Otherwise, use the standard orderRevenue (total).
+      const isGC = String(o.payment_method || "").toLowerCase() === "gift_card";
+      const value = isGC ? (Number(o.gift_card_used) || o.total) : orderRevenue(o);
+
+      payMap.set(key, { revenue: cur.revenue + value, count: cur.count + 1 });
     }
     const payMethods = [...payMap.entries()]
       .sort(([, a], [, b]) => b.revenue - a.revenue)
@@ -518,11 +547,13 @@ export default function OnlineReportsPanel() {
       .map(([status, count]) => ({ status, count }));
 
     // Fulfilment split
-    const delivery   = active.filter((o) => o.fulfillment === "delivery").length;
+    const delivery = active.filter((o) => o.fulfillment === "delivery").length;
     const collection = active.filter((o) => o.fulfillment === "collection").length;
 
-    return { revenue, refunds, vat, netRev, count, aov, payMethods, statuses, delivery, collection,
-             giftCardRedeemed, cancelledCount: cancelled.length };
+    return {
+      revenue, refunds, vat, netRev, count, aov, payMethods, statuses, delivery, collection,
+      giftCardRedeemed, cancelledCount: cancelled.length
+    };
   }, [filtered]);
 
   // Headline revenue includes VIP booking fees AND gift card sales — both are
@@ -530,7 +561,7 @@ export default function OnlineReportsPanel() {
   // neither is refundable here, so they add to both gross and net. Order count /
   // AOV stay order-only — neither a fee nor a card sale is an order.
   const grossRevenue = metrics.revenue + vipFeeTotal + giftCardSalesTotal;
-  const netRevenue   = metrics.netRev + vipFeeTotal + giftCardSalesTotal;
+  const netRevenue = metrics.netRev + vipFeeTotal + giftCardSalesTotal;
 
   // ── Chart data ─────────────────────────────────────────────────────────────
 
@@ -540,13 +571,13 @@ export default function OnlineReportsPanel() {
     const feeAsOrders = vipFeesForSource.map((f) => ({
       id: f.id, date: f.created_at, status: "confirmed", total: Number(f.vip_fee ?? 0),
       fulfillment: "booking", refunded_amount: 0, vat_amount: 0, vat_inclusive: false,
-      payment_method: f.payment_method, payment_status: "paid", customer_id: "", gift_card_used: 0, items: [],
+      payment_method: f.payment_method, payment_status: "paid", customer_id: "", gift_card_used: 0, items: [], note: ""
     })) as RawOrder[];
     // Gift card sales likewise fold in so the chart total matches Gross Revenue.
     const giftAsOrders = giftCardSalesForSource.map((g) => ({
       id: g.id, date: g.created_at, status: "confirmed", total: Number(g.amount ?? 0),
       fulfillment: "gift_card", refunded_amount: 0, vat_amount: 0, vat_inclusive: false,
-      payment_method: g.origin, payment_status: "paid", customer_id: "", gift_card_used: 0, items: [],
+      payment_method: g.origin, payment_status: "paid", customer_id: "", gift_card_used: 0, items: [], note: ""
     })) as RawOrder[];
     const combined = [...filtered, ...feeAsOrders, ...giftAsOrders];
     const days = dateRangeDays(startDate, endDate);
@@ -634,7 +665,7 @@ export default function OnlineReportsPanel() {
       for (const o of refundedOrders) {
         lines.push(row([
           new Date(o.date).toLocaleDateString("en-GB"),
-          o.id,
+          getDisplayOrderId(o),
           o.status,
           o.total.toFixed(2),
           (o.refunded_amount ?? 0).toFixed(2),
@@ -649,7 +680,7 @@ export default function OnlineReportsPanel() {
     for (const o of filtered) {
       lines.push(row([
         new Date(o.date).toLocaleDateString("en-GB"),
-        o.id,
+        getDisplayOrderId(o),
         o.status,
         orderSource(o) === "pos" ? "POS" : orderSource(o) === "dine-in" ? "Dine-in" : "Online",
         o.fulfillment,
@@ -661,11 +692,11 @@ export default function OnlineReportsPanel() {
       ]));
     }
 
-    const csv  = lines.join(EOL);
+    const csv = lines.join(EOL);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement("a");
-    a.href     = url;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
     a.download = `finance-report-${startDate.toISOString().slice(0, 10)}-to-${endDate.toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
@@ -709,9 +740,8 @@ export default function OnlineReportsPanel() {
                 <button
                   key={p}
                   onClick={() => { setPreset(p); setShowPresetMenu(false); }}
-                  className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 transition ${
-                    preset === p ? "text-orange-600 font-semibold" : "text-gray-700"
-                  }`}
+                  className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 transition ${preset === p ? "text-orange-600 font-semibold" : "text-gray-700"
+                    }`}
                 >
                   {fmtPresetLabel(p)}
                 </button>
@@ -719,9 +749,8 @@ export default function OnlineReportsPanel() {
               <div className="border-t border-gray-100 my-1" />
               <button
                 onClick={() => { setPreset("custom"); setShowPresetMenu(false); }}
-                className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 transition ${
-                  preset === "custom" ? "text-orange-600 font-semibold" : "text-gray-700"
-                }`}
+                className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 transition ${preset === "custom" ? "text-orange-600 font-semibold" : "text-gray-700"
+                  }`}
               >
                 Custom range…
               </button>
@@ -746,11 +775,10 @@ export default function OnlineReportsPanel() {
             <button
               key={s}
               onClick={() => setSource(s)}
-              className={`px-3 py-2 transition ${
-                source === s
+              className={`px-3 py-2 transition ${source === s
                   ? "bg-orange-500 text-white"
                   : "bg-white text-gray-600 hover:bg-gray-50"
-              }`}
+                }`}
             >
               {s === "all" ? "All" : s === "online" ? "Online" : s === "pos" ? "POS" : s === "dine-in" ? "Dine-in" : "Admin"}
             </button>
@@ -914,114 +942,119 @@ export default function OnlineReportsPanel() {
       {/* All four breakdowns are order-driven (filtered/metrics), so they're
           empty on the Admin tab where there are no orders. Hidden there. */}
       {source !== "admin" && (
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
-        {/* Order status */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 space-y-4">
-          <h3 className="font-bold text-gray-900">Orders by status</h3>
-          {metrics.statuses.length === 0 ? (
-            <p className="text-sm text-gray-400">No data</p>
-          ) : (
+          {/* Order status */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 space-y-4">
+            <h3 className="font-bold text-gray-900">Orders by status</h3>
+            {metrics.statuses.length === 0 ? (
+              <p className="text-sm text-gray-400">No data</p>
+            ) : (
+              <div className="space-y-3">
+                {metrics.statuses.map(({ status, count }) => (
+                  <HBar
+                    key={status}
+                    label={status.replace("_", " ")}
+                    value={count}
+                    total={filtered.length}
+                    color={STATUS_COLORS[status] ?? "bg-gray-400"}
+                    fmt={(v) => `${v} order${v !== 1 ? "s" : ""}`}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Payment methods */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 space-y-4">
+            <h3 className="font-bold text-gray-900">Orders Payment methods</h3>
+            {metrics.payMethods.length === 0 ? (
+              <p className="text-sm text-gray-400">No data</p>
+            ) : (
+              <div className="space-y-3">
+              {(() => {
+                // Calculate a total specifically for the breakdown bars
+                const totalBreakdown = metrics.payMethods.reduce((s, pm) => s + pm.revenue, 0);
+                
+                return metrics.payMethods.map(({ method, revenue }, i) => (
+                  <HBar
+                    key={method}
+                    label={method}
+                    value={revenue}
+                    total={totalBreakdown} // Use the local total so bars look correct
+                    color={["bg-orange-400","bg-blue-400","bg-violet-400","bg-emerald-400","bg-pink-400"][i % 5]}
+                    fmt={cur}
+                  />
+                ));
+              })()}
+                <div className="pt-2 border-t border-gray-100">
+                  {metrics.payMethods.map(({ method, count }) => (
+                    <p key={method} className="text-xs text-gray-500">
+                      {method}: {count} transaction{count !== 1 ? "s" : ""}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* VAT breakdown */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 space-y-4">
+            <h3 className="font-bold text-gray-900">Orders VAT / Tax breakdown</h3>
             <div className="space-y-3">
-              {metrics.statuses.map(({ status, count }) => (
-                <HBar
-                  key={status}
-                  label={status.replace("_", " ")}
-                  value={count}
-                  total={filtered.length}
-                  color={STATUS_COLORS[status] ?? "bg-gray-400"}
-                  fmt={(v) => `${v} order${v !== 1 ? "s" : ""}`}
-                />
+              {[
+                { label: "Gross Revenue", value: metrics.revenue, color: "bg-orange-400" },
+                { label: "VAT Collected", value: metrics.vat, color: "bg-indigo-400" },
+                { label: "Net (ex-VAT)", value: metrics.revenue - metrics.vat, color: "bg-emerald-400" },
+              ].map(({ label, value, color }) => (
+                <HBar key={label} label={label} value={value} total={metrics.revenue} color={color} fmt={cur} />
               ))}
             </div>
-          )}
-        </div>
+            <div className="mt-2 bg-indigo-50 rounded-xl p-3">
+              <p className="text-xs text-indigo-700 font-semibold">VAT Due to HMRC</p>
+              <p className="text-xl font-black text-indigo-800 mt-0.5">{cur(metrics.vat)}</p>
+              <p className="text-xs text-indigo-600 mt-1">
+                {pct(metrics.vat, metrics.revenue)} of gross · based on declared VAT per order
+              </p>
+            </div>
+          </div>
 
-        {/* Payment methods */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 space-y-4">
-          <h3 className="font-bold text-gray-900">Orders Payment methods</h3>
-          {metrics.payMethods.length === 0 ? (
-            <p className="text-sm text-gray-400">No data</p>
-          ) : (
-            <div className="space-y-3">
-              {metrics.payMethods.map(({ method, revenue }, i) => (
+          {/* Fulfilment split — delivery vs collection only applies to online
+            orders, so it's shown on the All and Online tabs only. */}
+          {(source === "all" || source === "online") && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
+              <h3 className="font-bold text-gray-900">Fulfilment split</h3>
+              <div className="space-y-3">
                 <HBar
-                  key={method}
-                  label={method}
-                  value={revenue}
-                  total={metrics.revenue}
-                  color={["bg-orange-400","bg-blue-400","bg-violet-400","bg-emerald-400","bg-pink-400"][i % 5]}
-                  fmt={cur}
+                  label="Delivery"
+                  value={metrics.delivery}
+                  total={metrics.count}
+                  color="bg-blue-400"
+                  fmt={(v) => `${v} order${v !== 1 ? "s" : ""}`}
                 />
-              ))}
-              <div className="pt-2 border-t border-gray-100">
-                {metrics.payMethods.map(({ method, count }) => (
-                  <p key={method} className="text-xs text-gray-500">
-                    {method}: {count} transaction{count !== 1 ? "s" : ""}
-                  </p>
+                <HBar
+                  label="Collection"
+                  value={metrics.collection}
+                  total={metrics.count}
+                  color="bg-emerald-400"
+                  fmt={(v) => `${v} order${v !== 1 ? "s" : ""}`}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3 mt-2">
+                {[
+                  { label: "Delivery", value: metrics.delivery, color: "text-blue-600", bg: "bg-blue-50" },
+                  { label: "Collection", value: metrics.collection, color: "text-emerald-600", bg: "bg-emerald-50" },
+                ].map(({ label, value, color, bg }) => (
+                  <div key={label} className={`${bg} rounded-xl p-3 text-center`}>
+                    <p className={`text-2xl font-black ${color}`}>{value}</p>
+                    <p className={`text-xs font-semibold ${color} opacity-80 mt-0.5`}>{label}</p>
+                    <p className="text-xs text-gray-400">{pct(value, metrics.count)}</p>
+                  </div>
                 ))}
               </div>
             </div>
           )}
         </div>
-
-        {/* VAT breakdown */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 space-y-4">
-          <h3 className="font-bold text-gray-900">Orders VAT / Tax breakdown</h3>
-          <div className="space-y-3">
-            {[
-              { label: "Gross Revenue",     value: metrics.revenue,          color: "bg-orange-400" },
-              { label: "VAT Collected",     value: metrics.vat,              color: "bg-indigo-400" },
-              { label: "Net (ex-VAT)",      value: metrics.revenue - metrics.vat, color: "bg-emerald-400" },
-            ].map(({ label, value, color }) => (
-              <HBar key={label} label={label} value={value} total={metrics.revenue} color={color} fmt={cur} />
-            ))}
-          </div>
-          <div className="mt-2 bg-indigo-50 rounded-xl p-3">
-            <p className="text-xs text-indigo-700 font-semibold">VAT Due to HMRC</p>
-            <p className="text-xl font-black text-indigo-800 mt-0.5">{cur(metrics.vat)}</p>
-            <p className="text-xs text-indigo-600 mt-1">
-              {pct(metrics.vat, metrics.revenue)} of gross · based on declared VAT per order
-            </p>
-          </div>
-        </div>
-
-        {/* Fulfilment split — delivery vs collection only applies to online
-            orders, so it's shown on the All and Online tabs only. */}
-        {(source === "all" || source === "online") && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
-          <h3 className="font-bold text-gray-900">Fulfilment split</h3>
-          <div className="space-y-3">
-            <HBar
-              label="Delivery"
-              value={metrics.delivery}
-              total={metrics.count}
-              color="bg-blue-400"
-              fmt={(v) => `${v} order${v !== 1 ? "s" : ""}`}
-            />
-            <HBar
-              label="Collection"
-              value={metrics.collection}
-              total={metrics.count}
-              color="bg-emerald-400"
-              fmt={(v) => `${v} order${v !== 1 ? "s" : ""}`}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3 mt-2">
-            {[
-              { label: "Delivery", value: metrics.delivery, color: "text-blue-600", bg: "bg-blue-50" },
-              { label: "Collection", value: metrics.collection, color: "text-emerald-600", bg: "bg-emerald-50" },
-            ].map(({ label, value, color, bg }) => (
-              <div key={label} className={`${bg} rounded-xl p-3 text-center`}>
-                <p className={`text-2xl font-black ${color}`}>{value}</p>
-                <p className={`text-xs font-semibold ${color} opacity-80 mt-0.5`}>{label}</p>
-                <p className="text-xs text-gray-400">{pct(value, metrics.count)}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-        )}
-      </div>
       )}
 
       {/* ── Refunds detail ────────────────────────────────────────────────── */}
@@ -1050,8 +1083,8 @@ export default function OnlineReportsPanel() {
                       <td className="py-2.5 pr-4 text-gray-500">
                         {new Date(o.date).toLocaleDateString("en-GB")}
                       </td>
-                      <td title={fullOrderNumber(o.id)} className="py-2.5 pr-4 font-mono text-xs text-gray-500 truncate max-w-[160px]">
-                        {fullOrderNumber(o.id)}
+                      <td title={getDisplayOrderId(o)} className="py-2.5 pr-4 font-mono text-xs text-gray-500 truncate max-w-[160px]">
+                        {getDisplayOrderId(o)}
                       </td>
                       <td className="py-2.5 pr-4">
                         <span className={`inline-flex whitespace-nowrap items-center px-2 py-0.5 rounded-full text-xs font-semibold text-white ${STATUS_COLORS[o.status] ?? "bg-gray-400"}`}>
@@ -1083,16 +1116,16 @@ export default function OnlineReportsPanel() {
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
           {(source === "admin"
             ? [
-                { label: "Gross Revenue",     value: cur(grossRevenue) },
-                { label: "VIP Booking Fees",  value: cur(vipFeeTotal) },
-                { label: "Gift Card Sales",   value: cur(giftCardSalesTotal) },
-              ]
+              { label: "Gross Revenue", value: cur(grossRevenue) },
+              { label: "VIP Booking Fees", value: cur(vipFeeTotal) },
+              { label: "Gift Card Sales", value: cur(giftCardSalesTotal) },
+            ]
             : [
-                { label: "Gross Revenue",   value: cur(grossRevenue) },
-                { label: "Total Refunds",   value: cur(metrics.refunds) },
-                { label: "VAT Due",         value: cur(metrics.vat) },
-                { label: "Net Revenue",     value: cur(netRevenue) },
-              ]
+              { label: "Gross Revenue", value: cur(grossRevenue) },
+              { label: "Total Refunds", value: cur(metrics.refunds) },
+              { label: "VAT Due", value: cur(metrics.vat) },
+              { label: "Net Revenue", value: cur(netRevenue) },
+            ]
           ).map(({ label, value }) => (
             <div key={label}>
               <p className="text-xs text-gray-400 font-medium">{label}</p>
