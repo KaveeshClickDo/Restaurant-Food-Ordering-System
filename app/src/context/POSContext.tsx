@@ -18,8 +18,9 @@ import bcrypt from "bcryptjs";
 // On-device cache keys (Phase 1.6 / 4). kvGet/kvSet are Capacitor-only (no-ops
 // on web), so these write-throughs are harmless in the browser and only serve
 // the bundled APK's cold-start offline path.
-const CACHE_MENU  = "menu_snapshot";
-const CACHE_STAFF = "staff_picker_snapshot";
+const CACHE_MENU      = "menu_snapshot";
+const CACHE_STAFF     = "staff_picker_snapshot";
+const CACHE_CUSTOMERS = "customers_snapshot";
 // Phase 4: per-staff bcrypt hashes for offline PIN login, keyed by staffId.
 // Only staff who have logged in online ON THIS DEVICE accumulate here.
 const CACHE_CREDS = "staff_credentials";
@@ -650,8 +651,17 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch(apiBase() + "/api/pos/customers");
       if (!res.ok) return;
       const json = await res.json() as { ok: boolean; customers?: POSCustomer[] };
-      if (json.ok && Array.isArray(json.customers)) setCustomers(json.customers);
-    } catch { /* offline — keep current state */ }
+      if (json.ok && Array.isArray(json.customers)) {
+        setCustomers(json.customers);
+        // Write-through so offline customer lookup works (1.6). Capacitor-only.
+        void kvSet(CACHE_CUSTOMERS, json.customers);
+      }
+    } catch {
+      // Offline: restore the last cached customer list for offline lookup /
+      // assignment. No-op on web (kvGet → null).
+      const cached = await kvGet<POSCustomer[]>(CACHE_CUSTOMERS);
+      if (cached && cached.length > 0) setCustomers(cached);
+    }
   }, []);
 
   const addCustomer = useCallback(async (input: {

@@ -1,6 +1,13 @@
 "use client";
 
 import { uuid } from "@/lib/uuid";
+import { isCapacitorAndroid } from "@/lib/capacitorBridge";
+import { kvGet, kvSet } from "@/lib/posLocalDb";
+
+// On-device settings snapshot for the offline POS tablet (Capacitor-only;
+// no-op on web). Lets offline tax/currency be the last-known values rather than
+// whatever was baked into the APK at build time. Phase 1.6.
+const CACHE_SETTINGS = "settings_snapshot";
 import React, {
   createContext,
   useCallback,
@@ -701,6 +708,15 @@ export function AppProvider({
         }
         if (settingsData?.data) {
           setSettings(buildSettingsFromData(settingsData.data));
+          // Write-through so an offline POS tablet uses the last-known settings
+          // (tax/currency), not the APK's build-time values. Capacitor-only.
+          void kvSet(CACHE_SETTINGS, settingsData.data);
+        } else if (settingsErr && settingsErr.code !== "PGRST116" && isCapacitorAndroid()) {
+          // Offline on the POS tablet: the fetch failed (network), so fall back
+          // to the last cached settings instead of seeding defaults. (Online,
+          // and on web, the branches below are unchanged.)
+          const cached = await kvGet<Record<string, unknown>>(CACHE_SETTINGS);
+          if (cached) setSettings(buildSettingsFromData(cached));
         } else if (!settingsData) {
           // First run — seed settings into the DB
           await supabase.from("app_settings").insert({ id: 1, data: DEFAULT_SETTINGS });
