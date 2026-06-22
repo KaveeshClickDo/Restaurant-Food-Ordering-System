@@ -568,6 +568,13 @@ export default function KitchenPage() {
     onIdle:    handleLogout,
   });
 
+  // Tracks orders with an in-flight optimistic status change so the 4 s poll
+  // below doesn't briefly flip a card back to its old column when a GET issued
+  // before the PUT committed returns stale data. Entry is cleared when the
+  // server view catches up or when the TTL expires. Mirrors AppContext's
+  // pendingOrderStatusRef guard used by the admin Online Orders board.
+  const pendingStatusRef = useRef<Map<string, { status: KDSStatus; until: number }>>(new Map());
+
   // ── Fetch via authenticated server endpoint + poll every 4 s ──────────────
   // Replaces the prior direct supabase.from("orders") read + realtime channel.
   // Anon role no longer has SELECT on orders, so the realtime channel would
@@ -585,7 +592,23 @@ export default function KitchenPage() {
         }
         const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
         if (!active || !json.ok || !json.orders) return;
-        setOrders(json.orders.map((row) => mapRow(row)));
+        // Preserve in-flight optimistic status changes when the server snapshot
+        // is still stale. Without this, the card briefly jumps back to its old
+        // column before the next poll arrives with the committed status.
+        const pending = pendingStatusRef.current;
+        const now = Date.now();
+        setOrders(json.orders.map((row) => {
+          const o = mapRow(row);
+          const p = pending.get(o.id);
+          if (!p) return o;
+          if (p.until < now || o.status === p.status) {
+            // TTL elapsed, or server caught up — drop the guard and trust server.
+            pending.delete(o.id);
+            return o;
+          }
+          // Server is still serving pre-mutation data — keep optimistic status.
+          return { ...o, status: p.status };
+        }));
       } catch {
         // Network error — keep last-known orders, try again next tick.
       } finally {
@@ -609,6 +632,11 @@ export default function KitchenPage() {
     setOrders((prev) =>
       prev.map((o) => (o.id === order.id ? { ...o, status: nextStatus } : o))
     );
+    // Guard the next poll(s) from overwriting our optimistic value with a stale
+    // snapshot whose GET was issued before this PUT commits. The entry stays
+    // until fetchOrders sees the server reflect this status, or the TTL expires
+    // (10 s — ~2.5 poll cycles at 4 s, plus margin).
+    pendingStatusRef.current.set(order.id, { status: nextStatus, until: Date.now() + 10_000 });
 
     try {
       const res = await fetch(`/api/kds/orders/${order.id}/status`, {
@@ -620,10 +648,18 @@ export default function KitchenPage() {
         // Rollback on failure
         const j = await res.json().catch(() => ({})) as { error?: string };
         console.error("KDS advance failed:", j.error);
+        pendingStatusRef.current.delete(order.id);
         setOrders((prev) =>
           prev.map((o) => (o.id === order.id ? { ...o, status: order.status } : o))
         );
       }
+    } catch {
+      // Network error — roll back so the card doesn't sit in a status the
+      // server never received.
+      pendingStatusRef.current.delete(order.id);
+      setOrders((prev) =>
+        prev.map((o) => (o.id === order.id ? { ...o, status: order.status } : o))
+      );
     } finally {
       advanceInFlight.current.delete(order.id);
     }
