@@ -809,6 +809,11 @@ export default function POSReportsPanel() {
                       <tr key={sale.id} className={`hover:bg-gray-50 transition-colors ${sale.voided ? "opacity-60" : ""}`}>
                         <td className="px-5 py-3 font-mono text-xs text-gray-900">
                           #{sale.receiptNo}
+                          {sale.receiptNo?.startsWith("OFF") && (
+                            <span className="ml-1.5 inline-flex items-center text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">
+                              OFFLINE
+                            </span>
+                          )}
                           {sale.voided && (
                             <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold">
                               <AlertTriangle size={9} /> VOID

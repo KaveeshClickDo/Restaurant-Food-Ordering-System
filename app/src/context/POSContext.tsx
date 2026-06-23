@@ -29,6 +29,24 @@ const CACHE_CREDS = "staff_credentials";
 // the menu-sync push (which would re-bloat menu_items — the bug uploadImage.ts
 // fixed). Render swaps to the cached copy; products always hold the real URL.
 const CACHE_IMAGES = "menu_images";
+// Offline receipt counter. Offline sales get a readable `OFF<seq>` number
+// (mirrors online `R<seq>`) from a device-local counter starting at 1000,
+// persisted in the encrypted SQLite cache. Its own namespace, so it never
+// clashes with the server's R sequence. (Single-terminal scheme; multi-terminal
+// per-terminal prefixes are a future option — see 09-decisions.md.)
+const CACHE_OFFLINE_SEQ = "offline_receipt_seq";
+
+/**
+ * Next offline receipt number, `OFF1000`, `OFF1001`, … Reads + bumps the
+ * persistent counter (Capacitor-only). Single tablet → sequential, no concurrent
+ * mint. Resets only if app data is wiped (rare; the receipt_no UNIQUE constraint
+ * then rejects any reused number on sync rather than duplicating).
+ */
+async function nextOfflineReceiptNo(): Promise<string> {
+  const current = (await kvGet<number>(CACHE_OFFLINE_SEQ)) ?? 1000;
+  await kvSet(CACHE_OFFLINE_SEQ, current + 1);
+  return `OFF${current}`;
+}
 
 type CachedCred = { pinHash: string; sessionVersion: number };
 
@@ -1301,11 +1319,11 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     // queued — they carry a clear `serverError` we surface to the cashier
     // directly. Replay would hit the same gate.
     if (!sale && onAndroid && !serverError) {
-      // Mint the OFF-… receipt only NOW that we know we're going offline.
+      // Mint the OFF<seq> receipt only NOW that we know we're going offline.
       // Pre-minting would have made every online Capacitor sale carry an
-      // OFF-… number too (the server uses whatever receiptNo arrives in
+      // OFF number too (the server uses whatever receiptNo arrives in
       // the payload, overriding pos_receipt_seq's R-… default).
-      const provisionalReceiptNo = `OFF-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 4).toUpperCase()}`;
+      const provisionalReceiptNo = await nextOfflineReceiptNo();
       // Re-attach receiptNo to the queued payload so the drain pass sends it
       // to the server. The optimistic POSSale shown to the cashier carries
       // the same number so the printed receipt matches the DB row on sync.

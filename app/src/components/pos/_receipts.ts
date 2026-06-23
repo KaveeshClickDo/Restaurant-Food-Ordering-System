@@ -94,6 +94,7 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, restauran
     ${settings.receiptWebsite ? `<div style="font-size:11px;color:#6b7280">${settings.receiptWebsite}</div>` : ""}
     <div style="font-size:11px;color:#6b7280">${new Date(sale.date).toLocaleString("en-GB")}</div>
     <div style="font-size:11px;color:#6b7280">Receipt #${sale.receiptNo}</div>
+    ${sale.receiptNo?.startsWith("OFF") ? `<div style="font-size:11px;font-weight:700;color:#b45309;margin-top:2px;letter-spacing:0.5px">OFFLINE SALE</div>` : ""}
     ${sale.staffName ? `<div style="font-size:11px;color:#6b7280">Served by: ${sale.staffName}</div>` : ""}
     ${sale.customerName ? `<div style="font-size:11px;color:#6b7280">Customer: ${sale.customerName}</div>` : ""}
     ${settings.receiptVatNumber ? `<div style="font-size:10px;color:#9ca3af">VAT No: ${settings.receiptVatNumber}</div>` : ""}

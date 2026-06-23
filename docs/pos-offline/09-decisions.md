@@ -10,6 +10,36 @@ stay where they are; newer ones go on top.
 
 ---
 
+## 2026-06-23 § Offline receipt numbers — `OFF<seq>` from 1000 + "OFFLINE SALE" label (single-terminal)
+
+**Decision:** Offline sales get a readable `OFF<seq>` receipt number starting at
+**1000** (mirrors online `R<seq>`, whose sequence also starts at 1000), and every
+surface that shows a POS receipt badges offline sales **"OFFLINE SALE"**.
+
+**Why:** the old offline format `OFF-<base36 timestamp>-<2 random>` was
+collision-resistant but **unreadable** for customers/cashiers. The user only
+runs a **single till for now**, so a simple device-local counter is enough — no
+need for the multi-terminal `T<prefix>-<seq>` scheme (deferred; and if ever
+added, the prefix must NOT be "T" because dine-in **tables** are labelled T1,
+T2…). Research (Lightspeed et al.) confirms the industry pattern: a temporary,
+distinct offline number reconciled on sync, receipt labelled "OFFLINE SALE".
+
+**How it works:**
+- `nextOfflineReceiptNo()` in [POSContext.tsx](../../app/src/context/POSContext.tsx)
+  reads+bumps a persistent counter (`offline_receipt_seq` in the encrypted
+  kv_cache, default 1000) → `OFF1000`, `OFF1001`, … Capacitor-only.
+- Own namespace, so it never clashes with the server's `R` sequence; the
+  `pos_sales.receipt_no` UNIQUE constraint is the backstop.
+- `isOfflineSale(receiptNo)` ([components/pos/_utils.ts](../../app/src/components/pos/_utils.ts))
+  = `receiptNo.startsWith("OFF")`. Drives the **"OFFLINE SALE"** label in the
+  on-screen receipt ([ReceiptModal](../../app/src/components/pos/ReceiptModal.tsx)),
+  the printed/HTML receipt ([_receipts.ts buildReceiptHtml](../../app/src/components/pos/_receipts.ts)),
+  and **"OFFLINE"** badges in the admin POS Reports list + POS dashboard table.
+
+**Edge case:** wiping app data resets the counter to 1000; a reused `OFF1000`
+would then be rejected by the UNIQUE constraint on sync (that one sale fails to
+upload — recoverable, never a duplicate). Acceptable for single-terminal.
+
 ## 2026-06-22 § Phase 4 offline PIN login — reuse the cookie, don't store the PIN
 
 **Decision:** Offline login validates the PIN locally with bcrypt against a

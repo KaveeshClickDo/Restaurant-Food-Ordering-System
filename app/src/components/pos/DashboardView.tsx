@@ -1470,6 +1470,9 @@ export default function DashboardView() {
                               <tr key={sale.id} className={`hover:bg-slate-700/30 transition-colors ${fullyRefunded ? "opacity-40" : sale.voided ? "opacity-70" : ""}`}>
                                 <td className="px-5 py-3 font-mono text-xs text-slate-300">
                                   <div>#{sale.receiptNo}</div>
+                                  {sale.receiptNo?.startsWith("OFF") && (
+                                    <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-full font-semibold">OFFLINE</span>
+                                  )}
                                   {sale.voided && (
                                     <span className="text-[10px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-semibold">VOID</span>
                                   )}

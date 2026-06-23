@@ -6,7 +6,7 @@ import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
 import { POSSale } from "@/types/pos";
 import { Mail, CheckCircle2, RefreshCw, Printer } from "lucide-react";
-import { fmt, fmtDate, fmtTime } from "./_utils";
+import { fmt, fmtDate, fmtTime, isOfflineSale } from "./_utils";
 import { buildReceiptHtml } from "./_receipts";
 
 export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose: () => void }) {
@@ -82,6 +82,7 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
             {settings.receiptWebsite && <p className="text-gray-500">{settings.receiptWebsite}</p>}
             <p className="text-gray-500">{fmtDate(sale.date)} · {fmtTime(sale.date)}</p>
             <p className="text-gray-500">Receipt #{sale.receiptNo}</p>
+            {isOfflineSale(sale.receiptNo) && <p className="font-bold text-amber-600 tracking-wide">OFFLINE SALE</p>}
             {sale.staffName && <p className="text-gray-500">Served by: {sale.staffName}</p>}
             {sale.customerName && <p className="text-gray-500">Customer: {sale.customerName}</p>}
             {settings.receiptVatNumber && (
