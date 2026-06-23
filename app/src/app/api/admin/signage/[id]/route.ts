@@ -62,7 +62,7 @@ export async function PATCH(
       const incomingUrls = new Set(body.slides.map(s => s.imageUrl));
       
       // Find URLs that exist in DB but aren't in the incoming request
-      filesToDelete = (existingData.slides as any[])
+      filesToDelete = (existingData.slides as { imageUrl: string }[])
         .filter(s => !incomingUrls.has(s.imageUrl))
         .map(s => extractStoragePath(s.imageUrl))
         .filter(Boolean) as string[];
@@ -133,7 +133,7 @@ export async function DELETE(
 
   // 3. If DB deletion was successful, wipe all associated media from the bucket
   if (existingData && existingData.slides) {
-    const filesToDelete = (existingData.slides as any[])
+    const filesToDelete = (existingData.slides as { imageUrl: string }[])
       .map(s => extractStoragePath(s.imageUrl))
       .filter(Boolean) as string[];
 
