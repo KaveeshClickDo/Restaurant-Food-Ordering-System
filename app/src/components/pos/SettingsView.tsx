@@ -298,7 +298,14 @@ export default function SettingsView() {
           </div>
         )}
 
-        {tab === "menu" && <MenuTab />}
+        {tab === "menu" && (
+          isOnline
+            ? <MenuTab />
+            : <div className="bg-slate-800 border border-slate-700 rounded-2xl p-8 text-center">
+                <p className="text-amber-300 text-sm font-semibold">Menu editing needs internet</p>
+                <p className="text-slate-400 text-xs mt-1">You can still ring up sales from the cached menu on the Sale tab. Reconnect to add or edit menu items.</p>
+              </div>
+        )}
 
         {tab === "receipt" && (
           <div className="space-y-4">

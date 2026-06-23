@@ -49,6 +49,7 @@ export default function StaffView() {
   // Double-click guard for the self clock-in/out button (QA #32). Without
   // this a rapid second click fires a second API request that 409s/404s.
   async function toggleClock(staffId: string, currentlyClocked: boolean) {
+    if (!isOnline) return; // read-only offline (server write)
     if (clockInFlight.current) return;
     clockInFlight.current = true;
     setClockBusy(true);
@@ -128,6 +129,7 @@ export default function StaffView() {
   }
 
   async function toggleActive(staffId: string) {
+    if (!isOnline) return; // read-only offline (server write)
     if (toggleInFlight.current.has(staffId)) return;
     const member = staff.find((s) => s.id === staffId);
     if (!member) return;
@@ -290,14 +292,15 @@ export default function StaffView() {
                   )}
                   <button
                     onClick={() => openEdit(member)}
-                    title="Edit staff member"
-                    className="text-slate-400 hover:text-orange-400 transition-colors"
+                    disabled={!isOnline}
+                    title={!isOnline ? "Reconnect to edit" : "Edit staff member"}
+                    className="text-slate-400 hover:text-orange-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-400"
                   >
                     <Pencil size={16} />
                   </button>
                   <button
                     onClick={() => setDeleteConfirm(member.id)}
-                    disabled={member.id === currentStaff?.id}
+                    disabled={!isOnline || member.id === currentStaff?.id}
                     title={member.id === currentStaff?.id ? "Cannot delete yourself" : "Delete staff member"}
                     className={`transition-colors ${member.id === currentStaff?.id ? "opacity-50 cursor-not-allowed" : "text-slate-400 hover:text-red-400"}`}
                   >

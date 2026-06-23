@@ -217,7 +217,9 @@ export default function CustomersView() {
               </div>
               <button
                 onClick={() => openEdit(selectedLive)}
-                className="w-full md:w-auto flex items-center justify-center gap-2 px-4 py-2 mt-2 md:mt-0 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white text-sm font-semibold transition-all flex-shrink-0"
+                disabled={!isOnline}
+                title={!isOnline ? "Reconnect to edit" : undefined}
+                className="w-full md:w-auto flex items-center justify-center gap-2 px-4 py-2 mt-2 md:mt-0 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white text-sm font-semibold transition-all flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Pencil size={14} /> Edit
               </button>
