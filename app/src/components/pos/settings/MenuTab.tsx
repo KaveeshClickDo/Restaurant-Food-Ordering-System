@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { usePOS } from "@/context/POSContext";
 import { POSProduct, POSCategory, POSOffer, getOfferPrice, isOfferActive } from "@/types/pos";
 import type { Variation, AddOn } from "@/types";
 import { Plus, Pencil, Trash2, ToggleLeft, ToggleRight, ChevronDown, X, Save, Tag, Package, Check } from "lucide-react";
 import { fmt } from "../_utils";
 import { PRESET_COLORS, buildOffer, handleImageFile } from "./_helpers";
+import { deleteMenuImage } from "@/lib/uploadImage";
 
 // Dietary options — kept in sync with admin's MenuManagementPanel so both
 // editors offer the same set of tags. Bug #2 (admin / POS field parity).
@@ -64,6 +65,11 @@ export default function MenuTab() {
     stockStatus: "in_stock" as StockStatusValue,
   });
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
+  // Session tracking for uploads
+  const initialImageUrl = useRef("");
+  const [sessionUploads, setSessionUploads] = useState<string[]>([]);
+  
   const [menuTab, setMenuTab] = useState<"items"|"categories">("items");
 
   // Category state
@@ -143,8 +149,44 @@ export default function MenuTab() {
     setProducts((prev) => prev.map((p) => p.id === id ? { ...p, active: !p.active } : p));
   }
 
+  // Cleanup logic for Cancel / X
+  async function handleCloseModals() {
+    if (sessionUploads.length > 0) {
+      // Delete every file uploaded during this session because user is cancelling
+      await Promise.all(sessionUploads.map(url => deleteMenuImage(url).catch(console.error)));
+    }
+    setSessionUploads([]);
+    setEditProduct(null);
+    setShowAddProduct(false);
+    setImgErr("");
+    setNewProduct({
+      name: "", categoryId: "", price: "", cost: "", emoji: "🍽️", imageUrl: "",
+      description: "", sku: "",
+      dietary: [], variations: [], addOns: [],
+      offerActive: false, offerType: "percent", offerValue: "", offerLabel: "", offerStart: "", offerEnd: "",
+      offerBuyQty: "", offerFreeQty: "", offerMinQty: "",
+      stockMode: "manual", stockQty: "", stockStatus: "in_stock",
+    });
+  }
+
+  // Cleanup logic for Save / Add
+  async function cleanupOnSave(finalUrl: string | undefined) {
+    // 1. If the final image is different from the start, delete the original
+    if (finalUrl !== initialImageUrl.current && initialImageUrl.current) {
+      deleteMenuImage(initialImageUrl.current).catch(console.error);
+    }
+    // 2. Delete intermediate uploads (e.g. user uploaded 3 pics, only kept the 3rd)
+    const unused = sessionUploads.filter(url => url !== finalUrl);
+    if (unused.length > 0) {
+      await Promise.all(unused.map(url => deleteMenuImage(url).catch(console.error)));
+    }
+    setSessionUploads([]);
+  }
+
   function openEdit(product: POSProduct) {
     setImgErr("");
+    initialImageUrl.current = product.imageUrl ?? ""; // Track the start
+    setSessionUploads([]); // Reset session
     setEditProduct(product);
     const o = product.offer;
     const tracked = typeof product.stockQty === "number";
@@ -176,7 +218,7 @@ export default function MenuTab() {
     });
   }
 
-  function saveEdit() {
+  async function saveEdit() {
     if (!editProduct || !editDraft.name.trim() || !editDraft.categoryId || !editDraft.price) return;
     setProducts((prev) => prev.map((p) =>
       p.id === editProduct.id
@@ -223,6 +265,9 @@ export default function MenuTab() {
       updateProductStock(editProduct.id, { mode: "manual", stockStatus: editDraft.stockStatus });
     }
 
+    // CLEANUP bucket
+    await cleanupOnSave(editDraft.imageUrl);
+
     setEditProduct(null);
   }
 
@@ -254,7 +299,7 @@ export default function MenuTab() {
     setProducts((prev) => prev.filter((p) => p.id !== id));
   }
 
-  function addProduct() {
+  async function addProduct() {
     if (!newProduct.name.trim() || !newProduct.categoryId || !newProduct.price) return;
     const id = `p-${Date.now()}`;
     const tracked = newProduct.stockMode === "qty";
@@ -305,6 +350,9 @@ export default function MenuTab() {
       offerBuyQty: "", offerFreeQty: "", offerMinQty: "",
       stockMode: "manual", stockQty: "", stockStatus: "in_stock",
     });
+
+    // CLEANUP intermediate attempts
+    await cleanupOnSave(newProduct.imageUrl);
     setShowAddProduct(false);
   }
 
@@ -336,7 +384,7 @@ export default function MenuTab() {
             {menuTab === "items" && (
               <>
                 <div className="flex justify-end">
-                  <button onClick={() => { setImgErr(""); setShowAddProduct(true); }} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-400 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors">
+                  <button onClick={() => { setImgErr(""); initialImageUrl.current = ""; setSessionUploads([]); setShowAddProduct(true); }} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-400 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors">
                     <Plus size={16} /> Add Item
                   </button>
                 </div>
@@ -642,7 +690,7 @@ export default function MenuTab() {
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
               <h3 className="text-white font-bold">Edit Item</h3>
-              <button onClick={() => setEditProduct(null)} className="text-slate-400 hover:text-white transition-colors"><X size={18} /></button>
+              <button onClick={handleCloseModals} className="text-slate-400 hover:text-white transition-colors"><X size={18} /></button>
             </div>
 
             {/* Form */}
@@ -673,7 +721,10 @@ export default function MenuTab() {
                         e.target.value = "";
                         if (!f) return;
                         setImgErr("");
-                        handleImageFile(f, (url) => setEditDraft((d) => ({ ...d, imageUrl: url })), setImgErr);
+                        handleImageFile(f, (url) => {
+                          setEditDraft((d) => ({ ...d, imageUrl: url }));
+                          setSessionUploads(prev => [...prev, url]);
+                        }, setImgErr);
                       }}
                     />
                   </label>
@@ -1069,7 +1120,7 @@ export default function MenuTab() {
           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
               <h3 className="text-white font-bold">Add Menu Item</h3>
-              <button onClick={() => setShowAddProduct(false)} className="text-slate-400 hover:text-white"><X size={18} /></button>
+              <button onClick={handleCloseModals} className="text-slate-400 hover:text-white"><X size={18} /></button>
             </div>
             <div className="p-5 space-y-3 max-h-[75vh] overflow-y-auto">
 
@@ -1098,7 +1149,10 @@ export default function MenuTab() {
                         e.target.value = "";
                         if (!f) return;
                         setImgErr("");
-                        handleImageFile(f, (url) => setNewProduct((p) => ({ ...p, imageUrl: url })), setImgErr);
+                        handleImageFile(f, (url) => {
+                          setNewProduct((p) => ({ ...p, imageUrl: url }));
+                          setSessionUploads(prev => [...prev, url]);
+                        }, setImgErr);
                       }}
                     />
                   </label>
@@ -1360,7 +1414,7 @@ export default function MenuTab() {
               </div>
             </div>
             <div className="px-5 pb-5 grid grid-cols-2 gap-2">
-              <button onClick={() => setShowAddProduct(false)} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">Cancel</button>
+              <button onClick={handleCloseModals} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">Cancel</button>
               <button onClick={addProduct} disabled={!newProduct.name.trim() || !newProduct.categoryId || !newProduct.price}
                 className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Add Item</button>
             </div>
