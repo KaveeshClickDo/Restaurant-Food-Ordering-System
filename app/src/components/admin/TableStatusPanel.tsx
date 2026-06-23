@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import type { Reservation, DiningTable, FloorPlan } from "@/types";
-import { uploadFloorPlanImage, floorPlanSizeError } from "@/lib/uploadImage";
+import { uploadFloorPlanImage, floorPlanSizeError, deleteFloorPlanImage } from "@/lib/uploadImage";
 import { resolveFloorPlans, effectiveFloorId } from "@/lib/floorPlans";
 import {
   UtensilsCrossed, Users, Clock, LogIn, LogOut,
@@ -52,10 +52,10 @@ const STATE_STYLES: Record<TableState, {
   label: string;
   dot: string;
 }> = {
-  free:     { card: "bg-white border-gray-200",       badge: "bg-gray-100 text-gray-500",   label: "Free",     dot: "bg-gray-300"  },
-  reserved: { card: "bg-amber-50 border-amber-300",   badge: "bg-amber-100 text-amber-700", label: "Reserved", dot: "bg-amber-400" },
-  occupied: { card: "bg-blue-50 border-blue-400",     badge: "bg-blue-100 text-blue-700",   label: "Occupied", dot: "bg-blue-500"  },
-  done:     { card: "bg-teal-50 border-teal-300",     badge: "bg-teal-100 text-teal-700",   label: "Done",     dot: "bg-teal-500"  },
+  free: { card: "bg-white border-gray-200", badge: "bg-gray-100 text-gray-500", label: "Free", dot: "bg-gray-300" },
+  reserved: { card: "bg-amber-50 border-amber-300", badge: "bg-amber-100 text-amber-700", label: "Reserved", dot: "bg-amber-400" },
+  occupied: { card: "bg-blue-50 border-blue-400", badge: "bg-blue-100 text-blue-700", label: "Occupied", dot: "bg-blue-500" },
+  done: { card: "bg-teal-50 border-teal-300", badge: "bg-teal-100 text-teal-700", label: "Done", dot: "bg-teal-500" },
   inactive: { card: "bg-gray-50 border-gray-200 opacity-60", badge: "bg-gray-200 text-gray-500", label: "Inactive", dot: "bg-gray-400" },
 };
 
@@ -81,7 +81,7 @@ function TableForm({
 }) {
   const { settings } = useApp();
   const currencySymbol = settings.currency?.symbol ?? "£";
-  const [form, setForm]     = useState({ ...EMPTY_TABLE, ...initial });
+  const [form, setForm] = useState({ ...EMPTY_TABLE, ...initial });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const inFlight = useRef(false);
@@ -94,9 +94,9 @@ function TableForm({
   function validate(): boolean {
     const e: Record<string, string> = {};
     const trimmedLabel = form.label.trim();
-    if (!trimmedLabel)        e.label   = "Label is required.";
+    if (!trimmedLabel) e.label = "Label is required.";
     if (!form.section.trim()) e.section = "Section is required.";
-    if (form.seats < 1)       e.seats   = "Must have at least 1 seat.";
+    if (form.seats < 1) e.seats = "Must have at least 1 seat.";
     if (trimmedLabel && existingLabels.some((l) => l.trim().toLowerCase() === trimmedLabel.toLowerCase())) {
       e.label = "Another table already uses this label.";
     }
@@ -153,11 +153,10 @@ function TableForm({
               <button
                 key={s} type="button"
                 onClick={() => set("section", s)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition border ${
-                  form.section === s
-                    ? "bg-orange-500 text-white border-orange-500"
-                    : "bg-gray-50 text-gray-600 border-gray-200 hover:border-gray-300"
-                }`}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition border ${form.section === s
+                  ? "bg-orange-500 text-white border-orange-500"
+                  : "bg-gray-50 text-gray-600 border-gray-200 hover:border-gray-300"
+                  }`}
               >
                 {s}
               </button>
@@ -262,18 +261,18 @@ function TableCard({
   onCancelDelete,
 }: {
   info: TableInfo;
-  onCheckIn:       (resId: string) => Promise<void>;
-  onCheckOut:      (resId: string) => Promise<void>;
-  onEdit:          (table: DiningTable) => void;
-  onToggleActive:  (table: DiningTable) => Promise<void>;
-  onAskDelete:     (table: DiningTable) => void;
-  isEditing:       boolean;
-  isDeleting:      boolean;
+  onCheckIn: (resId: string) => Promise<void>;
+  onCheckOut: (resId: string) => Promise<void>;
+  onEdit: (table: DiningTable) => void;
+  onToggleActive: (table: DiningTable) => Promise<void>;
+  onAskDelete: (table: DiningTable) => void;
+  isEditing: boolean;
+  isDeleting: boolean;
   existingLabelsForEdit: string[];
-  onSaveEdit:      (data: Omit<DiningTable, "id" | "number">) => Promise<void>;
-  onCancelEdit:    () => void;
+  onSaveEdit: (data: Omit<DiningTable, "id" | "number">) => Promise<void>;
+  onCancelEdit: () => void;
   onConfirmDelete: () => Promise<void>;
-  onCancelDelete:  () => void;
+  onCancelDelete: () => void;
 }) {
   const [actioning, setActioning] = useState(false);
   const { settings } = useApp();
@@ -305,7 +304,7 @@ function TableCard({
         {/* Floating Edit Form: Hovers over the grid, overlapping downwards smoothly */}
         <div className="absolute top-0 left-0 w-full z-30 rounded-2xl border-2 border-gray-200 bg-white p-4 h-fit">
           <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2 text-sm min-w-0" >
-            <Pencil size={14} className="flex-shrink-0" /> 
+            <Pencil size={14} className="flex-shrink-0" />
             <span className="truncate" title={table.label} >Edit {table.label}</span>
           </h4>
           <TableForm
@@ -342,7 +341,7 @@ function TableCard({
     <div className={`rounded-2xl border-2 p-3 sm:p-4 flex flex-col gap-3 transition h-full ${s.card}`}>
       {/* Table header */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2.5 sm:gap-2">
-        <div className="min-w-0 flex-1"> 
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 min-w-0">
             {table.isVip
               ? <Crown size={14} className="text-amber-500" />
@@ -449,7 +448,7 @@ function TableCard({
         >
           {table.active
             ? <CheckCircle2 size={14} className="text-green-500" />
-            : <XCircle      size={14} className="text-gray-400"  />
+            : <XCircle size={14} className="text-gray-400" />
           }
         </button>
         <button
@@ -495,11 +494,12 @@ function FloorPlanEditor({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<string | null>(plans[0]?.id ?? null);
-  const [dragId, setDragId]     = useState<string | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
   const [localPos, setLocalPos] = useState<Record<string, { x: number; y: number }>>({});
   const [selected, setSelected] = useState<string | null>(null);
-  const [err, setErr]           = useState("");
+  const [err, setErr] = useState("");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [confirmingRemoveImage, setConfirmingRemoveImage] = useState(false);
   const moved = useRef(false);
 
   // Keep the active tab valid as floors are added / deleted.
@@ -508,7 +508,7 @@ function FloorPlanEditor({
   }, [plans, activeId]);
 
   const activePlan = plans.find((p) => p.id === activeId) ?? null;
-  const imageUrl   = activePlan?.imageUrl ?? "";
+  const imageUrl = activePlan?.imageUrl ?? "";
 
   // Floor-name draft — committed on blur / Enter so settings aren't persisted
   // on every keystroke.
@@ -520,8 +520,8 @@ function FloorPlanEditor({
   const markerScale = activePlan?.markerScale ?? 1;
   const [scale, setScale] = useState(markerScale);
   useEffect(() => { setScale(markerScale); }, [markerScale]);
-  const mSize  = Math.round(44 * scale);
-  const mFont  = Math.max(8, Math.round(11 * scale));
+  const mSize = Math.round(44 * scale);
+  const mFont = Math.max(8, Math.round(11 * scale));
   const mCrown = Math.max(7, Math.round(10 * scale));
 
   function posOf(t: DiningTable): { x: number; y: number } | null {
@@ -538,8 +538,8 @@ function FloorPlanEditor({
     return plans.some((p) => p.id === id) ? id : null;
   }
 
-  const active   = tables.filter((t) => t.active);
-  const placed   = active.filter((t) => floorOf(t) === activeId && activeId !== null);
+  const active = tables.filter((t) => t.active);
+  const placed = active.filter((t) => floorOf(t) === activeId && activeId !== null);
   const unplaced = active.filter((t) => floorOf(t) === null);
   const placedCountOn = (floorId: string) => active.filter((t) => floorOf(t) === floorId).length;
 
@@ -561,6 +561,22 @@ function FloorPlanEditor({
     onUpload(activePlan.id, file);
   }
 
+  // ── Remove image with confirmation ──
+  async function removeImage() {
+    if (!activePlan || !activePlan.imageUrl) return;
+    const urlToDelete = activePlan.imageUrl;
+
+    // Update settings (UI updates instantly)
+    onPlansChange(plans.map((p) => (p.id === activePlan.id ? { ...p, imageUrl: "" } : p)));
+
+    setConfirmingRemoveImage(false);
+
+    // Trigger bucket deletion in the background
+    deleteFloorPlanImage(urlToDelete).catch(err =>
+      console.error("Background cleanup failed:", err)
+    );
+  }
+
   // ── Floor management ──────────────────────────────────────────────────────
 
   function addFloor() {
@@ -577,8 +593,10 @@ function FloorPlanEditor({
     onPlansChange(plans.map((p) => (p.id === activePlan.id ? { ...p, name } : p)));
   }
 
+  // ── Delete floor with cleanup ──
   function deleteActiveFloor() {
     if (!activePlan) return;
+
     // Tables on this floor (including inactive ones, and legacy rows that
     // resolve to it) go back to the tray so they can't ghost onto another floor.
     for (const t of tables) {
@@ -586,6 +604,13 @@ function FloorPlanEditor({
         onSaveCoords(t.id, null, null, null);
       }
     }
+
+    // Delete image from bucket if it exists
+    if (activePlan.imageUrl) {
+      deleteFloorPlanImage(activePlan.imageUrl);
+    }
+
+    // Remove from settings list
     onPlansChange(plans.filter((p) => p.id !== activePlan.id));
     setConfirmingDelete(false);
   }
@@ -642,11 +667,10 @@ function FloorPlanEditor({
             <button
               key={p.id}
               onClick={() => setActiveId(p.id)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border transition ${
-                isActive
-                  ? "bg-orange-500 text-white border-orange-500 shadow-sm shadow-orange-200"
-                  : "bg-white text-gray-600 border-gray-200 hover:border-orange-300 hover:text-orange-600"
-              }`}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border transition ${isActive
+                ? "bg-orange-500 text-white border-orange-500 shadow-sm shadow-orange-200"
+                : "bg-white text-gray-600 border-gray-200 hover:border-orange-300 hover:text-orange-600"
+                }`}
             >
               <Layers size={13} className={isActive ? "text-white" : "text-gray-400"} />
               <span className="max-w-[10rem] truncate" title={p.name}>{p.name}</span>
@@ -709,7 +733,7 @@ function FloorPlanEditor({
           </label>
           {imageUrl && (
             <button
-              onClick={() => onPlansChange(plans.map((p) => (p.id === activePlan.id ? { ...p, imageUrl: "" } : p)))}
+              onClick={() => setConfirmingRemoveImage(true)}
               className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-red-600 hover:border-red-200 transition"
             >
               <X size={14} /> Remove image
@@ -764,43 +788,42 @@ function FloorPlanEditor({
               the panel. The ref box is inline-block so it shrinks to the rendered
               image, keeping the percentage-based marker coordinates aligned to it. */}
           <div className="flex justify-center">
-          <div ref={containerRef} className="relative inline-block max-w-full rounded-2xl overflow-hidden border border-gray-200 bg-gray-50 select-none">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={imageUrl} alt={`${activePlan?.name ?? "Floor"} plan`} className="block w-auto h-auto max-w-full max-h-[60vh] pointer-events-none" draggable={false} />
-            {placed.map((t) => {
-              const p = posOf(t)!;
-              const isSel = selected === t.id;
-              return (
-                <div
-                  key={t.id}
-                  onPointerDown={(e) => onMarkerDown(e, t.id)}
-                  onPointerMove={(e) => onMarkerMove(e, t.id)}
-                  onPointerUp={(e) => onMarkerUp(e, t.id)}
-                  style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}
-                  className={`absolute -translate-x-1/2 -translate-y-1/2 touch-none cursor-grab active:cursor-grabbing ${dragId === t.id ? "z-20" : "z-10"}`}
-                >
+            <div ref={containerRef} className="relative inline-block max-w-full rounded-2xl overflow-hidden border border-gray-200 bg-gray-50 select-none">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={imageUrl} alt={`${activePlan?.name ?? "Floor"} plan`} className="block w-auto h-auto max-w-full max-h-[60vh] pointer-events-none" draggable={false} />
+              {placed.map((t) => {
+                const p = posOf(t)!;
+                const isSel = selected === t.id;
+                return (
                   <div
-                    style={{ width: mSize, height: mSize, fontSize: mFont }}
-                    className={`flex flex-col items-center justify-center rounded-full border-2 shadow font-bold ${
-                    t.isVip ? "bg-amber-100 border-amber-400 text-amber-800" : "bg-white border-orange-400 text-orange-700"
-                  } ${isSel ? "ring-2 ring-offset-1 ring-blue-400" : ""}`}>
-                    {t.isVip && <Crown size={mCrown} className="text-amber-500" />}
-                    <span className="leading-none truncate px-0.5" style={{ maxWidth: mSize - 6 }}>{t.label}</span>
+                    key={t.id}
+                    onPointerDown={(e) => onMarkerDown(e, t.id)}
+                    onPointerMove={(e) => onMarkerMove(e, t.id)}
+                    onPointerUp={(e) => onMarkerUp(e, t.id)}
+                    style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}
+                    className={`absolute -translate-x-1/2 -translate-y-1/2 touch-none cursor-grab active:cursor-grabbing ${dragId === t.id ? "z-20" : "z-10"}`}
+                  >
+                    <div
+                      style={{ width: mSize, height: mSize, fontSize: mFont }}
+                      className={`flex flex-col items-center justify-center rounded-full border-2 shadow font-bold ${t.isVip ? "bg-amber-100 border-amber-400 text-amber-800" : "bg-white border-orange-400 text-orange-700"
+                        } ${isSel ? "ring-2 ring-offset-1 ring-blue-400" : ""}`}>
+                      {t.isVip && <Crown size={mCrown} className="text-amber-500" />}
+                      <span className="leading-none truncate px-0.5" style={{ maxWidth: mSize - 6 }}>{t.label}</span>
+                    </div>
+                    {isSel && (
+                      <button
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={() => { setSelected(null); setLocalPos((p2) => { const n = { ...p2 }; delete n[t.id]; return n; }); onSaveCoords(t.id, null, null, null); }}
+                        title="Remove from map"
+                        className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow"
+                      >
+                        <X size={11} />
+                      </button>
+                    )}
                   </div>
-                  {isSel && (
-                    <button
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={() => { setSelected(null); setLocalPos((p2) => { const n = { ...p2 }; delete n[t.id]; return n; }); onSaveCoords(t.id, null, null, null); }}
-                      title="Remove from map"
-                      className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow"
-                    >
-                      <X size={11} />
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
           </div>
           <p className="text-xs text-gray-400">Drag a table to reposition it. Tap a placed table, then ✕ to take it off the map. A table can only sit on one floor.</p>
 
@@ -824,6 +847,15 @@ function FloorPlanEditor({
             </div>
           )}
         </>
+      )}
+
+      {confirmingRemoveImage && (
+        <ConfirmModal
+          title="Remove Floor Image"
+          message={`Are you sure you want to remove the image for "${activePlan?.name}"? This image will be permanently deleted from storage.`}
+          onConfirm={removeImage}
+          onCancel={() => setConfirmingRemoveImage(false)}
+        />
       )}
     </div>
   );
@@ -858,10 +890,10 @@ export default function TableStatusPanel() {
   useEffect(() => { rsRef.current = settings.reservationSystem; }, [settings.reservationSystem]);
 
   // Add / edit / delete state
-  const [addingTable,   setAddingTable]   = useState(false);
-  const [editingTable,  setEditingTable]  = useState<DiningTable | null>(null);
+  const [addingTable, setAddingTable] = useState(false);
+  const [editingTable, setEditingTable] = useState<DiningTable | null>(null);
   const [deletingTable, setDeletingTable] = useState<string | null>(null);
-  const [tableError,    setTableError]    = useState<string>("");
+  const [tableError, setTableError] = useState<string>("");
   const tableRowInFlight = useRef<Set<string>>(new Set());
 
   const refreshTables = useCallback(async () => {
@@ -932,9 +964,9 @@ export default function TableStatusPanel() {
   async function handleAddTable(data: Omit<DiningTable, "id" | "number">) {
     setTableError("");
     const res = await fetch("/api/admin/dining-tables", {
-      method:  "POST",
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(data),
+      body: JSON.stringify(data),
     });
     const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
     if (res.ok && json.ok) {
@@ -949,9 +981,9 @@ export default function TableStatusPanel() {
     if (!editingTable) return;
     setTableError("");
     const res = await fetch(`/api/admin/dining-tables/${editingTable.id}`, {
-      method:  "PATCH",
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(data),
+      body: JSON.stringify(data),
     });
     const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
     if (res.ok && json.ok) {
@@ -992,8 +1024,8 @@ export default function TableStatusPanel() {
     updateSettings({
       reservationSystem: {
         ...rsRef.current,
-        floorPlans:           plans,
-        floorPlanImageUrl:    first?.imageUrl ?? "",
+        floorPlans: plans,
+        floorPlanImageUrl: first?.imageUrl ?? "",
         floorPlanMarkerScale: first?.markerScale ?? 1,
       },
     });
@@ -1002,12 +1034,25 @@ export default function TableStatusPanel() {
   async function handleUploadFloorPlan(floorId: string, file: File) {
     setTableError("");
     setUploadingPlan(true);
+
+    // Identify the OLD image URL for replacement cleanup
+    const currentPlans = resolveFloorPlans(rsRef.current);
+    const oldImageUrl = currentPlans.find(p => p.id === floorId)?.imageUrl;
+
     try {
+      // Upload new image
       const url = await uploadFloorPlanImage(file);
+
+      // Update DB settings
       // Re-resolve from the latest settings — the admin may have renamed or
       // added floors while the upload was in flight.
-      const current = resolveFloorPlans(rsRef.current);
-      persistPlans(current.map((p) => (p.id === floorId ? { ...p, imageUrl: url } : p)));
+      const updatedPlans = currentPlans.map((p) => (p.id === floorId ? { ...p, imageUrl: url } : p));
+      persistPlans(updatedPlans);
+
+      // CLEANUP: If this was a replacement, wipe the old file from bucket
+      if (oldImageUrl) {
+        await deleteFloorPlanImage(oldImageUrl);
+      }
     } catch (err) {
       setTableError(err instanceof Error ? err.message : "Failed to upload floor plan.");
     } finally {
@@ -1022,9 +1067,9 @@ export default function TableStatusPanel() {
     setAllTables((prev) => prev.map((t) => (t.id === id ? { ...t, posX, posY, floorId } : t)));
     try {
       const res = await fetch(`/api/admin/dining-tables/${id}`, {
-        method:  "PATCH",
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ posX, posY, floorId }),
+        body: JSON.stringify({ posX, posY, floorId }),
       });
       if (!res.ok) setTableError("Failed to save table position.");
     } catch {
@@ -1039,9 +1084,9 @@ export default function TableStatusPanel() {
     tableRowInFlight.current.add(table.id);
     try {
       const res = await fetch(`/api/admin/dining-tables/${table.id}`, {
-        method:  "PATCH",
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ active: !table.active }),
+        body: JSON.stringify({ active: !table.active }),
       });
       if (res.ok) await refreshTables();
     } finally {
@@ -1120,10 +1165,10 @@ export default function TableStatusPanel() {
   const sections = [...new Set(allTables.map((t) => t.section).filter(Boolean))];
 
   const counts = {
-    free:     tableInfoList.filter((t) => t.state === "free").length,
+    free: tableInfoList.filter((t) => t.state === "free").length,
     reserved: tableInfoList.filter((t) => t.state === "reserved").length,
     occupied: tableInfoList.filter((t) => t.state === "occupied").length,
-    done:     tableInfoList.filter((t) => t.state === "done").length,
+    done: tableInfoList.filter((t) => t.state === "done").length,
     inactive: tableInfoList.filter((t) => t.state === "inactive").length,
   };
 
@@ -1150,17 +1195,15 @@ export default function TableStatusPanel() {
           <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
             <button
               onClick={() => setView("grid")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition ${
-                view === "grid" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
-              }`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition ${view === "grid" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                }`}
             >
               <LayoutGrid size={14} /> Grid
             </button>
             <button
               onClick={() => setView("map")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition ${
-                view === "map" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
-              }`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition ${view === "map" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                }`}
             >
               <MapIcon size={14} /> Floor Plan
             </button>
@@ -1208,95 +1251,129 @@ export default function TableStatusPanel() {
           onSaveCoords={saveTableCoords}
         />
       ) : (
-      <>
-      {/* Grid view */}
+        <>
+          {/* Grid view */}
 
-      {/* Stats strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { label: "Free",     value: counts.free,     bg: "bg-gray-50",  border: "border-gray-200",  text: "text-gray-800"  },
-          { label: "Reserved", value: counts.reserved, bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-700" },
-          { label: "Occupied", value: counts.occupied, bg: "bg-blue-50",  border: "border-blue-200",  text: "text-blue-700"  },
-          { label: "Done",     value: counts.done,     bg: "bg-teal-50",  border: "border-teal-200",  text: "text-teal-700"  },
-        ].map((s) => (
-          <div key={s.label} className={`${s.bg} border ${s.border} rounded-xl p-3.5`}>
-            <div className={`text-2xl font-bold ${s.text}`}>{s.value}</div>
-            <div className="text-xs text-gray-500 mt-0.5">{s.label}</div>
+          {/* Stats strip */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: "Free", value: counts.free, bg: "bg-gray-50", border: "border-gray-200", text: "text-gray-800" },
+              { label: "Reserved", value: counts.reserved, bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-700" },
+              { label: "Occupied", value: counts.occupied, bg: "bg-blue-50", border: "border-blue-200", text: "text-blue-700" },
+              { label: "Done", value: counts.done, bg: "bg-teal-50", border: "border-teal-200", text: "text-teal-700" },
+            ].map((s) => (
+              <div key={s.label} className={`${s.bg} border ${s.border} rounded-xl p-3.5`}>
+                <div className={`text-2xl font-bold ${s.text}`}>{s.value}</div>
+                <div className="text-xs text-gray-500 mt-0.5">{s.label}</div>
+              </div>
+            ))}
           </div>
-        ))}
+
+          {/* Legend + section filter */}
+          <div className="flex items-center gap-3 flex-wrap">
+            {(["free", "reserved", "occupied", "done", "inactive"] as TableState[]).map((st) => (
+              <span key={st} className="flex items-center gap-1.5 text-xs text-gray-500">
+                <span className={`w-2 h-2 rounded-full ${STATE_STYLES[st].dot}`} />
+                {STATE_STYLES[st].label}
+              </span>
+            ))}
+            {sections.length > 1 && (
+              <select
+                value={filterSection}
+                onChange={(e) => setFilterSection(e.target.value)}
+                className="ml-auto border border-gray-200 rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400 transition"
+              >
+                <option value="">All sections</option>
+                {sections.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            )}
+          </div>
+
+          {/* Add form */}
+          {addingTable && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2 text-sm">
+                <UtensilsCrossed size={15} className="text-orange-500" /> New Table
+              </h3>
+              <TableForm
+                existingLabels={allTables.map((t) => t.label)}
+                onSave={handleAddTable}
+                onCancel={() => setAddingTable(false)}
+              />
+            </div>
+          )}
+
+          {/* Unified table grid */}
+          {allTables.length === 0 ? (
+            <div className="flex flex-col items-center py-16 gap-3 bg-white rounded-2xl border border-gray-200">
+              <CalendarDays size={32} className="text-gray-300" />
+              <p className="font-semibold text-gray-600">No tables yet</p>
+              <p className="text-sm text-gray-400">Click <strong>Add Table</strong> to create your first one.</p>
+            </div>
+          ) : tableInfoList.length === 0 ? (
+            <div className="flex flex-col items-center py-16 gap-3 bg-white rounded-2xl border border-gray-200 text-center">
+              <CalendarDays size={32} className="text-gray-300" />
+              <p className="font-semibold text-gray-600">No tables in this section</p>
+              <p className="text-sm text-gray-400">Pick another section or clear the filter.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 max-w-sm mx-auto sm:max-w-none">
+              {tableInfoList.map((info) => (
+                <TableCard
+                  key={info.table.id}
+                  info={info}
+                  onCheckIn={handleCheckIn}
+                  onCheckOut={handleCheckOut}
+                  onEdit={(t) => { setEditingTable(t); setAddingTable(false); }}
+                  onToggleActive={toggleTableActive}
+                  onAskDelete={(t) => setDeletingTable(t.id)}
+                  isEditing={editingTable?.id === info.table.id}
+                  isDeleting={deletingTable === info.table.id}
+                  existingLabelsForEdit={allTables.filter((t) => t.id !== info.table.id).map((t) => t.label)}
+                  onSaveEdit={handleEditTable}
+                  onCancelEdit={() => setEditingTable(null)}
+                  onConfirmDelete={() => handleDeleteTable(info.table.id)}
+                  onCancelDelete={() => setDeletingTable(null)}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Reusable Confirm Modal ───────────────────────────────────────────────────
+
+function ConfirmModal({
+  title,
+  message,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onCancel}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center" onClick={(e) => e.stopPropagation()}>
+        <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+          <Trash2 size={24} />
+        </div>
+        <h3 className="font-bold text-gray-900 text-lg mb-2">{title}</h3>
+        <p className="text-sm text-gray-500 mb-6">{message}</p>
+        <div className="flex gap-3">
+          <button onClick={onCancel} className="flex-1 px-4 py-2.5 text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition">
+            Cancel
+          </button>
+          <button onClick={onConfirm} className="flex-1 px-4 py-2.5 text-sm font-semibold text-white bg-red-500 hover:bg-red-600 rounded-xl transition">
+            Delete
+          </button>
+        </div>
       </div>
-
-      {/* Legend + section filter */}
-      <div className="flex items-center gap-3 flex-wrap">
-        {(["free", "reserved", "occupied", "done", "inactive"] as TableState[]).map((st) => (
-          <span key={st} className="flex items-center gap-1.5 text-xs text-gray-500">
-            <span className={`w-2 h-2 rounded-full ${STATE_STYLES[st].dot}`} />
-            {STATE_STYLES[st].label}
-          </span>
-        ))}
-        {sections.length > 1 && (
-          <select
-            value={filterSection}
-            onChange={(e) => setFilterSection(e.target.value)}
-            className="ml-auto border border-gray-200 rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400 transition"
-          >
-            <option value="">All sections</option>
-            {sections.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        )}
-      </div>
-
-      {/* Add form */}
-      {addingTable && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2 text-sm">
-            <UtensilsCrossed size={15} className="text-orange-500" /> New Table
-          </h3>
-          <TableForm
-            existingLabels={allTables.map((t) => t.label)}
-            onSave={handleAddTable}
-            onCancel={() => setAddingTable(false)}
-          />
-        </div>
-      )}
-
-      {/* Unified table grid */}
-      {allTables.length === 0 ? (
-        <div className="flex flex-col items-center py-16 gap-3 bg-white rounded-2xl border border-gray-200">
-          <CalendarDays size={32} className="text-gray-300" />
-          <p className="font-semibold text-gray-600">No tables yet</p>
-          <p className="text-sm text-gray-400">Click <strong>Add Table</strong> to create your first one.</p>
-        </div>
-      ) : tableInfoList.length === 0 ? (
-        <div className="flex flex-col items-center py-16 gap-3 bg-white rounded-2xl border border-gray-200 text-center">
-          <CalendarDays size={32} className="text-gray-300" />
-          <p className="font-semibold text-gray-600">No tables in this section</p>
-          <p className="text-sm text-gray-400">Pick another section or clear the filter.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 max-w-sm mx-auto sm:max-w-none">
-          {tableInfoList.map((info) => (
-            <TableCard
-              key={info.table.id}
-              info={info}
-              onCheckIn={handleCheckIn}
-              onCheckOut={handleCheckOut}
-              onEdit={(t) => { setEditingTable(t); setAddingTable(false); }}
-              onToggleActive={toggleTableActive}
-              onAskDelete={(t) => setDeletingTable(t.id)}
-              isEditing={editingTable?.id === info.table.id}
-              isDeleting={deletingTable === info.table.id}
-              existingLabelsForEdit={allTables.filter((t) => t.id !== info.table.id).map((t) => t.label)}
-              onSaveEdit={handleEditTable}
-              onCancelEdit={() => setEditingTable(null)}
-              onConfirmDelete={() => handleDeleteTable(info.table.id)}
-              onCancelDelete={() => setDeletingTable(null)}
-            />
-          ))}
-        </div>
-      )}
-      </>
-      )}
     </div>
   );
 }

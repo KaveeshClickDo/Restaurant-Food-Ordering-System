@@ -80,6 +80,24 @@ export async function uploadFloorPlanImage(file: File): Promise<string> {
   return json.url;
 }
 
+/**
+ * Permanently deletes a floor-plan image from Supabase Storage.
+ */
+export async function deleteFloorPlanImage(url: string): Promise<void> {
+  if (!url) return;
+  try {
+    const res = await fetch("/api/uploads/floor-plan", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.ok) console.warn("Bucket cleanup failed:", json.error);
+  } catch (err) {
+    console.error("Failed to delete floor plan file:", err);
+  }
+}
+
 // ── Signage poster image (digital menu boards) ────────────────────────────────
 // Largest cap of the three — signage posters run fullscreen on TVs, so they're
 // higher-resolution than dish photos or floor plans.

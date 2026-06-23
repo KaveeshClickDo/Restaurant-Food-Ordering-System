@@ -1,6 +1,8 @@
 /**
  * POST /api/uploads/floor-plan — store a reservation floor-plan image in
  * Supabase Storage and return its public URL.
+ * 
+ * DELETE /api/uploads/floor-plan — delete a floor-plan image from Supabase
  *
  * Mirrors /api/uploads/menu-image (lazy bucket creation, public URLs) but:
  *   • admin-only — the floor plan is a restaurant-layout setting, not a menu asset
@@ -92,4 +94,41 @@ export async function POST(req: NextRequest) {
 
   const { data } = supabaseAdmin.storage.from(BUCKET).getPublicUrl(path);
   return NextResponse.json({ ok: true, url: data.publicUrl });
+}
+
+export async function DELETE(req: NextRequest) {
+  if (!(await isAdminAuthenticated())) return unauthorizedResponse();
+
+  try {
+    const body = await req.json().catch(() => ({}));
+    const url = body.url;
+
+    if (!url || typeof url !== "string") {
+      return NextResponse.json({ ok: false, error: "No URL provided" }, { status: 400 });
+    }
+
+    const bucketPathIdentifier = `/${BUCKET}/`;
+    const parts = url.split(bucketPathIdentifier);
+    
+    if (parts.length < 2) {
+      // If the URL doesn't contain the bucket name, it might be a local path or external
+      console.warn("uploads/floor-plan DELETE: URL does not match bucket pattern", url);
+      return NextResponse.json({ ok: true, skipped: true }); 
+    }
+
+    const path = parts[1];
+
+    const { error } = await supabaseAdmin.storage.from(BUCKET).remove([path]);
+    
+    if (error) {
+      console.error("Supabase Storage Error:", error.message);
+      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    console.error("uploads/floor-plan DELETE crash:", msg);
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+  }
 }
