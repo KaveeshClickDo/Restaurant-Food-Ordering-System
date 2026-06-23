@@ -4,7 +4,7 @@
  * Public digital-signage screen — /display/<slug>. UNAUTHENTICATED: runs
  * unattended on a TV / stick / mini-PC browser.
  *
- *   • 1 enabled poster  → static fullscreen image
+ *   • 1 enabled poster  → static fullscreen image/video
  *   • 2+ enabled posters → auto-looping cross-fade slideshow
  *
  * Reads /api/signage/<slug> on mount and re-polls so admin edits (new posters,
@@ -29,6 +29,11 @@ interface DisplayData {
 
 type Status = "loading" | "ready" | "notfound" | "error";
 
+// Helper to determine if the URL points to a video
+function isVideo(url: string): boolean {
+  return /\.(mp4|webm|mov|quicktime)$/i.test(url);
+}
+
 export default function SignageDisplayPage() {
   const params = useParams<{ slug: string }>();
   const slug = params?.slug ?? "";
@@ -41,6 +46,7 @@ export default function SignageDisplayPage() {
   // Track the current slide URLs so a poll only resets the slideshow when the
   // posters actually changed (not on every 30 s refresh).
   const slidesKeyRef = useRef("");
+  const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
 
   // ── Fetch + poll ────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
@@ -73,14 +79,47 @@ export default function SignageDisplayPage() {
     return () => clearInterval(id);
   }, [load]);
 
-  // ── Slideshow advance ───────────────────────────────────────────────────────
   const slides = display?.slides ?? [];
+
+  // Extract primitive values so the 30-second background poll doesn't trigger 
+  // false re-renders in the effect hooks below.
+  const slidesCount = slides.length;
+  const intervalMs = display?.intervalMs;
+  const currentImageUrl = slides[index]?.imageUrl;
+
+  // ── Slideshow advance helper ────────────────────────────────────────────────
+  const nextSlide = useCallback(() => {
+    setIndex((i) => (i + 1) % slidesCount);
+  }, [slidesCount]);
+
+  // ── Video Playback Manager ──────────────────────────────────────────────────
+   useEffect(() => {
+    videoRefs.current.forEach((vid, i) => {
+      if (!vid) return;
+      if (i === index) {
+        vid.currentTime = 0; // Restart video only when transitioning TO this slide
+        vid.play().catch(() => {
+          // If browser blocks autoplay, skip to the next slide
+          if (slidesCount >= 2) nextSlide();
+        });
+      } else {
+        vid.pause(); // Pause inactive videos
+      }
+    });
+  }, [index, nextSlide, slidesCount]); // NOTE: 'slides' array is purposefully removed here
+
   useEffect(() => {
-    if (slides.length < 2) return;
-    const step = Math.max(3000, display?.intervalMs ?? 8000);
-    const id = setInterval(() => setIndex((i) => (i + 1) % slides.length), step);
-    return () => clearInterval(id);
-  }, [slides.length, display?.intervalMs]);
+    if (slidesCount < 2 || !currentImageUrl) return;
+
+    // If it's a video, do NOT set a timeout. The video's native onEnded event handles it.
+    if (isVideo(currentImageUrl)) return;
+
+    // If it's an image, set a timeout using the interval settings
+    const step = Math.max(3000, intervalMs ?? 8000);
+    const id = setTimeout(nextSlide, step);
+
+    return () => clearTimeout(id);
+  }, [index, currentImageUrl, slidesCount, intervalMs, nextSlide]); // NOTE: 'slides' array removed here too
 
   // ── Keep the screen awake (best-effort) ─────────────────────────────────────
   useEffect(() => {
@@ -101,7 +140,7 @@ export default function SignageDisplayPage() {
     return () => {
       cancelled = true;
       document.removeEventListener("visibilitychange", onVisible);
-      lock?.release().catch(() => {});
+      lock?.release().catch(() => { });
     };
   }, []);
 
@@ -109,7 +148,7 @@ export default function SignageDisplayPage() {
   function enterFullscreen() {
     setShowHint(false);
     const el = document.documentElement;
-    el.requestFullscreen?.().catch(() => {});
+    el.requestFullscreen?.().catch(() => { });
   }
 
   // ── Render states ───────────────────────────────────────────────────────────
@@ -142,24 +181,47 @@ export default function SignageDisplayPage() {
       {slides.length === 0 ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center px-6">
           <p className="text-white/70 text-xl font-semibold">{display?.name || "Display"}</p>
-          <p className="text-white/40 text-sm">No posters added yet.</p>
+          <p className="text-white/40 text-sm">No media added yet.</p>
         </div>
       ) : (
-        slides.map((slide, i) => (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img
-            key={`${slide.imageUrl}-${i}`}
-            src={slide.imageUrl}
-            alt=""
-            draggable={false}
-            className="absolute inset-0 w-full h-full"
-            style={{
-              objectFit: display?.fit === "cover" ? "cover" : "contain",
-              opacity: i === index ? 1 : 0,
-              transition: display?.transition === "none" ? "none" : "opacity 900ms ease-in-out",
-            }}
-          />
-        ))
+        slides.map((slide, i) => {
+          const isVid = isVideo(slide.imageUrl);
+          const commonStyle: React.CSSProperties = {
+            objectFit: display?.fit === "cover" ? "cover" : "contain",
+            opacity: i === index ? 1 : 0,
+            transition: display?.transition === "none" ? "none" : "opacity 900ms ease-in-out",
+          };
+          const commonClassName = "absolute inset-0 w-full h-full";
+
+          return isVid ? (
+            <video
+              key={`${slide.imageUrl}-${i}`}
+              ref={(el) => { videoRefs.current[i] = el; }}
+              src={slide.imageUrl}
+              className={commonClassName}
+              style={commonStyle}
+              muted
+              playsInline
+              loop={slides.length < 2} // Only loop if it's the ONLY item on the display
+              onEnded={() => {
+                if (slides.length >= 2) nextSlide(); // Advance when video finishes
+              }}
+              onError={() => {
+                if (slides.length >= 2) nextSlide(); // Skip if video breaks
+              }}
+            />
+          ) : (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              key={`${slide.imageUrl}-${i}`}
+              src={slide.imageUrl}
+              alt=""
+              draggable={false}
+              className={commonClassName}
+              style={commonStyle}
+            />
+          );
+        })
       )}
 
       {/* One-time hint to enter fullscreen (a real gesture is required). */}

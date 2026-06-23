@@ -61,17 +61,21 @@ function publicUrl(slug: string): string {
   return `${origin}/display/${slug}`;
 }
 
+function isVideo(url: string): boolean {
+  return /\.(mp4|webm|mov|quicktime)$/i.test(url);
+}
+
 // ─── Main panel ───────────────────────────────────────────────────────────────
 
 export default function SignagePanel() {
   const [displays, setDisplays] = useState<Display[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState("");
-  const [newName, setNewName]   = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [busyId, setBusyId]     = useState<string | null>(null);
-  const [qrFor, setQrFor]       = useState<Display | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [qrFor, setQrFor] = useState<Display | null>(null);
 
   // ── Load ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -243,7 +247,7 @@ interface DisplayCardProps {
 }
 
 function DisplayCard({ display, expanded, busy, onToggleExpand, onPatch, onDelete, onShowQr }: DisplayCardProps) {
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const url = publicUrl(display.slug);
@@ -319,21 +323,23 @@ function DisplayCard({ display, expanded, busy, onToggleExpand, onPatch, onDelet
 
           {/* Delete */}
           <div className="flex justify-end pt-2 border-t border-gray-100">
-            {confirmDelete ? (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500">Delete this display and its URL?</span>
-                <button onClick={onDelete} className="flex items-center gap-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition">
-                  <Check size={13} /> Delete
-                </button>
-                <button onClick={() => setConfirmDelete(false)} className="text-xs text-gray-400 hover:text-gray-700 px-2 py-1.5">Cancel</button>
-              </div>
-            ) : (
-              <button onClick={() => setConfirmDelete(true)} className="flex items-center gap-1.5 text-red-500 hover:text-red-600 text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-red-50 transition">
-                <Trash2 size={14} /> Delete display
-              </button>
-            )}
+            <button onClick={() => setShowDeleteModal(true)} className="flex items-center gap-1.5 text-red-500 hover:text-red-600 text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-red-50 transition">
+              <Trash2 size={14} /> Delete display
+            </button>
           </div>
         </div>
+      )}
+
+      {showDeleteModal && (
+        <ConfirmModal
+          title="Delete Display"
+          message={`Are you sure you want to delete "${display.name}"? This will permanently wipe all associated media files.`}
+          onConfirm={() => {
+            onDelete();
+            setShowDeleteModal(false);
+          }}
+          onCancel={() => setShowDeleteModal(false)}
+        />
       )}
     </div>
   );
@@ -345,6 +351,7 @@ function PosterManager({ display, onPatch }: { display: Display; onPatch: (p: Pa
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState("");
+  const [slideToDelete, setSlideToDelete] = useState<string | null>(null);
 
   const slides = display.slides.slice().sort((a, b) => a.order - b.order);
 
@@ -387,18 +394,21 @@ function PosterManager({ display, onPatch }: { display: Display; onPatch: (p: Pa
     onPatch({ slides: slides.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s)) });
   }
 
-  function remove(id: string) {
-    onPatch({ slides: slides.filter((s) => s.id !== id).map((s, i) => ({ ...s, order: i })) });
+  function confirmRemove() {
+    if (!slideToDelete) return;
+    onPatch({ slides: slides.filter((s) => s.id !== slideToDelete).map((s, i) => ({ ...s, order: i })) });
+    setSlideToDelete(null);
   }
+
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-semibold text-gray-800">Posters</h4>
+        <h4 className="text-sm font-semibold text-gray-800">Media (Images & Videos)</h4>
         <label className="flex items-center gap-1.5 bg-white border border-gray-200 hover:border-orange-300 text-gray-700 text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer transition">
           {uploading ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
-          {uploading ? "Uploading…" : "Add images"}
-          <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFiles} disabled={uploading} />
+          {uploading ? "Uploading…" : "Add media"}
+          <input ref={fileRef} type="file" accept="image/*,video/mp4,video/webm" multiple className="hidden" onChange={handleFiles} disabled={uploading} />
         </label>
       </div>
 
@@ -409,16 +419,27 @@ function PosterManager({ display, onPatch }: { display: Display; onPatch: (p: Pa
       {slides.length === 0 ? (
         <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-200 hover:border-orange-300 rounded-xl py-10 cursor-pointer transition group bg-white">
           <ImageIcon size={22} className="text-gray-300 group-hover:text-orange-400 transition" />
-          <span className="text-xs text-gray-400 group-hover:text-orange-500 transition">Click to add poster images (up to 5 MB each)</span>
-          <input type="file" accept="image/*" multiple className="hidden" onChange={handleFiles} disabled={uploading} />
+          <span className="text-xs text-gray-400 group-hover:text-orange-500 transition">Click to add media (up to 25 MB each)</span>
+          <input type="file" accept="image/*,video/mp4,video/webm" multiple className="hidden" onChange={handleFiles} disabled={uploading} />
         </label>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {slides.map((s, i) => (
             <div key={s.id} className={`relative rounded-xl overflow-hidden border bg-gray-900 group ${s.enabled ? "border-gray-200" : "border-gray-200 opacity-50"}`}>
-              <div className="aspect-video flex items-center justify-center">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={s.imageUrl} alt="" className="max-h-full max-w-full object-contain" />
+              <div className="aspect-video flex items-center justify-center relative">
+
+                {/* CHANGED: Render Video OR Image based on extension */}
+                {isVideo(s.imageUrl) ? (
+                  <video
+                    src={s.imageUrl}
+                    className="max-h-full max-w-full object-contain"
+                    autoPlay muted loop playsInline
+                  />
+                ) : (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={s.imageUrl} alt="" className="max-h-full max-w-full object-contain" />
+                )}
+
               </div>
               {/* Order badge */}
               <span className="absolute top-1.5 left-1.5 text-[10px] font-bold text-white bg-black/60 rounded px-1.5 py-0.5">#{i + 1}</span>
@@ -432,7 +453,7 @@ function PosterManager({ display, onPatch }: { display: Display; onPatch: (p: Pa
                   <button onClick={() => toggle(s.id)} title={s.enabled ? "Hide" : "Show"} className="w-6 h-6 flex items-center justify-center rounded bg-white/15 text-white hover:bg-white/30 transition">
                     {s.enabled ? <Eye size={13} /> : <EyeOff size={13} />}
                   </button>
-                  <button onClick={() => remove(s.id)} title="Delete" className="w-6 h-6 flex items-center justify-center rounded bg-white/15 text-white hover:bg-red-500 transition"><Trash2 size={13} /></button>
+                  <button onClick={() => setSlideToDelete(s.id)} title="Delete" className="w-6 h-6 flex items-center justify-center rounded bg-white/15 text-white hover:bg-red-500 transition"><Trash2 size={13} /></button>
                 </div>
               </div>
             </div>
@@ -441,11 +462,21 @@ function PosterManager({ display, onPatch }: { display: Display; onPatch: (p: Pa
       )}
       <p className="text-[11px] text-gray-400">
         {slides.length > 1
-          ? "Multiple images play as a looping slideshow."
+          ? "Multiple items play as a looping slideshow. Images follow 'Seconds per image', while videos play for their full duration."
           : slides.length === 1
-            ? "A single image shows as a static fullscreen poster."
-            : "Add one image for a static poster, or several for a slideshow."}
+            ? "A single image/video shows as a static fullscreen poster or looping video."
+            : "Add one item for a static poster/looping video, or several for a slideshow."}
       </p>
+
+      {slideToDelete && (
+        <ConfirmModal
+          title="Delete Media"
+          message="Are you sure you want to remove this media? This will permanently delete the file from storage."
+          onConfirm={confirmRemove}
+          onCancel={() => setSlideToDelete(null)}
+        />
+      )}
+
     </div>
   );
 }
@@ -515,11 +546,10 @@ function SettingsSection({ display, onPatch }: { display: Display; onPatch: (p: 
           <label className="block text-xs font-medium text-gray-600 mb-1.5">Status</label>
           <button
             onClick={() => onPatch({ active: !display.active })}
-            className={`flex items-center gap-2 w-full px-3 py-2.5 rounded-xl border text-sm font-semibold transition ${
-              display.active
-                ? "bg-green-50 border-green-200 text-green-700 hover:bg-green-100"
-                : "bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100"
-            }`}
+            className={`flex items-center gap-2 w-full px-3 py-2.5 rounded-xl border text-sm font-semibold transition ${display.active
+              ? "bg-green-50 border-green-200 text-green-700 hover:bg-green-100"
+              : "bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100"
+              }`}
           >
             <Power size={15} /> {display.active ? "Live - visible on TVs" : "Off - screen blanked"}
           </button>
@@ -539,7 +569,7 @@ function SettingsSection({ display, onPatch }: { display: Display; onPatch: (p: 
             disabled={display.slides.filter((s) => s.enabled).length < 2}
             className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300 disabled:bg-gray-100 disabled:text-gray-400"
           />
-          <p className="text-[10px] text-gray-400 mt-1">Only applies to slideshows (2+ images).</p>
+          <p className="text-[10px] text-gray-400 mt-1">Only applies to images in slideshows. Videos play for their full duration.</p>
         </div>
 
         {/* Transition */}
@@ -628,6 +658,40 @@ function QrModal({ display, onClose }: { display: Display; onClose: () => void }
         </div>
         <p className="text-[11px] text-gray-400 mt-4 break-all font-mono">{url}</p>
         <p className="text-xs text-gray-500 mt-2">Scan with the TV browser or a phone to open the display.</p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Reusable Confirm Modal ───────────────────────────────────────────────────
+
+function ConfirmModal({
+  title,
+  message,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onCancel}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center" onClick={(e) => e.stopPropagation()}>
+        <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+          <Trash2 size={24} />
+        </div>
+        <h3 className="font-bold text-gray-900 text-lg mb-2">{title}</h3>
+        <p className="text-sm text-gray-500 mb-6">{message}</p>
+        <div className="flex gap-3">
+          <button onClick={onCancel} className="flex-1 px-4 py-2.5 text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition">
+            Cancel
+          </button>
+          <button onClick={onConfirm} className="flex-1 px-4 py-2.5 text-sm font-semibold text-white bg-red-500 hover:bg-red-600 rounded-xl transition">
+            Delete
+          </button>
+        </div>
       </div>
     </div>
   );
