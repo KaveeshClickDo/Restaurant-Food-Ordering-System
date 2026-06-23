@@ -11,7 +11,7 @@ import {
 import { useApp } from "@/context/AppContext";
 import { supabase } from "@/lib/supabase";
 import { isCapacitorAndroid } from "@/lib/capacitorBridge";
-import { enqueueSale } from "@/lib/posOutbox";
+import { enqueueSale, cancelQueuedSale, listEntries } from "@/lib/posOutbox";
 import { kvGet, kvSet } from "@/lib/posLocalDb";
 import bcrypt from "bcryptjs";
 
@@ -35,6 +35,10 @@ const CACHE_IMAGES = "menu_images";
 // clashes with the server's R sequence. (Single-terminal scheme; multi-terminal
 // per-terminal prefixes are a future option — see 09-decisions.md.)
 const CACHE_OFFLINE_SEQ = "offline_receipt_seq";
+// Last successful /api/pos/sales snapshot, so the Dashboard isn't empty after a
+// cold offline start. Merged with the outbox (unsynced sales) on the offline
+// fallback path — see fetchSales. Marked "may be incomplete" in the UI.
+const CACHE_SALES = "sales_snapshot";
 
 /**
  * Next offline receipt number, `OFF1000`, `OFF1001`, … Reads + bumps the
@@ -644,10 +648,36 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   const fetchSales = useCallback(async () => {
     try {
       const res = await fetch(apiBase() + "/api/pos/sales");
-      if (!res.ok) return;
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json() as { ok: boolean; sales?: POSSale[] };
-      if (json.ok && Array.isArray(json.sales)) setSales(json.sales);
-    } catch { /* offline — keep current state */ }
+      if (json.ok && Array.isArray(json.sales)) {
+        setSales(json.sales);
+        // Write-through: keep a snapshot so the Dashboard has a sales history
+        // after a cold offline start. No-op on web (kvSet → false).
+        void kvSet(CACHE_SALES, json.sales);
+      }
+    } catch {
+      // Offline (or 5xx). Rebuild from the last cached snapshot + any unsynced
+      // offline sales still in the outbox, so the Dashboard isn't empty and
+      // queued sales can be viewed/voided. Precedence (lowest→highest):
+      // cached snapshot < outbox < current state — so nothing already on screen
+      // (e.g. a just-rung sale or a local void) is lost. No-op on web.
+      const cached = (await kvGet<POSSale[]>(CACHE_SALES)) ?? [];
+      const queued = await listEntries();
+      const queuedSales = queued
+        .map((e) => e.payload as unknown as POSSale)
+        .filter((s) => s && s.id);
+      if (cached.length === 0 && queuedSales.length === 0) return; // keep state
+      setSales((prev) => {
+        const byId = new Map<string, POSSale>();
+        for (const s of cached)      byId.set(s.id, s);
+        for (const s of queuedSales) byId.set(s.id, s);
+        for (const s of prev)        byId.set(s.id, s);
+        return Array.from(byId.values()).sort(
+          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+        );
+      });
+    }
   }, []);
 
   // ── Clock entries — DB-backed (pos_clock_entries table) ─────────────────
@@ -1403,9 +1433,22 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     refundMethod?: "cash" | "card" | "none",
     refundAmount?: number,
   ): Promise<{ ok: boolean; error?: string }> => {
+    // v1 OFFLINE VOID (full cancel). If this sale is still queued in the outbox
+    // (rung this session, not yet synced), "voiding" it is a full undo: drop the
+    // outbox entry — the sale never reached the server, so there's nothing to
+    // refund or reverse (no DB row, no loyalty ledger move). Allowed even while
+    // the session is unverified (pendingRevalidation): undoing your OWN unsynced
+    // sale is benign. Returns false on web / already-synced sales → fall through
+    // to the normal server-side void below.
+    if (await cancelQueuedSale(saleId)) {
+      setSales((prev) => prev.filter((s) => s.id !== saleId));
+      return { ok: true };
+    }
+
     // Block destructive actions while the session is unverified (logged in
     // offline; awaiting the first online revalidation). The cached PIN could be
-    // stale, so we don't allow a void/refund until the server confirms identity.
+    // stale, so we don't allow a void/refund of a SYNCED sale until the server
+    // confirms identity.
     if (pendingRevalRef.current) {
       return { ok: false, error: "Reconnecting to verify your login — try again in a moment." };
     }
@@ -1429,8 +1472,11 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         return { ok: false, error: json.error };
       }
     } catch (err) {
-      console.error("voidSale network error:", err);
-      return { ok: false };
+      // Offline is expected here: an already-synced sale can only be voided by
+      // the server. (Unsynced current-session sales took the cancelQueuedSale
+      // path above.) Warn — not error — so the dev overlay doesn't trip.
+      console.warn("voidSale network error:", err);
+      return { ok: false, error: "Couldn't reach the server. Voiding an already-synced sale needs internet." };
     }
 
     // 2. Update local sales state

@@ -4,11 +4,12 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { apiBase } from "@/lib/apiBase";
 import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
+import { useConnectivity } from "@/lib/connectivity";
 import { POSSale } from "@/types/pos";
 import {
   AlertTriangle, BadgeDollarSign, Banknote, BarChart3, CreditCard, Download,
   Flame, Gift, Mail, Package, Percent, Printer, Receipt, RefreshCw,
-  RotateCcw, Search, Shuffle, Tag, Trash2, TrendingUp, Trophy, Users, Utensils, DollarSign,
+  RotateCcw, Search, Shuffle, Tag, Trash2, TrendingUp, Trophy, Users, Utensils, DollarSign, WifiOff,
 } from "lucide-react";
 import { fmt, fmtPct, fmtDate, fmtTime, relTime } from "./_utils";
 import { buildDineInReceiptHtml, dineInRefundState, type DineInOrder } from "./_receipts";
@@ -44,6 +45,7 @@ function tenderLabel(method: string | undefined, giftCardUsed = 0): string {
 export default function DashboardView() {
   const { sales, products, settings, currentStaff } = usePOS();
   const { settings: appSettings } = useApp();
+  const { isOnline } = useConnectivity();
   const sym = settings.currencySymbol;
 
   // Top-level tab
@@ -597,6 +599,20 @@ export default function DashboardView() {
   return (
     <div className="flex-1 overflow-y-auto p-6 pr-5">
       <div className="max-w-5xl mx-auto space-y-6">
+
+        {/* Offline notice — the dashboard is showing a cached + locally-queued
+            view; sales from other terminals / since the last sync aren't here. */}
+        {!isOnline && (
+          <div className="flex items-start gap-3 px-4 py-3 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300">
+            <WifiOff size={16} className="mt-0.5 shrink-0" />
+            <span className="text-xs leading-relaxed">
+              <strong>Offline — showing cached sales.</strong> This may be incomplete:
+              sales from other tills or since your last sync won&apos;t appear, and totals
+              may not match the server until you reconnect. Offline sales you rang on this
+              device can still be cancelled here.
+            </span>
+          </div>
+        )}
 
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="flex flex-wrap items-start justify-between gap-4">

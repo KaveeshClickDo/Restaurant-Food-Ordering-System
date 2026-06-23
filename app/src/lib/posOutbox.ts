@@ -32,6 +32,7 @@ import { apiBase } from "@/lib/apiBase";
 import {
   outboxAdd,
   outboxList,
+  outboxGet,
   outboxUpdate,
   outboxDelete,
   outboxCount,
@@ -88,6 +89,27 @@ export function onPendingChange(listener: (count: number) => void): () => void {
 export async function enqueueSale(payload: { id: string } & Record<string, unknown>): Promise<boolean> {
   if (!isCapacitorAndroid()) return false;
   const ok = await outboxAdd({ id: payload.id, payload });
+  if (ok) notifyPendingChange();
+  return ok;
+}
+
+/**
+ * Cancel a still-queued (unsynced) offline sale — the v1 "offline void".
+ *
+ * Because the sale never reached the server, cancelling it is a *full undo*:
+ * drop the outbox entry and there is nothing to refund or reverse (no DB row,
+ * no loyalty ledger move). This is the only void that works offline; voiding an
+ * already-synced sale needs the server and is blocked while offline.
+ *
+ * Returns true if an entry was found and removed (it WAS an unsynced sale),
+ * false otherwise (already synced, or web/no-SQLite). A false return tells the
+ * caller to fall through to the normal server-side void.
+ */
+export async function cancelQueuedSale(id: string): Promise<boolean> {
+  if (!isCapacitorAndroid()) return false;
+  const entry = await outboxGet(id);
+  if (!entry) return false;
+  const ok = await outboxDelete(id);
   if (ok) notifyPendingChange();
   return ok;
 }

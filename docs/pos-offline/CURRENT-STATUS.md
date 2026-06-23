@@ -15,13 +15,15 @@ and the operational steps (merge to main, deploy a backend).
 - Nav: Collection / Table Service / Reservations greyed + non-tappable offline (bounce to Sale).
 - Staff: read-only offline (Add disabled + banner). Settings General/Receipt: read-only (Save disabled + guarded). Customers: Add disabled + banner (view + assign still work).
 
-**Wave 2 — TODO (hard / has conflicts):**
-1. **Offline VOID** (Dashboard) — outbox must become an op-queue (insert+void) with ordering+conflicts. Start with voiding *current-session unsynced* sales only; block voiding already-synced sales offline.
-2. **Dashboard offline view** — cache the sales list + merge with outbox to show local sales offline (banner: "may be incomplete"). Moderate; low conflict.
-3. **Settings·Menu offline editing** — doable via existing menu-sync, but **last-write-wins can clobber web/admin menu edits**. Safe only if the tablet is the sole menu editor.
-4. **Settings·Hardware** — config offline+sync (moderate); the actual printing is **Phase 6** (device-local, needs a physical printer).
-5. **Loyalty** — earning auto-syncs on sale insert (no work). **Redemption offline = block** (stale-balance/double-spend risk).
-6. **Finer read-only polish** — visually disable the remaining edit/delete/toggle buttons in Staff/Customers detail panels (today they fail safely but aren't greyed).
+**Wave 2 — mostly DONE (only printing left):**
+1. ✅ **Offline VOID** (Dashboard) — DONE (2026-06-23, Option A = full cancel only). Voiding a *current-session unsynced* sale drops its outbox entry (`cancelQueuedSale`); no refund/loyalty reversal (the sale never reached the server). Voiding an *already-synced* sale is blocked offline with a "needs internet" message. The void modal collapses to a single "Cancel Sale (offline)" action when offline. Bypasses the `pendingRevalidation` gate (undoing your own unsynced sale is benign).
+2. ✅ **Dashboard offline view** — DONE (2026-06-23). `fetchSales` writes a `sales_snapshot` on every success; offline it rebuilds the list from snapshot + outbox (precedence cached < outbox < current state, so nothing on screen is lost). Amber "Offline — showing cached sales / may be incomplete" banner on the dashboard.
+3. ✅ **Settings·Menu offline editing** — DONE as **read-only** (2026-06-23, commit f548ccb). No offline menu editing (avoids last-write-wins clobbering web/admin edits); "menu editing needs internet" panel.
+4. ⬜ **Settings·Hardware + offline printing** — **NEXT.** Config offline+sync (moderate); the actual thermal printing is **Phase 6** (device-local, needs the physical POS printer). This is the core reason for the native app.
+5. ✅ **Loyalty** — DONE (no-op, 2026-06-23). Earning auto-syncs on sale insert; there is **no POS-side redemption UI**, so nothing to block. Full-cancel void needs no loyalty reversal.
+6. ✅ **Finer read-only polish** — DONE (2026-06-23, commit f548ccb). Staff Edit/Delete + toggle handlers and Customers Edit are disabled offline.
+
+_Known v1 limitations:_ offline-cancelling a queued sale at the exact instant a reconnect-drain is POSTing it is a narrow race (sale may land on the server yet show cancelled locally until the next login re-fetch); the dashboard doesn't re-`fetchSales` on reconnect (refreshes on next login) — both acceptable for single-terminal v1.
 
 Bigger separate phases: Phase 2 per-terminal receipts (optional), Phase 3 stock/oversell, Phase 6 printer hardware, merge→main, deploy backend.
 
