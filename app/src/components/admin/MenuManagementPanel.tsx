@@ -1258,7 +1258,7 @@ function ItemModal({
   }
 
   return (
-    <ModalShell title={isNew ? "Add menu item" : "Edit menu item"} onClose={onClose} wide>
+    <ModalShell title={isNew ? "Add menu item" : "Edit menu item"} onClose={handleCancel} wide closeOnOutsideClick={false}>
       {/* Tabs */}
       <div className="flex flex-wrap gap-1 mb-5 bg-gray-100 rounded-xl p-1">
         {(["basic", "channels", "variations", "addons", "offer", "stock"] as const).map((t) => (
@@ -2489,13 +2489,13 @@ function OfferEditor({
 // ─── Modal Shell ─────────────────────────────────────────────────────────────
 
 function ModalShell({
-  title, onClose, children, wide = false,
+  title, onClose, children, wide = false, closeOnOutsideClick = true,
 }: {
-  title: string; onClose: () => void; children: React.ReactNode; wide?: boolean;
+  title: string; onClose: () => void; children: React.ReactNode; wide?: boolean; closeOnOutsideClick?: boolean;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={closeOnOutsideClick ? onClose : undefined} />
       <div className={`relative bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full flex flex-col max-h-[90vh] overflow-hidden ${wide ? "sm:max-w-2xl" : "sm:max-w-md"}`}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
           <h3 className="font-bold text-gray-900">{title}</h3>
