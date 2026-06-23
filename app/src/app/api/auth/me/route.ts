@@ -120,7 +120,8 @@ export async function GET() {
     // customers.
     const total  = Number(s.total) || 0;
     const refund = Number(s.refund_amount) || 0;
-    if (s.voided && refund <= 0) return sum; // reversed, no money kept
+    // A voided-but-not-refunded sale kept the money, so it still counts (mirrors
+    // an online cancel+no-refund); a full refund nets to £0.
     return sum + Math.max(0, total - refund);
   }, 0);
 

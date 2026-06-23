@@ -210,6 +210,17 @@ export interface RestaurantInfo {
   minOrder: number;       // £
   deliveryFee: number;    // £
   serviceFee: number;     // %
+  /** 
+   * Whether the restaurant accepts delivery orders. 
+   * If undefined or true, delivery is enabled. 
+   */
+  deliveryEnabled?: boolean;
+
+  /** 
+   * Whether the restaurant accepts collection orders. 
+   * If undefined or true, collection is enabled. 
+   */
+  collectionEnabled?: boolean;
   // Structured address (used for display, distance calculations, and admin editing)
   addressLine1: string;
   addressLine2?: string;

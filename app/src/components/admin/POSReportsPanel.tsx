@@ -427,7 +427,7 @@ export default function POSReportsPanel() {
           <p className="text-gray-500 text-sm mt-0.5">
             {moneyBearing.length} transactions · {fmtCur(revenue + vipFeesTotal, sym)} revenue
             {vipFeesInRange.length > 0 && <span className="ml-1 text-amber-500">(incl. {fmtCur(vipFeesTotal, sym)} VIP fees)</span>}
-            {voidedCount > 0 && <span className="ml-2 text-red-400">({voidedCount} voided{voidKeptRevenue > 0 ? `, ${fmtCur(voidKeptRevenue, sym)} kept` : ""})</span>}
+            {voidedCount > 0 && <span className="ml-2 text-red-400">({voidedCount} voided)</span>}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -493,9 +493,6 @@ export default function POSReportsPanel() {
             <KpiCard label="Discounts Given" value={fmtCur(discountTotal, sym)} sub="reductions applied" icon={Tag} color="text-red-600" bg="bg-red-50" />
             <KpiCard label="Service Fees" value={fmtCur(serviceFeesTotal, sym)} sub={`${filtered.length} sales`} icon={CreditCard} color="text-indigo-600" bg="bg-indigo-50" />
             <KpiCard label="Refunded" value={fmtCur(refundedTotal, sym)} sub={`${refundedCount} txn${refundedCount === 1 ? "" : "s"}`} icon={RotateCcw} color="text-teal-600" bg="bg-teal-50" />
-            {voidKeptRevenue > 0 && (
-              <KpiCard label="Kept from Voids" value={fmtCur(voidKeptRevenue, sym)} sub="income retained on voided sales" icon={AlertTriangle} color="text-amber-600" bg="bg-amber-50" />
-            )}
             {giftCardRedeemed > 0 && (
               <KpiCard label="Gift Card Redeemed" value={fmtCur(giftCardRedeemed, sym)} sub="settled · not revenue" icon={Gift} color="text-fuchsia-600" bg="bg-fuchsia-50" />
             )}
@@ -608,12 +605,15 @@ export default function POSReportsPanel() {
                     <CreditCard size={16} className="text-blue-500" /> Payment Methods
                   </h3>
                   <div className="space-y-3">
-                    {([["cash", "Cash", "bg-green-500", "text-green-700", Banknote],
+                    {([["gift_card", "Gift Card", "bg-fuchsia-600", "text-fuchsia-700", Gift],
+                    ["cash", "Cash", "bg-green-500", "text-green-700", Banknote],
                     ["card", "Card", "bg-blue-500", "text-blue-700", CreditCard],
                     ["split", "Split", "bg-purple-500", "text-purple-700", Shuffle]] as [string, string, string, string, React.ComponentType<{ size?: number; className?: string }>][]).map(([key, label, bar, txt, Icon]) => {
                       const count = payMix[key as keyof typeof payMix] ?? 0;
                       const pct = (count / payTotal) * 100;
-                      const rev = moneyBearing.filter((s) => s.paymentMethod === key).reduce((s, x) => s + saleNet(x), 0);
+                      const rev = moneyBearing
+                        .filter((s) => s.paymentMethod === key)
+                        .reduce((s, x) => s + (key === "gift_card" ? (x.giftCardUsed ?? x.total) : saleNet(x)), 0);
                       return (
                         <div key={key}>
                           <div className="flex items-center justify-between mb-1">
@@ -673,6 +673,7 @@ export default function POSReportsPanel() {
                       ["VAT Collected", fmtCur(taxCollected, sym), "text-amber-600"],
                       ["Tips", fmtCur(tipsTotal, sym), "text-pink-600"],
                       ["Service Fees", fmtCur(serviceFeesTotal, sym), "text-indigo-600"],
+                      ["Gift Card Redeemed", `–${fmtCur(giftCardRedeemed, sym)}`, "text-fuchsia-600"],
                       ["Sales Revenue", fmtCur(revenue, sym), "text-gray-900"],
                       ...(voidKeptRevenue > 0
                         ? [["— incl. kept from voided sales", fmtCur(voidKeptRevenue, sym), "text-amber-600"] as [string, string, string]]
@@ -823,8 +824,8 @@ export default function POSReportsPanel() {
                         <td className="px-5 py-3 text-gray-500 text-xs whitespace-nowrap">{sale.items.length} item{sale.items.length !== 1 ? "s" : ""}</td>
                         <td className="px-5 py-3">
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${sale.paymentMethod === "cash" ? "bg-green-100 text-green-700" :
-                              sale.paymentMethod === "card" ? "bg-blue-100 text-blue-700" :
-                                "bg-purple-100 text-purple-700"
+                            sale.paymentMethod === "card" ? "bg-blue-100 text-blue-700" :
+                              "bg-purple-100 text-purple-700"
                             }`}>{sale.paymentMethod}</span>
                           {(sale.giftCardUsed ?? 0) > 0 && (
                             <span className="ml-1 text-xs px-2 py-0.5 rounded-full font-medium bg-fuchsia-100 text-fuchsia-700 inline-flex items-center gap-0.5">
@@ -899,7 +900,15 @@ export default function POSReportsPanel() {
             paymentMethod: viewingReceipt.paymentMethod,
             paymentStatus: viewingReceipt.voided ? "refunded" : "paid",
             total: viewingReceipt.total,
-            items: viewingReceipt.items || [],
+            items: (viewingReceipt.items || []).map((item) => ({
+              qty: item.quantity,
+              name: item.name,
+              price: item.price,
+              selectedAddOns: (item.modifiers || []).map((m) => ({
+                name: m.optionLabel
+              })),
+              selectedVariations: [],
+            })),
             serviceFee: viewingReceipt.serviceFeeAmount || 0,
             discountAmount: viewingReceipt.discountAmount || 0,
             discountNote: viewingReceipt.discountNote || undefined,

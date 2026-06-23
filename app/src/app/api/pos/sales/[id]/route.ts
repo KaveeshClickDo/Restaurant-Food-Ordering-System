@@ -143,6 +143,11 @@ export async function PATCH(
     const isFullRefund = refundAmount >= moneyPaid - 0.001;
     orderPatch.refunded_amount = refundAmount;
     orderPatch.payment_status  = isFullRefund ? "refunded" : "partially_refunded";
+  } else {
+    // Void with NO refund — the till kept the money, so the cancelled mirror is
+    // still money-bearing (mirrors an online cancel+no-refund). Mark it paid so
+    // the admin Finance Reports count it as revenue.
+    orderPatch.payment_status = "paid";
   }
   await supabaseAdmin
     .from("orders")

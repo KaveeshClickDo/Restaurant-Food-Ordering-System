@@ -211,7 +211,8 @@ export default function TaxSettingsPanel() {
                     min="0.1"
                     max="100"
                     step="0.1"
-                    value={draft.rate}
+                    // value={draft.rate}
+                    value={isNaN(draft.rate) || draft.rate === undefined ? "" : draft.rate}
                     placeholder="e.g. 20 for 20%"
                     onChange={(e) => patch({ rate: parseFloat(e.target.value) })}
                     className={`w-full px-4 pr-10 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition ${rateError ? "border-red-400 bg-red-50" : "border-gray-200"

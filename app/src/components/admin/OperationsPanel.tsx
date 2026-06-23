@@ -6,7 +6,7 @@ import { useApp } from "@/context/AppContext";
 import { RestaurantInfo } from "@/types";
 import { restaurantInfo as seedInfo } from "@/data/restaurant";
 import { CURRENCY_PRESETS, DEFAULT_CURRENCY } from "@/lib/currency";
-import { Store, Clock, Coins, MapPin, CheckCircle2, AlertCircle, Palette, Upload, X, Image as ImageIcon, Search, Code2, Info, Navigation, Star, Eye, EyeOff } from "lucide-react";
+import { Store, Clock, Coins, MapPin, CheckCircle2, AlertCircle, Palette, Upload, X, Image as ImageIcon, Search, Code2, Info, Navigation, Star, Eye, EyeOff, Bike, ShoppingBag } from "lucide-react";
 
 const LocationMap = dynamic(() => import("@/components/maps/LocationMap"), {
   ssr: false,
@@ -23,15 +23,15 @@ function validatePostcode(code: string, country: string): boolean {
   if (!c) return false;
   const re: Record<string, RegExp> = {
     "United Kingdom": /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i,
-    "United States":  /^\d{5}(-\d{4})?$/,
-    "Canada":         /^[A-Z]\d[A-Z]\s?\d[A-Z]\d$/i,
-    "Australia":      /^\d{4}$/,
-    "Ireland":        /^(?:[A-Z]{1,2}\d{1,2}\s?[A-Z]{1,2}\d|D\d{1,2})$/i,
-    "Germany":        /^\d{5}$/,
-    "France":         /^\d{5}$/,
-    "Netherlands":    /^\d{4}\s?[A-Z]{2}$/i,
-    "India":          /^\d{6}$/,
-    "Sri Lanka":      /^\d{5}$/,
+    "United States": /^\d{5}(-\d{4})?$/,
+    "Canada": /^[A-Z]\d[A-Z]\s?\d[A-Z]\d$/i,
+    "Australia": /^\d{4}$/,
+    "Ireland": /^(?:[A-Z]{1,2}\d{1,2}\s?[A-Z]{1,2}\d|D\d{1,2})$/i,
+    "Germany": /^\d{5}$/,
+    "France": /^\d{5}$/,
+    "Netherlands": /^\d{4}\s?[A-Z]{2}$/i,
+    "India": /^\d{6}$/,
+    "Sri Lanka": /^\d{5}$/,
   };
   const r = re[country];
   if (r) return r.test(c);
@@ -45,6 +45,10 @@ export default function OperationsPanel() {
   const sym = settings.currency?.symbol || DEFAULT_CURRENCY.symbol;
 
   function update(patch: Partial<RestaurantInfo>) {
+    // Logic to prevent both being false
+    if (patch.deliveryEnabled === false && restaurant.collectionEnabled === false) return;
+    if (patch.collectionEnabled === false && restaurant.deliveryEnabled === false) return;
+
     updateSettings({ restaurant: { ...restaurant, ...patch } });
   }
 
@@ -101,9 +105,57 @@ export default function OperationsPanel() {
             onChange={(v) => update({ collectionTime: Number(v) })}
             type="number" step="5" min="5"
           />
+
+          <div className="pt-0 border-t border-gray-50">
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+              Available Order Types
+            </label>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => {
+                  // Validation: Cannot disable both
+                  if (restaurant.collectionEnabled === false && restaurant.deliveryEnabled !== false) return;
+                  update({ deliveryEnabled: !restaurant.deliveryEnabled });
+                }}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-1 rounded-xl border transition-all ${restaurant.deliveryEnabled !== false
+                  ? "border-orange-400 bg-orange-50 text-orange-700"
+                  : "border-gray-100 bg-white text-gray-400 opacity-60"
+                  }`}
+              >
+                <Bike size={17} />
+                <div className="text-left">
+                  <p className="text-[13px] font-semibold leading-tight">Delivery</p>
+                  <p className="text-[9px] opacity-70">Courier to door</p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => {
+                  // Validation: Cannot disable both
+                  if (restaurant.deliveryEnabled === false && restaurant.collectionEnabled !== false) return;
+                  update({ collectionEnabled: !restaurant.collectionEnabled });
+                }}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-1 rounded-xl border transition-all ${restaurant.collectionEnabled !== false
+                  ? "border-orange-400 bg-orange-50 text-orange-700"
+                  : "border-gray-100 bg-white text-gray-400 opacity-60"
+                  }`}
+              >
+                <ShoppingBag size={17} />
+                <div className="text-left">
+                  <p className="text-[13px] font-semibold leading-tight">Collection</p>
+                  <p className="text-[9px] opacity-70">Customer pick-up</p>
+                </div>
+              </button>
+            </div>
+            {(restaurant.deliveryEnabled === false || restaurant.collectionEnabled === false) && (
+              <p className="text-[11px] text-orange-500 mt-2 font-medium">
+                Note: At least one order type must remain active.
+              </p>
+            )}
+          </div>
         </div>
       </div>
-      
+
       {/* ── Currency ────────────────────────────────────────────────────── */}
       <CurrencyCard />
 
@@ -117,7 +169,7 @@ export default function OperationsPanel() {
       {/* ── Restaurant Location ──────────────────────────────────────────── */}
       <LocationCard />
 
-       {/* ── SEO ─────────────────────────────────────────────────────────── */}
+      {/* ── SEO ─────────────────────────────────────────────────────────── */}
       <SeoCard />
 
       {/* ── Custom Head Code ────────────────────────────────────────────── */}
@@ -140,7 +192,7 @@ function HygieneRatingCard({
   restaurant: RestaurantInfo;
   update: (patch: Partial<RestaurantInfo>) => void;
 }) {
-  const rating  = Number(restaurant.hygieneRating ?? 0);
+  const rating = Number(restaurant.hygieneRating ?? 0);
   const visible = restaurant.hygieneRatingVisible !== false;
 
   return (
@@ -168,11 +220,10 @@ function HygieneRatingCard({
                     key={n}
                     type="button"
                     onClick={() => update({ hygieneRating: n })}
-                    className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl border flex items-center justify-center transition ${
-                      active
-                        ? "bg-green-50 border-green-300 text-green-700"
-                        : "bg-gray-50 border-gray-200 text-gray-400 hover:border-gray-300"
-                    }`}
+                    className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl border flex items-center justify-center transition ${active
+                      ? "bg-green-50 border-green-300 text-green-700"
+                      : "bg-gray-50 border-gray-200 text-gray-400 hover:border-gray-300"
+                      }`}
                     aria-label={`Set hygiene rating to ${n}`}
                   >
                     <span className="text-sm font-semibold">{n}</span>
@@ -211,14 +262,12 @@ function HygieneRatingCard({
             role="switch"
             aria-checked={visible}
             onClick={() => update({ hygieneRatingVisible: !visible })}
-            className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full transition ${
-              visible ? "bg-green-500" : "bg-gray-300"
-            }`}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full transition ${visible ? "bg-green-500" : "bg-gray-300"
+              }`}
           >
             <span
-              className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
-                visible ? "translate-x-5" : "translate-x-0.5"
-              } mt-0.5`}
+              className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${visible ? "translate-x-5" : "translate-x-0.5"
+                } mt-0.5`}
             />
           </button>
         </div>
@@ -247,7 +296,7 @@ function CurrencyCard() {
     setSymbol(current.symbol);
     const preset = CURRENCY_PRESETS.find((p) => p.code === current.code && p.symbol === current.symbol);
     setMode(preset ? "preset" : "custom");
-     
+
   }, [current.code, current.symbol]);
 
   function handleSelectPreset(presetCode: string) {
@@ -297,18 +346,16 @@ function CurrencyCard() {
           <button
             type="button"
             onClick={() => setMode("preset")}
-            className={`px-3 py-2 text-xs font-semibold rounded-lg border transition ${
-              mode === "preset" ? "bg-emerald-50 border-emerald-300 text-emerald-700" : "bg-white border-gray-200 text-gray-500 hover:border-gray-300"
-            }`}
+            className={`px-3 py-2 text-xs font-semibold rounded-lg border transition ${mode === "preset" ? "bg-emerald-50 border-emerald-300 text-emerald-700" : "bg-white border-gray-200 text-gray-500 hover:border-gray-300"
+              }`}
           >
             Preset
           </button>
           <button
             type="button"
             onClick={() => setMode("custom")}
-            className={`px-3 py-2 text-xs font-semibold rounded-lg border transition ${
-              mode === "custom" ? "bg-emerald-50 border-emerald-300 text-emerald-700" : "bg-white border-gray-200 text-gray-500 hover:border-gray-300"
-            }`}
+            className={`px-3 py-2 text-xs font-semibold rounded-lg border transition ${mode === "custom" ? "bg-emerald-50 border-emerald-300 text-emerald-700" : "bg-white border-gray-200 text-gray-500 hover:border-gray-300"
+              }`}
           >
             Custom symbol
           </button>
@@ -378,20 +425,20 @@ function CurrencyCard() {
 
 // ─── Branding card ───────────────────────────────────────────────────────────
 
-const LOGO_MAX_MB   = 2;
+const LOGO_MAX_MB = 2;
 const BANNER_MAX_MB = 5;
 
 function BrandingCard() {
   const { settings, updateSettings } = useApp();
   const { restaurant } = settings;
 
-  const [name,    setName]    = useState(restaurant.name);
+  const [name, setName] = useState(restaurant.name);
   const [tagline, setTagline] = useState(restaurant.tagline);
-  const [logo,    setLogo]    = useState(restaurant.logoImage);
-  const [banner,  setBanner]  = useState(restaurant.coverImage);
+  const [logo, setLogo] = useState(restaurant.logoImage);
+  const [banner, setBanner] = useState(restaurant.coverImage);
   const [nameErr, setNameErr] = useState("");
-  const [imgErr,  setImgErr]  = useState("");
-  const [saved,   setSaved]   = useState(false);
+  const [imgErr, setImgErr] = useState("");
+  const [saved, setSaved] = useState(false);
 
   // Sync local form state when settings load from Supabase (async after mount).
   // Uses a ref to avoid overwriting in-progress edits once the user starts typing.
@@ -404,7 +451,7 @@ function BrandingCard() {
     setBanner(restaurant.coverImage);
   }, [restaurant.name, restaurant.tagline, restaurant.logoImage, restaurant.coverImage]);
 
-  const logoRef   = useRef<HTMLInputElement>(null);
+  const logoRef = useRef<HTMLInputElement>(null);
   const bannerRef = useRef<HTMLInputElement>(null);
 
   function readImage(file: File, maxMb: number, onDone: (dataUrl: string) => void) {
@@ -436,13 +483,13 @@ function BrandingCard() {
     if (oldName && newName !== oldName) {
       const replace = (s: string) => s.split(oldName).join(newName);
       patch.seo = {
-        metaTitle:       replace(settings.seo.metaTitle),
+        metaTitle: replace(settings.seo.metaTitle),
         metaDescription: replace(settings.seo.metaDescription),
-        metaKeywords:    replace(settings.seo.metaKeywords),
-        ogImage:         settings.seo.ogImage        ?? "",
-        siteUrl:         settings.seo.siteUrl        ?? "",
-        faviconUrl:      settings.seo.faviconUrl     ?? "",
-        faviconVersion:  settings.seo.faviconVersion ?? "",
+        metaKeywords: replace(settings.seo.metaKeywords),
+        ogImage: settings.seo.ogImage ?? "",
+        siteUrl: settings.seo.siteUrl ?? "",
+        faviconUrl: settings.seo.faviconUrl ?? "",
+        faviconVersion: settings.seo.faviconVersion ?? "",
       };
       if (settings.footerCopyright.includes(oldName)) {
         patch.footerCopyright = replace(settings.footerCopyright);
@@ -484,9 +531,8 @@ function BrandingCard() {
               value={name}
               onChange={(e) => { dirtyRef.current = true; setName(e.target.value); setNameErr(""); setSaved(false); }}
               placeholder="Your Restaurant Name"
-              className={`w-full px-3 py-2.5 border rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 transition ${
-                nameErr ? "border-red-300 focus:ring-red-300" : "border-gray-200 focus:ring-orange-400"
-              }`}
+              className={`w-full px-3 py-2.5 border rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 transition ${nameErr ? "border-red-300 focus:ring-red-300" : "border-gray-200 focus:ring-orange-400"
+                }`}
             />
             {nameErr && (
               <p className="mt-1 text-xs text-red-500 flex items-center gap-1">
@@ -668,27 +714,27 @@ function BrandingCard() {
 // ─── SEO card ─────────────────────────────────────────────────────────────────
 
 const TITLE_MAX = 60;
-const DESC_MAX  = 160;
+const DESC_MAX = 160;
 
 function charColor(len: number, soft: number, hard: number) {
-  if (len > hard)        return "text-red-500";
-  if (len > soft)        return "text-yellow-500";
+  if (len > hard) return "text-red-500";
+  if (len > soft) return "text-yellow-500";
   return "text-gray-400";
 }
 
 function SeoCard() {
   const { settings, updateSettings } = useApp();
 
-  const [title,      setTitle]      = useState(settings.seo.metaTitle);
-  const [desc,       setDesc]       = useState(settings.seo.metaDescription);
-  const [keywords,   setKeywords]   = useState(settings.seo.metaKeywords);
-  const [ogImage,    setOgImage]    = useState(settings.seo.ogImage      ?? "");
-  const [siteUrl,    setSiteUrl]    = useState(settings.seo.siteUrl      ?? "");
-  const [faviconUrl,     setFaviconUrl]     = useState(settings.seo.faviconUrl     ?? "");
+  const [title, setTitle] = useState(settings.seo.metaTitle);
+  const [desc, setDesc] = useState(settings.seo.metaDescription);
+  const [keywords, setKeywords] = useState(settings.seo.metaKeywords);
+  const [ogImage, setOgImage] = useState(settings.seo.ogImage ?? "");
+  const [siteUrl, setSiteUrl] = useState(settings.seo.siteUrl ?? "");
+  const [faviconUrl, setFaviconUrl] = useState(settings.seo.faviconUrl ?? "");
   const [faviconVersion, setFaviconVersion] = useState(settings.seo.faviconVersion ?? "");
-  const [saved,      setSaved]      = useState(false);
-  const [errors,     setErrors]     = useState<{ title?: string; desc?: string }>({});
-  const [favErr,     setFavErr]     = useState("");
+  const [saved, setSaved] = useState(false);
+  const [errors, setErrors] = useState<{ title?: string; desc?: string }>({});
+  const [favErr, setFavErr] = useState("");
   const faviconRef = useRef<HTMLInputElement>(null);
 
   function computeFaviconVersion(url: string): string {
@@ -712,8 +758,8 @@ function SeoCard() {
 
   function validate() {
     const e: typeof errors = {};
-    if (!title.trim())        e.title = "Meta title is required.";
-    if (!desc.trim())         e.desc  = "Meta description is required.";
+    if (!title.trim()) e.title = "Meta title is required.";
+    if (!desc.trim()) e.desc = "Meta description is required.";
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -730,24 +776,26 @@ function SeoCard() {
     } else if (trimmedFavicon !== currentSavedUrl && !nextVersion) {
       nextVersion = computeFaviconVersion(trimmedFavicon);
     }
-    updateSettings({ seo: {
-      metaTitle:       title.trim(),
-      metaDescription: desc.trim(),
-      metaKeywords:    keywords.trim(),
-      ogImage:         ogImage.trim(),
-      siteUrl:         siteUrl.trim(),
-      faviconUrl:      trimmedFavicon,
-      faviconVersion:  nextVersion,
-    }});
+    updateSettings({
+      seo: {
+        metaTitle: title.trim(),
+        metaDescription: desc.trim(),
+        metaKeywords: keywords.trim(),
+        ogImage: ogImage.trim(),
+        siteUrl: siteUrl.trim(),
+        faviconUrl: trimmedFavicon,
+        faviconVersion: nextVersion,
+      }
+    });
     setFaviconVersion(nextVersion);
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   }
 
   // Preview domain — derive from siteUrl if set
-  const previewUrl  = siteUrl.trim().replace(/^https?:\/\//, "") || "yourrestaurant.com";
+  const previewUrl = siteUrl.trim().replace(/^https?:\/\//, "") || "yourrestaurant.com";
   const previewTitle = title.trim() || "Page title";
-  const previewDesc  = desc.trim()  || "Page description";
+  const previewDesc = desc.trim() || "Page description";
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -787,9 +835,8 @@ function SeoCard() {
             maxLength={TITLE_MAX + 20}
             onChange={(e) => { setTitle(e.target.value); setSaved(false); setErrors((p) => ({ ...p, title: undefined })); }}
             placeholder="Your Restaurant — Order Online"
-            className={`w-full px-3 py-2.5 border rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 transition ${
-              errors.title ? "border-red-300 focus:ring-red-300" : "border-gray-200 focus:ring-orange-400"
-            }`}
+            className={`w-full px-3 py-2.5 border rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 transition ${errors.title ? "border-red-300 focus:ring-red-300" : "border-gray-200 focus:ring-orange-400"
+              }`}
           />
           {errors.title ? (
             <p className="mt-1 text-xs text-red-500 flex items-center gap-1"><AlertCircle size={11} />{errors.title}</p>
@@ -814,9 +861,8 @@ function SeoCard() {
             rows={3}
             onChange={(e) => { setDesc(e.target.value); setSaved(false); setErrors((p) => ({ ...p, desc: undefined })); }}
             placeholder="Order online from Your Restaurant. Fast delivery and easy collection."
-            className={`w-full px-3 py-2.5 border rounded-xl text-sm text-gray-800 resize-none focus:outline-none focus:ring-2 transition ${
-              errors.desc ? "border-red-300 focus:ring-red-300" : "border-gray-200 focus:ring-orange-400"
-            }`}
+            className={`w-full px-3 py-2.5 border rounded-xl text-sm text-gray-800 resize-none focus:outline-none focus:ring-2 transition ${errors.desc ? "border-red-300 focus:ring-red-300" : "border-gray-200 focus:ring-orange-400"
+              }`}
           />
           {errors.desc ? (
             <p className="mt-1 text-xs text-red-500 flex items-center gap-1"><AlertCircle size={11} />{errors.desc}</p>
@@ -959,13 +1005,13 @@ const EXAMPLES = [
 function CustomHeadCard() {
   const { settings, updateSettings } = useApp();
 
-  const [code,    setCode]    = useState(settings.customHeadCode);
-  const [saved,   setSaved]   = useState(false);
+  const [code, setCode] = useState(settings.customHeadCode);
+  const [saved, setSaved] = useState(false);
   const [warning, setWarning] = useState("");
 
   function handleSave() {
     // Basic sanity: warn if unclosed tags are detected (simple heuristic)
-    const opens  = (code.match(/<[a-zA-Z]/g) ?? []).length;
+    const opens = (code.match(/<[a-zA-Z]/g) ?? []).length;
     const closes = (code.match(/<\/[a-zA-Z]|\/>/g) ?? []).length;
     if (opens > 0 && opens !== closes) {
       setWarning("Code may contain unclosed tags — double-check before saving.");
@@ -1086,10 +1132,10 @@ function LocationCard() {
   const [draft, setDraft] = useState({
     addressLine1: restaurant.addressLine1 ?? "",
     addressLine2: restaurant.addressLine2 ?? "",
-    city:         restaurant.city         ?? "",
-    postcode:     restaurant.postcode      ?? "",
-    country:      restaurant.country       ?? "United Kingdom",
-    phone:        restaurant.phone         ?? "",
+    city: restaurant.city ?? "",
+    postcode: restaurant.postcode ?? "",
+    country: restaurant.country ?? "United Kingdom",
+    phone: restaurant.phone ?? "",
   });
   const [saved, setSaved] = useState(false);
   const [errors, setErrors] = useState<Partial<typeof draft>>({});
@@ -1101,20 +1147,20 @@ function LocationCard() {
     setDraft({
       addressLine1: restaurant.addressLine1 ?? "",
       addressLine2: restaurant.addressLine2 ?? "",
-      city:         restaurant.city         ?? "",
-      postcode:     restaurant.postcode      ?? "",
-      country:      restaurant.country       ?? "United Kingdom",
-      phone:        restaurant.phone         ?? "",
+      city: restaurant.city ?? "",
+      postcode: restaurant.postcode ?? "",
+      country: restaurant.country ?? "United Kingdom",
+      phone: restaurant.phone ?? "",
     });
   }, [restaurant.addressLine1, restaurant.addressLine2, restaurant.city, restaurant.postcode, restaurant.country, restaurant.phone]);
 
   function validate(): boolean {
     const e: Partial<typeof draft> = {};
     if (!draft.addressLine1.trim()) e.addressLine1 = "Address is required";
-    if (!draft.city.trim())        e.city         = "City is required";
-    if (!draft.postcode.trim())    e.postcode     = "Postcode is required";
+    if (!draft.city.trim()) e.city = "City is required";
+    if (!draft.postcode.trim()) e.postcode = "Postcode is required";
     else if (!validatePostcode(draft.postcode.trim(), draft.country.trim())) e.postcode = `Enter a valid ${draft.country.trim() || "country"} postcode/ZIP`;
-    if (!draft.country.trim())     e.country      = "Country is required";
+    if (!draft.country.trim()) e.country = "Country is required";
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -1126,10 +1172,10 @@ function LocationCard() {
         ...restaurant,
         addressLine1: draft.addressLine1.trim(),
         addressLine2: draft.addressLine2.trim(),
-        city:         draft.city.trim(),
-        postcode:     draft.postcode.trim().toUpperCase(),
-        country:      draft.country.trim(),
-        phone:        draft.phone.trim(),
+        city: draft.city.trim(),
+        postcode: draft.postcode.trim().toUpperCase(),
+        country: draft.country.trim(),
+        phone: draft.phone.trim(),
       },
     });
     setSaved(true);
@@ -1216,11 +1262,10 @@ function LocationCard() {
             <input
               type="text"
               placeholder="E1 6RF"
-              className={`w-full px-3 py-2.5 border rounded-xl text-sm text-gray-800 uppercase placeholder:normal-case focus:outline-none focus:ring-2 transition ${
-                errors.postcode
-                  ? "border-red-300 focus:ring-red-300"
-                  : "border-gray-200 focus:ring-orange-400"
-              }`}
+              className={`w-full px-3 py-2.5 border rounded-xl text-sm text-gray-800 uppercase placeholder:normal-case focus:outline-none focus:ring-2 transition ${errors.postcode
+                ? "border-red-300 focus:ring-red-300"
+                : "border-gray-200 focus:ring-orange-400"
+                }`}
               {...field("postcode")}
               onChange={(e) => {
                 field("postcode").onChange(e);
@@ -1239,11 +1284,10 @@ function LocationCard() {
               Country <span className="text-red-400">*</span>
             </label>
             <select
-              className={`w-full px-3 py-2.5 border rounded-xl text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 transition ${
-                errors.country
-                  ? "border-red-300 focus:ring-red-300"
-                  : "border-gray-200 focus:ring-orange-400"
-              }`}
+              className={`w-full px-3 py-2.5 border rounded-xl text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 transition ${errors.country
+                ? "border-red-300 focus:ring-red-300"
+                : "border-gray-200 focus:ring-orange-400"
+                }`}
               {...field("country")}
             >
               <option value="United Kingdom">United Kingdom</option>
@@ -1362,11 +1406,10 @@ function LocationField({ label, placeholder, required, error, value, onChange }:
         placeholder={placeholder}
         value={value}
         onChange={onChange}
-        className={`w-full px-3 py-2.5 border rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 transition ${
-          error
-            ? "border-red-300 focus:ring-red-300"
-            : "border-gray-200 focus:ring-orange-400"
-        }`}
+        className={`w-full px-3 py-2.5 border rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 transition ${error
+          ? "border-red-300 focus:ring-red-300"
+          : "border-gray-200 focus:ring-orange-400"
+          }`}
       />
       {error && (
         <p className="mt-1 text-xs text-red-500 flex items-center gap-1">

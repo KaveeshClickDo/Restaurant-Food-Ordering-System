@@ -70,6 +70,12 @@ function mapPosSale(s: any) {
     voided:        s.voided ?? false,
     voidReason:    s.void_reason || undefined,
     refundAmount:  s.refund_amount != null ? Number(s.refund_amount) : undefined,
+    giftCardUsed:  s.gift_card_used ? Number(s.gift_card_used) : undefined,
+    tipAmount:     s.tip_amount ? Number(s.tip_amount) : undefined,
+    vatAmount:     s.tax_amount      ? Number(s.tax_amount)      : undefined,
+    vatInclusive:  s.tax_inclusive   ?? undefined,
+    serviceFee:    s.service_fee_amount     ? Number(s.service_fee_amount)     : undefined,
+    discountAmount: s.discount_amount        ? Number(s.discount_amount)        : undefined,
   };
 }
 
@@ -174,7 +180,7 @@ export async function GET() {
       .order("date", { ascending: false }),
     supabaseAdmin
       .from("pos_sales")
-      .select("id, receipt_no, customer_id, staff_name, table_number, items, total, payment_method, voided, void_reason, refund_amount, gift_card_used, date")
+      .select("id, receipt_no, customer_id, staff_name, table_number, items, total, payment_method, voided, void_reason, refund_amount, gift_card_used, tax_amount, tax_inclusive, tip_amount, service_fee_amount, discount_amount, date")
       .not("customer_id", "is", null)
       .order("date", { ascending: false }),
   ]);
@@ -204,10 +210,9 @@ export async function GET() {
 
   // Build the spend / visit / lastVisit aggregate. Both channels are netted of
   // refunds — see spendContribution() above. POS sales mirror the same rule:
-  // a refunded sale contributes total-refund (£0 when fully refunded, but still
-  // a visit); a voided sale with no refund was reversed before money was kept,
-  // so it's skipped entirely (Bug #6 — previously ALL voided POS sales were
-  // dropped, overcounting the reduction for partial refunds).
+  // every sale contributes total-refund (£0 when fully refunded). A voided sale
+  // with NO refund kept the money, so it still counts (mirrors an online
+  // cancel+no-refund) — and still a visit.
   const agg = new Map<string, AggregateBucket>();
   const bumpAgg = (cid: string, amount: number, when: string) => {
     const bucket = agg.get(cid) ?? { spend: 0, visits: 0, lastVisit: null };
@@ -228,7 +233,6 @@ export async function GET() {
     if (!s.customer_id) continue;
     const moneyTotal = Number(s.total) || 0; // total is already net of gift card
     const refund = Number(s.refund_amount) || 0;
-    if (s.voided && refund <= 0) continue; // reversed, no money kept
     bumpAgg(s.customer_id, Math.max(0, moneyTotal - refund), s.date);
   }
 

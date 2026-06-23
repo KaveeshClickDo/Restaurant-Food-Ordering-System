@@ -164,6 +164,17 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
     ? getNextOpenTime(settings.schedule, settings.manualClosed)
     : null;
 
+  // ── Logic for available modes ──
+  const hasDelivery = restaurant.deliveryEnabled !== false; // defaults to true
+  const hasCollection = restaurant.collectionEnabled !== false; // defaults to true
+  const bothEnabled = hasDelivery && hasCollection;
+
+  // Auto-correct fulfillment if current selection is disabled by admin
+  useEffect(() => {
+    if (!hasDelivery && fulfillment === "delivery") setFulfillment("collection");
+    if (!hasCollection && fulfillment === "collection") setFulfillment("delivery");
+  }, [hasDelivery, hasCollection, fulfillment, setFulfillment]);
+
   const isDelivery = fulfillment === "delivery";
   const sym = settings.currency?.symbol ?? "£";
   const estTime = isDelivery ? restaurant.deliveryTime : restaurant.collectionTime;
@@ -213,28 +224,42 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
             <p className="text-[14px] text-zinc-500 mb-4 max-w-md">{restaurant.tagline}</p>
 
             {/* ── Delivery / Collection toggle ─────────────────────────── */}
-            <div className="inline-flex items-center p-1 rounded-xl bg-white border border-zinc-200/80 shadow-sm mb-4">
-              <button
-                onClick={() => setFulfillment("delivery")}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold transition-all duration-200 ${isDelivery
-                  ? "bg-orange-500 text-white shadow-sm"
-                  : "text-zinc-500 hover:text-zinc-800"
-                  }`}
-              >
-                <Bike className="w-3.5 h-3.5" strokeWidth={1.8} />
-                Delivery
-              </button>
-              <button
-                onClick={() => setFulfillment("collection")}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold transition-all duration-200 ${!isDelivery
-                  ? "bg-orange-500 text-white shadow-sm"
-                  : "text-zinc-500 hover:text-zinc-800"
-                  }`}
-              >
-                <ShoppingBag className="w-3.5 h-3.5" strokeWidth={1.8} />
-                Collection
-              </button>
-            </div>
+            {bothEnabled ? (
+              /* Toggle only shows if both are active */
+              <div className="inline-flex items-center p-1 rounded-xl bg-white border border-zinc-200/80 shadow-sm mb-5">
+                <button
+                  onClick={() => setFulfillment("delivery")}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold transition-all duration-200 ${isDelivery ? "bg-orange-500 text-white shadow-sm" : "text-zinc-500 hover:text-zinc-800"
+                    }`}
+                >
+                  <Bike className="w-3.5 h-3.5" strokeWidth={1.8} />
+                  Delivery
+                </button>
+                <button
+                  onClick={() => setFulfillment("collection")}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold transition-all duration-200 ${!isDelivery ? "bg-orange-500 text-white shadow-sm" : "text-zinc-500 hover:text-zinc-800"
+                    }`}
+                >
+                  <ShoppingBag className="w-3.5 h-3.5" strokeWidth={1.8} />
+                  Collection
+                </button>
+              </div>
+            ) : (
+              /* Single mode UI: Shows a button-like indicator + text */
+              <div className="flex items-center gap-3 mb-5">
+                <div className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold bg-orange-500 text-white shadow-sm">
+                  {isDelivery ? <Bike className="w-3.5 h-3.5" /> : <ShoppingBag className="w-3.5 h-3.5" />}
+                  {isDelivery ? "Delivery Only" : "Collection Only"}
+                </div>
+              </div>
+              // <div className="flex items-center gap-2 mb-5">
+              //   <div className="px-3 py-1.5 bg-orange-100 text-orange-700 rounded-lg text-xs font-bold flex items-center gap-2">
+              //     {isDelivery ? <Bike size={14} /> : <ShoppingBag size={14} />}
+              //     Available for {isDelivery ? "Delivery" : "Collection"} only
+              //   </div>
+              // </div>
+            )}
+
 
             {/* Stats — contextual to selected mode */}
             <div className="flex flex-wrap items-center gap-4 text-[12.5px] text-zinc-600">

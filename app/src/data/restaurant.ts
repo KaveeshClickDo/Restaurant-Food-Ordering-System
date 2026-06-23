@@ -20,6 +20,8 @@ export const restaurantInfo: RestaurantInfo = {
   phone: "020 7123 4567",
   lat: 51.5150,   // Whitechapel, East London
   lng: -0.0630,
+  collectionEnabled: true,
+  deliveryEnabled: true,
 };
 
 export const defaultSchedule: WeekSchedule = {

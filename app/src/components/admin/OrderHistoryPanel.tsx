@@ -352,7 +352,21 @@ export default function OrderHistoryPanel() {
       {viewingReceipt && (
         <ReceiptModal
           order={{
-            id: viewingReceipt.id,
+            id: (() => {
+              const note = viewingReceipt.note || "";
+              if (tab === "walk-in") {
+                // Extracts "R1002" from "... Receipt: R1002"
+                const match = note.match(/Receipt:\s*(\S+)/);
+                return match ? match[1] : (viewingReceipt.id);
+              }
+              if (tab === "dine-in") {
+                // Extracts "T1" using your helper function
+                const label = parseTableLabelFromNote(note);
+                return `Table ${label}` || (viewingReceipt.id);
+              }
+              // Online (Delivery/Collection) uses standard order number
+              return (viewingReceipt.id);
+            })(),
             date: viewingReceipt.date,
             status: viewingReceipt.status,
             fulfillment: viewingReceipt.fulfillment || "collection",
