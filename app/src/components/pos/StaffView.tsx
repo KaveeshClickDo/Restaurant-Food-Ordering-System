@@ -2,6 +2,7 @@
 
 import { useRef, useState, useEffect } from "react";
 import { usePOS } from "@/context/POSContext";
+import { useConnectivity } from "@/lib/connectivity";
 import { POSStaff } from "@/types/pos";
 import {
   UserPlus, Clock, Timer, ToggleRight, ToggleLeft, Pencil, Trash2, X, ClockIcon,
@@ -13,6 +14,7 @@ import { fmtTime, getInitials } from "./_utils";
 export default function StaffView() {
   const { staff, addPosStaff, updatePosStaff, deletePosStaff,
     clockEntries, clockIn, clockOut, isClocked, currentStaff, settings } = usePOS();
+  const { isOnline } = useConnectivity();
   const sym = settings.currencySymbol;
   const [showAdd, setShowAdd] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
@@ -153,10 +155,15 @@ export default function StaffView() {
       <div className="max-w-4xl mx-auto space-y-6">
         <div className="flex flex-wrap gap-3 items-center justify-between">
           <h2 className="text-white font-bold text-xl">Staff Management</h2>
-          <button onClick={() => setShowAdd(true)} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-400 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors">
+          <button onClick={() => setShowAdd(true)} disabled={!isOnline} className={`flex items-center gap-2 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors ${isOnline ? "bg-orange-500 hover:bg-orange-400" : "bg-slate-700 opacity-50 cursor-not-allowed"}`}>
             <UserPlus size={16} /> Add Staff
           </button>
         </div>
+        {!isOnline && (
+          <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2">
+            <p className="text-amber-300 text-xs">Read-only while offline — staff changes need an internet connection. Reconnect to add or edit staff.</p>
+          </div>
+        )}
 
         {/* Clock in/out panel — the API is session-scoped (cannot clock another
             staff member in/out without payroll forgery), so only the currently

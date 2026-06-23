@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
+import { useConnectivity } from "@/lib/connectivity";
 import { POSSettings } from "@/types/pos";
 import { Check, Mail, Receipt, Save, ToggleLeft, ToggleRight } from "lucide-react";
 import POSPrinterPanel from "./POSPrinterPanel";
@@ -35,6 +36,7 @@ function Toggle({
 export default function SettingsView() {
   const { settings, setSettings, sales, exportSales } = usePOS();
   const { settings: appSettings, updateSettingsViaPos } = useApp();
+  const { isOnline } = useConnectivity();
   const [local, setLocal] = useState({ ...settings });
   const [tab, setTab] = useState<"general" | "menu" | "receipt" | "hardware">("general");
   // Persistence is synchronous (localStorage), so we flash a brief "Saved"
@@ -49,6 +51,9 @@ export default function SettingsView() {
   }
 
   function saveSettings(key: SaveKey = "general") {
+    // Read-only offline: settings push to the server (/api/pos/settings), which
+    // is unreachable offline. The buttons are disabled too; this guards programmatic calls.
+    if (!isOnline) return;
     // Create a copy of the local state so we can safely modify it before saving
     const nextLocal = { ...local };
 
@@ -75,6 +80,12 @@ export default function SettingsView() {
     <div className="flex-1 overflow-y-auto p-6">
       <div className="max-w-3xl mx-auto space-y-6">
         <h2 className="text-white font-bold text-xl">POS Settings</h2>
+
+        {!isOnline && (
+          <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2">
+            <p className="text-amber-300 text-xs">Read-only while offline — settings save to the server. Reconnect to change tax, receipt, or hardware settings.</p>
+          </div>
+        )}
 
         {/* Sub-tabs */}
         <div className="flex gap-1.5 bg-slate-800/50 p-1 rounded-xl border border-slate-700">
@@ -272,7 +283,7 @@ export default function SettingsView() {
 
             <button
               onClick={() => saveSettings("general")}
-              disabled={savedKey === "general"}
+              disabled={savedKey === "general" || !isOnline}
               className={`w-full py-3.5 rounded-xl text-white font-bold text-sm transition-all flex items-center justify-center gap-2 ${savedKey === "general"
                 ? "bg-green-600"
                 : "bg-orange-500 hover:bg-orange-400"
@@ -486,7 +497,7 @@ export default function SettingsView() {
 
             <button
               onClick={() => saveSettings("receipt")}
-              disabled={savedKey === "receipt"}
+              disabled={savedKey === "receipt" || !isOnline}
               className={`w-full py-3.5 rounded-xl text-white font-bold text-sm transition-all flex items-center justify-center gap-2 ${savedKey === "receipt"
                 ? "bg-green-600"
                 : "bg-orange-500 hover:bg-orange-400"

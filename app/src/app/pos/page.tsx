@@ -28,6 +28,11 @@ import CollectionFooter from "@/components/collection/CollectionFooter";
 // or shared link keeps the same tab open — mirrors /admin?tab=<id>.
 const TAB_VIEWS: View[] = ["sale", "collection", "dashboard", "customers", "tables", "reservations", "staff", "settings"];
 
+// Tabs that are useless offline (live server data only) — greyed out + not
+// tappable when offline, and we bounce off them to Sale if connectivity drops.
+// (Dashboard/Customers/Staff/Settings stay usable offline: cached/read-only.)
+const OFFLINE_BLOCKED_VIEWS = new Set<View>(["collection", "tables", "reservations"]);
+
 // Show the "menu may be outdated" banner only after the cached menu is older
 // than this (4h) — short outages shouldn't nag the cashier.
 const MENU_STALE_MS = 4 * 60 * 60 * 1000;
@@ -100,6 +105,11 @@ function POSPageContent() {
     if (!onAndroid || !isOnline) return;
     drainOutbox().catch(() => {});
   }, [onAndroid, isOnline]);
+
+  // If connectivity drops while on a tab that can't work offline, bounce to Sale.
+  useEffect(() => {
+    if (!isOnline && OFFLINE_BLOCKED_VIEWS.has(view)) setView("sale");
+  }, [isOnline, view]);
 
   // Mount guard: prevents SSR/hydration mismatch from localStorage state
   useEffect(() => { setMounted(true); }, []);
@@ -296,14 +306,20 @@ function POSPageContent() {
       <nav className="flex-shrink-0 h-16 bg-slate-900 border-t border-slate-700/50 flex items-stretch">
         {NAV.map((item) => {
           const active = view === item.id;
+          // Fully-offline-blocked tabs: grey out + not tappable when offline.
+          const blocked = !isOnline && OFFLINE_BLOCKED_VIEWS.has(item.id);
           return (
             <button
               key={item.id}
-              onClick={() => selectView(item.id)}
-              className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all active:scale-95 ${
+              onClick={() => { if (!blocked) selectView(item.id); }}
+              disabled={blocked}
+              title={blocked ? "Needs internet" : undefined}
+              className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all ${blocked ? "" : "active:scale-95"} ${
                 active
                   ? "text-orange-400 bg-orange-500/10 border-t-2 border-orange-500"
-                  : "text-slate-500 hover:text-slate-300 border-t-2 border-transparent"
+                  : blocked
+                    ? "text-slate-700 cursor-not-allowed border-t-2 border-transparent"
+                    : "text-slate-500 hover:text-slate-300 border-t-2 border-transparent"
               }`}
             >
               <item.icon size={20} />

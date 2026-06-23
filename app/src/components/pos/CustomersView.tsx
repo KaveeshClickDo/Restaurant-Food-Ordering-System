@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { usePOS } from "@/context/POSContext";
+import { useConnectivity } from "@/lib/connectivity";
 import { POSCustomer } from "@/types/pos";
 import {
   UserPlus, Search, Star, Users, Phone, Mail, Pencil, X, Trash2, Save, ArrowLeft, AlertTriangle,
@@ -15,6 +16,7 @@ export default function CustomersView() {
   // through addCustomer / updateCustomer / deleteCustomer (POSContext), not
   // setCustomers — the latter is left exposed only for read-state syncs.
   const { customers, sales, settings, addCustomer: apiAddCustomer, updateCustomer, deleteCustomer: apiDeleteCustomer } = usePOS();
+  const { isOnline } = useConnectivity();
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<POSCustomer | null>(null);
   const [showAdd, setShowAdd] = useState(false);
@@ -143,10 +145,13 @@ export default function CustomersView() {
         <div className="p-4 border-b border-slate-700/50 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-white font-bold">Customers</h2>
-            <button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-400 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-colors">
+            <button onClick={() => setShowAdd(true)} disabled={!isOnline} title={!isOnline ? "Reconnect to add customers" : undefined} className={`flex items-center gap-1.5 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-colors ${isOnline ? "bg-orange-500 hover:bg-orange-400" : "bg-slate-700 opacity-50 cursor-not-allowed"}`}>
               <UserPlus size={14} /> Add
             </button>
           </div>
+          {!isOnline && (
+            <p className="text-amber-300 text-[11px] bg-amber-500/10 border border-amber-500/30 rounded-lg px-2.5 py-1.5">Read-only offline — you can view customers and assign them to a sale, but adding/editing needs internet.</p>
+          )}
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search customers…"
