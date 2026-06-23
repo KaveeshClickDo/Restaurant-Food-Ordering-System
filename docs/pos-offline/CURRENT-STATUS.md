@@ -10,6 +10,21 @@ ring cash/card sale → reconnect → sync. DB encrypted at rest. `main` has bee
 merged in. Remaining work is multi-tablet (optional), printing (needs hardware),
 and the operational steps (merge to main, deploy a backend).
 
+## Per-tab offline plan
+**Wave 1 — DONE (2026-06-23, easy, no conflicts):**
+- Nav: Collection / Table Service / Reservations greyed + non-tappable offline (bounce to Sale).
+- Staff: read-only offline (Add disabled + banner). Settings General/Receipt: read-only (Save disabled + guarded). Customers: Add disabled + banner (view + assign still work).
+
+**Wave 2 — TODO (hard / has conflicts):**
+1. **Offline VOID** (Dashboard) — outbox must become an op-queue (insert+void) with ordering+conflicts. Start with voiding *current-session unsynced* sales only; block voiding already-synced sales offline.
+2. **Dashboard offline view** — cache the sales list + merge with outbox to show local sales offline (banner: "may be incomplete"). Moderate; low conflict.
+3. **Settings·Menu offline editing** — doable via existing menu-sync, but **last-write-wins can clobber web/admin menu edits**. Safe only if the tablet is the sole menu editor.
+4. **Settings·Hardware** — config offline+sync (moderate); the actual printing is **Phase 6** (device-local, needs a physical printer).
+5. **Loyalty** — earning auto-syncs on sale insert (no work). **Redemption offline = block** (stale-balance/double-spend risk).
+6. **Finer read-only polish** — visually disable the remaining edit/delete/toggle buttons in Staff/Customers detail panels (today they fail safely but aren't greyed).
+
+Bigger separate phases: Phase 2 per-terminal receipts (optional), Phase 3 stock/oversell, Phase 6 printer hardware, merge→main, deploy backend.
+
 ## ✅ DONE & device-verified
 - **Phase 1** — offline outbox + sync (sale offline → reconnect → drains to server; idempotent on UUID `id`; stuck-`syncing` auto-recovery).
 - **Phase 1.5** — bundled static export (`npm run build:capacitor` → `out/`), `apiBase()` prefixes all `/api` calls, `CapacitorHttp` for cross-origin, dual-mode `capacitor.config.ts`, root `index.html` redirect.
