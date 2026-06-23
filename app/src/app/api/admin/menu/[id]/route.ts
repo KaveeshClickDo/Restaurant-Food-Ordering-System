@@ -86,10 +86,27 @@ export async function DELETE(
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
   const { id } = await params;
 
+  // Fetch the item first to get the image URL
+  const { data: item } = await supabaseAdmin
+    .from("menu_items")
+    .select("image")
+    .eq("id", id)
+    .single();
+
+    // Delete from db
   const { error } = await supabaseAdmin.from("menu_items").delete().eq("id", id);
   if (error) {
     console.error("admin/menu/[id] DELETE:", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
+
+  // Cleanup bucket if image exists
+  if (item?.image) {
+    const parts = item.image.split("/menu-images/");
+    if (parts.length > 1) {
+      await supabaseAdmin.storage.from("menu-images").remove([parts[1]]);
+    }
+  }
+
   return NextResponse.json({ ok: true });
 }

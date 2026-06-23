@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { Category, MealPeriod, MenuItem, Variation, AddOn, MenuItemOffer } from "@/types";
 import {
@@ -15,7 +15,7 @@ import {
   FolderOpen,
 } from "lucide-react";
 import { resolveStock, stockLabel, LOW_STOCK_THRESHOLD } from "@/lib/stockUtils";
-import { uploadMenuImage, MAX_IMAGE_LABEL } from "@/lib/uploadImage";
+import { uploadMenuImage, MAX_IMAGE_LABEL, deleteMenuImage } from "@/lib/uploadImage";
 import type { StockStatus } from "@/types";
 
 // Bug #2 — POS / admin field parity. A small handful of preset accent
@@ -1133,6 +1133,13 @@ function ItemModal({
   const [imgError, setImgError] = useState("");
   const [uploading, setUploading] = useState(false);
 
+  // ── Session Tracking ──
+  // The image URL that existed when the modal opened
+  const initialImageUrl = useRef(item.image);
+  // All URLs uploaded to the bucket during THIS modal session
+  const [sessionUploads, setSessionUploads] = useState<string[]>([]);
+
+
   const channels = form.channels ?? ["in_store", "online"];
   const onOnline = channels.includes("online");
   const onInStore = channels.includes("in_store");
@@ -1212,6 +1219,43 @@ function ItemModal({
   // inline version so the admin sees it before the optimistic add.
   const nameTaken = !!form.name.trim() && existingNames.includes(form.name.trim().toLowerCase());
   const isValid = form.name.trim() && form.price >= 0 && form.categoryId && !nameTaken;
+
+  // Cleanup function for when the user hits 'Cancel' or closes the modal
+  const handleCancel = useCallback(async () => {
+    // Delete every single file uploaded during this session
+    await Promise.all(sessionUploads.map(url => deleteMenuImage(url)));
+    onClose();
+  }, [sessionUploads, onClose]);
+
+  const handleSave = async () => {
+    // If the image changed, delete the INITIAL image from the bucket
+    if (form.image !== initialImageUrl.current && initialImageUrl.current) {
+      deleteMenuImage(initialImageUrl.current);
+    }
+
+    // Delete any session uploads that are NOT the final chosen one
+    // (e.g. if the user uploaded 'pic1.jpg' then 'pic2.jpg', we delete pic1)
+    const unusedUploads = sessionUploads.filter(url => url !== form.image);
+    await Promise.all(unusedUploads.map(url => deleteMenuImage(url)));
+
+    onSave(form);
+  };
+
+
+  async function handleFileUpload(file: File) {
+    setImgError("");
+    setUploading(true);
+    try {
+      const url = await uploadMenuImage(file);
+      setForm((f) => ({ ...f, image: url }));
+      // Track this URL so we can delete it if the user cancels
+      setSessionUploads(prev => [...prev, url]);
+    } catch (err) {
+      setImgError(err instanceof Error ? err.message : "Upload failed.");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   return (
     <ModalShell title={isNew ? "Add menu item" : "Edit menu item"} onClose={onClose} wide>
@@ -1373,20 +1417,10 @@ function ItemModal({
                       accept="image/*"
                       className="hidden"
                       disabled={uploading}
-                      onChange={async (e) => {
+                      onChange={(e) => {
                         const file = e.target.files?.[0];
-                        e.target.value = ""; // let the same file be re-picked after an error
-                        if (!file) return;
-                        setImgError("");
-                        setUploading(true);
-                        try {
-                          const url = await uploadMenuImage(file);
-                          setForm((f) => ({ ...f, image: url }));
-                        } catch (err) {
-                          setImgError(err instanceof Error ? err.message : "Upload failed.");
-                        } finally {
-                          setUploading(false);
-                        }
+                        if (file) handleFileUpload(file);
+                        e.target.value = "";
                       }}
                     />
                   </label>
@@ -1943,10 +1977,10 @@ function ItemModal({
       )}
 
       <div className="flex gap-3 mt-6 pt-4 border-t border-gray-100">
-        <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition">Cancel</button>
+        <button onClick={handleCancel} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition">Cancel</button>
         <button
-          onClick={() => isValid && onSave(form)}
-          disabled={!isValid}
+          onClick={handleSave}
+          disabled={!isValid || uploading}
           className="flex-1 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-sm font-semibold transition"
         >
           {isNew ? "Add item" : "Save changes"}

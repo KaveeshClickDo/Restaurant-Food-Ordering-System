@@ -46,6 +46,19 @@ export async function uploadMenuImage(file: File): Promise<string> {
   return json.url;
 }
 
+export async function deleteMenuImage(url: string | undefined | null): Promise<void> {
+  if (!url || url.startsWith("data:")) return;
+  try {
+    await fetch("/api/uploads/menu-image", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+  } catch (err) {
+    console.error("Failed to delete menu image file:", err);
+  }
+}
+
 // ── Floor-plan image (reservation table map) ──────────────────────────────────
 // Larger cap than menu images — floor plans are full-room photos/diagrams.
 // Keep in sync with MAX_BYTES in app/src/app/api/uploads/floor-plan/route.ts.

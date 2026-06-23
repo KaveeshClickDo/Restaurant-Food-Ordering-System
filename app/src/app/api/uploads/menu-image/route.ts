@@ -95,3 +95,30 @@ export async function POST(req: NextRequest) {
   const { data } = supabaseAdmin.storage.from(BUCKET).getPublicUrl(path);
   return NextResponse.json({ ok: true, url: data.publicUrl });
 }
+
+export async function DELETE(req: NextRequest) {
+  const gate = await requirePosPermission("canManageMenu");
+  if (!gate.ok) return gate.response;
+
+  try {
+    const { url } = await req.json();
+    if (!url) return NextResponse.json({ ok: false, error: "No URL provided" }, { status: 400 });
+
+    const bucketPathIdentifier = `/${BUCKET}/`;
+    const parts = url.split(bucketPathIdentifier);
+    
+    if (parts.length < 2) {
+      return NextResponse.json({ ok: true, skipped: true }); 
+    }
+
+    const path = parts[1];
+    const { error } = await supabaseAdmin.storage.from(BUCKET).remove([path]);
+    
+    if (error) throw error;
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    console.error("uploads/menu-image DELETE:", msg);
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+  }
+}
