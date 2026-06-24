@@ -29,27 +29,29 @@ const CACHE_CREDS = "staff_credentials";
 // the menu-sync push (which would re-bloat menu_items — the bug uploadImage.ts
 // fixed). Render swaps to the cached copy; products always hold the real URL.
 const CACHE_IMAGES = "menu_images";
-// Offline receipt counter. Offline sales get a readable `OFF<seq>` number
-// (mirrors online `R<seq>`) from a device-local counter starting at 1000,
-// persisted in the encrypted SQLite cache. Its own namespace, so it never
-// clashes with the server's R sequence. (Single-terminal scheme; multi-terminal
-// per-terminal prefixes are a future option — see 09-decisions.md.)
-const CACHE_OFFLINE_SEQ = "offline_receipt_seq";
 // Last successful /api/pos/sales snapshot, so the Dashboard isn't empty after a
 // cold offline start. Merged with the outbox (unsynced sales) on the offline
 // fallback path — see fetchSales. Marked "may be incomplete" in the UI.
 const CACHE_SALES = "sales_snapshot";
 
 /**
- * Next offline receipt number, `OFF1000`, `OFF1001`, … Reads + bumps the
- * persistent counter (Capacitor-only). Single tablet → sequential, no concurrent
- * mint. Resets only if app data is wiped (rare; the receipt_no UNIQUE constraint
- * then rejects any reused number on sync rather than duplicating).
+ * Offline receipt number, derived from the sale's globally-unique id (a UUID).
+ *
+ * Deliberately NOT a device-local counter: a counter is wiped on reinstall and
+ * isn't namespaced per device, so two installs/tablets would both mint `OFF1000`.
+ * Because pos_sales.receipt_no is UNIQUE, the second one fails to INSERT on sync
+ * (23505) and the sale strands — money taken, never synced. Deriving from the
+ * UUID (unique by construction, fresh per sale, differs across reinstalls AND
+ * tablets) makes a collision astronomically unlikely.
+ *
+ * Keeps the `OFF` prefix so isOfflineSale(), the printed "OFFLINE SALE" label,
+ * and the server's offline-reconciliation path (receipt_no startsWith "OFF")
+ * all still recognise it. 12 hex chars ≈ 48 bits of entropy — negligible
+ * collision risk over an app's whole lifetime; widen the slice if ever needed.
  */
-async function nextOfflineReceiptNo(): Promise<string> {
-  const current = (await kvGet<number>(CACHE_OFFLINE_SEQ)) ?? 1000;
-  await kvSet(CACHE_OFFLINE_SEQ, current + 1);
-  return `OFF${current}`;
+function offlineReceiptNo(saleId: string): string {
+  const hex = saleId.replace(/[^0-9a-fA-F]/g, "").slice(0, 12).toUpperCase();
+  return `OFF-${hex}`;
 }
 
 type CachedCred = { pinHash: string; sessionVersion: number };
@@ -1349,11 +1351,11 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     // queued — they carry a clear `serverError` we surface to the cashier
     // directly. Replay would hit the same gate.
     if (!sale && onAndroid && !serverError) {
-      // Mint the OFF<seq> receipt only NOW that we know we're going offline.
+      // Mint the OFF-… receipt only NOW that we know we're going offline.
       // Pre-minting would have made every online Capacitor sale carry an
       // OFF number too (the server uses whatever receiptNo arrives in
       // the payload, overriding pos_receipt_seq's R-… default).
-      const provisionalReceiptNo = await nextOfflineReceiptNo();
+      const provisionalReceiptNo = offlineReceiptNo(saleId);
       // Re-attach receiptNo to the queued payload so the drain pass sends it
       // to the server. The optimistic POSSale shown to the cashier carries
       // the same number so the printed receipt matches the DB row on sync.

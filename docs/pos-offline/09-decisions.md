@@ -633,3 +633,32 @@ service_role bypasses RLS automatically; anon/authenticated are denied.
 Every read goes through service-role API routes. Future per-role
 policies (admin can edit terminal, cashier cannot) are enforced in the
 route handlers, not at RLS.
+
+## 2026-06-25 § Offline receipt number derived from the sale UUID (not a counter)
+
+**Decision:** Offline receipt numbers are `OFF-<first 12 hex of the sale's
+UUID>` (e.g. `OFF-3F9A2C7B1D4E`), minted by `offlineReceiptNo(saleId)` in
+POSContext. The previous device-local counter (`OFF<seq>` from 1000, persisted
+in `kv_cache` as `offline_receipt_seq`) is removed.
+
+**Why:** `pos_sales.receipt_no` is `NOT NULL UNIQUE`. The counter was (a) wiped
+on app reinstall and (b) not namespaced per device, so a reinstall — or a second
+tablet — both restarted at `OFF1000`. On sync the duplicate `receipt_no` hit the
+UNIQUE constraint (23505); the server's recovery only matches by `id` (a fresh
+UUID for the new sale), so it fell through to a 500 → the outbox retried 5× then
+marked the entry `failed`. Net result: money taken from the customer, sale
+permanently stranded. The sale `id` is already a globally-unique UUID, so
+deriving the human receipt number from it inherits that uniqueness across
+reinstalls and tablets at zero coordination cost.
+
+**Trade-off:** loses sequential readability (`OFF1000, OFF1001…`). Accepted —
+reliability over prettiness; offline sales are the exception and are interleaved
+with online `R…` numbers anyway. 12 hex ≈ 48 bits → negligible collision risk.
+
+**Alternatives considered:** (1) per-terminal `<prefix>-<seq>` via `pos_terminals`
+— keeps a readable per-till sequence and is collision-safe, but needs the tablet
+online once to register a prefix (can't ring offline from a cold install) and is
+more work; kept as a future option if pretty per-till numbers are wanted.
+(2) `OFF<seq>-<random device suffix>` — keeps the sequence but reintroduces a
+(small) random-collision risk. The UUID derivation is the simplest bulletproof
+option and needs no setup/online step.

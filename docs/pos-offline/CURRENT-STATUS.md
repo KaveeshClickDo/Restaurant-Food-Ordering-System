@@ -37,8 +37,9 @@ Bigger separate phases: Phase 2 per-terminal receipts (optional), Phase 3 stock/
 - **Offline receipt numbers** — `OFF<seq>` from 1000 (readable, mirrors `R<seq>`); every receipt view shows **"OFFLINE SALE"**; admin reports + dashboard show an OFFLINE badge.
 
 ## 🔢 Receipt numbering (decided)
-- **Online** → `R<seq>` (server, atomic, from 1000). **Offline** → `OFF<seq>` (device-local counter from 1000). Different by design — standard POS pattern.
-- **Single terminal for now.** Multi-terminal `T<prefix>-<seq>` is **deferred & optional** (no live collision today). If ever added, the prefix must **NOT be "T"** (dine-in tables are T1, T2…) — use `POS1`, `TILL1`, etc.
+- **Online** → `R<seq>` (server, atomic, from 1000).
+- **Offline** → `OFF-<12 hex from the sale UUID>`, e.g. `OFF-3F9A2C7B1D4E` (2026-06-25). **NOT a device-local counter** — a counter is wiped on reinstall and isn't namespaced per device, so two installs/tablets both minted `OFF1000`; since `pos_sales.receipt_no` is `UNIQUE`, the 2nd failed to INSERT on sync (23505) and the sale **stranded** (money taken, never synced). Deriving from the UUID can't collide across reinstalls or tablets. Keeps the `OFF` prefix so the "OFFLINE SALE" label + server reconciliation still detect it.
+- **Multi-terminal** `<prefix>-<seq>` (readable per-till sequence via the `pos_terminals` table) remains a **future option** if pretty sequential numbers per till are wanted; the UUID scheme already makes it collision-safe without it. If ever added, the prefix must **NOT be "T"** (dine-in tables are T1, T2…) — use `POS1`, `TILL1`, etc.
 
 ## ⬜ REMAINING
 | Item | Status / when needed |
