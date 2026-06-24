@@ -771,7 +771,7 @@ export default function MenuManagementPanel() {
           existingNames={menuItems
             .filter((i) => i.id !== editingItem.id)
             .map((i) => i.name.trim().toLowerCase())}
-          onSave={(item) => {
+          onSave={async (item) => {
             // `editingItem` is the snapshot taken when the modal opened — we
             // diff against THIS, not against `menuItems.find(...)`. Live
             // realtime updates can drop the counter mid-edit (a customer's
@@ -780,10 +780,13 @@ export default function MenuManagementPanel() {
             // the sale.
             const snapshot = editingItem;
             const isExistingItem = !!menuItems.find((i) => i.id === item.id);
+            // Capture whether the menu write actually landed — the modal uses
+            // this to decide if it's safe to delete the replaced image file.
+            let ok: boolean;
             if (isExistingItem) {
               // General fields go through the standard PUT — the route strips
               // stock fields, so the live counter is safe from a stale form.
-              updateMenuItem(item);
+              ok = await updateMenuItem(item);
 
               // Stock writes go through the dedicated endpoint, but ONLY when
               // the admin actually changed something in the stock tab. Without
@@ -814,9 +817,10 @@ export default function MenuManagementPanel() {
             } else {
               // New item — POST includes stock fields atomically. No separate
               // stock PUT needed (and the PUT would race the insert).
-              addMenuItem(item);
+              ok = await addMenuItem(item);
             }
             setEditingItem(null);
+            return ok;
           }}
           onClose={() => setEditingItem(null)}
         />
@@ -1124,7 +1128,7 @@ function ItemModal({
   item, categories, mealPeriods, isNew, existingNames, onSave, onClose,
 }: {
   item: MenuItem; categories: Category[]; mealPeriods: MealPeriod[]; isNew: boolean;
-  existingNames: string[]; onSave: (i: MenuItem) => void; onClose: () => void;
+  existingNames: string[]; onSave: (i: MenuItem) => Promise<boolean>; onClose: () => void;
 }) {
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
@@ -1228,17 +1232,18 @@ function ItemModal({
   }, [sessionUploads, onClose]);
 
   const handleSave = async () => {
-    // If the image changed, delete the INITIAL image from the bucket
-    if (form.image !== initialImageUrl.current && initialImageUrl.current) {
-      deleteMenuImage(initialImageUrl.current);
-    }
-
-    // Delete any session uploads that are NOT the final chosen one
-    // (e.g. if the user uploaded 'pic1.jpg' then 'pic2.jpg', we delete pic1)
+    // Intermediate uploads the user discarded are never referenced by the DB,
+    // so they're always safe to delete regardless of whether the save lands.
     const unusedUploads = sessionUploads.filter(url => url !== form.image);
     await Promise.all(unusedUploads.map(url => deleteMenuImage(url)));
 
-    onSave(form);
+    // Persist FIRST, then only delete the replaced image once the write is
+    // confirmed — otherwise a failed save leaves the DB pointing at an image
+    // we'd have already deleted from the bucket (broken image on reload).
+    const ok = await onSave(form);
+    if (ok && form.image !== initialImageUrl.current && initialImageUrl.current) {
+      deleteMenuImage(initialImageUrl.current);
+    }
   };
 
 

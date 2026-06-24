@@ -171,11 +171,11 @@ export default function MenuTab() {
 
   // Cleanup logic for Save / Add
   async function cleanupOnSave(finalUrl: string | undefined) {
-    // 1. If the final image is different from the start, delete the original
-    if (finalUrl !== initialImageUrl.current && initialImageUrl.current) {
-      deleteMenuImage(initialImageUrl.current).catch(console.error);
-    }
-    // 2. Delete intermediate uploads (e.g. user uploaded 3 pics, only kept the 3rd)
+    // Only intermediate uploads (never referenced by the DB) are safe to delete
+    // here. The REPLACED original is intentionally NOT deleted: POS persists the
+    // menu via a debounced, fire-and-forget sync with no success signal to gate
+    // on, so deleting it eagerly risks orphaning a live DB reference (broken
+    // image). Replaced originals are left for a server-side sweep instead.
     const unused = sessionUploads.filter(url => url !== finalUrl);
     if (unused.length > 0) {
       await Promise.all(unused.map(url => deleteMenuImage(url).catch(console.error)));

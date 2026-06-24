@@ -167,8 +167,8 @@ interface AppContextValue {
   addCategory: (cat: Category) => void;
   updateCategory: (cat: Category) => void;
   deleteCategory: (id: string) => void;
-  addMenuItem: (item: MenuItem) => void;
-  updateMenuItem: (item: MenuItem) => void;
+  addMenuItem: (item: MenuItem) => Promise<boolean>;
+  updateMenuItem: (item: MenuItem) => Promise<boolean>;
   /** Dedicated stock-only update. Use this when the admin explicitly changes
    *  stock fields (qty or status) — it routes to /api/admin/menu/[id]/stock
    *  so the general menu PUT can keep its hands off the live counter. */
@@ -1090,26 +1090,28 @@ export function AppProvider({
   // ─── Menu items ───────────────────────────────────────────────────────────
   // All writes go through admin API routes (require admin session cookie).
 
-  const addMenuItem = (item: MenuItem) => {
+  const addMenuItem = (item: MenuItem): Promise<boolean> => {
     setMenuItems((prev) => [...prev, item]);
-    fetch("/api/admin/menu", {
+    return fetch("/api/admin/menu", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...menuItemToRow(item), mealPeriodIds: item.mealPeriodIds ?? [] }),
     }).then(async (r) => {
       if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("addMenuItem:", j.error); }
-    }).catch((e) => console.error("addMenuItem:", e));
+      return r.ok;
+    }).catch((e) => { console.error("addMenuItem:", e); return false; });
   };
 
-  const updateMenuItem = (item: MenuItem) => {
+  const updateMenuItem = (item: MenuItem): Promise<boolean> => {
     setMenuItems((prev) => prev.map((m) => (m.id === item.id ? item : m)));
-    fetch(`/api/admin/menu/${item.id}`, {
+    return fetch(`/api/admin/menu/${item.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...menuItemToRow(item), mealPeriodIds: item.mealPeriodIds ?? [] }),
     }).then(async (r) => {
       if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateMenuItem:", j.error); }
-    }).catch((e) => console.error("updateMenuItem:", e));
+      return r.ok;
+    }).catch((e) => { console.error("updateMenuItem:", e); return false; });
   };
 
   // Dedicated stock writer. The general PUT above strips stock fields, so
