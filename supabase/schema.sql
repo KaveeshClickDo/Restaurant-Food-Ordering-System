@@ -680,8 +680,22 @@ create table if not exists menu_item_meal_periods (
 --     hand-typed POS line) → no quantity to deduct, skip silently.
 --
 -- Called from app/src/lib/stockMutation.ts via supabase.rpc().
+--
+-- p_force (default false): when true, NEVER raise — decrement tracked items
+-- even past zero (stock_qty goes negative) and ignore manual out_of_stock.
+-- This is the OFFLINE-SALE RECONCILIATION path: a sale rung on a Capacitor POS
+-- while offline (receipt_no 'OFF…') is replayed by the outbox on reconnect.
+-- That sale already happened — the customer paid and walked out — so the server
+-- must NEVER reject it on a stock grounds (that would strand the sale and lose
+-- the money). Instead we let the count go negative; a negative stock_qty is the
+-- visible "this oversold while offline" flag a manager reconciles. Online sales
+-- (p_force = false) keep the hard limit.
 
-create or replace function decrement_stock_atomic(p_items jsonb)
+-- Drop the old single-arg signature so the new defaulted-arg version is the
+-- only one (create-or-replace can't change a function's argument list).
+drop function if exists decrement_stock_atomic(jsonb);
+
+create or replace function decrement_stock_atomic(p_items jsonb, p_force boolean default false)
 returns void
 language plpgsql
 as $$
@@ -710,8 +724,9 @@ begin
     -- Manual Status override wins on every channel. We only honour it when
     -- the row is NOT in track-quantity mode — once tracked, stock_qty is the
     -- single source of truth (a stale stock_status carried over from the
-    -- previous mode must not block a sale).
+    -- previous mode must not block a sale). Skipped entirely under p_force.
     if not coalesce(v_tracks, false) and v_status = 'out_of_stock' then
+      if p_force then continue; end if;   -- offline replay: accept, nothing to deduct
       raise exception 'INSUFFICIENT_STOCK %', v_id
         using detail = jsonb_build_object(
           'id',        v_id,
@@ -723,7 +738,7 @@ begin
 
     if not coalesce(v_tracks, false) then continue; end if;
 
-    if coalesce(v_avail, 0) < v_qty then
+    if coalesce(v_avail, 0) < v_qty and not p_force then
       raise exception 'INSUFFICIENT_STOCK %', v_id
         using detail = jsonb_build_object(
           'id',        v_id,
@@ -733,6 +748,7 @@ begin
         )::text;
     end if;
 
+    -- Under p_force this may drive stock_qty negative — intentional (see header).
     update menu_items
        set stock_qty = stock_qty - v_qty
      where id = v_id;
@@ -763,10 +779,10 @@ begin
 end;
 $$;
 
-revoke all     on function decrement_stock_atomic(jsonb) from public, anon, authenticated;
-revoke all     on function restore_stock(jsonb)          from public, anon, authenticated;
-grant execute  on function decrement_stock_atomic(jsonb) to service_role;
-grant execute  on function restore_stock(jsonb)          to service_role;
+revoke all     on function decrement_stock_atomic(jsonb, boolean) from public, anon, authenticated;
+revoke all     on function restore_stock(jsonb)                   from public, anon, authenticated;
+grant execute  on function decrement_stock_atomic(jsonb, boolean) to service_role;
+grant execute  on function restore_stock(jsonb)                   to service_role;
 
 
 -- ── Store credit + coupon atomic mutations ───────────────────────────────────

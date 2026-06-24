@@ -81,6 +81,15 @@ export async function POST(req: NextRequest) {
   // lands in the KDS ticket header but is never persisted on pos_sales).
   const body = parsed.data as unknown as Partial<POSSale> & { kitchenNote?: string };
 
+  // Offline-sale replay: a Capacitor POS rang this sale while offline (it minted
+  // an 'OFF…' receipt number) and the outbox is now replaying it on reconnect.
+  // That sale already happened — the customer paid and left — so we must NEVER
+  // reject it for availability/stock reasons (that would strand the sale and
+  // lose the money). Below we skip the hard availability rejections and force
+  // the stock decrement (oversell allowed, count may go negative as the flag).
+  // Online + live-online-Android sales (R… receipts) keep the hard limits.
+  const isOfflineReplay = typeof body.receiptNo === "string" && body.receiptNo.startsWith("OFF");
+
   // Discount + refund permission gates: only operators with the flag can
   // commit a sale that carries a non-zero discount.
   if ((body.discountAmount ?? 0) > 0) {
@@ -172,7 +181,8 @@ export async function POST(req: NextRequest) {
   const productIds = items
     .map((it) => it.productId)
     .filter((id): id is string => typeof id === "string" && id.length > 0);
-  if (productIds.length > 0) {
+  // Skipped for offline replays — the sale already happened; see isOfflineReplay.
+  if (!isOfflineReplay && productIds.length > 0) {
     const { data: menuRows } = await supabaseAdmin
       .from("menu_items")
       .select("id, name, active, channels, stock_status, track_stock")
@@ -226,7 +236,9 @@ export async function POST(req: NextRequest) {
   const stockItems: StockItem[] = items
     .map((it) => ({ id: it.productId, qty: it.quantity }))
     .filter((i) => i.id);
-  const stock = await decrementStock(stockItems);
+  // Offline replays force the decrement (oversell allowed) so they never fail to
+  // sync; online sales keep the hard limit and 409 on insufficient stock.
+  const stock = await decrementStock(stockItems, { force: isOfflineReplay });
   if (!stock.ok) {
     return NextResponse.json({ ok: false, error: stock.message }, { status: 409 });
   }

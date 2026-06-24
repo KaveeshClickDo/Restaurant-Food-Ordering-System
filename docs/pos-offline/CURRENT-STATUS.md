@@ -46,7 +46,7 @@ Bigger separate phases: Phase 2 per-terminal receipts (optional), Phase 3 stock/
 | **Merge `feat/pos-offline` → main** | Operational. **Also the permanent fix** for the recurring `client_created_at` DB error (see Gotchas). Do when ready. |
 | **Deploy a real HTTPS backend** | So the APK uses a cloud server, not the laptop. Ends the WiFi/USB/firewall hassle. |
 | **Phase 2 — per-terminal receipts** | **Optional** (readability/robustness for multi-tablet). Not a bug today. |
-| **Phase 3 — offline stock / oversell** | Only if you track inventory. |
+| **Phase 3 — offline stock / oversell** | **Reconciliation DONE (2026-06-24).** An offline sale ('OFF…' receipt) replayed by the outbox is now **never stranded** on a stock conflict: the sale route skips the hard availability rejections and force-decrements (`decrement_stock_atomic(p_items, p_force)` → oversell allowed, `stock_qty` may go **negative** as the visible "oversold offline" flag a manager reconciles). Online sales keep the hard limit. _Optional remainder:_ a best-effort **at-the-till** offline oversell guard (warn the cashier using cached counts) — not built; oversell is recorded + flagged, just not prevented live. Needs `npm run db:migrate` (done). |
 | **Phase 6 — offline printing** | **Built (2026-06-24).** Code complete (native BT/USB/TCP, offline). Pending: verify on the physical thermal printer + confirm 80/58 mm layout. |
 | Background sync worker | Limitation: offline sales sync only while the **app is open** (no background sync). |
 | Deferred 1.6 audit columns | `customers.updated_at`, `staff_was_active`, `clock_drift_seconds` + admin badges. Reporting polish. |
