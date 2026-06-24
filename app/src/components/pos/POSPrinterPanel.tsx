@@ -2,8 +2,15 @@
 
 import { useState, useEffect } from "react";
 import { useApp } from "@/context/AppContext";
-import { buildTestReceipt, sendToPrinter, sendToPrinterUSB, printReceiptBrowser } from "@/lib/escpos";
+import { buildTestReceipt, printReceiptBrowser } from "@/lib/escpos";
+import { sendReceiptToPrinter } from "@/lib/posPrint";
 import { Printer, Save, CheckCircle2, AlertTriangle, Loader2, Zap } from "lucide-react";
+
+// Chars-per-line ↔ paper width. 48 = 80 mm (countertop), 32 = 58 mm (portable).
+const PAPER_WIDTHS = [
+  { value: 48, label: "80 mm", sub: "Countertop" },
+  { value: 32, label: "58 mm", sub: "Portable" },
+] as const;
 
 const POS_CONNECTION_OPTIONS = [
   { value: "network"   as const, label: "Network / IP",  sub: "ESC/POS over TCP — same LAN as server" },
@@ -24,6 +31,7 @@ export default function POSPrinterPanel({ appSettings }: { appSettings: import("
     port:             p.port,
     bluetoothAddress: p.bluetoothAddress ?? "",
     bluetoothName:    p.bluetoothName    ?? "",
+    paperWidth:       p.paperWidth ?? 48,
   });
   const [testState,  setTestState]  = useState<"idle" | "sending" | "ok" | "error">("idle");
   const [testError,  setTestError]  = useState("");
@@ -53,49 +61,42 @@ export default function POSPrinterPanel({ appSettings }: { appSettings: import("
     setTimeout(() => setSaved(false), 3000);
   }
 
+  function applyResult(result: { ok: boolean; error?: string }) {
+    if (result.ok) { setTestState("ok"); setTimeout(() => setTestState("idle"), 5000); }
+    else           { setTestState("error"); setTestError(result.error ?? "Unknown error"); }
+  }
+
   async function handleTest() {
     setTestState("sending");
     setTestError("");
 
     const previewSettings = { ...appSettings, printer: { ...p, ...draft } };
 
-    if (draft.connection === "network") {
-      if (!draft.ip.trim()) { setTestState("error"); setTestError("Enter a printer IP address first."); return; }
-      const bytes  = buildTestReceipt(previewSettings);
-      const result = await sendToPrinter(bytes, draft.ip.trim(), draft.port);
-      if (result.ok) { setTestState("ok"); setTimeout(() => setTestState("idle"), 5000); }
-      else           { setTestState("error"); setTestError(result.error ?? "Unknown error"); }
+    // Browser mode prints an HTML page, not a byte stream — separate path.
+    if (draft.connection === "browser") {
+      const dummyOrder = {
+        id: "TEST-001", date: new Date().toISOString(),
+        items: [{ name: "Test Item", qty: 1, price: 0 }],
+        total: 0, fulfillment: "collection" as const,
+        status: "pending" as const, customerId: "", paymentMethod: "Test",
+      };
+      applyResult(printReceiptBrowser(dummyOrder, previewSettings));
       return;
     }
 
-    if (draft.connection === "bluetooth") {
-      if (!draft.bluetoothAddress.trim()) { setTestState("error"); setTestError("Select a Bluetooth device first."); return; }
-      const { sendBluetooth } = await import("@/lib/capacitorBridge");
-      const bytes  = buildTestReceipt(previewSettings);
-      const result = await sendBluetooth(draft.bluetoothAddress, bytes);
-      if (result.ok) { setTestState("ok"); setTimeout(() => setTestState("idle"), 5000); }
-      else           { setTestState("error"); setTestError(result.error ?? "Unknown error"); }
-      return;
+    // Friendly pre-checks before we bother building the receipt.
+    if (draft.connection === "network" && !draft.ip.trim()) {
+      setTestState("error"); setTestError("Enter a printer IP address first."); return;
+    }
+    if (draft.connection === "bluetooth" && !draft.bluetoothAddress.trim()) {
+      setTestState("error"); setTestError("Select a Bluetooth device first."); return;
     }
 
-    if (draft.connection === "usb") {
-      const bytes  = buildTestReceipt(previewSettings);
-      const result = await sendToPrinterUSB(bytes);
-      if (result.ok) { setTestState("ok"); setTimeout(() => setTestState("idle"), 5000); }
-      else           { setTestState("error"); setTestError(result.error ?? "Unknown error"); }
-      return;
-    }
-
-    // browser
-    const dummyOrder = {
-      id: "TEST-001", date: new Date().toISOString(),
-      items: [{ name: "Test Item", qty: 1, price: 0 }],
-      total: 0, fulfillment: "collection" as const,
-      status: "pending" as const, customerId: "", paymentMethod: "Test",
-    };
-    const result = printReceiptBrowser(dummyOrder, previewSettings);
-    if (result.ok) { setTestState("ok"); setTimeout(() => setTestState("idle"), 5000); }
-    else           { setTestState("error"); setTestError(result.error ?? "Unknown error"); }
+    // network / bluetooth / usb all go through the same native-first dispatcher,
+    // so the test exercises the EXACT path a real receipt takes (incl. offline
+    // direct-TCP / native USB on the Android app).
+    const bytes = buildTestReceipt(previewSettings);
+    applyResult(await sendReceiptToPrinter(bytes, previewSettings.printer));
   }
 
   return (
@@ -131,6 +132,26 @@ export default function POSPrinterPanel({ appSettings }: { appSettings: import("
           </button>
         ))}
       </div>
+
+      {/* Paper width (applies to all thermal modes, not browser) */}
+      {draft.connection !== "browser" && (
+        <div className="space-y-1.5">
+          <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Paper width</p>
+          <div className="grid grid-cols-2 gap-2">
+            {PAPER_WIDTHS.map(({ value, label, sub }) => (
+              <button key={value} onClick={() => setDraft((d) => ({ ...d, paperWidth: value }))}
+                className={`px-3 py-2.5 rounded-xl border transition text-sm text-left ${
+                  draft.paperWidth === value
+                    ? "border-orange-500 bg-orange-500/10 text-orange-300"
+                    : "border-slate-600 text-slate-300 hover:border-slate-500"
+                }`}>
+                <span className="font-semibold">{label}</span>
+                <span className="text-xs text-slate-400 ml-2">{sub}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Network IP fields */}
       {draft.connection === "network" && (

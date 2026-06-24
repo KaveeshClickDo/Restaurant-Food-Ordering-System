@@ -7,8 +7,10 @@ Detailed roadmap: [07-phases.md](./07-phases.md) · Decisions: [09-decisions.md]
 A **single-tablet, offline-capable Android POS** is **built and device-verified**:
 install → cold-start with no internet → offline PIN login → cached menu+images →
 ring cash/card sale → reconnect → sync. DB encrypted at rest. `main` has been
-merged in. Remaining work is multi-tablet (optional), printing (needs hardware),
-and the operational steps (merge to main, deploy a backend).
+merged in. Offline thermal printing (BT/USB/TCP, native) and offline void +
+cached dashboard are now built. Remaining work is multi-tablet (optional),
+**verifying printing on the physical printer**, and the operational steps
+(merge to main, deploy a backend).
 
 ## Per-tab offline plan
 **Wave 1 — DONE (2026-06-23, easy, no conflicts):**
@@ -19,7 +21,7 @@ and the operational steps (merge to main, deploy a backend).
 1. ✅ **Offline VOID** (Dashboard) — DONE (2026-06-23, Option A = full cancel only). Voiding a *current-session unsynced* sale drops its outbox entry (`cancelQueuedSale`); no refund/loyalty reversal (the sale never reached the server). Voiding an *already-synced* sale is blocked offline with a "needs internet" message. The void modal collapses to a single "Cancel Sale (offline)" action when offline. Bypasses the `pendingRevalidation` gate (undoing your own unsynced sale is benign).
 2. ✅ **Dashboard offline view** — DONE (2026-06-23). `fetchSales` writes a `sales_snapshot` on every success; offline it rebuilds the list from snapshot + outbox (precedence cached < outbox < current state, so nothing on screen is lost). Amber "Offline — showing cached sales / may be incomplete" banner on the dashboard.
 3. ✅ **Settings·Menu offline editing** — DONE as **read-only** (2026-06-23, commit f548ccb). No offline menu editing (avoids last-write-wins clobbering web/admin edits); "menu editing needs internet" panel.
-4. ⬜ **Settings·Hardware + offline printing** — **NEXT.** Config offline+sync (moderate); the actual thermal printing is **Phase 6** (device-local, needs the physical POS printer). This is the core reason for the native app.
+4. ✅ **Offline thermal printing** — DONE in code (2026-06-24); **needs the physical printer to verify**. POS sales now print ESC/POS to the configured printer via a **native-first dispatcher** (`src/lib/posPrint.ts`): Bluetooth (SPP), USB (native host), and Network (direct device→printer TCP) — all work **with no server (offline)** on the Android app; web falls back to the `/api/print` proxy / Web USB. New `buildPOSReceiptBytes` (POSSale→ESC/POS, width-aware, "OFFLINE SALE" label). Wired into the POS receipt modal (Print button + **auto-print on sale** when `printer.autoPrint`), and the Settings·Hardware test print now exercises the exact same path + has an **80/58 mm** selector. Native plugins (`BluetoothPrinterPlugin`/`UsbPrinterPlugin`/`TcpPrinterPlugin`) are real implementations, registered in `MainActivity`, with BT/USB-host permissions in the manifest. **No admin creds needed** — `/api/print` + `/api/email` already accept POS sessions.
 5. ✅ **Loyalty** — DONE (no-op, 2026-06-23). Earning auto-syncs on sale insert; there is **no POS-side redemption UI**, so nothing to block. Full-cancel void needs no loyalty reversal.
 6. ✅ **Finer read-only polish** — DONE (2026-06-23, commit f548ccb). Staff Edit/Delete + toggle handlers and Customers Edit are disabled offline.
 
@@ -45,7 +47,7 @@ Bigger separate phases: Phase 2 per-terminal receipts (optional), Phase 3 stock/
 | **Deploy a real HTTPS backend** | So the APK uses a cloud server, not the laptop. Ends the WiFi/USB/firewall hassle. |
 | **Phase 2 — per-terminal receipts** | **Optional** (readability/robustness for multi-tablet). Not a bug today. |
 | **Phase 3 — offline stock / oversell** | Only if you track inventory. |
-| **Phase 6 — offline printing** | Needs a physical thermal printer (BT/USB/TCP). |
+| **Phase 6 — offline printing** | **Built (2026-06-24).** Code complete (native BT/USB/TCP, offline). Pending: verify on the physical thermal printer + confirm 80/58 mm layout. |
 | Background sync worker | Limitation: offline sales sync only while the **app is open** (no background sync). |
 | Deferred 1.6 audit columns | `customers.updated_at`, `staff_was_active`, `clock_drift_seconds` + admin badges. Reporting polish. |
 | Encrypt-cache hardening note | bcrypt hashes are in the (now encrypted) DB — good. |

@@ -130,9 +130,10 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
         />
       )}
 
-      {/* Receipt modal */}
+      {/* Receipt modal — autoPrint: fires the configured thermal printer once,
+          straight after the sale (only on this post-sale instance). */}
       {completedSale && (
-        <ReceiptModal sale={completedSale} onClose={() => setCompletedSale(null)} />
+        <ReceiptModal sale={completedSale} onClose={() => setCompletedSale(null)} autoPrint />
       )}
 
       {/* Discount modal */}
