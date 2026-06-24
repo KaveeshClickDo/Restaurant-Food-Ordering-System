@@ -19,8 +19,8 @@ export const runtime = "nodejs";
 
 const BUCKET = "signage-images";
 // Keep in sync with MAX_SIGNAGE_BYTES in app/src/lib/uploadImage.ts.
-const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
-const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"];
+const MAX_BYTES = 25 * 1024 * 1024; // 25 MB
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif", "video/mp4", "video/webm", "video/quicktime"];
 
 // Created lazily on first upload so the system works on any deployment without
 // a separate storage migration. Cached per server instance.
@@ -36,6 +36,15 @@ async function ensureBucket(): Promise<void> {
     });
     // Tolerate the create/create race between two concurrent first uploads.
     if (error && !/exist/i.test(error.message)) throw new Error(error.message);
+  }
+  else {
+    // FIX: Bucket exists! We must update it to allow the new video MIME types and 50MB limit
+    const { error } = await supabaseAdmin.storage.updateBucket(BUCKET, {
+      public: true,
+      fileSizeLimit: MAX_BYTES,
+      allowedMimeTypes: ALLOWED_TYPES,
+    });
+    if (error) console.warn("Failed to update bucket permissions:", error);
   }
   bucketReady = true;
 }
@@ -56,13 +65,13 @@ export async function POST(req: NextRequest) {
   }
   if (!ALLOWED_TYPES.includes(file.type)) {
     return NextResponse.json(
-      { ok: false, error: "Unsupported image type. Use JPEG, PNG, WebP, GIF or AVIF." },
+      { ok: false, error: "Unsupported image type. Use JPEG, PNG, WebP, GIF, AVIF, MP4, or WebM." },
       { status: 415 },
     );
   }
   if (file.size > MAX_BYTES) {
     return NextResponse.json(
-      { ok: false, error: `Image is too large (${(file.size / 1024 / 1024).toFixed(2)} MB). Maximum is 5 MB.` },
+      { ok: false, error: `Image is too large (${(file.size / 1024 / 1024).toFixed(2)} MB). Maximum is 25 MB.` },
       { status: 413 },
     );
   }

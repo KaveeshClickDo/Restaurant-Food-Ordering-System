@@ -29,7 +29,7 @@ export async function DELETE(
   // Look up the item so the server — not the client — decides delete vs. unlist.
   const { data: row, error: lookupErr } = await supabaseAdmin
     .from("menu_items")
-    .select("id, name, channels")
+    .select("id, name, image, channels") 
     .eq("id", id)
     .maybeSingle();
 
@@ -50,7 +50,7 @@ export async function DELETE(
   const alsoOnline = channels.includes("online");
 
   if (alsoOnline) {
-    // Keep it online; just take it off the till. Never let channels go empty.
+    // Keep it online; just take it off the till. Image stays in bucket.
     const next = channels.filter((c) => c !== "in_store");
     const finalChannels = next.length > 0 ? next : ["online"];
     const { error } = await supabaseAdmin
@@ -70,5 +70,14 @@ export async function DELETE(
     console.error(`DELETE /api/pos/menu/${id} delete:`, error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
+
+  // CLEANUP: Wipe image from bucket
+  if (row.image) {
+    const parts = row.image.split("/menu-images/");
+    if (parts.length > 1) {
+      await supabaseAdmin.storage.from("menu-images").remove([parts[1]]);
+    }
+  }
+
   return NextResponse.json({ ok: true, action: "deleted" });
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { uuid } from "@/lib/uuid";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { Category, MealPeriod, MenuItem, Variation, AddOn, MenuItemOffer } from "@/types";
 import {
@@ -16,7 +16,7 @@ import {
   FolderOpen,
 } from "lucide-react";
 import { resolveStock, stockLabel, LOW_STOCK_THRESHOLD } from "@/lib/stockUtils";
-import { uploadMenuImage, MAX_IMAGE_LABEL } from "@/lib/uploadImage";
+import { uploadMenuImage, MAX_IMAGE_LABEL, deleteMenuImage } from "@/lib/uploadImage";
 import type { StockStatus } from "@/types";
 
 // Bug #2 — POS / admin field parity. A small handful of preset accent
@@ -772,7 +772,7 @@ export default function MenuManagementPanel() {
           existingNames={menuItems
             .filter((i) => i.id !== editingItem.id)
             .map((i) => i.name.trim().toLowerCase())}
-          onSave={(item) => {
+          onSave={async (item) => {
             // `editingItem` is the snapshot taken when the modal opened — we
             // diff against THIS, not against `menuItems.find(...)`. Live
             // realtime updates can drop the counter mid-edit (a customer's
@@ -781,10 +781,13 @@ export default function MenuManagementPanel() {
             // the sale.
             const snapshot = editingItem;
             const isExistingItem = !!menuItems.find((i) => i.id === item.id);
+            // Capture whether the menu write actually landed — the modal uses
+            // this to decide if it's safe to delete the replaced image file.
+            let ok: boolean;
             if (isExistingItem) {
               // General fields go through the standard PUT — the route strips
               // stock fields, so the live counter is safe from a stale form.
-              updateMenuItem(item);
+              ok = await updateMenuItem(item);
 
               // Stock writes go through the dedicated endpoint, but ONLY when
               // the admin actually changed something in the stock tab. Without
@@ -815,9 +818,10 @@ export default function MenuManagementPanel() {
             } else {
               // New item — POST includes stock fields atomically. No separate
               // stock PUT needed (and the PUT would race the insert).
-              addMenuItem(item);
+              ok = await addMenuItem(item);
             }
             setEditingItem(null);
+            return ok;
           }}
           onClose={() => setEditingItem(null)}
         />
@@ -1125,7 +1129,7 @@ function ItemModal({
   item, categories, mealPeriods, isNew, existingNames, onSave, onClose,
 }: {
   item: MenuItem; categories: Category[]; mealPeriods: MealPeriod[]; isNew: boolean;
-  existingNames: string[]; onSave: (i: MenuItem) => void; onClose: () => void;
+  existingNames: string[]; onSave: (i: MenuItem) => Promise<boolean>; onClose: () => void;
 }) {
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
@@ -1133,6 +1137,13 @@ function ItemModal({
   const [tab, setTab] = useState<"basic" | "channels" | "variations" | "addons" | "offer" | "stock">("basic");
   const [imgError, setImgError] = useState("");
   const [uploading, setUploading] = useState(false);
+
+  // ── Session Tracking ──
+  // The image URL that existed when the modal opened
+  const initialImageUrl = useRef(item.image);
+  // All URLs uploaded to the bucket during THIS modal session
+  const [sessionUploads, setSessionUploads] = useState<string[]>([]);
+
 
   const channels = form.channels ?? ["in_store", "online"];
   const onOnline = channels.includes("online");
@@ -1214,8 +1225,46 @@ function ItemModal({
   const nameTaken = !!form.name.trim() && existingNames.includes(form.name.trim().toLowerCase());
   const isValid = form.name.trim() && form.price >= 0 && form.categoryId && !nameTaken;
 
+  // Cleanup function for when the user hits 'Cancel' or closes the modal
+  const handleCancel = useCallback(async () => {
+    // Delete every single file uploaded during this session
+    await Promise.all(sessionUploads.map(url => deleteMenuImage(url)));
+    onClose();
+  }, [sessionUploads, onClose]);
+
+  const handleSave = async () => {
+    // Intermediate uploads the user discarded are never referenced by the DB,
+    // so they're always safe to delete regardless of whether the save lands.
+    const unusedUploads = sessionUploads.filter(url => url !== form.image);
+    await Promise.all(unusedUploads.map(url => deleteMenuImage(url)));
+
+    // Persist FIRST, then only delete the replaced image once the write is
+    // confirmed — otherwise a failed save leaves the DB pointing at an image
+    // we'd have already deleted from the bucket (broken image on reload).
+    const ok = await onSave(form);
+    if (ok && form.image !== initialImageUrl.current && initialImageUrl.current) {
+      deleteMenuImage(initialImageUrl.current);
+    }
+  };
+
+
+  async function handleFileUpload(file: File) {
+    setImgError("");
+    setUploading(true);
+    try {
+      const url = await uploadMenuImage(file);
+      setForm((f) => ({ ...f, image: url }));
+      // Track this URL so we can delete it if the user cancels
+      setSessionUploads(prev => [...prev, url]);
+    } catch (err) {
+      setImgError(err instanceof Error ? err.message : "Upload failed.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
-    <ModalShell title={isNew ? "Add menu item" : "Edit menu item"} onClose={onClose} wide>
+    <ModalShell title={isNew ? "Add menu item" : "Edit menu item"} onClose={handleCancel} wide closeOnOutsideClick={false}>
       {/* Tabs */}
       <div className="flex flex-wrap gap-1 mb-5 bg-gray-100 rounded-xl p-1">
         {(["basic", "channels", "variations", "addons", "offer", "stock"] as const).map((t) => (
@@ -1374,20 +1423,10 @@ function ItemModal({
                       accept="image/*"
                       className="hidden"
                       disabled={uploading}
-                      onChange={async (e) => {
+                      onChange={(e) => {
                         const file = e.target.files?.[0];
-                        e.target.value = ""; // let the same file be re-picked after an error
-                        if (!file) return;
-                        setImgError("");
-                        setUploading(true);
-                        try {
-                          const url = await uploadMenuImage(file);
-                          setForm((f) => ({ ...f, image: url }));
-                        } catch (err) {
-                          setImgError(err instanceof Error ? err.message : "Upload failed.");
-                        } finally {
-                          setUploading(false);
-                        }
+                        if (file) handleFileUpload(file);
+                        e.target.value = "";
                       }}
                     />
                   </label>
@@ -1944,10 +1983,10 @@ function ItemModal({
       )}
 
       <div className="flex gap-3 mt-6 pt-4 border-t border-gray-100">
-        <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition">Cancel</button>
+        <button onClick={handleCancel} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition">Cancel</button>
         <button
-          onClick={() => isValid && onSave(form)}
-          disabled={!isValid}
+          onClick={handleSave}
+          disabled={!isValid || uploading}
           className="flex-1 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-sm font-semibold transition"
         >
           {isNew ? "Add item" : "Save changes"}
@@ -2456,13 +2495,13 @@ function OfferEditor({
 // ─── Modal Shell ─────────────────────────────────────────────────────────────
 
 function ModalShell({
-  title, onClose, children, wide = false,
+  title, onClose, children, wide = false, closeOnOutsideClick = true,
 }: {
-  title: string; onClose: () => void; children: React.ReactNode; wide?: boolean;
+  title: string; onClose: () => void; children: React.ReactNode; wide?: boolean; closeOnOutsideClick?: boolean;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={closeOnOutsideClick ? onClose : undefined} />
       <div className={`relative bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full flex flex-col max-h-[90vh] overflow-hidden ${wide ? "sm:max-w-2xl" : "sm:max-w-md"}`}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
           <h3 className="font-bold text-gray-900">{title}</h3>
