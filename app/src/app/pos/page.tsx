@@ -106,6 +106,26 @@ function POSPageContent() {
     drainOutbox().catch(() => {});
   }, [onAndroid, isOnline]);
 
+  // ── Sync on app open / resume ─────────────────────────────────────────────
+  // We deliberately don't run a closed-app background worker (the outbox lives
+  // in encrypted SQLite a native worker can't read — see docs/pos-offline).
+  // Instead, queued sales upload whenever the cashier opens or returns to the
+  // app: the cold-open drain is covered by the effect above (isOnline starts
+  // true); this covers a WARM RESUME from the background, where isOnline never
+  // transitions so that effect wouldn't refire. We re-probe connectivity, and
+  // only drain when we currently believe we're online — draining while offline
+  // would burn the per-entry retry budget for nothing.
+  useEffect(() => {
+    if (!onAndroid) return;
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      recheck();                                    // refresh connectivity now
+      if (isOnline) drainOutbox().catch(() => {});  // drain queued sales if reachable
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [onAndroid, isOnline, recheck]);
+
   // If connectivity drops while on a tab that can't work offline, bounce to Sale.
   useEffect(() => {
     if (!isOnline && OFFLINE_BLOCKED_VIEWS.has(view)) setView("sale");
