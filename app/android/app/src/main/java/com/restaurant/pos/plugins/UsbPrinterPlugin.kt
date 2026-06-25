@@ -1,8 +1,14 @@
 package com.restaurant.pos.plugins
 
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.hardware.usb.UsbConstants
+import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
+import android.os.Build
 import android.util.Base64
 import android.util.Log
 import com.getcapacitor.JSArray
@@ -25,18 +31,25 @@ import kotlinx.coroutines.launch
  *   Capacitor.Plugins.UsbPrinter.getDevices()
  *     → { devices: [{ name: string, deviceId: number }] }
  *
- *   Capacitor.Plugins.UsbPrinter.print({ bytes: number[], deviceId?: number })
+ *   Capacitor.Plugins.UsbPrinter.print({ data: string (base64), deviceId?: number })
  *     → void (throws on failure)
  *
- * Permissions required in AndroidManifest.xml:
- *   <uses-feature android:name="android.hardware.usb.host" />
- *   USB permission is requested at runtime via UsbManager.requestPermission().
+ * Permission flow: USB access needs a per-device runtime permission. If it isn't
+ * already granted, print() pops the system "Allow app to access the USB device?"
+ * dialog via UsbManager.requestPermission(), waits for the result on a broadcast
+ * receiver, then prints on grant. (Previously it only CHECKED permission and gave
+ * up — so USB never worked.)
  *
- * Note: USB Host is not available on all Android devices (phones often lack it).
- * It is available on all dedicated POS hardware (Sunmi, PAX, Imin) and most tablets.
+ * Manifest: <uses-feature android:name="android.hardware.usb.host" />
+ * Note: USB Host is not available on all Android devices (some phones lack it);
+ * it's available on dedicated POS hardware and most tablets, via a USB-OTG cable.
  */
 @CapacitorPlugin(name = "UsbPrinter")
 class UsbPrinterPlugin : Plugin() {
+
+    companion object {
+        private const val ACTION_USB_PERMISSION = "com.restaurant.pos.USB_PERMISSION"
+    }
 
     private fun getUsbManager(): UsbManager =
         context.getSystemService(Context.USB_SERVICE) as UsbManager
@@ -63,9 +76,7 @@ class UsbPrinterPlugin : Plugin() {
     }
 
     /**
-     * Write ESC/POS bytes to the USB printer.
-     * Selects the first available USB device if deviceId is not specified.
-     * Uses bulk transfer to the first OUT endpoint on interface 0.
+     * Decode the payload, pick the device, ensure permission, then write.
      */
     @PluginMethod
     fun print(call: PluginCall) {
@@ -91,28 +102,84 @@ class UsbPrinterPlugin : Plugin() {
         }
         if (data.isEmpty()) { call.reject("nothing to print (empty data)"); return }
 
+        val manager    = getUsbManager()
+        val deviceList = manager.deviceList
+        if (deviceList.isEmpty()) {
+            call.reject("No USB devices connected. Plug the printer in via a USB-OTG cable.")
+            return
+        }
+
+        val device = if (requestedId != null) {
+            deviceList.values.firstOrNull { it.deviceId == requestedId }
+                ?: run { call.reject("USB device $requestedId not found"); return }
+        } else {
+            deviceList.values.first()
+        }
+
+        if (manager.hasPermission(device)) {
+            writeToDevice(device, data, call)
+        } else {
+            // Show the system permission dialog, then print on grant.
+            requestUsbPermission(device) { granted ->
+                if (granted) {
+                    writeToDevice(device, data, call)
+                } else {
+                    call.reject("USB permission denied. Tap “OK/Allow” on the dialog, then print again.")
+                }
+            }
+        }
+    }
+
+    /**
+     * Pop the system "Allow app to access the USB device?" dialog and deliver the
+     * user's choice to [onResult]. Registers a one-shot receiver for the result.
+     */
+    private fun requestUsbPermission(device: UsbDevice, onResult: (Boolean) -> Unit) {
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            PendingIntent.FLAG_MUTABLE // USB system fills in EXTRA_DEVICE/EXTRA_PERMISSION_GRANTED
+        } else {
+            0
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            0,
+            Intent(ACTION_USB_PERMISSION).setPackage(context.packageName),
+            flags,
+        )
+
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                if (intent.action != ACTION_USB_PERMISSION) return
+                try { context.unregisterReceiver(this) } catch (_: Exception) {}
+                val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+                Log.d("UsbPrinter", "USB permission ${if (granted) "granted" else "denied"}")
+                onResult(granted)
+            }
+        }
+
+        val filter = IntentFilter(ACTION_USB_PERMISSION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            context.registerReceiver(receiver, filter)
+        }
+
+        Log.d("UsbPrinter", "requesting USB permission for ${device.deviceName}")
+        getUsbManager().requestPermission(device, pendingIntent)
+    }
+
+    /**
+     * Open the device, claim interface 0, find the bulk-OUT endpoint, and write the
+     * ESC/POS bytes. Runs off the main thread.
+     */
+    private fun writeToDevice(device: UsbDevice, data: ByteArray, call: PluginCall) {
         CoroutineScope(Dispatchers.IO).launch {
-            val manager    = getUsbManager()
-            val deviceList = manager.deviceList
+            val manager = getUsbManager()
 
-            if (deviceList.isEmpty()) {
-                call.reject("No USB devices connected")
-                return@launch
-            }
-
-            // Find device by ID, or use first available
-            val device = if (requestedId != null) {
-                deviceList.values.firstOrNull { it.deviceId == requestedId }
-                    ?: run { call.reject("USB device $requestedId not found"); return@launch }
-            } else {
-                deviceList.values.first()
-            }
-
+            // Permission can be revoked between request and open — re-check.
             if (!manager.hasPermission(device)) {
-                call.reject(
-                    "USB permission not granted for ${device.deviceName}. " +
-                    "Grant permission via the Android USB permission dialog."
-                )
+                call.reject("USB permission not granted for ${device.deviceName}")
                 return@launch
             }
 
@@ -126,7 +193,10 @@ class UsbPrinterPlugin : Plugin() {
                 // Find bulk OUT endpoint (direction = host→device)
                 val endpoint = (0 until iface.endpointCount)
                     .map { iface.getEndpoint(it) }
-                    .firstOrNull { it.direction == UsbConstants.USB_DIR_OUT && it.type == UsbConstants.USB_ENDPOINT_XFER_BULK }
+                    .firstOrNull {
+                        it.direction == UsbConstants.USB_DIR_OUT &&
+                        it.type == UsbConstants.USB_ENDPOINT_XFER_BULK
+                    }
                     ?: run {
                         call.reject(
                             "No bulk OUT endpoint found. This device may not be an ESC/POS printer, " +
@@ -140,6 +210,7 @@ class UsbPrinterPlugin : Plugin() {
                 if (transferred < 0) {
                     call.reject("USB bulk transfer failed (returned $transferred). Is the printer ready?")
                 } else {
+                    Log.d("UsbPrinter", "wrote $transferred bytes OK")
                     call.resolve()
                 }
             } catch (e: Exception) {
