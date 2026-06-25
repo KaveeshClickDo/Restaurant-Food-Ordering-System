@@ -17,14 +17,39 @@ const ESC = 0x1b;
 const GS  = 0x1d;
 const LF  = 0x0a;
 
+// Currency/symbols that exist in code page CP437 (the printer is set to CP437 in
+// ReceiptBuilder.init()). The currency symbol is admin-configurable, so the text
+// encoder maps these to their CP437 byte instead of dropping them to '?'.
+const CP437_SYMBOL: Record<string, number> = {
+  "£": 0x9c, // pound
+  "¥": 0x9d, // yen
+  "¢": 0x9b, // cent
+  "₧": 0x9e, // peseta
+};
+
+// Symbols CP437 has NO glyph for (euro, rupee, etc.) — fall back to a short ASCII
+// code so the price stays legible (e.g. "EUR 7.95") rather than printing garbage.
+const ASCII_CURRENCY_FALLBACK: Record<string, string> = {
+  "€": "EUR ",
+  "₹": "Rs ",
+  "₩": "KRW ",
+  "₺": "TRY ",
+  "฿": "THB ",
+  "₪": "ILS ",
+  "₱": "PHP ",
+};
+
 // ─── Receipt builder ─────────────────────────────────────────────────────────
 
 export class ReceiptBuilder {
   private buf: number[] = [];
 
-  /** ESC @ — reset printer to factory defaults */
+  /** ESC @ — reset printer to factory defaults, then select CP437 so the £
+   *  sign (mapped to 0x9C in text()) prints correctly. CP437 is the default
+   *  code page on virtually all ESC/POS printers; ESC t 0 makes it explicit. */
   init() {
     this.buf.push(ESC, 0x40);
+    this.buf.push(ESC, 0x74, 0x00); // ESC t 0 — code page CP437
     return this;
   }
 
@@ -51,11 +76,23 @@ export class ReceiptBuilder {
     return this;
   }
 
-  /** Append raw ASCII text (non-ASCII chars mapped to '?') */
+  /**
+   * Append text for a CP437 printer (see init()). The currency symbol is
+   * ADMIN-CONFIGURABLE, so this must handle any symbol, not just £:
+   *   • ASCII (incl. $)            → passes straight through
+   *   • symbols CP437 has (£ ¥ ¢)  → their CP437 byte, so they print correctly
+   *   • symbols CP437 lacks (€ ₹…) → a short ASCII code ("EUR", "Rs"), still legible
+   *   • anything else              → '?'
+   */
   text(str: string) {
     for (const ch of str) {
       const code = ch.charCodeAt(0);
-      this.buf.push(code < 128 ? code : 0x3f); // '?' for multibyte
+      if (code < 128) { this.buf.push(code); continue; }
+      const cp = CP437_SYMBOL[ch];
+      if (cp !== undefined) { this.buf.push(cp); continue; }
+      const fb = ASCII_CURRENCY_FALLBACK[ch];
+      if (fb) { for (const c of fb) this.buf.push(c.charCodeAt(0)); continue; }
+      this.buf.push(0x3f); // '?'
     }
     return this;
   }
