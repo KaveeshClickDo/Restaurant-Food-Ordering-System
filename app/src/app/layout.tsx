@@ -21,6 +21,15 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://demo.directdine.te
 // dependencies that confuse the Turbopack module graph.
 
 async function getDbSettings(): Promise<Record<string, unknown> | null> {
+  // Capacitor build only: skip this fetch. The Capacitor app is a STATIC EXPORT,
+  // so this server fetch would be frozen into the bundle at build time — a stale
+  // settings snapshot that also bakes ONE restaurant's config (printer/branding)
+  // into what should be a shared APK. The app instead loads settings at runtime
+  // (server fetch when online + on-device SQLite cache when offline), so there's
+  // nothing to gain by baking them. Returning null → AppProvider starts from
+  // clean defaults. The website build (CAPACITOR_BUILD unset) keeps the
+  // per-request fetch below for flash-free first paint — unchanged.
+  if (process.env.CAPACITOR_BUILD === "1") return null;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !serviceKey) return null;
