@@ -2,6 +2,7 @@
 
 import { uuid } from "@/lib/uuid";
 import { isCapacitorAndroid } from "@/lib/capacitorBridge";
+import { apiBase } from "@/lib/apiBase";
 import { kvGet, kvSet } from "@/lib/posLocalDb";
 
 // On-device settings snapshot for the offline POS tablet (Capacitor-only;
@@ -1004,7 +1005,12 @@ export function AppProvider({
   const updateSettingsViaPos = useCallback((patch: Partial<AdminSettings>) =>
     setSettings((prev) => {
       const next = { ...prev, ...patch };
-      fetch("/api/pos/settings", {
+      // apiBase() is REQUIRED here: this runs inside the bundled Capacitor POS,
+      // where a relative "/api/pos/settings" resolves to the app bundle's own
+      // origin (capacitor://localhost) and 404s — the PATCH would silently never
+      // reach the server, so a printer/general/receipt change made on the tablet
+      // updated only local state and never synced to other devices. See apiBase.ts.
+      fetch(apiBase() + "/api/pos/settings", {
         method:  "PATCH",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(patch),
