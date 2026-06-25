@@ -9,6 +9,7 @@ import { Mail, CheckCircle2, RefreshCw, Printer, AlertTriangle } from "lucide-re
 import { fmt, fmtDate, fmtTime, isOfflineSale } from "./_utils";
 import { buildReceiptHtml } from "./_receipts";
 import { printPOSSale } from "@/lib/posPrint";
+import { isCapacitorAndroid } from "@/lib/capacitorBridge";
 
 export default function ReceiptModal(
   { sale, onClose, autoPrint = false }: { sale: POSSale; onClose: () => void; autoPrint?: boolean },
@@ -22,6 +23,9 @@ export default function ReceiptModal(
   const [printStatus, setPrintStatus] = useState<"idle" | "printing" | "ok" | "error">("idle");
   const [printError, setPrintError] = useState("");
   const sym = settings.currencySymbol;
+  // window.print() is a no-op inside the Android WebView, so on Android we never
+  // fall back to it — we surface an actionable message instead.
+  const onAndroid = isCapacitorAndroid();
 
   // Prefer the restaurant name from admin branding settings (single source of truth)
   const effectiveName = appSettings.restaurant?.name || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant";
@@ -75,7 +79,24 @@ export default function ReceiptModal(
     setPrintStatus("printing");
     setPrintError("");
     const r = await printPOSSale(sale, settings, appSettings.printer, effectiveName);
-    if (r.browser) { setPrintStatus("idle"); window.print(); return; }
+    if (r.browser) {
+      // No thermal printer configured (or "browser" mode). On a desktop browser
+      // window.print() opens the OS print dialog; inside the Android WebView it
+      // does nothing — so on the tablet, tell the cashier what to do instead of
+      // silently failing.
+      if (onAndroid) {
+        setPrintStatus("error");
+        setPrintError(
+          appSettings.printer?.enabled
+            ? "Printer set to “browser” mode, which isn’t available on the tablet. Pick Bluetooth, USB, or Network in Settings → Hardware."
+            : "No printer configured. Set one up in Settings → Hardware.",
+        );
+      } else {
+        setPrintStatus("idle");
+        window.print();
+      }
+      return;
+    }
     if (r.ok) {
       setPrintStatus("ok");
       setTimeout(() => setPrintStatus("idle"), 4000);
@@ -83,7 +104,7 @@ export default function ReceiptModal(
       setPrintStatus("error");
       setPrintError(r.error ?? "Printing failed.");
     }
-  }, [sale, settings, appSettings.printer, effectiveName]);
+  }, [sale, settings, appSettings.printer, effectiveName, onAndroid]);
 
   // Auto-print once when the receipt opens straight after a sale (autoPrint
   // prop), but only for real thermal modes the cashier configured — never
@@ -286,9 +307,13 @@ export default function ReceiptModal(
             <AlertTriangle size={13} className="text-red-600 shrink-0 mt-0.5" />
             <div className="min-w-0">
               <p className="text-red-700 text-xs break-all">{printError}</p>
-              <button onClick={() => window.print()} className="text-red-600 text-xs font-semibold underline mt-0.5">
-                Print via browser instead
-              </button>
+              {/* window.print() only works on a desktop browser, not the Android
+                  WebView — so only offer it off-Android. */}
+              {!onAndroid && (
+                <button onClick={() => window.print()} className="text-red-600 text-xs font-semibold underline mt-0.5">
+                  Print via browser instead
+                </button>
+              )}
             </div>
           </div>
         )}

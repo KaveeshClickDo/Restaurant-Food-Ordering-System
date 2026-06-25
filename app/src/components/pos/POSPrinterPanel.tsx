@@ -42,7 +42,12 @@ export default function POSPrinterPanel({ appSettings }: { appSettings: import("
 
   useEffect(() => {
     import("@/lib/capacitorBridge").then(({ isCapacitorAndroid }) => {
-      setOnAndroid(isCapacitorAndroid());
+      const android = isCapacitorAndroid();
+      setOnAndroid(android);
+      // "Browser print" (window.print()) is a no-op in the Android WebView, so we
+      // hide that option on the tablet. If a previous/default config selected it,
+      // fall back to a real transport so the cashier isn't stuck on a dead mode.
+      if (android) setDraft((d) => (d.connection === "browser" ? { ...d, connection: "network" } : d));
     });
   }, []);
 
@@ -120,7 +125,7 @@ export default function POSPrinterPanel({ appSettings }: { appSettings: import("
       {/* Connection type */}
       <div className="space-y-1.5">
         <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Connection</p>
-        {POS_CONNECTION_OPTIONS.map(({ value, label, sub }) => (
+        {POS_CONNECTION_OPTIONS.filter((o) => !onAndroid || o.value !== "browser").map(({ value, label, sub }) => (
           <button key={value} onClick={() => setDraft((d) => ({ ...d, connection: value }))}
             className={`w-full text-left px-3 py-2.5 rounded-xl border transition text-sm ${
               draft.connection === value
