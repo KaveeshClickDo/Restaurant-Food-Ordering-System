@@ -13,7 +13,7 @@
 
 import { execSync } from "node:child_process";
 import {
-  existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync,
+  existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync,
 } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,6 +21,29 @@ import { fileURLToPath } from "node:url";
 const appDir       = join(dirname(fileURLToPath(import.meta.url)), "..");
 const routesDir    = join(appDir, "src", "app");
 const quarantine   = join(appDir, ".cap-quarantine");
+
+// Minimal .env parser for the APK-only env file (KEY=VALUE, "#" comments).
+// Dependency-free. These values are merged into the build env below and — because
+// Next does NOT override already-set process.env vars — they win over .env.local.
+// That's how the APK build targets PRODUCTION Supabase without touching the dev
+// env used by `npm run dev` / the website build.
+function loadEnvFile(path) {
+  const out = {};
+  if (!existsSync(path)) return out;
+  for (let raw of readFileSync(path, "utf8").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq === -1) continue;
+    const key = line.slice(0, eq).trim();
+    let val = line.slice(eq + 1).trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    if (key) out[key] = val;
+  }
+  return out;
+}
 
 // Everything the POS export needs. Anything in src/app NOT listed here is moved
 // out before the build and moved back after.
@@ -74,12 +97,30 @@ try {
   // the deployed backend. Inline CAPACITOR_API_URL as NEXT_PUBLIC_API_BASE_URL.
   // (Deliberately NOT CAPACITOR_SERVER_URL — that var flips capacitor.config.ts
   // into server mode at `npx cap sync`, the opposite of a bundled build.)
-  const apiUrl = (process.env.CAPACITOR_API_URL ?? "").replace(/\/$/, "");
+  // APK-only env: app/.env.capacitor OVERRIDES .env.local for THIS build only.
+  // Put the PRODUCTION values here (CAPACITOR_API_URL + NEXT_PUBLIC_SUPABASE_URL
+  // + NEXT_PUBLIC_SUPABASE_ANON_KEY) so the installed app's /api calls AND its
+  // direct Supabase reads/realtime both hit prod — without changing the dev
+  // env used by `npm run dev` / the website. NEVER put SUPABASE_SERVICE_ROLE_KEY
+  // here; it must never ship in a client.
+  const capEnv  = loadEnvFile(join(appDir, ".env.capacitor"));
+  const capKeys = Object.keys(capEnv);
+  if (capKeys.length) {
+    console.log(`[build:capacitor] loaded .env.capacitor (${capKeys.length} vars): ${capKeys.join(", ")}`);
+  } else {
+    console.warn(
+      "[build:capacitor] no app/.env.capacitor found — using .env.local. That's fine " +
+      "for LOCAL testing, but a PROD APK should have .env.capacitor with prod values.",
+    );
+  }
+
+  // CAPACITOR_API_URL can come from .env.capacitor or the shell (shell wins if both).
+  const apiUrl = (process.env.CAPACITOR_API_URL ?? capEnv.CAPACITOR_API_URL ?? "").replace(/\/$/, "");
   if (!apiUrl) {
     console.warn(
       "[build:capacitor] WARNING: CAPACITOR_API_URL not set — apiBase() will be " +
-      "empty, so the bundled APK cannot reach the backend. Set it for a real " +
-      "build, e.g. CAPACITOR_API_URL=https://yourapp.vercel.app npm run build:capacitor",
+      "empty, so the bundled APK cannot reach the backend. Set it in .env.capacitor " +
+      "(CAPACITOR_API_URL=https://demo.directdine.tech) or the shell.",
     );
   }
 
@@ -88,6 +129,7 @@ try {
     stdio: "inherit",
     env: {
       ...process.env,
+      ...capEnv,                 // APK-only overrides (prod Supabase, API URL)
       CAPACITOR_BUILD: "1",
       NEXT_PUBLIC_API_BASE_URL: apiUrl,
     },
