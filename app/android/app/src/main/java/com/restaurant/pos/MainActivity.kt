@@ -1,5 +1,8 @@
 package com.restaurant.pos
 
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.getcapacitor.BridgeActivity
 import com.restaurant.pos.plugins.BluetoothPrinterPlugin
 import com.restaurant.pos.plugins.UsbPrinterPlugin
@@ -45,5 +48,30 @@ class MainActivity : BridgeActivity() {
         // renders at the CSS-pixel canvas we asked for and scales to fit.
         bridge.webView.settings.useWideViewPort = true
         bridge.webView.settings.loadWithOverviewMode = true
+
+        // Immersive full-screen: hide the system status bar (clock/battery/
+        // notifications) AND the bottom navigation bar so the POS uses the whole
+        // screen — the kiosk look, and it removes the status-bar overlap on
+        // Android 15 (which forces edge-to-edge). The bars reappear transiently
+        // on an edge swipe, then auto-hide again.
+        hideSystemBars()
+    }
+
+    // The system can re-show the bars after a dialog, the soft keyboard, or the
+    // app regaining focus. Re-hide whenever we get focus back so full-screen is
+    // sticky.
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) hideSystemBars()
+    }
+
+    private fun hideSystemBars() {
+        // Let the content draw edge-to-edge behind where the bars were.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        val controller = WindowInsetsControllerCompat(window, window.decorView)
+        controller.hide(WindowInsetsCompat.Type.systemBars())
+        // Swipe from an edge reveals the bars temporarily, then they hide again.
+        controller.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     }
 }
