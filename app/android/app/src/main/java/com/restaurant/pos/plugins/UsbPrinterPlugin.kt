@@ -3,6 +3,8 @@ package com.restaurant.pos.plugins
 import android.content.Context
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbManager
+import android.util.Base64
+import android.util.Log
 import com.getcapacitor.JSArray
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
@@ -68,18 +70,26 @@ class UsbPrinterPlugin : Plugin() {
     @PluginMethod
     fun print(call: PluginCall) {
         val requestedId = if (call.hasOption("deviceId")) call.getInt("deviceId") else null
-        val bytesArray  = call.getArray("bytes")
 
-        if (bytesArray == null || bytesArray.length() == 0) {
-            call.reject("bytes array is required and must not be empty")
-            return
+        // Preferred input is base64 `data` (reliable across the bridge); fall back
+        // to the legacy `bytes` number[].
+        val data: ByteArray = run {
+            val b64 = call.getString("data")
+            if (!b64.isNullOrEmpty()) {
+                try { Base64.decode(b64, Base64.DEFAULT) } catch (e: Exception) {
+                    call.reject("invalid base64 data", e); return
+                }
+            } else {
+                val arr = call.getArray("bytes")
+                if (arr == null || arr.length() == 0) {
+                    call.reject("data (base64) or bytes array is required"); return
+                }
+                val out = ByteArray(arr.length())
+                for (i in 0 until arr.length()) out[i] = arr.getInt(i).toByte()
+                out
+            }
         }
-
-        val byteList = mutableListOf<Byte>()
-        for (i in 0 until bytesArray.length()) {
-            byteList.add(bytesArray.getInt(i).toByte())
-        }
-        val data = byteList.toByteArray()
+        if (data.isEmpty()) { call.reject("nothing to print (empty data)"); return }
 
         CoroutineScope(Dispatchers.IO).launch {
             val manager    = getUsbManager()
@@ -125,6 +135,7 @@ class UsbPrinterPlugin : Plugin() {
                         return@launch
                     }
 
+                Log.d("UsbPrinter", "writing ${data.size} bytes to ${device.deviceName}")
                 val transferred = connection.bulkTransfer(endpoint, data, data.size, 5_000)
                 if (transferred < 0) {
                     call.reject("USB bulk transfer failed (returned $transferred). Is the printer ready?")

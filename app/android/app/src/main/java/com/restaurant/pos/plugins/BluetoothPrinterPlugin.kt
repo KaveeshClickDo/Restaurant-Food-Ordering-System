@@ -6,6 +6,8 @@ import android.bluetooth.BluetoothSocket
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Base64
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import com.getcapacitor.JSArray
 import com.getcapacitor.JSObject
@@ -129,11 +131,25 @@ class BluetoothPrinterPlugin : Plugin() {
             return
         }
 
-        val bytesArray = call.getArray("bytes")
-        if (bytesArray == null || bytesArray.length() == 0) {
-            call.reject("bytes array is required and must not be empty")
-            return
+        // Preferred input is base64 `data` (reliable across the bridge); fall back
+        // to the legacy `bytes` number[].
+        val data: ByteArray = run {
+            val b64 = call.getString("data")
+            if (!b64.isNullOrEmpty()) {
+                try { Base64.decode(b64, Base64.DEFAULT) } catch (e: Exception) {
+                    call.reject("invalid base64 data", e); return
+                }
+            } else {
+                val arr = call.getArray("bytes")
+                if (arr == null || arr.length() == 0) {
+                    call.reject("data (base64) or bytes array is required"); return
+                }
+                val out = ByteArray(arr.length())
+                for (i in 0 until arr.length()) out[i] = arr.getInt(i).toByte()
+                out
+            }
         }
+        if (data.isEmpty()) { call.reject("nothing to print (empty data)"); return }
 
         if (!hasBluetoothPermission()) {
             call.reject("Bluetooth permission not granted")
@@ -145,13 +161,6 @@ class BluetoothPrinterPlugin : Plugin() {
             call.reject("Bluetooth is not enabled")
             return
         }
-
-        // Convert JSArray of ints to ByteArray
-        val byteList = mutableListOf<Byte>()
-        for (i in 0 until bytesArray.length()) {
-            byteList.add(bytesArray.getInt(i).toByte())
-        }
-        val data = byteList.toByteArray()
 
         // IO work off the main thread
         CoroutineScope(Dispatchers.IO).launch {
@@ -168,9 +177,15 @@ class BluetoothPrinterPlugin : Plugin() {
                 socket.connect()          // blocks until connected or throws
                 stream = socket.outputStream
 
+                Log.d("BluetoothPrinter", "connected $address — writing ${data.size} bytes")
                 stream.write(data)
                 stream.flush()
+                // Let the RFCOMM buffer drain before closing — an immediate close
+                // can truncate the data on slower BT links (same class of bug the
+                // TCP path had).
+                Thread.sleep(250)
 
+                Log.d("BluetoothPrinter", "wrote ${data.size} bytes OK")
                 call.resolve()
             } catch (e: Exception) {
                 val msg = when {

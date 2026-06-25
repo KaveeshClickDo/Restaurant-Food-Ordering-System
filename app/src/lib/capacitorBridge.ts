@@ -50,12 +50,12 @@ export interface BluetoothDevice {
 
 interface _BTPlugin {
   getPairedDevices(): Promise<{ devices: BluetoothDevice[] }>;
-  print(opts: { address: string; bytes: number[] }): Promise<void>;
+  print(opts: { address: string; data: string }): Promise<void>; // data = base64 ESC/POS
 }
 
 interface _USBPlugin {
   getDevices(): Promise<{ devices: Array<{ name: string; deviceId: number }> }>;
-  print(opts: { bytes: number[]; deviceId?: number }): Promise<void>;
+  print(opts: { data: string; deviceId?: number }): Promise<void>; // data = base64 ESC/POS
 }
 
 interface _TCPPlugin {
@@ -111,7 +111,7 @@ export async function sendBluetooth(
     };
   }
   try {
-    await plugin.print({ address, bytes });
+    await plugin.print({ address, data: bytesToBase64(bytes) });
     return { ok: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -158,7 +158,7 @@ export async function sendUsb(
     };
   }
   try {
-    await plugin.print({ bytes, deviceId });
+    await plugin.print({ data: bytesToBase64(bytes), deviceId });
     return { ok: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
