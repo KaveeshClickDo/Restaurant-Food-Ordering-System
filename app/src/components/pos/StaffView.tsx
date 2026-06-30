@@ -18,14 +18,15 @@ export default function StaffView() {
   const sym = settings.currencySymbol;
   const [showAdd, setShowAdd] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
-  const [newStaff, setNewStaff] = useState({ name: "", email: "", role: "cashier" as "admin" | "manager" | "cashier", password: "", hourlyRate: "" });
+  const [showPin, setShowPin] = useState(false);
+  const [newStaff, setNewStaff] = useState({ name: "", email: "", role: "cashier" as "admin" | "manager" | "cashier", password: "", pin: "", hourlyRate: "" });
   const COLORS = ["#7c3aed", "#0891b2", "#16a34a", "#dc2626", "#ea580c", "#0284c7", "#9333ea", "#be185d"];
   const [, tick] = useState(0);
   useEffect(() => { const id = setInterval(() => tick((n) => n + 1), 10000); return () => clearInterval(id); }, []);
 
   // Edit state
   const [editingStaff, setEditingStaff] = useState<POSStaff | null>(null);
-  const [editDraft, setEditDraft] = useState({ name: "", email: "", role: "cashier" as "admin" | "manager" | "cashier", password: "", hourlyRate: "" });
+  const [editDraft, setEditDraft] = useState({ name: "", email: "", role: "cashier" as "admin" | "manager" | "cashier", password: "", pin: "", hourlyRate: "" });
 
   // Delete state
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -65,6 +66,7 @@ export default function StaffView() {
   async function addStaff() {
     if (addInFlight.current) return;
     if (!newStaff.name.trim() || newStaff.password.trim().length < 6) return;
+    if (newStaff.pin.trim() && newStaff.pin.trim().length !== 6) return;
     addInFlight.current = true;
     setAddBusy(true);
     try {
@@ -73,11 +75,12 @@ export default function StaffView() {
         email: newStaff.email,
         role: newStaff.role,
         password: newStaff.password,
+        pin: newStaff.pin.trim() || undefined,
         hourlyRate: parseFloat(newStaff.hourlyRate) || undefined,
         avatarColor: COLORS[Math.floor(Math.random() * COLORS.length)],
       });
       if (!result.ok) return;
-      setNewStaff({ name: "", email: "", role: "cashier", password: "", hourlyRate: "" });
+      setNewStaff({ name: "", email: "", role: "cashier", password: "", pin: "", hourlyRate: "" });
       setShowAdd(false);
     } finally {
       addInFlight.current = false;
@@ -89,13 +92,14 @@ export default function StaffView() {
     // password field starts blank: the server never returns real passwords to the
     // browser, and saveEdit sends "" to mean "keep existing".
     setEditingStaff(member);
-    setEditDraft({ name: member.name, email: member.email ?? "", role: member.role, password: "", hourlyRate: member.hourlyRate?.toString() ?? "" });
+    setEditDraft({ name: member.name, email: member.email ?? "", role: member.role, password: "", pin: "", hourlyRate: member.hourlyRate?.toString() ?? "" });
   }
 
   async function saveEdit() {
     if (saveInFlight.current) return;
     if (!editingStaff || !editDraft.name.trim()) return;
     if (editDraft.password && editDraft.password.trim().length < 6) return;
+    if (editDraft.pin && editDraft.pin.trim().length !== 6) return;
     saveInFlight.current = true;
     setSaveBusy(true);
     try {
@@ -106,6 +110,7 @@ export default function StaffView() {
         name: editDraft.name.trim(),
         email: editDraft.email,
         password: editDraft.password || undefined, // "" → omit, server keeps existing
+        pin: editDraft.pin.trim() || undefined,    // "" → omit, server keeps existing
         hourlyRate: parseFloat(editDraft.hourlyRate) || undefined,
       });
       if (!result.ok) return;
@@ -369,7 +374,16 @@ export default function StaffView() {
                     className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
                   <EyeToggle show={showPwd} onToggle={() => setShowPwd((v) => !v)} />
                 </div>
-
+                <span className="text-[10px] text-slate-500">Website POS login</span>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Tablet PIN (6 digits, optional)</label>
+                <div className="relative">
+                  <input type={showPin ? "text" : "password"} inputMode="numeric" value={newStaff.pin} onChange={(e) => setNewStaff((p) => ({ ...p, pin: e.target.value.replace(/\D/g, "").slice(0, 6) }))} placeholder="••••••"
+                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+                  <EyeToggle show={showPin} onToggle={() => setShowPin((v) => !v)} />
+                </div>
+                <span className="text-[10px] text-slate-500">Quick login on this tablet</span>
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">Hourly Rate ({sym})</label>
@@ -415,6 +429,11 @@ export default function StaffView() {
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">Password (min 6)</label>
                 <input type="password" value={editDraft.password} onChange={(e) => setEditDraft((p) => ({ ...p, password: e.target.value }))} placeholder="Leave blank to keep current"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Tablet PIN (6 digits)</label>
+                <input type="password" inputMode="numeric" value={editDraft.pin} onChange={(e) => setEditDraft((p) => ({ ...p, pin: e.target.value.replace(/\D/g, "").slice(0, 6) }))} placeholder="Leave blank to keep current"
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
               </div>
               <div>

@@ -344,9 +344,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ── POS staff ─────────────────────────────────────────────────────────────
   if (type === "pos") {
-    const { email, password, posRole, hourlyRate, avatarColor, active = true } = body;
+    const { email, password, pin, posRole, hourlyRate, avatarColor, active = true } = body;
     const role: POSRole = posRole ?? "cashier";
     const passwordHash = await bcrypt.hash(password, HASH_ROUNDS);
+    const pinHash      = pin ? await bcrypt.hash(pin, HASH_ROUNDS) : null;
     const { data, error } = await supabaseAdmin
       .from("pos_staff")
       .insert({
@@ -354,6 +355,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         email:        email ? email.toLowerCase() : "",
         role,
         password_hash:     passwordHash,
+        pin_hash:          pinHash,
         active,
         permissions:  ROLE_PERMISSIONS[role],
         hourly_rate:  hourlyRate ?? null,

@@ -356,7 +356,11 @@ create table if not exists reservation_waitlist (
 
 -- POS terminal staff (replaces app_settings.data.pos_staff).
 -- Passwords are bcrypt-hashed; the salt+hash live in password_hash and never
--- leave the server. permissions is a free-form jsonb keyed by capability flags.
+-- leave the server. POS staff ALSO get a 6-digit PIN (pin_hash) for the tablet:
+-- it is validated locally on the device and never authenticates server-side —
+-- sessions are always minted from the password (or a device token). Other staff
+-- surfaces (waiter/kitchen/collection) are password-only (web, no APK).
+-- permissions is a free-form jsonb keyed by capability flags.
 create table if not exists pos_staff (
   id            text        primary key default gen_random_uuid()::text,
   name          text        not null,
@@ -364,6 +368,7 @@ create table if not exists pos_staff (
   role          text        not null default 'cashier'
                 check (role in ('admin','manager','cashier')),
   password_hash text,
+  pin_hash      text,
   active        boolean     not null default true,
   permissions   jsonb       not null default '{}',
   hourly_rate   numeric,
@@ -424,6 +429,10 @@ create table if not exists collection_staff (
 -- set by an admin. A NULL password_hash means the auth route rejects login until
 -- an admin sets one. Fresh DBs already create password_hash above, so this is a
 -- no-op there.
+-- Guard requires pin_hash present AND password_hash absent so it fires ONLY on
+-- the genuinely-old schema. pos_staff later re-gains a pin_hash column (the POS
+-- tablet PIN, below); without the password_hash check this block would wrongly
+-- try to rename that new column on every subsequent migrate.
 do $$
 declare t text;
 begin
@@ -431,6 +440,9 @@ begin
     if exists (
       select 1 from information_schema.columns
       where table_schema = 'public' and table_name = t and column_name = 'pin_hash'
+    ) and not exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = t and column_name = 'password_hash'
     ) then
       execute format('alter table %I rename column pin_hash to password_hash', t);
       execute format('alter table %I alter column password_hash drop not null', t);
@@ -438,6 +450,33 @@ begin
     end if;
   end loop;
 end $$;
+
+-- ── B2: POS tablet PIN + device tokens ───────────────────────────────────────
+-- POS staff get a 6-digit PIN (admin-set) IN ADDITION to their password. The PIN
+-- is validated locally on the tablet (its hash is cached after a password login)
+-- and never authenticates against the server — sessions stay password-only.
+-- Re-add pin_hash on databases that already migrated to the password-only schema.
+alter table pos_staff add column if not exists pin_hash text;
+
+-- Device refresh tokens: issued to a tablet after a successful password login so
+-- the device can mint fresh sessions (unlocked by the local PIN) without
+-- re-entering the password. The raw token is returned once; only its sha256 hash
+-- is stored. Revoked on password/PIN change or deactivation; expires after 30
+-- days (forces a password re-auth). One row per (staff, device) — re-enrolling a
+-- device replaces its token.
+create table if not exists pos_device_tokens (
+  id           text        primary key default gen_random_uuid()::text,
+  staff_id     text        not null references pos_staff(id) on delete cascade,
+  device_id    text        not null,
+  token_hash   text        not null,
+  device_label text,
+  created_at   timestamptz not null default now(),
+  last_used_at timestamptz,
+  expires_at   timestamptz not null,
+  revoked      boolean     not null default false,
+  unique (staff_id, device_id)
+);
+create index if not exists idx_pos_device_tokens_staff on pos_device_tokens (staff_id);
 
 -- Promo codes (replaces app_settings.data.coupons). Lives as a real table
 -- so usage_count can be incremented atomically at checkout without
@@ -1238,6 +1277,7 @@ alter table pos_staff              enable row level security;
 alter table pos_sales              enable row level security;
 alter table pos_clock_entries      enable row level security;
 alter table pos_terminals          enable row level security;
+alter table pos_device_tokens      enable row level security;
 alter table waiters                enable row level security;
 alter table kitchen_staff          enable row level security;
 alter table collection_staff       enable row level security;
@@ -1336,6 +1376,10 @@ drop policy if exists "deny_anon_all" on pos_terminals;
 create policy "deny_anon_all" on pos_terminals
   for all to anon using (false) with check (false);
 
+drop policy if exists "deny_anon_all" on pos_device_tokens;
+create policy "deny_anon_all" on pos_device_tokens
+  for all to anon using (false) with check (false);
+
 drop policy if exists "deny_anon_all" on waiters;
 create policy "deny_anon_all" on waiters
   for all to anon using (false) with check (false);
@@ -1404,12 +1448,14 @@ grant select
 -- These column-level revokes remain as a third line of defence in case a
 -- future policy mistakenly loosens the RLS.
 revoke select (password_hash) on pos_staff     from anon, authenticated;
+revoke select (pin_hash)      on pos_staff     from anon, authenticated;
 revoke select (password_hash) on waiters       from anon, authenticated;
 revoke select (password_hash) on kitchen_staff from anon, authenticated;
 revoke select (password_hash) on drivers       from anon, authenticated;
 revoke select (reset_token)         on drivers from anon, authenticated;
 revoke select (reset_token_expires) on drivers from anon, authenticated;
 revoke select (password_hash) on display_auth  from anon, authenticated;
+revoke select (token_hash)    on pos_device_tokens from anon, authenticated;
 
 
 -- ── 6. Sentinel rows ─────────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ import { getPosSession } from "@/lib/auth";
 import { ROLE_PERMISSIONS } from "@/types/pos";
 import { parseBody } from "@/lib/apiValidation";
 import { PosStaffUpdateSchema } from "@/lib/schemas/staff";
+import { revokeDeviceTokens } from "@/lib/posDeviceToken";
 
 const HASH_ROUNDS = 10;
 
@@ -86,6 +87,7 @@ export async function PATCH(
     if (body.permissions === undefined) patch.permissions = ROLE_PERMISSIONS[body.role];
   }
   if (body.password) patch.password_hash = await bcrypt.hash(body.password, HASH_ROUNDS);
+  if (body.pin)      patch.pin_hash      = await bcrypt.hash(body.pin, HASH_ROUNDS);
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ ok: false, error: "No fields to update" }, { status: 400 });
@@ -93,6 +95,13 @@ export async function PATCH(
 
   const { error } = await supabaseAdmin.from("pos_staff").update(patch).eq("id", id);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  // B2: revoke this staff's tablet device tokens on a credential change or
+  // deactivation, so no enrolled device keeps refreshing with the old credential.
+  if (body.password !== undefined || body.pin !== undefined || body.active === false) {
+    await revokeDeviceTokens(id);
+  }
+
   return NextResponse.json({ ok: true });
 }
 

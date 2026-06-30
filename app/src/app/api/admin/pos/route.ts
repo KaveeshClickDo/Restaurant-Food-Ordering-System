@@ -34,6 +34,7 @@ function mapRow(row: any) {
                    ? row.created_at
                    : new Date(row.created_at).toISOString(),
     password:         "",
+    pin:              "",
   };
 }
 
@@ -56,10 +57,11 @@ export async function POST(request: Request) {
 
   const parsed = await parseBody(request, PosStaffCreateSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { name, email = "", role = "cashier", password,
+  const { name, email = "", role = "cashier", password, pin,
           active = true, permissions, hourlyRate, avatarColor } = parsed.data;
 
-  const passwordHash    = await bcrypt.hash(password, HASH_ROUNDS);
+  const passwordHash = await bcrypt.hash(password, HASH_ROUNDS);
+  const pinHash      = pin ? await bcrypt.hash(pin, HASH_ROUNDS) : null;
   const finalPerms = permissions ?? ROLE_PERMISSIONS[role];
 
   const { data, error } = await supabaseAdmin
@@ -69,6 +71,7 @@ export async function POST(request: Request) {
       email:        email ? email.toLowerCase() : "",
       role,
       password_hash:     passwordHash,
+      pin_hash:          pinHash,
       active,
       permissions:  finalPerms,
       hourly_rate:  hourlyRate ?? null,

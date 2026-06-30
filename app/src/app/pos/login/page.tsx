@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { usePOS } from "@/context/POSContext";
 import { POSStaff } from "@/types/pos";
-import { Lock, ChefHat, AlertCircle, Eye, EyeOff } from "lucide-react";
+import { Delete, Lock, ChefHat, AlertCircle, Eye, EyeOff } from "lucide-react";
 import CollectionFooter from "@/components/collection/CollectionFooter";
 
 function getInitials(name: string) {
@@ -13,8 +13,11 @@ function getInitials(name: string) {
 
 export default function POSLoginPage() {
   const router = useRouter();
-  const { staff, login, currentStaff, settings } = usePOS();
+  const { staff, login, loginWithPin, isPinEnrolled, currentStaff, settings } = usePOS();
   const [selectedStaff, setSelectedStaff] = useState<POSStaff | null>(null);
+  // "pin" only when this tablet has the staff member enrolled; otherwise password.
+  const [mode, setMode] = useState<"password" | "pin">("password");
+  const [pin, setPin] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -31,13 +34,68 @@ export default function POSLoginPage() {
 
   const activeStaff = staff.filter((s) => s.active);
 
-  function selectStaff(member: POSStaff) {
+  async function selectStaff(member: POSStaff) {
     setSelectedStaff(member);
+    setPin("");
+    setPassword("");
+    setError("");
+    setMode("password");
+    // Tablet + enrolled (cached PIN hash + device token) → offer the PIN pad.
+    if (await isPinEnrolled(member.id)) setMode("pin");
+  }
+
+  function backToPicker() {
+    setSelectedStaff(null);
+    setPin("");
     setPassword("");
     setError("");
   }
 
-  async function attemptLogin(ev?: React.FormEvent) {
+  // ── PIN path (enrolled tablet) ──────────────────────────────────────────────
+  async function submitPin(p: string) {
+    if (!selectedStaff || submitting) return;
+    setSubmitting(true);
+    try {
+      const res = await loginWithPin(selectedStaff.id, p);
+      if (res.ok) {
+        router.push("/pos");
+        return;
+      }
+      if (res.reason === "locked") {
+        setMode("password");
+        setError("Too many PIN attempts. Please sign in with your password.");
+        setPin("");
+      } else if (res.reason === "needs_password") {
+        setMode("password");
+        setError("Session expired. Please sign in with your password.");
+        setPin("");
+      } else {
+        setShaking(true);
+        setError("Incorrect PIN. Please try again.");
+        setPin("");
+        setTimeout(() => setShaking(false), 600);
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function pressDigit(d: string) {
+    if (pin.length >= 6 || submitting) return;
+    const next = pin + d;
+    setPin(next);
+    if (next.length === 6) setTimeout(() => submitPin(next), 100);
+  }
+
+  function backspace() {
+    setPin((p) => p.slice(0, -1));
+    setError("");
+  }
+
+  const PAD = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"];
+
+  // ── Password path (website, or tablet first login / re-auth) ──────────────────
+  async function attemptPasswordLogin(ev?: React.FormEvent) {
     ev?.preventDefault();
     if (!selectedStaff || submitting) return;
     if (password.trim().length < 6) {
@@ -120,19 +178,16 @@ export default function POSLoginPage() {
               {settings.location} · POS v1.0
             </p>
           </div>
-        ) : (
-          // ── Password entry ────────────────────────────────────────────────
-          <form onSubmit={attemptLogin} className="w-full max-w-xs">
-            {/* Back */}
+        ) : mode === "pin" ? (
+          // ── PIN entry (enrolled tablet) ───────────────────────────────────
+          <div className="w-full max-w-xs">
             <button
-              type="button"
-              onClick={() => { setSelectedStaff(null); setPassword(""); setError(""); }}
+              onClick={backToPicker}
               className="flex items-center gap-2 text-slate-400 hover:text-white text-sm mb-8 transition-colors"
             >
               ← Back
             </button>
 
-            {/* Avatar */}
             <div className="flex flex-row items-center justify-center gap-4 mb-8">
               <div
                 className="w-15 h-15 rounded-2xl flex items-center justify-center text-white font-bold text-2xl shadow-xl"
@@ -146,7 +201,84 @@ export default function POSLoginPage() {
               </div>
             </div>
 
-            {/* Password field */}
+            {/* PIN dots */}
+            <div className={`flex justify-center gap-3 mb-6 ${shaking ? "animate-[shake_0.5s_ease-in-out]" : ""}`}>
+              {[0, 1, 2, 3, 4, 5].map((i) => (
+                <div
+                  key={i}
+                  className={`w-4 h-4 rounded-full border-2 transition-all duration-150 ${pin.length > i
+                    ? "bg-orange-500 border-orange-500 scale-110"
+                    : "bg-transparent border-slate-600"
+                    }`}
+                />
+              ))}
+            </div>
+
+            {error && (
+              <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 mb-5">
+                <AlertCircle size={14} className="text-red-400 flex-shrink-0" />
+                <p className="text-red-400 text-xs">{error}</p>
+              </div>
+            )}
+
+            {/* PIN pad */}
+            <div className="grid grid-cols-3 gap-3">
+              {PAD.map((d, i) => {
+                if (d === "") return <div key={i} />;
+                if (d === "⌫") {
+                  return (
+                    <button
+                      key={i}
+                      onClick={backspace}
+                      className="h-16 rounded-2xl bg-slate-700/60 hover:bg-slate-700 active:scale-95 text-slate-300 flex items-center justify-center transition-all"
+                    >
+                      <Delete size={20} />
+                    </button>
+                  );
+                }
+                return (
+                  <button
+                    key={i}
+                    onClick={() => pressDigit(d)}
+                    className="h-16 rounded-2xl bg-slate-800 hover:bg-slate-700 active:bg-orange-500 active:scale-95 text-white font-bold text-xl transition-all border border-slate-700/50 hover:border-slate-600 shadow-sm"
+                  >
+                    {d}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => { setMode("password"); setError(""); setPin(""); }}
+              className="w-full text-center text-slate-500 hover:text-slate-300 text-xs mt-6 transition-colors"
+            >
+              Use password instead
+            </button>
+          </div>
+        ) : (
+          // ── Password entry (website, first tablet login, or re-auth) ──────
+          <form onSubmit={attemptPasswordLogin} className="w-full max-w-xs">
+            <button
+              type="button"
+              onClick={backToPicker}
+              className="flex items-center gap-2 text-slate-400 hover:text-white text-sm mb-8 transition-colors"
+            >
+              ← Back
+            </button>
+
+            <div className="flex flex-row items-center justify-center gap-4 mb-8">
+              <div
+                className="w-15 h-15 rounded-2xl flex items-center justify-center text-white font-bold text-2xl shadow-xl"
+                style={{ backgroundColor: selectedStaff.avatarColor }}
+              >
+                {getInitials(selectedStaff.name)}
+              </div>
+              <div>
+                <p className="text-white font-bold text-lg">{selectedStaff.name}</p>
+                <p className="text-slate-400 text-sm capitalize">{selectedStaff.role}</p>
+              </div>
+            </div>
+
             <div className={`mb-5 ${shaking ? "animate-[shake_0.5s_ease-in-out]" : ""}`}>
               <label className="block text-xs text-slate-400 mb-2 text-center">Enter your password</label>
               <div className="relative">
@@ -169,7 +301,6 @@ export default function POSLoginPage() {
               </div>
             </div>
 
-            {/* Error */}
             {error && (
               <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 mb-5">
                 <AlertCircle size={14} className="text-red-400 flex-shrink-0" />
@@ -177,7 +308,6 @@ export default function POSLoginPage() {
               </div>
             )}
 
-            {/* Submit */}
             <button
               type="submit"
               disabled={submitting || password.trim().length < 6}

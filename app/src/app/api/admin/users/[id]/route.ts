@@ -21,6 +21,7 @@ import { ROLE_PERMISSIONS } from "@/types/pos";
 import { parseBody } from "@/lib/apiValidation";
 import { UserUpdateSchema, UserDeleteSchema } from "@/lib/schemas/staff";
 import { setLoyaltyPointsAbsolute } from "@/lib/loyaltyUtils";
+import { revokeDeviceTokens } from "@/lib/posDeviceToken";
 
 const HASH_ROUNDS = 10;
 
@@ -131,11 +132,17 @@ export async function PATCH(
       updates.permissions = ROLE_PERMISSIONS[body.posRole];
     }
     if (body.password) updates.password_hash = await bcrypt.hash(body.password, HASH_ROUNDS);
+    if (body.pin)      updates.pin_hash      = await bcrypt.hash(body.pin, HASH_ROUNDS);
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ ok: false, error: "No fields to update." }, { status: 400 });
     }
     const { error } = await supabaseAdmin.from("pos_staff").update(updates).eq("id", id);
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+    // B2: kill tablet device tokens on a credential change / deactivation.
+    if (body.password !== undefined || body.pin !== undefined || body.active === false) {
+      await revokeDeviceTokens(id);
+    }
     return NextResponse.json({ ok: true });
   }
 

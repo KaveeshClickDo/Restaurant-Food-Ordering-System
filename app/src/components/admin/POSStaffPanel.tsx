@@ -35,12 +35,12 @@ const ROLE_BADGE: Record<POSRole, string> = {
 // ─── Staff Form ───────────────────────────────────────────────────────────────
 
 type FormDraft = {
-  name: string; email: string; role: POSRole; password: string;
+  name: string; email: string; role: POSRole; password: string; pin: string;
   active: boolean; avatarColor: string; hourlyRate: string;
 };
 
 const EMPTY: FormDraft = {
-  name: "", email: "", role: "admin", password: "",
+  name: "", email: "", role: "admin", password: "", pin: "",
   active: true, avatarColor: AVATAR_COLORS[0], hourlyRate: "",
 };
 
@@ -55,9 +55,10 @@ function StaffForm({
 }) {
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
-  const [form,    setForm]    = useState<FormDraft>({ ...EMPTY, ...initial, password: "" });
+  const [form,    setForm]    = useState<FormDraft>({ ...EMPTY, ...initial, password: "", pin: "" });
   const [errors,  setErrors]  = useState<Record<string, string>>({});
   const [showPassword, setShowPassword] = useState(false);
+  const [showPin, setShowPin] = useState(false);
   const [saving,  setSaving]  = useState(false);
   const inFlight = useRef(false);
 
@@ -73,6 +74,8 @@ function StaffForm({
     if (!form.name.trim()) e.name = "Name is required.";
     if (!isEdit && !form.password.trim()) e.password = "Password is required.";
     else if (form.password.trim() && form.password.trim().length < 6) e.password = "Password must be at least 6 characters.";
+    // PIN is optional (tablet quick-login); validate format only when provided.
+    if (form.pin.trim() && !/^\d{6}$/.test(form.pin.trim())) e.pin = "PIN must be exactly 6 digits.";
     if (Object.keys(e).length) { setErrors(e); return false; }
     return true;
   }
@@ -136,6 +139,33 @@ function StaffForm({
           </button>
         </div>
         {errors.password && <p className="text-red-400 text-xs mt-1">{errors.password}</p>}
+        <p className="text-gray-500 text-xs mt-1">Used to sign in on the website POS.</p>
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-gray-400 mb-1">
+          Tablet PIN (6 digits, optional){isEdit ? " — leave blank to keep current" : ""}
+        </label>
+        <div className="relative">
+          <input
+            value={form.pin}
+            onChange={(e) => set("pin", e.target.value.replace(/\D/g, "").slice(0, 6))}
+            type={showPin ? "text" : "password"}
+            inputMode="numeric"
+            placeholder={isEdit ? "Leave blank to keep current" : "••••••"}
+            autoComplete="off"
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 pr-9 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-orange-500"
+          />
+          <button
+            type="button"
+            onClick={() => setShowPin((v) => !v)}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+          >
+            {showPin ? <EyeOff size={15} /> : <Eye size={15} />}
+          </button>
+        </div>
+        {errors.pin && <p className="text-red-400 text-xs mt-1">{errors.pin}</p>}
+        <p className="text-gray-500 text-xs mt-1">Quick login on the Android POS tablet (checked on the device).</p>
       </div>
 
       <div>
@@ -243,7 +273,8 @@ export default function POSStaffPanel() {
         name:        data.name,
         email:       data.email,
         role:        data.role,
-        password:         data.password,
+        password:    data.password,
+        pin:         data.pin.trim() || undefined,
         active:      data.active,
         avatarColor: data.avatarColor,
         hourlyRate:  parseFloat(data.hourlyRate) || undefined,
@@ -265,7 +296,8 @@ export default function POSStaffPanel() {
         name:        data.name,
         email:       data.email,
         role:        data.role,
-        password:         data.password.trim() || undefined, // omit → server keeps existing
+        password:    data.password.trim() || undefined, // omit → server keeps existing
+        pin:         data.pin.trim() || undefined,       // omit → server keeps existing
         active:      data.active,
         avatarColor: data.avatarColor,
         hourlyRate:  parseFloat(data.hourlyRate) || undefined,

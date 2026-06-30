@@ -21,9 +21,14 @@ import bcrypt from "bcryptjs";
 const CACHE_MENU      = "menu_snapshot";
 const CACHE_STAFF     = "staff_picker_snapshot";
 const CACHE_CUSTOMERS = "customers_snapshot";
-// Phase 4: per-staff bcrypt hashes for offline PIN login, keyed by staffId.
-// Only staff who have logged in online ON THIS DEVICE accumulate here.
+// B2: per-staff tablet credentials, keyed by staffId. Holds the bcrypt PIN hash
+// (for local PIN unlock), the device refresh token (to mint sessions without the
+// password), and a wrong-PIN counter (lockout). Only staff who have completed a
+// password login ON THIS DEVICE accumulate here.
 const CACHE_CREDS = "staff_credentials";
+// B2: a stable per-tablet id, generated once, sent on enrollment so the server
+// keeps one device token per (staff, device).
+const CACHE_DEVICE_ID = "device_id";
 // 1.6 polish: menu item images as base64 data URLs, keyed by their (unique-per-
 // upload) Supabase URL. Kept SEPARATE from `products` so base64 never reaches
 // the menu-sync push (which would re-bloat menu_items — the bug uploadImage.ts
@@ -54,7 +59,37 @@ function offlineReceiptNo(saleId: string): string {
   return `OFF-${hex}`;
 }
 
-type CachedCred = { passwordHash: string; sessionVersion: number };
+type CachedCred = { pinHash?: string; deviceToken?: string; wrongPins?: number };
+
+const MAX_PIN_ATTEMPTS = 5; // wrong PINs before the local token is wiped (force password)
+
+/** Stable per-tablet id; generated once and persisted. Capacitor-only use. */
+async function getDeviceId(): Promise<string> {
+  let id = await kvGet<string>(CACHE_DEVICE_ID);
+  if (!id) {
+    id = (typeof crypto !== "undefined" && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `dev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    await kvSet(CACHE_DEVICE_ID, id);
+  }
+  return id;
+}
+
+async function getDeviceCreds(): Promise<Record<string, CachedCred>> {
+  return (await kvGet<Record<string, CachedCred>>(CACHE_CREDS)) ?? {};
+}
+
+async function patchDeviceCred(staffId: string, patch: Partial<CachedCred>): Promise<void> {
+  const map = await getDeviceCreds();
+  map[staffId] = { ...map[staffId], ...patch };
+  await kvSet(CACHE_CREDS, map);
+}
+
+async function clearDeviceCred(staffId: string): Promise<void> {
+  const map = await getDeviceCreds();
+  delete map[staffId];
+  await kvSet(CACHE_CREDS, map);
+}
 
 /**
  * Download a remote image as a base64 data URL for offline display. Best-effort:
@@ -78,29 +113,53 @@ async function fetchImageAsDataUrl(url: string): Promise<string | null> {
 }
 
 /**
- * After a successful ONLINE login, fetch the caller's own credentials and cache
- * the bcrypt hash so they can log in offline later. Capacitor-only; the server
- * endpoint returns only the session owner's row. Failures are non-fatal — the
- * cashier is already logged in; they just won't have offline login until a
- * future online login succeeds in caching.
+ * After a successful ONLINE password login, fetch the caller's own PIN hash and
+ * cache it so they can unlock with their 6-digit PIN next time (B2). Capacitor-
+ * only; the server endpoint returns only the session owner's row, and 404s when
+ * no PIN is set (then the tablet just keeps using password login). Merges into
+ * the existing entry so it doesn't clobber the device token stored at login.
+ * Failures are non-fatal.
  */
 async function cachePosCredentials(staffId: string): Promise<void> {
   if (!isCapacitorAndroid()) return;
   try {
     const res = await fetch(apiBase() + "/api/pos/staff/credentials");
-    if (!res.ok) return;
+    if (!res.ok) return; // 404 = no PIN set yet → leave pinHash absent
     const json = await res.json() as {
       ok: boolean;
-      credentials?: { staffId: string; passwordHash: string; sessionVersion: number };
+      credentials?: { staffId: string; pinHash: string; sessionVersion: number };
     };
-    if (!json.ok || !json.credentials?.passwordHash) return;
-    const map = (await kvGet<Record<string, CachedCred>>(CACHE_CREDS)) ?? {};
-    map[staffId] = {
-      passwordHash:   json.credentials.passwordHash,
-      sessionVersion: json.credentials.sessionVersion,
-    };
-    await kvSet(CACHE_CREDS, map);
-  } catch { /* offline / network — skip; offline login just won't be available */ }
+    if (!json.ok || !json.credentials?.pinHash) return;
+    await patchDeviceCred(staffId, { pinHash: json.credentials.pinHash, wrongPins: 0 });
+  } catch { /* offline / network — skip; PIN unlock just won't be available yet */ }
+}
+
+/**
+ * Exchange this device's stored token for a fresh POS session cookie (B2).
+ * Returns the staff record on success, or null if there's no token / it was
+ * revoked or expired (caller then falls back to a password login). Capacitor-only.
+ */
+async function refreshViaDeviceToken(staffId: string): Promise<POSStaff | null> {
+  if (!isCapacitorAndroid()) return null;
+  const entry = (await getDeviceCreds())[staffId];
+  if (!entry?.deviceToken) return null;
+  try {
+    const deviceId = await getDeviceId();
+    const res = await fetch(apiBase() + "/api/pos/auth/refresh", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ staffId, deviceId, deviceToken: entry.deviceToken }),
+    });
+    if (!res.ok) {
+      // 401 = token revoked/expired → drop it so the UI shows the password screen.
+      if (res.status === 401) await clearDeviceCred(staffId);
+      return null;
+    }
+    const json = await res.json() as { ok: boolean; staff?: POSStaff };
+    return json.ok && json.staff ? json.staff : null;
+  } catch {
+    return null; // offline — caller handles
+  }
 }
 
 // Module-scope so the value is stable across renders (used by the idle-logout effect).
@@ -167,11 +226,15 @@ interface POSContextValue {
    *  void/refund are blocked and the UI should indicate "verifying". */
   pendingRevalidation: boolean;
   login: (staffId: string, password: string) => Promise<boolean>;
+  // B2 tablet PIN: validates locally, then refreshes the session via the device token.
+  loginWithPin: (staffId: string, pin: string) => Promise<{ ok: boolean; reason?: "wrong" | "locked" | "needs_password" }>;
+  // True when this tablet has a cached PIN hash + device token for the staff member.
+  isPinEnrolled: (staffId: string) => Promise<boolean>;
   logout: () => void;
   // Data
   staff: POSStaff[];
-  addPosStaff:    (input: { name: string; email?: string; role: "admin" | "manager" | "cashier"; password: string; hourlyRate?: number; avatarColor?: string }) => Promise<{ ok: boolean; error?: string }>;
-  updatePosStaff: (id: string, patch: { name?: string; email?: string; role?: "admin" | "manager" | "cashier"; password?: string; active?: boolean; hourlyRate?: number; avatarColor?: string }) => Promise<{ ok: boolean; error?: string }>;
+  addPosStaff:    (input: { name: string; email?: string; role: "admin" | "manager" | "cashier"; password: string; pin?: string; hourlyRate?: number; avatarColor?: string }) => Promise<{ ok: boolean; error?: string }>;
+  updatePosStaff: (id: string, patch: { name?: string; email?: string; role?: "admin" | "manager" | "cashier"; password?: string; pin?: string; active?: boolean; hourlyRate?: number; avatarColor?: string }) => Promise<{ ok: boolean; error?: string }>;
   deletePosStaff: (id: string) => Promise<{ ok: boolean; error?: string }>;
   refreshPosStaff: () => Promise<void>;
   products: POSProduct[];
@@ -610,7 +673,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
   const addPosStaff = useCallback(async (input: {
     name: string; email?: string; role: "admin" | "manager" | "cashier";
-    password: string; hourlyRate?: number; avatarColor?: string;
+    password: string; pin?: string; hourlyRate?: number; avatarColor?: string;
   }) => {
     const res = await fetch(apiBase() + "/api/pos/staff", {
       method:  "POST",
@@ -625,7 +688,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
   const updatePosStaff = useCallback(async (id: string, patch: {
     name?: string; email?: string; role?: "admin" | "manager" | "cashier";
-    password?: string; active?: boolean; hourlyRate?: number; avatarColor?: string;
+    password?: string; pin?: string; active?: boolean; hourlyRate?: number; avatarColor?: string;
   }) => {
     const res = await fetch(`${apiBase()}/api/pos/staff/${id}`, {
       method:  "PATCH",
@@ -952,53 +1015,93 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // ── Auth ──────────────────────────────────────────────────────────────────
-  // Server-authoritative login: the password is validated by /api/pos/auth, which
-  // sets the httpOnly pos_staff_session cookie and returns the staff record.
-  // The browser never compares passwords — and never sees other staff's passwords.
-  // Offline password login (Phase 4): when the server is unreachable, validate the
-  // password locally with bcrypt against the cached hash for this staffId, then set
-  // currentStaff from the cached picker. The session cookie from the last online
-  // login (native cookie jar) is reused to sync queued sales on reconnect; the
-  // 15s checkSession poll revalidates against the server once back online (and
-  // logs out if the password was reset / staff deactivated — session_version bump).
-  // Capacitor-only; returns false on web (no cached creds).
-  const offlineLogin = useCallback(async (staffId: string, password: string): Promise<boolean> => {
+  // ── Auth (B2) ───────────────────────────────────────────────────────────────
+  // PASSWORD login: validated by /api/pos/auth, which sets the httpOnly session
+  // cookie and returns the staff record. On the Android tablet we also send a
+  // deviceId so the server issues a device token (stored locally) + cache the
+  // staff's PIN hash — enabling fast PIN re-login next time. The browser never
+  // compares passwords and never sees other staff's hashes. Password login needs
+  // the server (no offline path); offline re-entry is the PIN path below.
+  const isPinEnrolled = useCallback(async (staffId: string): Promise<boolean> => {
     if (!isCapacitorAndroid()) return false;
-    const creds = await kvGet<Record<string, CachedCred>>(CACHE_CREDS);
-    const entry = creds?.[staffId];
-    if (!entry?.passwordHash) return false;
-    const ok = await bcrypt.compare(password, entry.passwordHash);
-    if (!ok) return false;
-    const picker = await kvGet<POSStaff[]>(CACHE_STAFF);
-    const staffRec = picker?.find((s) => s.id === staffId && s.active !== false);
-    if (!staffRec) return false;
-    setCurrentStaff(staffRec);
-    markPendingReval(true); // unverified until the server confirms on reconnect
-    return true;
-  }, [markPendingReval]);
+    const entry = (await getDeviceCreds())[staffId];
+    return Boolean(entry?.pinHash && entry?.deviceToken);
+  }, []);
 
   const login = useCallback(async (staffId: string, password: string): Promise<boolean> => {
     try {
+      const onTablet = isCapacitorAndroid();
+      const deviceId = onTablet ? await getDeviceId() : undefined;
       const res = await fetch(apiBase() + "/api/pos/auth", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ staffId, password }),
+        body:    JSON.stringify({ staffId, password, deviceId, deviceLabel: deviceId ? "POS tablet" : undefined }),
       });
-      // A reachable server gave a definitive answer (200 ok, or 401/429 reject).
-      // Do NOT fall back to offline validation on a server reject.
       if (!res.ok) return false;
-      const json = await res.json() as { ok: boolean; staff?: POSStaff };
+      const json = await res.json() as { ok: boolean; staff?: POSStaff; deviceToken?: string | null };
       if (!json.ok || !json.staff) return false;
       setCurrentStaff(json.staff);
-      // Cache this staff's hash so they can log in offline next time (Capacitor).
-      void cachePosCredentials(staffId);
+      // Enroll the device for PIN re-login: stash the token, then cache the PIN
+      // hash. Capacitor-only; both no-op on web.
+      if (onTablet && json.deviceToken) {
+        await patchDeviceCred(staffId, { deviceToken: json.deviceToken, wrongPins: 0 });
+        void cachePosCredentials(staffId);
+      }
       return true;
     } catch {
-      // Server unreachable → try offline password validation against the cached hash.
-      return offlineLogin(staffId, password);
+      // Server unreachable. Password login can't proceed offline (no enrollment);
+      // an already-enrolled cashier should use the PIN path instead.
+      return false;
     }
-  }, [offlineLogin]);
+  }, []);
+
+  // PIN login (tablet): validate the 6-digit PIN LOCALLY against the cached hash,
+  // then obtain a session — reusing a live cookie offline, or exchanging the
+  // device token for a fresh cookie when online. The PIN never leaves the device.
+  // Lockout: MAX_PIN_ATTEMPTS wrong tries wipes the local token → forces password.
+  const loginWithPin = useCallback(async (
+    staffId: string,
+    pin: string,
+  ): Promise<{ ok: boolean; reason?: "wrong" | "locked" | "needs_password" }> => {
+    if (!isCapacitorAndroid()) return { ok: false, reason: "needs_password" };
+    const entry = (await getDeviceCreds())[staffId];
+    if (!entry?.pinHash) return { ok: false, reason: "needs_password" };
+
+    const match = await bcrypt.compare(pin, entry.pinHash);
+    if (!match) {
+      const attempts = (entry.wrongPins ?? 0) + 1;
+      if (attempts >= MAX_PIN_ATTEMPTS) {
+        await clearDeviceCred(staffId); // too many tries → drop enrollment
+        return { ok: false, reason: "locked" };
+      }
+      await patchDeviceCred(staffId, { wrongPins: attempts });
+      return { ok: false, reason: "wrong" };
+    }
+    // Correct PIN → reset the counter, then get a session.
+    await patchDeviceCred(staffId, { wrongPins: 0 });
+
+    const refreshed = await refreshViaDeviceToken(staffId);
+    if (refreshed) {
+      setCurrentStaff(refreshed);
+      markPendingReval(false);
+      return { ok: true };
+    }
+
+    // refreshViaDeviceToken returns null either because we're offline OR the
+    // token was rejected (it self-clears the entry on a 401). Distinguish: if the
+    // entry is gone, the token was revoked/expired → password required.
+    const stillEnrolled = Boolean((await getDeviceCreds())[staffId]?.deviceToken);
+    if (!stillEnrolled) return { ok: false, reason: "needs_password" };
+
+    // Offline: unlock against the cached picker; the cookie (if still alive) authes
+    // API calls, and checkSession refreshes once back online.
+    const picker = await kvGet<POSStaff[]>(CACHE_STAFF);
+    const staffRec = picker?.find((s) => s.id === staffId && s.active !== false);
+    if (!staffRec) return { ok: false, reason: "needs_password" };
+    setCurrentStaff(staffRec);
+    markPendingReval(true);
+    return { ok: true };
+  }, [markPendingReval]);
 
   // ── Session hydration on mount ────────────────────────────────────────────
   // Read the server session (httpOnly cookie) and populate currentStaff. Any
@@ -1051,6 +1154,19 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         initialAuthChecked.current = true;
         if (r.status === 401) {
           if (currentStaffRef.current !== null) {
+            // B2: the cookie may have simply expired (8h) mid-shift while the
+            // device token is still valid. Try a silent token refresh before
+            // kicking the cashier out — they already unlocked this session with
+            // their PIN. If the token was revoked (admin reset / deactivation),
+            // refresh fails and we log out as before.
+            const refreshed = await refreshViaDeviceToken(currentStaffRef.current.id);
+            if (!active) return;
+            if (refreshed) {
+              markPendingReval(false);
+              const key = JSON.stringify(refreshed);
+              if (key !== lastStaffKey) { lastStaffKey = key; setCurrentStaff(refreshed); }
+              return;
+            }
             setCurrentStaff(null);
             lastStaffKey = "";
             fetch(apiBase() + "/api/pos/auth", { method: "DELETE" }).catch(() => {});
@@ -1606,7 +1722,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <POSContext.Provider value={{
-      currentStaff, sessionLoading, pendingRevalidation, login, logout,
+      currentStaff, sessionLoading, pendingRevalidation, login, loginWithPin, isPinEnrolled, logout,
       staff, addPosStaff, updatePosStaff, deletePosStaff, refreshPosStaff,
       products, setProducts, updateProductStock,
       imageCache, menuCachedAt,

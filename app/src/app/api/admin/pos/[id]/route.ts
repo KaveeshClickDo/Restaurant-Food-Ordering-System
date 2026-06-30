@@ -14,6 +14,7 @@ import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { ROLE_PERMISSIONS } from "@/types/pos";
 import { parseBody } from "@/lib/apiValidation";
 import { PosStaffUpdateSchema } from "@/lib/schemas/staff";
+import { revokeDeviceTokens } from "@/lib/posDeviceToken";
 
 const HASH_ROUNDS = 10;
 
@@ -42,6 +43,7 @@ export async function PATCH(
     if (body.permissions === undefined) patch.permissions = ROLE_PERMISSIONS[body.role];
   }
   if (body.password) patch.password_hash = await bcrypt.hash(body.password, HASH_ROUNDS);
+  if (body.pin)      patch.pin_hash      = await bcrypt.hash(body.pin, HASH_ROUNDS);
 
   // Bump session_version ONLY on a real credential change — not just because
   // the form re-sent an existing field. Without this guard every harmless edit
@@ -59,12 +61,13 @@ export async function PATCH(
 
   const newEmail     = body.email?.toLowerCase();
   const emailChanged = newEmail !== undefined && newEmail !== currentEmail;
-  // body.password is only present when the admin typed a new one — POSStaffPanel
-  // strips a blank password before sending.
-  const passwordChanged   = body.password !== undefined;
+  // body.password / body.pin are only present when the admin typed a new one —
+  // POSStaffPanel strips blanks before sending.
+  const passwordChanged = body.password !== undefined;
+  const pinChanged      = body.pin !== undefined;
   const deactivating = body.active === false && currentActive === true;
 
-  if (emailChanged || passwordChanged || deactivating) {
+  if (emailChanged || passwordChanged || pinChanged || deactivating) {
     patch.session_version = Number(current?.session_version ?? 1) + 1;
   }
 
@@ -74,6 +77,14 @@ export async function PATCH(
 
   const { error } = await supabaseAdmin.from("pos_staff").update(patch).eq("id", id);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  // B2: a credential change or deactivation must also kill this staff's tablet
+  // device tokens, so no enrolled device can keep refreshing a session with the
+  // old credential — they're forced back to a password login.
+  if (passwordChanged || pinChanged || deactivating) {
+    await revokeDeviceTokens(id);
+  }
+
   return NextResponse.json({ ok: true });
 }
 

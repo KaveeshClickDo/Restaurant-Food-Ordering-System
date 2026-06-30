@@ -45,6 +45,22 @@ export const StaffPasswordLoginSchema = z.object({
   password: Password,
 });
 
+// POS password login (B2): the Android tablet additionally sends a deviceId so
+// the server issues a device refresh token for PIN-based re-login. The website
+// omits deviceId and gets no token.
+export const PosPasswordLoginSchema = StaffPasswordLoginSchema.extend({
+  deviceId:    z.string().min(1).max(128).optional(),
+  deviceLabel: z.string().max(64).optional(),
+});
+
+// POS device-token refresh (B2): exchange a stored device token for a fresh
+// session cookie. The PIN is validated locally on the tablet, never here.
+export const PosDeviceRefreshSchema = z.object({
+  staffId:     NonEmptyString,
+  deviceId:    z.string().min(1).max(128),
+  deviceToken: z.string().min(1),
+});
+
 // Driver email/password login
 export const DriverLoginSchema = z.object({
   email:    Email,

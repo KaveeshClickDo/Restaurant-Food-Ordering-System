@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Email, Phone, PhoneOrEmpty, Password, NonEmptyString, Hex, Money } from "./primitives";
+import { Email, Phone, PhoneOrEmpty, Pin6, Password, NonEmptyString, Hex, Money } from "./primitives";
 
 const KitchenRole = z.enum(["chef", "head_chef", "kitchen_manager"]);
 const PosRole     = z.enum(["admin", "manager", "cashier"]);
@@ -90,7 +90,8 @@ export const PosStaffCreateSchema = z.object({
   name:        NonEmptyString,
   email:       z.string().email().optional().or(z.literal("")),
   role:        PosRole.optional(),
-  password:    Password,
+  password:    Password,            // web POS + first tablet login
+  pin:         Pin6.optional(),     // tablet quick-login (validated locally); set now or later
   active:      z.boolean().optional(),
   permissions: z.record(z.string(), z.boolean()).optional(),
   hourlyRate:  Money.optional(),
@@ -102,6 +103,7 @@ export const PosStaffUpdateSchema = z.object({
   email:       z.string().email().optional().or(z.literal("")),
   role:        PosRole.optional(),
   password:    Password.optional(),
+  pin:         Pin6.optional(),
   active:      z.boolean().optional(),
   permissions: z.record(z.string(), z.boolean()).optional(),
   hourlyRate:  Money.optional(),
@@ -152,6 +154,7 @@ export const UserCreateSchema = z.discriminatedUnion("type", [
     email:       z.string().email().optional().or(z.literal("")),
     posRole:     PosRole.optional(),
     password:    Password,
+    pin:         Pin6.optional(),
     active:      z.boolean().optional(),
     permissions: z.record(z.string(), z.boolean()).optional(),
     hourlyRate:  Money.optional(),
@@ -208,6 +211,7 @@ export const UserUpdateSchema = z.discriminatedUnion("type", [
     email:       z.string().email().optional().or(z.literal("")),
     posRole:     PosRole.optional(),
     password:    Password.optional(),
+    pin:         Pin6.optional(),
     active:      z.boolean().optional(),
     permissions: z.record(z.string(), z.boolean()).optional(),
     hourlyRate:  Money.optional(),

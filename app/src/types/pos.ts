@@ -51,7 +51,8 @@ export interface POSStaff {
   name: string;
   email: string;
   role: POSRole;
-  password: string; // set on create/edit; the server returns "••••" on read
+  password: string; // web login; set on create/edit, server returns "••••" on read
+  pin?: string;     // tablet PIN (6 digits); set on create/edit, server returns "••••" on read
   active: boolean;
   permissions: POSPermissions;
   hourlyRate?: number;
