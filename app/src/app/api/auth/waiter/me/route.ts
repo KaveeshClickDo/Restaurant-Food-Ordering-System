@@ -4,7 +4,7 @@
  * session triggers an immediate re-login instead of failing on the first
  * mutation request.
  *
- * Reads from the waiters table; pin_hash is never returned.
+ * Reads from the waiters table; password_hash is never returned.
  */
 
 import { NextResponse }      from "next/server";

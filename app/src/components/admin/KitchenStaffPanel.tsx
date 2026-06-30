@@ -34,7 +34,7 @@ const ROLE_BADGE: Record<KitchenRole, string> = {
 // ─── Staff Form ───────────────────────────────────────────────────────────────
 
 const EMPTY: Omit<KitchenStaff, "id" | "createdAt"> = {
-  name: "", pin: "", role: "kitchen_manager", active: true, avatarColor: AVATAR_COLORS[0],
+  name: "", password: "", role: "kitchen_manager", active: true, avatarColor: AVATAR_COLORS[0],
 };
 
 function StaffForm({
@@ -48,7 +48,7 @@ function StaffForm({
 }) {
   const [form,    setForm]    = useState({ ...EMPTY, ...initial });
   const [errors,  setErrors]  = useState<Record<string, string>>({});
-  const [showPin, setShowPin] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [saving,  setSaving]  = useState(false);
   const inFlight = useRef(false);
 
@@ -57,15 +57,15 @@ function StaffForm({
     setErrors((e) => { const n = { ...e }; delete n[k as string]; return n; });
   }
 
-  // In edit mode the PIN field stays blank by default — the server never
-  // returns real PINs, so blank means "keep existing".
+  // In edit mode the password field stays blank by default — the server never
+  // returns real passwords, so blank means "keep existing".
   const isEdit = Boolean(initial?.id);
 
   function validate(): boolean {
     const e: Record<string, string> = {};
     if (!form.name.trim()) e.name = "Name is required.";
-    if (!isEdit && !form.pin.trim()) e.pin = "PIN is required.";
-    else if (form.pin.trim() && !/^\d{6}$/.test(form.pin)) e.pin = "PIN must be exactly 6 digits.";
+    if (!isEdit && !form.password.trim()) e.password = "Password is required.";
+    else if (form.password.trim() && form.password.trim().length < 6) e.password = "Password must be at least 6 characters.";
     if (Object.keys(e).length) { setErrors(e); return false; }
     return true;
   }
@@ -98,29 +98,29 @@ function StaffForm({
         {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
       </div>
 
-      {/* PIN */}
+      {/* password */}
       <div>
         <label className="block text-xs font-medium text-gray-400 mb-1">
-          PIN (6 digits){isEdit ? " — leave blank to keep current" : ""}
+          Password (min 6 characters){isEdit ? " — leave blank to keep current" : ""}
         </label>
         <div className="relative">
           <input
-            value={form.pin}
-            onChange={(e) => set("pin", e.target.value.replace(/\D/g, "").slice(0, 6))}
-            type={showPin ? "text" : "password"}
-            placeholder={isEdit ? "Leave blank to keep current" : "••••••"}
-            inputMode="numeric"
+            value={form.password}
+            onChange={(e) => set("password", e.target.value)}
+            type={showPassword ? "text" : "password"}
+            placeholder={isEdit ? "Leave blank to keep current" : "Min 6 characters"}
+            autoComplete="new-password"
             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 pr-9 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-orange-500"
           />
           <button
             type="button"
-            onClick={() => setShowPin((v) => !v)}
+            onClick={() => setShowPassword((v) => !v)}
             className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
           >
-            {showPin ? <EyeOff size={15} /> : <Eye size={15} />}
+            {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
           </button>
         </div>
-        {errors.pin && <p className="text-red-400 text-xs mt-1">{errors.pin}</p>}
+        {errors.password && <p className="text-red-400 text-xs mt-1">{errors.password}</p>}
       </div>
 
       {/* Role */}
@@ -193,7 +193,7 @@ function StaffForm({
 
 export default function KitchenStaffPanel() {
   // DB-backed via /api/admin/kitchen-staff. Each mutation calls the REST
-  // endpoint and re-fetches the list. The PIN field in the form sends the
+  // endpoint and re-fetches the list. The password field in the form sends the
   // value to the server for bcrypt-hashing; it's never returned from GET.
   const [staff, setStaff] = useState<KitchenStaff[]>([]);
 
@@ -230,8 +230,8 @@ export default function KitchenStaffPanel() {
 
   async function handleEdit(data: Omit<KitchenStaff, "id" | "createdAt">) {
     if (!editing) return;
-    // Strip pin if blank so the server keeps the existing hash.
-    const payload = { ...data, pin: data.pin?.trim() ? data.pin : undefined };
+    // Strip password if blank so the server keeps the existing hash.
+    const payload = { ...data, password: data.password?.trim() ? data.password : undefined };
     const res = await fetch(`/api/admin/kitchen-staff/${editing.id}`, {
       method:  "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -384,7 +384,7 @@ export default function KitchenStaffPanel() {
                     </span>
                   </div>
                   <p className="text-gray-500 text-xs mt-0.5">
-                    PIN: •••• · ID: {member.id}
+                    Password: •••• · ID: {member.id}
                   </p>
                 </div>
 
@@ -422,8 +422,8 @@ export default function KitchenStaffPanel() {
       {/* Info box */}
       <div className="bg-blue-950/60 border border-blue-700/60 rounded-xl p-4 text-blue-100 text-xs leading-relaxed">
         <strong className="block mb-1 text-white">How it works</strong>
-        Kitchen staff log in at <code>/kitchen/login</code> using their PIN. Sessions are signed HMAC cookies
-        valid for 30 days. PINs are stored in admin settings and validated server-side — never exposed
+        Kitchen staff log in at <code>/kitchen/login</code> using their password. Sessions are signed HMAC cookies
+        valid for 30 days. Passwords are stored in admin settings and validated server-side — never exposed
         in the browser&apos;s network tab. Each status update records the staff member&apos;s name in the order.
       </div>
     </div>

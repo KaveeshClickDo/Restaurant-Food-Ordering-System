@@ -1,5 +1,5 @@
 /**
- * PATCH  /api/admin/pos/[id] — update a POS staff member; omit `pin` to keep current.
+ * PATCH  /api/admin/pos/[id] — update a POS staff member; omit `password` to keep current.
  * DELETE /api/admin/pos/[id] — delete one.
  *
  * Admin-only via the admin session cookie. Mirrors /api/admin/waiters/[id] and
@@ -41,7 +41,7 @@ export async function PATCH(
     // dropping role→cashier actually downgrades their access.
     if (body.permissions === undefined) patch.permissions = ROLE_PERMISSIONS[body.role];
   }
-  if (body.pin) patch.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
+  if (body.password) patch.password_hash = await bcrypt.hash(body.password, HASH_ROUNDS);
 
   // Bump session_version ONLY on a real credential change — not just because
   // the form re-sent an existing field. Without this guard every harmless edit
@@ -59,12 +59,12 @@ export async function PATCH(
 
   const newEmail     = body.email?.toLowerCase();
   const emailChanged = newEmail !== undefined && newEmail !== currentEmail;
-  // body.pin is only present when the admin typed a new one — POSStaffPanel
-  // strips a blank pin before sending.
-  const pinChanged   = body.pin !== undefined;
+  // body.password is only present when the admin typed a new one — POSStaffPanel
+  // strips a blank password before sending.
+  const passwordChanged   = body.password !== undefined;
   const deactivating = body.active === false && currentActive === true;
 
-  if (emailChanged || pinChanged || deactivating) {
+  if (emailChanged || passwordChanged || deactivating) {
     patch.session_version = Number(current?.session_version ?? 1) + 1;
   }
 

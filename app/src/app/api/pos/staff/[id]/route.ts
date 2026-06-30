@@ -1,5 +1,5 @@
 /**
- * PATCH  /api/pos/staff/[id] — update fields; omit `pin` to keep current.
+ * PATCH  /api/pos/staff/[id] — update fields; omit `password` to keep current.
  * DELETE /api/pos/staff/[id] — remove a staff member.
  *
  * Caller must be a POS staff member with permissions.canManageStaff. The admin
@@ -85,7 +85,7 @@ export async function PATCH(
     // default permission map so dropping role->cashier actually downgrades.
     if (body.permissions === undefined) patch.permissions = ROLE_PERMISSIONS[body.role];
   }
-  if (body.pin) patch.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
+  if (body.password) patch.password_hash = await bcrypt.hash(body.password, HASH_ROUNDS);
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ ok: false, error: "No fields to update" }, { status: 400 });

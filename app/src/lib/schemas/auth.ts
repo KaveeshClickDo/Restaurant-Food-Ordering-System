@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Email, Password, OptionalPhone, NonEmptyString, Pin } from "./primitives";
+import { Email, Password, OptionalPhone, NonEmptyString } from "./primitives";
 
 export const LoginSchema = z.object({
   email:    Email,
@@ -39,10 +39,10 @@ export const ResendVerificationSchema = z.object({
   email: Email.optional(),
 });
 
-// Staff PIN-based logins
-export const StaffPinLoginSchema = z.object({
-  staffId: NonEmptyString,
-  pin:     Pin,
+// Staff password-based logins
+export const StaffPasswordLoginSchema = z.object({
+  staffId:  NonEmptyString,
+  password: Password,
 });
 
 // Driver email/password login

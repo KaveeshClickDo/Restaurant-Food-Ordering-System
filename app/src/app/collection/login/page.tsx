@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { PackageCheck, ArrowLeft, ChevronRight, Loader2 } from "lucide-react";
+import { PackageCheck, ArrowLeft, ChevronRight, Loader2, Eye, EyeOff } from "lucide-react";
 import CollectionFooter from "@/components/collection/CollectionFooter";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -19,51 +19,21 @@ function initials(name: string) {
   return name.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
 }
 
-type LoginStep = "staff" | "pin";
-
-// ── PIN pad ───────────────────────────────────────────────────────────────────
-
-function PinPad({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const keys = ["1","2","3","4","5","6","7","8","9","","0","⌫"];
-  return (
-    <div className="grid grid-cols-3 gap-3 max-w-[280px] mx-auto">
-      {keys.map((k, i) =>
-        k === "" ? (
-          <div key={i} />
-        ) : (
-          <button
-            key={k + i}
-            onClick={() => {
-              if (k === "⌫") onChange(value.slice(0, -1));
-              else if (value.length < 6) onChange(value + k);
-            }}
-            className={`h-16 rounded-2xl text-2xl font-bold transition-all active:scale-95 select-none ${
-              k === "⌫"
-                ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                : "bg-slate-700 text-white hover:bg-slate-600 active:bg-orange-500"
-            }`}
-          >
-            {k}
-          </button>
-        )
-      )}
-    </div>
-  );
-}
+type LoginStep = "staff" | "password";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function CollectionLoginPage() {
   const router = useRouter();
 
-  const [allStaff,   setAllStaff]   = useState<CollectionStaff[]>([]);
-  const [loading,    setLoading]    = useState(true);
-  const [step,       setStep]       = useState<LoginStep>("staff");
-  const [target,     setTarget]     = useState<CollectionStaff | null>(null);
-  const [pin,        setPin]        = useState("");
-  const [pinError,   setPinError]   = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const pinShakeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [allStaff,     setAllStaff]     = useState<CollectionStaff[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [step,         setStep]         = useState<LoginStep>("staff");
+  const [target,       setTarget]       = useState<CollectionStaff | null>(null);
+  const [password,     setPassword]     = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [error,        setError]        = useState("");
+  const [submitting,   setSubmitting]   = useState(false);
 
   // If already signed in, skip the login flow and go straight to /collection.
   // The GET does a DB-backed session check, so a stale/expired cookie simply
@@ -84,44 +54,39 @@ export default function CollectionLoginPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const submitPin = useCallback(
-    async (currentPin: string) => {
-      if (!target || submitting) return;
-      setSubmitting(true);
-      try {
-        const res = await fetch("/api/collection/auth", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ staffId: target.id, pin: currentPin }),
-        });
-        const data = await res.json() as { ok: boolean };
-        if (data.ok) {
-          router.replace("/collection");
-        } else {
-          setPinError(true);
-          setPin("");
-          if (pinShakeRef.current) clearTimeout(pinShakeRef.current);
-          pinShakeRef.current = setTimeout(() => setPinError(false), 700);
-        }
-      } catch {
-        setPinError(true);
-        setPin("");
-      } finally {
-        setSubmitting(false);
+  async function submit(ev?: React.FormEvent) {
+    ev?.preventDefault();
+    if (!target || submitting) return;
+    if (password.trim().length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/collection/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ staffId: target.id, password }),
+      });
+      const data = await res.json() as { ok: boolean; error?: string };
+      if (data.ok) {
+        router.replace("/collection");
+      } else {
+        setError(data.error || "Incorrect password — try again");
+        setPassword("");
       }
-    },
-    [target, submitting, router],
-  );
-
-  useEffect(() => {
-    if (pin.length === 6) submitPin(pin);
-  }, [pin, submitPin]);
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   function selectStaff(s: CollectionStaff) {
     setTarget(s);
-    setPin("");
-    setPinError(false);
-    setStep("pin");
+    setPassword("");
+    setError("");
+    setStep("password");
   }
 
   return (
@@ -133,7 +98,7 @@ export default function CollectionLoginPage() {
             <PackageCheck size={28} className="text-white" />
           </div>
           <h1 className="text-white text-2xl font-black">Collection Login</h1>
-          <p className="text-slate-400 text-sm mt-1">Select your name then enter your PIN</p>
+          <p className="text-slate-400 text-sm mt-1">Select your name then enter your password</p>
         </div>
 
         {step === "staff" ? (
@@ -168,10 +133,11 @@ export default function CollectionLoginPage() {
             )}
           </div>
         ) : (
-          /* PIN pad */
-          <div className="w-full max-w-sm space-y-6">
+          /* Password entry */
+          <form onSubmit={submit} className="w-full max-w-sm space-y-6">
             <button
-              onClick={() => { setStep("staff"); setPin(""); setPinError(false); }}
+              type="button"
+              onClick={() => { setStep("staff"); setPassword(""); setError(""); }}
               className="flex items-center gap-2 text-slate-400 hover:text-white transition text-sm"
             >
               <ArrowLeft size={14} /> Back
@@ -190,36 +156,38 @@ export default function CollectionLoginPage() {
               </div>
             </div>
 
-            {/* PIN dots */}
-            <div className={`flex justify-center gap-3 ${pinError ? "animate-bounce" : ""}`}>
-              {[0, 1, 2, 3, 4, 5].map((i) => (
-                <div
-                  key={i}
-                  className={`w-4 h-4 rounded-full border-2 transition-all ${
-                    i < pin.length
-                      ? pinError
-                        ? "bg-red-500 border-red-500"
-                        : "bg-orange-500 border-orange-500"
-                      : "border-slate-600"
-                  }`}
-                />
-              ))}
+            {/* Password field */}
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => { setPassword(e.target.value); setError(""); }}
+                autoFocus
+                autoComplete="current-password"
+                placeholder="Enter your password"
+                className="w-full bg-slate-800 border border-slate-700 rounded-2xl px-4 py-3 pr-11 text-white text-center text-lg tracking-wide outline-none focus:border-orange-500 placeholder-slate-600"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
 
-            {submitting ? (
-              <div className="flex justify-center py-2">
-                <Loader2 size={24} className="text-orange-500 animate-spin" />
-              </div>
-            ) : (
-              <PinPad value={pin} onChange={setPin} />
+            {error && (
+              <p className="text-red-400 text-sm text-center font-medium">{error}</p>
             )}
 
-            {pinError && (
-              <p className="text-red-400 text-sm text-center font-medium">
-                Incorrect PIN — try again
-              </p>
-            )}
-          </div>
+            <button
+              type="submit"
+              disabled={submitting || password.trim().length < 6}
+              className="w-full h-14 rounded-2xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-base transition-all active:scale-95 flex items-center justify-center"
+            >
+              {submitting ? <Loader2 size={20} className="animate-spin" /> : "Sign in"}
+            </button>
+          </form>
         )}
       </div>
 

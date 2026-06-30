@@ -1,6 +1,6 @@
 /**
  * GET  /api/admin/kitchen-staff  — list every kitchen staff member.
- * POST /api/admin/kitchen-staff  — create one; PIN is bcrypt-hashed.
+ * POST /api/admin/kitchen-staff  — create one; password is bcrypt-hashed.
  *
  * Replaces the JSONB list at app_settings.data.kitchenStaff. Admin-only.
  */
@@ -47,9 +47,9 @@ export async function POST(request: Request) {
 
   const parsed = await parseBody(request, KitchenStaffCreateSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { name, email = "", role = "chef", pin, active = true, avatarColor } = parsed.data;
+  const { name, email = "", role = "chef", password, active = true, avatarColor } = parsed.data;
 
-  const pinHash = await bcrypt.hash(pin, HASH_ROUNDS);
+  const passwordHash = await bcrypt.hash(password, HASH_ROUNDS);
 
   const { data, error } = await supabaseAdmin
     .from("kitchen_staff")
@@ -57,7 +57,7 @@ export async function POST(request: Request) {
       name:         name,
       email:        email ? email.toLowerCase() : "",
       role,
-      pin_hash:     pinHash,
+      password_hash:     passwordHash,
       active,
       avatar_color: avatarColor ?? "#dc2626",
     })

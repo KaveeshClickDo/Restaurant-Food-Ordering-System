@@ -1,5 +1,5 @@
 /**
- * PATCH  /api/admin/waiters/[id] — update fields; omit `pin` to keep current.
+ * PATCH  /api/admin/waiters/[id] — update fields; omit `password` to keep current.
  * DELETE /api/admin/waiters/[id] — remove a waiter.
  */
 
@@ -33,8 +33,8 @@ export async function PATCH(
   if (body.hourlyRate !== undefined)  patch.hourly_rate  = body.hourlyRate;
   if (body.avatarColor !== undefined) patch.avatar_color = body.avatarColor;
 
-  if (body.pin) {
-    patch.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
+  if (body.password) {
+    patch.password_hash = await bcrypt.hash(body.password, HASH_ROUNDS);
   }
 
   // Bump session_version ONLY on a real credential change — not just because
@@ -52,12 +52,12 @@ export async function PATCH(
 
   const newEmail     = body.email?.toLowerCase();
   const emailChanged = newEmail !== undefined && newEmail !== currentEmail;
-  // body.pin is only present when the admin typed a new one — WaitersPanel
-  // strips a blank pin before sending.
-  const pinChanged   = body.pin !== undefined;
+  // body.password is only present when the admin typed a new one — WaitersPanel
+  // strips a blank password before sending.
+  const passwordChanged   = body.password !== undefined;
   const deactivating = body.active === false && currentActive === true;
 
-  if (emailChanged || pinChanged || deactivating) {
+  if (emailChanged || passwordChanged || deactivating) {
     patch.session_version = Number(current?.session_version ?? 1) + 1;
   }
 

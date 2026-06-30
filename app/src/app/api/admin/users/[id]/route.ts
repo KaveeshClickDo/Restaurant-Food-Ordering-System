@@ -9,7 +9,7 @@
  *   kitchen   → kitchen_staff
  *   pos       → pos_staff
  *
- * Admin auth required. PINs are bcrypt-hashed; omitting `pin` keeps the
+ * Admin auth required. passwords are bcrypt-hashed; omitting `password` keeps the
  * existing hash.
  */
 
@@ -92,7 +92,7 @@ export async function PATCH(
     if (body.active      !== undefined) updates.active       = body.active;
     if (body.avatarColor !== undefined) updates.avatar_color = body.avatarColor;
     if (body.hourlyRate  !== undefined) updates.hourly_rate  = body.hourlyRate;
-    if (body.pin) updates.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
+    if (body.password) updates.password_hash = await bcrypt.hash(body.password, HASH_ROUNDS);
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ ok: false, error: "No fields to update." }, { status: 400 });
     }
@@ -109,7 +109,7 @@ export async function PATCH(
     if (body.active      !== undefined) updates.active       = body.active;
     if (body.avatarColor !== undefined) updates.avatar_color = body.avatarColor;
     if (body.kitchenRole !== undefined) updates.role         = body.kitchenRole;
-    if (body.pin) updates.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
+    if (body.password) updates.password_hash = await bcrypt.hash(body.password, HASH_ROUNDS);
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ ok: false, error: "No fields to update." }, { status: 400 });
     }
@@ -130,7 +130,7 @@ export async function PATCH(
       updates.role        = body.posRole;
       updates.permissions = ROLE_PERMISSIONS[body.posRole];
     }
-    if (body.pin) updates.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
+    if (body.password) updates.password_hash = await bcrypt.hash(body.password, HASH_ROUNDS);
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ ok: false, error: "No fields to update." }, { status: 400 });
     }

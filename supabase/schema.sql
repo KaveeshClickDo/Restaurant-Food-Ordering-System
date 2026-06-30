@@ -352,18 +352,18 @@ create table if not exists reservation_waitlist (
 -- 2b. New tables — moved out of app_settings.data ----------------------------
 -- Each one used to live as a JSONB key inside app_settings. Promoted to its
 -- own table for: row-level edits, FK targets, indexed lookups, atomic
--- counters, hashed PINs, and append-only audit semantics where applicable.
+-- counters, hashed passwords, and append-only audit semantics where applicable.
 
 -- POS terminal staff (replaces app_settings.data.pos_staff).
--- PINs are bcrypt-hashed; the salt+hash live in pin_hash and never leave
--- the server. permissions is a free-form jsonb keyed by capability flags.
+-- Passwords are bcrypt-hashed; the salt+hash live in password_hash and never
+-- leave the server. permissions is a free-form jsonb keyed by capability flags.
 create table if not exists pos_staff (
   id            text        primary key default gen_random_uuid()::text,
   name          text        not null,
   email         text        not null default '',
   role          text        not null default 'cashier'
                 check (role in ('admin','manager','cashier')),
-  pin_hash      text        not null,
+  password_hash text,
   active        boolean     not null default true,
   permissions   jsonb       not null default '{}',
   hourly_rate   numeric,
@@ -378,7 +378,7 @@ create table if not exists waiters (
   email         text        not null default '',
   role          text        not null default 'waiter'
                 check (role in ('waiter','senior')),
-  pin_hash      text        not null,
+  password_hash text,
   active        boolean     not null default true,
   hourly_rate   numeric,
   avatar_color  text        not null default '#0891b2',
@@ -392,7 +392,7 @@ create table if not exists kitchen_staff (
   email         text        not null default '',
   role          text        not null default 'chef'
                 check (role in ('chef','head_chef','kitchen_manager')),
-  pin_hash      text        not null,
+  password_hash text,
   active        boolean     not null default true,
   avatar_color  text        not null default '#dc2626',
   created_at    timestamptz not null default now()
@@ -400,19 +400,44 @@ create table if not exists kitchen_staff (
 
 -- Collection staff that log into /collection — the standalone pickup-payment
 -- surface for shops that run online orders without the POS. Flat list (no
--- roles/permissions); PINs are bcrypt-hashed in pin_hash. session_version is
--- inline (mirrors the staff invalidation pattern) so an admin PIN reset or
+-- roles/permissions); passwords are bcrypt-hashed in password_hash. session_version is
+-- inline (mirrors the staff invalidation pattern) so an admin password reset or
 -- deactivation signs the operator out on their next request.
 create table if not exists collection_staff (
   id              text        primary key default gen_random_uuid()::text,
   name            text        not null,
   email           text        not null default '',
-  pin_hash        text        not null,
+  password_hash   text,
   active          boolean     not null default true,
   avatar_color    text        not null default '#f97316',
   session_version integer     not null default 1,
   created_at      timestamptz not null default now()
 );
+
+-- ── Migration: staff credential PIN → password ───────────────────────────────
+-- Staff auth switched from a numeric PIN to a password. The column holds a
+-- bcrypt hash either way, so on EXISTING databases we just rename it. The rename
+-- is guarded on "pin_hash still exists" so it runs exactly once (subsequent
+-- idempotent re-runs skip it — and so never wipe live passwords). At the same
+-- time we FORCE-RESET every existing credential to NULL ("no password set"):
+-- old hashes were of numeric PINs, and the product now requires a real password
+-- set by an admin. A NULL password_hash means the auth route rejects login until
+-- an admin sets one. Fresh DBs already create password_hash above, so this is a
+-- no-op there.
+do $$
+declare t text;
+begin
+  foreach t in array array['pos_staff','waiters','kitchen_staff','collection_staff'] loop
+    if exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = t and column_name = 'pin_hash'
+    ) then
+      execute format('alter table %I rename column pin_hash to password_hash', t);
+      execute format('alter table %I alter column password_hash drop not null', t);
+      execute format('update %I set password_hash = null', t);   -- force reset (one-time)
+    end if;
+  end loop;
+end $$;
 
 -- Promo codes (replaces app_settings.data.coupons). Lives as a real table
 -- so usage_count can be incremented atomically at checkout without
@@ -586,7 +611,7 @@ create unique index if not exists uniq_pos_clock_open
   on pos_clock_entries (staff_id) where clock_out is null;
 
 -- POS terminals — one row per physical Android tablet registered to ring up
--- offline sales. Created on the device's first successful online PIN login;
+-- offline sales. Created on the device's first successful online password login;
 -- updated on every subsequent sync. `prefix` namespaces offline-minted
 -- receipt numbers so two tablets can never collide on pos_sales.receipt_no
 -- (e.g. terminal T1 produces 'T1-1042', T2 produces 'T2-1042'). Online web
@@ -1026,7 +1051,7 @@ create index if not exists idx_pos_sales_terminal_id
 
 -- ── Session versioning for staff roles ───────────────────────────────────────
 -- Embedded in the HMAC session token so admin-initiated credential changes
--- (password/PIN/email) or deactivation immediately invalidate all live
+-- (password/email) or deactivation immediately invalidate all live
 -- sessions for that staff member. Bumped from the admin update endpoints;
 -- verified server-side on every authed staff request in lib/auth.ts.
 alter table drivers       add column if not exists session_version integer not null default 1;
@@ -1378,9 +1403,9 @@ grant select
 -- deny_anon_all policies above already block every anon/authenticated read.
 -- These column-level revokes remain as a third line of defence in case a
 -- future policy mistakenly loosens the RLS.
-revoke select (pin_hash)      on pos_staff     from anon, authenticated;
-revoke select (pin_hash)      on waiters       from anon, authenticated;
-revoke select (pin_hash)      on kitchen_staff from anon, authenticated;
+revoke select (password_hash) on pos_staff     from anon, authenticated;
+revoke select (password_hash) on waiters       from anon, authenticated;
+revoke select (password_hash) on kitchen_staff from anon, authenticated;
 revoke select (password_hash) on drivers       from anon, authenticated;
 revoke select (reset_token)         on drivers from anon, authenticated;
 revoke select (reset_token_expires) on drivers from anon, authenticated;

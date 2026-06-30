@@ -1,6 +1,6 @@
 /**
  * GET  /api/admin/collection-staff  — list every collection staff member.
- * POST /api/admin/collection-staff  — create one; PIN is bcrypt-hashed.
+ * POST /api/admin/collection-staff  — create one; password is bcrypt-hashed.
  *
  * Flat list (no roles). Admin-only. Mirrors /api/admin/kitchen-staff.
  */
@@ -46,16 +46,16 @@ export async function POST(request: Request) {
 
   const parsed = await parseBody(request, CollectionStaffCreateSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { name, email = "", pin, active = true, avatarColor } = parsed.data;
+  const { name, email = "", password, active = true, avatarColor } = parsed.data;
 
-  const pinHash = await bcrypt.hash(pin, HASH_ROUNDS);
+  const passwordHash = await bcrypt.hash(password, HASH_ROUNDS);
 
   const { data, error } = await supabaseAdmin
     .from("collection_staff")
     .insert({
       name,
       email:        email ? email.toLowerCase() : "",
-      pin_hash:     pinHash,
+      password_hash:     passwordHash,
       active,
       avatar_color: avatarColor ?? "#f97316",
     })

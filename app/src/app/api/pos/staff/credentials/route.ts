@@ -1,19 +1,19 @@
 /**
  * GET /api/pos/staff/credentials — the CALLING staff member's own credentials,
- * for offline PIN login (Phase 4).
+ * for offline password login (Phase 4).
  *
- * Returns the bcrypt `pin_hash` + `session_version` for ONLY the session owner
+ * Returns the bcrypt `password_hash` + `session_version` for ONLY the session owner
  * (never another staff member's row), so the Capacitor app can cache it and
- * validate a PIN locally with no network. Security:
+ * validate a password locally with no network. Security:
  *   - Gated by a valid POS session (the cookie identifies whose row to return).
  *   - Scoped to `where id = session.id` — a stolen cookie can't read other
- *     cashiers' hashes (and the owner already knows their own PIN).
+ *     cashiers' hashes (and the owner already knows their own password).
  *   - Rate-limited, so it can't be used as a bulk oracle.
  *
- * Note: the value is a bcrypt HASH, not the PIN. Offline storage of the hash is
+ * Note: the value is a bcrypt HASH, not the password. Offline storage of the hash is
  * the plan's model; encrypting the on-device credentials table with a
  * device-bound key (Android Keystore) is a pre-production hardening step
- * (09-decisions / 07-phases § 4.3) — short PINs are brute-forceable against a
+ * (09-decisions / 07-phases § 4.3) — short passwords are brute-forceable against a
  * stolen plaintext-hash DB given enough time.
  */
 
@@ -35,12 +35,12 @@ export async function GET() {
   try {
     const { data } = await supabaseAdmin
       .from("pos_staff")
-      .select("id, pin_hash, session_version")
+      .select("id, password_hash, session_version")
       .eq("id", session.id)
       .eq("active", true)
       .maybeSingle();
 
-    if (!data || !data.pin_hash) {
+    if (!data || !data.password_hash) {
       return NextResponse.json({ ok: false }, { status: 401 });
     }
 
@@ -48,7 +48,7 @@ export async function GET() {
       ok: true,
       credentials: {
         staffId:        data.id,
-        pinHash:        data.pin_hash,
+        passwordHash:        data.password_hash,
         sessionVersion: Number(data.session_version ?? 1),
       },
     });

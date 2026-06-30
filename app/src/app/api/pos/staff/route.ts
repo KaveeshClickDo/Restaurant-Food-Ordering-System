@@ -1,11 +1,11 @@
 /**
- * GET  /api/pos/staff — list staff (PINs never returned). Public, so the
+ * GET  /api/pos/staff — list staff (passwords never returned). Public, so the
  *                       /pos/login tile picker works before any session exists.
  * POST /api/pos/staff — create one. Caller must be a logged-in admin OR a
  *                       POS staff member with permissions.canManageStaff.
  *
- * The pos_staff table is the source of truth — PINs are bcrypt-hashed in
- * pin_hash and never leave the server.
+ * The pos_staff table is the source of truth — passwords are bcrypt-hashed in
+ * password_hash and never leave the server.
  */
 
 import { NextResponse } from "next/server";
@@ -36,7 +36,7 @@ function mapRow(row: any) {
     createdAt:   typeof row.created_at === "string"
                    ? row.created_at
                    : new Date(row.created_at).toISOString(),
-    pin:         "",
+    password:         "",
   };
 }
 
@@ -53,7 +53,7 @@ function mapTileRow(row: any) {
     permissions: {},
     hourlyRate:  undefined,
     createdAt:   "",
-    pin:         "",
+    password:         "",
   };
 }
 
@@ -124,10 +124,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const { name, email = "", role = "cashier", pin,
+  const { name, email = "", role = "cashier", password,
           active = true, permissions, hourlyRate, avatarColor } = parsed.data;
 
-  const pinHash      = await bcrypt.hash(pin, HASH_ROUNDS);
+  const passwordHash      = await bcrypt.hash(password, HASH_ROUNDS);
   const finalPerms   = permissions ?? ROLE_PERMISSIONS[role];
   const finalColor   = avatarColor ?? "#7c3aed";
 
@@ -137,7 +137,7 @@ export async function POST(request: Request) {
       name:         name,
       email:        email ? email.toLowerCase() : "",
       role,
-      pin_hash:     pinHash,
+      password_hash:     passwordHash,
       active,
       permissions:  finalPerms,
       hourly_rate:  hourlyRate ?? null,

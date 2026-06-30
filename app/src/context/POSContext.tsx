@@ -54,7 +54,7 @@ function offlineReceiptNo(saleId: string): string {
   return `OFF-${hex}`;
 }
 
-type CachedCred = { pinHash: string; sessionVersion: number };
+type CachedCred = { passwordHash: string; sessionVersion: number };
 
 /**
  * Download a remote image as a base64 data URL for offline display. Best-effort:
@@ -91,12 +91,12 @@ async function cachePosCredentials(staffId: string): Promise<void> {
     if (!res.ok) return;
     const json = await res.json() as {
       ok: boolean;
-      credentials?: { staffId: string; pinHash: string; sessionVersion: number };
+      credentials?: { staffId: string; passwordHash: string; sessionVersion: number };
     };
-    if (!json.ok || !json.credentials?.pinHash) return;
+    if (!json.ok || !json.credentials?.passwordHash) return;
     const map = (await kvGet<Record<string, CachedCred>>(CACHE_CREDS)) ?? {};
     map[staffId] = {
-      pinHash:        json.credentials.pinHash,
+      passwordHash:   json.credentials.passwordHash,
       sessionVersion: json.credentials.sessionVersion,
     };
     await kvSet(CACHE_CREDS, map);
@@ -166,12 +166,12 @@ interface POSContextValue {
   /** true after an offline login until the server revalidates online; while set,
    *  void/refund are blocked and the UI should indicate "verifying". */
   pendingRevalidation: boolean;
-  login: (staffId: string, pin: string) => Promise<boolean>;
+  login: (staffId: string, password: string) => Promise<boolean>;
   logout: () => void;
   // Data
   staff: POSStaff[];
-  addPosStaff:    (input: { name: string; email?: string; role: "admin" | "manager" | "cashier"; pin: string; hourlyRate?: number; avatarColor?: string }) => Promise<{ ok: boolean; error?: string }>;
-  updatePosStaff: (id: string, patch: { name?: string; email?: string; role?: "admin" | "manager" | "cashier"; pin?: string; active?: boolean; hourlyRate?: number; avatarColor?: string }) => Promise<{ ok: boolean; error?: string }>;
+  addPosStaff:    (input: { name: string; email?: string; role: "admin" | "manager" | "cashier"; password: string; hourlyRate?: number; avatarColor?: string }) => Promise<{ ok: boolean; error?: string }>;
+  updatePosStaff: (id: string, patch: { name?: string; email?: string; role?: "admin" | "manager" | "cashier"; password?: string; active?: boolean; hourlyRate?: number; avatarColor?: string }) => Promise<{ ok: boolean; error?: string }>;
   deletePosStaff: (id: string) => Promise<{ ok: boolean; error?: string }>;
   refreshPosStaff: () => Promise<void>;
   products: POSProduct[];
@@ -584,8 +584,8 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   const [assignedCustomer, setAssignedCustomer] = useState<POSCustomer | null>(null);
 
   // ── Staff — DB-backed (pos_staff table) ──────────────────────────────────
-  // The browser never holds a real PIN; the API strips pin_hash on every
-  // response. Mutations call the REST endpoints directly and re-fetch.
+  // The browser never holds a real password; the API strips password_hash on
+  // every response. Mutations call the REST endpoints directly and re-fetch.
   const refreshPosStaff = useCallback(async () => {
     try {
       const res = await fetch(apiBase() + "/api/pos/staff");
@@ -594,8 +594,8 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       if (json.ok && Array.isArray(json.staff)) {
         setStaff(json.staff);
         // Write-through so the login picker shows profiles on a cold offline
-        // start (Phase 1.6). Capacitor-only; no-op on web. Note: pin_hash is
-        // stripped by the API, so offline PIN *validation* still needs Phase 4.
+        // start (Phase 1.6). Capacitor-only; no-op on web. Note: password_hash is
+        // stripped by the API, so offline password *validation* still needs Phase 4.
         void kvSet(CACHE_STAFF, json.staff);
       }
     } catch {
@@ -610,7 +610,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
   const addPosStaff = useCallback(async (input: {
     name: string; email?: string; role: "admin" | "manager" | "cashier";
-    pin: string; hourlyRate?: number; avatarColor?: string;
+    password: string; hourlyRate?: number; avatarColor?: string;
   }) => {
     const res = await fetch(apiBase() + "/api/pos/staff", {
       method:  "POST",
@@ -625,7 +625,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
   const updatePosStaff = useCallback(async (id: string, patch: {
     name?: string; email?: string; role?: "admin" | "manager" | "cashier";
-    pin?: string; active?: boolean; hourlyRate?: number; avatarColor?: string;
+    password?: string; active?: boolean; hourlyRate?: number; avatarColor?: string;
   }) => {
     const res = await fetch(`${apiBase()}/api/pos/staff/${id}`, {
       method:  "PATCH",
@@ -953,22 +953,22 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
-  // Server-authoritative login: the PIN is validated by /api/pos/auth, which
+  // Server-authoritative login: the password is validated by /api/pos/auth, which
   // sets the httpOnly pos_staff_session cookie and returns the staff record.
-  // The browser never compares PINs — and never sees other staff's PINs.
-  // Offline PIN login (Phase 4): when the server is unreachable, validate the
-  // PIN locally with bcrypt against the cached hash for this staffId, then set
+  // The browser never compares passwords — and never sees other staff's passwords.
+  // Offline password login (Phase 4): when the server is unreachable, validate the
+  // password locally with bcrypt against the cached hash for this staffId, then set
   // currentStaff from the cached picker. The session cookie from the last online
   // login (native cookie jar) is reused to sync queued sales on reconnect; the
   // 15s checkSession poll revalidates against the server once back online (and
-  // logs out if the PIN was reset / staff deactivated — session_version bump).
+  // logs out if the password was reset / staff deactivated — session_version bump).
   // Capacitor-only; returns false on web (no cached creds).
-  const offlineLogin = useCallback(async (staffId: string, pin: string): Promise<boolean> => {
+  const offlineLogin = useCallback(async (staffId: string, password: string): Promise<boolean> => {
     if (!isCapacitorAndroid()) return false;
     const creds = await kvGet<Record<string, CachedCred>>(CACHE_CREDS);
     const entry = creds?.[staffId];
-    if (!entry?.pinHash) return false;
-    const ok = await bcrypt.compare(pin, entry.pinHash);
+    if (!entry?.passwordHash) return false;
+    const ok = await bcrypt.compare(password, entry.passwordHash);
     if (!ok) return false;
     const picker = await kvGet<POSStaff[]>(CACHE_STAFF);
     const staffRec = picker?.find((s) => s.id === staffId && s.active !== false);
@@ -978,12 +978,12 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     return true;
   }, [markPendingReval]);
 
-  const login = useCallback(async (staffId: string, pin: string): Promise<boolean> => {
+  const login = useCallback(async (staffId: string, password: string): Promise<boolean> => {
     try {
       const res = await fetch(apiBase() + "/api/pos/auth", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ staffId, pin }),
+        body:    JSON.stringify({ staffId, password }),
       });
       // A reachable server gave a definitive answer (200 ok, or 401/429 reject).
       // Do NOT fall back to offline validation on a server reject.
@@ -995,8 +995,8 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       void cachePosCredentials(staffId);
       return true;
     } catch {
-      // Server unreachable → try offline PIN validation against the cached hash.
-      return offlineLogin(staffId, pin);
+      // Server unreachable → try offline password validation against the cached hash.
+      return offlineLogin(staffId, password);
     }
   }, [offlineLogin]);
 

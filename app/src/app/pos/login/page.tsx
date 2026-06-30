@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { usePOS } from "@/context/POSContext";
 import { POSStaff } from "@/types/pos";
-import { Delete, Lock, ChefHat, AlertCircle } from "lucide-react";
+import { Lock, ChefHat, AlertCircle, Eye, EyeOff } from "lucide-react";
 import CollectionFooter from "@/components/collection/CollectionFooter";
 
 function getInitials(name: string) {
@@ -15,10 +15,12 @@ export default function POSLoginPage() {
   const router = useRouter();
   const { staff, login, currentStaff, settings } = usePOS();
   const [selectedStaff, setSelectedStaff] = useState<POSStaff | null>(null);
-  const [pin, setPin] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [shaking, setShaking] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   // Mount guard prevents SSR/client hydration mismatch from localStorage reads
   useEffect(() => { setMounted(true); }, []);
@@ -31,46 +33,32 @@ export default function POSLoginPage() {
 
   function selectStaff(member: POSStaff) {
     setSelectedStaff(member);
-    setPin("");
+    setPassword("");
     setError("");
   }
 
-  const [submitting, setSubmitting] = useState(false);
-
-  function pressDigit(d: string) {
-    if (pin.length >= 6 || submitting) return;
-    const next = pin + d;
-    setPin(next);
-    if (next.length === 6) {
-      // Auto-submit
-      setTimeout(() => attemptLogin(next), 100);
-    }
-  }
-
-  async function attemptLogin(p: string) {
+  async function attemptLogin(ev?: React.FormEvent) {
+    ev?.preventDefault();
     if (!selectedStaff || submitting) return;
+    if (password.trim().length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
     setSubmitting(true);
     try {
-      const ok = await login(selectedStaff.id, p);
+      const ok = await login(selectedStaff.id, password);
       if (ok) {
         router.push("/pos");
       } else {
         setShaking(true);
-        setError("Incorrect PIN. Please try again.");
-        setPin("");
+        setError("Incorrect password. Please try again.");
+        setPassword("");
         setTimeout(() => setShaking(false), 600);
       }
     } finally {
       setSubmitting(false);
     }
   }
-
-  function backspace() {
-    setPin((p) => p.slice(0, -1));
-    setError("");
-  }
-
-  const PAD = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"];
 
   // Render a dark placeholder during SSR / before hydration to avoid mismatch
   if (!mounted) {
@@ -133,11 +121,12 @@ export default function POSLoginPage() {
             </p>
           </div>
         ) : (
-          // ── PIN entry ─────────────────────────────────────────────────────
-          <div className="w-full max-w-xs">
+          // ── Password entry ────────────────────────────────────────────────
+          <form onSubmit={attemptLogin} className="w-full max-w-xs">
             {/* Back */}
             <button
-              onClick={() => { setSelectedStaff(null); setPin(""); setError(""); }}
+              type="button"
+              onClick={() => { setSelectedStaff(null); setPassword(""); setError(""); }}
               className="flex items-center gap-2 text-slate-400 hover:text-white text-sm mb-8 transition-colors"
             >
               ← Back
@@ -157,17 +146,27 @@ export default function POSLoginPage() {
               </div>
             </div>
 
-            {/* PIN dots */}
-            <div className={`flex justify-center gap-3 mb-6 ${shaking ? "animate-[shake_0.5s_ease-in-out]" : ""}`}>
-              {[0, 1, 2, 3, 4, 5].map((i) => (
-                <div
-                  key={i}
-                  className={`w-4 h-4 rounded-full border-2 transition-all duration-150 ${pin.length > i
-                    ? "bg-orange-500 border-orange-500 scale-110"
-                    : "bg-transparent border-slate-600"
-                    }`}
+            {/* Password field */}
+            <div className={`mb-5 ${shaking ? "animate-[shake_0.5s_ease-in-out]" : ""}`}>
+              <label className="block text-xs text-slate-400 mb-2 text-center">Enter your password</label>
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => { setPassword(e.target.value); setError(""); }}
+                  autoFocus
+                  autoComplete="current-password"
+                  placeholder="Password"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-2xl px-4 py-3 pr-11 text-white text-center text-lg tracking-wide outline-none focus:border-orange-500 placeholder-slate-600"
                 />
-              ))}
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
 
             {/* Error */}
@@ -178,38 +177,20 @@ export default function POSLoginPage() {
               </div>
             )}
 
-            {/* PIN pad */}
-            <div className="grid grid-cols-3 gap-3">
-              {PAD.map((d, i) => {
-                if (d === "") return <div key={i} />;
-                if (d === "⌫") {
-                  return (
-                    <button
-                      key={i}
-                      onClick={backspace}
-                      className="h-16 rounded-2xl bg-slate-700/60 hover:bg-slate-700 active:scale-95 text-slate-300 flex items-center justify-center transition-all"
-                    >
-                      <Delete size={20} />
-                    </button>
-                  );
-                }
-                return (
-                  <button
-                    key={i}
-                    onClick={() => pressDigit(d)}
-                    className="h-16 rounded-2xl bg-slate-800 hover:bg-slate-700 active:bg-orange-500 active:scale-95 text-white font-bold text-xl transition-all border border-slate-700/50 hover:border-slate-600 shadow-sm"
-                  >
-                    {d}
-                  </button>
-                );
-              })}
-            </div>
+            {/* Submit */}
+            <button
+              type="submit"
+              disabled={submitting || password.trim().length < 6}
+              className="w-full h-14 rounded-2xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-base transition-all active:scale-95"
+            >
+              {submitting ? "Signing in…" : "Sign in"}
+            </button>
 
             <div className="flex items-center justify-center gap-2 mt-6 text-slate-600 text-xs">
               <Lock size={11} />
-              <span>PIN protected terminal</span>
+              <span>Password protected terminal</span>
             </div>
-          </div>
+          </form>
         )}
 
         <style jsx global>{`

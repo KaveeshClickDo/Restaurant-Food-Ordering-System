@@ -513,7 +513,7 @@ export interface WaitlistEntry {
 export interface WaiterStaff {
   id: string;
   name: string;
-  pin: string;
+  password: string;
   role: "senior" | "waiter";
   active: boolean;
   avatarColor: string;
@@ -525,7 +525,7 @@ export type KitchenRole = "chef" | "head_chef" | "kitchen_manager";
 export interface KitchenStaff {
   id: string;
   name: string;
-  pin: string;
+  password: string;
   role: KitchenRole;
   active: boolean;
   avatarColor: string;

@@ -1,7 +1,7 @@
 /**
- * POST /api/admin/users/[id]/set-password — admin sets a user's password or PIN.
+ * POST /api/admin/users/[id]/set-password — admin sets a user's password.
  *
- * Body: { type, password?, pin? }
+ * Body: { type, password }
  * Requires admin authentication.
  */
 
@@ -22,7 +22,7 @@ export async function POST(
 
   const parsed = await parseBody(req, SetPasswordOrPinSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { type, password, pin } = parsed.data;
+  const { type, password } = parsed.data;
 
   // ── Customer ──────────────────────────────────────────────────────────────
   if (type === "customer") {
@@ -77,27 +77,18 @@ export async function POST(
     return NextResponse.json({ ok: true });
   }
 
-  // ── Staff PINs (waiter / kitchen / pos) ───────────────────────────────────
-  // Waiter and kitchen accept 4–6 digits; POS PINs are strictly 4 digits.
-  // The PIN is bcrypt-hashed and written to the matching staff table's
-  // pin_hash column.
+  // ── Staff (waiter / kitchen / pos) ────────────────────────────────────────
+  // The password is bcrypt-hashed and written to the matching staff table's
+  // password_hash column. Length (min 6) is already enforced by the schema.
   if (type === "waiter" || type === "kitchen" || type === "pos") {
-    const re = type === "pos" ? /^\d{4}$/ : /^\d{4,6}$/;
-    if (!pin || !re.test(pin)) {
-      return NextResponse.json(
-        { ok: false, error: type === "pos" ? "PIN must be exactly 4 digits." : "PIN must be 4–6 digits." },
-        { status: 400 },
-      );
-    }
-
     const table = type === "waiter" ? "waiters"
                 : type === "kitchen" ? "kitchen_staff"
                 : "pos_staff";
 
-    const pinHash = await bcrypt.hash(pin, 10);
+    const passwordHash = await bcrypt.hash(password, 10);
     const { error } = await supabaseAdmin
       .from(table)
-      .update({ pin_hash: pinHash })
+      .update({ password_hash: passwordHash })
       .eq("id", id);
 
     if (error) {
