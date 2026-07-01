@@ -20,7 +20,7 @@
 
 import type { POSSale, POSSettings } from "@/types/pos";
 import type { PrinterSettings, ReceiptSettings } from "@/types";
-import { ReceiptBuilder } from "./escpos";
+import { ReceiptBuilder, logoToRaster, paperDotWidth } from "./escpos";
 import { sendToPrinter, sendToPrinterUSB } from "./escpos";
 import { isCapacitorAndroid, sendBluetooth, sendUsb, sendTcpNative } from "./capacitorBridge";
 
@@ -41,7 +41,7 @@ function money(n: number, sym: string): string {
 export function buildPOSReceiptBytes(
   sale: POSSale,
   settings: POSSettings,
-  opts: { paperWidth: number; restaurantName: string; receipt: ReceiptSettings },
+  opts: { paperWidth: number; restaurantName: string; receipt: ReceiptSettings; logoBytes?: number[] | null },
 ): number[] {
   const W   = [32, 48].includes(opts.paperWidth) ? opts.paperWidth : 48;
   const sym = settings.currencySymbol || "£";
@@ -49,9 +49,9 @@ export function buildPOSReceiptBytes(
   const b   = new ReceiptBuilder();
 
   // ── Header ────────────────────────────────────────────────────────────────
-  b.init()
-   .align("center")
-   .bold(true)
+  b.init().align("center");
+  if (opts.logoBytes && opts.logoBytes.length) b.raw(opts.logoBytes).feed(1);
+  b.bold(true)
    .size(true, true)
    .line(opts.restaurantName.toUpperCase())
    .size(false, false)
@@ -186,10 +186,15 @@ export async function printPOSSale(
   if (!printer?.enabled || printer.connection === "browser") {
     return { ok: false, browser: true };
   }
+  // Pre-render the logo raster (async) when Show Logo is on.
+  const logoBytes = receipt.showLogo && receipt.logoUrl
+    ? await logoToRaster(receipt.logoUrl, paperDotWidth(printer.paperWidth))
+    : null;
   const bytes = buildPOSReceiptBytes(sale, settings, {
     paperWidth: printer.paperWidth,
     restaurantName,
     receipt,
+    logoBytes,
   });
   return sendReceiptToPrinter(bytes, printer);
 }

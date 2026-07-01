@@ -53,6 +53,12 @@ export class ReceiptBuilder {
     return this;
   }
 
+  /** Inject pre-built raw ESC/POS bytes (e.g. a GS v 0 raster logo). */
+  raw(bytes: number[]) {
+    for (const x of bytes) this.buf.push(x);
+    return this;
+  }
+
   /** ESC a n — text alignment */
   align(a: "left" | "center" | "right") {
     const n = a === "left" ? 0 : a === "center" ? 1 : 2;
@@ -151,14 +157,82 @@ export class ReceiptBuilder {
   }
 }
 
+// ─── Logo raster (GS v 0) ─────────────────────────────────────────────────────
+
+/** Printable dot width for a given character width (58mm/32c → 384, 80mm/48c → 576). */
+export function paperDotWidth(paperWidthChars: number): number {
+  return (paperWidthChars === 32 ? 32 : 48) * 12;
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload  = () => resolve(img);
+    img.onerror = () => reject(new Error("logo image failed to load"));
+    img.src = src;
+  });
+}
+
+/**
+ * Convert a logo (URL or base64 data URL) into an ESC/POS raster block (GS v 0),
+ * scaled to fit the printer's dot width and centred. Transparent pixels print
+ * white; a simple luminance threshold gives the 1-bit image. Returns null when
+ * it can't render (SSR, no image, load/canvas failure) so callers just skip it.
+ * Async because it loads the image + reads a canvas — call it before the sync
+ * receipt builder and pass the bytes in.
+ */
+export async function logoToRaster(src: string, dotWidth: number, maxHeight = 160): Promise<number[] | null> {
+  if (!src || typeof document === "undefined") return null;
+  try {
+    const img = await loadImage(src);
+    const iw = img.naturalWidth  || img.width;
+    const ih = img.naturalHeight || img.height;
+    if (!iw || !ih) return null;
+
+    const scale = Math.min(dotWidth / iw, maxHeight / ih);
+    const w = Math.max(1, Math.round(iw * scale));
+    const h = Math.max(1, Math.round(ih * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, w, h);          // flatten transparency onto white
+    ctx.drawImage(img, 0, 0, w, h);
+    const { data } = ctx.getImageData(0, 0, w, h);
+
+    const widthBytes = Math.ceil(dotWidth / 8);
+    const xOffset = Math.max(0, Math.floor((dotWidth - w) / 2)); // centre the logo
+    const raster = new Array<number>(widthBytes * h).fill(0);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        const alpha = data[i + 3];
+        const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        if (alpha >= 128 && lum < 160) {              // opaque + dark → black dot
+          const px = xOffset + x;
+          if (px < dotWidth) raster[y * widthBytes + (px >> 3)] |= (0x80 >> (px & 7));
+        }
+      }
+    }
+    const xL = widthBytes & 0xff, xH = (widthBytes >> 8) & 0xff;
+    const yL = h & 0xff,          yH = (h >> 8) & 0xff;
+    return [GS, 0x76, 0x30, 0x00, xL, xH, yL, yH, ...raster];
+  } catch {
+    return null;
+  }
+}
+
 // ─── Receipt templates ───────────────────────────────────────────────────────
 
 function fmt(n: number, sym: string) {
   return `${sym}${n.toFixed(2)}`;
 }
 
-/** Build a full order receipt as ESC/POS bytes. */
-export function buildReceipt(order: Order, settings: AdminSettings): number[] {
+/** Build a full order receipt as ESC/POS bytes. `logoBytes` is a pre-rendered
+ *  GS v 0 raster (from logoToRaster) printed above the name when Show Logo is on. */
+export function buildReceipt(order: Order, settings: AdminSettings, logoBytes?: number[] | null): number[] {
   const W  = [32, 48].includes(settings.printer.paperWidth) ? settings.printer.paperWidth : 48;
   const r  = settings.restaurant;
   const rs = settings.receiptSettings;
@@ -168,9 +242,9 @@ export function buildReceipt(order: Order, settings: AdminSettings): number[] {
   const receiptName  = rs?.restaurantName?.trim() || r.name;
   const receiptPhone = rs?.phone?.trim()           || r.phone;
 
-  b.init()
-   .align("center")
-   .bold(true)
+  b.init().align("center");
+  if (logoBytes && logoBytes.length) b.raw(logoBytes).feed(1);
+  b.bold(true)
    .size(true, true)
    .line(receiptName.toUpperCase())
    .size(false, false)
@@ -652,7 +726,13 @@ export async function printOrder(
   const mode = printer.connection ?? "network";
 
   try {
-    let bytes = buildReceipt(order, settings);
+    // Pre-render the logo raster (async) when Show Logo is on, then build the
+    // receipt (sync) with it embedded above the name.
+    const rs = settings.receiptSettings;
+    const logoBytes = rs?.showLogo && rs?.logoUrl
+      ? await logoToRaster(rs.logoUrl, paperDotWidth(printer.paperWidth))
+      : null;
+    let bytes = buildReceipt(order, settings, logoBytes);
 
     // Append cash drawer kick command when requested
     if (opts.kickDrawer) {
