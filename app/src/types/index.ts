@@ -405,6 +405,7 @@ export interface Coupon {
 export interface ReceiptSettings {
   showLogo: boolean;
   logoUrl: string;            // URL / base64 shown on printed & on-screen receipts
+  logoDither?: boolean;       // thermal print: false = sharp threshold, true = Floyd–Steinberg (shaded/photo logos)
   restaurantName: string;     // receipt-specific name (can differ from main brand)
   address: string;            // shown under the name (multi-line allowed)
   phone: string;

@@ -393,6 +393,17 @@ export default function SettingsView() {
                   </div>
                   {logoErr && <p className="text-red-400 text-xs mt-1">{logoErr}</p>}
                   <p className="text-[11px] text-slate-500 mt-1">Square PNG with a transparent background works best. Max 400&nbsp;KB.</p>
+                  <div className="flex items-center justify-between mt-3">
+                    <div>
+                      <p className="text-white text-sm font-medium">Shaded logo (dither)</p>
+                      <p className="text-slate-400 text-xs">Turn on for gradient / photo logos; leave off for flat, solid ones.</p>
+                    </div>
+                    <button onClick={() => setReceiptDraft((p) => ({ ...p, logoDither: !p.logoDither }))} className="transition-colors flex-shrink-0">
+                      {receiptDraft.logoDither
+                        ? <ToggleRight size={28} className="text-green-400" />
+                        : <ToggleLeft size={28} className="text-slate-500" />}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

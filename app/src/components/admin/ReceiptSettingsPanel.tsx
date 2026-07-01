@@ -328,6 +328,13 @@ export default function ReceiptSettingsPanel() {
                       Square PNG with a transparent background works best. Max 400&nbsp;KB.
                     </p>
                   </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">Shaded logo (dither)</p>
+                      <p className="text-xs text-gray-400">Turn on for gradient / photo logos on the thermal printer; leave off for flat, solid ones.</p>
+                    </div>
+                    <Toggle enabled={!!draft.logoDither} onToggle={() => patch({ logoDither: !draft.logoDither })} />
+                  </div>
                 </div>
               )}
             </div>

@@ -176,13 +176,22 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 /**
  * Convert a logo (URL or base64 data URL) into an ESC/POS raster block (GS v 0),
  * scaled to fit the printer's dot width and centred. Transparent pixels print
- * white; a simple luminance threshold gives the 1-bit image. Returns null when
- * it can't render (SSR, no image, load/canvas failure) so callers just skip it.
- * Async because it loads the image + reads a canvas — call it before the sync
- * receipt builder and pass the bytes in.
+ * white. Returns null when it can't render (SSR, no image, load/canvas failure)
+ * so callers just skip it. Async because it loads the image + reads a canvas —
+ * call it before the sync receipt builder and pass the bytes in.
+ *
+ * `dither`: false → hard luminance threshold (crisp for flat/line-art logos);
+ * true → Floyd–Steinberg error diffusion (renders gradients/shading/photos as a
+ * dot pattern, like a real store logo). Solid black areas stay solid either way.
  */
-export async function logoToRaster(src: string, dotWidth: number, maxHeight = 160): Promise<number[] | null> {
+export async function logoToRaster(
+  src: string,
+  dotWidth: number,
+  opts: { dither?: boolean; maxHeight?: number } = {},
+): Promise<number[] | null> {
   if (!src || typeof document === "undefined") return null;
+  const dither = opts.dither ?? false;
+  const maxHeight = opts.maxHeight ?? 160;
   try {
     const img = await loadImage(src);
     const iw = img.naturalWidth  || img.width;
@@ -202,20 +211,49 @@ export async function logoToRaster(src: string, dotWidth: number, maxHeight = 16
     ctx.drawImage(img, 0, 0, w, h);
     const { data } = ctx.getImageData(0, 0, w, h);
 
+    // Grayscale buffer (transparent → white so it drops out).
+    const gray = new Float32Array(w * h);
+    for (let p = 0; p < w * h; p++) {
+      const i = p * 4;
+      gray[p] = data[i + 3] < 128
+        ? 255
+        : 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    }
+
     const widthBytes = Math.ceil(dotWidth / 8);
     const xOffset = Math.max(0, Math.floor((dotWidth - w) / 2)); // centre the logo
     const raster = new Array<number>(widthBytes * h).fill(0);
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const i = (y * w + x) * 4;
-        const alpha = data[i + 3];
-        const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-        if (alpha >= 128 && lum < 160) {              // opaque + dark → black dot
-          const px = xOffset + x;
-          if (px < dotWidth) raster[y * widthBytes + (px >> 3)] |= (0x80 >> (px & 7));
+    const setDot = (x: number, y: number) => {
+      const px = xOffset + x;
+      if (px < dotWidth) raster[y * widthBytes + (px >> 3)] |= (0x80 >> (px & 7));
+    };
+
+    if (dither) {
+      // Floyd–Steinberg error diffusion → 1-bit halftone.
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const p = y * w + x;
+          const oldV = gray[p];
+          const newV = oldV < 128 ? 0 : 255;
+          if (newV === 0) setDot(x, y);
+          const err = oldV - newV;
+          if (x + 1 < w)               gray[p + 1]     += err * 7 / 16;
+          if (y + 1 < h) {
+            if (x > 0)                 gray[p + w - 1] += err * 3 / 16;
+                                       gray[p + w]     += err * 5 / 16;
+            if (x + 1 < w)             gray[p + w + 1] += err * 1 / 16;
+          }
+        }
+      }
+    } else {
+      // Hard threshold — crisp for flat/solid logos.
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          if (gray[y * w + x] < 160) setDot(x, y);
         }
       }
     }
+
     const xL = widthBytes & 0xff, xH = (widthBytes >> 8) & 0xff;
     const yL = h & 0xff,          yH = (h >> 8) & 0xff;
     return [GS, 0x76, 0x30, 0x00, xL, xH, yL, yH, ...raster];
@@ -730,7 +768,7 @@ export async function printOrder(
     // receipt (sync) with it embedded above the name.
     const rs = settings.receiptSettings;
     const logoBytes = rs?.showLogo && rs?.logoUrl
-      ? await logoToRaster(rs.logoUrl, paperDotWidth(printer.paperWidth))
+      ? await logoToRaster(rs.logoUrl, paperDotWidth(printer.paperWidth), { dither: rs.logoDither })
       : null;
     let bytes = buildReceipt(order, settings, logoBytes);
 

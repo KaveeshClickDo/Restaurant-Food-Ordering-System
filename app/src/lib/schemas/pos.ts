@@ -217,6 +217,7 @@ export const PosSettingsPatchSchema = z
       .object({
         showLogo:        z.boolean().optional(),
         logoUrl:         z.string().optional(),
+        logoDither:      z.boolean().optional(),
         restaurantName:  z.string().optional(),
         address:         z.string().optional(),
         phone:           z.string().optional(),

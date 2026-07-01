@@ -188,7 +188,7 @@ export async function printPOSSale(
   }
   // Pre-render the logo raster (async) when Show Logo is on.
   const logoBytes = receipt.showLogo && receipt.logoUrl
-    ? await logoToRaster(receipt.logoUrl, paperDotWidth(printer.paperWidth))
+    ? await logoToRaster(receipt.logoUrl, paperDotWidth(printer.paperWidth), { dither: receipt.logoDither })
     : null;
   const bytes = buildPOSReceiptBytes(sale, settings, {
     paperWidth: printer.paperWidth,
