@@ -61,7 +61,7 @@ export const DEFAULT_TAX: TaxSettings = { enabled: false, rate: 20, inclusive: t
 export const DEFAULT_CURRENCY: CurrencySettings = { code: "GBP", symbol: "£" };
 
 export const DEFAULT_RECEIPT: ReceiptSettings = {
-  showLogo: false, logoUrl: "", restaurantName: restaurantInfo.name,
+  showLogo: false, logoUrl: "", restaurantName: restaurantInfo.name, address: "",
   phone: restaurantInfo.phone, website: "", email: "", vatNumber: "",
   thankYouMessage: "Thank you for your order!", customMessage: "",
 };

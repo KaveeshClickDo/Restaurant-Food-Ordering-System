@@ -210,7 +210,26 @@ export const PosSettingsPatchSchema = z
       })
       .strict()
       .optional(),
+    // Receipt header/footer content — the single source of truth shared with
+    // Admin → Receipt (app_settings.data.receiptSettings). All optional so POS
+    // can send a partial patch; the route sub-object-merges it.
+    receiptSettings: z
+      .object({
+        showLogo:        z.boolean().optional(),
+        logoUrl:         z.string().optional(),
+        restaurantName:  z.string().optional(),
+        address:         z.string().optional(),
+        phone:           z.string().optional(),
+        website:         z.string().optional(),
+        email:           z.string().optional(),
+        vatNumber:       z.string().optional(),
+        thankYouMessage: z.string().optional(),
+        customMessage:   z.string().optional(),
+      })
+      .strict()
+      .optional(),
   })
-  .refine((d) => d.taxSettings !== undefined || d.printer !== undefined, {
-    message: "Provide taxSettings and/or printer to update.",
-  });
+  .refine(
+    (d) => d.taxSettings !== undefined || d.printer !== undefined || d.receiptSettings !== undefined,
+    { message: "Provide taxSettings, printer and/or receiptSettings to update." },
+  );

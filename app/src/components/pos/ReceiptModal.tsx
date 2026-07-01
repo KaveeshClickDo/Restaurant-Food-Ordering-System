@@ -16,6 +16,9 @@ export default function ReceiptModal(
 ) {
   const { settings, customers } = usePOS();
   const { settings: appSettings } = useApp();
+  // Receipt header/footer content — the shared source of truth (Admin → Receipt /
+  // POS → Receipt), so the on-screen receipt matches the printed one.
+  const rs = appSettings.receiptSettings;
   const customer = customers.find((c) => c.id === sale.customerId);
   const [emailTo, setEmailTo] = useState(customer?.email ?? "");
   const [emailStatus, setEmailStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
@@ -28,7 +31,7 @@ export default function ReceiptModal(
   const onAndroid = isCapacitorAndroid();
 
   // Prefer the restaurant name from admin branding settings (single source of truth)
-  const effectiveName = appSettings.restaurant?.name || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant";
+  const effectiveName = appSettings.restaurant?.name || rs.restaurantName?.trim() || settings.businessName || "Restaurant";
   const restaurantName = effectiveName.toUpperCase();
 
   // VAT label and sign — read from the snapshot saved on the sale itself so it's
@@ -50,7 +53,7 @@ export default function ReceiptModal(
     setEmailStatus("sending");
     setEmailError("");
     try {
-      const html = buildReceiptHtml(sale, settings, effectiveName);
+      const html = buildReceiptHtml(sale, settings, rs, effectiveName);
       const fromName = settings.smtpFromName?.trim() || effectiveName;
       const subject = `Your receipt from ${fromName} — #${sale.receiptNo}`;
       // SMTP credentials are read from server-side env vars in /api/email
@@ -78,7 +81,7 @@ export default function ReceiptModal(
   const handlePrint = useCallback(async () => {
     setPrintStatus("printing");
     setPrintError("");
-    const r = await printPOSSale(sale, settings, appSettings.printer, effectiveName);
+    const r = await printPOSSale(sale, settings, appSettings.printer, effectiveName, rs);
     if (r.browser) {
       // No thermal printer configured (or "browser" mode). On a desktop browser
       // window.print() opens the OS print dialog; inside the Android WebView it
@@ -104,7 +107,7 @@ export default function ReceiptModal(
       setPrintStatus("error");
       setPrintError(r.error ?? "Printing failed.");
     }
-  }, [sale, settings, appSettings.printer, effectiveName, onAndroid]);
+  }, [sale, settings, appSettings.printer, effectiveName, onAndroid, rs]);
 
   // Auto-print once when the receipt opens straight after a sale (autoPrint
   // prop), but only for real thermal modes the cashier configured — never
@@ -127,23 +130,25 @@ export default function ReceiptModal(
 
           {/* ── Header ───────────────────────────────────────── */}
           <div className="text-center mb-4">
-            {settings.receiptShowLogo && settings.receiptLogoUrl && (
+            {rs.showLogo && rs.logoUrl && (
               <div className="flex justify-center mb-3">
                 {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary URL or data: URI, needs onError fallback */}
-                <img src={settings.receiptLogoUrl} alt="Logo" className="h-10 w-auto object-contain"
+                <img src={rs.logoUrl} alt="Logo" className="h-10 w-auto object-contain"
                   onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
               </div>
             )}
             <p className="font-bold text-base">{restaurantName}</p>
-            {settings.receiptPhone && <p className="text-gray-500">{settings.receiptPhone}</p>}
-            {settings.receiptWebsite && <p className="text-gray-500">{settings.receiptWebsite}</p>}
+            {rs.address?.trim() && <p className="text-gray-500 whitespace-pre-line">{rs.address.trim()}</p>}
+            {rs.phone && <p className="text-gray-500">{rs.phone}</p>}
+            {rs.website && <p className="text-gray-500">{rs.website}</p>}
+            {rs.email && <p className="text-gray-500">{rs.email}</p>}
             <p className="text-gray-500">{fmtDate(sale.date)} · {fmtTime(sale.date)}</p>
             <p className="text-gray-500">Receipt #{sale.receiptNo}</p>
             {isOfflineSale(sale.receiptNo) && <p className="font-bold text-amber-600 tracking-wide">OFFLINE SALE</p>}
             {sale.staffName && <p className="text-gray-500">Served by: {sale.staffName}</p>}
             {sale.customerName && <p className="text-gray-500">Customer: {sale.customerName}</p>}
-            {settings.receiptVatNumber && (
-              <p className="text-gray-400 text-[10px]">VAT No: {settings.receiptVatNumber}</p>
+            {rs.vatNumber && (
+              <p className="text-gray-400 text-[10px]">VAT No: {rs.vatNumber}</p>
             )}
           </div>
 
@@ -238,19 +243,15 @@ export default function ReceiptModal(
 
           {/* ── Footer ────────────────────────────────────────── */}
           <div className="border-t border-dashed border-gray-300 my-3" />
-          {settings.receiptThankYouMessage && (
+          {rs.thankYouMessage && (
             <p className="text-center text-gray-700 font-semibold">
-              {settings.receiptThankYouMessage}
+              {rs.thankYouMessage}
             </p>
           )}
-          {settings.receiptCustomMessage && (
+          {rs.customMessage && (
             <p className="text-center text-gray-500 mt-1">
-              {settings.receiptCustomMessage}
+              {rs.customMessage}
             </p>
-          )}
-          {/* Legacy footer field kept for backwards-compat */}
-          {!settings.receiptThankYouMessage && settings.receiptFooter && (
-            <p className="text-center text-gray-500 whitespace-pre-line">{settings.receiptFooter}</p>
           )}
         </div>
 

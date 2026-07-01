@@ -19,7 +19,7 @@
  */
 
 import type { POSSale, POSSettings } from "@/types/pos";
-import type { PrinterSettings } from "@/types";
+import type { PrinterSettings, ReceiptSettings } from "@/types";
 import { ReceiptBuilder } from "./escpos";
 import { sendToPrinter, sendToPrinterUSB } from "./escpos";
 import { isCapacitorAndroid, sendBluetooth, sendUsb, sendTcpNative } from "./capacitorBridge";
@@ -41,10 +41,11 @@ function money(n: number, sym: string): string {
 export function buildPOSReceiptBytes(
   sale: POSSale,
   settings: POSSettings,
-  opts: { paperWidth: number; restaurantName: string },
+  opts: { paperWidth: number; restaurantName: string; receipt: ReceiptSettings },
 ): number[] {
   const W   = [32, 48].includes(opts.paperWidth) ? opts.paperWidth : 48;
   const sym = settings.currencySymbol || "£";
+  const rc  = opts.receipt; // shared receiptSettings (Admin → Receipt / POS → Receipt)
   const b   = new ReceiptBuilder();
 
   // ── Header ────────────────────────────────────────────────────────────────
@@ -56,9 +57,11 @@ export function buildPOSReceiptBytes(
    .size(false, false)
    .bold(false);
 
-  if (settings.receiptPhone?.trim())     b.line(settings.receiptPhone.trim());
-  if (settings.receiptWebsite?.trim())   b.line(settings.receiptWebsite.trim());
-  if (settings.receiptVatNumber?.trim()) b.line(`VAT: ${settings.receiptVatNumber.trim()}`);
+  if (rc.address?.trim())   rc.address.split("\n").forEach((ln) => { if (ln.trim()) b.line(ln.trim()); });
+  if (rc.phone?.trim())     b.line(rc.phone.trim());
+  if (rc.website?.trim())   b.line(rc.website.trim());
+  if (rc.email?.trim())     b.line(rc.email.trim());
+  if (rc.vatNumber?.trim()) b.line(`VAT: ${rc.vatNumber.trim()}`);
 
   const when = new Date(sale.date).toLocaleString("en-GB", {
     day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
@@ -117,8 +120,8 @@ export function buildPOSReceiptBytes(
 
   // ── Footer ──────────────────────────────────────────────────────────────--
   b.separator("=", W).align("center").feed(1);
-  if (settings.receiptThankYouMessage?.trim()) b.bold(true).line(settings.receiptThankYouMessage.trim()).bold(false);
-  if (settings.receiptCustomMessage?.trim())   b.line(settings.receiptCustomMessage.trim());
+  if (rc.thankYouMessage?.trim()) b.bold(true).line(rc.thankYouMessage.trim()).bold(false);
+  if (rc.customMessage?.trim())   b.line(rc.customMessage.trim());
 
   b.feed(5).cut();
   return b.build();
@@ -178,6 +181,7 @@ export async function printPOSSale(
   settings: POSSettings,
   printer: PrinterSettings | undefined,
   restaurantName: string,
+  receipt: ReceiptSettings,
 ): Promise<{ ok: boolean; error?: string; browser?: boolean }> {
   if (!printer?.enabled || printer.connection === "browser") {
     return { ok: false, browser: true };
@@ -185,6 +189,7 @@ export async function printPOSSale(
   const bytes = buildPOSReceiptBytes(sale, settings, {
     paperWidth: printer.paperWidth,
     restaurantName,
+    receipt,
   });
   return sendReceiptToPrinter(bytes, printer);
 }

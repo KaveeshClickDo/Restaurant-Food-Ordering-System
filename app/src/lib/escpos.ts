@@ -174,10 +174,17 @@ export function buildReceipt(order: Order, settings: AdminSettings): number[] {
    .size(true, true)
    .line(receiptName.toUpperCase())
    .size(false, false)
-   .bold(false)
-   .line(r.addressLine1)
-   .line(r.addressLine2 ? `${r.addressLine2}, ${r.city}` : r.city)
-   .line(r.postcode);
+   .bold(false);
+
+  // Receipt address: prefer the receiptSettings.address override, else fall back
+  // to the structured restaurant address.
+  if (rs?.address?.trim()) {
+    rs.address.split("\n").forEach((ln) => { if (ln.trim()) b.line(ln.trim()); });
+  } else {
+    b.line(r.addressLine1)
+     .line(r.addressLine2 ? `${r.addressLine2}, ${r.city}` : r.city)
+     .line(r.postcode);
+  }
 
   if (receiptPhone)        b.line(receiptPhone);
   if (rs?.website?.trim()) b.line(rs.website.trim());

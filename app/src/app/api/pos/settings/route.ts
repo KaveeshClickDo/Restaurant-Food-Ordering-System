@@ -53,6 +53,11 @@ export async function PATCH(req: NextRequest) {
   if (patch.printer) {
     next.printer = { ...((data.printer as object) ?? {}), ...patch.printer };
   }
+  if (patch.receiptSettings) {
+    // Shared with Admin → Receipt: sub-object merge preserves sibling fields the
+    // POS client didn't send, so both surfaces edit the same record.
+    next.receiptSettings = { ...((data.receiptSettings as object) ?? {}), ...patch.receiptSettings };
+  }
 
   const { error: writeErr } = await supabaseAdmin
     .from("app_settings")

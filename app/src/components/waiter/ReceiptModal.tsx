@@ -24,7 +24,7 @@ export default function ReceiptModal({ receipt, onClose, onRefund }: { receipt: 
   const [emailStatus, setEmailStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
 
   function handlePrint() {
-    const html = buildReceiptHtml(receipt, restaurantName, rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
+    const html = buildReceiptHtml(receipt, restaurantName, rs?.address ?? "", rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
     const win = window.open("", "_blank", "width=400,height=600");
     if (!win) return;
     win.document.write(html);
@@ -37,7 +37,7 @@ export default function ReceiptModal({ receipt, onClose, onRefund }: { receipt: 
   async function handleEmail() {
     if (!emailTo.trim()) return;
     setEmailStatus("sending");
-    const html = buildReceiptHtml(receipt, restaurantName, rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
+    const html = buildReceiptHtml(receipt, restaurantName, rs?.address ?? "", rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
     const subject = `Your receipt from ${restaurantName} — Table ${receipt.tableLabel}`;
     const res = await fetch("/api/email", {
       method: "POST",

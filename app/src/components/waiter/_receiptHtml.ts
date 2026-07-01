@@ -6,7 +6,7 @@
 
 import type { WaiterReceipt } from "./_types";
 
-export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string, receiptPhone: string, receiptWebsite: string, vatNumber: string, thankYou: string, sym: string): string {
+export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string, address: string, receiptPhone: string, receiptWebsite: string, vatNumber: string, thankYou: string, sym: string): string {
   const itemsHtml = receipt.items.map((it) =>
     `<tr>
       <td style="padding:2px 0;font-size:12px">${it.name} ×${it.qty}</td>
@@ -42,6 +42,7 @@ export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string,
 <div style="max-width:320px;margin:24px auto;background:#fff;border-radius:12px;padding:24px">
   <div style="text-align:center;margin-bottom:16px">
     <div style="font-weight:700;font-size:16px;letter-spacing:1px">${restaurantName.toUpperCase()}</div>
+    ${address?.trim() ? `<div style="font-size:11px;color:#6b7280;white-space:pre-line">${address.trim()}</div>` : ""}
     ${receiptPhone ? `<div style="font-size:11px;color:#6b7280">${receiptPhone}</div>` : ""}
     ${receiptWebsite ? `<div style="font-size:11px;color:#6b7280">${receiptWebsite}</div>` : ""}
     <div style="font-size:11px;color:#6b7280">${new Date(receipt.date).toLocaleString("en-GB")}</div>

@@ -288,7 +288,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
       orderIds: billOrders.map(o => o.id),
     };
     const restaurantName = rs?.restaurantName?.trim() || appSettings?.restaurant?.name || "Restaurant";
-    const html = buildReceiptHtml(tempReceipt, restaurantName, rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
+    const html = buildReceiptHtml(tempReceipt, restaurantName, rs?.address ?? "", rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
     const win = window.open("", "_blank", "width=400,height=600");
     if (!win) return;
     win.document.write(html);

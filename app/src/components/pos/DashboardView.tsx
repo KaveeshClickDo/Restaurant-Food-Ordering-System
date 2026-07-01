@@ -195,8 +195,8 @@ export default function DashboardView() {
     emailInFlight.current.add(order.id);
     setDineInEmailSt((p) => ({ ...p, [order.id]: "sending" }));
     try {
-      const effectiveName = appSettings.restaurant?.name || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant";
-      const html = buildDineInReceiptHtml(order, settings, effectiveName);
+      const effectiveName = appSettings.restaurant?.name || appSettings.receiptSettings.restaurantName?.trim() || settings.businessName || "Restaurant";
+      const html = buildDineInReceiptHtml(order, settings, appSettings.receiptSettings, effectiveName);
       const res = await fetch(apiBase() + "/api/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -210,8 +210,8 @@ export default function DashboardView() {
   }
 
   function printDineInReceipt(order: DineInOrder) {
-    const effectiveName = appSettings.restaurant?.name || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant";
-    const html = buildDineInReceiptHtml(order, settings, effectiveName);
+    const effectiveName = appSettings.restaurant?.name || appSettings.receiptSettings.restaurantName?.trim() || settings.businessName || "Restaurant";
+    const html = buildDineInReceiptHtml(order, settings, appSettings.receiptSettings, effectiveName);
     const win = window.open("", "_blank", "width=420,height=650");
     if (!win) return;
     win.document.write(html);

@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
 import { useConnectivity } from "@/lib/connectivity";
-import { POSSettings } from "@/types/pos";
+import { ReceiptSettings } from "@/types";
 import { Check, Mail, Receipt, Save, ToggleLeft, ToggleRight } from "lucide-react";
 import POSPrinterPanel from "./POSPrinterPanel";
 import MenuTab from "./settings/MenuTab";
@@ -45,6 +45,13 @@ export default function SettingsView() {
   const [savedKey, setSavedKey] = useState<SaveKey | null>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Receipt content is the SHARED source of truth with Admin → Receipt
+  // (app_settings.data.receiptSettings). We edit a local draft, then push it via
+  // updateSettingsViaPos (→ /api/pos/settings) on Save, so both surfaces read
+  // and write the same DB record. Re-syncs when the stored value changes.
+  const [receiptDraft, setReceiptDraft] = useState<ReceiptSettings>({ ...appSettings.receiptSettings });
+  useEffect(() => { setReceiptDraft({ ...appSettings.receiptSettings }); }, [appSettings.receiptSettings]);
+
   function flashSaved(key: SaveKey) {
     setSavedKey(key);
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
@@ -55,6 +62,15 @@ export default function SettingsView() {
     // Read-only offline: settings push to the server (/api/pos/settings), which
     // is unreachable offline. The buttons are disabled too; this guards programmatic calls.
     if (!isOnline) return;
+
+    // Receipt tab: push the shared receiptSettings to the DB (same record Admin
+    // → Receipt writes). This is the real persistence — not a local-only update.
+    if (key === "receipt") {
+      updateSettingsViaPos({ receiptSettings: { ...receiptDraft } });
+      flashSaved("receipt");
+      return;
+    }
+
     // Create a copy of the local state so we can safely modify it before saving
     const nextLocal = { ...local };
 
@@ -319,28 +335,28 @@ export default function SettingsView() {
                   <p className="text-white text-sm font-medium">Show logo on receipt</p>
                   <p className="text-slate-400 text-xs">Displayed at the top of every printed receipt</p>
                 </div>
-                <button onClick={() => setLocal((p) => ({ ...p, receiptShowLogo: !p.receiptShowLogo }))} className="transition-colors flex-shrink-0">
-                  {local.receiptShowLogo
+                <button onClick={() => setReceiptDraft((p) => ({ ...p, showLogo: !p.showLogo }))} className="transition-colors flex-shrink-0">
+                  {receiptDraft.showLogo
                     ? <ToggleRight size={28} className="text-green-400" />
                     : <ToggleLeft size={28} className="text-slate-500" />}
                 </button>
               </div>
-              {local.receiptShowLogo && (
+              {receiptDraft.showLogo && (
                 <div>
                   <label className="text-xs text-slate-400 mb-1 block">Logo URL</label>
                   <div className="flex gap-2 items-start">
                     <input
                       type="url"
-                      value={local.receiptLogoUrl}
-                      onChange={(e) => setLocal((p) => ({ ...p, receiptLogoUrl: e.target.value }))}
+                      value={receiptDraft.logoUrl}
+                      onChange={(e) => setReceiptDraft((p) => ({ ...p, logoUrl: e.target.value }))}
                       placeholder="https://example.com/logo.png"
                       className="flex-1 min-w-0 bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
                     />
-                    {local.receiptLogoUrl && (
+                    {receiptDraft.logoUrl && (
                       <div className="w-10 h-10 border border-slate-600 rounded-xl overflow-hidden flex-shrink-0 bg-slate-900">
                         {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary URL or data: URI, needs onError fallback */}
                         <img
-                          src={local.receiptLogoUrl}
+                          src={receiptDraft.logoUrl}
                           alt="Logo preview"
                           className="w-full h-full object-contain p-1"
                           onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0"; }}
@@ -362,25 +378,36 @@ export default function SettingsView() {
                   <label className="text-xs text-slate-400 mb-1 block">Restaurant Name</label>
                   <input
                     type="text"
-                    value={local.receiptRestaurantName ?? ""}
-                    onChange={(e) => setLocal((p) => ({ ...p, receiptRestaurantName: e.target.value }))}
+                    value={receiptDraft.restaurantName ?? ""}
+                    onChange={(e) => setReceiptDraft((p) => ({ ...p, restaurantName: e.target.value }))}
                     placeholder={appSettings.restaurant?.name || "Restaurant Name"}
                     className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
                   />
                   <p className="text-[11px] text-slate-500 mt-1">Printed in large text at the top. Leave blank to use your branding name.</p>
                 </div>
-                {[
-                  { key: "receiptPhone", label: "Phone Number", type: "tel", placeholder: "e.g. 020 7123 4567" },
-                  { key: "receiptWebsite", label: "Website", type: "text", placeholder: "e.g. www.restaurant.co.uk" },
-                  { key: "receiptEmail", label: "Email", type: "email", placeholder: "e.g. hello@restaurant.co.uk" },
-                  { key: "receiptVatNumber", label: "VAT Number", type: "text", placeholder: "e.g. GB 123 4567 89", hint: "Leave blank if not VAT registered" },
-                ].map((f) => (
-                  <div key={f.key} className={f.key === "receiptVatNumber" ? "sm:col-span-2" : ""}>
+                {/* Address — multi-line, shown under the name on every receipt */}
+                <div className="sm:col-span-2">
+                  <label className="text-xs text-slate-400 mb-1 block">Address</label>
+                  <textarea
+                    rows={2}
+                    value={receiptDraft.address ?? ""}
+                    onChange={(e) => setReceiptDraft((p) => ({ ...p, address: e.target.value }))}
+                    placeholder="e.g. 12 High Street, London, SW1A 1AA"
+                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500 resize-none"
+                  />
+                </div>
+                {([
+                  { key: "phone", label: "Phone Number", type: "tel", placeholder: "e.g. 020 7123 4567" },
+                  { key: "website", label: "Website", type: "text", placeholder: "e.g. www.restaurant.co.uk" },
+                  { key: "email", label: "Email", type: "email", placeholder: "e.g. hello@restaurant.co.uk" },
+                  { key: "vatNumber", label: "VAT Number", type: "text", placeholder: "e.g. GB 123 4567 89", hint: "Leave blank if not VAT registered" },
+                ] as { key: keyof ReceiptSettings; label: string; type: string; placeholder: string; hint?: string }[]).map((f) => (
+                  <div key={f.key} className={f.key === "vatNumber" ? "sm:col-span-2" : ""}>
                     <label className="text-xs text-slate-400 mb-1 block">{f.label}</label>
                     <input
                       type={f.type}
-                      value={local[f.key as keyof POSSettings] as string}
-                      onChange={(e) => setLocal((p) => ({ ...p, [f.key]: e.target.value }))}
+                      value={receiptDraft[f.key] as string}
+                      onChange={(e) => setReceiptDraft((p) => ({ ...p, [f.key]: e.target.value }))}
                       placeholder={f.placeholder}
                       className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
                     />
@@ -393,16 +420,16 @@ export default function SettingsView() {
             {/* Bottom Section */}
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4">
               <h3 className="text-white font-semibold text-sm">Bottom Section</h3>
-              {[
-                { key: "receiptThankYouMessage", label: "Thank You Message", placeholder: "Thank you for your order!", hint: "Appears at the bottom of every receipt" },
-                { key: "receiptCustomMessage", label: "Custom Message", placeholder: "e.g. Follow us on Instagram · Use code THANKS10 for 10% off", hint: "Optional second line — great for promotions or social handles" },
-              ].map((f) => (
+              {([
+                { key: "thankYouMessage", label: "Thank You Message", placeholder: "Thank you for your order!", hint: "Appears at the bottom of every receipt" },
+                { key: "customMessage", label: "Custom Message", placeholder: "e.g. Follow us on Instagram · Use code THANKS10 for 10% off", hint: "Optional second line — great for promotions or social handles" },
+              ] as const).map((f) => (
                 <div key={f.key}>
                   <label className="text-xs text-slate-400 mb-1 block">{f.label}</label>
                   <textarea
                     rows={3}
-                    value={local[f.key as keyof POSSettings] as string}
-                    onChange={(e) => setLocal((p) => ({ ...p, [f.key]: e.target.value }))}
+                    value={receiptDraft[f.key] as string}
+                    onChange={(e) => setReceiptDraft((p) => ({ ...p, [f.key]: e.target.value }))}
                     placeholder={f.placeholder}
                     className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500 resize-none"
                   />
@@ -431,12 +458,13 @@ export default function SettingsView() {
                 type Line = { text: string; bold?: boolean; large?: boolean; dim?: boolean };
                 const lines: Line[] = [];
 
-                const name = (local.receiptRestaurantName || appSettings.restaurant?.name || "Restaurant Name").toUpperCase();
+                const name = (receiptDraft.restaurantName || appSettings.restaurant?.name || "Restaurant Name").toUpperCase();
                 lines.push({ text: center(name), bold: true, large: true });
-                if (local.receiptPhone) lines.push({ text: center(local.receiptPhone) });
-                if (local.receiptWebsite) lines.push({ text: center(local.receiptWebsite) });
-                if (local.receiptEmail) lines.push({ text: center(local.receiptEmail) });
-                if (local.receiptVatNumber) lines.push({ text: center(`VAT: ${local.receiptVatNumber}`), dim: true });
+                if (receiptDraft.address) receiptDraft.address.split("\n").forEach((ln) => { if (ln.trim()) lines.push({ text: center(ln.trim()) }); });
+                if (receiptDraft.phone) lines.push({ text: center(receiptDraft.phone) });
+                if (receiptDraft.website) lines.push({ text: center(receiptDraft.website) });
+                if (receiptDraft.email) lines.push({ text: center(receiptDraft.email) });
+                if (receiptDraft.vatNumber) lines.push({ text: center(`VAT: ${receiptDraft.vatNumber}`), dim: true });
                 lines.push({ text: eq });
                 lines.push({ text: "ORDER  ORD-A1B2C3D4", bold: true });
                 lines.push({ text: "Date:  16 Apr 2026, 12:34" });
@@ -460,9 +488,9 @@ export default function SettingsView() {
                 lines.push({ text: twoCol("TOTAL", `${previewSym}14.97`), bold: true });
                 lines.push({ text: eq });
                 lines.push({ text: "" });
-                const ty = local.receiptThankYouMessage || "Thank you for your order!";
+                const ty = receiptDraft.thankYouMessage || "Thank you for your order!";
                 lines.push({ text: center(ty), bold: true });
-                if (local.receiptCustomMessage) lines.push({ text: center(local.receiptCustomMessage), dim: true });
+                if (receiptDraft.customMessage) lines.push({ text: center(receiptDraft.customMessage), dim: true });
                 lines.push({ text: "" });
 
                 return (
@@ -472,10 +500,10 @@ export default function SettingsView() {
                       {Array.from({ length: 15 }).map((_, i) => <div key={i} className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" />)}
                     </div>
                     <div className="px-4 py-4 w-full text-center">
-                      {local.receiptShowLogo && local.receiptLogoUrl && (
+                      {receiptDraft.showLogo && receiptDraft.logoUrl && (
                         <div className="flex justify-center mb-3">
                           {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary URL or data: URI, needs onError fallback */}
-                          <img src={local.receiptLogoUrl} alt="Logo" className="h-10 w-auto object-contain"
+                          <img src={receiptDraft.logoUrl} alt="Logo" className="h-10 w-auto object-contain"
                             onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                         </div>
                       )}

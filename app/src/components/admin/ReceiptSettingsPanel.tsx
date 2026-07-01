@@ -318,6 +318,13 @@ export default function ReceiptSettingsPanel() {
                   hint="Leave blank to use your branding name automatically"
                 />
                 <Field
+                  label="Address"
+                  value={draft.address}
+                  onChange={(v) => patch({ address: v })}
+                  placeholder="e.g. 12 High Street, London, SW1A 1AA"
+                  span2
+                />
+                <Field
                   label="Phone Number"
                   value={draft.phone}
                   onChange={(v) => patch({ phone: v })}

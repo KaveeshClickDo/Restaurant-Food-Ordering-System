@@ -511,6 +511,10 @@ function buildSettingsFromData(raw: Record<string, unknown> | null): AdminSettin
   return {
     ...DEFAULT_SETTINGS,
     ...d,
+    // Deep-merge receiptSettings so fields added in code (e.g. `address`) get
+    // their default on installs whose stored blob predates them — the shallow
+    // `...d` above would otherwise replace the whole object and drop new keys.
+    receiptSettings: { ...DEFAULT_SETTINGS.receiptSettings, ...(d.receiptSettings ?? {}) },
     // emailTemplates is the one legit forward-compat shim: it auto-fills any
     // event templates added in code that aren't yet in the stored array, so
     // existing installs surface new email events without a manual migration.

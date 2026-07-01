@@ -406,6 +406,7 @@ export interface ReceiptSettings {
   showLogo: boolean;
   logoUrl: string;            // URL / base64 shown on printed & on-screen receipts
   restaurantName: string;     // receipt-specific name (can differ from main brand)
+  address: string;            // shown under the name (multi-line allowed)
   phone: string;
   website: string;
   email: string;
