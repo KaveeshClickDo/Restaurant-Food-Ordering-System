@@ -51,3 +51,12 @@ export async function countCategoryChildren(categoryId: string): Promise<number>
     .eq("parent_id", categoryId);
   return count ?? 0;
 }
+
+/** Number of menu items directly assigned to a category. */
+export async function countCategoryItems(categoryId: string): Promise<number> {
+  const { count } = await supabaseAdmin
+    .from("menu_items")
+    .select("id", { count: "exact", head: true })
+    .eq("category_id", categoryId);
+  return count ?? 0;
+}

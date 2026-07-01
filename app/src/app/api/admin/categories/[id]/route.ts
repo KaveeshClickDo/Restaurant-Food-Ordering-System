@@ -9,7 +9,7 @@ import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
 import { parseBody }                            from "@/lib/apiValidation";
 import { CategoryUpdateSchema }                 from "@/lib/schemas/menu";
-import { validateCategoryParent, countCategoryChildren } from "@/lib/categoryValidation";
+import { validateCategoryParent, countCategoryChildren, countCategoryItems } from "@/lib/categoryValidation";
 
 export async function PUT(
   req: NextRequest,
@@ -48,13 +48,22 @@ export async function DELETE(
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
   const { id } = await params;
 
-  // Block deleting a parent that still has sub-categories — otherwise the FK's
-  // `on delete set null` would silently orphan them (promote to top-level).
-  // Mirrors the admin UI guard so the rule holds for direct API calls too.
+  // A category can only be deleted when it is EMPTY — no sub-categories and no
+  // items. This prevents the FK cascade from silently deleting items and the
+  // `on delete set null` from orphaning sub-categories. Mirrors the admin UI
+  // guard so the rule holds for direct API calls too.
   const childCount = await countCategoryChildren(id);
   if (childCount > 0) {
     return NextResponse.json(
       { ok: false, error: `Cannot delete: this category has ${childCount} sub-categor${childCount === 1 ? "y" : "ies"}. Move or remove them first.` },
+      { status: 409 },
+    );
+  }
+
+  const itemCount = await countCategoryItems(id);
+  if (itemCount > 0) {
+    return NextResponse.json(
+      { ok: false, error: `Cannot delete: this category has ${itemCount} item${itemCount === 1 ? "" : "s"}. Move or remove them first.` },
       { status: 409 },
     );
   }

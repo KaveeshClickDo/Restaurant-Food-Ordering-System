@@ -39,7 +39,9 @@ create table if not exists categories (
   name       text not null,
   emoji      text not null default '',
   sort_order integer not null default 0,
-  parent_id  text references categories(id) on delete set null
+  -- RESTRICT: a category with sub-categories can't be deleted (would orphan
+  -- them). The admin API enforces this too; the FK is the DB-level backstop.
+  parent_id  text references categories(id) on delete restrict
 );
 
 -- menu_items — admin/POS unified item catalog.
@@ -48,7 +50,9 @@ create table if not exists categories (
 -- Bug #2 refactor for the unified MenuItem type that drives this.
 create table if not exists menu_items (
   id           text primary key,
-  category_id  text not null references categories(id) on delete cascade,
+  -- RESTRICT (not CASCADE): deleting a category must NOT wipe its items. A
+  -- category can only be deleted once empty — enforced in the admin API and here.
+  category_id  text not null references categories(id) on delete restrict,
   name         text not null,
   description  text not null default '',
   price        numeric not null,
@@ -82,6 +86,17 @@ create table if not exists menu_items (
 -- migration rather than CREATE TABLE. Idempotent: no-op if already populated.
 alter table menu_items add column if not exists channels     text[]  not null default '{in_store,online}';
 alter table menu_items add column if not exists price_online numeric;
+
+-- Category delete protection: switch existing databases from the old CASCADE /
+-- SET NULL foreign keys to RESTRICT so a category can never be deleted while it
+-- still holds items or sub-categories (matches the admin API guard). Idempotent:
+-- drop-then-add always lands on RESTRICT.
+alter table menu_items drop constraint if exists menu_items_category_id_fkey;
+alter table menu_items add  constraint menu_items_category_id_fkey
+  foreign key (category_id) references categories(id) on delete restrict;
+alter table categories drop constraint if exists categories_parent_id_fkey;
+alter table categories add  constraint categories_parent_id_fkey
+  foreign key (parent_id) references categories(id) on delete restrict;
 
 -- customers — registered + sentinel walk-in.
 -- Auth columns (password_hash, reset_token, email_verified, email_verification_*)

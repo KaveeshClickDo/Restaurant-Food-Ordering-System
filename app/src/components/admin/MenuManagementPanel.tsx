@@ -855,21 +855,28 @@ export default function MenuManagementPanel() {
       {deletingCat && (() => {
         const children = getChildren(deletingCat.id, categories);
         const hasKids = children.length > 0;
+        const itemCount = catItemCount(deletingCat.id);
+        const hasItems = itemCount > 0;
+        // A category can only be deleted when it is empty — no sub-categories
+        // AND no items. Otherwise deleting would orphan sub-categories or
+        // cascade-delete items, so we block it and tell them what to clear.
+        const blocked = hasKids || hasItems;
+        const parts = [
+          hasKids  ? `${children.length} ${children.length > 1 ? "sub-categories" : "sub-category"}` : "",
+          hasItems ? `${itemCount} item${itemCount > 1 ? "s" : ""}` : "",
+        ].filter(Boolean);
 
         return (
           <ConfirmModal
             title="Delete category?"
-            // 1. Update the message based on the requirement
             message={
-              hasKids
-                ? `"${deletingCat.name}" cannot be deleted because it contains ${children.length} ${children.length > 1 ? 'sub-categories' : 'sub-category'}. Please move these sub-categories to another parent or remove them first.`
-                : `"${deletingCat.name}" and all ${catItemCount(deletingCat.id)} items in it will be permanently deleted. This action cannot be undone.`
+              blocked
+                ? `"${deletingCat.name}" cannot be deleted because it contains ${parts.join(" and ")}. Move or remove them to another category first.`
+                : `"${deletingCat.name}" will be deleted. This action cannot be undone.`
             }
-            // 2. Pass a disabled prop to the modal button
-            confirmDisabled={hasKids}
+            confirmDisabled={blocked}
             onConfirm={() => {
-              // We no longer delete children automatically. 
-              // We only delete the target category if it's clear.
+              // Only reachable when the category is empty (button disabled otherwise).
               deleteCategory(deletingCat.id);
               setDeletingCat(null);
 
