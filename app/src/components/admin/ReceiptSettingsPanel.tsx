@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import { ReceiptSettings } from "@/types";
+import { readImageAsDataUrl } from "@/lib/uploadImage";
 import {
   Receipt, CheckCircle, Eye, EyeOff, ToggleLeft, ToggleRight,
 } from "lucide-react";
@@ -210,6 +211,8 @@ function ReceiptPreview({ r, restaurantName }: { r: ReceiptSettings; restaurantN
 export default function ReceiptSettingsPanel() {
   const { settings, updateSettings } = useApp();
   const [draft, setDraft] = useState<ReceiptSettings>({ ...settings.receiptSettings });
+  const [logoErr, setLogoErr] = useState("");
+  const logoInputRef = useRef<HTMLInputElement>(null);
   const liveRestaurantName = settings.restaurant?.name || "";
   const [saved, setSaved]             = useState(false);
   const [showPreview, setShowPreview] = useState(true);
@@ -275,31 +278,54 @@ export default function ReceiptSettingsPanel() {
               {draft.showLogo && (
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Logo URL</label>
-                    <div className="flex gap-2 items-start">
-                      <input
-                        type="url"
-                        value={draft.logoUrl}
-                        onChange={(e) => patch({ logoUrl: e.target.value })}
-                        placeholder="https://example.com/logo.png or data:image/png;base64,…"
-                        className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
-                      />
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Logo image</label>
+                    <div className="flex gap-3 items-center">
                       {draft.logoUrl && (
-                        <div className="w-10 h-10 border border-gray-200 rounded-xl overflow-hidden flex-shrink-0 bg-gray-50">
-                          {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary URL or data: URI, needs onError fallback */}
-                          <img
-                            src={draft.logoUrl}
-                            alt="Logo preview"
-                            className="w-full h-full object-contain p-1"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.opacity = "0";
-                            }}
-                          />
+                        <div className="w-12 h-12 border border-gray-200 rounded-xl overflow-hidden flex-shrink-0 bg-gray-50">
+                          {/* eslint-disable-next-line @next/next/no-img-element -- base64 data URL preview */}
+                          <img src={draft.logoUrl} alt="Logo preview" className="w-full h-full object-contain p-1"
+                            onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0"; }} />
                         </div>
                       )}
+                      <input
+                        ref={logoInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          setLogoErr("");
+                          try {
+                            const dataUrl = await readImageAsDataUrl(file);
+                            patch({ logoUrl: dataUrl });
+                          } catch (err) {
+                            setLogoErr(err instanceof Error ? err.message : "Could not read image.");
+                          } finally {
+                            e.target.value = "";
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => logoInputRef.current?.click()}
+                        className="px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm font-semibold transition"
+                      >
+                        {draft.logoUrl ? "Replace image" : "Upload image"}
+                      </button>
+                      {draft.logoUrl && (
+                        <button
+                          type="button"
+                          onClick={() => patch({ logoUrl: "" })}
+                          className="px-3 py-2 rounded-xl text-gray-500 hover:bg-gray-100 text-sm transition"
+                        >
+                          Remove
+                        </button>
+                      )}
                     </div>
+                    {logoErr && <p className="text-red-500 text-xs mt-1">{logoErr}</p>}
                     <p className="text-[11px] text-gray-400 mt-1">
-                      Hosted URL or base64 data URI. Square PNG with transparent background recommended.
+                      Square PNG with a transparent background works best. Max 400&nbsp;KB.
                     </p>
                   </div>
                 </div>

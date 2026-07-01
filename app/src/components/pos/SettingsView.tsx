@@ -9,6 +9,7 @@ import { Check, Mail, Receipt, Save, ToggleLeft, ToggleRight } from "lucide-reac
 import POSPrinterPanel from "./POSPrinterPanel";
 import MenuTab from "./settings/MenuTab";
 import { isCapacitorAndroid } from "@/lib/capacitorBridge";
+import { readImageAsDataUrl } from "@/lib/uploadImage";
 
 type SaveKey = "general" | "receipt" | "smtp";
 
@@ -51,6 +52,8 @@ export default function SettingsView() {
   // and write the same DB record. Re-syncs when the stored value changes.
   const [receiptDraft, setReceiptDraft] = useState<ReceiptSettings>({ ...appSettings.receiptSettings });
   useEffect(() => { setReceiptDraft({ ...appSettings.receiptSettings }); }, [appSettings.receiptSettings]);
+  const [logoErr, setLogoErr] = useState("");
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   function flashSaved(key: SaveKey) {
     setSavedKey(key);
@@ -343,28 +346,53 @@ export default function SettingsView() {
               </div>
               {receiptDraft.showLogo && (
                 <div>
-                  <label className="text-xs text-slate-400 mb-1 block">Logo URL</label>
-                  <div className="flex gap-2 items-start">
-                    <input
-                      type="url"
-                      value={receiptDraft.logoUrl}
-                      onChange={(e) => setReceiptDraft((p) => ({ ...p, logoUrl: e.target.value }))}
-                      placeholder="https://example.com/logo.png"
-                      className="flex-1 min-w-0 bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
-                    />
+                  <label className="text-xs text-slate-400 mb-1 block">Logo image</label>
+                  <div className="flex gap-3 items-center">
                     {receiptDraft.logoUrl && (
-                      <div className="w-10 h-10 border border-slate-600 rounded-xl overflow-hidden flex-shrink-0 bg-slate-900">
-                        {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary URL or data: URI, needs onError fallback */}
-                        <img
-                          src={receiptDraft.logoUrl}
-                          alt="Logo preview"
-                          className="w-full h-full object-contain p-1"
-                          onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0"; }}
-                        />
+                      <div className="w-12 h-12 border border-slate-600 rounded-xl overflow-hidden flex-shrink-0 bg-slate-900">
+                        {/* eslint-disable-next-line @next/next/no-img-element -- base64 data URL preview */}
+                        <img src={receiptDraft.logoUrl} alt="Logo preview" className="w-full h-full object-contain p-1"
+                          onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0"; }} />
                       </div>
                     )}
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        setLogoErr("");
+                        try {
+                          const dataUrl = await readImageAsDataUrl(file);
+                          setReceiptDraft((p) => ({ ...p, logoUrl: dataUrl }));
+                        } catch (err) {
+                          setLogoErr(err instanceof Error ? err.message : "Could not read image.");
+                        } finally {
+                          e.target.value = "";
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => logoInputRef.current?.click()}
+                      className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold transition-colors"
+                    >
+                      {receiptDraft.logoUrl ? "Replace image" : "Upload image"}
+                    </button>
+                    {receiptDraft.logoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setReceiptDraft((p) => ({ ...p, logoUrl: "" }))}
+                        className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 text-sm transition-colors"
+                      >
+                        Remove
+                      </button>
+                    )}
                   </div>
-                  <p className="text-[11px] text-slate-500 mt-1">Square PNG with transparent background recommended.</p>
+                  {logoErr && <p className="text-red-400 text-xs mt-1">{logoErr}</p>}
+                  <p className="text-[11px] text-slate-500 mt-1">Square PNG with a transparent background works best. Max 400&nbsp;KB.</p>
                 </div>
               )}
             </div>
