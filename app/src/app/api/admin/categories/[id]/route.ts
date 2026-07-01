@@ -1,6 +1,9 @@
 /**
  * PUT    /api/admin/categories/[id] — update a category
- * DELETE /api/admin/categories/[id] — delete a category (cascades to menu_items)
+ * DELETE /api/admin/categories/[id] — SOFT-delete a category (sets deleted_at).
+ *   Only allowed when the category is empty (no items, no sub-categories); the
+ *   row + name survive so it's recoverable, and re-adding a same-named category
+ *   is fine (identity is the id). All reads filter `deleted_at is null`.
  * Requires a valid admin session cookie.
  */
 
@@ -48,10 +51,9 @@ export async function DELETE(
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
   const { id } = await params;
 
-  // A category can only be deleted when it is EMPTY — no sub-categories and no
-  // items. This prevents the FK cascade from silently deleting items and the
-  // `on delete set null` from orphaning sub-categories. Mirrors the admin UI
-  // guard so the rule holds for direct API calls too.
+  // A category can only be deleted when it is EMPTY — no (active) sub-categories
+  // and no items — so nothing is orphaned or hidden underneath it. Mirrors the
+  // admin UI guard so the rule holds for direct API calls too.
   const childCount = await countCategoryChildren(id);
   if (childCount > 0) {
     return NextResponse.json(
@@ -68,7 +70,11 @@ export async function DELETE(
     );
   }
 
-  const { error } = await supabaseAdmin.from("categories").delete().eq("id", id);
+  // Soft delete: mark it hidden rather than removing the row. Reads filter it out.
+  const { error } = await supabaseAdmin
+    .from("categories")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", id);
   if (error) {
     console.error("admin/categories/[id] DELETE:", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });

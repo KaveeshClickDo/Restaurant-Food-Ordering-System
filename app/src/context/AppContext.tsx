@@ -761,7 +761,7 @@ export function AppProvider({
         // An empty DB shows an empty UI; populate via `npm run db:seed-menu` or
         // through the admin panel.
         const { data: catsData, error: catsErr } = await supabase
-          .from("categories").select("*").order("sort_order", { ascending: true });
+          .from("categories").select("*").is("deleted_at", null).order("sort_order", { ascending: true });
         if (catsErr) console.error("AppContext: failed to load categories:", catsErr.message);
         else setCategories((catsData ?? []).map(mapCategory));
 
@@ -838,8 +838,11 @@ export function AppProvider({
       .on("postgres_changes", { event: "*", schema: "public", table: "categories" },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ({ eventType, new: newRow, old: oldRow }: any) => {
-          if (eventType === "DELETE") {
-            setCategories((prev) => prev.filter((c) => c.id !== oldRow.id));
+          // A soft delete arrives as an UPDATE with deleted_at set — treat it
+          // (like a hard DELETE) as a removal so hidden categories drop out.
+          if (eventType === "DELETE" || (newRow && newRow.deleted_at)) {
+            const goneId = eventType === "DELETE" ? oldRow.id : newRow.id;
+            setCategories((prev) => prev.filter((c) => c.id !== goneId));
           } else {
             const cat = mapCategory(newRow);
             setCategories((prev) => {

@@ -41,8 +41,14 @@ create table if not exists categories (
   sort_order integer not null default 0,
   -- RESTRICT: a category with sub-categories can't be deleted (would orphan
   -- them). The admin API enforces this too; the FK is the DB-level backstop.
-  parent_id  text references categories(id) on delete restrict
+  parent_id  text references categories(id) on delete restrict,
+  -- Soft delete: NULL = active, non-NULL = hidden ("deleted"). Categories are
+  -- only ever soft-deleted (and only when empty), so the row + name survive; all
+  -- reads filter `deleted_at is null`. Re-adding a same-named category is fine
+  -- (identity is the id, not the name).
+  deleted_at timestamptz
 );
+alter table categories add column if not exists deleted_at timestamptz;
 
 -- menu_items — admin/POS unified item catalog.
 -- POS-side fields (cost, sku, emoji, color, active, offer, track_stock) are

@@ -22,11 +22,12 @@ export async function validateCategoryParent(
     return "A category cannot be its own parent.";
   }
 
-  // Parent must exist and be top-level (single-level nesting only).
+  // Parent must exist, be active (not soft-deleted), and be top-level.
   const { data: parent, error } = await supabaseAdmin
     .from("categories")
     .select("id, parent_id")
     .eq("id", parentId)
+    .is("deleted_at", null)
     .maybeSingle();
   if (error) return error.message;
   if (!parent) return "Parent category not found.";
@@ -43,12 +44,13 @@ export async function validateCategoryParent(
   return null;
 }
 
-/** Number of direct children (sub-categories) of a category. */
+/** Number of ACTIVE (non-soft-deleted) direct children of a category. */
 export async function countCategoryChildren(categoryId: string): Promise<number> {
   const { count } = await supabaseAdmin
     .from("categories")
     .select("id", { count: "exact", head: true })
-    .eq("parent_id", categoryId);
+    .eq("parent_id", categoryId)
+    .is("deleted_at", null);
   return count ?? 0;
 }
 
