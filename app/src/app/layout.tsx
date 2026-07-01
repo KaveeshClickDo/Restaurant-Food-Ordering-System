@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { AppProvider } from "@/context/AppContext";
@@ -21,6 +21,15 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://demo.directdine.te
 // dependencies that confuse the Turbopack module graph.
 
 async function getDbSettings(): Promise<Record<string, unknown> | null> {
+  // Capacitor build only: skip this fetch. The Capacitor app is a STATIC EXPORT,
+  // so this server fetch would be frozen into the bundle at build time — a stale
+  // settings snapshot that also bakes ONE restaurant's config (printer/branding)
+  // into what should be a shared APK. The app instead loads settings at runtime
+  // (server fetch when online + on-device SQLite cache when offline), so there's
+  // nothing to gain by baking them. Returning null → AppProvider starts from
+  // clean defaults. The website build (CAPACITOR_BUILD unset) keeps the
+  // per-request fetch below for flash-free first paint — unchanged.
+  if (process.env.CAPACITOR_BUILD === "1") return null;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !serviceKey) return null;
@@ -90,6 +99,52 @@ export async function generateMetadata(): Promise<Metadata> {
       description,
       ...(ogImage && { images: [ogImage] }),
     },
+  };
+}
+
+// ── Viewport — Capacitor-aware (build-time gated) ────────────────────────────
+// Web visitors (any browser, including a mobile browser hitting /pos directly)
+// get the default `width=device-width` so the page is responsive normally.
+// The Capacitor build needs a wider viewport so the POS layout has the
+// CSS-pixel height it needs on high-DPI phone screens, baked into the INITIAL
+// HTML (overriding viewport after page load is unreliable on Android WebViews).
+//
+// We branch at BUILD time via the CAPACITOR_BUILD env flag — NOT per request.
+// The earlier approach read the User-Agent via headers() here, but headers() is
+// a Next.js dynamic function: calling it in the root layout forces every route
+// into `ƒ Dynamic` rendering, which makes `output: "export"` (the offline APK
+// bundle, Phase 1.5) impossible. Build-time gating keeps `/pos` `○ Static`.
+// See 09-decisions.md § 2026-06-22.
+const IS_CAPACITOR_BUILD = process.env.CAPACITOR_BUILD === "1";
+
+export function generateViewport(): Viewport {
+  if (IS_CAPACITOR_BUILD) {
+    // ONLY `initial-scale`, NO `width`. Why:
+    //   • With `width=1920` + `initial-scale=0.6`, the page renders at 1920
+    //     CSS pixels wide and is then scaled to 60% visually = 1152
+    //     physical pixels. The device is 854 wide — page is wider than
+    //     screen, so the user has to pan horizontally. Bad.
+    //   • With ONLY `initial-scale=0.6`, the WebView auto-computes the
+    //     viewport width to fill the screen at the given scale:
+    //         viewport_width = device_width / initial-scale
+    //         854 / 0.6 = 1423 CSS pixels wide
+    //         384 / 0.6 = 640 CSS pixels tall
+    //     The page is exactly the device's physical width, no scrolling.
+    //
+    // initial-scale=0.6 gives the phone a 1423x640 canvas (plenty for the
+    // POS layout) with content at 60% physical size. On a 10" tablet the
+    // canvas is larger (~2133x1333) — content looks smaller but no cut-off.
+    // Requires `useWideViewPort = true` in MainActivity.kt; without that
+    // flag the WebView ignores `initial-scale` too.
+    return {
+      initialScale: 0.6,
+      userScalable: false,
+      viewportFit: "cover",
+    };
+  }
+  return {
+    width: "device-width",
+    initialScale: 1,
   };
 }
 

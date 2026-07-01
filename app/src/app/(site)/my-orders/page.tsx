@@ -1,5 +1,6 @@
 "use client";
 
+import { uuid } from "@/lib/uuid";
 import { useState, useEffect } from "react";
 import { useApp } from "@/context/AppContext";
 import { useRouter } from "next/navigation";
@@ -248,7 +249,7 @@ function ReorderToast({ result, onClose }: { result: ReorderResult; onClose: () 
 function buildPrintHtml(
     order: Order,
     customer: Customer,
-    rs: { showLogo: boolean; logoUrl: string; restaurantName: string; phone: string; website: string; email: string; vatNumber: string; thankYouMessage: string; customMessage: string },
+    rs: { showLogo: boolean; logoUrl: string; restaurantName: string; address: string; phone: string; website: string; email: string; vatNumber: string; thankYouMessage: string; customMessage: string },
     restaurantAddress: string,
     sym: string,
     showVat: boolean,
@@ -336,7 +337,7 @@ function ReceiptModal({
     const { settings } = useApp();
     const sym = settings.currency?.symbol ?? "£";
     const { restaurant, receiptSettings: rs } = settings;
-    const restaurantAddress = [restaurant.addressLine1, restaurant.city, restaurant.postcode].filter(Boolean).join(", ");
+    const restaurantAddress = rs.address?.trim() || [restaurant.addressLine1, restaurant.city, restaurant.postcode].filter(Boolean).join(", ");
     const tax = settings.taxSettings;
     const showVat = order.vatInclusive ? tax.showBreakdown : true;
 
@@ -705,7 +706,7 @@ export default function MyOrdersPage() {
 
             // Add to Cart with ALL data
             addToCart({
-                id: crypto.randomUUID(),
+                id: uuid(),
                 menuItemId: menuItem.id,
                 name: menuItem.name,
                 price: currentPrice,

@@ -1,10 +1,10 @@
 /**
- * GET  /api/admin/waiters  — list every waiter (pin_hash excluded).
- * POST /api/admin/waiters  — create a waiter; the supplied PIN is bcrypt-hashed.
+ * GET  /api/admin/waiters  — list every waiter (password_hash excluded).
+ * POST /api/admin/waiters  — create a waiter; the supplied password is bcrypt-hashed.
  *
  * Replaces the JSONB list at app_settings.data.waiters. Admin-only via the
  * admin session cookie. The waiters table has RLS deny-anon, so the anon key
- * can never read pin_hash even if a request bypassed this route.
+ * can never read password_hash even if a request bypassed this route.
  */
 
 import { NextResponse } from "next/server";
@@ -50,9 +50,9 @@ export async function POST(request: Request) {
 
   const parsed = await parseBody(request, WaiterCreateSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { name, email = "", role = "waiter", pin, active = true, hourlyRate, avatarColor } = parsed.data;
+  const { name, email = "", role = "waiter", password, active = true, hourlyRate, avatarColor } = parsed.data;
 
-  const pinHash = await bcrypt.hash(pin, HASH_ROUNDS);
+  const passwordHash = await bcrypt.hash(password, HASH_ROUNDS);
 
   const { data, error } = await supabaseAdmin
     .from("waiters")
@@ -60,7 +60,7 @@ export async function POST(request: Request) {
       name:         name,
       email:        email ? email.toLowerCase() : "",
       role,
-      pin_hash:     pinHash,
+      password_hash:     passwordHash,
       active,
       hourly_rate:  hourlyRate ?? null,
       avatar_color: avatarColor ?? "#0891b2",

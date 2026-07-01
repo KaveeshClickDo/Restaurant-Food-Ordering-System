@@ -1,4 +1,5 @@
 import { POSSale, POSSettings } from "@/types/pos";
+import type { ReceiptSettings } from "@/types";
 
 export interface DineInOrder {
   id: string;
@@ -37,9 +38,9 @@ export function dineInRefundState(
   return null;
 }
 
-export function buildReceiptHtml(sale: POSSale, settings: POSSettings, restaurantNameOverride?: string): string {
+export function buildReceiptHtml(sale: POSSale, settings: POSSettings, receipt: ReceiptSettings, restaurantNameOverride?: string): string {
   const sym = settings.currencySymbol;
-  const restaurantName = (restaurantNameOverride || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant").toUpperCase();
+  const restaurantName = (restaurantNameOverride || receipt.restaurantName?.trim() || settings.businessName || "Restaurant").toUpperCase();
   const taxRate = sale.taxRate ?? settings.taxRate;
   const taxInclusive = sale.taxInclusive ?? settings.taxInclusive;
   const vatLabel = taxInclusive ? `VAT (${taxRate}% incl.)` : `VAT (${taxRate}%)`;
@@ -88,15 +89,18 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, restauran
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#f9fafb;font-family:monospace">
 <div style="max-width:360px;margin:24px auto;background:#fff;border-radius:12px;padding:24px">
   <div style="text-align:center;margin-bottom:16px">
-    ${settings.receiptShowLogo && settings.receiptLogoUrl?.trim() ? `<div style="margin-bottom:12px;display:block;"><img src="${settings.receiptLogoUrl.trim()}" alt="Logo" style="max-height:40px;width:auto;display:inline-block;vertical-align:middle;" /></div>` : ""}
+    ${receipt.showLogo && receipt.logoUrl?.trim() ? `<div style="margin-bottom:12px;display:block;"><img src="${receipt.logoUrl.trim()}" alt="Logo" style="max-height:40px;width:auto;display:inline-block;vertical-align:middle;" /></div>` : ""}
     <div style="font-weight:700;font-size:16px;letter-spacing:1px">${restaurantName}</div>
-    ${settings.receiptPhone ? `<div style="font-size:11px;color:#6b7280">${settings.receiptPhone}</div>` : ""}
-    ${settings.receiptWebsite ? `<div style="font-size:11px;color:#6b7280">${settings.receiptWebsite}</div>` : ""}
+    ${receipt.address?.trim() ? `<div style="font-size:11px;color:#6b7280;white-space:pre-line">${receipt.address.trim()}</div>` : ""}
+    ${receipt.phone ? `<div style="font-size:11px;color:#6b7280">${receipt.phone}</div>` : ""}
+    ${receipt.website ? `<div style="font-size:11px;color:#6b7280">${receipt.website}</div>` : ""}
+    ${receipt.email ? `<div style="font-size:11px;color:#6b7280">${receipt.email}</div>` : ""}
     <div style="font-size:11px;color:#6b7280">${new Date(sale.date).toLocaleString("en-GB")}</div>
     <div style="font-size:11px;color:#6b7280">Receipt #${sale.receiptNo}</div>
+    ${sale.receiptNo?.startsWith("OFF") ? `<div style="font-size:11px;font-weight:700;color:#b45309;margin-top:2px;letter-spacing:0.5px">OFFLINE SALE</div>` : ""}
     ${sale.staffName ? `<div style="font-size:11px;color:#6b7280">Served by: ${sale.staffName}</div>` : ""}
     ${sale.customerName ? `<div style="font-size:11px;color:#6b7280">Customer: ${sale.customerName}</div>` : ""}
-    ${settings.receiptVatNumber ? `<div style="font-size:10px;color:#9ca3af">VAT No: ${settings.receiptVatNumber}</div>` : ""}
+    ${receipt.vatNumber ? `<div style="font-size:10px;color:#9ca3af">VAT No: ${receipt.vatNumber}</div>` : ""}
   </div>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
   <table style="width:100%;border-collapse:collapse">${itemsHtml}</table>
@@ -111,13 +115,13 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, restauran
     ${paymentHtml}
   </table>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
-  ${settings.receiptThankYouMessage ? `<div style="text-align:center;font-weight:600;color:#374151;font-size:12px;margin-bottom:4px">${settings.receiptThankYouMessage}</div>` : ""}
-  ${settings.receiptCustomMessage ? `<div style="text-align:center;color:#6b7280;font-size:11px">${settings.receiptCustomMessage}</div>` : ""}
+  ${receipt.thankYouMessage ? `<div style="text-align:center;font-weight:600;color:#374151;font-size:12px;margin-bottom:4px">${receipt.thankYouMessage}</div>` : ""}
+  ${receipt.customMessage ? `<div style="text-align:center;color:#6b7280;font-size:11px">${receipt.customMessage}</div>` : ""}
 </div></body></html>`;
 }
 
-export function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings, restaurantNameOverride?: string): string {
-  const name = (restaurantNameOverride || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant").toUpperCase();
+export function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings, receipt: ReceiptSettings, restaurantNameOverride?: string): string {
+  const name = (restaurantNameOverride || receipt.restaurantName?.trim() || settings.businessName || "Restaurant").toUpperCase();
   const sym = settings.currencySymbol;
   const subtotal = order.items.reduce((s, l) => s + l.price * l.qty, 0);
 
@@ -151,12 +155,13 @@ export function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings
 <div style="max-width:320px;margin:24px auto;background:#fff;border-radius:12px;padding:24px">
   <div style="text-align:center;margin-bottom:16px">
     <div style="font-weight:700;font-size:16px;letter-spacing:1px">${name}</div>
-    ${settings.receiptPhone ? `<div style="font-size:11px;color:#6b7280">${settings.receiptPhone}</div>` : ""}
+    ${receipt.address?.trim() ? `<div style="font-size:11px;color:#6b7280;white-space:pre-line">${receipt.address.trim()}</div>` : ""}
+    ${receipt.phone ? `<div style="font-size:11px;color:#6b7280">${receipt.phone}</div>` : ""}
     <div style="font-size:11px;color:#6b7280">${new Date(order.date).toLocaleString("en-GB")}</div>
     <div style="font-size:11px;color:#6b7280">Table: ${order.tableLabel}</div>
     <div style="font-size:11px;color:#6b7280">Served by: ${order.staffName}</div>
     ${order.covers > 0 ? `<div style="font-size:11px;color:#6b7280">${order.covers} cover${order.covers !== 1 ? "s" : ""}</div>` : ""}
-    ${settings.receiptVatNumber ? `<div style="font-size:10px;color:#9ca3af">VAT No: ${settings.receiptVatNumber}</div>` : ""}
+    ${receipt.vatNumber ? `<div style="font-size:10px;color:#9ca3af">VAT No: ${receipt.vatNumber}</div>` : ""}
   </div>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
   <table style="width:100%;border-collapse:collapse">${itemsHtml}</table>
@@ -168,7 +173,7 @@ export function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings
     <tr><td style="font-size:12px;font-weight:700">PAID (${payLabel})</td><td style="font-size:12px;font-weight:700;text-align:right">${sym}${amountPaid.toFixed(2)}</td></tr>` : `<tr><td style="font-size:11px;color:#6b7280">Payment</td><td style="font-size:11px;color:#6b7280;text-align:right">${payLabel}</td></tr>`}
   </table>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
-  ${settings.receiptThankYouMessage ? `<div style="text-align:center;font-weight:600;font-size:12px">${settings.receiptThankYouMessage}</div>` : ""}
+  ${receipt.thankYouMessage ? `<div style="text-align:center;font-weight:600;font-size:12px">${receipt.thankYouMessage}</div>` : ""}
 </div></body></html>`;
 }
 

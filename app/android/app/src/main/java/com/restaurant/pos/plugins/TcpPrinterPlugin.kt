@@ -1,6 +1,7 @@
 package com.restaurant.pos.plugins
 
-import com.getcapacitor.JSArray
+import android.util.Base64
+import android.util.Log
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
@@ -36,16 +37,11 @@ class TcpPrinterPlugin : Plugin() {
 
     @PluginMethod
     fun print(call: PluginCall) {
-        val ip         = call.getString("ip")
-        val port       = call.getInt("port", 9100)!!
-        val bytesArray = call.getArray("bytes")
+        val ip   = call.getString("ip")
+        val port = call.getInt("port", 9100)!!
 
         if (ip.isNullOrBlank()) {
             call.reject("ip is required")
-            return
-        }
-        if (bytesArray == null || bytesArray.length() == 0) {
-            call.reject("bytes array is required and must not be empty")
             return
         }
         if (port < 1 || port > 65535) {
@@ -53,28 +49,47 @@ class TcpPrinterPlugin : Plugin() {
             return
         }
 
-        val byteList = mutableListOf<Byte>()
-        for (i in 0 until bytesArray.length()) {
-            byteList.add(bytesArray.getInt(i).toByte())
+        // Preferred input is base64 `data` (reliable binary transfer across the
+        // bridge). Fall back to the legacy `bytes` number[] for compatibility.
+        val data: ByteArray = run {
+            val b64 = call.getString("data")
+            if (!b64.isNullOrEmpty()) {
+                try { Base64.decode(b64, Base64.DEFAULT) } catch (e: Exception) {
+                    call.reject("invalid base64 data", e); return
+                }
+            } else {
+                val arr = call.getArray("bytes")
+                if (arr == null || arr.length() == 0) {
+                    call.reject("data (base64) or bytes array is required"); return
+                }
+                val list = ByteArray(arr.length())
+                for (i in 0 until arr.length()) list[i] = arr.getInt(i).toByte()
+                list
+            }
         }
-        val data = byteList.toByteArray()
+        if (data.isEmpty()) { call.reject("nothing to print (empty data)"); return }
 
         CoroutineScope(Dispatchers.IO).launch {
             var socket: Socket? = null
             try {
                 socket = Socket()
-                socket.soTimeout = 6_000 // read timeout
-
-                // connect() with explicit timeout to catch unreachable hosts faster
+                socket.tcpNoDelay = true          // send immediately (no Nagle batching)
                 socket.connect(InetSocketAddress(ip, port), 6_000)
 
+                Log.d("TcpPrinter", "connected $ip:$port — writing ${data.size} bytes")
                 val stream = socket.getOutputStream()
                 stream.write(data)
                 stream.flush()
 
-                // Half-close: signal end of data, wait for printer to acknowledge
-                socket.shutdownOutput()
+                // The previous code closed the socket immediately after write, which
+                // tore it down before the send buffer transmitted → 0 bytes reached
+                // the printer. SO_LINGER makes close() block until the data is
+                // delivered (≤5s); the brief sleep is belt-and-suspenders so the
+                // bytes are on the wire before teardown.
+                socket.setSoLinger(true, 5)
+                Thread.sleep(150)
 
+                Log.d("TcpPrinter", "wrote ${data.size} bytes OK")
                 call.resolve()
             } catch (e: java.net.ConnectException) {
                 call.reject(

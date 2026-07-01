@@ -1,14 +1,166 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import { apiBase } from "@/lib/apiBase";
 import { useRouter } from "next/navigation";
-const uuid = () => crypto.randomUUID();
+import { uuid } from "@/lib/uuid";
 import {
   POSStaff, POSProduct, POSCategory, POSModifier, POSCartItem, POSSale, POSCustomer,
   POSSettings, POSClockEntry, POSCartModifier, getOfferPrice, cartLineTotal, isOfferActive,
 } from "@/types/pos";
 import { useApp } from "@/context/AppContext";
 import { supabase } from "@/lib/supabase";
+import { isCapacitorAndroid } from "@/lib/capacitorBridge";
+import { enqueueSale, cancelQueuedSale, listEntries } from "@/lib/posOutbox";
+import { kvGet, kvSet } from "@/lib/posLocalDb";
+import bcrypt from "bcryptjs";
+
+// On-device cache keys (Phase 1.6 / 4). kvGet/kvSet are Capacitor-only (no-ops
+// on web), so these write-throughs are harmless in the browser and only serve
+// the bundled APK's cold-start offline path.
+const CACHE_MENU      = "menu_snapshot";
+const CACHE_STAFF     = "staff_picker_snapshot";
+const CACHE_CUSTOMERS = "customers_snapshot";
+// B2: per-staff tablet credentials, keyed by staffId. Holds the bcrypt PIN hash
+// (for local PIN unlock), the device refresh token (to mint sessions without the
+// password), and a wrong-PIN counter (lockout). Only staff who have completed a
+// password login ON THIS DEVICE accumulate here.
+const CACHE_CREDS = "staff_credentials";
+// B2: a stable per-tablet id, generated once, sent on enrollment so the server
+// keeps one device token per (staff, device).
+const CACHE_DEVICE_ID = "device_id";
+// 1.6 polish: menu item images as base64 data URLs, keyed by their (unique-per-
+// upload) Supabase URL. Kept SEPARATE from `products` so base64 never reaches
+// the menu-sync push (which would re-bloat menu_items — the bug uploadImage.ts
+// fixed). Render swaps to the cached copy; products always hold the real URL.
+const CACHE_IMAGES = "menu_images";
+// Last successful /api/pos/sales snapshot, so the Dashboard isn't empty after a
+// cold offline start. Merged with the outbox (unsynced sales) on the offline
+// fallback path — see fetchSales. Marked "may be incomplete" in the UI.
+const CACHE_SALES = "sales_snapshot";
+
+/**
+ * Offline receipt number, derived from the sale's globally-unique id (a UUID).
+ *
+ * Deliberately NOT a device-local counter: a counter is wiped on reinstall and
+ * isn't namespaced per device, so two installs/tablets would both mint `OFF1000`.
+ * Because pos_sales.receipt_no is UNIQUE, the second one fails to INSERT on sync
+ * (23505) and the sale strands — money taken, never synced. Deriving from the
+ * UUID (unique by construction, fresh per sale, differs across reinstalls AND
+ * tablets) makes a collision astronomically unlikely.
+ *
+ * Keeps the `OFF` prefix so isOfflineSale(), the printed "OFFLINE SALE" label,
+ * and the server's offline-reconciliation path (receipt_no startsWith "OFF")
+ * all still recognise it. 12 hex chars ≈ 48 bits of entropy — negligible
+ * collision risk over an app's whole lifetime; widen the slice if ever needed.
+ */
+function offlineReceiptNo(saleId: string): string {
+  const hex = saleId.replace(/[^0-9a-fA-F]/g, "").slice(0, 12).toUpperCase();
+  return `OFF-${hex}`;
+}
+
+type CachedCred = { pinHash?: string; deviceToken?: string; wrongPins?: number };
+
+const MAX_PIN_ATTEMPTS = 5; // wrong PINs before the local token is wiped (force password)
+
+/** Stable per-tablet id; generated once and persisted. Capacitor-only use. */
+async function getDeviceId(): Promise<string> {
+  let id = await kvGet<string>(CACHE_DEVICE_ID);
+  if (!id) {
+    id = (typeof crypto !== "undefined" && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `dev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    await kvSet(CACHE_DEVICE_ID, id);
+  }
+  return id;
+}
+
+async function getDeviceCreds(): Promise<Record<string, CachedCred>> {
+  return (await kvGet<Record<string, CachedCred>>(CACHE_CREDS)) ?? {};
+}
+
+async function patchDeviceCred(staffId: string, patch: Partial<CachedCred>): Promise<void> {
+  const map = await getDeviceCreds();
+  map[staffId] = { ...map[staffId], ...patch };
+  await kvSet(CACHE_CREDS, map);
+}
+
+async function clearDeviceCred(staffId: string): Promise<void> {
+  const map = await getDeviceCreds();
+  delete map[staffId];
+  await kvSet(CACHE_CREDS, map);
+}
+
+/**
+ * Download a remote image as a base64 data URL for offline display. Best-effort:
+ * returns null on any failure (the UI then falls back to the live URL / emoji).
+ * Capacitor's native HTTP handles the cross-origin Supabase fetch.
+ */
+async function fetchImageAsDataUrl(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise<string | null>((resolve) => {
+      const fr = new FileReader();
+      fr.onloadend = () => resolve(typeof fr.result === "string" ? fr.result : null);
+      fr.onerror   = () => resolve(null);
+      fr.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * After a successful ONLINE password login, fetch the caller's own PIN hash and
+ * cache it so they can unlock with their 6-digit PIN next time (B2). Capacitor-
+ * only; the server endpoint returns only the session owner's row, and 404s when
+ * no PIN is set (then the tablet just keeps using password login). Merges into
+ * the existing entry so it doesn't clobber the device token stored at login.
+ * Failures are non-fatal.
+ */
+async function cachePosCredentials(staffId: string): Promise<void> {
+  if (!isCapacitorAndroid()) return;
+  try {
+    const res = await fetch(apiBase() + "/api/pos/staff/credentials");
+    if (!res.ok) return; // 404 = no PIN set yet → leave pinHash absent
+    const json = await res.json() as {
+      ok: boolean;
+      credentials?: { staffId: string; pinHash: string; sessionVersion: number };
+    };
+    if (!json.ok || !json.credentials?.pinHash) return;
+    await patchDeviceCred(staffId, { pinHash: json.credentials.pinHash, wrongPins: 0 });
+  } catch { /* offline / network — skip; PIN unlock just won't be available yet */ }
+}
+
+/**
+ * Exchange this device's stored token for a fresh POS session cookie (B2).
+ * Returns the staff record on success, or null if there's no token / it was
+ * revoked or expired (caller then falls back to a password login). Capacitor-only.
+ */
+async function refreshViaDeviceToken(staffId: string): Promise<POSStaff | null> {
+  if (!isCapacitorAndroid()) return null;
+  const entry = (await getDeviceCreds())[staffId];
+  if (!entry?.deviceToken) return null;
+  try {
+    const deviceId = await getDeviceId();
+    const res = await fetch(apiBase() + "/api/pos/auth/refresh", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ staffId, deviceId, deviceToken: entry.deviceToken }),
+    });
+    if (!res.ok) {
+      // 401 = token revoked/expired → drop it so the UI shows the password screen.
+      if (res.status === 401) await clearDeviceCred(staffId);
+      return null;
+    }
+    const json = await res.json() as { ok: boolean; staff?: POSStaff };
+    return json.ok && json.staff ? json.staff : null;
+  } catch {
+    return null; // offline — caller handles
+  }
+}
 
 // Module-scope so the value is stable across renders (used by the idle-logout effect).
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
@@ -70,16 +222,27 @@ interface POSContextValue {
    *  mount. Pages should wait on this before treating a null currentStaff as
    *  "logged out" — otherwise a refresh bounces to /pos/login mid-hydration. */
   sessionLoading: boolean;
-  login: (staffId: string, pin: string) => Promise<boolean>;
+  /** true after an offline login until the server revalidates online; while set,
+   *  void/refund are blocked and the UI should indicate "verifying". */
+  pendingRevalidation: boolean;
+  login: (staffId: string, password: string) => Promise<boolean>;
+  // B2 tablet PIN: validates locally, then refreshes the session via the device token.
+  loginWithPin: (staffId: string, pin: string) => Promise<{ ok: boolean; reason?: "wrong" | "locked" | "needs_password" }>;
+  // True when this tablet has a cached PIN hash + device token for the staff member.
+  isPinEnrolled: (staffId: string) => Promise<boolean>;
   logout: () => void;
   // Data
   staff: POSStaff[];
-  addPosStaff:    (input: { name: string; email?: string; role: "admin" | "manager" | "cashier"; pin: string; hourlyRate?: number; avatarColor?: string }) => Promise<{ ok: boolean; error?: string }>;
-  updatePosStaff: (id: string, patch: { name?: string; email?: string; role?: "admin" | "manager" | "cashier"; pin?: string; active?: boolean; hourlyRate?: number; avatarColor?: string }) => Promise<{ ok: boolean; error?: string }>;
+  addPosStaff:    (input: { name: string; email?: string; role: "admin" | "manager" | "cashier"; password: string; pin?: string; hourlyRate?: number; avatarColor?: string }) => Promise<{ ok: boolean; error?: string }>;
+  updatePosStaff: (id: string, patch: { name?: string; email?: string; role?: "admin" | "manager" | "cashier"; password?: string; pin?: string; active?: boolean; hourlyRate?: number; avatarColor?: string }) => Promise<{ ok: boolean; error?: string }>;
   deletePosStaff: (id: string) => Promise<{ ok: boolean; error?: string }>;
   refreshPosStaff: () => Promise<void>;
   products: POSProduct[];
   setProducts: React.Dispatch<React.SetStateAction<POSProduct[]>>;
+  /** url → base64 dataURL cache for offline item images (Capacitor-only). */
+  imageCache: Record<string, string>;
+  /** epoch-ms the rendered menu was last refreshed online, or null if live. */
+  menuCachedAt: number | null;
   /** Dedicated stock writer for POS-admin / manager. Goes through
    *  /api/admin/menu/[id]/stock (which accepts POS canManageMenu too), so
    *  stock writes bypass the debounced bulk sync that strips stock fields. */
@@ -105,7 +268,7 @@ interface POSContextValue {
     name?: string; email?: string; phone?: string; notes?: string;
     tags?: string[]; loyaltyPoints?: number; giftCardBalance?: number;
   }) => Promise<{ ok: boolean; error?: string }>;
-  deleteCustomer: (id: string) => Promise<{ ok: boolean; error?: string; activeOrders?: { id: string; status: string }[] }>;
+  deleteCustomer: (id: string, block?: boolean) => Promise<{ ok: boolean; error?: string; activeOrders?: { id: string; status: string }[] }>;
   refreshCustomers: () => Promise<void>;
   clockEntries: POSClockEntry[];
   settings: POSSettings;
@@ -275,7 +438,7 @@ function syncMenuToSupabase(products: POSProduct[], categories: POSCategory[]) {
       };
     });
 
-  fetch("/api/pos/menu", {
+  fetch(apiBase() + "/api/pos/menu", {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
     body:    JSON.stringify({ categories: catRows, products: productRows }),
@@ -399,6 +562,16 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // and the menu-sync gate so neither has to depend on currentStaff directly.
   const currentStaffRef = useRef<POSStaff | null>(null);
   useEffect(() => { currentStaffRef.current = currentStaff; }, [currentStaff]);
+  // Phase 4 hardening: true after an OFFLINE login until the server revalidates
+  // the session online (checkSession success). While set, destructive actions
+  // (void/refund) are blocked — the cached PIN could be stale (admin reset it
+  // while offline). The ref lets voidSale read it without a deps change.
+  const [pendingRevalidation, setPendingRevalidation] = useState(false);
+  const pendingRevalRef = useRef(false);
+  const markPendingReval = useCallback((v: boolean) => {
+    pendingRevalRef.current = v;
+    setPendingRevalidation(v);
+  }, []);
   const [staff, setStaff] = useState<POSStaff[]>([]);
   // products + categories are NOT cached in localStorage. The DB is the single
   // source of truth — same pattern as customers (Bug #11). Caching them used
@@ -407,6 +580,48 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // rows into menu_items. Start empty, hydrate from /api/pos/menu on mount.
   const [products, setProducts] = useState<POSProduct[]>([]);
   const [categories, setCategories] = useState<POSCategory[]>([]);
+  // 1.6 polish: when the rendered menu came from the on-device cache, this is
+  // the epoch-ms it was last refreshed online (null = live/fresh). pos/page
+  // shows a "cached N ago — may be outdated" banner when offline + old.
+  const [menuCachedAt, setMenuCachedAt] = useState<number | null>(null);
+  // 1.6 polish: base64 image cache (url → dataURL) for offline display. Loaded
+  // from the encrypted SQLite cache on mount; refreshed on each online menu
+  // load. Capacitor-only (empty on web). SaleView reads it to render item
+  // photos with no network.
+  const [imageCache, setImageCache] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!isCapacitorAndroid()) return;
+    kvGet<Record<string, string>>(CACHE_IMAGES)
+      .then((m) => { if (m) setImageCache(m); })
+      .catch(() => {});
+  }, []);
+
+  // Download + cache menu images (online), pruning any URL no longer in the
+  // menu. Because image URLs are unique per upload, a changed/removed image is
+  // simply a different/absent URL — so this self-invalidates with no versioning.
+  const cacheMenuImages = useCallback(async (items: Record<string, unknown>[]) => {
+    if (!isCapacitorAndroid()) return;
+    const urls = Array.from(new Set(
+      items
+        .map((r) => r.image)
+        .filter((u): u is string => typeof u === "string" && /^https?:\/\//.test(u)),
+    ));
+    const existing = (await kvGet<Record<string, string>>(CACHE_IMAGES)) ?? {};
+    const next: Record<string, string> = {};
+    let added = false;
+    for (const u of urls) {
+      if (existing[u]) { next[u] = existing[u]; continue; }   // already cached
+      const data = await fetchImageAsDataUrl(u);
+      if (data) { next[u] = data; added = true; }
+    }
+    // `next` holds only current URLs → prunes removed/changed ones. Only persist
+    // when something actually changed (added, or a prune shrank the set).
+    if (added || Object.keys(next).length !== Object.keys(existing).length) {
+      await kvSet(CACHE_IMAGES, next);
+      setImageCache(next);
+    }
+  }, []);
+
   // sales + clockEntries are DB-backed (pos_sales / pos_clock_entries tables).
   // They start empty and are hydrated from the API once the staff session
   // resolves below.
@@ -432,24 +647,35 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   const [assignedCustomer, setAssignedCustomer] = useState<POSCustomer | null>(null);
 
   // ── Staff — DB-backed (pos_staff table) ──────────────────────────────────
-  // The browser never holds a real PIN; the API strips pin_hash on every
-  // response. Mutations call the REST endpoints directly and re-fetch.
+  // The browser never holds a real password; the API strips password_hash on
+  // every response. Mutations call the REST endpoints directly and re-fetch.
   const refreshPosStaff = useCallback(async () => {
     try {
-      const res = await fetch("/api/pos/staff");
+      const res = await fetch(apiBase() + "/api/pos/staff");
       if (!res.ok) return;
       const json = await res.json() as { ok: boolean; staff?: POSStaff[] };
-      if (json.ok && Array.isArray(json.staff)) setStaff(json.staff);
-    } catch { /* network — leave staff state untouched */ }
+      if (json.ok && Array.isArray(json.staff)) {
+        setStaff(json.staff);
+        // Write-through so the login picker shows profiles on a cold offline
+        // start (Phase 1.6). Capacitor-only; no-op on web. Note: password_hash is
+        // stripped by the API, so offline password *validation* still needs Phase 4.
+        void kvSet(CACHE_STAFF, json.staff);
+      }
+    } catch {
+      // Offline: show the last cached staff picker instead of an empty
+      // "POS not configured" screen. No-op on web (kvGet → null).
+      const cached = await kvGet<POSStaff[]>(CACHE_STAFF);
+      if (cached && cached.length > 0) setStaff(cached);
+    }
   }, []);
 
   useEffect(() => { refreshPosStaff(); }, [refreshPosStaff]);
 
   const addPosStaff = useCallback(async (input: {
     name: string; email?: string; role: "admin" | "manager" | "cashier";
-    pin: string; hourlyRate?: number; avatarColor?: string;
+    password: string; pin?: string; hourlyRate?: number; avatarColor?: string;
   }) => {
-    const res = await fetch("/api/pos/staff", {
+    const res = await fetch(apiBase() + "/api/pos/staff", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify(input),
@@ -462,9 +688,9 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
   const updatePosStaff = useCallback(async (id: string, patch: {
     name?: string; email?: string; role?: "admin" | "manager" | "cashier";
-    pin?: string; active?: boolean; hourlyRate?: number; avatarColor?: string;
+    password?: string; pin?: string; active?: boolean; hourlyRate?: number; avatarColor?: string;
   }) => {
-    const res = await fetch(`/api/pos/staff/${id}`, {
+    const res = await fetch(`${apiBase()}/api/pos/staff/${id}`, {
       method:  "PATCH",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify(patch),
@@ -476,7 +702,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   }, [refreshPosStaff]);
 
   const deletePosStaff = useCallback(async (id: string) => {
-    const res = await fetch(`/api/pos/staff/${id}`, { method: "DELETE" });
+    const res = await fetch(`${apiBase()}/api/pos/staff/${id}`, { method: "DELETE" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json.ok) return { ok: false, error: json.error ?? "Failed to delete staff" };
     await refreshPosStaff();
@@ -486,17 +712,43 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // ── Sales — DB-backed (pos_sales table) ──────────────────────────────────
   const fetchSales = useCallback(async () => {
     try {
-      const res = await fetch("/api/pos/sales");
-      if (!res.ok) return;
+      const res = await fetch(apiBase() + "/api/pos/sales");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json() as { ok: boolean; sales?: POSSale[] };
-      if (json.ok && Array.isArray(json.sales)) setSales(json.sales);
-    } catch { /* offline — keep current state */ }
+      if (json.ok && Array.isArray(json.sales)) {
+        setSales(json.sales);
+        // Write-through: keep a snapshot so the Dashboard has a sales history
+        // after a cold offline start. No-op on web (kvSet → false).
+        void kvSet(CACHE_SALES, json.sales);
+      }
+    } catch {
+      // Offline (or 5xx). Rebuild from the last cached snapshot + any unsynced
+      // offline sales still in the outbox, so the Dashboard isn't empty and
+      // queued sales can be viewed/voided. Precedence (lowest→highest):
+      // cached snapshot < outbox < current state — so nothing already on screen
+      // (e.g. a just-rung sale or a local void) is lost. No-op on web.
+      const cached = (await kvGet<POSSale[]>(CACHE_SALES)) ?? [];
+      const queued = await listEntries();
+      const queuedSales = queued
+        .map((e) => e.payload as unknown as POSSale)
+        .filter((s) => s && s.id);
+      if (cached.length === 0 && queuedSales.length === 0) return; // keep state
+      setSales((prev) => {
+        const byId = new Map<string, POSSale>();
+        for (const s of cached)      byId.set(s.id, s);
+        for (const s of queuedSales) byId.set(s.id, s);
+        for (const s of prev)        byId.set(s.id, s);
+        return Array.from(byId.values()).sort(
+          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+        );
+      });
+    }
   }, []);
 
   // ── Clock entries — DB-backed (pos_clock_entries table) ─────────────────
   const fetchClockEntries = useCallback(async () => {
     try {
-      const res = await fetch("/api/pos/clock");
+      const res = await fetch(apiBase() + "/api/pos/clock");
       if (!res.ok) return;
       const json = await res.json() as { ok: boolean; entries?: POSClockEntry[] };
       if (json.ok && Array.isArray(json.entries)) setClockEntries(json.entries);
@@ -509,11 +761,20 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // lastVisit (computed server-side from orders + pos_sales) stay accurate.
   const fetchCustomers = useCallback(async () => {
     try {
-      const res = await fetch("/api/pos/customers");
+      const res = await fetch(apiBase() + "/api/pos/customers");
       if (!res.ok) return;
       const json = await res.json() as { ok: boolean; customers?: POSCustomer[] };
-      if (json.ok && Array.isArray(json.customers)) setCustomers(json.customers);
-    } catch { /* offline — keep current state */ }
+      if (json.ok && Array.isArray(json.customers)) {
+        setCustomers(json.customers);
+        // Write-through so offline customer lookup works (1.6). Capacitor-only.
+        void kvSet(CACHE_CUSTOMERS, json.customers);
+      }
+    } catch {
+      // Offline: restore the last cached customer list for offline lookup /
+      // assignment. No-op on web (kvGet → null).
+      const cached = await kvGet<POSCustomer[]>(CACHE_CUSTOMERS);
+      if (cached && cached.length > 0) setCustomers(cached);
+    }
   }, []);
 
   const addCustomer = useCallback(async (input: {
@@ -521,7 +782,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     tags?: string[]; loyaltyPoints?: number; giftCardBalance?: number;
   }) => {
     try {
-      const res = await fetch("/api/pos/customers", {
+      const res = await fetch(apiBase() + "/api/pos/customers", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(input),
@@ -540,7 +801,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     tags?: string[]; loyaltyPoints?: number; giftCardBalance?: number;
   }) => {
     try {
-      const res = await fetch(`/api/pos/customers/${id}`, {
+      const res = await fetch(`${apiBase()}/api/pos/customers/${id}`, {
         method:  "PATCH",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(patch),
@@ -554,9 +815,13 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     }
   }, [fetchCustomers]);
 
-  const deleteCustomer = useCallback(async (id: string) => {
+  const deleteCustomer = useCallback(async (id: string, block = false) => {
     try {
-      const res = await fetch(`/api/pos/customers/${id}`, { method: "DELETE" });
+      const res = await fetch(`${apiBase()}/api/pos/customers/${id}`, {
+        method:  "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ block }),
+      });
       const json = await res.json().catch(() => ({})) as {
         ok?: boolean;
         error?: string;
@@ -628,28 +893,43 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   // If Supabase is empty we seed it from the current localStorage/seed data so the
   // waiter app immediately has a menu to show.
   useEffect(() => {
-    fetch("/api/pos/menu")
-      .then((r) => { if (!r.ok) throw new Error(`/api/pos/menu ${r.status}`); return r.json(); })
-      .then((d: { ok: boolean; categories: Record<string,unknown>[]; items: Record<string,unknown>[] }) => {
+    type MenuSnapshot = { categories: Record<string, unknown>[]; items: Record<string, unknown>[]; cachedAt?: number };
+    // Map raw server/cache rows into POS state — identical for both paths so the
+    // cached menu renders exactly like a live one.
+    const applyMenu = (d: MenuSnapshot) => {
+      setCategories((prev) =>
+        d.categories.map((row, i) => rowToPOSCategory(row, i, prev.find((c) => c.id === row.id))),
+      );
+      setProducts((prev) =>
+        d.items.map((row) => rowToPOSProduct(row, prev.find((p) => p.id === row.id))),
+      );
+    };
+    (async () => {
+      try {
+        const r = await fetch(apiBase() + "/api/pos/menu");
+        if (!r.ok) throw new Error(`/api/pos/menu ${r.status}`);
+        const d = (await r.json()) as { ok: boolean } & MenuSnapshot;
         if (!d.ok) return;
-        // Always apply the server's response — including empty arrays. An
-        // empty server reply means the menu IS empty (fresh DB, full wipe);
-        // skipping the setState would leave whatever was already in memory
-        // and that stale list would then get pushed back to the DB by the
-        // debounced sync after the next realtime menu event.
-        setCategories((prev) =>
-          d.categories.map((row, i) =>
-            rowToPOSCategory(row, i, prev.find((c) => c.id === row.id)),
-          ),
-        );
-        setProducts((prev) =>
-          d.items.map((row) =>
-            rowToPOSProduct(row, prev.find((p) => p.id === row.id)),
-          ),
-        );
-      })
-      .catch(() => { /* network error — leave state as-is until next mount */ });
-  }, []);
+        // Always apply the server's response — including empty arrays (an empty
+        // reply means the menu IS empty, e.g. a fresh DB).
+        applyMenu(d);
+        setMenuCachedAt(null); // live data
+        // Write-through to the on-device cache so a cold-start offline boot can
+        // render the menu (Phase 1.6). Capacitor-only; no-op on web.
+        void kvSet(CACHE_MENU, { cachedAt: Date.now(), categories: d.categories, items: d.items });
+        // Cache the item images too, so photos show offline (1.6 polish).
+        void cacheMenuImages(d.items);
+      } catch {
+        // Offline / server down: fall back to the last cached menu so the Sale
+        // tab is usable from a cold offline start. No-op on web (kvGet → null).
+        const cached = await kvGet<MenuSnapshot>(CACHE_MENU);
+        if (cached) {
+          applyMenu(cached);
+          setMenuCachedAt(cached.cachedAt ?? null);
+        }
+      }
+    })();
+  }, [cacheMenuImages]);
 
   // Debounced push: whenever the POS menu changes, sync to Supabase so the
   // waiter app (via AppContext Realtime) sees the update immediately.
@@ -739,26 +1019,93 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // ── Auth ──────────────────────────────────────────────────────────────────
-  // Server-authoritative login: the PIN is validated by /api/pos/auth, which
-  // sets the httpOnly pos_staff_session cookie and returns the staff record.
-  // The browser never compares PINs — and never sees other staff's PINs.
-  const login = useCallback(async (staffId: string, pin: string): Promise<boolean> => {
+  // ── Auth (B2) ───────────────────────────────────────────────────────────────
+  // PASSWORD login: validated by /api/pos/auth, which sets the httpOnly session
+  // cookie and returns the staff record. On the Android tablet we also send a
+  // deviceId so the server issues a device token (stored locally) + cache the
+  // staff's PIN hash — enabling fast PIN re-login next time. The browser never
+  // compares passwords and never sees other staff's hashes. Password login needs
+  // the server (no offline path); offline re-entry is the PIN path below.
+  const isPinEnrolled = useCallback(async (staffId: string): Promise<boolean> => {
+    if (!isCapacitorAndroid()) return false;
+    const entry = (await getDeviceCreds())[staffId];
+    return Boolean(entry?.pinHash && entry?.deviceToken);
+  }, []);
+
+  const login = useCallback(async (staffId: string, password: string): Promise<boolean> => {
     try {
-      const res = await fetch("/api/pos/auth", {
+      const onTablet = isCapacitorAndroid();
+      const deviceId = onTablet ? await getDeviceId() : undefined;
+      const res = await fetch(apiBase() + "/api/pos/auth", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ staffId, pin }),
+        body:    JSON.stringify({ staffId, password, deviceId, deviceLabel: deviceId ? "POS tablet" : undefined }),
       });
       if (!res.ok) return false;
-      const json = await res.json() as { ok: boolean; staff?: POSStaff };
+      const json = await res.json() as { ok: boolean; staff?: POSStaff; deviceToken?: string | null };
       if (!json.ok || !json.staff) return false;
       setCurrentStaff(json.staff);
+      // Enroll the device for PIN re-login: stash the token, then cache the PIN
+      // hash. Capacitor-only; both no-op on web.
+      if (onTablet && json.deviceToken) {
+        await patchDeviceCred(staffId, { deviceToken: json.deviceToken, wrongPins: 0 });
+        void cachePosCredentials(staffId);
+      }
       return true;
     } catch {
+      // Server unreachable. Password login can't proceed offline (no enrollment);
+      // an already-enrolled cashier should use the PIN path instead.
       return false;
     }
   }, []);
+
+  // PIN login (tablet): validate the 6-digit PIN LOCALLY against the cached hash,
+  // then obtain a session — reusing a live cookie offline, or exchanging the
+  // device token for a fresh cookie when online. The PIN never leaves the device.
+  // Lockout: MAX_PIN_ATTEMPTS wrong tries wipes the local token → forces password.
+  const loginWithPin = useCallback(async (
+    staffId: string,
+    pin: string,
+  ): Promise<{ ok: boolean; reason?: "wrong" | "locked" | "needs_password" }> => {
+    if (!isCapacitorAndroid()) return { ok: false, reason: "needs_password" };
+    const entry = (await getDeviceCreds())[staffId];
+    if (!entry?.pinHash) return { ok: false, reason: "needs_password" };
+
+    const match = await bcrypt.compare(pin, entry.pinHash);
+    if (!match) {
+      const attempts = (entry.wrongPins ?? 0) + 1;
+      if (attempts >= MAX_PIN_ATTEMPTS) {
+        await clearDeviceCred(staffId); // too many tries → drop enrollment
+        return { ok: false, reason: "locked" };
+      }
+      await patchDeviceCred(staffId, { wrongPins: attempts });
+      return { ok: false, reason: "wrong" };
+    }
+    // Correct PIN → reset the counter, then get a session.
+    await patchDeviceCred(staffId, { wrongPins: 0 });
+
+    const refreshed = await refreshViaDeviceToken(staffId);
+    if (refreshed) {
+      setCurrentStaff(refreshed);
+      markPendingReval(false);
+      return { ok: true };
+    }
+
+    // refreshViaDeviceToken returns null either because we're offline OR the
+    // token was rejected (it self-clears the entry on a 401). Distinguish: if the
+    // entry is gone, the token was revoked/expired → password required.
+    const stillEnrolled = Boolean((await getDeviceCreds())[staffId]?.deviceToken);
+    if (!stillEnrolled) return { ok: false, reason: "needs_password" };
+
+    // Offline: unlock against the cached picker; the cookie (if still alive) authes
+    // API calls, and checkSession refreshes once back online.
+    const picker = await kvGet<POSStaff[]>(CACHE_STAFF);
+    const staffRec = picker?.find((s) => s.id === staffId && s.active !== false);
+    if (!staffRec) return { ok: false, reason: "needs_password" };
+    setCurrentStaff(staffRec);
+    markPendingReval(true);
+    return { ok: true };
+  }, [markPendingReval]);
 
   // ── Session hydration on mount ────────────────────────────────────────────
   // Read the server session (httpOnly cookie) and populate currentStaff. Any
@@ -806,20 +1153,37 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       // login, currentStaffRef becomes non-null and probing resumes.
       if (initialAuthChecked.current && currentStaffRef.current === null) return;
       try {
-        const r = await fetch("/api/pos/auth", { cache: "no-store" });
+        const r = await fetch(apiBase() + "/api/pos/auth", { cache: "no-store" });
         if (!active) return;
         initialAuthChecked.current = true;
         if (r.status === 401) {
           if (currentStaffRef.current !== null) {
+            // B2: the cookie may have simply expired (8h) mid-shift while the
+            // device token is still valid. Try a silent token refresh before
+            // kicking the cashier out — they already unlocked this session with
+            // their PIN. If the token was revoked (admin reset / deactivation),
+            // refresh fails and we log out as before.
+            const refreshed = await refreshViaDeviceToken(currentStaffRef.current.id);
+            if (!active) return;
+            if (refreshed) {
+              markPendingReval(false);
+              const key = JSON.stringify(refreshed);
+              if (key !== lastStaffKey) { lastStaffKey = key; setCurrentStaff(refreshed); }
+              return;
+            }
             setCurrentStaff(null);
             lastStaffKey = "";
-            fetch("/api/pos/auth", { method: "DELETE" }).catch(() => {});
+            fetch(apiBase() + "/api/pos/auth", { method: "DELETE" }).catch(() => {});
             router.replace("/pos/login");
           }
           return;
         }
         const d = await r.json() as { ok: boolean; staff?: POSStaff };
         if (active && d.ok && d.staff) {
+          // Server confirmed the session is valid (session_version + active
+          // checked server-side) — clear any pending-revalidation hold from an
+          // earlier offline login.
+          markPendingReval(false);
           const key = JSON.stringify(d.staff);
           if (key !== lastStaffKey) {
             lastStaffKey = key;
@@ -837,7 +1201,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     checkSession();
     const id = setInterval(checkSession, 15_000);
     return () => { active = false; clearInterval(id); };
-  }, [router]);
+  }, [router, markPendingReval]);
 
   const logout = useCallback(() => {
     setCurrentStaff(null);
@@ -857,7 +1221,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem("pos_customers");
     } catch { /* ignore — quota / private browsing */ }
     // Clear the server-side session cookie.
-    fetch("/api/pos/auth", { method: "DELETE" }).catch(() => {});
+    fetch(apiBase() + "/api/pos/auth", { method: "DELETE" }).catch(() => {});
   }, []);
 
   // ── Idle-timeout auto-logout ──────────────────────────────────────────────
@@ -1003,10 +1367,27 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     const cashPayment = payments.filter((p) => p.method === "cash").reduce((s, p) => s + p.amount, 0);
     const change = cashTendered !== undefined ? cashTendered - cashPayment : undefined;
 
-    // Build the payload. receiptNo is intentionally omitted — the server
-    // assigns it atomically from pos_receipt_seq so two tills can't collide.
+    // ── Offline-tablet provenance fields (Capacitor Android only) ──────────
+    // We stamp `clientCreatedAt` on every Capacitor sale so admin reports can
+    // tell tablet-rung-up sales from web-rung-up sales at a glance — Phase 1
+    // treats it as an audit field, Phase 1.6 makes it tax-significant for
+    // offline-then-synced rows.
+    //
+    // We deliberately do NOT pre-mint `receiptNo`. The server's
+    // `pos_receipt_seq` default ('R' || nextval) is the canonical allocator
+    // and we want online Capacitor sales to use it just like web sales do —
+    // otherwise every Capacitor sale would carry an OFF-… number even when
+    // synced live. The OFF-… receipt is minted ONLY in the offline-fallback
+    // branch below, when the network POST has actually failed.
+    const onAndroid = isCapacitorAndroid();
+    const clientCreatedAt = onAndroid ? new Date().toISOString() : undefined;
+
+    const saleId = uuid();
+    const saleDate = new Date().toISOString();
+    // Build the payload. On web (`onAndroid = false`) the new offline fields
+    // stay undefined and the existing server allocator runs exactly as before.
     const payload = {
-      id: uuid(),
+      id: saleId,
       items: [...cart],
       subtotal: round2(sub),
       discountAmount: round2(disc),
@@ -1032,14 +1413,17 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       staffName: currentStaff?.name ?? "",
       customerId: assignedCustomer?.id,
       customerName: assignedCustomer?.name,
-      date: new Date().toISOString(),
+      date: saleDate,
       voided: false,
+      // Stamp client time on every Capacitor sale (Phase 1 — opaque
+      // pass-through field). The server keeps `created_at` independently.
+      ...(clientCreatedAt ? { clientCreatedAt } : {}),
     };
 
     let sale: POSSale | null = null;
     let serverError: string | undefined;
     try {
-      const res = await fetch("/api/pos/sales", {
+      const res = await fetch(apiBase() + "/api/pos/sales", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(payload),
@@ -1072,6 +1456,57 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (err) {
       console.error("completeSale network error:", err);
+    }
+
+    // ── Offline fallback (Capacitor Android only) ─────────────────────────
+    // The server is unreachable (network error) OR returned a 5xx. Queue the
+    // sale to the local outbox so it can be drained on reconnect, and return
+    // an optimistic POSSale to the caller so the receipt modal can open and
+    // the cashier can hand the receipt to the customer. The outbox drain in
+    // pos/page.tsx re-POSTs every queued sale; the server is idempotent on
+    // payload.id (see /api/pos/sales § "Idempotency pre-check") so a later
+    // online retry is a safe 200/409 no-op.
+    //
+    // 4xx responses (validation, permission denied, stock conflict) are NOT
+    // queued — they carry a clear `serverError` we surface to the cashier
+    // directly. Replay would hit the same gate.
+    if (!sale && onAndroid && !serverError) {
+      // Mint the OFF-… receipt only NOW that we know we're going offline.
+      // Pre-minting would have made every online Capacitor sale carry an
+      // OFF number too (the server uses whatever receiptNo arrives in
+      // the payload, overriding pos_receipt_seq's R-… default).
+      const provisionalReceiptNo = offlineReceiptNo(saleId);
+      // Re-attach receiptNo to the queued payload so the drain pass sends it
+      // to the server. The optimistic POSSale shown to the cashier carries
+      // the same number so the printed receipt matches the DB row on sync.
+      const offlinePayload = { ...payload, receiptNo: provisionalReceiptNo };
+      const enqueued = await enqueueSale(offlinePayload);
+      if (enqueued) {
+        sale = {
+          id:             saleId,
+          receiptNo:      provisionalReceiptNo,
+          items:          payload.items,
+          subtotal:       payload.subtotal,
+          discountAmount: payload.discountAmount,
+          discountNote:   payload.discountNote || undefined,
+          taxAmount:      payload.taxAmount,
+          taxRate:        payload.taxRate,
+          taxInclusive:   payload.taxInclusive,
+          tipAmount:      payload.tipAmount,
+          serviceFeeAmount: payload.serviceFeeAmount,
+          total:          payload.total,
+          paymentMethod:  payload.paymentMethod,
+          payments:       payload.payments,
+          cashTendered:   payload.cashTendered,
+          changeGiven:    payload.changeGiven,
+          staffId:        payload.staffId,
+          staffName:      payload.staffName,
+          customerId:     payload.customerId,
+          customerName:   payload.customerName,
+          date:           payload.date,
+          voided:         false,
+        };
+      }
     }
 
     if (!sale) return { sale: null, error: serverError };
@@ -1120,12 +1555,31 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     refundMethod?: "cash" | "card" | "none",
     refundAmount?: number,
   ): Promise<{ ok: boolean; error?: string }> => {
+    // v1 OFFLINE VOID (full cancel). If this sale is still queued in the outbox
+    // (rung this session, not yet synced), "voiding" it is a full undo: drop the
+    // outbox entry — the sale never reached the server, so there's nothing to
+    // refund or reverse (no DB row, no loyalty ledger move). Allowed even while
+    // the session is unverified (pendingRevalidation): undoing your OWN unsynced
+    // sale is benign. Returns false on web / already-synced sales → fall through
+    // to the normal server-side void below.
+    if (await cancelQueuedSale(saleId)) {
+      setSales((prev) => prev.filter((s) => s.id !== saleId));
+      return { ok: true };
+    }
+
+    // Block destructive actions while the session is unverified (logged in
+    // offline; awaiting the first online revalidation). The cached PIN could be
+    // stale, so we don't allow a void/refund of a SYNCED sale until the server
+    // confirms identity.
+    if (pendingRevalRef.current) {
+      return { ok: false, error: "Reconnecting to verify your login — try again in a moment." };
+    }
     // 1. Locate the target sale first to read its customer details
     const sale = sales.find((s) => s.id === saleId);
     if (!sale) return { ok: false, error: "Sale not found." };
 
     try {
-      const res = await fetch(`/api/pos/sales/${saleId}`, {
+      const res = await fetch(`${apiBase()}/api/pos/sales/${saleId}`, {
         method:  "PATCH",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ voidReason: reason, refundMethod, refundAmount }),
@@ -1140,8 +1594,11 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         return { ok: false, error: json.error };
       }
     } catch (err) {
-      console.error("voidSale network error:", err);
-      return { ok: false };
+      // Offline is expected here: an already-synced sale can only be voided by
+      // the server. (Unsynced current-session sales took the cancelQueuedSale
+      // path above.) Warn — not error — so the dev overlay doesn't trip.
+      console.warn("voidSale network error:", err);
+      return { ok: false, error: "Couldn't reach the server. Voiding an already-synced sale needs internet." };
     }
 
     // 2. Update local sales state
@@ -1173,7 +1630,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     const member = staff.find((s) => s.id === staffId);
     if (!member) return false;
     try {
-      const res = await fetch("/api/pos/clock", {
+      const res = await fetch(apiBase() + "/api/pos/clock", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ action: "in", staffId, staffName: member.name }),
@@ -1199,7 +1656,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     const member = staff.find((s) => s.id === staffId);
     if (!member) return false;
     try {
-      const res = await fetch("/api/pos/clock", {
+      const res = await fetch(apiBase() + "/api/pos/clock", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ action: "out", staffId, staffName: member.name }),
@@ -1255,7 +1712,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         ? { ...p, stockQty: payload.stockQty, stockStatus: undefined, trackStock: true }
         : { ...p, stockQty: undefined, stockStatus: payload.stockStatus, trackStock: false };
     }));
-    fetch(`/api/admin/menu/${id}/stock`, {
+    fetch(`${apiBase()}/api/admin/menu/${id}/stock`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -1269,9 +1726,10 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <POSContext.Provider value={{
-      currentStaff, sessionLoading, login, logout,
+      currentStaff, sessionLoading, pendingRevalidation, login, loginWithPin, isPinEnrolled, logout,
       staff, addPosStaff, updatePosStaff, deletePosStaff, refreshPosStaff,
       products, setProducts, updateProductStock,
+      imageCache, menuCachedAt,
       categories, setCategories,
       sales,
       customers, setCustomers,

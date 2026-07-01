@@ -16,7 +16,7 @@ export async function GET() {
   try {
     const [{ data: cats, error: catErr }, { data: items, error: itemErr }] =
       await Promise.all([
-        supabaseAdmin.from("categories").select("*").order("sort_order"),
+        supabaseAdmin.from("categories").select("*").is("deleted_at", null).order("sort_order"),
         supabaseAdmin.from("menu_items").select("*").order("name"),
       ]);
 

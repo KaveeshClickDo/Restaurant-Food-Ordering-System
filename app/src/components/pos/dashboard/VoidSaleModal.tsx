@@ -2,12 +2,20 @@
 
 import { useState } from "react";
 import { usePOS } from "@/context/POSContext";
+import { useConnectivity } from "@/lib/connectivity";
 import { POSSale } from "@/types/pos";
-import { X, Banknote, CreditCard } from "lucide-react";
+import { X, Banknote, CreditCard, WifiOff } from "lucide-react";
 import { fmt } from "../_utils";
 
 export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClose: () => void }) {
   const { settings, voidSale } = usePOS();
+  const { isOnline } = useConnectivity();
+  // Offline, the only void that works is a *full cancel* of an unsynced sale
+  // (the sale never reached the server, so there's nothing to partially refund).
+  // Voiding an already-synced sale needs the server and is blocked — voidSale
+  // returns a "needs internet" error which we surface via alert(). So offline we
+  // collapse the refund picker into a single full-cancel action.
+  const offlineCancel = !isOnline;
   // A gift card is prepaid money, so its portion is non-refundable. `total` is
   // stored net of the gift card, so it IS the refundable cash/card amount.
   // giftUsed drives the "non-refundable" note shown to the cashier below.
@@ -21,12 +29,15 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
 
   async function confirmVoid() {
     if (!voidReason.trim() || submitting) return;
-    // If there is no refund, force the amount to 0. 
+    // Offline → full cancel (no refund record; the sale is just dropped from the
+    // outbox). Online → use the chosen refund method/amount.
+    const method = offlineCancel ? "none" : refundMethod;
+    // If there is no refund, force the amount to 0.
     // Otherwise, parse the refund input state.
-    const amt = refundMethod === "none" ? 0 : parseFloat(refundAmount);
+    const amt = method === "none" ? 0 : parseFloat(refundAmount);
 
     setSubmitting(true);
-    const { ok, error } = await voidSale(sale.id, voidReason.trim(), refundMethod, isNaN(amt) ? 0 : amt);
+    const { ok, error } = await voidSale(sale.id, voidReason.trim(), method, isNaN(amt) ? 0 : amt);
     setSubmitting(false);
     if (!ok) {
       // Surface the server's actual reason (no permission, already voided,
@@ -67,7 +78,20 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
             />
           </div>
 
+          {/* Offline → full-cancel notice (replaces the refund picker) */}
+          {offlineCancel && (
+            <div className="flex items-start gap-3 px-4 py-3 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300">
+              <WifiOff size={16} className="mt-0.5 shrink-0" />
+              <span className="text-xs leading-relaxed">
+                You&apos;re offline. This will <strong>cancel the sale in full</strong> —
+                it hasn&apos;t synced yet, so it&apos;s removed entirely (no partial refund).
+                Voiding an <em>already-synced</em> sale needs internet.
+              </span>
+            </div>
+          )}
+
           {/* Refund method */}
+          {!offlineCancel && (
           <div>
             <label className="text-xs text-slate-400 font-medium mb-1.5 block">Refund method</label>
             <div className="grid grid-cols-3 gap-2">
@@ -89,9 +113,10 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
               ))}
             </div>
           </div>
+          )}
 
           {/* Refund amount */}
-          {refundMethod !== "none" && (
+          {!offlineCancel && refundMethod !== "none" && (
             <div>
               <label className="text-xs text-slate-400 font-medium mb-1.5 block">Refund amount</label>
               <div className="relative">
@@ -121,7 +146,7 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
           )}
 
           {/* Refund summary banner */}
-          {refundMethod !== "none" && parseFloat(refundAmount) > 0 && (
+          {!offlineCancel && refundMethod !== "none" && parseFloat(refundAmount) > 0 && (
             <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${
               refundMethod === "cash"
                 ? "bg-green-500/10 border-green-500/30 text-green-400"
@@ -149,8 +174,10 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
             className="py-3 rounded-xl bg-red-500 hover:bg-red-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting
-              ? "Voiding…"
-              : <>Void &amp; {refundMethod === "none" ? "No Refund" : `Refund ${fmt(parseFloat(refundAmount) || 0, settings.currencySymbol)}`}</>}
+              ? (offlineCancel ? "Cancelling…" : "Voiding…")
+              : offlineCancel
+                ? "Cancel Sale (offline)"
+                : <>Void &amp; {refundMethod === "none" ? "No Refund" : `Refund ${fmt(parseFloat(refundAmount) || 0, settings.currencySymbol)}`}</>}
           </button>
         </div>
       </div>

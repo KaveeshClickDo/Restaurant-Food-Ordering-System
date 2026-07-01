@@ -1,6 +1,6 @@
 /**
  * POST /api/waiter/auth
- * Validates a waiter's PIN against the waiters table (bcrypt-hashed).
+ * Validates a waiter's password against the waiters table (bcrypt-hashed).
  * Sets an httpOnly session cookie on success.
  */
 
@@ -14,12 +14,12 @@ import {
 } from "@/lib/auth";
 import { rateLimit } from "@/lib/rateLimit";
 import { parseBody } from "@/lib/apiValidation";
-import { StaffPinLoginSchema } from "@/lib/schemas/auth";
+import { StaffPasswordLoginSchema } from "@/lib/schemas/auth";
 
 export async function POST(req: NextRequest) {
-  const parsed = await parseBody(req, StaffPinLoginSchema);
+  const parsed = await parseBody(req, StaffPasswordLoginSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { staffId, pin } = parsed.data;
+  const { staffId, password } = parsed.data;
 
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
   const { limited } = rateLimit(`waiter-auth:${ip}:${staffId}`, 10, 60_000);
@@ -30,22 +30,29 @@ export async function POST(req: NextRequest) {
   try {
     const { data: waiter } = await supabaseAdmin
       .from("waiters")
-      .select("id, name, email, role, pin_hash, active, hourly_rate, avatar_color, created_at, session_version")
+      .select("id, name, email, role, password_hash, active, hourly_rate, avatar_color, created_at, session_version")
       .eq("id", staffId)
       .eq("active", true)
       .maybeSingle();
 
     if (!waiter) {
-      return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
+      return NextResponse.json({ ok: false, error: "Incorrect password." }, { status: 401 });
     }
 
-    const valid = await bcrypt.compare(pin, waiter.pin_hash);
+    if (!waiter.password_hash) {
+      return NextResponse.json(
+        { ok: false, error: "No password set for this account. Ask your admin to set one." },
+        { status: 403 },
+      );
+    }
+
+    const valid = await bcrypt.compare(password, waiter.password_hash);
     if (!valid) {
-      return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
+      return NextResponse.json({ ok: false, error: "Incorrect password." }, { status: 401 });
     }
 
     // Return the camelCase shape the /waiter UI reads (e.g. `avatarColor` for
-    // the header avatar). pin_hash and session_version are never exposed.
+    // the header avatar). password_hash and session_version are never exposed.
     const safe = {
       id:          waiter.id,
       name:        waiter.name,

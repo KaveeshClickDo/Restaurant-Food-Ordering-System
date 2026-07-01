@@ -1,5 +1,5 @@
 /**
- * PATCH  /api/admin/collection-staff/[id] — update fields; omit `pin` to keep current.
+ * PATCH  /api/admin/collection-staff/[id] — update fields; omit `password` to keep current.
  * DELETE /api/admin/collection-staff/[id] — remove a collection staff member.
  *
  * Mirrors /api/admin/kitchen-staff/[id]. Bumps session_version only on a real
@@ -32,7 +32,7 @@ export async function PATCH(
   if (body.email       !== undefined) patch.email        = body.email ? body.email.toLowerCase() : "";
   if (body.active      !== undefined) patch.active       = body.active;
   if (body.avatarColor !== undefined) patch.avatar_color = body.avatarColor;
-  if (body.pin) patch.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
+  if (body.password) patch.password_hash = await bcrypt.hash(body.password, HASH_ROUNDS);
 
   const { data: current } = await supabaseAdmin
     .from("collection_staff")
@@ -45,10 +45,10 @@ export async function PATCH(
 
   const newEmail     = body.email?.toLowerCase();
   const emailChanged = newEmail !== undefined && newEmail !== currentEmail;
-  const pinChanged   = body.pin !== undefined;
+  const passwordChanged   = body.password !== undefined;
   const deactivating = body.active === false && currentActive === true;
 
-  if (emailChanged || pinChanged || deactivating) {
+  if (emailChanged || passwordChanged || deactivating) {
     patch.session_version = Number(current?.session_version ?? 1) + 1;
   }
 

@@ -116,11 +116,73 @@ success "network_security_config.xml copied."
 info "Merging build.gradle dependencies..."
 
 GRADLE_FILE="$ANDROID_DIR/app/build.gradle"
-[[ -f "$GRADLE_FILE" ]] || error "build.gradle not found at: $GRADLE_FILE"
+ROOT_GRADLE_FILE="$ANDROID_DIR/build.gradle"
+[[ -f "$GRADLE_FILE" ]]      || error "build.gradle not found at: $GRADLE_FILE"
+[[ -f "$ROOT_GRADLE_FILE" ]] || error "build.gradle not found at: $ROOT_GRADLE_FILE"
 
-# Only patch if not already patched
+# ── 6a. Add Kotlin Gradle plugin classpath to ROOT build.gradle ──────────────
+# Without this, Gradle silently skips Kotlin sources → ClassNotFoundException
+# on MainActivity at launch. The default Capacitor scaffold does NOT include
+# Kotlin support — it only adds the Android Application plugin.
+if grep -q "kotlin-gradle-plugin" "$ROOT_GRADLE_FILE"; then
+    warn "Root build.gradle already has Kotlin Gradle plugin — skipping."
+else
+    info "Adding Kotlin Gradle plugin classpath to root build.gradle..."
+    # Append the classpath line after the android gradle classpath
+    python3 - "$ROOT_GRADLE_FILE" <<'PYEOF'
+import sys, re
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+kotlin_line = "        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.25'\n"
+# Insert right after the com.android.tools.build classpath line
+new_content, n = re.subn(
+    r"(classpath\s+['\"]com\.android\.tools\.build:gradle:[^'\"]+['\"]\s*\n)",
+    r"\1" + kotlin_line,
+    content,
+    count=1,
+)
+if n == 0:
+    print("WARNING: could not locate android gradle classpath — add manually.")
+else:
+    with open(path, 'w') as f:
+        f.write(new_content)
+    print("Root build.gradle patched with Kotlin plugin classpath.")
+PYEOF
+    success "Root build.gradle patched."
+fi
+
+# ── 6b. Add `apply plugin: 'kotlin-android'` to module build.gradle ──────────
+# Required alongside the classpath above for Kotlin sources to compile.
+if grep -q "apply plugin: 'kotlin-android'" "$GRADLE_FILE"; then
+    warn "Module build.gradle already applies kotlin-android — skipping."
+else
+    info "Adding kotlin-android plugin to module build.gradle..."
+    python3 - "$GRADLE_FILE" <<'PYEOF'
+import sys, re
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+# Insert right after `apply plugin: 'com.android.application'`
+new_content, n = re.subn(
+    r"(apply plugin:\s*['\"]com\.android\.application['\"]\s*\n)",
+    r"\1apply plugin: 'kotlin-android'\n",
+    content,
+    count=1,
+)
+if n == 0:
+    print("WARNING: could not locate com.android.application apply line — add manually.")
+else:
+    with open(path, 'w') as f:
+        f.write(new_content)
+    print("Module build.gradle patched with kotlin-android plugin.")
+PYEOF
+    success "Module build.gradle Kotlin plugin applied."
+fi
+
+# Only patch dependencies if not already patched
 if grep -q "kotlinx-coroutines-android" "$GRADLE_FILE"; then
-    warn "build.gradle already patched — skipping."
+    warn "build.gradle dependencies already patched — skipping."
 else
     # Ensure minSdkVersion is at least 26
     if grep -q "minSdkVersion" "$GRADLE_FILE"; then

@@ -1,6 +1,6 @@
 /**
- * GET  /api/admin/pos  — list every POS staff member (pin_hash excluded).
- * POST /api/admin/pos  — create one; the supplied PIN is bcrypt-hashed.
+ * GET  /api/admin/pos  — list every POS staff member (password_hash excluded).
+ * POST /api/admin/pos  — create one; the supplied password is bcrypt-hashed.
  *
  * Admin-only via the admin session cookie. Mirrors /api/admin/waiters and
  * /api/admin/kitchen-staff so the Admin → POS Staff panel no longer depends
@@ -33,7 +33,8 @@ function mapRow(row: any) {
     createdAt:   typeof row.created_at === "string"
                    ? row.created_at
                    : new Date(row.created_at).toISOString(),
-    pin:         "",
+    password:         "",
+    pin:              "",
   };
 }
 
@@ -56,10 +57,11 @@ export async function POST(request: Request) {
 
   const parsed = await parseBody(request, PosStaffCreateSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { name, email = "", role = "cashier", pin,
+  const { name, email = "", role = "cashier", password, pin,
           active = true, permissions, hourlyRate, avatarColor } = parsed.data;
 
-  const pinHash    = await bcrypt.hash(pin, HASH_ROUNDS);
+  const passwordHash = await bcrypt.hash(password, HASH_ROUNDS);
+  const pinHash      = pin ? await bcrypt.hash(pin, HASH_ROUNDS) : null;
   const finalPerms = permissions ?? ROLE_PERMISSIONS[role];
 
   const { data, error } = await supabaseAdmin
@@ -68,7 +70,8 @@ export async function POST(request: Request) {
       name:         name,
       email:        email ? email.toLowerCase() : "",
       role,
-      pin_hash:     pinHash,
+      password_hash:     passwordHash,
+      pin_hash:          pinHash,
       active,
       permissions:  finalPerms,
       hourly_rate:  hourlyRate ?? null,

@@ -1,5 +1,6 @@
 "use client";
 
+import { uuid } from "@/lib/uuid";
 import { useRef, useState } from "react";
 import { useApp } from "@/context/AppContext";
 import type { FooterLogo } from "@/types";
@@ -400,7 +401,7 @@ export default function FooterLogosPanel() {
   }
 
   function addLogo(data: Omit<FooterLogo, "id" | "order">) {
-    const next = [...logos, { ...data, id: crypto.randomUUID(), order: logos.length }];
+    const next = [...logos, { ...data, id: uuid(), order: logos.length }];
     commit(next);
   }
 

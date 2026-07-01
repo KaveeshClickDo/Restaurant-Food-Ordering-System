@@ -119,13 +119,19 @@ export async function GET(req: NextRequest) {
   // ── Find or create customer ──────────────────────────────────────────────────
   const { data: existing, error: lookupErr } = await supabaseAdmin
     .from("customers")
-    .select("id, session_version")
+    .select("id, session_version, deleted_at, reactivation_blocked")
     .eq("email", email)
     .maybeSingle();
 
   if (lookupErr) {
     console.error("[google/callback] lookup:", lookupErr.message);
     return fail("db_error");
+  }
+
+  // A soft-deleted-and-blocked (banned) account must never sign back in. Use the
+  // generic denial so the ban is never revealed.
+  if (existing?.deleted_at && (existing as { reactivation_blocked?: boolean }).reactivation_blocked) {
+    return fail("access_denied");
   }
 
   let customerId: string;
@@ -135,12 +141,18 @@ export async function GET(req: NextRequest) {
   let sessionVersion = 1;
 
   if (existing) {
-    // Existing account — link by email (mark verified while we're here)
+    // Existing account — link by email (mark verified while we're here). Google
+    // has verified the email, so a soft-deleted (non-blocked) account is
+    // reactivated here — restoring its orders, loyalty, addresses, and notes.
     customerId = existing.id;
     sessionVersion = Number((existing as { session_version?: number }).session_version ?? 1);
     await supabaseAdmin
       .from("customers")
-      .update({ email_verified: true })
+      .update(
+        existing.deleted_at
+          ? { email_verified: true, deleted_at: null, reactivated_at: new Date().toISOString() }
+          : { email_verified: true },
+      )
       .eq("id", customerId)
       .then(() => {}); // fire-and-forget; column may not exist yet — that's fine
   } else {

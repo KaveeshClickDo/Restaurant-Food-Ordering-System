@@ -11,6 +11,8 @@
  * Realtime payloads never exceed the limit.
  */
 
+import { apiBase } from "@/lib/apiBase";
+
 // Keep in sync with MAX_BYTES in app/src/app/api/uploads/menu-image/route.ts.
 export const MAX_IMAGE_BYTES = 1024 * 1024; // 1 MB
 export const MAX_IMAGE_LABEL = "1 MB";
@@ -27,6 +29,35 @@ export function imageSizeError(file: File): string | null {
   return null;
 }
 
+// Receipt logos are stored inline as a base64 data URL (like the restaurant logo
+// in Admin → Operations), so they live in the settings blob and work everywhere
+// — admin, POS web, and the bundled APK — with no upload endpoint. Kept small so
+// the settings blob doesn't bloat.
+export const MAX_LOGO_BYTES = 400 * 1024; // 400 KB
+
+/**
+ * Read an image File as a base64 data URL (client-side, no network). Rejects with
+ * a user-facing message when it isn't an image or exceeds `maxBytes`.
+ */
+export function readImageAsDataUrl(file: File, maxBytes = MAX_LOGO_BYTES): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith("image/")) {
+      reject(new Error("Please choose an image file (PNG, JPG, WebP…).")); return;
+    }
+    if (file.size > maxBytes) {
+      reject(new Error(`Image is too large (${(file.size / 1024).toFixed(0)} KB). Max ${Math.round(maxBytes / 1024)} KB.`)); return;
+    }
+    const reader = new FileReader();
+    reader.onload  = (e) => {
+      const r = e.target?.result;
+      if (typeof r === "string") resolve(r);
+      else reject(new Error("Could not read image."));
+    };
+    reader.onerror = () => reject(new Error("Could not read image."));
+    reader.readAsDataURL(file);
+  });
+}
+
 /**
  * Uploads an image file and resolves to its public URL. Throws an Error with a
  * user-facing message on validation failure or a non-OK response.
@@ -38,7 +69,7 @@ export async function uploadMenuImage(file: File): Promise<string> {
   const body = new FormData();
   body.append("file", file);
 
-  const res = await fetch("/api/uploads/menu-image", { method: "POST", body });
+  const res = await fetch(apiBase() + "/api/uploads/menu-image", { method: "POST", body });
   const json = (await res.json().catch(() => ({}))) as { ok?: boolean; url?: string; error?: string };
   if (!res.ok || !json.ok || !json.url) {
     throw new Error(json.error || "Upload failed. Please try again.");
@@ -85,7 +116,7 @@ export async function uploadFloorPlanImage(file: File): Promise<string> {
   const body = new FormData();
   body.append("file", file);
 
-  const res = await fetch("/api/uploads/floor-plan", { method: "POST", body });
+  const res = await fetch(apiBase() + "/api/uploads/floor-plan", { method: "POST", body });
   const json = (await res.json().catch(() => ({}))) as { ok?: boolean; url?: string; error?: string };
   if (!res.ok || !json.ok || !json.url) {
     throw new Error(json.error || "Upload failed. Please try again.");
@@ -141,7 +172,7 @@ export async function uploadSignageImage(file: File): Promise<string> {
   const body = new FormData();
   body.append("file", file);
 
-  const res = await fetch("/api/uploads/signage-image", { method: "POST", body });
+  const res = await fetch(apiBase() + "/api/uploads/signage-image", { method: "POST", body });
   const json = (await res.json().catch(() => ({}))) as { ok?: boolean; url?: string; error?: string };
   if (!res.ok || !json.ok || !json.url) {
     throw new Error(json.error || "Upload failed. Please try again.");

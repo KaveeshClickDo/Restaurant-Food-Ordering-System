@@ -71,7 +71,9 @@ export async function GET() {
     supabaseAdmin
       .from("customers")
       .select("id, name, email, phone, tags, favourites, saved_addresses, store_credit, created_at, email_verified, loyalty_points, gift_card_balance, notes")
-      .neq("id", POS_WALK_IN_ID),
+      .neq("id", POS_WALK_IN_ID)
+      // Soft-deleted customers must not be searchable/selectable on the till.
+      .is("deleted_at", null),
     supabaseAdmin
       .from("orders")
       .select("customer_id, total, status, payment_status, refunded_amount, fulfillment, gift_card_used, date"),

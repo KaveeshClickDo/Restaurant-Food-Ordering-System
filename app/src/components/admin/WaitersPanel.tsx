@@ -26,7 +26,7 @@ const AVATAR_COLORS = [
 // ─── Waiter Form ──────────────────────────────────────────────────────────────
 
 const EMPTY_WAITER: Omit<WaiterStaff, "id" | "createdAt"> = {
-  name: "", pin: "", role: "senior", active: true, avatarColor: AVATAR_COLORS[0],
+  name: "", password: "", role: "senior", active: true, avatarColor: AVATAR_COLORS[0],
 };
 
 function WaiterForm({
@@ -40,7 +40,7 @@ function WaiterForm({
 }) {
   const [form, setForm]     = useState({ ...EMPTY_WAITER, ...initial });
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [showPin, setShowPin] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   // Guards against rapid double-click creating duplicate rows.
   const [saving, setSaving] = useState(false);
   const inFlight = useRef(false);
@@ -50,16 +50,16 @@ function WaiterForm({
     setErrors((e) => { const n = { ...e }; delete n[k as string]; return n; });
   }
 
-  // In edit mode (initial.id set), PIN may be left blank to keep the existing
-  // value — the server never returns real PINs to the browser, so there's no
+  // In edit mode (initial.id set), password may be left blank to keep the existing
+  // value — the server never returns real passwords to the browser, so there's no
   // way to pre-fill the field.
   const isEdit = Boolean(initial?.id);
 
   function validate(): boolean {
     const e: Record<string, string> = {};
     if (!form.name.trim()) e.name = "Name is required.";
-    if (!isEdit && !form.pin.trim())  e.pin = "PIN is required.";
-    else if (form.pin.trim() && !/^\d{6}$/.test(form.pin)) e.pin = "PIN must be exactly 6 digits.";
+    if (!isEdit && !form.password.trim())  e.password = "Password is required.";
+    else if (form.password.trim() && form.password.trim().length < 6) e.password = "Password must be at least 6 characters.";
     if (Object.keys(e).length) { setErrors(e); return false; }
     return true;
   }
@@ -92,29 +92,29 @@ function WaiterForm({
         {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
       </div>
 
-      {/* PIN */}
+      {/* password */}
       <div>
         <label className="block text-xs font-medium text-gray-400 mb-1">
-          PIN (6 digits){isEdit ? " — leave blank to keep current" : ""}
+          Password (min 6 characters){isEdit ? " — leave blank to keep current" : ""}
         </label>
         <div className="relative">
           <input
-            value={form.pin}
-            onChange={(e) => set("pin", e.target.value.replace(/\D/g, "").slice(0, 6))}
-            type={showPin ? "text" : "password"}
-            placeholder={isEdit ? "Leave blank to keep current" : "••••••"}
-            inputMode="numeric"
+            value={form.password}
+            onChange={(e) => set("password", e.target.value)}
+            type={showPassword ? "text" : "password"}
+            placeholder={isEdit ? "Leave blank to keep current" : "Min 6 characters"}
+            autoComplete="new-password"
             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 pr-9 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-orange-500"
           />
           <button
             type="button"
-            onClick={() => setShowPin((v) => !v)}
+            onClick={() => setShowPassword((v) => !v)}
             className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
           >
-            {showPin ? <EyeOff size={15} /> : <Eye size={15} />}
+            {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
           </button>
         </div>
-        {errors.pin && <p className="text-red-400 text-xs mt-1">{errors.pin}</p>}
+        {errors.password && <p className="text-red-400 text-xs mt-1">{errors.password}</p>}
       </div>
 
       {/* Role */}
@@ -221,10 +221,10 @@ export default function WaitersPanel() {
 
   async function handleEditWaiter(data: Omit<WaiterStaff, "id" | "createdAt">) {
     if (!editingWaiter) return;
-    // Omit a blank PIN so the server keeps the existing one. The update schema
-    // validates pin as a 6-digit string when present; sending "" would fail
+    // Omit a blank password so the server keeps the existing one. The update schema
+    // validates password as a 6-digit string when present; sending "" would fail
     // validation (400). Mirrors the kitchen / POS staff edit handlers.
-    const payload = { ...data, pin: data.pin?.trim() ? data.pin : undefined };
+    const payload = { ...data, password: data.password?.trim() ? data.password : undefined };
     const res = await fetch(`/api/admin/waiters/${editingWaiter.id}`, {
       method:  "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -368,7 +368,7 @@ export default function WaitersPanel() {
                       {waiter.active ? "Active" : "Inactive"}
                     </span>
                   </div>
-                  <p className="text-gray-500 text-xs mt-0.5">PIN: •••• · ID: {waiter.id}</p>
+                  <p className="text-gray-500 text-xs mt-0.5">Password: •••• · ID: {waiter.id}</p>
                 </div>
 
                 {/* Actions */}
@@ -404,9 +404,9 @@ export default function WaitersPanel() {
 
       {/* Info box */}
       <div className="bg-blue-950/60 border border-blue-700/60 rounded-xl p-4 text-blue-100 text-xs leading-relaxed">
-        <strong className="block mb-1 text-white">PIN Security</strong>
-        PINs are stored in admin settings and validated server-side at <code>/api/waiter/auth</code>.
-        They are never exposed to the waiter app&apos;s network tab. Use unique PINs for each staff member.
+        <strong className="block mb-1 text-white">Password Security</strong>
+        passwords are stored in admin settings and validated server-side at <code>/api/waiter/auth</code>.
+        They are never exposed to the waiter app&apos;s network tab. Use unique passwords for each staff member.
       </div>
     </div>
   );

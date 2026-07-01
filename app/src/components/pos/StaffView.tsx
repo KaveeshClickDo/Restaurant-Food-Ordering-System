@@ -2,6 +2,7 @@
 
 import { useRef, useState, useEffect } from "react";
 import { usePOS } from "@/context/POSContext";
+import { useConnectivity } from "@/lib/connectivity";
 import { POSStaff } from "@/types/pos";
 import {
   UserPlus, Clock, Timer, ToggleRight, ToggleLeft, Pencil, Trash2, X, ClockIcon,
@@ -13,17 +14,19 @@ import { fmtTime, getInitials } from "./_utils";
 export default function StaffView() {
   const { staff, addPosStaff, updatePosStaff, deletePosStaff,
     clockEntries, clockIn, clockOut, isClocked, currentStaff, settings } = usePOS();
+  const { isOnline } = useConnectivity();
   const sym = settings.currencySymbol;
   const [showAdd, setShowAdd] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
-  const [newStaff, setNewStaff] = useState({ name: "", email: "", role: "cashier" as "admin" | "manager" | "cashier", pin: "", hourlyRate: "" });
+  const [showPin, setShowPin] = useState(false);
+  const [newStaff, setNewStaff] = useState({ name: "", email: "", role: "cashier" as "admin" | "manager" | "cashier", password: "", pin: "", hourlyRate: "" });
   const COLORS = ["#7c3aed", "#0891b2", "#16a34a", "#dc2626", "#ea580c", "#0284c7", "#9333ea", "#be185d"];
   const [, tick] = useState(0);
   useEffect(() => { const id = setInterval(() => tick((n) => n + 1), 10000); return () => clearInterval(id); }, []);
 
   // Edit state
   const [editingStaff, setEditingStaff] = useState<POSStaff | null>(null);
-  const [editDraft, setEditDraft] = useState({ name: "", email: "", role: "cashier" as "admin" | "manager" | "cashier", pin: "", hourlyRate: "" });
+  const [editDraft, setEditDraft] = useState({ name: "", email: "", role: "cashier" as "admin" | "manager" | "cashier", password: "", pin: "", hourlyRate: "" });
 
   // Delete state
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -47,6 +50,7 @@ export default function StaffView() {
   // Double-click guard for the self clock-in/out button (QA #32). Without
   // this a rapid second click fires a second API request that 409s/404s.
   async function toggleClock(staffId: string, currentlyClocked: boolean) {
+    if (!isOnline) return; // read-only offline (server write)
     if (clockInFlight.current) return;
     clockInFlight.current = true;
     setClockBusy(true);
@@ -61,7 +65,8 @@ export default function StaffView() {
 
   async function addStaff() {
     if (addInFlight.current) return;
-    if (!newStaff.name.trim() || newStaff.pin.length !== 6) return;
+    if (!newStaff.name.trim() || newStaff.password.trim().length < 6) return;
+    if (newStaff.pin.trim() && newStaff.pin.trim().length !== 6) return;
     addInFlight.current = true;
     setAddBusy(true);
     try {
@@ -69,12 +74,13 @@ export default function StaffView() {
         name: newStaff.name.trim(),
         email: newStaff.email,
         role: newStaff.role,
-        pin: newStaff.pin,
+        password: newStaff.password,
+        pin: newStaff.pin.trim() || undefined,
         hourlyRate: parseFloat(newStaff.hourlyRate) || undefined,
         avatarColor: COLORS[Math.floor(Math.random() * COLORS.length)],
       });
       if (!result.ok) return;
-      setNewStaff({ name: "", email: "", role: "cashier", pin: "", hourlyRate: "" });
+      setNewStaff({ name: "", email: "", role: "cashier", password: "", pin: "", hourlyRate: "" });
       setShowAdd(false);
     } finally {
       addInFlight.current = false;
@@ -83,16 +89,17 @@ export default function StaffView() {
   }
 
   function openEdit(member: POSStaff) {
-    // PIN field starts blank: the server never returns real PINs to the
+    // password field starts blank: the server never returns real passwords to the
     // browser, and saveEdit sends "" to mean "keep existing".
     setEditingStaff(member);
-    setEditDraft({ name: member.name, email: member.email ?? "", role: member.role, pin: "", hourlyRate: member.hourlyRate?.toString() ?? "" });
+    setEditDraft({ name: member.name, email: member.email ?? "", role: member.role, password: "", pin: "", hourlyRate: member.hourlyRate?.toString() ?? "" });
   }
 
   async function saveEdit() {
     if (saveInFlight.current) return;
     if (!editingStaff || !editDraft.name.trim()) return;
-    if (editDraft.pin && editDraft.pin.length !== 6) return;
+    if (editDraft.password && editDraft.password.trim().length < 6) return;
+    if (editDraft.pin && editDraft.pin.trim().length !== 6) return;
     saveInFlight.current = true;
     setSaveBusy(true);
     try {
@@ -102,7 +109,8 @@ export default function StaffView() {
       const result = await updatePosStaff(editingStaff.id, {
         name: editDraft.name.trim(),
         email: editDraft.email,
-        pin: editDraft.pin || undefined, // "" → omit, server keeps existing
+        password: editDraft.password || undefined, // "" → omit, server keeps existing
+        pin: editDraft.pin.trim() || undefined,    // "" → omit, server keeps existing
         hourlyRate: parseFloat(editDraft.hourlyRate) || undefined,
       });
       if (!result.ok) return;
@@ -126,6 +134,7 @@ export default function StaffView() {
   }
 
   async function toggleActive(staffId: string) {
+    if (!isOnline) return; // read-only offline (server write)
     if (toggleInFlight.current.has(staffId)) return;
     const member = staff.find((s) => s.id === staffId);
     if (!member) return;
@@ -153,10 +162,15 @@ export default function StaffView() {
       <div className="max-w-4xl mx-auto space-y-6">
         <div className="flex flex-wrap gap-3 items-center justify-between">
           <h2 className="text-white font-bold text-xl">Staff Management</h2>
-          <button onClick={() => setShowAdd(true)} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-400 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors">
+          <button onClick={() => setShowAdd(true)} disabled={!isOnline} className={`flex items-center gap-2 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors ${isOnline ? "bg-orange-500 hover:bg-orange-400" : "bg-slate-700 opacity-50 cursor-not-allowed"}`}>
             <UserPlus size={16} /> Add Staff
           </button>
         </div>
+        {!isOnline && (
+          <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2">
+            <p className="text-amber-300 text-xs">Read-only while offline — staff changes need an internet connection. Reconnect to add or edit staff.</p>
+          </div>
+        )}
 
         {/* Clock in/out panel — the API is session-scoped (cannot clock another
             staff member in/out without payroll forgery), so only the currently
@@ -241,7 +255,7 @@ export default function StaffView() {
                           "bg-slate-600 text-slate-400"
                         }`}>{member.role}</span>
                     </div>
-                    <p className="text-slate-400 text-xs mt-0.5">{member.email} · PIN: ••••••</p>
+                    <p className="text-slate-400 text-xs mt-0.5">{member.email} · Password: ••••••</p>
                     {member.hourlyRate && <p className="text-slate-500 text-xs">{sym}{member.hourlyRate}/hr</p>}
                   </div>
                 </div>
@@ -283,14 +297,15 @@ export default function StaffView() {
                   )}
                   <button
                     onClick={() => openEdit(member)}
-                    title="Edit staff member"
-                    className="text-slate-400 hover:text-orange-400 transition-colors"
+                    disabled={!isOnline}
+                    title={!isOnline ? "Reconnect to edit" : "Edit staff member"}
+                    className="text-slate-400 hover:text-orange-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-400"
                   >
                     <Pencil size={16} />
                   </button>
                   <button
                     onClick={() => setDeleteConfirm(member.id)}
-                    disabled={member.id === currentStaff?.id}
+                    disabled={!isOnline || member.id === currentStaff?.id}
                     title={member.id === currentStaff?.id ? "Cannot delete yourself" : "Delete staff member"}
                     className={`transition-colors ${member.id === currentStaff?.id ? "opacity-50 cursor-not-allowed" : "text-slate-400 hover:text-red-400"}`}
                   >
@@ -353,13 +368,22 @@ export default function StaffView() {
                 </div>
               </div>
               <div>
-                <label className="text-xs text-slate-400 mb-1 block">6-digit PIN *</label>
+                <label className="text-xs text-slate-400 mb-1 block">Password (min 6) *</label>
                 <div className="relative">
-                  <input type={showPwd ? "text" : "password"} maxLength={6} value={newStaff.pin} onChange={(e) => setNewStaff((p) => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="••••••"
+                  <input type={showPwd ? "text" : "password"} value={newStaff.password} onChange={(e) => setNewStaff((p) => ({ ...p, password: e.target.value }))} placeholder="Min 6 characters"
                     className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
                   <EyeToggle show={showPwd} onToggle={() => setShowPwd((v) => !v)} />
                 </div>
-
+                <span className="text-[10px] text-slate-500">Website POS login</span>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Tablet PIN (6 digits, optional)</label>
+                <div className="relative">
+                  <input type={showPin ? "text" : "password"} inputMode="numeric" value={newStaff.pin} onChange={(e) => setNewStaff((p) => ({ ...p, pin: e.target.value.replace(/\D/g, "").slice(0, 6) }))} placeholder="••••••"
+                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+                  <EyeToggle show={showPin} onToggle={() => setShowPin((v) => !v)} />
+                </div>
+                <span className="text-[10px] text-slate-500">Quick login on this tablet</span>
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">Hourly Rate ({sym})</label>
@@ -369,7 +393,7 @@ export default function StaffView() {
             </div>
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => setShowAdd(false)} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">Cancel</button>
-              <button onClick={addStaff} disabled={addBusy || !newStaff.name.trim() || newStaff.pin.length !== 6}
+              <button onClick={addStaff} disabled={addBusy || !newStaff.name.trim() || newStaff.password.trim().length < 6}
                 className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{addBusy ? "Saving…" : "Add"}</button>
             </div>
           </div>
@@ -403,8 +427,13 @@ export default function StaffView() {
                 </div>
               </div>
               <div>
-                <label className="text-xs text-slate-400 mb-1 block">6-digit PIN</label>
-                <input type="password" maxLength={6} value={editDraft.pin} onChange={(e) => setEditDraft((p) => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="Leave blank to keep current"
+                <label className="text-xs text-slate-400 mb-1 block">Password (min 6)</label>
+                <input type="password" value={editDraft.password} onChange={(e) => setEditDraft((p) => ({ ...p, password: e.target.value }))} placeholder="Leave blank to keep current"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Tablet PIN (6 digits)</label>
+                <input type="password" inputMode="numeric" value={editDraft.pin} onChange={(e) => setEditDraft((p) => ({ ...p, pin: e.target.value.replace(/\D/g, "").slice(0, 6) }))} placeholder="Leave blank to keep current"
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
               </div>
               <div>
@@ -415,7 +444,7 @@ export default function StaffView() {
             </div>
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => setEditingStaff(null)} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">Cancel</button>
-              <button onClick={saveEdit} disabled={saveBusy || !editDraft.name.trim() || (editDraft.pin.length > 0 && editDraft.pin.length !== 6)}
+              <button onClick={saveEdit} disabled={saveBusy || !editDraft.name.trim() || (editDraft.password.trim().length > 0 && editDraft.password.trim().length < 6)}
                 className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{saveBusy ? "Saving…" : "Save"}</button>
             </div>
           </div>

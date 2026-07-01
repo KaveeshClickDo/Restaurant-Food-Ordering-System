@@ -1,24 +1,37 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { apiBase } from "@/lib/apiBase";
 import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
 import { POSSale } from "@/types/pos";
-import { Mail, CheckCircle2, RefreshCw, Printer } from "lucide-react";
-import { fmt, fmtDate, fmtTime } from "./_utils";
+import { Mail, CheckCircle2, RefreshCw, Printer, AlertTriangle } from "lucide-react";
+import { fmt, fmtDate, fmtTime, isOfflineSale } from "./_utils";
 import { buildReceiptHtml } from "./_receipts";
+import { printPOSSale } from "@/lib/posPrint";
+import { isCapacitorAndroid } from "@/lib/capacitorBridge";
 
-export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose: () => void }) {
+export default function ReceiptModal(
+  { sale, onClose, autoPrint = false }: { sale: POSSale; onClose: () => void; autoPrint?: boolean },
+) {
   const { settings, customers } = usePOS();
   const { settings: appSettings } = useApp();
+  // Receipt header/footer content — the shared source of truth (Admin → Receipt /
+  // POS → Receipt), so the on-screen receipt matches the printed one.
+  const rs = appSettings.receiptSettings;
   const customer = customers.find((c) => c.id === sale.customerId);
   const [emailTo, setEmailTo] = useState(customer?.email ?? "");
   const [emailStatus, setEmailStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [emailError, setEmailError] = useState("");
+  const [printStatus, setPrintStatus] = useState<"idle" | "printing" | "ok" | "error">("idle");
+  const [printError, setPrintError] = useState("");
   const sym = settings.currencySymbol;
+  // window.print() is a no-op inside the Android WebView, so on Android we never
+  // fall back to it — we surface an actionable message instead.
+  const onAndroid = isCapacitorAndroid();
 
   // Prefer the restaurant name from admin branding settings (single source of truth)
-  const effectiveName = appSettings.restaurant?.name || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant";
+  const effectiveName = appSettings.restaurant?.name || rs.restaurantName?.trim() || settings.businessName || "Restaurant";
   const restaurantName = effectiveName.toUpperCase();
 
   // VAT label and sign — read from the snapshot saved on the sale itself so it's
@@ -40,11 +53,11 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
     setEmailStatus("sending");
     setEmailError("");
     try {
-      const html = buildReceiptHtml(sale, settings, effectiveName);
+      const html = buildReceiptHtml(sale, settings, rs, effectiveName);
       const fromName = settings.smtpFromName?.trim() || effectiveName;
       const subject = `Your receipt from ${fromName} — #${sale.receiptNo}`;
       // SMTP credentials are read from server-side env vars in /api/email
-      const res = await fetch("/api/email", {
+      const res = await fetch(apiBase() + "/api/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ to: emailTo.trim(), subject, html }),
@@ -62,6 +75,54 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
     }
   }
 
+  // Print to the configured thermal printer. On Android this goes straight to
+  // the printer (Bluetooth / USB / direct TCP) with no server — so it works
+  // offline. "browser" mode (or a disabled printer) falls back to window.print().
+  const handlePrint = useCallback(async () => {
+    setPrintStatus("printing");
+    setPrintError("");
+    const r = await printPOSSale(sale, settings, appSettings.printer, effectiveName, rs);
+    if (r.browser) {
+      // No thermal printer configured (or "browser" mode). On a desktop browser
+      // window.print() opens the OS print dialog; inside the Android WebView it
+      // does nothing — so on the tablet, tell the cashier what to do instead of
+      // silently failing.
+      if (onAndroid) {
+        setPrintStatus("error");
+        setPrintError(
+          appSettings.printer?.enabled
+            ? "Printer set to “browser” mode, which isn’t available on the tablet. Pick Bluetooth, USB, or Network in Settings → Hardware."
+            : "No printer configured. Set one up in Settings → Hardware.",
+        );
+      } else {
+        setPrintStatus("idle");
+        window.print();
+      }
+      return;
+    }
+    if (r.ok) {
+      setPrintStatus("ok");
+      setTimeout(() => setPrintStatus("idle"), 4000);
+    } else {
+      setPrintStatus("error");
+      setPrintError(r.error ?? "Printing failed.");
+    }
+  }, [sale, settings, appSettings.printer, effectiveName, onAndroid, rs]);
+
+  // Auto-print once when the receipt opens straight after a sale (autoPrint
+  // prop), but only for real thermal modes the cashier configured — never
+  // auto-trigger the browser print dialog (intrusive), and never on the
+  // dashboard's "view old receipt" path (which doesn't pass autoPrint).
+  const autoPrinted = useRef(false);
+  useEffect(() => {
+    if (autoPrinted.current || !autoPrint) return;
+    const pr = appSettings.printer;
+    if (pr?.enabled && pr.autoPrint && pr.connection !== "browser") {
+      autoPrinted.current = true;
+      void handlePrint();
+    }
+  }, [autoPrint, appSettings.printer, handlePrint]);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl w-full max-w-xs flex flex-col shadow-2xl overflow-hidden max-h-[95vh]">
@@ -69,22 +130,25 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
 
           {/* ── Header ───────────────────────────────────────── */}
           <div className="text-center mb-4">
-            {settings.receiptShowLogo && settings.receiptLogoUrl && (
+            {rs.showLogo && rs.logoUrl && (
               <div className="flex justify-center mb-3">
                 {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary URL or data: URI, needs onError fallback */}
-                <img src={settings.receiptLogoUrl} alt="Logo" className="h-10 w-auto object-contain"
+                <img src={rs.logoUrl} alt="Logo" className="h-10 w-auto object-contain"
                   onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
               </div>
             )}
             <p className="font-bold text-base">{restaurantName}</p>
-            {settings.receiptPhone && <p className="text-gray-500">{settings.receiptPhone}</p>}
-            {settings.receiptWebsite && <p className="text-gray-500">{settings.receiptWebsite}</p>}
+            {rs.address?.trim() && <p className="text-gray-500 whitespace-pre-line">{rs.address.trim()}</p>}
+            {rs.phone && <p className="text-gray-500">{rs.phone}</p>}
+            {rs.website && <p className="text-gray-500">{rs.website}</p>}
+            {rs.email && <p className="text-gray-500">{rs.email}</p>}
             <p className="text-gray-500">{fmtDate(sale.date)} · {fmtTime(sale.date)}</p>
             <p className="text-gray-500">Receipt #{sale.receiptNo}</p>
+            {isOfflineSale(sale.receiptNo) && <p className="font-bold text-amber-600 tracking-wide">OFFLINE SALE</p>}
             {sale.staffName && <p className="text-gray-500">Served by: {sale.staffName}</p>}
             {sale.customerName && <p className="text-gray-500">Customer: {sale.customerName}</p>}
-            {settings.receiptVatNumber && (
-              <p className="text-gray-400 text-[10px]">VAT No: {settings.receiptVatNumber}</p>
+            {rs.vatNumber && (
+              <p className="text-gray-400 text-[10px]">VAT No: {rs.vatNumber}</p>
             )}
           </div>
 
@@ -179,19 +243,15 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
 
           {/* ── Footer ────────────────────────────────────────── */}
           <div className="border-t border-dashed border-gray-300 my-3" />
-          {settings.receiptThankYouMessage && (
+          {rs.thankYouMessage && (
             <p className="text-center text-gray-700 font-semibold">
-              {settings.receiptThankYouMessage}
+              {rs.thankYouMessage}
             </p>
           )}
-          {settings.receiptCustomMessage && (
+          {rs.customMessage && (
             <p className="text-center text-gray-500 mt-1">
-              {settings.receiptCustomMessage}
+              {rs.customMessage}
             </p>
-          )}
-          {/* Legacy footer field kept for backwards-compat */}
-          {!settings.receiptThankYouMessage && settings.receiptFooter && (
-            <p className="text-center text-gray-500 whitespace-pre-line">{settings.receiptFooter}</p>
           )}
         </div>
 
@@ -236,6 +296,29 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
           </div>
         </div>
 
+        {/* ── Print status ─────────────────────────────────────── */}
+        {printStatus === "ok" && (
+          <div className="mx-4 mb-2 flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+            <CheckCircle2 size={13} className="text-green-600 shrink-0" />
+            <p className="text-green-700 text-xs font-semibold">Receipt sent to printer.</p>
+          </div>
+        )}
+        {printStatus === "error" && (
+          <div className="mx-4 mb-2 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            <AlertTriangle size={13} className="text-red-600 shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="text-red-700 text-xs break-all">{printError}</p>
+              {/* window.print() only works on a desktop browser, not the Android
+                  WebView — so only offer it off-Android. */}
+              {!onAndroid && (
+                <button onClick={() => window.print()} className="text-red-600 text-xs font-semibold underline mt-0.5">
+                  Print via browser instead
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ── Buttons ──────────────────────────────────────────── */}
         <div className="px-4 pb-4 grid grid-cols-2 gap-2 mt-2">
           <button
@@ -245,10 +328,13 @@ export default function ReceiptModal({ sale, onClose }: { sale: POSSale; onClose
             Close
           </button>
           <button
-            onClick={() => window.print()}
-            className="py-3 rounded-xl bg-slate-900 text-white font-semibold text-sm hover:bg-slate-800 transition-colors flex items-center justify-center gap-2"
+            onClick={handlePrint}
+            disabled={printStatus === "printing"}
+            className="py-3 rounded-xl bg-slate-900 text-white font-semibold text-sm hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
           >
-            <Printer size={14} /> Print
+            {printStatus === "printing"
+              ? <><RefreshCw size={14} className="animate-spin" /> Printing…</>
+              : <><Printer size={14} /> Print</>}
           </button>
         </div>
       </div>

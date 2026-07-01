@@ -1,5 +1,6 @@
 "use client";
 
+import { uuid } from "@/lib/uuid";
 import { useState, useMemo } from "react";
 import { useApp } from "@/context/AppContext";
 import { Customer, DeliveryStatus, Order, OrderStatus, Refund } from "@/types";
@@ -678,7 +679,7 @@ export default function DeliveryPanel() {
     if (!cust) { setRefundCancelTarget(null); return; }
     const refund: Refund = {
       ...fields,
-      id: crypto.randomUUID(),
+      id: uuid(),
       processedAt: new Date().toISOString(),
       processedBy: "Admin",
     };

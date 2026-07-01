@@ -57,7 +57,7 @@ export default function BillEmailBar({ onPrint, tableLabel, waiterName, consolid
       paymentMethod: "pending",
       orderIds,
     };
-    const html = buildReceiptHtml(tempReceipt, restaurantName, rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
+    const html = buildReceiptHtml(tempReceipt, restaurantName, rs?.address ?? "", rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
     const subject = `Your bill from ${restaurantName} — Table ${tableLabel}`;
     const res = await fetch("/api/email", {
       method: "POST",

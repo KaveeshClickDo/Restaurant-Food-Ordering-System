@@ -54,12 +54,26 @@ function normalise(items: StockItem[]): Array<{ id: string; qty: number }> {
  *
  * Throws on unexpected DB errors (network failure, schema drift). Callers
  * should treat a thrown error as "could not place order, try again."
+ *
+ * Pass `{ force: true }` for offline-sale reconciliation (outbox replay): the
+ * RPC then oversells instead of rejecting (stock_qty may go negative) so a sale
+ * that already happened offline is never stranded. Online sales omit it and
+ * keep the hard limit.
  */
-export async function decrementStock(items: StockItem[]): Promise<StockMutationResult> {
+export async function decrementStock(
+  items: StockItem[],
+  opts?: { force?: boolean },
+): Promise<StockMutationResult> {
   const payload = normalise(items);
   if (payload.length === 0) return { ok: true };
 
-  const { error } = await supabaseAdmin.rpc("decrement_stock_atomic", { p_items: payload });
+  // force=true (offline-sale replay) tells the RPC to oversell rather than
+  // raise INSUFFICIENT_STOCK — the sale already happened, so it must never be
+  // rejected. The count is allowed to go negative as the visible oversell flag.
+  const { error } = await supabaseAdmin.rpc("decrement_stock_atomic", {
+    p_items: payload,
+    p_force: opts?.force ?? false,
+  });
   if (!error) return { ok: true };
 
   // The Postgres function raises P0001 with message "INSUFFICIENT_STOCK <id>"

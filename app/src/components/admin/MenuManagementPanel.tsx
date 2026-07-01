@@ -1,5 +1,6 @@
 "use client";
 
+import { uuid } from "@/lib/uuid";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { Category, MealPeriod, MenuItem, Variation, AddOn, MenuItemOffer } from "@/types";
@@ -54,7 +55,7 @@ const DIETARY_COLORS: Record<string, string> = {
 
 function blankItem(categoryId: string): MenuItem {
   return {
-    id: crypto.randomUUID(),
+    id: uuid(),
     categoryId,
     name: "",
     description: "",
@@ -69,15 +70,15 @@ function blankItem(categoryId: string): MenuItem {
 }
 
 function blankCategory(parentId?: string): Category {
-  return { id: crypto.randomUUID(), name: "", emoji: "🍽️", parentId: parentId ?? null };
+  return { id: uuid(), name: "", emoji: "🍽️", parentId: parentId ?? null };
 }
 
 function blankVariation(): Variation {
-  return { id: crypto.randomUUID(), name: "", required: true, options: [{ id: crypto.randomUUID(), label: "", price: 0 }] };
+  return { id: uuid(), name: "", required: true, options: [{ id: uuid(), label: "", price: 0 }] };
 }
 
 function blankAddOn(): AddOn {
-  return { id: crypto.randomUUID(), name: "", price: 0 };
+  return { id: uuid(), name: "", price: 0 };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -854,21 +855,28 @@ export default function MenuManagementPanel() {
       {deletingCat && (() => {
         const children = getChildren(deletingCat.id, categories);
         const hasKids = children.length > 0;
+        const itemCount = catItemCount(deletingCat.id);
+        const hasItems = itemCount > 0;
+        // A category can only be deleted when it is empty — no sub-categories
+        // AND no items. Otherwise deleting would orphan sub-categories or
+        // cascade-delete items, so we block it and tell them what to clear.
+        const blocked = hasKids || hasItems;
+        const parts = [
+          hasKids  ? `${children.length} ${children.length > 1 ? "sub-categories" : "sub-category"}` : "",
+          hasItems ? `${itemCount} item${itemCount > 1 ? "s" : ""}` : "",
+        ].filter(Boolean);
 
         return (
           <ConfirmModal
             title="Delete category?"
-            // 1. Update the message based on the requirement
             message={
-              hasKids
-                ? `"${deletingCat.name}" cannot be deleted because it contains ${children.length} ${children.length > 1 ? 'sub-categories' : 'sub-category'}. Please move these sub-categories to another parent or remove them first.`
-                : `"${deletingCat.name}" and all ${catItemCount(deletingCat.id)} items in it will be permanently deleted. This action cannot be undone.`
+              blocked
+                ? `"${deletingCat.name}" cannot be deleted because it contains ${parts.join(" and ")}. Move or remove them to another category first.`
+                : `"${deletingCat.name}" will be deleted. This action cannot be undone.`
             }
-            // 2. Pass a disabled prop to the modal button
-            confirmDisabled={hasKids}
+            confirmDisabled={blocked}
             onConfirm={() => {
-              // We no longer delete children automatically. 
-              // We only delete the target category if it's clear.
+              // Only reachable when the category is empty (button disabled otherwise).
               deleteCategory(deletingCat.id);
               setDeletingCat(null);
 
@@ -1181,7 +1189,7 @@ function ItemModal({
   function addVariationOption(varIdx: number) {
     setForm((f) => {
       const v = [...(f.variations ?? [])];
-      v[varIdx] = { ...v[varIdx], options: [...v[varIdx].options, { id: crypto.randomUUID(), label: "", price: 0 }] };
+      v[varIdx] = { ...v[varIdx], options: [...v[varIdx].options, { id: uuid(), label: "", price: 0 }] };
       return { ...f, variations: v };
     });
   }

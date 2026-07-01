@@ -1,5 +1,9 @@
 export function fmt(n: number, sym = "£") { return `${sym}${n.toFixed(2)}`; }
 export function fmtPct(n: number) { return `${n.toFixed(0)}%`; }
+// Offline sales carry an `OFF<seq>` receipt number (vs online `R<seq>`), so a
+// receipt prefixed "OFF" was rung up with no internet. Used to badge such sales
+// "OFFLINE SALE" wherever a receipt is shown.
+export function isOfflineSale(receiptNo?: string | null): boolean { return !!receiptNo && receiptNo.startsWith("OFF"); }
 export function getInitials(name: string) { return name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2); }
 export function relTime(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { apiBase } from "@/lib/apiBase";
 import { X, Banknote, CreditCard, Shuffle, ChevronRight, AlertTriangle, Gift, Loader2 } from "lucide-react";
 import { fmt } from "./_utils";
 
@@ -58,7 +59,7 @@ export default function PaymentModal({
     setGcError("");
     setGcLookingUp(true);
     try {
-      const res = await fetch("/api/gift-cards/lookup", {
+      const res = await fetch(apiBase() + "/api/gift-cards/lookup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code }),
@@ -129,7 +130,7 @@ export default function PaymentModal({
             {isOffline && (
               <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2 mb-1">
                 <AlertTriangle size={14} className="text-amber-400 flex-shrink-0" />
-                <p className="text-amber-300 text-xs">Offline — card payments unavailable</p>
+                <p className="text-amber-300 text-xs">Offline — confirm card on terminal before tapping Payment Received. Gift cards unavailable.</p>
               </div>
             )}
 
@@ -153,13 +154,14 @@ export default function PaymentModal({
                   <input
                     value={gcInput}
                     onChange={(e) => { setGcInput(e.target.value.toUpperCase()); setGcError(""); }}
-                    onKeyDown={(e) => e.key === "Enter" && applyGiftCard()}
-                    placeholder="Gift card code"
-                    className="flex-1 bg-slate-900 border border-slate-600 rounded-xl px-3 py-2.5 text-white text-sm font-mono tracking-wider outline-none focus:border-purple-500 placeholder-slate-600"
+                    onKeyDown={(e) => !isOffline && e.key === "Enter" && applyGiftCard()}
+                    disabled={isOffline}
+                    placeholder={isOffline ? "Gift cards unavailable offline" : "Gift card code"}
+                    className="flex-1 bg-slate-900 border border-slate-600 rounded-xl px-3 py-2.5 text-white text-sm font-mono tracking-wider outline-none focus:border-purple-500 placeholder-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                   <button
                     onClick={applyGiftCard}
-                    disabled={!gcInput.trim() || gcLookingUp}
+                    disabled={isOffline || !gcInput.trim() || gcLookingUp}
                     className="flex items-center gap-1.5 bg-purple-500/80 hover:bg-purple-500 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-semibold px-3 rounded-xl transition-colors"
                   >
                     {gcLookingUp ? <Loader2 size={14} className="animate-spin" /> : <Gift size={14} />}
@@ -195,35 +197,33 @@ export default function PaymentModal({
                   </div>
                   <ChevronRight size={16} className="text-slate-500 ml-auto" />
                 </button>
+                {/* Card payment is recorded only — your standalone card terminal
+                    handles authorisation independently, so this works offline
+                    too. The cashier MUST confirm the terminal beeped approved
+                    before tapping "Payment Received" on the next screen. */}
                 <button
-                  disabled={isOffline}
-                  onClick={() => !isOffline && setStep("card")}
-                  className={`w-full flex items-center gap-4 p-4 border rounded-xl transition-all group ${
-                    isOffline ? "bg-slate-800/40 border-slate-700 opacity-50 cursor-not-allowed" : "bg-slate-700/60 hover:bg-slate-700 border-slate-600 hover:border-blue-500/50"
-                  }`}
+                  onClick={() => setStep("card")}
+                  className="w-full flex items-center gap-4 p-4 bg-slate-700/60 hover:bg-slate-700 border border-slate-600 hover:border-blue-500/50 rounded-xl transition-all group"
                 >
                   <div className="w-10 h-10 bg-blue-500/20 rounded-xl flex items-center justify-center group-hover:bg-blue-500/30 transition-colors">
                     <CreditCard size={20} className="text-blue-400" />
                   </div>
                   <div className="text-left">
                     <p className="text-white font-semibold text-sm">Card</p>
-                    <p className="text-slate-400 text-xs">{isOffline ? "Requires internet" : "Tap, chip or swipe"}</p>
+                    <p className="text-slate-400 text-xs">Tap, chip or swipe</p>
                   </div>
                   <ChevronRight size={16} className="text-slate-500 ml-auto" />
                 </button>
                 <button
-                  disabled={isOffline}
-                  onClick={() => !isOffline && setStep("split")}
-                  className={`w-full flex items-center gap-4 p-4 border rounded-xl transition-all group ${
-                    isOffline ? "bg-slate-800/40 border-slate-700 opacity-50 cursor-not-allowed" : "bg-slate-700/60 hover:bg-slate-700 border-slate-600 hover:border-purple-500/50"
-                  }`}
+                  onClick={() => setStep("split")}
+                  className="w-full flex items-center gap-4 p-4 bg-slate-700/60 hover:bg-slate-700 border border-slate-600 hover:border-purple-500/50 rounded-xl transition-all group"
                 >
                   <div className="w-10 h-10 bg-purple-500/20 rounded-xl flex items-center justify-center group-hover:bg-purple-500/30 transition-colors">
                     <Shuffle size={20} className="text-purple-400" />
                   </div>
                   <div className="text-left">
                     <p className="text-white font-semibold text-sm">Split</p>
-                    <p className="text-slate-400 text-xs">{isOffline ? "Requires internet" : "Cash + card"}</p>
+                    <p className="text-slate-400 text-xs">Cash + card</p>
                   </div>
                   <ChevronRight size={16} className="text-slate-500 ml-auto" />
                 </button>

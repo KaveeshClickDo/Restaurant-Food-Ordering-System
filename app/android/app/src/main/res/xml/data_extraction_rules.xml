@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  POS app: exclude ALL app data from both cloud backup and device-to-device
+  transfer (Android 12+ counterpart to android:allowBackup="false").
+
+  Why: the app caches sensitive/operational data on-device (bcrypt PIN hashes,
+  the offline sales outbox, cached settings incl. printer config). Letting
+  Android Auto Backup copy it to the user's Google Drive and RESTORE it on
+  reinstall caused stale settings (e.g. an old printer IP) to "come back" after
+  an uninstall + server-DB wipe. We never want that — uninstall must mean a
+  clean slate, and the server is the source of truth for settings.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

@@ -81,6 +81,15 @@ export async function POST(req: NextRequest) {
   // lands in the KDS ticket header but is never persisted on pos_sales).
   const body = parsed.data as unknown as Partial<POSSale> & { kitchenNote?: string };
 
+  // Offline-sale replay: a Capacitor POS rang this sale while offline (it minted
+  // an 'OFF…' receipt number) and the outbox is now replaying it on reconnect.
+  // That sale already happened — the customer paid and left — so we must NEVER
+  // reject it for availability/stock reasons (that would strand the sale and
+  // lose the money). Below we skip the hard availability rejections and force
+  // the stock decrement (oversell allowed, count may go negative as the flag).
+  // Online + live-online-Android sales (R… receipts) keep the hard limits.
+  const isOfflineReplay = typeof body.receiptNo === "string" && body.receiptNo.startsWith("OFF");
+
   // Discount + refund permission gates: only operators with the flag can
   // commit a sale that carries a non-zero discount.
   if ((body.discountAmount ?? 0) > 0) {
@@ -172,7 +181,8 @@ export async function POST(req: NextRequest) {
   const productIds = items
     .map((it) => it.productId)
     .filter((id): id is string => typeof id === "string" && id.length > 0);
-  if (productIds.length > 0) {
+  // Skipped for offline replays — the sale already happened; see isOfflineReplay.
+  if (!isOfflineReplay && productIds.length > 0) {
     const { data: menuRows } = await supabaseAdmin
       .from("menu_items")
       .select("id, name, active, channels, stock_status, track_stock")
@@ -226,15 +236,20 @@ export async function POST(req: NextRequest) {
   const stockItems: StockItem[] = items
     .map((it) => ({ id: it.productId, qty: it.quantity }))
     .filter((i) => i.id);
-  const stock = await decrementStock(stockItems);
+  // Offline replays force the decrement (oversell allowed) so they never fail to
+  // sync; online sales keep the hard limit and 409 on insufficient stock.
+  const stock = await decrementStock(stockItems, { force: isOfflineReplay });
   if (!stock.ok) {
     return NextResponse.json({ ok: false, error: stock.message }, { status: 409 });
   }
 
-  // Insert into pos_sales. receipt_no is filled by the DB default expression
-  // ('R' || nextval('pos_receipt_seq')) so neither client nor server has to
-  // touch the counter. staff_id and staff_name are SET FROM SESSION — body
-  // attribution is intentionally discarded (F-INS-3).
+  // Insert into pos_sales. receipt_no defaults via the DB expression
+  // ('R' || nextval('pos_receipt_seq')) when omitted — that's the path online
+  // web POS takes. Offline-mode Capacitor clients supply receipt_no themselves
+  // (per-terminal namespace, e.g. 'T1-1042') so two tablets ringing offline at
+  // the same time can't collide; strict prefix validation against the caller's
+  // terminal lands in Phase 2. staff_id and staff_name are SET FROM SESSION —
+  // body attribution is intentionally discarded (F-INS-3).
   // ── Gift card tender (optional) ───────────────────────────────────────────
   // The gift card is a PAYMENT instrument, not a discount — it does NOT change
   // the sale total (value of goods), it covers part/all of what's owed. We
@@ -266,32 +281,44 @@ export async function POST(req: NextRequest) {
   // recoverable as total + gift_card_used (used by receipts).
   const netTotal = Math.max(0, Math.round((totalServer - giftCardUsed) * 100) / 100);
 
-  const row = {
-    id:              body.id,
-    date:            body.date ?? new Date().toISOString(),
-    staff_id:        session.id,
-    staff_name:      session.name,
-    customer_id:     body.customerId || null,
-    customer_name:   body.customerName ?? null,
-    table_number:    body.tableNumber ?? null,
-    items,
-    subtotal:        subtotalServer,
-    discount_amount: discountAmount,
-    discount_note:   body.discountNote   ?? null,
-    tax_amount:      taxAmount,
-    tax_rate:        Number(body.taxRate ?? 0),
-    tax_inclusive:   taxInclusive,
-    tip_amount:      tipAmount,
-    service_fee_amount: serviceFeeAmount,
-    total:           netTotal,
-    payment_method:  body.paymentMethod  ?? "cash",
-    payments:        body.payments       ?? [],
-    cash_tendered:   body.cashTendered   ?? null,
-    change_given:    body.changeGiven    ?? null,
-    voided:          false,
-    gift_card_id:    giftCardId,
-    gift_card_used:  giftCardUsed,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const offlineFields = body as any as {
+    receiptNo?: string; terminalId?: string; clientCreatedAt?: string;
   };
+
+  const row: Record<string, unknown> = {
+    id:                 body.id,
+    date:               body.date ?? new Date().toISOString(),
+    staff_id:           session.id,
+    staff_name:         session.name,
+    customer_id:        body.customerId || null,
+    customer_name:      body.customerName ?? null,
+    table_number:       body.tableNumber ?? null,
+    items,
+    subtotal:           subtotalServer,
+    discount_amount:    discountAmount,
+    discount_note:      body.discountNote   ?? null,
+    tax_amount:         taxAmount,
+    tax_rate:           Number(body.taxRate ?? 0),
+    tax_inclusive:      taxInclusive,
+    tip_amount:         tipAmount,
+    service_fee_amount: serviceFeeAmount,
+    total:              netTotal,
+    payment_method:     body.paymentMethod  ?? "cash",
+    payments:           body.payments       ?? [],
+    cash_tendered:      body.cashTendered   ?? null,
+    change_given:       body.changeGiven    ?? null,
+    voided:             false,
+    gift_card_id:       giftCardId,
+    gift_card_used:     giftCardUsed,
+    // Offline-tablet provenance. NULL for online web POS sales — preserves
+    // the original semantics for every existing query and report.
+    terminal_id:        offlineFields.terminalId       ?? null,
+    client_created_at:  offlineFields.clientCreatedAt  ?? null,
+  };
+  // Offline clients mint their own receipt_no (per-terminal namespace).
+  // Omit the field when no value supplied so the DB default fires for online sales.
+  if (offlineFields.receiptNo) row.receipt_no = offlineFields.receiptNo;
 
   const { data: inserted, error } = await supabaseAdmin
     .from("pos_sales")

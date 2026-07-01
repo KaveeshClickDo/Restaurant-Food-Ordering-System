@@ -1,5 +1,14 @@
 "use client";
 
+import { uuid } from "@/lib/uuid";
+import { isCapacitorAndroid } from "@/lib/capacitorBridge";
+import { apiBase } from "@/lib/apiBase";
+import { kvGet, kvSet } from "@/lib/posLocalDb";
+
+// On-device settings snapshot for the offline POS tablet (Capacitor-only;
+// no-op on web). Lets offline tax/currency be the last-known values rather than
+// whatever was baked into the APK at build time. Phase 1.6.
+const CACHE_SETTINGS = "settings_snapshot";
 import React, {
   createContext,
   useCallback,
@@ -482,7 +491,7 @@ function buildSettingsFromData(raw: Record<string, unknown> | null): AdminSettin
     const converted: import("@/types").CustomPage[] = legacyFooterPages
       .filter((fp) => fp && fp.slug && !existingSlugs.has(fp.slug))
       .map((fp) => ({
-        id: (typeof crypto !== "undefined" && "randomUUID" in crypto) ? crypto.randomUUID() : `fp-${fp.slug}`,
+        id: (typeof crypto !== "undefined" && "randomUUID" in crypto) ? uuid() : `fp-${fp.slug}`,
         title: fp.title ?? "",
         slug: fp.slug,
         content: fp.content ?? "",
@@ -502,6 +511,10 @@ function buildSettingsFromData(raw: Record<string, unknown> | null): AdminSettin
   return {
     ...DEFAULT_SETTINGS,
     ...d,
+    // Deep-merge receiptSettings so fields added in code (e.g. `address`) get
+    // their default on installs whose stored blob predates them — the shallow
+    // `...d` above would otherwise replace the whole object and drop new keys.
+    receiptSettings: { ...DEFAULT_SETTINGS.receiptSettings, ...(d.receiptSettings ?? {}) },
     // emailTemplates is the one legit forward-compat shim: it auto-fills any
     // event templates added in code that aren't yet in the stored array, so
     // existing installs surface new email events without a manual migration.
@@ -700,6 +713,15 @@ export function AppProvider({
         }
         if (settingsData?.data) {
           setSettings(buildSettingsFromData(settingsData.data));
+          // Write-through so an offline POS tablet uses the last-known settings
+          // (tax/currency), not the APK's build-time values. Capacitor-only.
+          void kvSet(CACHE_SETTINGS, settingsData.data);
+        } else if (settingsErr && settingsErr.code !== "PGRST116" && isCapacitorAndroid()) {
+          // Offline on the POS tablet: the fetch failed (network), so fall back
+          // to the last cached settings instead of seeding defaults. (Online,
+          // and on web, the branches below are unchanged.)
+          const cached = await kvGet<Record<string, unknown>>(CACHE_SETTINGS);
+          if (cached) setSettings(buildSettingsFromData(cached));
         } else if (!settingsData) {
           // First run — seed settings into the DB
           await supabase.from("app_settings").insert({ id: 1, data: DEFAULT_SETTINGS });
@@ -743,7 +765,7 @@ export function AppProvider({
         // An empty DB shows an empty UI; populate via `npm run db:seed-menu` or
         // through the admin panel.
         const { data: catsData, error: catsErr } = await supabase
-          .from("categories").select("*").order("sort_order", { ascending: true });
+          .from("categories").select("*").is("deleted_at", null).order("sort_order", { ascending: true });
         if (catsErr) console.error("AppContext: failed to load categories:", catsErr.message);
         else setCategories((catsData ?? []).map(mapCategory));
 
@@ -820,8 +842,11 @@ export function AppProvider({
       .on("postgres_changes", { event: "*", schema: "public", table: "categories" },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ({ eventType, new: newRow, old: oldRow }: any) => {
-          if (eventType === "DELETE") {
-            setCategories((prev) => prev.filter((c) => c.id !== oldRow.id));
+          // A soft delete arrives as an UPDATE with deleted_at set — treat it
+          // (like a hard DELETE) as a removal so hidden categories drop out.
+          if (eventType === "DELETE" || (newRow && newRow.deleted_at)) {
+            const goneId = eventType === "DELETE" ? oldRow.id : newRow.id;
+            setCategories((prev) => prev.filter((c) => c.id !== goneId));
           } else {
             const cat = mapCategory(newRow);
             setCategories((prev) => {
@@ -987,7 +1012,12 @@ export function AppProvider({
   const updateSettingsViaPos = useCallback((patch: Partial<AdminSettings>) =>
     setSettings((prev) => {
       const next = { ...prev, ...patch };
-      fetch("/api/pos/settings", {
+      // apiBase() is REQUIRED here: this runs inside the bundled Capacitor POS,
+      // where a relative "/api/pos/settings" resolves to the app bundle's own
+      // origin (capacitor://localhost) and 404s — the PATCH would silently never
+      // reach the server, so a printer/general/receipt change made on the tablet
+      // updated only local state and never synced to other devices. See apiBase.ts.
+      fetch(apiBase() + "/api/pos/settings", {
         method:  "PATCH",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(patch),
@@ -1513,7 +1543,7 @@ export function AppProvider({
   const register = async (
     name: string, email: string, phone: string, password: string,
   ): Promise<{ success: boolean; error?: string; needsVerification?: boolean; email?: string }> => {
-    const id = crypto.randomUUID();
+    const id = uuid();
     const createdAt = new Date().toISOString();
     try {
       const res = await fetch("/api/auth/register", {
@@ -1633,7 +1663,7 @@ export function AppProvider({
     mutateSettings((prev) => {
       const method = prev.paymentMethods.find((m) => m.id === id);
       const entry: AuditEntry = {
-        id: crypto.randomUUID(), timestamp: new Date().toISOString(),
+        id: uuid(), timestamp: new Date().toISOString(),
         action: `${enabled ? "Enabled" : "Disabled"} ${method?.name ?? id}`, actor: "Admin",
       };
       return {

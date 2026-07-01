@@ -34,11 +34,12 @@ export async function POST(req: NextRequest) {
   // Always respond with ok: true — never reveal if email exists
   const { data } = await supabaseAdmin
     .from("customers")
-    .select("id")
+    .select("id, deleted_at")
     .eq("email", email)
     .maybeSingle();
 
-  if (!data) return NextResponse.json({ ok: true });
+  // Treat a soft-deleted account as non-existent — no reset link for it.
+  if (!data || data.deleted_at) return NextResponse.json({ ok: true });
 
   const rawToken = randomBytes(32).toString("hex");
   const hashedToken = hashToken(rawToken);

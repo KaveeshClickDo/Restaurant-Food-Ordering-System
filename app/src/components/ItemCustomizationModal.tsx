@@ -1,5 +1,6 @@
 "use client";
 
+import { uuid } from "@/lib/uuid";
 import { useState } from "react";
 import { MenuItem, CartItem } from "@/types";
 import { X, Plus, Minus, UtensilsCrossed, ChevronRight, Check } from "lucide-react";
@@ -89,7 +90,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
     );
 
     const cartItem: CartItem = {
-      id:           crypto.randomUUID(),
+      id:           uuid(),
       menuItemId:   item.id,
       name:         item.name,
       price:        unitPrice,

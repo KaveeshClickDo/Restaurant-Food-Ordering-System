@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
 
   const query = supabaseAdmin
     .from("customers")
-    .select("id, name, email, email_verified");
+    .select("id, name, email, email_verified, deleted_at");
   const { data, error } = "id" in customerLookup
     ? await query.eq("id", customerLookup.id).maybeSingle()
     : await query.eq("email", customerLookup.email).maybeSingle();
@@ -68,8 +68,9 @@ export async function POST(req: NextRequest) {
   if (error?.code === "PGRST204") {
     return NextResponse.json({ ok: false, error: "Email verification not set up yet. Apply supabase/schema.sql first." }, { status: 503 });
   }
-  // Logged-out path: silently succeed if the email isn't in the table
-  if (!data) {
+  // Silently succeed if the email isn't in the table, or the account is
+  // soft-deleted — a deleted account shouldn't be re-sent verification mail.
+  if (!data || data.deleted_at) {
     return NextResponse.json({ ok: true });
   }
   if (data.email_verified) return NextResponse.json({ ok: true, alreadyVerified: true });

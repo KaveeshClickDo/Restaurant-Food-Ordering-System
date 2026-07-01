@@ -26,7 +26,7 @@ export interface ManagedUser {
   // customer extras
   emailVerified?: boolean;
   // staff extras (waiter / kitchen / pos)
-  pin?: string;
+  password?: string;
   waiterRole?: "senior" | "waiter";
   kitchenRole?: "chef" | "head_chef" | "kitchen_manager";
   posRole?: POSRole;
@@ -133,7 +133,7 @@ export async function GET(): Promise<NextResponse> {
     createdAt:   typeof row.created_at === "string"
                    ? row.created_at
                    : new Date(row.created_at).toISOString(),
-    pin:         "••••",
+    password:         "••••",
     waiterRole:  row.role ?? "waiter",
     avatarColor: row.avatar_color,
   }));
@@ -147,7 +147,7 @@ export async function GET(): Promise<NextResponse> {
     createdAt:   typeof row.created_at === "string"
                    ? row.created_at
                    : new Date(row.created_at).toISOString(),
-    pin:         "••••",
+    password:         "••••",
     kitchenRole: row.role,
     avatarColor: row.avatar_color,
   }));
@@ -161,7 +161,7 @@ export async function GET(): Promise<NextResponse> {
     createdAt:   typeof row.created_at === "string"
                    ? row.created_at
                    : new Date(row.created_at).toISOString(),
-    pin:         "••••",
+    password:         "••••",
     posRole:     row.role,
     avatarColor: row.avatar_color,
   }));
@@ -278,15 +278,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ── Waiter ────────────────────────────────────────────────────────────────
   if (type === "waiter") {
-    const { email, pin, hourlyRate, avatarColor, waiterRole, active = true } = body;
-    const pinHash = await bcrypt.hash(pin, HASH_ROUNDS);
+    const { email, password, hourlyRate, avatarColor, waiterRole, active = true } = body;
+    const passwordHash = await bcrypt.hash(password, HASH_ROUNDS);
     const { data, error } = await supabaseAdmin
       .from("waiters")
       .insert({
         name:         name,
         email:        email ? email.toLowerCase() : "",
         role:         waiterRole ?? "waiter",
-        pin_hash:     pinHash,
+        password_hash:     passwordHash,
         active,
         hourly_rate:  hourlyRate ?? null,
         avatar_color: avatarColor ?? "#0891b2",
@@ -302,7 +302,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       email:       data.email ?? undefined,
       active:      data.active,
       createdAt:   data.created_at,
-      pin:         "••••",
+      password:         "••••",
       waiterRole:  data.role ?? "waiter",
       avatarColor: data.avatar_color,
     };
@@ -311,16 +311,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ── Kitchen staff ─────────────────────────────────────────────────────────
   if (type === "kitchen") {
-    const { email, pin, kitchenRole, avatarColor, active = true } = body;
+    const { email, password, kitchenRole, avatarColor, active = true } = body;
     const role = kitchenRole ?? "chef";
-    const pinHash = await bcrypt.hash(pin, HASH_ROUNDS);
+    const passwordHash = await bcrypt.hash(password, HASH_ROUNDS);
     const { data, error } = await supabaseAdmin
       .from("kitchen_staff")
       .insert({
         name:         name,
         email:        email ? email.toLowerCase() : "",
         role,
-        pin_hash:     pinHash,
+        password_hash:     passwordHash,
         active,
         avatar_color: avatarColor ?? "#dc2626",
       })
@@ -335,7 +335,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       email:       data.email ?? undefined,
       active:      data.active,
       createdAt:   data.created_at,
-      pin:         "••••",
+      password:         "••••",
       kitchenRole: data.role,
       avatarColor: data.avatar_color,
     };
@@ -344,16 +344,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ── POS staff ─────────────────────────────────────────────────────────────
   if (type === "pos") {
-    const { email, pin, posRole, hourlyRate, avatarColor, active = true } = body;
+    const { email, password, pin, posRole, hourlyRate, avatarColor, active = true } = body;
     const role: POSRole = posRole ?? "cashier";
-    const pinHash = await bcrypt.hash(pin, HASH_ROUNDS);
+    const passwordHash = await bcrypt.hash(password, HASH_ROUNDS);
+    const pinHash      = pin ? await bcrypt.hash(pin, HASH_ROUNDS) : null;
     const { data, error } = await supabaseAdmin
       .from("pos_staff")
       .insert({
         name:         name,
         email:        email ? email.toLowerCase() : "",
         role,
-        pin_hash:     pinHash,
+        password_hash:     passwordHash,
+        pin_hash:          pinHash,
         active,
         permissions:  ROLE_PERMISSIONS[role],
         hourly_rate:  hourlyRate ?? null,
@@ -370,7 +372,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       email:       data.email ?? undefined,
       active:      data.active,
       createdAt:   data.created_at,
-      pin:         "••••",
+      password:         "••••",
       posRole:     data.role,
       avatarColor: data.avatar_color,
     };

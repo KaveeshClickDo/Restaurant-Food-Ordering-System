@@ -1,12 +1,15 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
-import { POSSettings } from "@/types/pos";
+import { useConnectivity } from "@/lib/connectivity";
+import { ReceiptSettings } from "@/types";
 import { Check, Mail, Receipt, Save, ToggleLeft, ToggleRight } from "lucide-react";
 import POSPrinterPanel from "./POSPrinterPanel";
 import MenuTab from "./settings/MenuTab";
+import { isCapacitorAndroid } from "@/lib/capacitorBridge";
+import { readImageAsDataUrl } from "@/lib/uploadImage";
 
 type SaveKey = "general" | "receipt" | "smtp";
 
@@ -35,12 +38,22 @@ function Toggle({
 export default function SettingsView() {
   const { settings, setSettings, sales, exportSales } = usePOS();
   const { settings: appSettings, updateSettingsViaPos } = useApp();
+  const { isOnline } = useConnectivity();
   const [local, setLocal] = useState({ ...settings });
   const [tab, setTab] = useState<"general" | "menu" | "receipt" | "hardware">("general");
   // Persistence is synchronous (localStorage), so we flash a brief "Saved"
   // confirmation rather than a fake spinner — addresses QA #33 (no feedback).
   const [savedKey, setSavedKey] = useState<SaveKey | null>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Receipt content is the SHARED source of truth with Admin → Receipt
+  // (app_settings.data.receiptSettings). We edit a local draft, then push it via
+  // updateSettingsViaPos (→ /api/pos/settings) on Save, so both surfaces read
+  // and write the same DB record. Re-syncs when the stored value changes.
+  const [receiptDraft, setReceiptDraft] = useState<ReceiptSettings>({ ...appSettings.receiptSettings });
+  useEffect(() => { setReceiptDraft({ ...appSettings.receiptSettings }); }, [appSettings.receiptSettings]);
+  const [logoErr, setLogoErr] = useState("");
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   function flashSaved(key: SaveKey) {
     setSavedKey(key);
@@ -49,6 +62,18 @@ export default function SettingsView() {
   }
 
   function saveSettings(key: SaveKey = "general") {
+    // Read-only offline: settings push to the server (/api/pos/settings), which
+    // is unreachable offline. The buttons are disabled too; this guards programmatic calls.
+    if (!isOnline) return;
+
+    // Receipt tab: push the shared receiptSettings to the DB (same record Admin
+    // → Receipt writes). This is the real persistence — not a local-only update.
+    if (key === "receipt") {
+      updateSettingsViaPos({ receiptSettings: { ...receiptDraft } });
+      flashSaved("receipt");
+      return;
+    }
+
     // Create a copy of the local state so we can safely modify it before saving
     const nextLocal = { ...local };
 
@@ -75,6 +100,12 @@ export default function SettingsView() {
     <div className="flex-1 overflow-y-auto p-6">
       <div className="max-w-3xl mx-auto space-y-6">
         <h2 className="text-white font-bold text-xl">POS Settings</h2>
+
+        {!isOnline && (
+          <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2">
+            <p className="text-amber-300 text-xs">Read-only while offline — settings save to the server. Reconnect to change tax, receipt, or hardware settings.</p>
+          </div>
+        )}
 
         {/* Sub-tabs */}
         <div className="flex gap-1.5 bg-slate-800/50 p-1 rounded-xl border border-slate-700">
@@ -108,7 +139,8 @@ export default function SettingsView() {
               </div>
               {[
                 { key: "location", label: "Location / Branch", type: "text" },
-                { key: "receiptFooter", label: "Receipt Footer", type: "textarea" },
+                // Receipt footer lives in Settings → Receipt → Bottom Section
+                // (Thank-You / Custom message), so it's not duplicated here.
               ].map((f) => (
                 <div key={f.key}>
                   <label className="text-xs text-slate-400 mb-1 block">{f.label}</label>
@@ -272,7 +304,7 @@ export default function SettingsView() {
 
             <button
               onClick={() => saveSettings("general")}
-              disabled={savedKey === "general"}
+              disabled={savedKey === "general" || !isOnline}
               className={`w-full py-3.5 rounded-xl text-white font-bold text-sm transition-all flex items-center justify-center gap-2 ${savedKey === "general"
                 ? "bg-green-600"
                 : "bg-orange-500 hover:bg-orange-400"
@@ -287,7 +319,14 @@ export default function SettingsView() {
           </div>
         )}
 
-        {tab === "menu" && <MenuTab />}
+        {tab === "menu" && (
+          isOnline
+            ? <MenuTab />
+            : <div className="bg-slate-800 border border-slate-700 rounded-2xl p-8 text-center">
+                <p className="text-amber-300 text-sm font-semibold">Menu editing needs internet</p>
+                <p className="text-slate-400 text-xs mt-1">You can still ring up sales from the cached menu on the Sale tab. Reconnect to add or edit menu items.</p>
+              </div>
+        )}
 
         {tab === "receipt" && (
           <div className="space-y-4">
@@ -299,36 +338,72 @@ export default function SettingsView() {
                   <p className="text-white text-sm font-medium">Show logo on receipt</p>
                   <p className="text-slate-400 text-xs">Displayed at the top of every printed receipt</p>
                 </div>
-                <button onClick={() => setLocal((p) => ({ ...p, receiptShowLogo: !p.receiptShowLogo }))} className="transition-colors flex-shrink-0">
-                  {local.receiptShowLogo
+                <button onClick={() => setReceiptDraft((p) => ({ ...p, showLogo: !p.showLogo }))} className="transition-colors flex-shrink-0">
+                  {receiptDraft.showLogo
                     ? <ToggleRight size={28} className="text-green-400" />
                     : <ToggleLeft size={28} className="text-slate-500" />}
                 </button>
               </div>
-              {local.receiptShowLogo && (
+              {receiptDraft.showLogo && (
                 <div>
-                  <label className="text-xs text-slate-400 mb-1 block">Logo URL</label>
-                  <div className="flex gap-2 items-start">
-                    <input
-                      type="url"
-                      value={local.receiptLogoUrl}
-                      onChange={(e) => setLocal((p) => ({ ...p, receiptLogoUrl: e.target.value }))}
-                      placeholder="https://example.com/logo.png"
-                      className="flex-1 min-w-0 bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
-                    />
-                    {local.receiptLogoUrl && (
-                      <div className="w-10 h-10 border border-slate-600 rounded-xl overflow-hidden flex-shrink-0 bg-slate-900">
-                        {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary URL or data: URI, needs onError fallback */}
-                        <img
-                          src={local.receiptLogoUrl}
-                          alt="Logo preview"
-                          className="w-full h-full object-contain p-1"
-                          onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0"; }}
-                        />
+                  <label className="text-xs text-slate-400 mb-1 block">Logo image</label>
+                  <div className="flex gap-3 items-center">
+                    {receiptDraft.logoUrl && (
+                      <div className="w-12 h-12 border border-slate-600 rounded-xl overflow-hidden flex-shrink-0 bg-slate-900">
+                        {/* eslint-disable-next-line @next/next/no-img-element -- base64 data URL preview */}
+                        <img src={receiptDraft.logoUrl} alt="Logo preview" className="w-full h-full object-contain p-1"
+                          onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0"; }} />
                       </div>
                     )}
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        setLogoErr("");
+                        try {
+                          const dataUrl = await readImageAsDataUrl(file);
+                          setReceiptDraft((p) => ({ ...p, logoUrl: dataUrl }));
+                        } catch (err) {
+                          setLogoErr(err instanceof Error ? err.message : "Could not read image.");
+                        } finally {
+                          e.target.value = "";
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => logoInputRef.current?.click()}
+                      className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold transition-colors"
+                    >
+                      {receiptDraft.logoUrl ? "Replace image" : "Upload image"}
+                    </button>
+                    {receiptDraft.logoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setReceiptDraft((p) => ({ ...p, logoUrl: "" }))}
+                        className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 text-sm transition-colors"
+                      >
+                        Remove
+                      </button>
+                    )}
                   </div>
-                  <p className="text-[11px] text-slate-500 mt-1">Square PNG with transparent background recommended.</p>
+                  {logoErr && <p className="text-red-400 text-xs mt-1">{logoErr}</p>}
+                  <p className="text-[11px] text-slate-500 mt-1">Square PNG with a transparent background works best. Max 400&nbsp;KB.</p>
+                  <div className="flex items-center justify-between mt-3">
+                    <div>
+                      <p className="text-white text-sm font-medium">Shaded logo (dither)</p>
+                      <p className="text-slate-400 text-xs">Turn on for gradient / photo logos; leave off for flat, solid ones.</p>
+                    </div>
+                    <button onClick={() => setReceiptDraft((p) => ({ ...p, logoDither: !p.logoDither }))} className="transition-colors flex-shrink-0">
+                      {receiptDraft.logoDither
+                        ? <ToggleRight size={28} className="text-green-400" />
+                        : <ToggleLeft size={28} className="text-slate-500" />}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -342,25 +417,36 @@ export default function SettingsView() {
                   <label className="text-xs text-slate-400 mb-1 block">Restaurant Name</label>
                   <input
                     type="text"
-                    value={local.receiptRestaurantName ?? ""}
-                    onChange={(e) => setLocal((p) => ({ ...p, receiptRestaurantName: e.target.value }))}
+                    value={receiptDraft.restaurantName ?? ""}
+                    onChange={(e) => setReceiptDraft((p) => ({ ...p, restaurantName: e.target.value }))}
                     placeholder={appSettings.restaurant?.name || "Restaurant Name"}
                     className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
                   />
                   <p className="text-[11px] text-slate-500 mt-1">Printed in large text at the top. Leave blank to use your branding name.</p>
                 </div>
-                {[
-                  { key: "receiptPhone", label: "Phone Number", type: "tel", placeholder: "e.g. 020 7123 4567" },
-                  { key: "receiptWebsite", label: "Website", type: "text", placeholder: "e.g. www.restaurant.co.uk" },
-                  { key: "receiptEmail", label: "Email", type: "email", placeholder: "e.g. hello@restaurant.co.uk" },
-                  { key: "receiptVatNumber", label: "VAT Number", type: "text", placeholder: "e.g. GB 123 4567 89", hint: "Leave blank if not VAT registered" },
-                ].map((f) => (
-                  <div key={f.key} className={f.key === "receiptVatNumber" ? "sm:col-span-2" : ""}>
+                {/* Address — multi-line, shown under the name on every receipt */}
+                <div className="sm:col-span-2">
+                  <label className="text-xs text-slate-400 mb-1 block">Address</label>
+                  <textarea
+                    rows={2}
+                    value={receiptDraft.address ?? ""}
+                    onChange={(e) => setReceiptDraft((p) => ({ ...p, address: e.target.value }))}
+                    placeholder="e.g. 12 High Street, London, SW1A 1AA"
+                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500 resize-none"
+                  />
+                </div>
+                {([
+                  { key: "phone", label: "Phone Number", type: "tel", placeholder: "e.g. 020 7123 4567" },
+                  { key: "website", label: "Website", type: "text", placeholder: "e.g. www.restaurant.co.uk" },
+                  { key: "email", label: "Email", type: "email", placeholder: "e.g. hello@restaurant.co.uk" },
+                  { key: "vatNumber", label: "VAT Number", type: "text", placeholder: "e.g. GB 123 4567 89", hint: "Leave blank if not VAT registered" },
+                ] as { key: keyof ReceiptSettings; label: string; type: string; placeholder: string; hint?: string }[]).map((f) => (
+                  <div key={f.key} className={f.key === "vatNumber" ? "sm:col-span-2" : ""}>
                     <label className="text-xs text-slate-400 mb-1 block">{f.label}</label>
                     <input
                       type={f.type}
-                      value={local[f.key as keyof POSSettings] as string}
-                      onChange={(e) => setLocal((p) => ({ ...p, [f.key]: e.target.value }))}
+                      value={receiptDraft[f.key] as string}
+                      onChange={(e) => setReceiptDraft((p) => ({ ...p, [f.key]: e.target.value }))}
                       placeholder={f.placeholder}
                       className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
                     />
@@ -373,16 +459,16 @@ export default function SettingsView() {
             {/* Bottom Section */}
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4">
               <h3 className="text-white font-semibold text-sm">Bottom Section</h3>
-              {[
-                { key: "receiptThankYouMessage", label: "Thank You Message", placeholder: "Thank you for your order!", hint: "Appears at the bottom of every receipt" },
-                { key: "receiptCustomMessage", label: "Custom Message", placeholder: "e.g. Follow us on Instagram · Use code THANKS10 for 10% off", hint: "Optional second line — great for promotions or social handles" },
-              ].map((f) => (
+              {([
+                { key: "thankYouMessage", label: "Thank You Message", placeholder: "Thank you for your order!", hint: "Appears at the bottom of every receipt" },
+                { key: "customMessage", label: "Custom Message", placeholder: "e.g. Follow us on Instagram · Use code THANKS10 for 10% off", hint: "Optional second line — great for promotions or social handles" },
+              ] as const).map((f) => (
                 <div key={f.key}>
                   <label className="text-xs text-slate-400 mb-1 block">{f.label}</label>
                   <textarea
                     rows={3}
-                    value={local[f.key as keyof POSSettings] as string}
-                    onChange={(e) => setLocal((p) => ({ ...p, [f.key]: e.target.value }))}
+                    value={receiptDraft[f.key] as string}
+                    onChange={(e) => setReceiptDraft((p) => ({ ...p, [f.key]: e.target.value }))}
                     placeholder={f.placeholder}
                     className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500 resize-none"
                   />
@@ -411,12 +497,13 @@ export default function SettingsView() {
                 type Line = { text: string; bold?: boolean; large?: boolean; dim?: boolean };
                 const lines: Line[] = [];
 
-                const name = (local.receiptRestaurantName || appSettings.restaurant?.name || "Restaurant Name").toUpperCase();
+                const name = (receiptDraft.restaurantName || appSettings.restaurant?.name || "Restaurant Name").toUpperCase();
                 lines.push({ text: center(name), bold: true, large: true });
-                if (local.receiptPhone) lines.push({ text: center(local.receiptPhone) });
-                if (local.receiptWebsite) lines.push({ text: center(local.receiptWebsite) });
-                if (local.receiptEmail) lines.push({ text: center(local.receiptEmail) });
-                if (local.receiptVatNumber) lines.push({ text: center(`VAT: ${local.receiptVatNumber}`), dim: true });
+                if (receiptDraft.address) receiptDraft.address.split("\n").forEach((ln) => { if (ln.trim()) lines.push({ text: center(ln.trim()) }); });
+                if (receiptDraft.phone) lines.push({ text: center(receiptDraft.phone) });
+                if (receiptDraft.website) lines.push({ text: center(receiptDraft.website) });
+                if (receiptDraft.email) lines.push({ text: center(receiptDraft.email) });
+                if (receiptDraft.vatNumber) lines.push({ text: center(`VAT: ${receiptDraft.vatNumber}`), dim: true });
                 lines.push({ text: eq });
                 lines.push({ text: "ORDER  ORD-A1B2C3D4", bold: true });
                 lines.push({ text: "Date:  16 Apr 2026, 12:34" });
@@ -440,9 +527,9 @@ export default function SettingsView() {
                 lines.push({ text: twoCol("TOTAL", `${previewSym}14.97`), bold: true });
                 lines.push({ text: eq });
                 lines.push({ text: "" });
-                const ty = local.receiptThankYouMessage || "Thank you for your order!";
+                const ty = receiptDraft.thankYouMessage || "Thank you for your order!";
                 lines.push({ text: center(ty), bold: true });
-                if (local.receiptCustomMessage) lines.push({ text: center(local.receiptCustomMessage), dim: true });
+                if (receiptDraft.customMessage) lines.push({ text: center(receiptDraft.customMessage), dim: true });
                 lines.push({ text: "" });
 
                 return (
@@ -451,27 +538,29 @@ export default function SettingsView() {
                     <div className="flex justify-between px-3 py-1.5 bg-gray-50 border-b border-dashed border-gray-200">
                       {Array.from({ length: 15 }).map((_, i) => <div key={i} className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" />)}
                     </div>
-                    <div className="px-4 py-4 w-full">
-                      {local.receiptShowLogo && local.receiptLogoUrl && (
+                    <div className="px-4 py-4 w-full text-center">
+                      {receiptDraft.showLogo && receiptDraft.logoUrl && (
                         <div className="flex justify-center mb-3">
                           {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary URL or data: URI, needs onError fallback */}
-                          <img src={local.receiptLogoUrl} alt="Logo" className="h-10 w-auto object-contain"
+                          <img src={receiptDraft.logoUrl} alt="Logo" className="h-10 w-auto object-contain"
                             onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                         </div>
                       )}
-                      <div className="font-mono text-[11px] leading-[1.45] w-full flex justify-center">
-                        <div>
-                          {lines.map((line, i) => (
-                            <div key={i} className={[
-                              "whitespace-pre",
-                              line.bold ? "font-bold" : "font-normal",
-                              line.large ? "text-[13px] -ml-[18px]" : "",
-                              line.dim ? "text-gray-400" : "text-gray-800",
-                            ].filter(Boolean).join(" ")}>
-                              {line.text || "\u00A0"}
-                            </div>
-                          ))}
-                        </div>
+                      {/* Monospace block: rendered left-aligned (the text is already
+                          space-padded to a fixed 31-char width) and centred as a
+                          whole via the parent's text-center. No magic offsets \u2014 those
+                          shifted + clipped the block in the Android WebView. */}
+                      <div className="font-mono text-[11px] leading-[1.45] inline-block text-left align-top">
+                        {lines.map((line, i) => (
+                          <div key={i} className={[
+                            "whitespace-pre",
+                            line.bold ? "font-bold" : "font-normal",
+                            line.large ? "text-[13px]" : "",
+                            line.dim ? "text-gray-400" : "text-gray-800",
+                          ].filter(Boolean).join(" ")}>
+                            {line.text || "\u00A0"}
+                          </div>
+                        ))}
                       </div>
                     </div>
                     {/* Sprocket strip bottom */}
@@ -486,7 +575,7 @@ export default function SettingsView() {
 
             <button
               onClick={() => saveSettings("receipt")}
-              disabled={savedKey === "receipt"}
+              disabled={savedKey === "receipt" || !isOnline}
               className={`w-full py-3.5 rounded-xl text-white font-bold text-sm transition-all flex items-center justify-center gap-2 ${savedKey === "receipt"
                 ? "bg-green-600"
                 : "bg-orange-500 hover:bg-orange-400"
@@ -562,14 +651,19 @@ export default function SettingsView() {
               </div>
               <p className="text-slate-500 text-xs">
                 Sales are stored in the pos_sales database table — all tills aggregate to the
-                same record set. Use the export below for an offline JSON copy.
+                same record set.{!isCapacitorAndroid() && " Use the export below for an offline JSON copy."}
               </p>
-              <button
-                onClick={exportSales}
-                className="w-full px-3 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
-              >
-                <Receipt size={14} className="flex-shrink-0" /> Export loaded sales as JSON
-              </button>
+              {/* JSON export relies on a browser file download, which the Android
+                  WebView can't trigger — so it's web-only. Sales already live in
+                  the shared DB, so nothing is lost on the tablet. */}
+              {!isCapacitorAndroid() && (
+                <button
+                  onClick={exportSales}
+                  className="w-full px-3 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                >
+                  <Receipt size={14} className="flex-shrink-0" /> Export loaded sales as JSON
+                </button>
+              )}
             </div>
           </div>
         )}

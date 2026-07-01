@@ -1,13 +1,15 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { apiBase } from "@/lib/apiBase";
 import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
+import { useConnectivity } from "@/lib/connectivity";
 import { POSSale } from "@/types/pos";
 import {
   AlertTriangle, BadgeDollarSign, Banknote, BarChart3, CreditCard, Download,
   Flame, Gift, Mail, Package, Percent, Printer, Receipt, RefreshCw,
-  RotateCcw, Search, Shuffle, Tag, Trash2, TrendingUp, Trophy, Users, Utensils, DollarSign,
+  RotateCcw, Search, Shuffle, Tag, Trash2, TrendingUp, Trophy, Users, Utensils, DollarSign, WifiOff,
 } from "lucide-react";
 import { fmt, fmtPct, fmtDate, fmtTime, relTime } from "./_utils";
 import { buildDineInReceiptHtml, dineInRefundState, type DineInOrder } from "./_receipts";
@@ -43,6 +45,7 @@ function tenderLabel(method: string | undefined, giftCardUsed = 0): string {
 export default function DashboardView() {
   const { sales, products, settings, currentStaff } = usePOS();
   const { settings: appSettings } = useApp();
+  const { isOnline } = useConnectivity();
   const sym = settings.currencySymbol;
 
   // Top-level tab
@@ -107,7 +110,7 @@ export default function DashboardView() {
       to: todayEnd.toISOString(),
     });
     try {
-      const r = await fetch(`/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
+      const r = await fetch(`${apiBase()}/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
       if (!r.ok) return;
       const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
       if (!json.ok || !json.orders) return;
@@ -126,7 +129,7 @@ export default function DashboardView() {
       limit: "1000",
     });
     try {
-      const r = await fetch(`/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
+      const r = await fetch(`${apiBase()}/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
       if (!r.ok) return;
       const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
       if (!json.ok || !json.orders) return;
@@ -140,7 +143,7 @@ export default function DashboardView() {
   // item ranks barely move in 6s, so a fetch on tab-entry is enough.
   const refreshAllTimeDineIn = useCallback(async () => {
     try {
-      const r = await fetch(`/api/pos/orders/dine-in?limit=2000`, { cache: "no-store" });
+      const r = await fetch(`${apiBase()}/api/pos/orders/dine-in?limit=2000`, { cache: "no-store" });
       if (!r.ok) return;
       const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
       if (!json.ok || !json.orders) return;
@@ -167,7 +170,7 @@ export default function DashboardView() {
         from: todayStart.toISOString(),
         to:   todayEnd.toISOString(),
       });
-      const r = await fetch(`/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
+      const r = await fetch(`${apiBase()}/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
       if (!r.ok) { if (isInitial) setDineInOrders([]); return; }
       const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
       if (!json.ok || !json.orders) { if (isInitial) setDineInOrders([]); return; }
@@ -192,9 +195,9 @@ export default function DashboardView() {
     emailInFlight.current.add(order.id);
     setDineInEmailSt((p) => ({ ...p, [order.id]: "sending" }));
     try {
-      const effectiveName = appSettings.restaurant?.name || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant";
-      const html = buildDineInReceiptHtml(order, settings, effectiveName);
-      const res = await fetch("/api/email", {
+      const effectiveName = appSettings.restaurant?.name || appSettings.receiptSettings.restaurantName?.trim() || settings.businessName || "Restaurant";
+      const html = buildDineInReceiptHtml(order, settings, appSettings.receiptSettings, effectiveName);
+      const res = await fetch(apiBase() + "/api/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ to: email, subject: `Your receipt from ${effectiveName} — Table ${order.tableLabel}`, html }),
@@ -207,8 +210,8 @@ export default function DashboardView() {
   }
 
   function printDineInReceipt(order: DineInOrder) {
-    const effectiveName = appSettings.restaurant?.name || settings.receiptRestaurantName?.trim() || settings.businessName || "Restaurant";
-    const html = buildDineInReceiptHtml(order, settings, effectiveName);
+    const effectiveName = appSettings.restaurant?.name || appSettings.receiptSettings.restaurantName?.trim() || settings.businessName || "Restaurant";
+    const html = buildDineInReceiptHtml(order, settings, appSettings.receiptSettings, effectiveName);
     const win = window.open("", "_blank", "width=420,height=650");
     if (!win) return;
     win.document.write(html);
@@ -361,7 +364,7 @@ export default function DashboardView() {
         to: endDate.toISOString(),
         limit: "500",
       });
-      const r = await fetch(`/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
+      const r = await fetch(`${apiBase()}/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
       if (!r.ok) { if (isInitial) setReportsDineIn([]); return; }
       const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
       if (!json.ok || !json.orders) { if (isInitial) setReportsDineIn([]); return; }
@@ -596,6 +599,20 @@ export default function DashboardView() {
   return (
     <div className="flex-1 overflow-y-auto p-6 pr-5">
       <div className="max-w-5xl mx-auto space-y-6">
+
+        {/* Offline notice — the dashboard is showing a cached + locally-queued
+            view; sales from other terminals / since the last sync aren't here. */}
+        {!isOnline && (
+          <div className="flex items-start gap-3 px-4 py-3 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300">
+            <WifiOff size={16} className="mt-0.5 shrink-0" />
+            <span className="text-xs leading-relaxed">
+              <strong>Offline — showing cached sales.</strong> This may be incomplete:
+              sales from other tills or since your last sync won&apos;t appear, and totals
+              may not match the server until you reconnect. Offline sales you rang on this
+              device can still be cancelled here.
+            </span>
+          </div>
+        )}
 
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -1469,6 +1486,9 @@ export default function DashboardView() {
                               <tr key={sale.id} className={`hover:bg-slate-700/30 transition-colors ${fullyRefunded ? "opacity-40" : sale.voided ? "opacity-70" : ""}`}>
                                 <td className="px-5 py-3 font-mono text-xs text-slate-300">
                                   <div>#{sale.receiptNo}</div>
+                                  {sale.receiptNo?.startsWith("OFF") && (
+                                    <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-full font-semibold">OFFLINE</span>
+                                  )}
                                   {sale.voided && (
                                     <span className="text-[10px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-semibold">VOID</span>
                                   )}

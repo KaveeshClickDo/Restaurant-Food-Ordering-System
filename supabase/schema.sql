@@ -39,8 +39,16 @@ create table if not exists categories (
   name       text not null,
   emoji      text not null default '',
   sort_order integer not null default 0,
-  parent_id  text references categories(id) on delete set null
+  -- RESTRICT: a category with sub-categories can't be deleted (would orphan
+  -- them). The admin API enforces this too; the FK is the DB-level backstop.
+  parent_id  text references categories(id) on delete restrict,
+  -- Soft delete: NULL = active, non-NULL = hidden ("deleted"). Categories are
+  -- only ever soft-deleted (and only when empty), so the row + name survive; all
+  -- reads filter `deleted_at is null`. Re-adding a same-named category is fine
+  -- (identity is the id, not the name).
+  deleted_at timestamptz
 );
+alter table categories add column if not exists deleted_at timestamptz;
 
 -- menu_items — admin/POS unified item catalog.
 -- POS-side fields (cost, sku, emoji, color, active, offer, track_stock) are
@@ -48,7 +56,9 @@ create table if not exists categories (
 -- Bug #2 refactor for the unified MenuItem type that drives this.
 create table if not exists menu_items (
   id           text primary key,
-  category_id  text not null references categories(id) on delete cascade,
+  -- RESTRICT (not CASCADE): deleting a category must NOT wipe its items. A
+  -- category can only be deleted once empty — enforced in the admin API and here.
+  category_id  text not null references categories(id) on delete restrict,
   name         text not null,
   description  text not null default '',
   price        numeric not null,
@@ -83,6 +93,17 @@ create table if not exists menu_items (
 alter table menu_items add column if not exists channels     text[]  not null default '{in_store,online}';
 alter table menu_items add column if not exists price_online numeric;
 
+-- Category delete protection: switch existing databases from the old CASCADE /
+-- SET NULL foreign keys to RESTRICT so a category can never be deleted while it
+-- still holds items or sub-categories (matches the admin API guard). Idempotent:
+-- drop-then-add always lands on RESTRICT.
+alter table menu_items drop constraint if exists menu_items_category_id_fkey;
+alter table menu_items add  constraint menu_items_category_id_fkey
+  foreign key (category_id) references categories(id) on delete restrict;
+alter table categories drop constraint if exists categories_parent_id_fkey;
+alter table categories add  constraint categories_parent_id_fkey
+  foreign key (parent_id) references categories(id) on delete restrict;
+
 -- customers — registered + sentinel walk-in.
 -- Auth columns (password_hash, reset_token, email_verified, email_verification_*)
 -- support self-serve login, password reset, and email verification.
@@ -112,8 +133,24 @@ create table if not exists customers (
   -- Toggle from Admin → User Management. Inactive customers cannot log in
   -- (auth/login rejects them with a clear message). Their order history is
   -- preserved either way.
-  active                     boolean       not null default true
+  active                     boolean       not null default true,
+  -- Soft delete. A "deleted" customer keeps its row (and its FK links, so
+  -- orders / loyalty / CRM history survive) but is treated as gone: login is
+  -- refused as "no account", POS search hides it, admin badges it "Deleted".
+  --   • deleted_at            — null = live; non-null = soft-deleted.
+  --   • reactivated_at        — audit stamp of the last reactivation.
+  --   • reactivation_blocked  — true = a ban; re-registration with this email is
+  --                             refused instead of reactivating the old account.
+  deleted_at                 timestamptz,
+  reactivated_at             timestamptz,
+  reactivation_blocked       boolean       not null default false
 );
+
+-- Backfill the soft-delete columns onto databases created before this migration.
+-- Idempotent — safe to re-run alongside the create table above.
+alter table customers add column if not exists deleted_at           timestamptz;
+alter table customers add column if not exists reactivated_at       timestamptz;
+alter table customers add column if not exists reactivation_blocked boolean not null default false;
 
 -- Note on customer_id: nullable + ON DELETE SET NULL. When admin deletes a
 -- customer we must preserve the order row (totals, payment_method, refunds,
@@ -352,18 +389,23 @@ create table if not exists reservation_waitlist (
 -- 2b. New tables — moved out of app_settings.data ----------------------------
 -- Each one used to live as a JSONB key inside app_settings. Promoted to its
 -- own table for: row-level edits, FK targets, indexed lookups, atomic
--- counters, hashed PINs, and append-only audit semantics where applicable.
+-- counters, hashed passwords, and append-only audit semantics where applicable.
 
 -- POS terminal staff (replaces app_settings.data.pos_staff).
--- PINs are bcrypt-hashed; the salt+hash live in pin_hash and never leave
--- the server. permissions is a free-form jsonb keyed by capability flags.
+-- Passwords are bcrypt-hashed; the salt+hash live in password_hash and never
+-- leave the server. POS staff ALSO get a 6-digit PIN (pin_hash) for the tablet:
+-- it is validated locally on the device and never authenticates server-side —
+-- sessions are always minted from the password (or a device token). Other staff
+-- surfaces (waiter/kitchen/collection) are password-only (web, no APK).
+-- permissions is a free-form jsonb keyed by capability flags.
 create table if not exists pos_staff (
   id            text        primary key default gen_random_uuid()::text,
   name          text        not null,
   email         text        not null default '',
   role          text        not null default 'cashier'
                 check (role in ('admin','manager','cashier')),
-  pin_hash      text        not null,
+  password_hash text,
+  pin_hash      text,
   active        boolean     not null default true,
   permissions   jsonb       not null default '{}',
   hourly_rate   numeric,
@@ -378,7 +420,7 @@ create table if not exists waiters (
   email         text        not null default '',
   role          text        not null default 'waiter'
                 check (role in ('waiter','senior')),
-  pin_hash      text        not null,
+  password_hash text,
   active        boolean     not null default true,
   hourly_rate   numeric,
   avatar_color  text        not null default '#0891b2',
@@ -392,7 +434,7 @@ create table if not exists kitchen_staff (
   email         text        not null default '',
   role          text        not null default 'chef'
                 check (role in ('chef','head_chef','kitchen_manager')),
-  pin_hash      text        not null,
+  password_hash text,
   active        boolean     not null default true,
   avatar_color  text        not null default '#dc2626',
   created_at    timestamptz not null default now()
@@ -400,19 +442,78 @@ create table if not exists kitchen_staff (
 
 -- Collection staff that log into /collection — the standalone pickup-payment
 -- surface for shops that run online orders without the POS. Flat list (no
--- roles/permissions); PINs are bcrypt-hashed in pin_hash. session_version is
--- inline (mirrors the staff invalidation pattern) so an admin PIN reset or
+-- roles/permissions); passwords are bcrypt-hashed in password_hash. session_version is
+-- inline (mirrors the staff invalidation pattern) so an admin password reset or
 -- deactivation signs the operator out on their next request.
 create table if not exists collection_staff (
   id              text        primary key default gen_random_uuid()::text,
   name            text        not null,
   email           text        not null default '',
-  pin_hash        text        not null,
+  password_hash   text,
   active          boolean     not null default true,
   avatar_color    text        not null default '#f97316',
   session_version integer     not null default 1,
   created_at      timestamptz not null default now()
 );
+
+-- ── Migration: staff credential PIN → password ───────────────────────────────
+-- Staff auth switched from a numeric PIN to a password. The column holds a
+-- bcrypt hash either way, so on EXISTING databases we just rename it. The rename
+-- is guarded on "pin_hash still exists" so it runs exactly once (subsequent
+-- idempotent re-runs skip it — and so never wipe live passwords). At the same
+-- time we FORCE-RESET every existing credential to NULL ("no password set"):
+-- old hashes were of numeric PINs, and the product now requires a real password
+-- set by an admin. A NULL password_hash means the auth route rejects login until
+-- an admin sets one. Fresh DBs already create password_hash above, so this is a
+-- no-op there.
+-- Guard requires pin_hash present AND password_hash absent so it fires ONLY on
+-- the genuinely-old schema. pos_staff later re-gains a pin_hash column (the POS
+-- tablet PIN, below); without the password_hash check this block would wrongly
+-- try to rename that new column on every subsequent migrate.
+do $$
+declare t text;
+begin
+  foreach t in array array['pos_staff','waiters','kitchen_staff','collection_staff'] loop
+    if exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = t and column_name = 'pin_hash'
+    ) and not exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = t and column_name = 'password_hash'
+    ) then
+      execute format('alter table %I rename column pin_hash to password_hash', t);
+      execute format('alter table %I alter column password_hash drop not null', t);
+      execute format('update %I set password_hash = null', t);   -- force reset (one-time)
+    end if;
+  end loop;
+end $$;
+
+-- ── B2: POS tablet PIN + device tokens ───────────────────────────────────────
+-- POS staff get a 6-digit PIN (admin-set) IN ADDITION to their password. The PIN
+-- is validated locally on the tablet (its hash is cached after a password login)
+-- and never authenticates against the server — sessions stay password-only.
+-- Re-add pin_hash on databases that already migrated to the password-only schema.
+alter table pos_staff add column if not exists pin_hash text;
+
+-- Device refresh tokens: issued to a tablet after a successful password login so
+-- the device can mint fresh sessions (unlocked by the local PIN) without
+-- re-entering the password. The raw token is returned once; only its sha256 hash
+-- is stored. Revoked on password/PIN change or deactivation; expires after 30
+-- days (forces a password re-auth). One row per (staff, device) — re-enrolling a
+-- device replaces its token.
+create table if not exists pos_device_tokens (
+  id           text        primary key default gen_random_uuid()::text,
+  staff_id     text        not null references pos_staff(id) on delete cascade,
+  device_id    text        not null,
+  token_hash   text        not null,
+  device_label text,
+  created_at   timestamptz not null default now(),
+  last_used_at timestamptz,
+  expires_at   timestamptz not null,
+  revoked      boolean     not null default false,
+  unique (staff_id, device_id)
+);
+create index if not exists idx_pos_device_tokens_staff on pos_device_tokens (staff_id);
 
 -- Promo codes (replaces app_settings.data.coupons). Lives as a real table
 -- so usage_count can be incremented atomically at checkout without
@@ -585,6 +686,43 @@ create table if not exists pos_clock_entries (
 create unique index if not exists uniq_pos_clock_open
   on pos_clock_entries (staff_id) where clock_out is null;
 
+-- POS terminals — one row per physical Android tablet registered to ring up
+-- offline sales. Created on the device's first successful online password login;
+-- updated on every subsequent sync. `prefix` namespaces offline-minted
+-- receipt numbers so two tablets can never collide on pos_sales.receipt_no
+-- (e.g. terminal T1 produces 'T1-1042', T2 produces 'T2-1042'). Online web
+-- POS continues to use the pos_receipt_seq default and never references
+-- this table — pos_sales.terminal_id stays NULL for those rows.
+create table if not exists pos_terminals (
+  id                 text        primary key default gen_random_uuid()::text,
+  -- Human-readable label set in admin (e.g. "Front counter", "Bar").
+  label              text        not null,
+  -- Short receipt prefix, 1–4 chars [A-Z0-9] enforced application-side. Unique
+  -- across active terminals so receipt strings never collide.
+  prefix             text        not null,
+  -- Per-terminal monotonic counter. Incremented client-side, validated
+  -- server-side on sync. Persisted as a backup if the device's local counter
+  -- is lost (e.g. user wipes app data).
+  next_seq_no        integer     not null default 1,
+  -- Device fingerprint hash. Used to detect "same device re-registering
+  -- after a wipe" vs. "different device steals an existing prefix".
+  device_fingerprint text        not null default '',
+  -- Activity bookkeeping for an admin "online terminals" dashboard. Nullable
+  -- so a freshly-created terminal that has never synced reads correctly.
+  last_seen_at       timestamptz,
+  last_sync_at       timestamptz,
+  active             boolean     not null default true,
+  created_at         timestamptz not null default now()
+);
+
+-- Prefix must be unique among ACTIVE terminals. Deactivated terminals keep
+-- their prefix recorded for audit history without blocking re-use.
+create unique index if not exists uniq_pos_terminals_prefix_active
+  on pos_terminals (prefix) where active = true;
+
+create index if not exists idx_pos_terminals_active
+  on pos_terminals (active) where active = true;
+
 -- Case-insensitive unique label. Closes the race window where two concurrent
 -- POSTs could each pass the application-level duplicate check before either
 -- INSERT commits. Application code still does a friendly pre-check; this is
@@ -643,8 +781,22 @@ create table if not exists menu_item_meal_periods (
 --     hand-typed POS line) → no quantity to deduct, skip silently.
 --
 -- Called from app/src/lib/stockMutation.ts via supabase.rpc().
+--
+-- p_force (default false): when true, NEVER raise — decrement tracked items
+-- even past zero (stock_qty goes negative) and ignore manual out_of_stock.
+-- This is the OFFLINE-SALE RECONCILIATION path: a sale rung on a Capacitor POS
+-- while offline (receipt_no 'OFF…') is replayed by the outbox on reconnect.
+-- That sale already happened — the customer paid and walked out — so the server
+-- must NEVER reject it on a stock grounds (that would strand the sale and lose
+-- the money). Instead we let the count go negative; a negative stock_qty is the
+-- visible "this oversold while offline" flag a manager reconciles. Online sales
+-- (p_force = false) keep the hard limit.
 
-create or replace function decrement_stock_atomic(p_items jsonb)
+-- Drop the old single-arg signature so the new defaulted-arg version is the
+-- only one (create-or-replace can't change a function's argument list).
+drop function if exists decrement_stock_atomic(jsonb);
+
+create or replace function decrement_stock_atomic(p_items jsonb, p_force boolean default false)
 returns void
 language plpgsql
 as $$
@@ -673,8 +825,9 @@ begin
     -- Manual Status override wins on every channel. We only honour it when
     -- the row is NOT in track-quantity mode — once tracked, stock_qty is the
     -- single source of truth (a stale stock_status carried over from the
-    -- previous mode must not block a sale).
+    -- previous mode must not block a sale). Skipped entirely under p_force.
     if not coalesce(v_tracks, false) and v_status = 'out_of_stock' then
+      if p_force then continue; end if;   -- offline replay: accept, nothing to deduct
       raise exception 'INSUFFICIENT_STOCK %', v_id
         using detail = jsonb_build_object(
           'id',        v_id,
@@ -686,7 +839,7 @@ begin
 
     if not coalesce(v_tracks, false) then continue; end if;
 
-    if coalesce(v_avail, 0) < v_qty then
+    if coalesce(v_avail, 0) < v_qty and not p_force then
       raise exception 'INSUFFICIENT_STOCK %', v_id
         using detail = jsonb_build_object(
           'id',        v_id,
@@ -696,6 +849,7 @@ begin
         )::text;
     end if;
 
+    -- Under p_force this may drive stock_qty negative — intentional (see header).
     update menu_items
        set stock_qty = stock_qty - v_qty
      where id = v_id;
@@ -726,10 +880,10 @@ begin
 end;
 $$;
 
-revoke all     on function decrement_stock_atomic(jsonb) from public, anon, authenticated;
-revoke all     on function restore_stock(jsonb)          from public, anon, authenticated;
-grant execute  on function decrement_stock_atomic(jsonb) to service_role;
-grant execute  on function restore_stock(jsonb)          to service_role;
+revoke all     on function decrement_stock_atomic(jsonb, boolean) from public, anon, authenticated;
+revoke all     on function restore_stock(jsonb)                   from public, anon, authenticated;
+grant execute  on function decrement_stock_atomic(jsonb, boolean) to service_role;
+grant execute  on function restore_stock(jsonb)                   to service_role;
 
 
 -- ── Store credit + coupon atomic mutations ───────────────────────────────────
@@ -950,9 +1104,30 @@ alter table pos_sales  add column if not exists gift_card_used numeric(10,2) not
 -- For recording the non-refundable service fee collected on dine-in orders.
 alter table pos_sales  add column if not exists service_fee_amount numeric not null default 0;
 
+-- ── Offline POS terminal columns ─────────────────────────────────────────────
+-- Populated for sales minted on a registered Android tablet (offline or online).
+-- NULL for sales rung up on the online web POS, which doesn't register a
+-- terminal — preserves identical semantics for existing reads.
+--
+--   terminal_id         FK to pos_terminals; on terminal deactivation we set
+--                       null rather than cascade, so audit / tax history survives
+--                       a terminal's lifecycle.
+--   client_created_at   when the sale was rung up on the tablet, vs. the
+--                       server-side `created_at` which is the sync time. Admin
+--                       reports / tax reconciliation use this for offline sales.
+--   synced_at           when the row landed on the server. Defaults to now() so
+--                       online inserts continue to behave the same; offline-then-
+--                       synced rows record the moment of sync.
+alter table pos_sales add column if not exists terminal_id        text references pos_terminals(id) on delete set null;
+alter table pos_sales add column if not exists client_created_at  timestamptz;
+alter table pos_sales add column if not exists synced_at          timestamptz default now();
+
+create index if not exists idx_pos_sales_terminal_id
+  on pos_sales (terminal_id) where terminal_id is not null;
+
 -- ── Session versioning for staff roles ───────────────────────────────────────
 -- Embedded in the HMAC session token so admin-initiated credential changes
--- (password/PIN/email) or deactivation immediately invalidate all live
+-- (password/email) or deactivation immediately invalidate all live
 -- sessions for that staff member. Bumped from the admin update endpoints;
 -- verified server-side on every authed staff request in lib/auth.ts.
 alter table drivers       add column if not exists session_version integer not null default 1;
@@ -1138,6 +1313,8 @@ alter table reservation_waitlist   enable row level security;
 alter table pos_staff              enable row level security;
 alter table pos_sales              enable row level security;
 alter table pos_clock_entries      enable row level security;
+alter table pos_terminals          enable row level security;
+alter table pos_device_tokens      enable row level security;
 alter table waiters                enable row level security;
 alter table kitchen_staff          enable row level security;
 alter table collection_staff       enable row level security;
@@ -1232,6 +1409,14 @@ drop policy if exists "deny_anon_all" on pos_clock_entries;
 create policy "deny_anon_all" on pos_clock_entries
   for all to anon using (false) with check (false);
 
+drop policy if exists "deny_anon_all" on pos_terminals;
+create policy "deny_anon_all" on pos_terminals
+  for all to anon using (false) with check (false);
+
+drop policy if exists "deny_anon_all" on pos_device_tokens;
+create policy "deny_anon_all" on pos_device_tokens
+  for all to anon using (false) with check (false);
+
 drop policy if exists "deny_anon_all" on waiters;
 create policy "deny_anon_all" on waiters
   for all to anon using (false) with check (false);
@@ -1299,13 +1484,15 @@ grant select
 -- deny_anon_all policies above already block every anon/authenticated read.
 -- These column-level revokes remain as a third line of defence in case a
 -- future policy mistakenly loosens the RLS.
+revoke select (password_hash) on pos_staff     from anon, authenticated;
 revoke select (pin_hash)      on pos_staff     from anon, authenticated;
-revoke select (pin_hash)      on waiters       from anon, authenticated;
-revoke select (pin_hash)      on kitchen_staff from anon, authenticated;
+revoke select (password_hash) on waiters       from anon, authenticated;
+revoke select (password_hash) on kitchen_staff from anon, authenticated;
 revoke select (password_hash) on drivers       from anon, authenticated;
 revoke select (reset_token)         on drivers from anon, authenticated;
 revoke select (reset_token_expires) on drivers from anon, authenticated;
 revoke select (password_hash) on display_auth  from anon, authenticated;
+revoke select (token_hash)    on pos_device_tokens from anon, authenticated;
 
 
 -- ── 6. Sentinel rows ─────────────────────────────────────────────────────────

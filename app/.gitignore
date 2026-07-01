@@ -16,6 +16,8 @@
 # next.js
 /.next/
 /out/
+# transient: build:capacitor route quarantine (should never persist)
+/.cap-quarantine/
 
 # production
 /build
@@ -33,6 +35,7 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+!.env.capacitor.example
 
 # vercel
 .vercel

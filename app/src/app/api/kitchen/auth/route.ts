@@ -1,5 +1,5 @@
 /**
- * POST /api/kitchen/auth  — PIN login for kitchen staff (bcrypt-hashed)
+ * POST /api/kitchen/auth  — password login for kitchen staff (bcrypt-hashed)
  * GET  /api/kitchen/auth  — return current session's staff record
  *
  * Reads from the kitchen_staff table.
@@ -16,7 +16,7 @@ import {
 } from "@/lib/auth";
 import { rateLimit } from "@/lib/rateLimit";
 import { parseBody } from "@/lib/apiValidation";
-import { StaffPinLoginSchema } from "@/lib/schemas/auth";
+import { StaffPasswordLoginSchema } from "@/lib/schemas/auth";
 
 const PUBLIC_COLUMNS = "id, name, email, role, active, avatar_color, created_at";
 
@@ -41,25 +41,32 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Too many attempts. Please wait a minute." }, { status: 429 });
   }
 
-  const parsed = await parseBody(req, StaffPinLoginSchema);
+  const parsed = await parseBody(req, StaffPasswordLoginSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { staffId, pin } = parsed.data;
+  const { staffId, password } = parsed.data;
 
   try {
     const { data: member } = await supabaseAdmin
       .from("kitchen_staff")
-      .select(`${PUBLIC_COLUMNS}, pin_hash, session_version`)
+      .select(`${PUBLIC_COLUMNS}, password_hash, session_version`)
       .eq("id", staffId)
       .eq("active", true)
       .maybeSingle();
 
     if (!member) {
-      return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
+      return NextResponse.json({ ok: false, error: "Incorrect password." }, { status: 401 });
     }
 
-    const valid = await bcrypt.compare(pin, member.pin_hash);
+    if (!member.password_hash) {
+      return NextResponse.json(
+        { ok: false, error: "No password set for this account. Ask your admin to set one." },
+        { status: 403 },
+      );
+    }
+
+    const valid = await bcrypt.compare(password, member.password_hash);
     if (!valid) {
-      return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
+      return NextResponse.json({ ok: false, error: "Incorrect password." }, { status: 401 });
     }
 
     const token = createSessionToken({

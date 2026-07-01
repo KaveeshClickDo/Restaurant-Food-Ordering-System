@@ -9,7 +9,7 @@
  *   kitchen   → kitchen_staff
  *   pos       → pos_staff
  *
- * Admin auth required. PINs are bcrypt-hashed; omitting `pin` keeps the
+ * Admin auth required. passwords are bcrypt-hashed; omitting `password` keeps the
  * existing hash.
  */
 
@@ -21,6 +21,8 @@ import { ROLE_PERMISSIONS } from "@/types/pos";
 import { parseBody } from "@/lib/apiValidation";
 import { UserUpdateSchema, UserDeleteSchema } from "@/lib/schemas/staff";
 import { setLoyaltyPointsAbsolute } from "@/lib/loyaltyUtils";
+import { revokeDeviceTokens } from "@/lib/posDeviceToken";
+import { softDeleteCustomer } from "@/lib/customerDelete";
 
 const HASH_ROUNDS = 10;
 
@@ -92,7 +94,7 @@ export async function PATCH(
     if (body.active      !== undefined) updates.active       = body.active;
     if (body.avatarColor !== undefined) updates.avatar_color = body.avatarColor;
     if (body.hourlyRate  !== undefined) updates.hourly_rate  = body.hourlyRate;
-    if (body.pin) updates.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
+    if (body.password) updates.password_hash = await bcrypt.hash(body.password, HASH_ROUNDS);
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ ok: false, error: "No fields to update." }, { status: 400 });
     }
@@ -109,7 +111,7 @@ export async function PATCH(
     if (body.active      !== undefined) updates.active       = body.active;
     if (body.avatarColor !== undefined) updates.avatar_color = body.avatarColor;
     if (body.kitchenRole !== undefined) updates.role         = body.kitchenRole;
-    if (body.pin) updates.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
+    if (body.password) updates.password_hash = await bcrypt.hash(body.password, HASH_ROUNDS);
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ ok: false, error: "No fields to update." }, { status: 400 });
     }
@@ -130,12 +132,18 @@ export async function PATCH(
       updates.role        = body.posRole;
       updates.permissions = ROLE_PERMISSIONS[body.posRole];
     }
-    if (body.pin) updates.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
+    if (body.password) updates.password_hash = await bcrypt.hash(body.password, HASH_ROUNDS);
+    if (body.pin)      updates.pin_hash      = await bcrypt.hash(body.pin, HASH_ROUNDS);
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ ok: false, error: "No fields to update." }, { status: 400 });
     }
     const { error } = await supabaseAdmin.from("pos_staff").update(updates).eq("id", id);
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+    // B2: kill tablet device tokens on a credential change / deactivation.
+    if (body.password !== undefined || body.pin !== undefined || body.active === false) {
+      await revokeDeviceTokens(id);
+    }
     return NextResponse.json({ ok: true });
   }
 
@@ -151,10 +159,24 @@ export async function DELETE(
 
   const parsed = await parseBody(req, UserDeleteSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { type } = parsed.data;
+  const { type, block } = parsed.data;
 
+  // Customers are SOFT-deleted (stamp deleted_at) so orders, loyalty, and the
+  // CRM profile survive and the customer can rejoin — see softDeleteCustomer.
+  // `block` turns it into a ban. Staff types below are still hard-deleted.
+  if (type === "customer") {
+    const res = await softDeleteCustomer(id, { block });
+    if (!res.ok) {
+      return NextResponse.json(
+        { ok: false, error: res.error, ...(res.activeOrders ? { activeOrders: res.activeOrders } : {}) },
+        { status: res.status ?? 500 },
+      );
+    }
+    return NextResponse.json({ ok: true });
+  }
+
+  // Staff types are hard-deleted (they have no order/loyalty history to preserve).
   const tableForType: Record<string, string | undefined> = {
-    customer: "customers",
     driver:   "drivers",
     waiter:   "waiters",
     kitchen:  "kitchen_staff",
@@ -172,66 +194,8 @@ export async function DELETE(
     return NextResponse.json({ ok: false, error: `Unknown type: ${type}` }, { status: 400 });
   }
 
-  // Reject the synthetic "__deleted__" id — that pseudo-row exists only in
-  // /api/admin/customers/list to surface orphan orders (customer_id set null
-  // after a real delete) in the admin UI. It is not backed by a DB row.
-  if (id === "__deleted__" || id === "pos-walk-in") {
-    return NextResponse.json(
-      { ok: false, error: "This is a system-managed row and cannot be deleted." },
-      { status: 400 },
-    );
-  }
-
-  // For customers, look up the email first so we can also purge any
-  // matching guest profile (reservation_customers row) after the delete.
-  // Without this cleanup the CRM guest-profile table is orphaned by the
-  // customers FK cascade (Bug #10).
-  let customerEmail: string | null = null;
-  if (type === "customer") {
-    // Block deletion while the customer has any non-terminal order. The order
-    // row would survive via ON DELETE SET NULL, but kitchen/delivery flows
-    // still depend on the customer link being live.
-    const { data: activeOrders, error: activeErr } = await supabaseAdmin
-      .from("orders")
-      .select("id, status")
-      .eq("customer_id", id)
-      .in("status", ["pending", "confirmed", "preparing", "ready"]);
-    if (activeErr) {
-      return NextResponse.json({ ok: false, error: activeErr.message }, { status: 500 });
-    }
-    if (activeOrders && activeOrders.length > 0) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "This customer has active orders. Cancel or complete them before deleting.",
-          activeOrders,
-        },
-        { status: 409 },
-      );
-    }
-
-    const { data: existing } = await supabaseAdmin
-      .from("customers")
-      .select("email")
-      .eq("id", id)
-      .maybeSingle();
-    customerEmail = existing?.email?.toLowerCase()?.trim() || null;
-  }
-
   const { error } = await supabaseAdmin.from(table).delete().eq("id", id);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-
-  if (type === "customer" && customerEmail) {
-    const { error: rcError } = await supabaseAdmin
-      .from("reservation_customers")
-      .delete()
-      .eq("email", customerEmail);
-    if (rcError) {
-      // Non-fatal — the customer row is already gone. Log so an admin can
-      // clean up manually if it ever fails.
-      console.error("admin/users DELETE reservation_customers cleanup:", rcError.message);
-    }
-  }
 
   return NextResponse.json({ ok: true });
 }

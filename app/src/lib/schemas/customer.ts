@@ -41,6 +41,15 @@ export const AdminCustomerUpdateSchema = z.object({
   notes:           z.string().optional(),
   loyaltyPoints:   z.number().int().nonnegative().optional(),
   giftCardBalance: Money.optional(),
+  // Un-delete a soft-deleted customer (clears deleted_at, stamps reactivated_at).
+  restore:         z.boolean().optional(),
+});
+
+// Optional body for the customer DELETE routes. `block` = true turns the soft
+// delete into a ban: re-registration with this email is refused rather than
+// reactivating the old account.
+export const CustomerDeleteSchema = z.object({
+  block: z.boolean().optional(),
 });
 
 // Admin updates on reservation_customers.

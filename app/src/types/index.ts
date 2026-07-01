@@ -405,7 +405,9 @@ export interface Coupon {
 export interface ReceiptSettings {
   showLogo: boolean;
   logoUrl: string;            // URL / base64 shown on printed & on-screen receipts
+  logoDither?: boolean;       // thermal print: false = sharp threshold, true = Floyd–Steinberg (shaded/photo logos)
   restaurantName: string;     // receipt-specific name (can differ from main brand)
+  address: string;            // shown under the name (multi-line allowed)
   phone: string;
   website: string;
   email: string;
@@ -513,7 +515,7 @@ export interface WaitlistEntry {
 export interface WaiterStaff {
   id: string;
   name: string;
-  pin: string;
+  password: string;
   role: "senior" | "waiter";
   active: boolean;
   avatarColor: string;
@@ -525,7 +527,7 @@ export type KitchenRole = "chef" | "head_chef" | "kitchen_manager";
 export interface KitchenStaff {
   id: string;
   name: string;
-  pin: string;
+  password: string;
   role: KitchenRole;
   active: boolean;
   avatarColor: string;
@@ -754,6 +756,9 @@ export interface Customer {
   storeCredit?: number;   // £ store credit balance (from refunds)
   emailVerified?: boolean;
   active?: boolean;       // false → login is blocked; admin-toggled
+  // ── Soft-delete state ─────────────────────────────────────────────────────
+  deletedAt?: string;            // ISO — set → customer is soft-deleted ("Deleted")
+  reactivationBlocked?: boolean; // true → re-registration is refused (a ban)
   // ── POS-shared fields ───────────────────────────────────────────────────
   // Persisted on the customers row so admin + POS share the same source of
   // truth. totalSpend/visitCount/lastVisit are computed server-side by the

@@ -1,10 +1,12 @@
 "use client";
 
+import { uuid } from "@/lib/uuid";
+import { apiBase } from "@/lib/apiBase";
 import { useRef, useState } from "react";
 import { usePOS } from "@/context/POSContext";
-import { POSProduct, POSCategory, POSOffer, getOfferPrice, isOfferActive } from "@/types/pos";
+import { POSProduct, POSOffer, getOfferPrice, isOfferActive } from "@/types/pos";
 import type { Variation, AddOn } from "@/types";
-import { Plus, Pencil, Trash2, ToggleLeft, ToggleRight, ChevronDown, X, Save, Tag, Package, Check } from "lucide-react";
+import { Plus, Pencil, Trash2, ToggleLeft, ToggleRight, X, Save, Tag, Package, Check } from "lucide-react";
 import { fmt } from "../_utils";
 import { PRESET_COLORS, buildOffer, handleImageFile } from "./_helpers";
 import { deleteMenuImage } from "@/lib/uploadImage";
@@ -15,19 +17,19 @@ const DIETARY_OPTIONS = ["vegetarian", "vegan", "halal", "gluten-free"] as const
 
 function blankVariation(): Variation {
   return {
-    id: crypto.randomUUID(), name: "", required: true,
-    options: [{ id: crypto.randomUUID(), label: "", price: 0 }],
+    id: uuid(), name: "", required: true,
+    options: [{ id: uuid(), label: "", price: 0 }],
   };
 }
 function blankAddOn(): AddOn {
-  return { id: crypto.randomUUID(), name: "", price: 0 };
+  return { id: uuid(), name: "", price: 0 };
 }
 
 type StockMode = "qty" | "manual";
 type StockStatusValue = "in_stock" | "low_stock" | "out_of_stock";
 
 export default function MenuTab() {
-  const { products, setProducts, categories, setCategories, settings, updateProductStock } = usePOS();
+  const { products, setProducts, categories, settings, updateProductStock } = usePOS();
 
   // Item state
   const [editProduct, setEditProduct] = useState<POSProduct | null>(null);
@@ -72,78 +74,9 @@ export default function MenuTab() {
   
   const [menuTab, setMenuTab] = useState<"items"|"categories">("items");
 
-  // Category state
-  const [editCategory, setEditCategory] = useState<POSCategory | null>(null);
-  const [catDraft, setCatDraft] = useState({ name: "", emoji: "", color: "#f97316" });
-  const [showAddCategory, setShowAddCategory] = useState(false);
-  const [newCategory, setNewCategory] = useState({ name: "", emoji: "🍽️", color: "#f97316" });
-  const [deleteCatConfirm, setDeleteCatConfirm] = useState<string | null>(null);
-
-  function openEditCategory(cat: POSCategory) {
-    setEditCategory(cat);
-    setCatDraft({ name: cat.name, emoji: cat.emoji, color: cat.color });
-  }
-
-  function saveCategory() {
-    if (!editCategory || !catDraft.name.trim()) return;
-    setCategories((prev) => prev.map((c) =>
-      c.id === editCategory.id
-        ? { ...c, name: catDraft.name.trim(), emoji: catDraft.emoji || "🍽️", color: catDraft.color }
-        : c
-    ));
-    setEditCategory(null);
-  }
-
-  function deleteCategory(id: string) {
-    setCategories((prev) => prev.filter((c) => c.id !== id));
-    const remaining = categories.filter((c) => c.id !== id);
-    if (remaining.length > 0) {
-      setProducts((prev) => prev.map((p) =>
-        p.categoryId === id ? { ...p, categoryId: remaining[0].id } : p
-      ));
-    }
-    setDeleteCatConfirm(null);
-    setEditCategory(null);
-  }
-
-  function addCategory() {
-    if (!newCategory.name.trim()) return;
-    const maxOrder = categories.reduce((m, c) => Math.max(m, c.order), -1);
-    const cat: POSCategory = {
-      id: `cat-${Date.now()}`,
-      name: newCategory.name.trim(),
-      emoji: newCategory.emoji || "🍽️",
-      color: newCategory.color,
-      order: maxOrder + 1,
-    };
-    setCategories((prev) => [...prev, cat]);
-    setNewCategory({ name: "", emoji: "🍽️", color: "#f97316" });
-    setShowAddCategory(false);
-  }
-
-  function moveCategoryUp(id: string) {
-    const sorted = [...categories].sort((a, b) => a.order - b.order);
-    const idx = sorted.findIndex((c) => c.id === id);
-    if (idx <= 0) return;
-    const updated = sorted.map((c, i) => {
-      if (i === idx - 1) return { ...c, order: sorted[idx].order };
-      if (i === idx)     return { ...c, order: sorted[idx - 1].order };
-      return c;
-    });
-    setCategories(updated);
-  }
-
-  function moveCategoryDown(id: string) {
-    const sorted = [...categories].sort((a, b) => a.order - b.order);
-    const idx = sorted.findIndex((c) => c.id === id);
-    if (idx < 0 || idx >= sorted.length - 1) return;
-    const updated = sorted.map((c, i) => {
-      if (i === idx)     return { ...c, order: sorted[idx + 1].order };
-      if (i === idx + 1) return { ...c, order: sorted[idx].order };
-      return c;
-    });
-    setCategories(updated);
-  }
+  // Categories are managed in Admin → Menu (they're shared with the website).
+  // POS only assigns items to existing categories — no category create / edit /
+  // delete / reorder here, so the two surfaces can't diverge.
 
   function toggleProduct(id: string) {
     setProducts((prev) => prev.map((p) => p.id === id ? { ...p, active: !p.active } : p));
@@ -283,7 +216,7 @@ export default function MenuTab() {
     // in-store-only item) or just drop it from the in_store channel (a both-
     // channel item stays on the online menu). Either way it leaves the till.
     try {
-      const res = await fetch(`/api/pos/menu/${id}`, { method: "DELETE" });
+      const res = await fetch(`${apiBase()}/api/pos/menu/${id}`, { method: "DELETE" });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         alert(j.error || "Couldn't remove the item. Please try again.");
@@ -434,254 +367,47 @@ export default function MenuTab() {
               </>
             )}
 
-            {/* ── Categories list ──────────────────────────────────────── */}
+            {/* ── Categories (read-only — managed in Admin) ─────────────── */}
             {menuTab === "categories" && (
               <>
-                <div className="flex justify-end">
-                  <button onClick={() => setShowAddCategory(true)} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-400 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors">
-                    <Plus size={16} /> Add Category
-                  </button>
+                <div className="bg-blue-950/40 border border-blue-800/50 rounded-xl px-4 py-3">
+                  <p className="text-blue-100 text-xs leading-relaxed">
+                    Categories are shared with your website, so they&apos;re managed in{" "}
+                    <span className="font-semibold">Admin → Menu</span>. Here you can add and
+                    manage <span className="font-semibold">menu items</span> and assign them to
+                    these categories.
+                  </p>
                 </div>
 
                 <div className="bg-slate-800 border border-slate-700 rounded-2xl overflow-hidden">
-                  {categories.length === 0 && (
-                    <p className="text-slate-400 text-sm text-center py-8">No categories yet. Add one to get started.</p>
+                  {categories.length === 0 ? (
+                    <p className="text-slate-400 text-sm text-center py-8">No categories yet — add one from Admin → Menu.</p>
+                  ) : (
+                    <div className="divide-y divide-slate-700/50">
+                      {[...categories].sort((a, b) => a.order - b.order).map((cat) => {
+                        const itemCount = products.filter((p) => p.categoryId === cat.id).length;
+                        return (
+                          <div key={cat.id} className="px-4 py-3 flex items-center gap-3">
+                            <div
+                              className="w-10 h-10 rounded-xl flex items-center justify-center text-lg font-bold flex-shrink-0 shadow-sm"
+                              style={{ backgroundColor: cat.color + "33", border: `2px solid ${cat.color}55` }}
+                            >
+                              {cat.emoji}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-white font-semibold text-sm">{cat.name}</p>
+                              <p className="text-slate-400 text-xs">{itemCount} item{itemCount !== 1 ? "s" : ""}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
-                  <div className="divide-y divide-slate-700/50">
-                    {[...categories].sort((a, b) => a.order - b.order).map((cat, idx, arr) => {
-                      const itemCount = products.filter((p) => p.categoryId === cat.id).length;
-                      return (
-                        <div key={cat.id} className="px-4 py-3 flex items-center gap-3">
-                          {/* Color swatch + emoji */}
-                          <div
-                            className="w-10 h-10 rounded-xl flex items-center justify-center text-lg font-bold flex-shrink-0 shadow-sm"
-                            style={{ backgroundColor: cat.color + "33", border: `2px solid ${cat.color}55` }}
-                          >
-                            {cat.emoji}
-                          </div>
-
-                          {/* Name + count */}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-white font-semibold text-sm">{cat.name}</p>
-                            <p className="text-slate-400 text-xs">{itemCount} item{itemCount !== 1 ? "s" : ""}</p>
-                          </div>
-
-                          {/* Reorder arrows */}
-                          <div className="flex flex-col gap-0.5">
-                            <button
-                              onClick={() => moveCategoryUp(cat.id)}
-                              disabled={idx === 0}
-                              className="p-1 rounded text-slate-500 hover:text-white disabled:opacity-20 transition-colors"
-                            >
-                              <ChevronDown size={14} className="rotate-180" />
-                            </button>
-                            <button
-                              onClick={() => moveCategoryDown(cat.id)}
-                              disabled={idx === arr.length - 1}
-                              className="p-1 rounded text-slate-500 hover:text-white disabled:opacity-20 transition-colors"
-                            >
-                              <ChevronDown size={14} />
-                            </button>
-                          </div>
-
-                          {/* Edit */}
-                          <button
-                            onClick={() => openEditCategory(cat)}
-                            className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-all"
-                          >
-                            <Pencil size={15} />
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
                 </div>
               </>
             )}
           </div>
 
-      {editCategory && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
-              <h3 className="text-white font-bold">Edit Category</h3>
-              <button onClick={() => setEditCategory(null)} className="text-slate-400 hover:text-white transition-colors"><X size={18} /></button>
-            </div>
-
-            <div className="p-5 space-y-4">
-              {/* Emoji + Name */}
-              <div className="flex gap-3">
-                <div className="w-20 flex-shrink-0">
-                  <label className="text-xs text-slate-400 mb-1 block">Emoji</label>
-                  <input
-                    value={catDraft.emoji}
-                    onChange={(e) => setCatDraft((d) => ({ ...d, emoji: e.target.value }))}
-                    placeholder="🍽️"
-                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-center text-base outline-none focus:border-orange-500"
-                  />
-                </div>
-                <div className="flex-1">
-                  <label className="text-xs text-slate-400 mb-1 block">Name *</label>
-                  <input
-                    value={catDraft.name}
-                    onChange={(e) => setCatDraft((d) => ({ ...d, name: e.target.value }))}
-                    placeholder="Category name"
-                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
-                  />
-                </div>
-              </div>
-
-              {/* Color picker */}
-              <div>
-                <label className="text-xs text-slate-400 mb-2 block">Colour</label>
-                <div className="flex flex-wrap gap-2">
-                  {PRESET_COLORS.map((c) => (
-                    <button
-                      key={c}
-                      onClick={() => setCatDraft((d) => ({ ...d, color: c }))}
-                      className="w-8 h-8 rounded-lg transition-all"
-                      style={{
-                        backgroundColor: c,
-                        outline: catDraft.color === c ? `3px solid white` : "none",
-                        outlineOffset: "2px",
-                        boxShadow: catDraft.color === c ? `0 0 0 1px ${c}` : "none",
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Preview */}
-              <div className="flex items-center gap-3 bg-slate-900 rounded-xl px-4 py-3">
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0"
-                  style={{ backgroundColor: catDraft.color + "33", border: `2px solid ${catDraft.color}88` }}
-                >
-                  {catDraft.emoji || "🍽️"}
-                </div>
-                <div>
-                  <p className="text-white text-sm font-semibold">{catDraft.name || "Category name"}</p>
-                  <p className="text-slate-400 text-xs">Preview</p>
-                </div>
-                <div className="ml-auto">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: catDraft.color }} />
-                </div>
-              </div>
-            </div>
-
-            <div className="px-5 py-4 border-t border-slate-700 grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setDeleteCatConfirm(editCategory.id)}
-                className="py-3 rounded-xl border border-red-500/40 text-red-400 font-semibold text-sm hover:bg-red-500/10 transition-colors flex items-center justify-center gap-2"
-              >
-                <Trash2 size={14} /> Delete
-              </button>
-              <button
-                onClick={saveCategory}
-                disabled={!catDraft.name.trim()}
-                className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                <Save size={14} /> Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Delete category confirm ─────────────────────────────────────── */}
-      {deleteCatConfirm && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-xs p-6 shadow-2xl text-center">
-            <div className="w-12 h-12 bg-red-500/10 border border-red-500/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <Trash2 size={20} className="text-red-400" />
-            </div>
-            <h3 className="text-white font-bold mb-1">Delete category?</h3>
-            <p className="text-slate-400 text-sm mb-1">
-              <span className="text-white font-semibold">{categories.find((c) => c.id === deleteCatConfirm)?.name}</span> will be removed.
-            </p>
-            {(() => {
-              const count = products.filter((p) => p.categoryId === deleteCatConfirm).length;
-              return count > 0 ? (
-                <p className="text-amber-400 text-xs mb-5">
-                  {count} item{count !== 1 ? "s" : ""} will be moved to the first remaining category.
-                </p>
-              ) : (
-                <p className="text-slate-500 text-xs mb-5">This category has no items.</p>
-              );
-            })()}
-            <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => setDeleteCatConfirm(null)} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">
-                Cancel
-              </button>
-              <button onClick={() => deleteCategory(deleteCatConfirm)} className="py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold text-sm transition-colors">
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Add category modal ──────────────────────────────────────────── */}
-      {showAddCategory && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
-              <h3 className="text-white font-bold">Add Category</h3>
-              <button onClick={() => setShowAddCategory(false)} className="text-slate-400 hover:text-white"><X size={18} /></button>
-            </div>
-            <div className="p-5 space-y-4">
-              <div className="flex gap-3">
-                <div className="w-20 flex-shrink-0">
-                  <label className="text-xs text-slate-400 mb-1 block">Emoji</label>
-                  <input
-                    value={newCategory.emoji}
-                    onChange={(e) => setNewCategory((d) => ({ ...d, emoji: e.target.value }))}
-                    placeholder="🍽️"
-                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-center text-base outline-none focus:border-orange-500"
-                  />
-                </div>
-                <div className="flex-1">
-                  <label className="text-xs text-slate-400 mb-1 block">Name *</label>
-                  <input
-                    value={newCategory.name}
-                    onChange={(e) => setNewCategory((d) => ({ ...d, name: e.target.value }))}
-                    placeholder="e.g. Starters"
-                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 mb-2 block">Colour</label>
-                <div className="flex flex-wrap gap-2">
-                  {PRESET_COLORS.map((c) => (
-                    <button
-                      key={c}
-                      onClick={() => setNewCategory((d) => ({ ...d, color: c }))}
-                      className="w-8 h-8 rounded-lg transition-all"
-                      style={{
-                        backgroundColor: c,
-                        outline: newCategory.color === c ? `3px solid white` : "none",
-                        outlineOffset: "2px",
-                        boxShadow: newCategory.color === c ? `0 0 0 1px ${c}` : "none",
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="px-5 pb-5 grid grid-cols-2 gap-2">
-              <button onClick={() => setShowAddCategory(false)} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">Cancel</button>
-              <button
-                onClick={addCategory}
-                disabled={!newCategory.name.trim()}
-                className="px-1 py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Add Category
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Edit product modal ─────────────────────────────────────────── */}
       {editProduct && (
@@ -1188,6 +914,9 @@ export default function MenuTab() {
                   <option value="">Select category</option>
                   {categories.map((c) => <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>)}
                 </select>
+                {categories.length === 0 && (
+                  <p className="text-amber-400/90 text-[11px] mt-1">No categories yet — add one from Admin → Menu first.</p>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1557,6 +1286,10 @@ function VariationsEditor({
   value, currencySymbol, onChange,
 }: { value: Variation[]; currencySymbol: string; onChange: (next: Variation[]) => void }) {
   const sym = currencySymbol;
+  // Raw price text per option id, so the field can be empty / mid-decimal ("0.")
+  // while the model stays a number. Without this a `value={number}` input can't
+  // be cleared (it snaps back to 0) and decimals like 0.50 can't be typed.
+  const [rawPrice, setRawPrice] = useState<Record<string, string>>({});
 
   function update(idx: number, patch: Partial<Variation>) {
     onChange(value.map((v, i) => (i === idx ? { ...v, ...patch } : v)));
@@ -1569,7 +1302,7 @@ function VariationsEditor({
   }
   function addOption(idx: number) {
     const v = value[idx];
-    update(idx, { options: [...v.options, { id: crypto.randomUUID(), label: "", price: 0 }] });
+    update(idx, { options: [...v.options, { id: uuid(), label: "", price: 0 }] });
   }
   function updateOption(vIdx: number, oIdx: number, patch: { label?: string; price?: number }) {
     const v = value[vIdx];
@@ -1627,9 +1360,15 @@ function VariationsEditor({
                     <div className="relative w-24">
                       <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 text-xs">+{sym}</span>
                       <input
-                        type="number" min="0" step="0.25"
-                        value={opt.price}
-                        onChange={(e) => updateOption(vi, oi, { price: parseFloat(e.target.value) || 0 })}
+                        type="text" inputMode="decimal"
+                        value={rawPrice[opt.id] ?? (opt.price ? String(opt.price) : "")}
+                        onChange={(e) => {
+                          const t = e.target.value;
+                          if (t !== "" && !/^\d*\.?\d*$/.test(t)) return; // digits + one dot only
+                          setRawPrice((r) => ({ ...r, [opt.id]: t }));
+                          updateOption(vi, oi, { price: t === "" ? 0 : parseFloat(t) || 0 });
+                        }}
+                        placeholder="0"
                         className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-7 pr-2 py-1 text-white text-sm outline-none focus:border-orange-500"
                       />
                     </div>
@@ -1663,6 +1402,8 @@ function AddOnsEditor({
   value, currencySymbol, onChange,
 }: { value: AddOn[]; currencySymbol: string; onChange: (next: AddOn[]) => void }) {
   const sym = currencySymbol;
+  // Raw price text per add-on id — see VariationsEditor for the why.
+  const [rawPrice, setRawPrice] = useState<Record<string, string>>({});
 
   function update(idx: number, patch: Partial<AddOn>) {
     onChange(value.map((a, i) => (i === idx ? { ...a, ...patch } : a)));
@@ -1693,9 +1434,15 @@ function AddOnsEditor({
             <div className="relative w-24">
               <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 text-xs">+{sym}</span>
               <input
-                type="number" min="0" step="0.25"
-                value={a.price}
-                onChange={(e) => update(ai, { price: parseFloat(e.target.value) || 0 })}
+                type="text" inputMode="decimal"
+                value={rawPrice[a.id] ?? (a.price ? String(a.price) : "")}
+                onChange={(e) => {
+                  const t = e.target.value;
+                  if (t !== "" && !/^\d*\.?\d*$/.test(t)) return; // digits + one dot only
+                  setRawPrice((r) => ({ ...r, [a.id]: t }));
+                  update(ai, { price: t === "" ? 0 : parseFloat(t) || 0 });
+                }}
+                placeholder="0"
                 className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-7 pr-2 py-1.5 text-white text-sm outline-none focus:border-orange-500"
               />
             </div>

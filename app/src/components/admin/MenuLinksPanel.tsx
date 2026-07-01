@@ -1,5 +1,6 @@
 "use client";
 
+import { uuid } from "@/lib/uuid";
 import { useState } from "react";
 import { useApp } from "@/context/AppContext";
 import type { MenuLink } from "@/types";
@@ -257,7 +258,7 @@ function MenuSection({
 
   function handleAdd(label: string, href: string) {
     const newLink: MenuLink = {
-      id: crypto.randomUUID(),
+      id: uuid(),
       label,
       href,
       location,

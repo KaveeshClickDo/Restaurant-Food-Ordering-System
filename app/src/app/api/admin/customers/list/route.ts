@@ -92,6 +92,10 @@ function mapCustomer(row: any, orders: any[], posSales: any[], agg: AggregateBuc
     storeCredit:    row.store_credit != null ? Number(row.store_credit) : undefined,
     emailVerified:  row.email_verified ?? undefined,
     active:         row.active ?? true,
+    // Soft-delete state — present so the admin panel can badge deleted rows and
+    // offer Restore. deletedAt null/absent = a live customer.
+    deletedAt:           row.deleted_at ?? undefined,
+    reactivationBlocked: row.reactivation_blocked ?? undefined,
     // POS-shared fields — null/undefined-safe for legacy rows pre-dating Bug #11.
     loyaltyPoints:   row.loyalty_points     != null ? Number(row.loyalty_points)     : 0,
     giftCardBalance: row.gift_card_balance  != null ? Number(row.gift_card_balance)  : 0,
@@ -172,7 +176,7 @@ export async function GET() {
   ] = await Promise.all([
     supabaseAdmin
       .from("customers")
-      .select("id, name, email, phone, tags, favourites, saved_addresses, store_credit, created_at, email_verified, loyalty_points, gift_card_balance, notes, active")
+      .select("id, name, email, phone, tags, favourites, saved_addresses, store_credit, created_at, email_verified, loyalty_points, gift_card_balance, notes, active, deleted_at, reactivation_blocked")
       .neq("id", POS_WALK_IN_ID),
     supabaseAdmin
       .from("orders")
@@ -274,6 +278,8 @@ export async function GET() {
       storeCredit:    undefined,
       emailVerified:  undefined,
       active:         false,
+      deletedAt:           undefined,
+      reactivationBlocked: undefined,
       loyaltyPoints:   0,
       giftCardBalance: 0,
       notes:           "Orders from accounts the admin has deleted. Preserved for audit.",

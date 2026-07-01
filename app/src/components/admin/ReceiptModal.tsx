@@ -38,7 +38,7 @@ function fmtTime(iso: string) {
 export function buildPrintHtml(
     order: Order,
     customer: Customer,
-    rs: { showLogo: boolean; logoUrl: string; restaurantName: string; phone: string; website: string; email: string; vatNumber: string; thankYouMessage: string; customMessage: string },
+    rs: { showLogo: boolean; logoUrl: string; restaurantName: string; address: string; phone: string; website: string; email: string; vatNumber: string; thankYouMessage: string; customMessage: string },
     restaurantAddress: string,
     sym: string,
     showVat: boolean,
@@ -85,6 +85,7 @@ export function buildPrintHtml(
   <div class="d"></div>
   <div class="c b">RECEIPT</div>
   <div class="c sm" style="word-break:break-all">${fullOrderNumber(order.id)}</div>
+  ${order.id?.startsWith("OFF") ? `<div class="c sm" style="font-weight:700;color:#b45309">OFFLINE SALE</div>` : ""}
   <div class="c sm">${fmtDate(order.date)} at ${fmtTime(order.date)}</div>
   <div class="d"></div>
   <div class="row"><span>Customer:</span><span>${customer.name}</span></div>
@@ -131,7 +132,7 @@ export function ReceiptModal({
     const { settings } = useApp();
     const sym = settings.currency?.symbol ?? "£";
     const { restaurant, receiptSettings: rs } = settings;
-    const restaurantAddress = [restaurant.addressLine1, restaurant.city, restaurant.postcode].filter(Boolean).join(", ");
+    const restaurantAddress = rs.address?.trim() || [restaurant.addressLine1, restaurant.city, restaurant.postcode].filter(Boolean).join(", ");
     const tax = settings.taxSettings;
     const showVat = order.vatInclusive ? tax.showBreakdown : true;
 
@@ -183,6 +184,9 @@ export function ReceiptModal({
                     <div className="flex items-center gap-2 max-w-[60%]">
                         <Receipt size={16} className="text-orange-500" />
                         <h2 title={`Receipt ${fullOrderNumber(order.id)}`} className="font-bold text-gray-900 text-sm truncate">Receipt {fullOrderNumber(order.id)}</h2>
+                        {order.id?.startsWith("OFF") && (
+                            <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0">OFFLINE SALE</span>
+                        )}
                     </div>
                     <div className="flex items-center gap-2">
                         <button

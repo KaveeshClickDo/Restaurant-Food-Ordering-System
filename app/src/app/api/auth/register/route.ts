@@ -71,24 +71,61 @@ export async function POST(req: NextRequest) {
   const parsed = await parseBody(req, RegisterSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const { id, name, email, phone, password, createdAt } = parsed.data;
-
-  // ── Duplicate check ───────────────────────────────────────────────────────
-  const { data: existing } = await supabaseAdmin
-    .from("customers").select("id").eq("email", email.trim().toLowerCase()).maybeSingle();
-  if (existing) {
-    return NextResponse.json({ ok: false, error: "An account with this email already exists." }, { status: 409 });
-  }
+  const normEmail = email.trim().toLowerCase();
 
   // ── Hash password + generate verification token ───────────────────────────
+  // Needed by both the fresh-insert and reactivation paths below.
   const passwordHash = await bcrypt.hash(password, 10);
   const rawToken     = randomBytes(32).toString("hex");
   const hashedToken  = hashToken(rawToken);
   const tokenExpires = new Date(Date.now() + VERIFY_TTL_MS).toISOString();
 
+  // ── Existing-email handling ───────────────────────────────────────────────
+  // A soft-deleted account still occupies its email (UNIQUE), so re-registering
+  // reactivates the ORIGINAL row rather than inserting a duplicate — restoring
+  // its orders, loyalty points, saved addresses, and notes. A live account, or a
+  // soft-deleted account that was blocked (banned), both surface the same generic
+  // "already exists" — the ban is never revealed.
+  const { data: existing } = await supabaseAdmin
+    .from("customers")
+    .select("id, deleted_at, reactivation_blocked")
+    .eq("email", normEmail)
+    .maybeSingle();
+
+  if (existing) {
+    if (!existing.deleted_at || existing.reactivation_blocked) {
+      return NextResponse.json({ ok: false, error: "An account with this email already exists." }, { status: 409 });
+    }
+
+    // Reactivate: reset the password + re-run email verification before login is
+    // allowed again (the existing email_verified gate keeps them out until then).
+    const { error: errReactivate } = await supabaseAdmin
+      .from("customers")
+      .update({
+        name:                       name.trim(),
+        phone:                      phone?.trim() ?? "",
+        password_hash:              passwordHash,
+        email_verified:             false,
+        email_verification_token:   hashedToken,
+        email_verification_expires: tokenExpires,
+        deleted_at:                 null,
+        reactivated_at:             new Date().toISOString(),
+      })
+      .eq("id", existing.id);
+
+    if (errReactivate) {
+      console.error("auth/register reactivate:", errReactivate.message);
+      return NextResponse.json({ ok: false, error: errReactivate.message }, { status: 500 });
+    }
+
+    await sendVerificationEmail(normEmail, name.trim(), rawToken);
+    return NextResponse.json({ ok: true, requiresVerification: true, email: normEmail });
+  }
+
   const baseRow = {
     id,
     name:            name.trim(),
-    email:           email.trim().toLowerCase(),
+    email:           normEmail,
     phone:           phone?.trim() ?? "",
     created_at:      createdAt ?? new Date().toISOString(),
     tags:            [],
@@ -112,11 +149,11 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Send verification email ───────────────────────────────────────────────
-  await sendVerificationEmail(email.trim().toLowerCase(), name.trim(), rawToken);
+  await sendVerificationEmail(normEmail, name.trim(), rawToken);
 
   return NextResponse.json({
     ok: true,
     requiresVerification: true,
-    email: email.trim().toLowerCase(),
+    email: normEmail,
   });
 }

@@ -1,9 +1,9 @@
 /**
- * POST   /api/pos/auth — validate a POS staff PIN and issue a session cookie.
+ * POST   /api/pos/auth — validate a POS staff password and issue a session cookie.
  * DELETE /api/pos/auth — clear the POS session cookie (logout).
  * GET    /api/pos/auth — return the current staff record if the cookie is valid.
  *
- * Reads from the pos_staff table; PINs are bcrypt-hashed in pin_hash and
+ * Reads from the pos_staff table; passwords are bcrypt-hashed in password_hash and
  * never sent to the browser. POSContext relies on this endpoint to hydrate
  * `currentStaff` from the httpOnly cookie on every page load.
  */
@@ -19,7 +19,8 @@ import {
 } from "@/lib/auth";
 import { rateLimit } from "@/lib/rateLimit";
 import { parseBody } from "@/lib/apiValidation";
-import { StaffPinLoginSchema } from "@/lib/schemas/auth";
+import { PosPasswordLoginSchema } from "@/lib/schemas/auth";
+import { issueDeviceToken } from "@/lib/posDeviceToken";
 
 const POS_SESSION_HOURS = 8; // typical shift length
 const PUBLIC_COLUMNS = "id, name, email, role, active, permissions, hourly_rate, avatar_color, created_at";
@@ -42,9 +43,9 @@ function mapStaff(row: any) {
 }
 
 export async function POST(req: NextRequest) {
-  const parsed = await parseBody(req, StaffPinLoginSchema);
+  const parsed = await parseBody(req, PosPasswordLoginSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { staffId, pin } = parsed.data;
+  const { staffId, password, deviceId, deviceLabel } = parsed.data;
 
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
   const { limited } = rateLimit(`pos-auth:${ip}:${staffId}`, 10, 60_000);
@@ -65,18 +66,25 @@ export async function POST(req: NextRequest) {
 
     const { data: member } = await supabaseAdmin
       .from("pos_staff")
-      .select(`${PUBLIC_COLUMNS}, pin_hash, session_version`)
+      .select(`${PUBLIC_COLUMNS}, password_hash, session_version`)
       .eq("id", staffId)
       .eq("active", true)
       .maybeSingle();
 
     if (!member) {
-      return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
+      return NextResponse.json({ ok: false, error: "Incorrect password." }, { status: 401 });
     }
 
-    const valid = await bcrypt.compare(pin, member.pin_hash);
+    if (!member.password_hash) {
+      return NextResponse.json(
+        { ok: false, error: "No password set for this account. Ask your admin to set one." },
+        { status: 403 },
+      );
+    }
+
+    const valid = await bcrypt.compare(password, member.password_hash);
     if (!valid) {
-      return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
+      return NextResponse.json({ ok: false, error: "Incorrect password." }, { status: 401 });
     }
 
     const token = createSessionToken(
@@ -88,7 +96,16 @@ export async function POST(req: NextRequest) {
       POS_SESSION_HOURS * 60 * 60 * 1000,
     );
 
-    const res = NextResponse.json({ ok: true, staff: mapStaff(member) });
+    // B2: on the Android tablet (deviceId present), issue a device refresh token
+    // so the cashier can later log back in with their local PIN instead of the
+    // password. The website omits deviceId → no token. Best-effort; a failure
+    // here doesn't block the login (they just won't have PIN re-login yet).
+    let deviceToken: string | null = null;
+    if (deviceId) {
+      deviceToken = await issueDeviceToken(staffId, deviceId, deviceLabel);
+    }
+
+    const res = NextResponse.json({ ok: true, staff: mapStaff(member), deviceToken });
     setSessionCookie(res, COOKIE_POS, token);
     return res;
   } catch (err) {

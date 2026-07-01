@@ -5,10 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
 import { useConnectivity } from "@/lib/connectivity";
+import { isCapacitorAndroid } from "@/lib/capacitorBridge";
+import { onPendingChange, pendingCount, drainOutbox } from "@/lib/posOutbox";
 import {
-  ChefHat, LogOut, WifiOff, RefreshCw,
+  ChefHat, LogOut, WifiOff, RefreshCw, Cloud,
   ShoppingCart, LayoutDashboard, Users, UserCog, Settings2,
-  UtensilsCrossed, CalendarDays, PackageCheck,
+  UtensilsCrossed, CalendarDays, PackageCheck, History,
 } from "lucide-react";
 import { getInitials } from "@/components/pos/_utils";
 import type { View } from "@/components/pos/_types";
@@ -26,6 +28,21 @@ import CollectionFooter from "@/components/collection/CollectionFooter";
 // or shared link keeps the same tab open — mirrors /admin?tab=<id>.
 const TAB_VIEWS: View[] = ["sale", "collection", "dashboard", "customers", "tables", "reservations", "staff", "settings"];
 
+// Tabs that are useless offline (live server data only) — greyed out + not
+// tappable when offline, and we bounce off them to Sale if connectivity drops.
+// (Dashboard/Customers/Staff/Settings stay usable offline: cached/read-only.)
+const OFFLINE_BLOCKED_VIEWS = new Set<View>(["collection", "tables", "reservations"]);
+
+// Show the "menu may be outdated" banner only after the cached menu is older
+// than this (4h) — short outages shouldn't nag the cashier.
+const MENU_STALE_MS = 4 * 60 * 60 * 1000;
+function formatAge(ms: number): string {
+  const h = Math.floor(ms / 3_600_000);
+  if (h < 24) return `${h} hour${h === 1 ? "" : "s"}`;
+  const d = Math.floor(h / 24);
+  return `${d} day${d === 1 ? "" : "s"}`;
+}
+
 export default function POSPage() {
   // useSearchParams() must be read inside a Suspense boundary (Next.js app router).
   return (
@@ -38,7 +55,7 @@ export default function POSPage() {
 function POSPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { currentStaff, sessionLoading, logout, settings } = usePOS();
+  const { currentStaff, sessionLoading, logout, settings, menuCachedAt } = usePOS();
   const { settings: appSettings, refreshDiningTables } = useApp();
 
   // Honor ?tab=<view> on first paint so a refresh / shared link lands on the
@@ -61,10 +78,58 @@ function POSPageContent() {
   }, [refreshDiningTables]);
 
   // ── Connectivity ──────────────────────────────────────────────────────────
-  // Sales go straight to the server (no offline queue), so the only thing
-  // the connectivity hook drives now is the "card payments unavailable"
-  // offline banner below.
+  // On web, sales hard-fail when offline — the banner below tells the cashier
+  // to wait. On Capacitor Android, the cashier can keep ringing up cash sales
+  // and they queue to the local SQLite outbox (lib/posOutbox.ts); the drain
+  // effect immediately below pushes them to the server when connectivity
+  // restores.
   const { isOnline, recheck } = useConnectivity();
+  const onAndroid = isCapacitorAndroid();
+
+  // ── Outbox pending-count subscription ─────────────────────────────────────
+  // The outbox lives in on-device SQLite. We subscribe to its change events
+  // (fired by enqueue / drain) and also hydrate the initial value on mount so
+  // a queue that survives a page refresh is reflected immediately.
+  const [outboxCount, setOutboxCount] = useState(0);
+  useEffect(() => {
+    if (!onAndroid) return;
+    pendingCount().then(setOutboxCount).catch(() => {});
+    return onPendingChange(setOutboxCount);
+  }, [onAndroid]);
+
+  // ── Drain on connectivity ─────────────────────────────────────────────────
+  // Every time isOnline becomes true we kick a drain. drainOutbox latches
+  // against itself so a rapid sequence of online events collapses into a
+  // single in-flight pass — no manual prev-state tracking needed.
+  useEffect(() => {
+    if (!onAndroid || !isOnline) return;
+    drainOutbox().catch(() => {});
+  }, [onAndroid, isOnline]);
+
+  // ── Sync on app open / resume ─────────────────────────────────────────────
+  // We deliberately don't run a closed-app background worker (the outbox lives
+  // in encrypted SQLite a native worker can't read — see docs/pos-offline).
+  // Instead, queued sales upload whenever the cashier opens or returns to the
+  // app: the cold-open drain is covered by the effect above (isOnline starts
+  // true); this covers a WARM RESUME from the background, where isOnline never
+  // transitions so that effect wouldn't refire. We re-probe connectivity, and
+  // only drain when we currently believe we're online — draining while offline
+  // would burn the per-entry retry budget for nothing.
+  useEffect(() => {
+    if (!onAndroid) return;
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      recheck();                                    // refresh connectivity now
+      if (isOnline) drainOutbox().catch(() => {});  // drain queued sales if reachable
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [onAndroid, isOnline, recheck]);
+
+  // If connectivity drops while on a tab that can't work offline, bounce to Sale.
+  useEffect(() => {
+    if (!isOnline && OFFLINE_BLOCKED_VIEWS.has(view)) setView("sale");
+  }, [isOnline, view]);
 
   // Mount guard: prevents SSR/hydration mismatch from localStorage state
   useEffect(() => { setMounted(true); }, []);
@@ -197,13 +262,16 @@ function POSPageContent() {
         </button>
       </header>
 
-      {/* Offline banner — sales now go straight to the server, so this is
-          purely a "card terminal may be unavailable" advisory. */}
+      {/* Offline banner. On web the cashier cannot complete a sale offline.
+          On Capacitor Android the outbox catches cash sales and the message
+          changes to reflect that — see lib/posOutbox.ts. */}
       {!isOnline && (
         <div className="flex-shrink-0 bg-amber-500/10 border-b border-amber-500/30 px-4 py-2 flex items-center gap-3">
           <WifiOff size={14} className="text-amber-400 flex-shrink-0" />
           <p className="text-amber-300 text-xs font-medium flex-1">
-            No internet connection — sales cannot be completed until you reconnect.
+            {onAndroid
+              ? "No internet connection — cash and card sales will queue and sync when you reconnect. Confirm card on terminal before completing. Gift cards unavailable."
+              : "No internet connection — sales cannot be completed until you reconnect."}
           </p>
           <button
             onClick={recheck}
@@ -212,6 +280,33 @@ function POSPageContent() {
           >
             <RefreshCw size={13} />
           </button>
+        </div>
+      )}
+
+      {/* Pending-sync banner — shown whenever the local SQLite outbox is
+          non-empty, regardless of connectivity. Online + non-zero means a
+          drain is in progress; offline + non-zero means the queue is waiting
+          for reconnection. */}
+      {onAndroid && outboxCount > 0 && (
+        <div className="flex-shrink-0 bg-blue-500/10 border-b border-blue-500/30 px-4 py-2 flex items-center gap-3">
+          <Cloud size={14} className={`text-blue-400 flex-shrink-0 ${isOnline ? "animate-pulse" : ""}`} />
+          <p className="text-blue-300 text-xs font-medium flex-1">
+            {isOnline
+              ? `Syncing ${outboxCount} offline sale${outboxCount > 1 ? "s" : ""}…`
+              : `${outboxCount} sale${outboxCount > 1 ? "s" : ""} pending sync — will upload when reconnected.`}
+          </p>
+        </div>
+      )}
+
+      {/* Stale-cache banner — when offline and the cached menu is old, warn the
+          cashier that prices/items may be out of date (1.6). Self-clears once
+          back online (menuCachedAt → null on a live load). */}
+      {!isOnline && menuCachedAt !== null && (Date.now() - menuCachedAt > MENU_STALE_MS) && (
+        <div className="flex-shrink-0 bg-orange-500/10 border-b border-orange-500/30 px-4 py-2 flex items-center gap-3">
+          <History size={14} className="text-orange-400 flex-shrink-0" />
+          <p className="text-orange-300 text-xs font-medium flex-1">
+            Menu last updated {formatAge(Date.now() - menuCachedAt)} ago — items/prices may be outdated. Reconnect to refresh.
+          </p>
         </div>
       )}
 
@@ -231,14 +326,20 @@ function POSPageContent() {
       <nav className="flex-shrink-0 h-16 bg-slate-900 border-t border-slate-700/50 flex items-stretch">
         {NAV.map((item) => {
           const active = view === item.id;
+          // Fully-offline-blocked tabs: grey out + not tappable when offline.
+          const blocked = !isOnline && OFFLINE_BLOCKED_VIEWS.has(item.id);
           return (
             <button
               key={item.id}
-              onClick={() => selectView(item.id)}
-              className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all active:scale-95 ${
+              onClick={() => { if (!blocked) selectView(item.id); }}
+              disabled={blocked}
+              title={blocked ? "Needs internet" : undefined}
+              className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all ${blocked ? "" : "active:scale-95"} ${
                 active
                   ? "text-orange-400 bg-orange-500/10 border-t-2 border-orange-500"
-                  : "text-slate-500 hover:text-slate-300 border-t-2 border-transparent"
+                  : blocked
+                    ? "text-slate-700 cursor-not-allowed border-t-2 border-transparent"
+                    : "text-slate-500 hover:text-slate-300 border-t-2 border-transparent"
               }`}
             >
               <item.icon size={20} />

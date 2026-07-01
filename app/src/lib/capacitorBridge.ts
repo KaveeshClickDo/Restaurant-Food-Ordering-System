@@ -50,16 +50,31 @@ export interface BluetoothDevice {
 
 interface _BTPlugin {
   getPairedDevices(): Promise<{ devices: BluetoothDevice[] }>;
-  print(opts: { address: string; bytes: number[] }): Promise<void>;
+  print(opts: { address: string; data: string }): Promise<void>; // data = base64 ESC/POS
 }
 
 interface _USBPlugin {
   getDevices(): Promise<{ devices: Array<{ name: string; deviceId: number }> }>;
-  print(opts: { bytes: number[]; deviceId?: number }): Promise<void>;
+  print(opts: { data: string; deviceId?: number }): Promise<void>; // data = base64 ESC/POS
 }
 
 interface _TCPPlugin {
-  print(opts: { ip: string; port: number; bytes: number[] }): Promise<void>;
+  // `data` is base64-encoded ESC/POS bytes. A raw number[] of several hundred
+  // ints transferred unreliably across the Capacitor bridge (the socket
+  // connected but 0 bytes arrived); base64 is a compact, lossless string.
+  print(opts: { ip: string; port: number; data: string }): Promise<void>;
+}
+
+/**
+ * Encode ESC/POS bytes (0–255 ints) as base64 for a lossless, compact transfer
+ * across the Capacitor JS↔native bridge. A raw number[] of several hundred ints
+ * did not survive the bridge reliably (socket connected but 0 bytes arrived).
+ * Built char-by-char to stay safe for receipt-sized payloads.
+ */
+function bytesToBase64(bytes: number[]): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i] & 0xff);
+  return btoa(bin);
 }
 
 // ─── Bluetooth printer ────────────────────────────────────────────────────────
@@ -96,7 +111,7 @@ export async function sendBluetooth(
     };
   }
   try {
-    await plugin.print({ address, bytes });
+    await plugin.print({ address, data: bytesToBase64(bytes) });
     return { ok: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -143,7 +158,7 @@ export async function sendUsb(
     };
   }
   try {
-    await plugin.print({ bytes, deviceId });
+    await plugin.print({ data: bytesToBase64(bytes), deviceId });
     return { ok: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -169,7 +184,7 @@ export async function sendTcpNative(
     return { ok: false, error: "native_unavailable" };
   }
   try {
-    await plugin.print({ ip, port, bytes });
+    await plugin.print({ ip, port, data: bytesToBase64(bytes) });
     return { ok: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

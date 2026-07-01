@@ -9,6 +9,7 @@
 
 import type { AdminSettings, Order } from "@/types";
 import { fullOrderNumber } from "@/lib/orderNumber";
+import { apiBase } from "@/lib/apiBase";
 
 // ─── ESC/POS byte constants ──────────────────────────────────────────────────
 
@@ -16,14 +17,45 @@ const ESC = 0x1b;
 const GS  = 0x1d;
 const LF  = 0x0a;
 
+// Currency/symbols that exist in code page CP437 (the printer is set to CP437 in
+// ReceiptBuilder.init()). The currency symbol is admin-configurable, so the text
+// encoder maps these to their CP437 byte instead of dropping them to '?'.
+const CP437_SYMBOL: Record<string, number> = {
+  "£": 0x9c, // pound
+  "¥": 0x9d, // yen
+  "¢": 0x9b, // cent
+  "₧": 0x9e, // peseta
+};
+
+// Symbols CP437 has NO glyph for (euro, rupee, etc.) — fall back to a short ASCII
+// code so the price stays legible (e.g. "EUR 7.95") rather than printing garbage.
+const ASCII_CURRENCY_FALLBACK: Record<string, string> = {
+  "€": "EUR ",
+  "₹": "Rs ",
+  "₩": "KRW ",
+  "₺": "TRY ",
+  "฿": "THB ",
+  "₪": "ILS ",
+  "₱": "PHP ",
+};
+
 // ─── Receipt builder ─────────────────────────────────────────────────────────
 
 export class ReceiptBuilder {
   private buf: number[] = [];
 
-  /** ESC @ — reset printer to factory defaults */
+  /** ESC @ — reset printer to factory defaults, then select CP437 so the £
+   *  sign (mapped to 0x9C in text()) prints correctly. CP437 is the default
+   *  code page on virtually all ESC/POS printers; ESC t 0 makes it explicit. */
   init() {
     this.buf.push(ESC, 0x40);
+    this.buf.push(ESC, 0x74, 0x00); // ESC t 0 — code page CP437
+    return this;
+  }
+
+  /** Inject pre-built raw ESC/POS bytes (e.g. a GS v 0 raster logo). */
+  raw(bytes: number[]) {
+    for (const x of bytes) this.buf.push(x);
     return this;
   }
 
@@ -50,11 +82,23 @@ export class ReceiptBuilder {
     return this;
   }
 
-  /** Append raw ASCII text (non-ASCII chars mapped to '?') */
+  /**
+   * Append text for a CP437 printer (see init()). The currency symbol is
+   * ADMIN-CONFIGURABLE, so this must handle any symbol, not just £:
+   *   • ASCII (incl. $)            → passes straight through
+   *   • symbols CP437 has (£ ¥ ¢)  → their CP437 byte, so they print correctly
+   *   • symbols CP437 lacks (€ ₹…) → a short ASCII code ("EUR", "Rs"), still legible
+   *   • anything else              → '?'
+   */
   text(str: string) {
     for (const ch of str) {
       const code = ch.charCodeAt(0);
-      this.buf.push(code < 128 ? code : 0x3f); // '?' for multibyte
+      if (code < 128) { this.buf.push(code); continue; }
+      const cp = CP437_SYMBOL[ch];
+      if (cp !== undefined) { this.buf.push(cp); continue; }
+      const fb = ASCII_CURRENCY_FALLBACK[ch];
+      if (fb) { for (const c of fb) this.buf.push(c.charCodeAt(0)); continue; }
+      this.buf.push(0x3f); // '?'
     }
     return this;
   }
@@ -113,14 +157,120 @@ export class ReceiptBuilder {
   }
 }
 
+// ─── Logo raster (GS v 0) ─────────────────────────────────────────────────────
+
+/** Printable dot width for a given character width (58mm/32c → 384, 80mm/48c → 576). */
+export function paperDotWidth(paperWidthChars: number): number {
+  return (paperWidthChars === 32 ? 32 : 48) * 12;
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload  = () => resolve(img);
+    img.onerror = () => reject(new Error("logo image failed to load"));
+    img.src = src;
+  });
+}
+
+/**
+ * Convert a logo (URL or base64 data URL) into an ESC/POS raster block (GS v 0),
+ * scaled to fit the printer's dot width and centred. Transparent pixels print
+ * white. Returns null when it can't render (SSR, no image, load/canvas failure)
+ * so callers just skip it. Async because it loads the image + reads a canvas —
+ * call it before the sync receipt builder and pass the bytes in.
+ *
+ * `dither`: false → hard luminance threshold (crisp for flat/line-art logos);
+ * true → Floyd–Steinberg error diffusion (renders gradients/shading/photos as a
+ * dot pattern, like a real store logo). Solid black areas stay solid either way.
+ */
+export async function logoToRaster(
+  src: string,
+  dotWidth: number,
+  opts: { dither?: boolean; maxHeight?: number } = {},
+): Promise<number[] | null> {
+  if (!src || typeof document === "undefined") return null;
+  const dither = opts.dither ?? false;
+  const maxHeight = opts.maxHeight ?? 160;
+  try {
+    const img = await loadImage(src);
+    const iw = img.naturalWidth  || img.width;
+    const ih = img.naturalHeight || img.height;
+    if (!iw || !ih) return null;
+
+    const scale = Math.min(dotWidth / iw, maxHeight / ih);
+    const w = Math.max(1, Math.round(iw * scale));
+    const h = Math.max(1, Math.round(ih * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, w, h);          // flatten transparency onto white
+    ctx.drawImage(img, 0, 0, w, h);
+    const { data } = ctx.getImageData(0, 0, w, h);
+
+    // Grayscale buffer (transparent → white so it drops out).
+    const gray = new Float32Array(w * h);
+    for (let p = 0; p < w * h; p++) {
+      const i = p * 4;
+      gray[p] = data[i + 3] < 128
+        ? 255
+        : 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    }
+
+    const widthBytes = Math.ceil(dotWidth / 8);
+    const xOffset = Math.max(0, Math.floor((dotWidth - w) / 2)); // centre the logo
+    const raster = new Array<number>(widthBytes * h).fill(0);
+    const setDot = (x: number, y: number) => {
+      const px = xOffset + x;
+      if (px < dotWidth) raster[y * widthBytes + (px >> 3)] |= (0x80 >> (px & 7));
+    };
+
+    if (dither) {
+      // Floyd–Steinberg error diffusion → 1-bit halftone.
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const p = y * w + x;
+          const oldV = gray[p];
+          const newV = oldV < 128 ? 0 : 255;
+          if (newV === 0) setDot(x, y);
+          const err = oldV - newV;
+          if (x + 1 < w)               gray[p + 1]     += err * 7 / 16;
+          if (y + 1 < h) {
+            if (x > 0)                 gray[p + w - 1] += err * 3 / 16;
+                                       gray[p + w]     += err * 5 / 16;
+            if (x + 1 < w)             gray[p + w + 1] += err * 1 / 16;
+          }
+        }
+      }
+    } else {
+      // Hard threshold — crisp for flat/solid logos.
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          if (gray[y * w + x] < 160) setDot(x, y);
+        }
+      }
+    }
+
+    const xL = widthBytes & 0xff, xH = (widthBytes >> 8) & 0xff;
+    const yL = h & 0xff,          yH = (h >> 8) & 0xff;
+    return [GS, 0x76, 0x30, 0x00, xL, xH, yL, yH, ...raster];
+  } catch {
+    return null;
+  }
+}
+
 // ─── Receipt templates ───────────────────────────────────────────────────────
 
 function fmt(n: number, sym: string) {
   return `${sym}${n.toFixed(2)}`;
 }
 
-/** Build a full order receipt as ESC/POS bytes. */
-export function buildReceipt(order: Order, settings: AdminSettings): number[] {
+/** Build a full order receipt as ESC/POS bytes. `logoBytes` is a pre-rendered
+ *  GS v 0 raster (from logoToRaster) printed above the name when Show Logo is on. */
+export function buildReceipt(order: Order, settings: AdminSettings, logoBytes?: number[] | null): number[] {
   const W  = [32, 48].includes(settings.printer.paperWidth) ? settings.printer.paperWidth : 48;
   const r  = settings.restaurant;
   const rs = settings.receiptSettings;
@@ -130,16 +280,23 @@ export function buildReceipt(order: Order, settings: AdminSettings): number[] {
   const receiptName  = rs?.restaurantName?.trim() || r.name;
   const receiptPhone = rs?.phone?.trim()           || r.phone;
 
-  b.init()
-   .align("center")
-   .bold(true)
+  b.init().align("center");
+  if (logoBytes && logoBytes.length) b.raw(logoBytes).feed(1);
+  b.bold(true)
    .size(true, true)
    .line(receiptName.toUpperCase())
    .size(false, false)
-   .bold(false)
-   .line(r.addressLine1)
-   .line(r.addressLine2 ? `${r.addressLine2}, ${r.city}` : r.city)
-   .line(r.postcode);
+   .bold(false);
+
+  // Receipt address: prefer the receiptSettings.address override, else fall back
+  // to the structured restaurant address.
+  if (rs?.address?.trim()) {
+    rs.address.split("\n").forEach((ln) => { if (ln.trim()) b.line(ln.trim()); });
+  } else {
+    b.line(r.addressLine1)
+     .line(r.addressLine2 ? `${r.addressLine2}, ${r.city}` : r.city)
+     .line(r.postcode);
+  }
 
   if (receiptPhone)        b.line(receiptPhone);
   if (rs?.website?.trim()) b.line(rs.website.trim());
@@ -287,7 +444,7 @@ export async function sendToPrinter(
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15_000);
     try {
-      const res  = await fetch(endpoint, {
+      const res  = await fetch(apiBase() + endpoint, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ ip, port, bytes }),
@@ -607,7 +764,13 @@ export async function printOrder(
   const mode = printer.connection ?? "network";
 
   try {
-    let bytes = buildReceipt(order, settings);
+    // Pre-render the logo raster (async) when Show Logo is on, then build the
+    // receipt (sync) with it embedded above the name.
+    const rs = settings.receiptSettings;
+    const logoBytes = rs?.showLogo && rs?.logoUrl
+      ? await logoToRaster(rs.logoUrl, paperDotWidth(printer.paperWidth), { dither: rs.logoDither })
+      : null;
+    let bytes = buildReceipt(order, settings, logoBytes);
 
     // Append cash drawer kick command when requested
     if (opts.kickDrawer) {

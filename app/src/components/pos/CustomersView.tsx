@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { usePOS } from "@/context/POSContext";
+import { useConnectivity } from "@/lib/connectivity";
 import { POSCustomer } from "@/types/pos";
 import {
   UserPlus, Search, Star, Users, Phone, Mail, Pencil, X, Trash2, Save, ArrowLeft, AlertTriangle,
@@ -15,6 +16,7 @@ export default function CustomersView() {
   // through addCustomer / updateCustomer / deleteCustomer (POSContext), not
   // setCustomers — the latter is left exposed only for read-state syncs.
   const { customers, sales, settings, addCustomer: apiAddCustomer, updateCustomer, deleteCustomer: apiDeleteCustomer } = usePOS();
+  const { isOnline } = useConnectivity();
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<POSCustomer | null>(null);
   const [showAdd, setShowAdd] = useState(false);
@@ -34,6 +36,8 @@ export default function CustomersView() {
   // Set when the server rejects a delete because the customer has non-terminal
   // orders; swaps the confirm dialog into a blocking "resolve orders first" view.
   const [deleteBlocked, setDeleteBlocked] = useState<{ id: string; status: string }[] | null>(null);
+  // When checked, the soft delete becomes a ban — re-registration is refused.
+  const [blockReg, setBlockReg] = useState(false);
 
   const filtered = customers.filter((c) =>
     !search || c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -81,7 +85,7 @@ export default function CustomersView() {
     if (!selectedLive || saving) return;
     setSaving(true);
     setDeleteBlocked(null);
-    const result = await apiDeleteCustomer(selectedLive.id);
+    const result = await apiDeleteCustomer(selectedLive.id, blockReg);
     setSaving(false);
     if (!result.ok) {
       if (result.activeOrders && result.activeOrders.length > 0) {
@@ -94,11 +98,13 @@ export default function CustomersView() {
     setSelected(null);
     setDeleteConfirm(false);
     setShowEdit(false);
+    setBlockReg(false);
   }
 
   function closeDeleteConfirm() {
     setDeleteConfirm(false);
     setDeleteBlocked(null);
+    setBlockReg(false);
   }
 
   function toggleTag(tag: string) {
@@ -143,10 +149,13 @@ export default function CustomersView() {
         <div className="p-4 border-b border-slate-700/50 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-white font-bold">Customers</h2>
-            <button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-400 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-colors">
+            <button onClick={() => setShowAdd(true)} disabled={!isOnline} title={!isOnline ? "Reconnect to add customers" : undefined} className={`flex items-center gap-1.5 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-colors ${isOnline ? "bg-orange-500 hover:bg-orange-400" : "bg-slate-700 opacity-50 cursor-not-allowed"}`}>
               <UserPlus size={14} /> Add
             </button>
           </div>
+          {!isOnline && (
+            <p className="text-amber-300 text-[11px] bg-amber-500/10 border border-amber-500/30 rounded-lg px-2.5 py-1.5">Read-only offline — you can view customers and assign them to a sale, but adding/editing needs internet.</p>
+          )}
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search customers…"
@@ -212,7 +221,9 @@ export default function CustomersView() {
               </div>
               <button
                 onClick={() => openEdit(selectedLive)}
-                className="w-full md:w-auto flex items-center justify-center gap-2 px-4 py-2 mt-2 md:mt-0 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white text-sm font-semibold transition-all flex-shrink-0"
+                disabled={!isOnline}
+                title={!isOnline ? "Reconnect to edit" : undefined}
+                className="w-full md:w-auto flex items-center justify-center gap-2 px-4 py-2 mt-2 md:mt-0 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white text-sm font-semibold transition-all flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Pencil size={14} /> Edit
               </button>
@@ -421,18 +432,30 @@ export default function CustomersView() {
                 </div>
                 <h3 className="text-white font-bold mb-1">Delete customer?</h3>
                 <p className="text-slate-400 text-sm mb-1">
-                  <span className="text-white font-semibold">{selectedLive.name}</span> will be permanently removed.
+                  <span className="text-white font-semibold">{selectedLive.name}</span> won&apos;t be able to sign in, but can rejoin by signing up again.
                 </p>
-                <p className="text-slate-500 text-xs mb-6">
-                  Their purchase history ({customerSales.length} sale{customerSales.length !== 1 ? "s" : ""}) will remain in the sales log.
+                <p className="text-slate-500 text-xs mb-4">
+                  Their purchase history ({customerSales.length} sale{customerSales.length !== 1 ? "s" : ""}), loyalty points, and details are all kept.
                 </p>
+                <label className="flex items-start gap-2.5 mb-5 p-3 rounded-xl border border-slate-700 bg-slate-900/50 cursor-pointer text-left">
+                  <input
+                    type="checkbox"
+                    checked={blockReg}
+                    onChange={(e) => setBlockReg(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-800 text-red-500 focus:ring-red-500"
+                  />
+                  <span className="text-xs text-slate-300">
+                    <span className="font-semibold text-white">Also block re-registration</span><br />
+                    Refuse any new sign-up with this email (banned customers).
+                  </span>
+                </label>
                 {saveError && <p className="text-red-400 text-xs mb-3">{saveError}</p>}
                 <div className="grid grid-cols-2 gap-2">
                   <button onClick={closeDeleteConfirm} disabled={saving} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors disabled:opacity-50">
                     Cancel
                   </button>
                   <button onClick={handleDelete} disabled={saving} className="py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold text-sm transition-colors disabled:opacity-50">
-                    {saving ? "Deleting…" : "Delete"}
+                    {saving ? "Deleting…" : (blockReg ? "Delete & block" : "Delete")}
                   </button>
                 </div>
               </>

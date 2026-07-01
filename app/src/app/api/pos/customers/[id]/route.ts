@@ -16,8 +16,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requirePosSession } from "@/lib/posPermissions";
 import { parseBody } from "@/lib/apiValidation";
-import { PosCustomerUpdateSchema } from "@/lib/schemas/customer";
+import { PosCustomerUpdateSchema, CustomerDeleteSchema } from "@/lib/schemas/customer";
 import { setLoyaltyPointsAbsolute } from "@/lib/loyaltyUtils";
+import { softDeleteCustomer } from "@/lib/customerDelete";
 
 const POS_WALK_IN_ID = "pos-walk-in";
 
@@ -88,67 +89,29 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   const gate = await requirePosSession();
   if (!gate.ok) return gate.response;
 
   const { id } = await context.params;
-  if (id === POS_WALK_IN_ID) {
+
+  // Optional { block } body — a DELETE with no body defaults to a plain
+  // (rejoinable) soft delete. Soft delete preserves the row, its orders, the
+  // loyalty ledger, and the reservation_customers CRM profile.
+  let block = false;
+  try {
+    const parsed = CustomerDeleteSchema.safeParse(await req.json());
+    if (parsed.success) block = parsed.data.block ?? false;
+  } catch { /* no body — default block=false */ }
+
+  const res = await softDeleteCustomer(id, { block });
+  if (!res.ok) {
     return NextResponse.json(
-      { ok: false, error: "The walk-in sentinel cannot be deleted." },
-      { status: 400 },
+      { ok: false, error: res.error, ...(res.activeOrders ? { activeOrders: res.activeOrders } : {}) },
+      { status: res.status ?? 500 },
     );
   }
-
-  // Block deletion while the customer has any non-terminal order. The order
-  // row would survive via ON DELETE SET NULL, but kitchen/delivery flows
-  // still depend on the customer link being live.
-  const { data: activeOrders, error: activeErr } = await supabaseAdmin
-    .from("orders")
-    .select("id, status")
-    .eq("customer_id", id)
-    .in("status", ["pending", "confirmed", "preparing", "ready"]);
-  if (activeErr) {
-    return NextResponse.json({ ok: false, error: activeErr.message }, { status: 500 });
-  }
-  if (activeOrders && activeOrders.length > 0) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "This customer has active orders. Cancel or complete them before deleting.",
-        activeOrders,
-      },
-      { status: 409 },
-    );
-  }
-
-  // Mirror the admin DELETE behaviour: also clean up the linked
-  // reservation_customers profile so the CRM table isn't orphaned by the
-  // customers FK cascade (Bug #10).
-  const { data: existing } = await supabaseAdmin
-    .from("customers")
-    .select("email")
-    .eq("id", id)
-    .maybeSingle();
-  const email = existing?.email?.toLowerCase()?.trim() || null;
-
-  const { error } = await supabaseAdmin.from("customers").delete().eq("id", id);
-  if (error) {
-    console.error("DELETE /api/pos/customers/[id]:", error.message);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  }
-
-  if (email) {
-    const { error: rcError } = await supabaseAdmin
-      .from("reservation_customers")
-      .delete()
-      .eq("email", email);
-    if (rcError) {
-      console.error("DELETE /api/pos/customers/[id] reservation_customers cleanup:", rcError.message);
-    }
-  }
-
   return NextResponse.json({ ok: true });
 }

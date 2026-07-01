@@ -1,9 +1,9 @@
 /**
- * POST   /api/collection/auth — validate a collection-staff PIN, issue a session cookie.
+ * POST   /api/collection/auth — validate a collection-staff password, issue a session cookie.
  * DELETE /api/collection/auth — clear the collection session cookie (logout).
  * GET    /api/collection/auth — return the current staff record if the cookie is valid.
  *
- * Reads from the collection_staff table; PINs are bcrypt-hashed in pin_hash and
+ * Reads from the collection_staff table; passwords are bcrypt-hashed in password_hash and
  * never sent to the browser. Mirrors /api/pos/auth and /api/kitchen/auth.
  */
 
@@ -18,7 +18,7 @@ import {
 } from "@/lib/auth";
 import { rateLimit } from "@/lib/rateLimit";
 import { parseBody } from "@/lib/apiValidation";
-import { StaffPinLoginSchema } from "@/lib/schemas/auth";
+import { StaffPasswordLoginSchema } from "@/lib/schemas/auth";
 
 const COLLECTION_SESSION_HOURS = 8; // typical shift length
 const PUBLIC_COLUMNS = "id, name, email, active, avatar_color, created_at";
@@ -38,9 +38,9 @@ function mapStaff(row: any) {
 }
 
 export async function POST(req: NextRequest) {
-  const parsed = await parseBody(req, StaffPinLoginSchema);
+  const parsed = await parseBody(req, StaffPasswordLoginSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { staffId, pin } = parsed.data;
+  const { staffId, password } = parsed.data;
 
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
   const { limited } = rateLimit(`collection-auth:${ip}:${staffId}`, 10, 60_000);
@@ -61,18 +61,25 @@ export async function POST(req: NextRequest) {
 
     const { data: member } = await supabaseAdmin
       .from("collection_staff")
-      .select(`${PUBLIC_COLUMNS}, pin_hash, session_version`)
+      .select(`${PUBLIC_COLUMNS}, password_hash, session_version`)
       .eq("id", staffId)
       .eq("active", true)
       .maybeSingle();
 
     if (!member) {
-      return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
+      return NextResponse.json({ ok: false, error: "Incorrect password." }, { status: 401 });
     }
 
-    const valid = await bcrypt.compare(pin, member.pin_hash);
+    if (!member.password_hash) {
+      return NextResponse.json(
+        { ok: false, error: "No password set for this account. Ask your admin to set one." },
+        { status: 403 },
+      );
+    }
+
+    const valid = await bcrypt.compare(password, member.password_hash);
     if (!valid) {
-      return NextResponse.json({ ok: false, error: "Incorrect PIN." }, { status: 401 });
+      return NextResponse.json({ ok: false, error: "Incorrect password." }, { status: 401 });
     }
 
     const token = createSessionToken(

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { apiBase } from "@/lib/apiBase";
 import { useApp } from "@/context/AppContext";
 import {
   RefreshCw, UtensilsCrossed, Loader2, Clock, Users, Phone, LogIn, LogOut, CheckCircle2, Crown,
@@ -48,8 +49,8 @@ export default function TableStatusView() {
       // Reservations + live order-occupancy, in parallel. Each is handled
       // independently so one failing doesn't blank the other.
       const [r, occR] = await Promise.all([
-        fetch(`/api/pos/reservations?date=${encodeURIComponent(today)}`, { cache: "no-store" }),
-        fetch(`/api/pos/tables/occupancy`, { cache: "no-store" }),
+        fetch(`${apiBase()}/api/pos/reservations?date=${encodeURIComponent(today)}`, { cache: "no-store" }),
+        fetch(`${apiBase()}/api/pos/tables/occupancy`, { cache: "no-store" }),
       ]);
 
       if (r.ok) {
@@ -105,7 +106,7 @@ export default function TableStatusView() {
     setActioning(resId);
     try {
       const now = new Date().toISOString();
-      await fetch(`/api/pos/reservations/${resId}`, {
+      await fetch(`${apiBase()}/api/pos/reservations/${resId}`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });

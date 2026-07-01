@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { apiBase } from "./apiBase";
 
 const PROBE_URL        = "/api/ping";
 const PROBE_TIMEOUT_MS = 4000;
@@ -11,7 +12,10 @@ async function probe(): Promise<boolean> {
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
-    const res = await fetch(PROBE_URL, { method: "HEAD", signal: ctrl.signal, cache: "no-store" });
+    // apiBase() prefix is REQUIRED in the bundled Capacitor app: a relative
+    // "/api/ping" resolves to https://localhost (the bundle, no /api) and always
+    // fails, leaving the app permanently "offline" so the outbox never drains.
+    const res = await fetch(apiBase() + PROBE_URL, { method: "HEAD", signal: ctrl.signal, cache: "no-store" });
     clearTimeout(timer);
     return res.ok || res.status === 204;
   } catch {
