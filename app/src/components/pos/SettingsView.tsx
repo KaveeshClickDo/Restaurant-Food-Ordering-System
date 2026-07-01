@@ -8,6 +8,7 @@ import { POSSettings } from "@/types/pos";
 import { Check, Mail, Receipt, Save, ToggleLeft, ToggleRight } from "lucide-react";
 import POSPrinterPanel from "./POSPrinterPanel";
 import MenuTab from "./settings/MenuTab";
+import { isCapacitorAndroid } from "@/lib/capacitorBridge";
 
 type SaveKey = "general" | "receipt" | "smtp";
 
@@ -469,7 +470,7 @@ export default function SettingsView() {
                     <div className="flex justify-between px-3 py-1.5 bg-gray-50 border-b border-dashed border-gray-200">
                       {Array.from({ length: 15 }).map((_, i) => <div key={i} className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" />)}
                     </div>
-                    <div className="px-4 py-4 w-full">
+                    <div className="px-4 py-4 w-full text-center">
                       {local.receiptShowLogo && local.receiptLogoUrl && (
                         <div className="flex justify-center mb-3">
                           {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary URL or data: URI, needs onError fallback */}
@@ -477,19 +478,21 @@ export default function SettingsView() {
                             onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                         </div>
                       )}
-                      <div className="font-mono text-[11px] leading-[1.45] w-full flex justify-center">
-                        <div>
-                          {lines.map((line, i) => (
-                            <div key={i} className={[
-                              "whitespace-pre",
-                              line.bold ? "font-bold" : "font-normal",
-                              line.large ? "text-[13px] -ml-[18px]" : "",
-                              line.dim ? "text-gray-400" : "text-gray-800",
-                            ].filter(Boolean).join(" ")}>
-                              {line.text || "\u00A0"}
-                            </div>
-                          ))}
-                        </div>
+                      {/* Monospace block: rendered left-aligned (the text is already
+                          space-padded to a fixed 31-char width) and centred as a
+                          whole via the parent's text-center. No magic offsets \u2014 those
+                          shifted + clipped the block in the Android WebView. */}
+                      <div className="font-mono text-[11px] leading-[1.45] inline-block text-left align-top">
+                        {lines.map((line, i) => (
+                          <div key={i} className={[
+                            "whitespace-pre",
+                            line.bold ? "font-bold" : "font-normal",
+                            line.large ? "text-[13px]" : "",
+                            line.dim ? "text-gray-400" : "text-gray-800",
+                          ].filter(Boolean).join(" ")}>
+                            {line.text || "\u00A0"}
+                          </div>
+                        ))}
                       </div>
                     </div>
                     {/* Sprocket strip bottom */}
@@ -580,14 +583,19 @@ export default function SettingsView() {
               </div>
               <p className="text-slate-500 text-xs">
                 Sales are stored in the pos_sales database table — all tills aggregate to the
-                same record set. Use the export below for an offline JSON copy.
+                same record set.{!isCapacitorAndroid() && " Use the export below for an offline JSON copy."}
               </p>
-              <button
-                onClick={exportSales}
-                className="w-full px-3 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
-              >
-                <Receipt size={14} className="flex-shrink-0" /> Export loaded sales as JSON
-              </button>
+              {/* JSON export relies on a browser file download, which the Android
+                  WebView can't trigger — so it's web-only. Sales already live in
+                  the shared DB, so nothing is lost on the tablet. */}
+              {!isCapacitorAndroid() && (
+                <button
+                  onClick={exportSales}
+                  className="w-full px-3 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                >
+                  <Receipt size={14} className="flex-shrink-0" /> Export loaded sales as JSON
+                </button>
+              )}
             </div>
           </div>
         )}

@@ -7,6 +7,11 @@
 
   html {
     scroll-behavior: smooth;
+    /* Stop Android WebView "font boosting" from inflating small/fixed text
+       (e.g. the monospace receipt preview), which overflowed + clipped in the
+       APK. Keeps rendered sizes at their CSS values. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   body {
