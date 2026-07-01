@@ -47,9 +47,21 @@ const STATUS_STYLE: Record<string, string> = {
   ready:     "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
 };
 
+// Sentinel customer id used for POS walk-in orders (mirrors pushToKDS + the
+// server filter). Orders with this id are "Walk-in" (rung up at the POS); all
+// others are "Online". Both still go through the kitchen before collection.
+const POS_CUSTOMER_ID = "pos-walk-in";
+
+function isPosOrder(o: CollectionOrder): boolean {
+  return o.customer_id === POS_CUSTOMER_ID;
+}
+
 function customerName(o: CollectionOrder): string {
+  if (isPosOrder(o)) return o.customers?.name?.trim() || "Walk-in";
   return o.customers?.name?.trim() || "Online customer";
 }
+
+type CollectionScope = "all" | "online" | "walkin";
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -61,6 +73,7 @@ export default function CollectionView() {
   const [orders, setOrders]   = useState<CollectionOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState("");
+  const [scope, setScope]     = useState<CollectionScope>("all");
 
   // The order whose payment modal is open.
   const [payTarget, setPayTarget] = useState<CollectionOrder | null>(null);
@@ -123,7 +136,18 @@ export default function CollectionView() {
     }
   }
 
-  const readyCount = orders.filter((o) => o.status === "ready").length;
+  const onlineCount = orders.filter((o) => !isPosOrder(o)).length;
+  const walkinCount = orders.filter((o) => isPosOrder(o)).length;
+  const filtered = orders.filter((o) =>
+    scope === "all" ? true : scope === "walkin" ? isPosOrder(o) : !isPosOrder(o),
+  );
+  const readyCount = filtered.filter((o) => o.status === "ready").length;
+
+  const SCOPES: { key: CollectionScope; label: string; count: number }[] = [
+    { key: "all",    label: "All",     count: orders.length },
+    { key: "online", label: "Online",  count: onlineCount },
+    { key: "walkin", label: "Walk-in", count: walkinCount },
+  ];
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-950 p-4 sm:p-6">
@@ -134,7 +158,7 @@ export default function CollectionView() {
             <ShoppingBag size={20} className="text-orange-400" /> Collection Pickups
           </h2>
           <p className="text-slate-400 text-xs mt-0.5">
-            {orders.length} active · {readyCount} ready to collect
+            {filtered.length} active · {readyCount} ready to collect
           </p>
         </div>
         <button
@@ -143,6 +167,21 @@ export default function CollectionView() {
         >
           <RefreshCw size={13} /> Refresh
         </button>
+      </div>
+
+      {/* All / Online / Walk-in sub-tabs */}
+      <div className="flex gap-1.5 bg-slate-800/50 p-1 rounded-xl border border-slate-700 mb-5 max-w-md">
+        {SCOPES.map((s) => (
+          <button
+            key={s.key}
+            onClick={() => setScope(s.key)}
+            className={`flex-1 px-2 py-2 rounded-lg text-xs font-semibold transition-all ${
+              scope === s.key ? "bg-slate-700 text-white" : "text-slate-400 hover:text-white"
+            }`}
+          >
+            {s.label} <span className="text-slate-500">({s.count})</span>
+          </button>
+        ))}
       </div>
 
       {error && (
@@ -157,16 +196,21 @@ export default function CollectionView() {
         <div className="flex items-center justify-center py-20 text-slate-500">
           <Loader2 size={20} className="animate-spin mr-2" /> Loading pickups…
         </div>
-      ) : orders.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-slate-600">
           <ShoppingBag size={40} className="mb-3 opacity-40" />
-          <p className="text-sm">No collection orders right now.</p>
+          <p className="text-sm">
+            {scope === "walkin" ? "No walk-in collection orders right now."
+              : scope === "online" ? "No online collection orders right now."
+              : "No collection orders right now."}
+          </p>
         </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-          {orders.map((order) => {
+          {filtered.map((order) => {
             const isReady   = order.status === "ready";
             const isPaid    = order.payment_status === "paid";
+            const isPos     = isPosOrder(order);
             const itemCount = order.items.reduce((s, i) => s + (i.qty ?? 0), 0);
 
             return (
@@ -181,6 +225,15 @@ export default function CollectionView() {
                   <div className="min-w-0">
                     <p className="text-white font-bold text-sm flex items-center gap-1.5 truncate">
                       <User size={13} className="text-slate-400 flex-shrink-0" /> {customerName(order)}
+                      <span
+                        className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold border flex-shrink-0 ${
+                          isPos
+                            ? "bg-purple-500/15 text-purple-300 border-purple-500/30"
+                            : "bg-sky-500/15 text-sky-300 border-sky-500/30"
+                        }`}
+                      >
+                        {isPos ? "Walk-in" : "Online"}
+                      </span>
                     </p>
                     <p className="text-slate-500 text-[11px] font-mono mt-0.5 flex items-center gap-1.5">
                       <Clock size={9} /> {relTime(order.date)}

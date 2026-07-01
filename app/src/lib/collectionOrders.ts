@@ -45,16 +45,19 @@ export async function listCollectionOrders(opts: {
   history?: boolean;
   sinceISO?: string;
   limit?: number;
+  /** POS Collection tab shows walk-in (POS) orders too; the standalone
+   *  /collection surface leaves this off and stays online-only. POS orders
+   *  still follow the normal kitchen flow (pending → ready) before collection. */
+  includePos?: boolean;
 } = {}): Promise<{ ok: true; orders: unknown[] } | { ok: false; error: string }> {
   const limit = Math.min(opts.limit ?? 200, 2000);
 
   let q = supabaseAdmin
     .from("orders")
     .select(ORDER_SELECT)
-    .eq("fulfillment", "collection")
-    .neq("customer_id", POS_CUSTOMER_ID)
-    .order("date", { ascending: false })
-    .limit(limit);
+    .eq("fulfillment", "collection");
+  if (!opts.includePos) q = q.neq("customer_id", POS_CUSTOMER_ID);
+  q = q.order("date", { ascending: false }).limit(limit);
 
   if (opts.history) {
     q = q.eq("status", "delivered");
