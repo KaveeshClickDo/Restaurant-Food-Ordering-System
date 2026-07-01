@@ -268,7 +268,7 @@ interface POSContextValue {
     name?: string; email?: string; phone?: string; notes?: string;
     tags?: string[]; loyaltyPoints?: number; giftCardBalance?: number;
   }) => Promise<{ ok: boolean; error?: string }>;
-  deleteCustomer: (id: string) => Promise<{ ok: boolean; error?: string; activeOrders?: { id: string; status: string }[] }>;
+  deleteCustomer: (id: string, block?: boolean) => Promise<{ ok: boolean; error?: string; activeOrders?: { id: string; status: string }[] }>;
   refreshCustomers: () => Promise<void>;
   clockEntries: POSClockEntry[];
   settings: POSSettings;
@@ -815,9 +815,13 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     }
   }, [fetchCustomers]);
 
-  const deleteCustomer = useCallback(async (id: string) => {
+  const deleteCustomer = useCallback(async (id: string, block = false) => {
     try {
-      const res = await fetch(`${apiBase()}/api/pos/customers/${id}`, { method: "DELETE" });
+      const res = await fetch(`${apiBase()}/api/pos/customers/${id}`, {
+        method:  "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ block }),
+      });
       const json = await res.json().catch(() => ({})) as {
         ok?: boolean;
         error?: string;

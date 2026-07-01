@@ -756,6 +756,9 @@ export interface Customer {
   storeCredit?: number;   // £ store credit balance (from refunds)
   emailVerified?: boolean;
   active?: boolean;       // false → login is blocked; admin-toggled
+  // ── Soft-delete state ─────────────────────────────────────────────────────
+  deletedAt?: string;            // ISO — set → customer is soft-deleted ("Deleted")
+  reactivationBlocked?: boolean; // true → re-registration is refused (a ban)
   // ── POS-shared fields ───────────────────────────────────────────────────
   // Persisted on the customers row so admin + POS share the same source of
   // truth. totalSpend/visitCount/lastVisit are computed server-side by the

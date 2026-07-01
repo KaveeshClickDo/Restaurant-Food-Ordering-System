@@ -518,6 +518,8 @@ function CustomerDrawer({
   // The "Deleted customer" pseudo-row (id "__deleted__") surfaces orphan
   // orders for audit only; none of these controls apply to it.
   const isDeletedRow = customer.id === "__deleted__";
+  // A real soft-deleted customer (distinct from the "__deleted__" audit pseudo-row).
+  const isSoftDeleted = !isDeletedRow && !!customer.deletedAt;
   const [active, setActive] = useState<boolean>(customer.active ?? true);
   const [savingActive, setSavingActive] = useState(false);
   const [actionToast, setActionToast] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
@@ -525,10 +527,14 @@ function CustomerDrawer({
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirming, setDeleteConfirming] = useState(false);
+  // When checked, the delete becomes a ban — re-registration with this email is refused.
+  const [blockReg, setBlockReg] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [resetSending, setResetSending] = useState(false);
   const [activeOrders, setActiveOrders] = useState<{ id: string; status: string }[] | null>(null);
   const toggleInFlight = useRef(false);
   const deleteInFlight = useRef(false);
+  const restoreInFlight = useRef(false);
   const resetInFlight = useRef(false);
 
   function flashToast(kind: "ok" | "error", text: string) {
@@ -626,14 +632,18 @@ function CustomerDrawer({
     setDeleteConfirming(true);
     setActiveOrders(null);
     try {
-      const res = await fetch(`/api/admin/customers/${customer.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/admin/customers/${customer.id}`, {
+        method:  "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ block: blockReg }),
+      });
       const json = await res.json().catch(() => ({})) as {
         ok?: boolean;
         error?: string;
         activeOrders?: { id: string; status: string }[];
       };
       if (json.ok) {
-        flashToast("ok", `${customer.name} deleted.`);
+        flashToast("ok", blockReg ? `${customer.name} deleted and blocked.` : `${customer.name} deleted.`);
         await loadAllCustomers();
         setDeleteOpen(false);
         onClose();
@@ -648,6 +658,33 @@ function CustomerDrawer({
     } finally {
       deleteInFlight.current = false;
       setDeleteConfirming(false);
+    }
+  }
+
+  // ── Restore (un-delete) ────────────────────────────────────────────────────
+  async function restoreCustomer() {
+    if (restoreInFlight.current) return;
+    restoreInFlight.current = true;
+    setRestoring(true);
+    try {
+      const res = await fetch(`/api/admin/customers/${customer.id}`, {
+        method:  "PUT",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ restore: true }),
+      });
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        flashToast("error", json.error ?? "Failed to restore.");
+      } else {
+        flashToast("ok", `${customer.name} restored.`);
+        await loadAllCustomers();
+        onClose();
+      }
+    } catch {
+      flashToast("error", "Connection error.");
+    } finally {
+      restoreInFlight.current = false;
+      setRestoring(false);
     }
   }
 
@@ -721,6 +758,11 @@ function CustomerDrawer({
                 {!isDeletedRow && !active && (
                   <span className="text-[10px] px-2 py-0.5 rounded-full border font-medium bg-gray-100 text-gray-600 border-gray-200">
                     Disabled
+                  </span>
+                )}
+                {isSoftDeleted && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full border font-medium bg-red-50 text-red-600 border-red-200">
+                    {customer.reactivationBlocked ? "Deleted · Blocked" : "Deleted"}
                   </span>
                 )}
               </div>
@@ -820,12 +862,27 @@ function CustomerDrawer({
                   Send Password Reset Email
                 </button>
 
+                {/* Restore — only for soft-deleted customers */}
+                {isSoftDeleted && (
+                  <button
+                    onClick={() => void restoreCustomer()}
+                    disabled={restoring}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-green-50 text-green-700 border-green-200 hover:bg-green-100 transition disabled:opacity-60 ml-auto"
+                    title="Un-delete this customer (restores login + all history)"
+                  >
+                    {restoring
+                      ? <Loader2 size={11} className="animate-spin" />
+                      : <RotateCcw size={11} />}
+                    Restore
+                  </button>
+                )}
+
                 {/* Delete */}
                 <button
                   onClick={() => setDeleteOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-white text-red-600 border-red-200 hover:bg-red-50 transition ml-auto"
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-white text-red-600 border-red-200 hover:bg-red-50 transition ${isSoftDeleted ? "" : "ml-auto"}`}
                 >
-                  <Trash2 size={11} /> Delete
+                  <Trash2 size={11} /> {isSoftDeleted ? "Delete again" : "Delete"}
                 </button>
               </div>
             </div>
@@ -1375,15 +1432,28 @@ function CustomerDrawer({
                   </div>
                   <div>
                     <h3 className="font-bold text-gray-900">Delete customer</h3>
-                    <p className="text-xs text-gray-500">This action cannot be undone.</p>
+                    <p className="text-xs text-gray-500">Their orders &amp; history are kept; you can restore them later.</p>
                   </div>
                 </div>
-                <p className="text-sm text-gray-700 mb-5">
-                  Are you sure you want to delete <strong>{customer.name}</strong>?
+                <p className="text-sm text-gray-700 mb-4">
+                  Are you sure you want to delete <strong>{customer.name}</strong>? They won&apos;t be able to sign in,
+                  but their order history is preserved and they can rejoin by signing up again — unless you block it below.
                 </p>
+                <label className="flex items-start gap-2.5 mb-5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={blockReg}
+                    onChange={(e) => setBlockReg(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                  />
+                  <span className="text-xs text-gray-700">
+                    <span className="font-semibold text-gray-900">Also block re-registration</span><br />
+                    Refuse any new sign-up with this email. Use for banned or abusive customers.
+                  </span>
+                </label>
                 <div className="flex gap-3">
                   <button
-                    onClick={() => setDeleteOpen(false)}
+                    onClick={() => { setDeleteOpen(false); setBlockReg(false); }}
                     className="flex-1 px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition"
                   >
                     Cancel
@@ -1393,7 +1463,7 @@ function CustomerDrawer({
                     disabled={deleteConfirming}
                     className="flex-1 px-4 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition disabled:opacity-60"
                   >
-                    {deleteConfirming ? <Loader2 size={15} className="animate-spin mx-auto" /> : "Delete"}
+                    {deleteConfirming ? <Loader2 size={15} className="animate-spin mx-auto" /> : (blockReg ? "Delete & block" : "Delete")}
                   </button>
                 </div>
               </>

@@ -221,6 +221,9 @@ export const UserUpdateSchema = z.discriminatedUnion("type", [
 
 export const UserDeleteSchema = z.object({
   type: z.enum(["customer", "driver", "waiter", "kitchen", "pos", "admin"]),
+  // Customer only: soft-delete as a ban (re-registration refused). Ignored for
+  // staff types, which are still hard-deleted.
+  block: z.boolean().optional(),
 });
 
 // Staff now use passwords too (same as customers/drivers), so a single

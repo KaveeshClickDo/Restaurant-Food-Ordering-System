@@ -133,8 +133,24 @@ create table if not exists customers (
   -- Toggle from Admin → User Management. Inactive customers cannot log in
   -- (auth/login rejects them with a clear message). Their order history is
   -- preserved either way.
-  active                     boolean       not null default true
+  active                     boolean       not null default true,
+  -- Soft delete. A "deleted" customer keeps its row (and its FK links, so
+  -- orders / loyalty / CRM history survive) but is treated as gone: login is
+  -- refused as "no account", POS search hides it, admin badges it "Deleted".
+  --   • deleted_at            — null = live; non-null = soft-deleted.
+  --   • reactivated_at        — audit stamp of the last reactivation.
+  --   • reactivation_blocked  — true = a ban; re-registration with this email is
+  --                             refused instead of reactivating the old account.
+  deleted_at                 timestamptz,
+  reactivated_at             timestamptz,
+  reactivation_blocked       boolean       not null default false
 );
+
+-- Backfill the soft-delete columns onto databases created before this migration.
+-- Idempotent — safe to re-run alongside the create table above.
+alter table customers add column if not exists deleted_at           timestamptz;
+alter table customers add column if not exists reactivated_at       timestamptz;
+alter table customers add column if not exists reactivation_blocked boolean not null default false;
 
 -- Note on customer_id: nullable + ON DELETE SET NULL. When admin deletes a
 -- customer we must preserve the order row (totals, payment_method, refunds,

@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error: fetchErr } = await supabaseAdmin
     .from("customers")
-    .select("id, name, email, phone, password_hash, email_verified, active, tags, favourites, saved_addresses, store_credit, created_at, loyalty_points, gift_card_balance, session_version")
+    .select("id, name, email, phone, password_hash, email_verified, active, deleted_at, tags, favourites, saved_addresses, store_credit, created_at, loyalty_points, gift_card_balance, session_version")
     .eq("email", email.trim().toLowerCase())
     .maybeSingle();
 
@@ -40,6 +40,12 @@ export async function POST(req: NextRequest) {
 
   const valid = await bcrypt.compare(password, data.password_hash);
   if (!valid) return unauthorizedJson();
+
+  // ── Soft-deleted gate ─────────────────────────────────────────────────────
+  // A deleted account is treated as if it doesn't exist — same generic 401 as a
+  // wrong email, so we never reveal that the account was deleted. Verified after
+  // the password check to keep the enumeration surface identical to a bad login.
+  if (data.deleted_at) return unauthorizedJson();
 
   // ── Account disabled gate ─────────────────────────────────────────────────
   // Admin can deactivate customer accounts from User Management. We still

@@ -36,6 +36,8 @@ export default function CustomersView() {
   // Set when the server rejects a delete because the customer has non-terminal
   // orders; swaps the confirm dialog into a blocking "resolve orders first" view.
   const [deleteBlocked, setDeleteBlocked] = useState<{ id: string; status: string }[] | null>(null);
+  // When checked, the soft delete becomes a ban — re-registration is refused.
+  const [blockReg, setBlockReg] = useState(false);
 
   const filtered = customers.filter((c) =>
     !search || c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -83,7 +85,7 @@ export default function CustomersView() {
     if (!selectedLive || saving) return;
     setSaving(true);
     setDeleteBlocked(null);
-    const result = await apiDeleteCustomer(selectedLive.id);
+    const result = await apiDeleteCustomer(selectedLive.id, blockReg);
     setSaving(false);
     if (!result.ok) {
       if (result.activeOrders && result.activeOrders.length > 0) {
@@ -96,11 +98,13 @@ export default function CustomersView() {
     setSelected(null);
     setDeleteConfirm(false);
     setShowEdit(false);
+    setBlockReg(false);
   }
 
   function closeDeleteConfirm() {
     setDeleteConfirm(false);
     setDeleteBlocked(null);
+    setBlockReg(false);
   }
 
   function toggleTag(tag: string) {
@@ -428,18 +432,30 @@ export default function CustomersView() {
                 </div>
                 <h3 className="text-white font-bold mb-1">Delete customer?</h3>
                 <p className="text-slate-400 text-sm mb-1">
-                  <span className="text-white font-semibold">{selectedLive.name}</span> will be permanently removed.
+                  <span className="text-white font-semibold">{selectedLive.name}</span> won&apos;t be able to sign in, but can rejoin by signing up again.
                 </p>
-                <p className="text-slate-500 text-xs mb-6">
-                  Their purchase history ({customerSales.length} sale{customerSales.length !== 1 ? "s" : ""}) will remain in the sales log.
+                <p className="text-slate-500 text-xs mb-4">
+                  Their purchase history ({customerSales.length} sale{customerSales.length !== 1 ? "s" : ""}), loyalty points, and details are all kept.
                 </p>
+                <label className="flex items-start gap-2.5 mb-5 p-3 rounded-xl border border-slate-700 bg-slate-900/50 cursor-pointer text-left">
+                  <input
+                    type="checkbox"
+                    checked={blockReg}
+                    onChange={(e) => setBlockReg(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-800 text-red-500 focus:ring-red-500"
+                  />
+                  <span className="text-xs text-slate-300">
+                    <span className="font-semibold text-white">Also block re-registration</span><br />
+                    Refuse any new sign-up with this email (banned customers).
+                  </span>
+                </label>
                 {saveError && <p className="text-red-400 text-xs mb-3">{saveError}</p>}
                 <div className="grid grid-cols-2 gap-2">
                   <button onClick={closeDeleteConfirm} disabled={saving} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors disabled:opacity-50">
                     Cancel
                   </button>
                   <button onClick={handleDelete} disabled={saving} className="py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold text-sm transition-colors disabled:opacity-50">
-                    {saving ? "Deleting…" : "Delete"}
+                    {saving ? "Deleting…" : (blockReg ? "Delete & block" : "Delete")}
                   </button>
                 </div>
               </>

@@ -198,12 +198,13 @@ async function readCustomerSession(cookieName: string): Promise<SessionPayload |
 
   const { data, error } = await supabaseAdmin
     .from("customers")
-    .select("session_version, active")
+    .select("session_version, active, deleted_at")
     .eq("id", session.id)
     .maybeSingle();
 
   if (error) return session;        // migration window / transient — fail open
-  if (!data) return null;            // account deleted
+  if (!data) return null;            // account hard-deleted (row gone)
+  if (data.deleted_at) return null;  // account soft-deleted — sign the session out
   if (data.active === false) return null;
   const current = Number(data.session_version ?? 1);
   if (current !== session.sessionVersion) return null;

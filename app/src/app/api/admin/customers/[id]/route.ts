@@ -1,28 +1,26 @@
 /**
  * PUT    /api/admin/customers/[id] — customer update (admin only).
- * DELETE /api/admin/customers/[id] — admin deletes a customer.
+ * DELETE /api/admin/customers/[id] — admin soft-deletes a customer.
  *
  * PUT body is whitelisted via zod — only documented profile / store-credit /
  * POS-shared / lifecycle fields are writable. Password and verification-token
  * columns are reachable only through the dedicated set-password / send-reset
- * routes alongside this one.
+ * routes alongside this one. `restore: true` un-deletes a soft-deleted customer.
  *
- * DELETE blocks while the customer has non-terminal orders (409 + payload
- * lists them so the UI can route to Delivery). On success it also purges the
- * matching reservation_customers row so the CRM guest profile doesn't outlive
- * the customers FK cascade (Bug #10).
+ * DELETE is a SOFT delete (stamps deleted_at) — see softDeleteCustomer. It
+ * blocks while the customer has non-terminal orders (409 + payload lists them so
+ * the UI can route to Delivery). An optional `{ block: true }` body turns the
+ * delete into a ban (re-registration refused). The row, its orders, loyalty
+ * ledger, and reservation_customers CRM profile are all preserved.
  */
 
 import { NextRequest, NextResponse }            from "next/server";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
 import { parseBody }                            from "@/lib/apiValidation";
-import { AdminCustomerUpdateSchema }            from "@/lib/schemas/customer";
+import { AdminCustomerUpdateSchema, CustomerDeleteSchema } from "@/lib/schemas/customer";
 import { setLoyaltyPointsAbsolute }             from "@/lib/loyaltyUtils";
-
-// Synthetic ids the customer drawer / list endpoint surfaces — never backed
-// by a real DB row, so destructive ops against them must be rejected.
-const PROTECTED_IDS = new Set(["__deleted__", "pos-walk-in"]);
+import { softDeleteCustomer, restoreCustomer }  from "@/lib/customerDelete";
 
 export async function PUT(
   req: NextRequest,
@@ -33,6 +31,14 @@ export async function PUT(
 
   const parsed = await parseBody(req, AdminCustomerUpdateSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+
+  // Restore (un-delete) is its own action — clears deleted_at, stamps
+  // reactivated_at — and doesn't combine with field edits.
+  if (parsed.data.restore) {
+    const res = await restoreCustomer(id);
+    if (!res.ok) return NextResponse.json({ ok: false, error: res.error }, { status: res.status ?? 500 });
+    return NextResponse.json({ ok: true });
+  }
 
   // Map the schema's camelCase POS-shared fields to their snake_case DB
   // columns. Everything else is already named correctly.
@@ -75,65 +81,33 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
   const { id } = await params;
 
-  if (PROTECTED_IDS.has(id)) {
+  // Optional { block } body — a DELETE with no body is fine (defaults to false).
+  const block = await readBlockFlag(req);
+
+  const res = await softDeleteCustomer(id, { block });
+  if (!res.ok) {
     return NextResponse.json(
-      { ok: false, error: "This is a system-managed row and cannot be deleted." },
-      { status: 400 },
+      { ok: false, error: res.error, ...(res.activeOrders ? { activeOrders: res.activeOrders } : {}) },
+      { status: res.status ?? 500 },
     );
   }
-
-  // Block deletion while the customer has any non-terminal order. The order
-  // row would survive via ON DELETE SET NULL, but kitchen/delivery flows
-  // still depend on the customer link being live.
-  const { data: activeOrders, error: activeErr } = await supabaseAdmin
-    .from("orders")
-    .select("id, status")
-    .eq("customer_id", id)
-    .in("status", ["pending", "confirmed", "preparing", "ready"]);
-  if (activeErr) {
-    return NextResponse.json({ ok: false, error: activeErr.message }, { status: 500 });
-  }
-  if (activeOrders && activeOrders.length > 0) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "This customer has active orders. Cancel or complete them before deleting.",
-        activeOrders,
-      },
-      { status: 409 },
-    );
-  }
-
-  // Look up the email first so we can also purge any matching guest profile
-  // (reservation_customers row) after the delete — without this cleanup the
-  // CRM guest-profile table is orphaned by the customers FK cascade (Bug #10).
-  const { data: existing } = await supabaseAdmin
-    .from("customers")
-    .select("email")
-    .eq("id", id)
-    .maybeSingle();
-  const customerEmail = existing?.email?.toLowerCase()?.trim() || null;
-
-  const { error } = await supabaseAdmin.from("customers").delete().eq("id", id);
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-
-  if (customerEmail) {
-    const { error: rcError } = await supabaseAdmin
-      .from("reservation_customers")
-      .delete()
-      .eq("email", customerEmail);
-    if (rcError) {
-      // Non-fatal — the customer row is already gone. Log so an admin can
-      // clean up manually if it ever fails.
-      console.error("admin/customers/[id] DELETE reservation_customers cleanup:", rcError.message);
-    }
-  }
-
   return NextResponse.json({ ok: true });
+}
+
+// Tolerantly read the optional { block } flag off a DELETE body. Callers that
+// send no body (or invalid JSON) get the safe default of false.
+async function readBlockFlag(req: NextRequest): Promise<boolean> {
+  try {
+    const raw = await req.json();
+    const parsed = CustomerDeleteSchema.safeParse(raw);
+    return parsed.success ? parsed.data.block ?? false : false;
+  } catch {
+    return false;
+  }
 }
