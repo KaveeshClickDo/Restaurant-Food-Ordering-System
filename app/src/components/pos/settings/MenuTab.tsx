@@ -1559,6 +1559,10 @@ function VariationsEditor({
   value, currencySymbol, onChange,
 }: { value: Variation[]; currencySymbol: string; onChange: (next: Variation[]) => void }) {
   const sym = currencySymbol;
+  // Raw price text per option id, so the field can be empty / mid-decimal ("0.")
+  // while the model stays a number. Without this a `value={number}` input can't
+  // be cleared (it snaps back to 0) and decimals like 0.50 can't be typed.
+  const [rawPrice, setRawPrice] = useState<Record<string, string>>({});
 
   function update(idx: number, patch: Partial<Variation>) {
     onChange(value.map((v, i) => (i === idx ? { ...v, ...patch } : v)));
@@ -1629,9 +1633,15 @@ function VariationsEditor({
                     <div className="relative w-24">
                       <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 text-xs">+{sym}</span>
                       <input
-                        type="number" min="0" step="0.25"
-                        value={opt.price}
-                        onChange={(e) => updateOption(vi, oi, { price: parseFloat(e.target.value) || 0 })}
+                        type="text" inputMode="decimal"
+                        value={rawPrice[opt.id] ?? (opt.price ? String(opt.price) : "")}
+                        onChange={(e) => {
+                          const t = e.target.value;
+                          if (t !== "" && !/^\d*\.?\d*$/.test(t)) return; // digits + one dot only
+                          setRawPrice((r) => ({ ...r, [opt.id]: t }));
+                          updateOption(vi, oi, { price: t === "" ? 0 : parseFloat(t) || 0 });
+                        }}
+                        placeholder="0"
                         className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-7 pr-2 py-1 text-white text-sm outline-none focus:border-orange-500"
                       />
                     </div>
@@ -1665,6 +1675,8 @@ function AddOnsEditor({
   value, currencySymbol, onChange,
 }: { value: AddOn[]; currencySymbol: string; onChange: (next: AddOn[]) => void }) {
   const sym = currencySymbol;
+  // Raw price text per add-on id — see VariationsEditor for the why.
+  const [rawPrice, setRawPrice] = useState<Record<string, string>>({});
 
   function update(idx: number, patch: Partial<AddOn>) {
     onChange(value.map((a, i) => (i === idx ? { ...a, ...patch } : a)));
@@ -1695,9 +1707,15 @@ function AddOnsEditor({
             <div className="relative w-24">
               <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 text-xs">+{sym}</span>
               <input
-                type="number" min="0" step="0.25"
-                value={a.price}
-                onChange={(e) => update(ai, { price: parseFloat(e.target.value) || 0 })}
+                type="text" inputMode="decimal"
+                value={rawPrice[a.id] ?? (a.price ? String(a.price) : "")}
+                onChange={(e) => {
+                  const t = e.target.value;
+                  if (t !== "" && !/^\d*\.?\d*$/.test(t)) return; // digits + one dot only
+                  setRawPrice((r) => ({ ...r, [a.id]: t }));
+                  update(ai, { price: t === "" ? 0 : parseFloat(t) || 0 });
+                }}
+                placeholder="0"
                 className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-7 pr-2 py-1.5 text-white text-sm outline-none focus:border-orange-500"
               />
             </div>
