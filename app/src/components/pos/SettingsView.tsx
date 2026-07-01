@@ -120,7 +120,8 @@ export default function SettingsView() {
               </div>
               {[
                 { key: "location", label: "Location / Branch", type: "text" },
-                { key: "receiptFooter", label: "Receipt Footer", type: "textarea" },
+                // Receipt footer lives in Settings → Receipt → Bottom Section
+                // (Thank-You / Custom message), so it's not duplicated here.
               ].map((f) => (
                 <div key={f.key}>
                   <label className="text-xs text-slate-400 mb-1 block">{f.label}</label>
