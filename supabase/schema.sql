@@ -1072,6 +1072,119 @@ begin
     add constraint gift_card_transactions_type_check check (type in ('issue','redeem','refund','void','adjust','activate'));
 end $$;
 
+-- Atomic gift-card mutations used by offline desktop POS sync. These mirror the
+-- web app helper semantics but run inside Postgres so replayed desktop pushes
+-- are idempotent and concurrent redemptions are serialized by the row lock.
+create or replace function redeem_gift_card(
+  p_gift_card_id text,
+  p_amount numeric,
+  p_sale_id text
+) returns jsonb
+language plpgsql
+as $$
+declare
+  v_balance numeric;
+  v_status text;
+  v_new_balance numeric;
+begin
+  if nullif(trim(p_gift_card_id), '') is null or nullif(trim(p_sale_id), '') is null or p_amount is null or p_amount <= 0 then
+    return jsonb_build_object('ok', false, 'error', 'bad_args');
+  end if;
+
+  select balance_after into v_new_balance
+    from gift_card_transactions
+   where type = 'redeem'
+     and gift_card_id = p_gift_card_id
+     and pos_sale_id = p_sale_id
+   order by created_at desc
+   limit 1;
+  if found then
+    return jsonb_build_object('ok', true, 'duplicate', true, 'newBalance', v_new_balance);
+  end if;
+
+  select balance, status into v_balance, v_status
+    from gift_cards
+   where id = p_gift_card_id
+   for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'not_found');
+  end if;
+
+  if v_balance < p_amount then
+    return jsonb_build_object('ok', false, 'error', 'insufficient');
+  end if;
+
+  v_new_balance := round((v_balance - p_amount)::numeric, 2);
+
+  update gift_cards
+     set balance = v_new_balance,
+         status = case when v_new_balance <= 0 then 'redeemed' else v_status end
+   where id = p_gift_card_id;
+
+  insert into gift_card_transactions (
+    gift_card_id, type, amount, balance_after, pos_sale_id, performed_by, notes
+  ) values (
+    p_gift_card_id, 'redeem', -p_amount, v_new_balance, p_sale_id, 'system', 'Applied to POS sale ' || p_sale_id
+  );
+
+  return jsonb_build_object('ok', true, 'newBalance', v_new_balance);
+end;
+$$;
+
+create or replace function restore_gift_card(
+  p_gift_card_id text,
+  p_amount numeric,
+  p_sale_id text
+) returns jsonb
+language plpgsql
+as $$
+declare
+  v_balance numeric;
+  v_status text;
+  v_new_balance numeric;
+begin
+  if nullif(trim(p_gift_card_id), '') is null or nullif(trim(p_sale_id), '') is null or p_amount is null or p_amount <= 0 then
+    return jsonb_build_object('ok', false, 'error', 'bad_args');
+  end if;
+
+  select balance_after into v_new_balance
+    from gift_card_transactions
+   where type = 'refund'
+     and gift_card_id = p_gift_card_id
+     and pos_sale_id = p_sale_id
+   order by created_at desc
+   limit 1;
+  if found then
+    return jsonb_build_object('ok', true, 'duplicate', true, 'newBalance', v_new_balance);
+  end if;
+
+  select balance, status into v_balance, v_status
+    from gift_cards
+   where id = p_gift_card_id
+   for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'not_found');
+  end if;
+
+  v_new_balance := round((v_balance + p_amount)::numeric, 2);
+
+  update gift_cards
+     set balance = v_new_balance,
+         status = case when v_status = 'redeemed' then 'active' else v_status end
+   where id = p_gift_card_id;
+
+  insert into gift_card_transactions (
+    gift_card_id, type, amount, balance_after, pos_sale_id, performed_by, notes
+  ) values (
+    p_gift_card_id, 'refund', p_amount, v_new_balance, p_sale_id, 'system', 'Refund for POS sale ' || p_sale_id
+  );
+
+  return jsonb_build_object('ok', true, 'newBalance', v_new_balance);
+end;
+$$;
+
 -- ── display_auth — Customer Display screen password ──────────────────────────
 -- Single-row table (id=1) gating the public /customer-display order board.
 --   • password_hash   NULL  = no password set → the display is OPEN (current
@@ -1464,6 +1577,11 @@ grant all    on all tables    in schema public to service_role;
 grant all    on all sequences in schema public to service_role;
 grant select on all tables    in schema public to anon, authenticated;
 grant insert on reservation_waitlist           to anon, authenticated;
+
+revoke all    on function redeem_gift_card(text, numeric, text)  from public, anon, authenticated;
+revoke all    on function restore_gift_card(text, numeric, text) from public, anon, authenticated;
+grant execute on function redeem_gift_card(text, numeric, text)  to service_role;
+grant execute on function restore_gift_card(text, numeric, text) to service_role;
 
 alter default privileges in schema public grant all    on tables    to service_role;
 alter default privileges in schema public grant all    on sequences to service_role;
