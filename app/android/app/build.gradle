@@ -1,15 +1,50 @@
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 
+// ── Per-tenant APK identity from .env.capacitor ──────────────────────────────
+// The same gitignored file that sets the tenant's API/DB also sets the APK's
+// install identity, so each restaurant's build is a SEPARATE app that can be
+// installed side-by-side on one tablet:
+//   POS_APP_ID   → applicationId + package_name + custom_url_scheme
+//   POS_APP_NAME → launcher label (app_name / title_activity_main)
+// Falls back to the original values when the keys are absent.
+// ⚠️  NEVER change a tenant's POS_APP_ID after they've installed — their next
+//     APK would install as a brand-new app (losing local data / PIN enrolment)
+//     instead of updating. `namespace` below stays fixed for all tenants.
+def envCapacitor = [:]
+def envCapFile = file("../../.env.capacitor")
+if (envCapFile.exists()) {
+    envCapFile.readLines().each { line ->
+        def t = line.trim()
+        if (t.startsWith("#")) return
+        def m = (t =~ /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/)
+        if (m.matches()) {
+            def v = m.group(2).trim()
+            if (v.length() >= 2 && ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))) {
+                v = v.substring(1, v.length() - 1)
+            }
+            envCapacitor[m.group(1)] = v
+        }
+    }
+}
+def posAppId   = envCapacitor["POS_APP_ID"]   ?: "com.restaurant.pos"
+def posAppName = envCapacitor["POS_APP_NAME"] ?: "DirectDine POS"
+
 android {
     namespace "com.restaurant.pos"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.restaurant.pos"
+        applicationId posAppId
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+        // Generated in place of the static entries removed from strings.xml —
+        // defining them in both places would be a duplicate-resource error.
+        resValue "string", "app_name",            posAppName
+        resValue "string", "title_activity_main", posAppName
+        resValue "string", "package_name",        posAppId
+        resValue "string", "custom_url_scheme",   posAppId
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

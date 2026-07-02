@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">DirectDine POS</string>
-    <string name="title_activity_main">DirectDine POS</string>
-    <string name="package_name">com.restaurant.pos</string>
-    <string name="custom_url_scheme">com.restaurant.pos</string>
+    <!-- app_name, title_activity_main, package_name and custom_url_scheme are
+         GENERATED per tenant by app/build.gradle (resValue) from the
+         POS_APP_ID / POS_APP_NAME keys in .env.capacitor. Do not re-add them
+         here — a static duplicate breaks the build. -->
 </resources>

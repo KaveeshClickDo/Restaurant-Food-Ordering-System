@@ -50,6 +50,11 @@ const SERVER_URL = process.env.CAPACITOR_SERVER_URL;
 const isHttp = (SERVER_URL ?? "").startsWith("http://");
 
 const config: CapacitorConfig = {
+  // NOTE: the APK's real install identity + launcher name come from the
+  // POS_APP_ID / POS_APP_NAME keys in .env.capacitor (read by
+  // android/app/build.gradle at build time, per tenant). The values below were
+  // only used when the android/ project was first generated — changing them
+  // here does nothing to the built APK.
   appId: "com.restaurant.pos",
   appName: "Restaurant POS",
 
