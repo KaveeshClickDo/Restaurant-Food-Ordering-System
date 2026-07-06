@@ -95,12 +95,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Mark every order delivered + record the payment method.
+    // Mark every order delivered + record the payment method. Settle is the
+    // moment the table's money is actually taken, so stamp payment_status too
+    // (historically left at the 'unpaid' DB default — schema.sql backfills
+    // settled rows minted before this stamp).
     const { error } = await supabaseAdmin
       .from("orders")
       .update({
         status:         "delivered",
         payment_method: paymentMethod ?? "table-service",
+        payment_status: "paid",
       })
       .in("id", orderIds)
       .eq("fulfillment", "dine-in");

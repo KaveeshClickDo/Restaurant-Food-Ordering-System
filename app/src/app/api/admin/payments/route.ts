@@ -7,9 +7,11 @@
  *   • Cash orders that have been marked paid (rare today but supported)
  *
  * ONLINE only — POS counter sales and dine-in orders are handled (and shown)
- * on the POS side. Their mirror rows normally sit at payment_status 'unpaid'
- * and never match here, but a POS void/refund stamps refund state onto the
- * mirror, so they must be excluded explicitly or they leak into this panel.
+ * on the POS side. Their mirror rows are stamped payment_status 'paid' when
+ * the till/waiter takes the money (POS: at sale creation; dine-in: at settle),
+ * and a POS void/refund stamps refund state — so they WOULD match the
+ * payment_status filter below and must be excluded by the customer sentinel
+ * or they leak into this panel.
  *
  * Query params:
  *   • status   — filter by payment_status ("paid" | "refunded" | "partially_refunded")

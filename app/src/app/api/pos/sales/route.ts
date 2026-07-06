@@ -455,6 +455,11 @@ async function pushToKDS(sale: POSSale, kitchenNote?: string): Promise<{ ok: boo
     items,
     note:           noteParts.join(" | "),
     payment_method: sale.paymentMethod,
+    // POS money is taken at the till BEFORE this mirror row exists, so the
+    // mirror is born paid. (Dine-in differs: the bill stays unpaid until the
+    // waiter settles it — see /api/waiter/settle.) Rows minted before this
+    // stamp kept the 'unpaid' DB default; schema.sql carries the backfill.
+    payment_status: "paid",
     service_fee:    sale.serviceFeeAmount,
     vat_amount:     sale.taxAmount,
     vat_inclusive:  sale.taxInclusive,

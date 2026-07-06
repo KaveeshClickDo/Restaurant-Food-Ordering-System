@@ -209,8 +209,11 @@ export default function CollectionView() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {filtered.map((order) => {
             const isReady   = order.status === "ready";
-            const isPaid    = order.payment_status === "paid";
             const isPos     = isPosOrder(order);
+            // Walk-ins are settled at the till by definition — rows minted
+            // before the mirror stamped payment_status='paid' still carry the
+            // legacy 'unpaid' default, so treat POS orders as paid regardless.
+            const isPaid    = order.payment_status === "paid" || isPos;
             const itemCount = order.items.reduce((s, i) => s + (i.qty ?? 0), 0);
 
             return (

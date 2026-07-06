@@ -231,6 +231,21 @@ alter table orders add column if not exists customer_lng double precision;
 alter table orders add column if not exists cash_reconciled_at timestamptz;
 alter table orders add column if not exists cash_reconciled_by text;
 
+-- In-house rows historically kept payment_status at the 'unpaid' default even
+-- though their money WAS taken at the till (POS counter: at sale creation;
+-- dine-in: at waiter settle) — the money truth lived in pos_sales / the settle
+-- flow and the mirror never recorded it. The API now stamps 'paid' at those
+-- moments; these idempotent updates true up rows minted before that change.
+-- Cancelled rows are deliberately left alone: POS voids stamp their own state
+-- (refunded / partially_refunded / paid-when-money-kept), and older cancelled
+-- rows are ambiguous (money kept vs never taken), so we don't guess.
+update orders set payment_status = 'paid'
+ where customer_id = 'pos-walk-in' and fulfillment = 'collection'
+   and payment_status = 'unpaid' and status <> 'cancelled';
+update orders set payment_status = 'paid'
+ where fulfillment = 'dine-in' and status = 'delivered'
+   and payment_status = 'unpaid';
+
 -- Dine-in tip + manual discount. Online orders use coupon_discount for promo
 -- codes; these columns carry the waiter-applied bill-level discount and the
 -- table-service tip. Stamped on the bill's anchor order at settle time (mirrors

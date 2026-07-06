@@ -165,9 +165,10 @@ function isActive(o: RawOrder) {
 // Online orders that are still explicitly unpaid (cash on delivery/collection
 // not yet handed over, or a failed/abandoned gateway payment) are NOT revenue
 // — they start counting when the driver/counter collects and payment_status
-// flips to "paid". POS / dine-in rows are settled at the till but their
-// orders-table mirrors keep the 'unpaid' DB default, so the test only applies
-// to online orders.
+// flips to "paid". POS / dine-in rows are stamped 'paid' when the till/waiter
+// actually takes the money, but rows minted before that stamp existed (and
+// active dine-in bills, unpaid until settle) may sit at 'unpaid' — so the
+// test only applies to online orders.
 function isMoneyBearing(o: RawOrder) {
   if (orderSource(o) === "online"
     && (o.payment_status === "unpaid" || o.payment_status === "failed")) {
