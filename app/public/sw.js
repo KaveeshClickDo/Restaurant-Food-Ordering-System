@@ -10,7 +10,7 @@
  * It enables the POS UI to load even with no internet after the first visit.
  */
 
-const CACHE_NAME = "pos-shell-v1";
+const CACHE_NAME = "pos-shell-v2";
 
 // Assets to pre-cache on install (Next.js injects build hashes at build time).
 // We cache-bust by incrementing CACHE_NAME when deploying a new version.

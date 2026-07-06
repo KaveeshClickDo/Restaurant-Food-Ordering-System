@@ -52,8 +52,15 @@ export default function SeoHead({ settings }: { settings: AdminSettings }) {
   }, [customHeadCode]);
 
   // ── Live favicon update ───────────────────────────────────────────────────────
-  // Browsers cache favicons aggressively, so we manipulate the DOM directly
-  // rather than relying on React's hoisted <link> reconciliation.
+  // Browsers cache favicons aggressively, so when the favicon changes at runtime
+  // we append OUR OWN <link rel="icon"> at the end of <head> (the last icon link
+  // wins) and update that one element in place on later changes.
+  //
+  // We must NEVER remove or replace the server-rendered icon links: React owns
+  // those nodes, and detaching them behind React's back makes its next <head>
+  // reconciliation (route change, hydration recovery) crash with
+  // "Cannot read properties of null (reading 'removeChild')", taking the whole
+  // app down — this is what froze the POS on tenants with a custom favicon.
   useEffect(() => {
     const faviconUrl     = seo.faviconUrl?.trim()     ?? "";
     const faviconVersion = seo.faviconVersion?.trim() ?? "";
@@ -62,17 +69,17 @@ export default function SeoHead({ settings }: { settings: AdminSettings }) {
     if (key === prevFav.current) return;
     prevFav.current = key;
 
-    // Remove any existing dynamic favicon links added by this component AND
-    // any server-rendered favicon links so the browser is forced to re-read.
-    document.head
-      .querySelectorAll('link[data-sg-favicon], link[rel="icon"], link[rel="shortcut icon"]')
-      .forEach((el) => el.remove());
+    const own = document.head.querySelector<HTMLLinkElement>("link[data-sg-favicon]");
 
-    if (!faviconUrl) return;
+    if (!faviconUrl) {
+      // Only ever remove the link WE created — never a React-rendered one.
+      own?.remove();
+      return;
+    }
 
     // For external (non-data) URLs append ?v=<version> to bust the HTTP cache.
     // For data URLs the cache-bust query is ignored by the browser but the
-    // fresh <link> element with a distinct href string is enough to force a swap.
+    // fresh href string is enough to force a swap.
     const isDataUrl = faviconUrl.startsWith("data:");
     const href = faviconVersion
       ? (isDataUrl
@@ -80,11 +87,18 @@ export default function SeoHead({ settings }: { settings: AdminSettings }) {
           : `${faviconUrl}${faviconUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(faviconVersion)}`)
       : faviconUrl;
 
-    const link = document.createElement("link");
+    // Server already rendered this exact favicon (layout's #sg-favicon) and we
+    // haven't overridden it yet → nothing to do; avoids a pointless re-request.
+    const server = document.getElementById("sg-favicon");
+    if (!own && server?.getAttribute("href") === href) return;
+
+    const link = own ?? document.createElement("link");
     link.rel  = "icon";
     link.href = href;
     link.setAttribute("data-sg-favicon", "true");
     if (faviconVersion) link.setAttribute("data-version", faviconVersion);
+    else link.removeAttribute("data-version");
+    // (Re-)append last so this link wins over earlier server-rendered icons.
     document.head.appendChild(link);
   }, [seo.faviconUrl, seo.faviconVersion]);
 

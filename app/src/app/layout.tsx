@@ -186,8 +186,10 @@ export default async function RootLayout({
       <head>
         {/*
          * Custom favicon — injected server-side so it's present from byte 1.
-         * SeoHead will also update it client-side when the admin changes it.
-         * The id lets SeoHead find/replace the server-rendered tag deterministically.
+         * SeoHead overrides it client-side when settings change by appending its
+         * own <link> AFTER this one (last icon wins). The id lets SeoHead detect
+         * that the server already rendered the current favicon. React owns this
+         * node — nothing may remove it from the DOM (see SeoHead.tsx).
          */}
         {faviconUrl && <link id="sg-favicon" rel="icon" href={faviconHref} />}
 
