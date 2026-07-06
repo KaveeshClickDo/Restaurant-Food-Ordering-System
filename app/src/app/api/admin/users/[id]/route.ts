@@ -23,6 +23,7 @@ import { UserUpdateSchema, UserDeleteSchema } from "@/lib/schemas/staff";
 import { setLoyaltyPointsAbsolute } from "@/lib/loyaltyUtils";
 import { revokeDeviceTokens } from "@/lib/posDeviceToken";
 import { softDeleteCustomer } from "@/lib/customerDelete";
+import { pinTakenByOther, PIN_TAKEN_ERROR } from "@/lib/posPin";
 
 const HASH_ROUNDS = 10;
 
@@ -133,7 +134,13 @@ export async function PATCH(
       updates.permissions = ROLE_PERMISSIONS[body.posRole];
     }
     if (body.password) updates.password_hash = await bcrypt.hash(body.password, HASH_ROUNDS);
-    if (body.pin)      updates.pin_hash      = await bcrypt.hash(body.pin, HASH_ROUNDS);
+    if (body.pin) {
+      // PIN must stay unique across all POS staff (excluding the row being edited).
+      if (await pinTakenByOther(body.pin, id)) {
+        return NextResponse.json({ ok: false, error: PIN_TAKEN_ERROR }, { status: 409 });
+      }
+      updates.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
+    }
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ ok: false, error: "No fields to update." }, { status: 400 });
     }

@@ -91,7 +91,9 @@ export const PosStaffCreateSchema = z.object({
   email:       z.string().email().optional().or(z.literal("")),
   role:        PosRole.optional(),
   password:    Password,            // web POS + first tablet login
-  pin:         Pin6.optional(),     // tablet quick-login (validated locally); set now or later
+  pin:         Pin6,                // tablet quick-login — REQUIRED and unique
+                                    // across pos_staff (enforced server-side
+                                    // via bcrypt compare, see lib/posPin.ts)
   active:      z.boolean().optional(),
   permissions: z.record(z.string(), z.boolean()).optional(),
   hourlyRate:  Money.optional(),
@@ -154,7 +156,7 @@ export const UserCreateSchema = z.discriminatedUnion("type", [
     email:       z.string().email().optional().or(z.literal("")),
     posRole:     PosRole.optional(),
     password:    Password,
-    pin:         Pin6.optional(),
+    pin:         Pin6,               // required + unique — see lib/posPin.ts
     active:      z.boolean().optional(),
     permissions: z.record(z.string(), z.boolean()).optional(),
     hourlyRate:  Money.optional(),

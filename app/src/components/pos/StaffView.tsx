@@ -20,6 +20,8 @@ export default function StaffView() {
   const [showPwd, setShowPwd] = useState(false);
   const [showPin, setShowPin] = useState(false);
   const [newStaff, setNewStaff] = useState({ name: "", email: "", role: "cashier" as "admin" | "manager" | "cashier", password: "", pin: "", hourlyRate: "" });
+  // Server-side save errors (e.g. duplicate PIN 409) for the add/edit modals.
+  const [formError, setFormError] = useState("");
   const COLORS = ["#7c3aed", "#0891b2", "#16a34a", "#dc2626", "#ea580c", "#0284c7", "#9333ea", "#be185d"];
   const [, tick] = useState(0);
   useEffect(() => { const id = setInterval(() => tick((n) => n + 1), 10000); return () => clearInterval(id); }, []);
@@ -66,7 +68,7 @@ export default function StaffView() {
   async function addStaff() {
     if (addInFlight.current) return;
     if (!newStaff.name.trim() || newStaff.password.trim().length < 6) return;
-    if (newStaff.pin.trim() && newStaff.pin.trim().length !== 6) return;
+    if (newStaff.pin.trim().length !== 6) return; // PIN is required — exactly 6 digits
     addInFlight.current = true;
     setAddBusy(true);
     try {
@@ -75,11 +77,12 @@ export default function StaffView() {
         email: newStaff.email,
         role: newStaff.role,
         password: newStaff.password,
-        pin: newStaff.pin.trim() || undefined,
+        pin: newStaff.pin.trim(),
         hourlyRate: parseFloat(newStaff.hourlyRate) || undefined,
         avatarColor: COLORS[Math.floor(Math.random() * COLORS.length)],
       });
-      if (!result.ok) return;
+      if (!result.ok) { setFormError(result.error ?? "Could not add staff."); return; }
+      setFormError("");
       setNewStaff({ name: "", email: "", role: "cashier", password: "", pin: "", hourlyRate: "" });
       setShowAdd(false);
     } finally {
@@ -91,6 +94,7 @@ export default function StaffView() {
   function openEdit(member: POSStaff) {
     // password field starts blank: the server never returns real passwords to the
     // browser, and saveEdit sends "" to mean "keep existing".
+    setFormError("");
     setEditingStaff(member);
     setEditDraft({ name: member.name, email: member.email ?? "", role: member.role, password: "", pin: "", hourlyRate: member.hourlyRate?.toString() ?? "" });
   }
@@ -113,7 +117,8 @@ export default function StaffView() {
         pin: editDraft.pin.trim() || undefined,    // "" → omit, server keeps existing
         hourlyRate: parseFloat(editDraft.hourlyRate) || undefined,
       });
-      if (!result.ok) return;
+      if (!result.ok) { setFormError(result.error ?? "Could not save changes."); return; }
+      setFormError("");
       setEditingStaff(null);
     } finally {
       saveInFlight.current = false;
@@ -162,7 +167,7 @@ export default function StaffView() {
       <div className="max-w-4xl mx-auto space-y-6">
         <div className="flex flex-wrap gap-3 items-center justify-between">
           <h2 className="text-white font-bold text-xl">Staff Management</h2>
-          <button onClick={() => setShowAdd(true)} disabled={!isOnline} className={`flex items-center gap-2 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors ${isOnline ? "bg-orange-500 hover:bg-orange-400" : "bg-slate-700 opacity-50 cursor-not-allowed"}`}>
+          <button onClick={() => { setFormError(""); setShowAdd(true); }} disabled={!isOnline} className={`flex items-center gap-2 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors ${isOnline ? "bg-orange-500 hover:bg-orange-400" : "bg-slate-700 opacity-50 cursor-not-allowed"}`}>
             <UserPlus size={16} /> Add Staff
           </button>
         </div>
@@ -377,13 +382,13 @@ export default function StaffView() {
                 <span className="text-[10px] text-slate-500">Website POS login</span>
               </div>
               <div>
-                <label className="text-xs text-slate-400 mb-1 block">Tablet PIN (6 digits, optional)</label>
+                <label className="text-xs text-slate-400 mb-1 block">Tablet PIN (6 digits) *</label>
                 <div className="relative">
                   <input type={showPin ? "text" : "password"} inputMode="numeric" value={newStaff.pin} onChange={(e) => setNewStaff((p) => ({ ...p, pin: e.target.value.replace(/\D/g, "").slice(0, 6) }))} placeholder="••••••"
                     className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
                   <EyeToggle show={showPin} onToggle={() => setShowPin((v) => !v)} />
                 </div>
-                <span className="text-[10px] text-slate-500">Quick login on this tablet</span>
+                <span className="text-[10px] text-slate-500">Quick login on this tablet — must be unique per staff member</span>
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">Hourly Rate ({sym})</label>
@@ -391,9 +396,10 @@ export default function StaffView() {
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
               </div>
             </div>
+            {formError && <p className="text-red-400 text-xs mb-3">{formError}</p>}
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => setShowAdd(false)} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">Cancel</button>
-              <button onClick={addStaff} disabled={addBusy || !newStaff.name.trim() || newStaff.password.trim().length < 6}
+              <button onClick={addStaff} disabled={addBusy || !newStaff.name.trim() || newStaff.password.trim().length < 6 || newStaff.pin.trim().length !== 6}
                 className="py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{addBusy ? "Saving…" : "Add"}</button>
             </div>
           </div>
@@ -442,6 +448,7 @@ export default function StaffView() {
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
               </div>
             </div>
+            {formError && <p className="text-red-400 text-xs mb-3">{formError}</p>}
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => setEditingStaff(null)} className="py-3 rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm hover:bg-slate-700 transition-colors">Cancel</button>
               <button onClick={saveEdit} disabled={saveBusy || !editDraft.name.trim() || (editDraft.password.trim().length > 0 && editDraft.password.trim().length < 6)}

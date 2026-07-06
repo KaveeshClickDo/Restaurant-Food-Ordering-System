@@ -12,6 +12,7 @@ import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { ROLE_PERMISSIONS, type POSRole } from "@/types/pos";
 import { parseBody } from "@/lib/apiValidation";
 import { UserCreateSchema } from "@/lib/schemas/staff";
+import { pinTakenByOther, PIN_TAKEN_ERROR } from "@/lib/posPin";
 
 // ── Shared type ───────────────────────────────────────────────────────────────
 
@@ -346,8 +347,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (type === "pos") {
     const { email, password, pin, posRole, hourlyRate, avatarColor, active = true } = body;
     const role: POSRole = posRole ?? "cashier";
+    // PIN is required (schema) and must be unique across all POS staff.
+    if (await pinTakenByOther(pin)) {
+      return NextResponse.json({ ok: false, error: PIN_TAKEN_ERROR }, { status: 409 });
+    }
     const passwordHash = await bcrypt.hash(password, HASH_ROUNDS);
-    const pinHash      = pin ? await bcrypt.hash(pin, HASH_ROUNDS) : null;
+    const pinHash      = await bcrypt.hash(pin, HASH_ROUNDS);
     const { data, error } = await supabaseAdmin
       .from("pos_staff")
       .insert({

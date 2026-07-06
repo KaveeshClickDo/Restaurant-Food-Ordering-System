@@ -15,6 +15,7 @@ import { getPosSession } from "@/lib/auth";
 import { ROLE_PERMISSIONS } from "@/types/pos";
 import { parseBody } from "@/lib/apiValidation";
 import { PosStaffCreateSchema } from "@/lib/schemas/staff";
+import { pinTakenByOther, PIN_TAKEN_ERROR } from "@/lib/posPin";
 
 // Full row — only returned to authenticated managers/admins.
 const FULL_COLUMNS = "id, name, email, role, active, permissions, hourly_rate, avatar_color, created_at";
@@ -129,8 +130,13 @@ export async function POST(request: Request) {
   const { name, email = "", role = "cashier", password, pin,
           active = true, permissions, hourlyRate, avatarColor } = parsed.data;
 
+  // PIN is required (schema) and must be unique across all POS staff.
+  if (await pinTakenByOther(pin)) {
+    return NextResponse.json({ ok: false, error: PIN_TAKEN_ERROR }, { status: 409 });
+  }
+
   const passwordHash = await bcrypt.hash(password, HASH_ROUNDS);
-  const pinHash      = pin ? await bcrypt.hash(pin, HASH_ROUNDS) : null;
+  const pinHash      = await bcrypt.hash(pin, HASH_ROUNDS);
   const finalPerms   = permissions ?? ROLE_PERMISSIONS[role];
   const finalColor   = avatarColor ?? "#7c3aed";
 

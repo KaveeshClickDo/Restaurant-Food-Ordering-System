@@ -16,6 +16,7 @@ import { ROLE_PERMISSIONS } from "@/types/pos";
 import { parseBody } from "@/lib/apiValidation";
 import { PosStaffUpdateSchema } from "@/lib/schemas/staff";
 import { revokeDeviceTokens } from "@/lib/posDeviceToken";
+import { pinTakenByOther, PIN_TAKEN_ERROR } from "@/lib/posPin";
 
 const HASH_ROUNDS = 10;
 
@@ -87,7 +88,13 @@ export async function PATCH(
     if (body.permissions === undefined) patch.permissions = ROLE_PERMISSIONS[body.role];
   }
   if (body.password) patch.password_hash = await bcrypt.hash(body.password, HASH_ROUNDS);
-  if (body.pin)      patch.pin_hash      = await bcrypt.hash(body.pin, HASH_ROUNDS);
+  if (body.pin) {
+    // PIN must stay unique across all POS staff (excluding the row being edited).
+    if (await pinTakenByOther(body.pin, id)) {
+      return NextResponse.json({ ok: false, error: PIN_TAKEN_ERROR }, { status: 409 });
+    }
+    patch.pin_hash = await bcrypt.hash(body.pin, HASH_ROUNDS);
+  }
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ ok: false, error: "No fields to update" }, { status: 400 });

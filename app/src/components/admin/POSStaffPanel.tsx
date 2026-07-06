@@ -50,7 +50,8 @@ function StaffForm({
   onCancel,
 }: {
   initial?: Partial<FormDraft> & { id?: string };
-  onSave: (data: FormDraft) => void | Promise<void>;
+  /** Returns an error message to show in the form, or null on success. */
+  onSave: (data: FormDraft) => Promise<string | null>;
   onCancel: () => void;
 }) {
   const { settings } = useApp();
@@ -74,7 +75,9 @@ function StaffForm({
     if (!form.name.trim()) e.name = "Name is required.";
     if (!isEdit && !form.password.trim()) e.password = "Password is required.";
     else if (form.password.trim() && form.password.trim().length < 6) e.password = "Password must be at least 6 characters.";
-    // PIN is optional (tablet quick-login); validate format only when provided.
+    // PIN is required at creation (unique per staff — checked server-side);
+    // on edit, blank means "keep existing".
+    if (!isEdit && !form.pin.trim()) e.pin = "PIN is required.";
     if (form.pin.trim() && !/^\d{6}$/.test(form.pin.trim())) e.pin = "PIN must be exactly 6 digits.";
     if (Object.keys(e).length) { setErrors(e); return false; }
     return true;
@@ -87,7 +90,8 @@ function StaffForm({
     inFlight.current = true;
     setSaving(true);
     try {
-      await onSave(form);
+      const serverError = await onSave(form);
+      if (serverError) setErrors((e) => ({ ...e, form: serverError }));
     } finally {
       inFlight.current = false;
       setSaving(false);
@@ -144,7 +148,7 @@ function StaffForm({
 
       <div>
         <label className="block text-xs font-medium text-gray-400 mb-1">
-          Tablet PIN (6 digits, optional){isEdit ? " — leave blank to keep current" : ""}
+          Tablet PIN (6 digits){isEdit ? " — leave blank to keep current" : ""}
         </label>
         <div className="relative">
           <input
@@ -165,7 +169,7 @@ function StaffForm({
           </button>
         </div>
         {errors.pin && <p className="text-red-400 text-xs mt-1">{errors.pin}</p>}
-        <p className="text-gray-500 text-xs mt-1">Quick login on the Android POS tablet (checked on the device).</p>
+        <p className="text-gray-500 text-xs mt-1">Quick login on the Android POS tablet (checked on the device). Must be unique per staff member.</p>
       </div>
 
       <div>
@@ -224,6 +228,7 @@ function StaffForm({
         <span className="text-sm text-gray-300">{form.active ? "Active" : "Inactive"}</span>
       </label>
 
+      {errors.form && <p className="text-red-400 text-xs">{errors.form}</p>}
       <div className="flex gap-2 pt-2">
         <button type="submit" disabled={saving} className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-4 py-2 rounded-lg transition">
           <Save size={14} /> {saving ? "Saving…" : "Save"}
@@ -265,7 +270,7 @@ export default function POSStaffPanel() {
   const togglingIds = useRef<Set<string>>(new Set());
   const deletingIds = useRef<Set<string>>(new Set());
 
-  async function handleAdd(data: FormDraft) {
+  async function handleAdd(data: FormDraft): Promise<string | null> {
     const res = await fetch("/api/admin/pos", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
@@ -274,21 +279,24 @@ export default function POSStaffPanel() {
         email:       data.email,
         role:        data.role,
         password:    data.password,
-        pin:         data.pin.trim() || undefined,
+        pin:         data.pin.trim(), // required — validated by the form + server
         active:      data.active,
         avatarColor: data.avatarColor,
         hourlyRate:  parseFloat(data.hourlyRate) || undefined,
         permissions: ROLE_PERMISSIONS[data.role],
       }),
     });
-    if (res.ok) {
-      await refresh();
-      setAdding(false);
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({})) as { error?: string };
+      return json.error ?? "Could not add staff member.";
     }
+    await refresh();
+    setAdding(false);
+    return null;
   }
 
-  async function handleEdit(data: FormDraft) {
-    if (!editing) return;
+  async function handleEdit(data: FormDraft): Promise<string | null> {
+    if (!editing) return null;
     const res = await fetch(`/api/admin/pos/${editing.id}`, {
       method:  "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -304,10 +312,13 @@ export default function POSStaffPanel() {
         permissions: ROLE_PERMISSIONS[data.role],
       }),
     });
-    if (res.ok) {
-      await refresh();
-      setEditing(null);
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({})) as { error?: string };
+      return json.error ?? "Could not save changes.";
     }
+    await refresh();
+    setEditing(null);
+    return null;
   }
 
   async function handleDelete(id: string) {
