@@ -2096,6 +2096,68 @@ end $$;
 
 
 -- ═══════════════════════════════════════════════════════════════════════════════
+-- Marketing contacts (CRM) — reservation_customers grows into the single
+-- marketing contact list
+-- ═══════════════════════════════════════════════════════════════════════════════
+--
+-- reservation_customers is the app's one email-keyed contact table (unique
+-- email, tags, notes, marketing_opt_in). Historically only reservations and
+-- anonymous online checkouts wrote to it; it now receives EVERY flow where a
+-- customer hands over an email (account sign-up, signed-in orders, gift cards,
+-- POS customer creation, e-bill receipts) via lib/marketingContacts.ts.
+-- The table name is kept for live-migration safety — in TypeScript the row is
+-- typed as a "marketing contact".
+--
+--   • sources            — where the email came from; a contact can hold several:
+--                          'reservation' | 'online_order' | 'account' |
+--                          'gift_card' | 'pos' | 'ebill'
+--   • unsubscribe_token  — bearer token for the public one-click unsubscribe
+--                          link embedded in campaign emails. Unique per contact.
+--   • unsubscribed_at    — stamped when the contact opts out (via the public
+--                          unsubscribe page or an admin toggle). Cleared if an
+--                          admin re-enables opt-in.
+--
+-- marketing_opt_in default flips to TRUE (UK PECR soft opt-in: own customers,
+-- own similar services, opt-out offered in every message). The one-time flip of
+-- existing rows is guarded on the `sources` column not existing yet, so
+-- re-running this file never undoes a later opt-out.
+
+do $$
+begin
+  if not exists (select 1 from information_schema.columns
+                 where table_schema = 'public'
+                   and table_name   = 'reservation_customers'
+                   and column_name  = 'sources') then
+    alter table reservation_customers
+      add column sources text[] not null default '{}';
+    -- One-time default flip: everyone collected so far becomes opted-in.
+    -- Runs exactly once (guarded above) so later opt-outs are never reverted.
+    update reservation_customers set marketing_opt_in = true;
+  end if;
+end $$;
+
+alter table reservation_customers
+  add column if not exists unsubscribe_token text default gen_random_uuid()::text;
+alter table reservation_customers
+  add column if not exists unsubscribed_at timestamptz;
+
+-- New rows get marketing_opt_in = true from here on.
+alter table reservation_customers alter column marketing_opt_in set default true;
+
+-- Rows created before the token column existed get NULL — mint their tokens.
+update reservation_customers
+   set unsubscribe_token = gen_random_uuid()::text
+ where unsubscribe_token is null;
+
+create unique index if not exists reservation_customers_unsubscribe_token_unique
+  on reservation_customers (unsubscribe_token);
+
+-- Source-filter queries use array containment (sources @> '{online_order}').
+create index if not exists reservation_customers_sources_gin
+  on reservation_customers using gin (sources);
+
+
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- Verification queries (paste these separately after running the above):
 --
 --   -- new tables present?

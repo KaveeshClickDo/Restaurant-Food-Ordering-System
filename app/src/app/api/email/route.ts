@@ -30,6 +30,7 @@ import { sendEmail, emailConfigured } from "@/lib/emailSender";
 import { parseBody } from "@/lib/apiValidation";
 import { EmailRelaySchema } from "@/lib/schemas/pos";
 import { rateLimit } from "@/lib/rateLimit";
+import { upsertMarketingContact } from "@/lib/marketingContacts";
 
 export const runtime = "nodejs";
 
@@ -62,5 +63,12 @@ export async function POST(request: Request) {
   if (!result.ok) {
     return NextResponse.json({ ok: false, error: result.error }, { status: 500 });
   }
+
+  // A customer asking staff to email them a bill/receipt just handed over
+  // their address — capture it as a marketing contact. No name/phone here
+  // (the receipt UI only collects the address). Best-effort, after the send
+  // succeeded so a typo'd bounced address is less likely to pollute the list.
+  await upsertMarketingContact({ email: to, source: "ebill" });
+
   return NextResponse.json({ ok: true });
 }

@@ -24,7 +24,12 @@ export async function PATCH(
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (body.notes        !== undefined) patch.notes            = body.notes.trim();
   if (body.tags         !== undefined) patch.tags             = body.tags;
-  if (body.marketingOptIn !== undefined) patch.marketing_opt_in = body.marketingOptIn;
+  if (body.marketingOptIn !== undefined) {
+    patch.marketing_opt_in = body.marketingOptIn;
+    // Opting out stamps unsubscribed_at (the campaign sender suppresses on
+    // either signal); re-enabling clears it so the contact is mailable again.
+    patch.unsubscribed_at  = body.marketingOptIn ? null : new Date().toISOString();
+  }
 
   const { error } = await supabaseAdmin
     .from("reservation_customers")

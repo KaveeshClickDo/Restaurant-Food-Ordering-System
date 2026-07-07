@@ -40,6 +40,7 @@ import { spendStoreCredit, refundStoreCredit, claimCouponUsage } from "@/lib/sto
 import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
 import { completeReservationFromSession } from "@/lib/reservations";
 import { rewardLoyaltyPoints, redeemLoyaltyPointsForOrder } from "@/lib/loyaltyUtils";
+import { captureCustomerOrderContact } from "@/lib/marketingContacts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -388,6 +389,10 @@ async function handleCaptureCompleted(resource: PaypalCapture): Promise<void> {
     // Net money total; idempotent per order id (PayPal retries award once).
     await rewardLoyaltyPoints(orderRow.customer_id as string, Number(orderRow.total), { orderId: orderRow.id as string });
   }
+
+  // Marketing contact — signed-in PayPal orders are captured server-side (guest
+  // checkouts go through /api/guest-profile). Fire-and-forget.
+  captureCustomerOrderContact(orderRow.customer_id as string | null, Number(orderRow.total)).catch(() => {});
 
   // (Store credit + gift card were already debited as gates above, before the
   // insert — the order only exists because both balances backed the discount.)

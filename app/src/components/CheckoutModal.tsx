@@ -686,9 +686,9 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
 
     printOrder(newOrder, settings);
 
-    // Guest profile is for anonymous (no-account) checkouts only.
-    // Signed-in users live in the canonical `customers` table — including them
-    // here would double-list them as "guest profiles" (Bug #9).
+    // Marketing-contact capture for ANONYMOUS checkouts only — their
+    // name/phone exist nowhere but this form. Signed-in orders are captured
+    // server-side at order creation; firing here too would double-count.
     if (!currentUser && form.email.trim()) {
       fetch("/api/guest-profile", {
         method: "POST",
@@ -773,9 +773,9 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     // webhook inserts it; print the in-memory copy for an immediate receipt.
     if (pendingOrder) printOrder(pendingOrder, settings);
 
-    // Guest profile is for anonymous (no-account) checkouts only.
-    // Signed-in users live in the canonical `customers` table — including them
-    // here would double-list them as "guest profiles" (Bug #9).
+    // Marketing-contact capture for ANONYMOUS checkouts only — their
+    // name/phone exist nowhere but this form. Signed-in orders are captured
+    // server-side at order creation; firing here too would double-count.
     if (!currentUser && form.email.trim()) {
       fetch("/api/guest-profile", {
         method: "POST",
@@ -860,6 +860,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     // webhook inserts it; print the in-memory copy for an immediate receipt.
     if (pendingOrder) printOrder(pendingOrder, settings);
 
+    // Anonymous-checkout marketing capture — see the comment in the cash flow.
     if (!currentUser && form.email.trim()) {
       fetch("/api/guest-profile", {
         method: "POST",

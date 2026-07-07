@@ -31,6 +31,7 @@ import { redeemGiftCardForRow, refundGiftCardForRow } from "@/lib/giftCardValida
 import { redeemLoyaltyPointsForOrder } from "@/lib/loyaltyUtils";
 import { spendStoreCredit, refundStoreCredit, claimCouponUsage } from "@/lib/storeCredit";
 import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutation";
+import { captureCustomerOrderContact } from "@/lib/marketingContacts";
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
@@ -204,6 +205,10 @@ export async function POST(req: NextRequest) {
   if (coupon) {
     await claimCouponUsage(coupon.id);
   }
+
+  // Marketing contact — signed-in orders are captured server-side (guest
+  // checkouts go through /api/guest-profile). Fire-and-forget.
+  captureCustomerOrderContact(row.customer_id, row.total).catch(() => {});
 
   // Fire-and-forget — email failure must never fail the order response
   sendOrderConfirmationEmail({

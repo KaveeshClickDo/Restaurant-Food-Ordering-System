@@ -35,6 +35,7 @@ import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutatio
 import { generateGiftCardCode } from "@/lib/giftCardCode";
 import { completeReservationFromSession } from "@/lib/reservations";
 import { rewardLoyaltyPoints, redeemLoyaltyPointsForOrder } from "@/lib/loyaltyUtils";
+import { captureCustomerOrderContact, upsertMarketingContact } from "@/lib/marketingContacts";
 
 // Tell Next.js this route handler should NOT parse the body — Stripe needs
 // the raw bytes for signature verification.
@@ -328,6 +329,10 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
     await rewardLoyaltyPoints(orderRow.customer_id as string, Number(orderRow.total), { orderId: orderRow.id as string });
   }
 
+  // Marketing contact — signed-in card orders are captured server-side (guest
+  // checkouts go through /api/guest-profile). Fire-and-forget.
+  captureCustomerOrderContact(orderRow.customer_id as string | null, Number(orderRow.total)).catch(() => {});
+
   // Coupon usage — atomic + limit-aware claim; order is already committed.
   const couponCode = orderRow.coupon_code as string | null;
   if (couponCode) {
@@ -457,6 +462,8 @@ interface GiftCardPayload {
   recipient_name: string;
   personal_message: string | null;
   issued_by_customer_id: string | null;
+  /** Anonymous buyer's own email (older sessions predate the field). */
+  purchaser_email?: string | null;
 }
 
 interface PaymentSessionRow {
@@ -572,8 +579,34 @@ async function handleGiftCardPurchaseSucceeded(
   let senderName = "Someone";
   if (payload.issued_by_customer_id) {
     const { data: buyer } = await supabaseAdmin
-      .from("customers").select("name").eq("id", payload.issued_by_customer_id).maybeSingle();
+      .from("customers").select("name, email, phone").eq("id", payload.issued_by_customer_id).maybeSingle();
     if (buyer?.name) senderName = buyer.name;
+
+    // Marketing contact — the buyer handed us their email when they bought.
+    if (buyer?.email) {
+      await upsertMarketingContact({
+        email:      buyer.email as string,
+        source:     "gift_card",
+        name:       (buyer.name  as string) ?? "",
+        phone:      (buyer.phone as string) ?? "",
+        customerId: payload.issued_by_customer_id,
+      });
+    }
+  }
+
+  // Marketing contact — the recipient's email is now in the system too.
+  await upsertMarketingContact({
+    email:  payload.recipient_email,
+    source: "gift_card",
+    name:   payload.recipient_name,
+  });
+
+  // Anonymous buyer who left their own email on the purchase form.
+  if (payload.purchaser_email) {
+    await upsertMarketingContact({
+      email:  payload.purchaser_email,
+      source: "gift_card",
+    });
   }
 
   // Deliver the email. AWAITED (not fire-and-forget) — a webhook that returns

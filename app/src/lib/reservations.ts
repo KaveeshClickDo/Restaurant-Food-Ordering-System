@@ -16,6 +16,7 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendReservationEmailServer } from "@/lib/emailServer";
 import { getOrderOccupiedTableIds, getActiveDineInTableIds } from "@/lib/tableOccupancy";
+import { upsertMarketingContact } from "@/lib/marketingContacts";
 import type { AdminSettings, EmailTemplateEvent } from "@/types";
 
 function toMins(time: string): number {
@@ -175,29 +176,15 @@ export async function createReservation(
     return { ok: false, error: error.message, status: 500 };
   }
 
-  // ── Guest profile upsert (when an email was supplied) ─────────────────────
+  // ── Marketing contact upsert (when an email was supplied) ─────────────────
+  // Best-effort by contract — never blocks the booking.
   if (email) {
-    try {
-      const { data: existing } = await supabaseAdmin
-        .from("reservation_customers")
-        .select("id, first_visit_at")
-        .eq("email", email)
-        .maybeSingle();
-      if (existing) {
-        await supabaseAdmin.from("reservation_customers").update({
-          name: input.customerName.trim(), phone: input.customerPhone?.trim() ?? "",
-          updated_at: now,
-          ...(existing.first_visit_at ? {} : { first_visit_at: now }),
-        }).eq("email", email);
-      } else {
-        await supabaseAdmin.from("reservation_customers").insert({
-          email, name: input.customerName.trim(), phone: input.customerPhone?.trim() ?? "",
-          visit_count: 0, first_visit_at: now, created_at: now, updated_at: now,
-        });
-      }
-    } catch {
-      // Guest-profile bookkeeping is best-effort — never block the booking on it.
-    }
+    await upsertMarketingContact({
+      email,
+      source: "reservation",
+      name:  input.customerName,
+      phone: input.customerPhone,
+    });
   }
 
   // ── Confirmation email / booking-fee bill ─────────────────────────────────
@@ -377,51 +364,16 @@ export async function applyReservationStatusChange(
 
   const email = (resRow.customer_email as string)?.trim().toLowerCase();
 
-  // Customer profile bookkeeping — only on check-in (create/refresh) and
-  // check-out (increment visit_count). Best-effort; never blocks the status.
-  if (email) {
-    try {
-      if (status === "checked_in") {
-        const { data: existing } = await supabaseAdmin
-          .from("reservation_customers")
-          .select("id, first_visit_at")
-          .eq("email", email)
-          .maybeSingle();
-        if (existing) {
-          await supabaseAdmin.from("reservation_customers").update({
-            name:       resRow.customer_name ?? "",
-            phone:      resRow.customer_phone ?? "",
-            updated_at: now,
-            ...(existing.first_visit_at ? {} : { first_visit_at: now }),
-          }).eq("email", email);
-        } else {
-          await supabaseAdmin.from("reservation_customers").insert({
-            email,
-            name:           resRow.customer_name ?? "",
-            phone:          resRow.customer_phone ?? "",
-            visit_count:    0,
-            first_visit_at: now,
-            created_at:     now,
-            updated_at:     now,
-          });
-        }
-      } else if (status === "checked_out") {
-        const { data: existing } = await supabaseAdmin
-          .from("reservation_customers")
-          .select("id, visit_count")
-          .eq("email", email)
-          .maybeSingle();
-        if (existing) {
-          await supabaseAdmin.from("reservation_customers").update({
-            visit_count:   (existing.visit_count as number) + 1,
-            last_visit_at: now,
-            updated_at:    now,
-          }).eq("email", email);
-        }
-      }
-    } catch {
-      /* profile bookkeeping is best-effort */
-    }
+  // Customer profile bookkeeping — check-in creates/refreshes the contact,
+  // check-out increments visit_count. Best-effort; never blocks the status.
+  if (email && (status === "checked_in" || status === "checked_out")) {
+    await upsertMarketingContact({
+      email,
+      source: "reservation",
+      name:  (resRow.customer_name as string)  ?? "",
+      phone: (resRow.customer_phone as string) ?? "",
+      visit: status === "checked_out",
+    });
   }
 
   // Status-change email (fire-and-forget) — same map as POS/admin.

@@ -450,11 +450,18 @@ export interface Reservation {
   paymentRef?: string;    // gateway id or till receipt reference
 }
 
+/** Where a marketing contact's email entered the system (see
+ *  lib/marketingContacts.ts). A contact accumulates several. */
+export type ContactSource =
+  | "reservation" | "online_order" | "account" | "gift_card" | "pos" | "ebill";
+
 export interface ReservationCustomer {
   id: string;
   email: string;
   name: string;
   phone: string;
+  /** Capture channels this contact arrived through. */
+  sources: ContactSource[];
   visitCount: number;
   firstVisitAt?: string;
   lastVisitAt?: string;
@@ -467,6 +474,8 @@ export interface ReservationCustomer {
   tags: string[];
   notes: string;
   marketingOptIn: boolean;
+  /** Set when the contact opted out (unsubscribe page or admin toggle). */
+  unsubscribedAt?: string;
   createdAt: string;
   updatedAt: string;
 }

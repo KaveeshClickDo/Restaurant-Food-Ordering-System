@@ -13,6 +13,7 @@ import { parseBody } from "@/lib/apiValidation";
 import { AdminGiftCardCreateSchema } from "@/lib/schemas/giftCard";
 import { generateGiftCardCode } from "@/lib/giftCardCode";
 import { sendGiftCardDeliveredEmail } from "@/lib/emailServer";
+import { upsertMarketingContact } from "@/lib/marketingContacts";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function rowToGiftCard(row: any) {
@@ -132,6 +133,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     performed_by:  "admin",
     notes:         notes ?? "Manually issued by admin",
   });
+
+  // Marketing contact — counter-sale recipient email enters the system here.
+  if (recipientEmail) {
+    await upsertMarketingContact({
+      email:  recipientEmail,
+      source: "gift_card",
+      name:   recipientName,
+    });
+  }
 
   // Optional delivery email.
   if (sendEmail && recipientEmail) {

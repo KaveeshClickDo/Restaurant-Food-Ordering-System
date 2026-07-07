@@ -10,6 +10,7 @@
     "lint": "eslint",
     "db:migrate": "node --env-file=.env.local migrate.mjs && npx tsx --env-file=.env.local seed-settings.ts",
     "db:seed-menu": "npx tsx --env-file=.env.local seed-menu.ts",
+    "db:backfill-contacts": "npx tsx --env-file=.env.local backfill-marketing-contacts.ts",
     "android": "npx cap sync android && npx cap open android",
     "android:build": "npm run build && npx cap sync android"
   },

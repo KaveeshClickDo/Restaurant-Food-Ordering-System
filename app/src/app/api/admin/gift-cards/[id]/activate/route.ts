@@ -20,6 +20,7 @@ import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { parseBody } from "@/lib/apiValidation";
 import { AdminGiftCardActivateSchema } from "@/lib/schemas/giftCard";
 import { sendGiftCardDeliveredEmail } from "@/lib/emailServer";
+import { upsertMarketingContact } from "@/lib/marketingContacts";
 
 const GIFT_CARD_EXPIRY_MONTHS = 12;
 
@@ -84,6 +85,13 @@ export async function POST(
     balance_after: cardValue,
     performed_by:  "admin",
     notes:         `Activated & sold (${paymentMethod}) to ${recipientEmail}${notes ? ` — ${notes}` : ""}`,
+  });
+
+  // Marketing contact — the physical-card buyer's email enters the system here.
+  await upsertMarketingContact({
+    email:  recipientEmail,
+    source: "gift_card",
+    name:   recipientName,
   });
 
   // Optional delivery email (same shape as the counter-sale flow).

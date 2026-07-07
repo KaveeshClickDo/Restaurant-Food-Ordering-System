@@ -14,6 +14,7 @@ import { sendEmailDirect, fetchBrandPrimaryColor } from "@/lib/emailServer";
 import { emailConfigured }        from "@/lib/emailSender";
 import { parseBody }              from "@/lib/apiValidation";
 import { RegisterSchema }         from "@/lib/schemas/auth";
+import { upsertMarketingContact } from "@/lib/marketingContacts";
 
 // Issue a session cookie immediately on register only when the auth migration
 // hasn't been applied yet — in that case email_verified doesn't exist and the
@@ -118,6 +119,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: errReactivate.message }, { status: 500 });
     }
 
+    await upsertMarketingContact({
+      email: normEmail, source: "account",
+      name, phone, customerId: existing.id as string,
+    });
+
     await sendVerificationEmail(normEmail, name.trim(), rawToken);
     return NextResponse.json({ ok: true, requiresVerification: true, email: normEmail });
   }
@@ -147,6 +153,11 @@ export async function POST(req: NextRequest) {
     console.error("auth/register:", errInsert.message);
     return NextResponse.json({ ok: false, error: errInsert.message }, { status: 500 });
   }
+
+  await upsertMarketingContact({
+    email: normEmail, source: "account",
+    name, phone, customerId: id,
+  });
 
   // ── Send verification email ───────────────────────────────────────────────
   await sendVerificationEmail(normEmail, name.trim(), rawToken);

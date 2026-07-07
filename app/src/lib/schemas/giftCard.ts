@@ -24,6 +24,10 @@ export const GiftCardPurchaseSchema = z.object({
   recipientEmail: Email,
   recipientName:  z.string().trim().min(1, "Recipient name is required.").max(120),
   personalMessage: z.string().trim().max(500).optional(),
+  /** Anonymous buyer's own email (optional). Signed-in buyers are identified
+   *  by their session instead; this exists so a guest purchase still leaves
+   *  the buyer reachable (payment receipt + marketing contact). */
+  purchaserEmail: Email.optional(),
 });
 
 export type GiftCardPurchaseInput = z.infer<typeof GiftCardPurchaseSchema>;

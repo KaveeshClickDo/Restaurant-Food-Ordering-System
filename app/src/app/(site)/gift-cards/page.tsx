@@ -35,6 +35,7 @@ export default function GiftCardsPage() {
   const [recipientEmail, setRecipientEmail] = useState("");
   const [message, setMessage] = useState("");
   const [sendToMe, setSendToMe] = useState(false);
+  const [purchaserEmail, setPurchaserEmail] = useState("");
 
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -53,6 +54,9 @@ export default function GiftCardsPage() {
     if (!email) return sendToMe ? "Sign in or untick 'send to me' and enter an email." : "Recipient email is required.";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "Enter a valid email address.";
     if (!sendToMe && !recipientName.trim()) return "Recipient name is required.";
+    if (purchaserEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(purchaserEmail.trim())) {
+      return "Enter a valid email address for yourself, or leave it blank.";
+    }
     return null;
   }
 
@@ -74,6 +78,8 @@ export default function GiftCardsPage() {
           recipientEmail: email,
           recipientName:  name,
           personalMessage: message.trim() || undefined,
+          // Anonymous buyers only — signed-in buyers are identified by session.
+          purchaserEmail: !currentUser && purchaserEmail.trim() ? purchaserEmail.trim() : undefined,
         }),
       });
       const json = await res.json() as { ok: boolean; clientSecret?: string; error?: string };
@@ -183,6 +189,25 @@ export default function GiftCardsPage() {
                 <p className="text-xs text-zinc-400 mt-1">We&apos;ll email the code here once payment completes.</p>
               </div>
             </>
+          )}
+
+          {/* Buyer's own email — anonymous buyers only (signed-in buyers are
+              known from their account) */}
+          {!currentUser && (
+            <div>
+              <label className="block text-sm font-semibold text-zinc-700 mb-1.5">Your email <span className="text-zinc-400 font-normal">(optional)</span></label>
+              <div className="relative">
+                <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                <input
+                  type="email"
+                  value={purchaserEmail}
+                  onChange={(e) => { setPurchaserEmail(e.target.value); setError(""); }}
+                  placeholder="you@example.com"
+                  className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                />
+              </div>
+              <p className="text-xs text-zinc-400 mt-1">So we can reach you about this purchase and occasional offers.</p>
+            </div>
           )}
 
           {/* Personal message */}

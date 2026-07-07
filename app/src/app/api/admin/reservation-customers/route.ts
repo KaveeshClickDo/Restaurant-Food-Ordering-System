@@ -15,6 +15,7 @@ function mapRow(row: Record<string, unknown>): ReservationCustomer {
     email:           row.email            as string,
     name:            row.name             as string,
     phone:           row.phone            as string,
+    sources:         (row.sources as ReservationCustomer["sources"]) ?? [],
     visitCount:      (row.visit_count     as number) ?? 0,
     firstVisitAt:    row.first_visit_at   as string | undefined,
     lastVisitAt:     row.last_visit_at    as string | undefined,
@@ -24,6 +25,7 @@ function mapRow(row: Record<string, unknown>): ReservationCustomer {
     tags:            (row.tags as string[]) ?? [],
     notes:           row.notes            as string,
     marketingOptIn:  row.marketing_opt_in as boolean,
+    unsubscribedAt:  (row.unsubscribed_at as string | null) ?? undefined,
     createdAt:       row.created_at       as string,
     updatedAt:       row.updated_at       as string,
   };

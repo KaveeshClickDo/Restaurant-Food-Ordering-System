@@ -20,6 +20,7 @@ import { parseBody } from "@/lib/apiValidation";
 import { PosCustomerCreateSchema } from "@/lib/schemas/customer";
 import { orderSpendContribution } from "@/lib/customerSpend";
 import { setLoyaltyPointsAbsolute } from "@/lib/loyaltyUtils";
+import { upsertMarketingContact } from "@/lib/marketingContacts";
 
 const POS_WALK_IN_ID = "pos-walk-in";
 
@@ -193,6 +194,16 @@ export async function POST(req: NextRequest) {
     console.error("POST /api/pos/customers:", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
+
+  // Marketing contact — only when a REAL email was typed at the till; the
+  // synthetic pos-*@internal.local fallback is filtered inside the helper.
+  await upsertMarketingContact({
+    email,
+    source:     "pos",
+    name:       body.name,
+    phone:      body.phone,
+    customerId: id,
+  });
 
   // Seed any opening loyalty balance through the lot ledger (never the column).
   if ((body.loyaltyPoints ?? 0) > 0) {

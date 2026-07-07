@@ -17,6 +17,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHmac, randomUUID }    from "crypto";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
+import { upsertMarketingContact }    from "@/lib/marketingContacts";
 import {
   createSessionToken,
   setSessionCookie,
@@ -193,6 +194,12 @@ export async function GET(req: NextRequest) {
       }
     }
   }
+
+  // Google sign-in (new or returning) is an email handed to us directly —
+  // capture/refresh the marketing contact and link the account.
+  await upsertMarketingContact({
+    email, source: "account", name, customerId,
+  });
 
   // ── Issue session cookie and redirect home ──────────────────────────────────
   const token = createSessionToken({ id: customerId, role: "customer", sessionVersion });
