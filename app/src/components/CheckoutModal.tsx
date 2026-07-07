@@ -250,7 +250,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   const {
     cart, settings, clearCart, addOrder, currentUser, fulfillment, scheduledTime, setScheduledTime,
     appliedCoupon, applyCoupon, removeCoupon, incrementCouponUsage, applyStoreCreditOptimistic,
-    customers,
+    customers, updateCustomerProfile, addSavedAddress,
   } = useApp();
 
   // Always read from the live customers array (not the login snapshot) so any
@@ -639,6 +639,54 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   const cardInFlight = useRef(false);
   const paypalInFlight = useRef(false);
 
+  /**
+   * Persist checkout edits back to the signed-in account, called once an order
+   * is successfully placed. A changed name / phone updates the account; a newly
+   * typed delivery address (not one of the saved cards) is saved as a new
+   * account address so it's reusable next time. Best-effort — never blocks the
+   * order. Only signed-in users reach checkout, but we guard anyway.
+   */
+  function syncAccountFromCheckout() {
+    if (!currentUser) return;
+
+    const nameChanged  = !!form.name.trim()  && form.name.trim()  !== (currentUser.name  ?? "");
+    const phoneChanged = !!form.phone.trim() && form.phone.trim() !== (currentUser.phone ?? "");
+    if (nameChanged || phoneChanged) {
+      updateCustomerProfile(currentUser.id, {
+        ...(nameChanged  ? { name:  form.name.trim() }  : {}),
+        ...(phoneChanged ? { phone: form.phone.trim() } : {}),
+      });
+    }
+
+    // Save a freshly typed delivery address to the account. Checkout collects
+    // the address as one free-text field, so split off a trailing UK postcode
+    // for a tidy saved entry; fall back to the whole string when none matches.
+    if (isDelivery && selectedAddressId === "manual" && form.address.trim()) {
+      const typed = form.address.trim();
+      const already = savedAddresses.some(
+        (a) =>
+          `${a.address}, ${a.postcode}`.trim().toLowerCase() === typed.toLowerCase() ||
+          a.address.trim().toLowerCase() === typed.toLowerCase(),
+      );
+      if (!already) {
+        const pc = typed.match(/\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\s*$/i);
+        const postcode = pc ? pc[1].toUpperCase() : "";
+        const street = pc ? typed.slice(0, pc.index).replace(/[,\s]+$/, "") : typed;
+        addSavedAddress(currentUser.id, {
+          id:        uuid(),
+          label:     "Delivery address",
+          address:   street,
+          postcode,
+          phone:     form.phone.trim() || undefined,
+          note:      form.note.trim() || undefined,
+          isDefault: savedAddresses.length === 0,
+          createdAt: new Date().toISOString(),
+          ...(custLat != null && custLng != null ? { lat: custLat, lng: custLng } : {}),
+        });
+      }
+    }
+  }
+
   /** Cash / pay-on-delivery — order is inserted immediately. */
   async function placeCashOrder(method: PaymentMethod) {
     if (cashInFlight.current) return;
@@ -685,6 +733,9 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     setSubmitting(false);
 
     printOrder(newOrder, settings);
+
+    // Signed-in customer: push any name/phone/address edits back to the account.
+    syncAccountFromCheckout();
 
     // Marketing-contact capture for ANONYMOUS checkouts only — their
     // name/phone exist nowhere but this form. Signed-in orders are captured
@@ -773,6 +824,9 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     // webhook inserts it; print the in-memory copy for an immediate receipt.
     if (pendingOrder) printOrder(pendingOrder, settings);
 
+    // Signed-in customer: push any name/phone/address edits back to the account.
+    syncAccountFromCheckout();
+
     // Marketing-contact capture for ANONYMOUS checkouts only — their
     // name/phone exist nowhere but this form. Signed-in orders are captured
     // server-side at order creation; firing here too would double-count.
@@ -859,6 +913,9 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     // Receipt printing — the order itself will arrive via Realtime when the
     // webhook inserts it; print the in-memory copy for an immediate receipt.
     if (pendingOrder) printOrder(pendingOrder, settings);
+
+    // Signed-in customer: push any name/phone/address edits back to the account.
+    syncAccountFromCheckout();
 
     // Anonymous-checkout marketing capture — see the comment in the cash flow.
     if (!currentUser && form.email.trim()) {
@@ -1284,32 +1341,39 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
             </div>
           )}
 
-          {/* Customer details */}
+          {/* Customer details. Only signed-in customers can reach checkout, so
+              these fields are seeded from the account. Name + phone edits are
+              written back to the account on order placement (see
+              syncAccountFromCheckout); email is fixed to the account identity. */}
           <div className="space-y-3">
             <h3 className="font-semibold text-gray-900 text-sm">Your details</h3>
-            {[
-              { key: "name", label: "Full name", type: "text", placeholder: "Jane Smith" },
-              { key: "email", label: "Email address", type: "email", placeholder: "jane@example.com" },
-              { key: "phone", label: "Phone number", type: "tel", placeholder: "+44 7700 900000" },
-            ].map(({ key, label, type, placeholder }) => (
+            {([
+              { key: "name",  label: "Full name",     type: "text",  placeholder: "Jane Smith",         readOnly: false },
+              { key: "email", label: "Email address", type: "email", placeholder: "jane@example.com",   readOnly: true  },
+              { key: "phone", label: "Phone number",  type: "tel",   placeholder: "+44 7700 900000",    readOnly: false },
+            ] as const).map(({ key, label, type, placeholder, readOnly }) => (
               <div key={key}>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
                   {label} <span className="text-red-400">*</span>
+                  {readOnly && <span className="ml-1 text-gray-400 font-normal">(linked to your account)</span>}
                 </label>
                 <input
                   type={type}
+                  readOnly={readOnly}
                   inputMode={key === "phone" ? "tel" : undefined}
                   autoComplete={key === "phone" ? "tel" : key === "email" ? "email" : key === "name" ? "name" : undefined}
                   value={form[key as keyof typeof form]}
-                  onChange={(e) => {
+                  onChange={readOnly ? undefined : (e) => {
                     const v = key === "phone" ? cleanPhone(e.target.value) : e.target.value;
                     setForm((f) => ({ ...f, [key]: v }));
                     if (fieldErrors[key]) setFieldErrors((p) => ({ ...p, [key]: "" }));
                   }}
                   placeholder={placeholder}
-                  className={`w-full border rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 transition ${fieldErrors[key]
-                    ? "border-red-400 focus:ring-red-300 bg-red-50"
-                    : "border-gray-200 focus:ring-orange-400"
+                  className={`w-full border rounded-xl px-4 py-2.5 text-sm placeholder-gray-400 focus:outline-none transition ${readOnly
+                    ? "border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed"
+                    : fieldErrors[key]
+                      ? "border-red-400 focus:ring-2 focus:ring-red-300 bg-red-50 text-gray-800"
+                      : "border-gray-200 focus:ring-2 focus:ring-orange-400 text-gray-800"
                     }`}
                 />
                 {fieldErrors[key] && (

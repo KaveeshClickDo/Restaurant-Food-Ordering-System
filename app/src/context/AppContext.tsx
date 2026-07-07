@@ -217,6 +217,9 @@ interface AppContextValue {
   updateSavedAddress: (customerId: string, address: SavedAddress) => void;
   deleteSavedAddress: (customerId: string, addressId: string) => void;
   setDefaultAddress: (customerId: string, addressId: string) => void;
+  /** Update the customer's own name / phone (checkout + account edits).
+   *  Optimistic: patches local state, then PATCHes /api/customers/[id]. */
+  updateCustomerProfile: (customerId: string, fields: { name?: string; phone?: string }) => void;
   drivers: Driver[];
   currentDriver: Driver | null;
   /** False until the first /api/auth/driver(/me) check resolves on mount.
@@ -1651,6 +1654,30 @@ export function AppProvider({
   const setDefaultAddress = (customerId: string, addressId: string) =>
     patchAddresses(customerId, (addrs) => addrs.map((a) => ({ ...a, isDefault: a.id === addressId })));
 
+  // ─── Profile (name / phone) ───────────────────────────────────────────────
+  // Mirrors the favourites/addresses pattern: optimistic local update to both
+  // the customers array and currentUser, then PATCH the allowlisted fields.
+  const updateCustomerProfile = (customerId: string, fields: { name?: string; phone?: string }) => {
+    const clean: { name?: string; phone?: string } = {};
+    if (fields.name  !== undefined) clean.name  = fields.name.trim();
+    if (fields.phone !== undefined) clean.phone = fields.phone.trim();
+    if (clean.name === undefined && clean.phone === undefined) return;
+
+    setCustomers((prev) => prev.map((c) => (c.id === customerId ? { ...c, ...clean } : c)));
+    setCurrentUser((prev) => {
+      if (!prev || prev.id !== customerId) return prev;
+      const updated = { ...prev, ...clean };
+      fetch(`/api/customers/${customerId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(clean),
+      }).then(async (r) => {
+        if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("updateCustomerProfile:", j.error); }
+      }).catch((e) => console.error("updateCustomerProfile:", e));
+      return updated;
+    });
+  };
+
   // ─── Payment methods ──────────────────────────────────────────────────────
 
   const updatePaymentMethod = (method: PaymentMethod) =>
@@ -1985,6 +2012,7 @@ export function AppProvider({
         addCoupon, updateCoupon, deleteCoupon, toggleCoupon,
         incrementCouponUsage, appliedCoupon, applyCoupon, removeCoupon,
         addSavedAddress, updateSavedAddress, deleteSavedAddress, setDefaultAddress,
+        updateCustomerProfile,
         drivers,
         currentDriver, driverAuthChecked, driverLogin, driverLogout,
         addDriver, updateDriver, deleteDriver, toggleDriver,
