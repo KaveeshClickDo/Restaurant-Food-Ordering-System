@@ -1,5 +1,10 @@
 # Scheduled broadcasts — enabling the cron trigger
 
+> **Shortcut:** `bash scripts/deploy-server.sh` (run in the app directory on
+> the server) does everything on this page automatically — plus pull, build,
+> migrate, backfill, and restart. The rest of this doc explains the manual
+> steps it performs.
+
 Scheduled broadcasts need something to hit the dispatch endpoint periodically.
 This app is **not on Vercel** — it runs as a systemd service on a Debian server
 (`demo-directdine-tech.service`, `next start` on port 8086) — so the trigger is
