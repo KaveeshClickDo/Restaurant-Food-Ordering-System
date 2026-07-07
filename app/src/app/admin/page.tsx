@@ -72,9 +72,9 @@ const NAV_GROUPS: NavGroup[] = [
     id: "customers", label: "Customers & Services",
     items: [
       { id: "customers", label: "Customers", icon: Users },
-      // Tab id stays "reservation-customers" (the table it reads) so existing
-      // deep links keep working — the surface is the marketing contact hub.
-      { id: "reservation-customers", label: "Marketing Contacts", icon: Megaphone },
+      // The marketing hub (contacts + broadcasts). The old "reservation-customers"
+      // id is kept working as a legacy deep-link alias in the ?tab resolver.
+      { id: "marketing", label: "Marketing", icon: Megaphone },
       { id: "drivers", label: "Drivers", icon: Car },
       { id: "reservations", label: "Reservations", icon: CalendarDays },
       { id: "table-status", label: "Tables", icon: UtensilsCrossed },
@@ -202,7 +202,7 @@ function bannerSubtitle(
     case "collection-staff": return "Manage Collection screen login accounts and PINs — for taking pickup payments without the POS.";
     case "reservations": return settings.reservationSystem?.enabled ? "Reservations are live — customers can book tables from the website." : "Reservations are currently disabled — enable them below.";
     case "table-status": return "Live occupancy plus add / edit / delete dining tables — used by the host stand and reservations.";
-    case "reservation-customers": return "Every customer email captured across the app — filter by source, manage opt-ins, and send promotional campaigns.";
+    case "marketing": return "Every customer email captured across the app — filter by source, manage opt-ins, and send broadcast campaigns.";
     case "signage": return "Digital menu boards — create fullscreen poster displays for your TVs, each with its own public URL. One image shows as a poster, several loop as a slideshow.";
     case "customer-display": return "Password-protect the public order board at /customer-display. Set, change, or remove the password staff enter once per screen.";
     default: return "Manage your restaurant settings below.";
@@ -244,7 +244,8 @@ function AdminPageContent() {
       rawTab === "payments" ? "online-payments" :
         rawTab === "refunds" ? "online-refunds" :
           rawTab === "online-reports" ? "finance-reports" :
-            rawTab ?? "online-orders"
+            rawTab === "reservation-customers" ? "marketing" :
+              rawTab ?? "online-orders"
   ) as TabId;
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -335,7 +336,7 @@ function AdminPageContent() {
   // legacy alias the same way the initial-tab resolver above does.
   useEffect(() => {
     const raw = searchParams.get("tab");
-    const t = raw === "delivery" ? "online-orders" : raw === "payments" ? "online-payments" : raw === "refunds" ? "online-refunds" : raw === "online-reports" ? "finance-reports" : raw;
+    const t = raw === "delivery" ? "online-orders" : raw === "payments" ? "online-payments" : raw === "refunds" ? "online-refunds" : raw === "online-reports" ? "finance-reports" : raw === "reservation-customers" ? "marketing" : raw;
     if (t && ALL_TABS.some((x) => x.id === t)) setActiveTab(t);
   }, [searchParams]);
 
@@ -803,7 +804,7 @@ function AdminPageContent() {
             {activeTab === "collection-staff" && <CollectionStaffPanel />}
             {activeTab === "reservations" && <ReservationsPanel />}
             {activeTab === "table-status" && <TableStatusPanel />}
-            {activeTab === "reservation-customers" && <ReservationCustomersPanel />}
+            {activeTab === "marketing" && <ReservationCustomersPanel />}
             {activeTab === "signage" && <SignagePanel />}
             {activeTab === "customer-display" && <CustomerDisplayPanel />}
           </div>

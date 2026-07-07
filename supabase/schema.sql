@@ -2178,16 +2178,38 @@ create table if not exists email_campaigns (
   id               text        primary key default gen_random_uuid()::text,
   subject          text        not null,
   body_html        text        not null,
+  -- Inbox preview snippet shown after the subject (the "Advanced" field in Kit).
+  preview_text     text        not null default '',
   status           text        not null default 'draft'
-                   check (status in ('draft','sending','sent','cancelled')),
+                   check (status in ('draft','scheduled','sending','sent','cancelled')),
+  -- audience filter that resolves to recipients at send time (see
+  -- lib/marketingCampaigns.ts resolveAudience). Shapes:
+  --   {"mode":"all"} | {"mode":"sources","sources":[...]} |
+  --   {"mode":"tags","tags":[...]} | {"mode":"selection","ids":[...]}
   audience         jsonb       not null default '{}',
+  -- When set + status 'scheduled', the cron dispatcher sends it at/after this time.
+  scheduled_at     timestamptz,
   total_recipients integer     not null default 0,
   sent_count       integer     not null default 0,
   failed_count     integer     not null default 0,
   skipped_count    integer     not null default 0,
+  -- Distinct recipients who opened (tracking pixel). open rate = / sent_count.
+  opened_count     integer     not null default 0,
   created_at       timestamptz not null default now(),
   completed_at     timestamptz
 );
+
+-- Backfill columns onto DBs created before scheduling / open-tracking landed.
+alter table email_campaigns add column if not exists preview_text text not null default '';
+alter table email_campaigns add column if not exists scheduled_at timestamptz;
+alter table email_campaigns add column if not exists opened_count integer not null default 0;
+-- Widen the status check to allow 'scheduled' on already-created DBs.
+do $$
+begin
+  alter table email_campaigns drop constraint if exists email_campaigns_status_check;
+  alter table email_campaigns add constraint email_campaigns_status_check
+    check (status in ('draft','scheduled','sending','sent','cancelled'));
+end $$;
 
 create table if not exists email_campaign_recipients (
   id          text        primary key default gen_random_uuid()::text,
@@ -2199,8 +2221,12 @@ create table if not exists email_campaign_recipients (
   status      text        not null default 'pending'
               check (status in ('pending','sent','failed','skipped')),
   error       text,
-  sent_at     timestamptz
+  sent_at     timestamptz,
+  -- First open via the tracking pixel (null = not opened / not yet tracked).
+  opened_at   timestamptz
 );
+
+alter table email_campaign_recipients add column if not exists opened_at timestamptz;
 
 -- The send loop's hot query: "next batch of pending rows for this campaign".
 create index if not exists email_campaign_recipients_pending

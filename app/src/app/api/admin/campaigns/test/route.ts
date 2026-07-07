@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
 
   const parsed = await parseBody(req, CampaignTestSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { subject, bodyHtml, to } = parsed.data;
+  const { subject, bodyHtml, previewText, to } = parsed.data;
 
   const settings = await fetchAdminSettings();
   if (!settings) {
@@ -39,10 +39,11 @@ export async function POST(req: NextRequest) {
   const email = buildCampaignEmail({
     subjectTemplate:  subject,
     bodyTemplate:     bodyHtml,
+    previewText,
     recipientName:    to.split("@")[0],
     recipientEmail:   to,
     // A test isn't tied to a real contact; the token resolves to a harmless
-    // "link looks incomplete" page if ever clicked.
+    // "link looks incomplete" page if ever clicked. No tracking pixel on tests.
     unsubscribeToken: "preview",
     settings,
   });
