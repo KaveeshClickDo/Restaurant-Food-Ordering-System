@@ -1,5 +1,18 @@
 "use client";
 
+/**
+ * Admin → Marketing (?tab=marketing).
+ *
+ * Broadcast-first layout modelled on Kit's flow:
+ *   • Broadcasts (default view) — history with stats, or a get-started hero.
+ *   • Audience — every captured contact, filters, tags, opt-ins.
+ *   • Compose — a 3-step wizard: ① Who → ② Write (with quick-start templates)
+ *     → ③ Review & send (test send, save draft, schedule, confirm-to-send).
+ *
+ * The file keeps its historical name (the tab id was reservation-customers);
+ * the default export is the whole marketing surface.
+ */
+
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import type { ReservationCustomer, ContactSource } from "@/types";
@@ -8,10 +21,11 @@ import {
   ChevronDown, ChevronUp, Loader2, RefreshCw, CheckCircle2, List, ListOrdered,
   ToggleLeft, ToggleRight, X, Plus, Star, Clock, UtensilsCrossed, Heading1, Heading2,
   ShoppingBag, Megaphone, Gift, Tablet, UserCheck, Send, Eye, Trash2, AlertTriangle,
-  Receipt, CalendarCheck, ArrowLeft, CalendarClock, FileEdit, Minus, Variable, ChevronRight,
+  Receipt, CalendarCheck, ArrowLeft, ArrowRight, CalendarClock, FileEdit, Minus,
+  Variable, Sparkles, PartyPopper, Pencil, Check,
 } from "lucide-react";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Small helpers ────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string | undefined): string {
   if (!iso) return "—";
@@ -37,7 +51,7 @@ const STATUS_BADGE: Record<string, string> = {
 
 const PRESET_TAGS = ["VIP", "Regular", "Birthday", "Anniversary", "Vegetarian", "Allergy", "Corporate", "Follow up"];
 
-// ── Source metadata ──────────────────────────────────────────────────────────
+// ── Source metadata (chips + badges share one map) ───────────────────────────
 const SOURCE_META: Record<ContactSource, { label: string; badge: string; active: string; icon: typeof Mail }> = {
   online_order: { label: "Online order",  badge: "bg-blue-50 text-blue-700 border-blue-200",       active: "bg-blue-100 text-blue-800 border-blue-400",       icon: ShoppingBag },
   reservation:  { label: "Reservation",   badge: "bg-teal-50 text-teal-700 border-teal-200",       active: "bg-teal-100 text-teal-800 border-teal-400",       icon: CalendarCheck },
@@ -63,7 +77,7 @@ type Audience =
   | { mode: "tags"; tags: string[] }
   | { mode: "selection"; ids: string[] };
 
-/** Client-side mirror of the server resolveAudience — for the live count. */
+/** Client-side mirror of the server resolveAudience — powers the live count. */
 function resolveRecipients(contacts: ReservationCustomer[], audience: Audience): ReservationCustomer[] {
   const mailable = contacts.filter(isMailable);
   switch (audience.mode) {
@@ -73,8 +87,16 @@ function resolveRecipients(contacts: ReservationCustomer[], audience: Audience):
     case "selection": { const set = new Set(audience.ids); return mailable.filter((c) => set.has(c.id)); }
   }
 }
+function audienceLabel(a: Audience): string {
+  switch (a.mode) {
+    case "all":       return "All opted-in contacts";
+    case "sources":   return a.sources.length ? `By source: ${a.sources.map((s) => SOURCE_META[s].label).join(", ")}` : "By source";
+    case "tags":      return a.tags.length ? `By tag: ${a.tags.join(", ")}` : "By tag";
+    case "selection": return `${a.ids.length} hand-picked contact${a.ids.length === 1 ? "" : "s"}`;
+  }
+}
 
-// ── Rich text editor (variable chips for {{name}} / {{email}}) ────────────────
+// ── Rich text editor with {{name}}/{{email}} chips ───────────────────────────
 const VAR_STYLE =
   "display:inline-block;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;" +
   "padding:0 5px;font-size:0.82em;font-family:monospace;color:#92400e;cursor:default;" +
@@ -204,6 +226,7 @@ function BroadcastEditor({ editorKey, initialValue, onChange }: {
             {`{{${v.name}}}`}
           </button>
         ))}
+        <span className="text-[11px] text-amber-600">— becomes each customer&apos;s real name</span>
       </div>
       <div ref={editorRef} contentEditable suppressContentEditableWarning
         onInput={() => { if (editorRef.current) onChange(displayToStorage(editorRef.current)); }}
@@ -215,11 +238,11 @@ function BroadcastEditor({ editorKey, initialValue, onChange }: {
 }
 
 // ── Email preview ────────────────────────────────────────────────────────────
-function previewHtml(body: string): string {
+function previewHtml(body: string, restaurantName: string): string {
   return body
     .replace(/\{\{name\}\}/g, "Alex")
     .replace(/\{\{email\}\}/g, "alex@example.com")
-    .replace(/\{\{restaurant_name\}\}/g, "your restaurant")
+    .replace(/\{\{restaurant_name\}\}/g, restaurantName)
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script\s*>/gi, "")
     .replace(/\bon\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, "");
 }
@@ -229,21 +252,19 @@ function EmailPreview({ subject, previewText, body, brandColor, restaurantName }
 }) {
   return (
     <div className="bg-gray-100 rounded-xl p-4 overflow-hidden">
-      {/* Inbox row */}
       <div className="bg-white rounded-lg border border-gray-200 px-3 py-2 mb-3">
-        <p className="text-sm font-semibold text-gray-900 truncate">{subject || "(no subject)"}</p>
+        <p className="text-sm font-semibold text-gray-900 truncate">{subject || "(no subject yet)"}</p>
         <p className="text-xs text-gray-500 truncate">
           <span className="text-gray-700">{restaurantName}</span>
           {previewText && <span className="text-gray-400"> — {previewText}</span>}
         </p>
       </div>
-      {/* Email body */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden max-w-md mx-auto">
         <div style={{ background: brandColor }} className="px-5 py-4 text-center">
           <span className="text-white font-bold text-sm">{restaurantName}</span>
         </div>
         <div className="p-5 text-sm text-gray-800 rich-content prose prose-sm max-w-none"
-          dangerouslySetInnerHTML={{ __html: previewHtml(body) || '<p class="text-gray-400">Your message will appear here…</p>' }} />
+          dangerouslySetInnerHTML={{ __html: previewHtml(body, restaurantName) || '<p style="color:#9ca3af">Your message will appear here…</p>' }} />
         <div className="px-5 pb-5">
           <p className="text-[11px] text-gray-400 border-t border-gray-100 pt-3">
             You&apos;re receiving this because you&apos;ve ordered, dined, or bought a gift card.{" "}
@@ -254,6 +275,41 @@ function EmailPreview({ subject, previewText, body, brandColor, restaurantName }
     </div>
   );
 }
+
+// ── Quick-start templates ─────────────────────────────────────────────────────
+interface Template { emoji: string; name: string; subject: string; preview: string; body: string }
+const TEMPLATES: Template[] = [
+  {
+    emoji: "🎉", name: "Weekend offer",
+    subject: "A weekend treat for you, {{name}} 🎉",
+    preview: "This weekend only — something special is waiting",
+    body: "<h2>Weekend special 🎉</h2><p>Hi {{name}},</p><p>This weekend only — enjoy <strong>20% off</strong> your order with us. Dinner in or takeaway night, we've got you covered.</p><p>Just show this email when you order.</p><p>See you soon!</p>",
+  },
+  {
+    emoji: "🍽️", name: "New on the menu",
+    subject: "Fresh on the menu — come try it, {{name}}",
+    preview: "Our kitchen has been busy. You'll want to see this.",
+    body: "<h2>Something new is cooking 🍽️</h2><p>Hi {{name}},</p><p>We've just added new dishes to the menu and we think you're going to love them.</p><p>Be one of the first to try them — order online or book a table.</p><p>Hungry yet?</p>",
+  },
+  {
+    emoji: "💜", name: "We miss you",
+    subject: "We miss you, {{name}}",
+    preview: "It's been a while — here's a little something to bring you back",
+    body: "<h2>It's been a while 💜</h2><p>Hi {{name}},</p><p>We noticed you haven't visited in a bit — and we'd love to see you again.</p><p>Here's <strong>10% off your next order</strong>, just for coming back. Show this email when you order.</p><p>Hope to see you soon!</p>",
+  },
+  {
+    emoji: "🎁", name: "Gift cards",
+    subject: "The easiest gift? Dinner. 🎁",
+    preview: "Gift cards for the food-lovers in your life",
+    body: "<h2>Give the gift of a great meal 🎁</h2><p>Hi {{name}},</p><p>Stuck for a gift idea? Our gift cards are perfect for birthdays, thank-yous, or just because.</p><p>Pick any amount, add a personal message, and we'll email it straight to them.</p><p>Find them on our website.</p>",
+  },
+  {
+    emoji: "📣", name: "Announcement",
+    subject: "Big news from us, {{name}} 📣",
+    preview: "We've got something exciting to share",
+    body: "<h2>We've got news 📣</h2><p>Hi {{name}},</p><p>Write your announcement here — new opening hours, a special event, live music night, or anything else your customers should know about.</p><p>Thanks for being part of our story.</p>",
+  },
+];
 
 // ─── Reservation history row ──────────────────────────────────────────────────
 interface HistoryEntry { id: string; date: string; time: string; table_label: string; party_size: number; status: string; note?: string; }
@@ -272,14 +328,13 @@ function HistoryRow({ r }: { r: HistoryEntry }) {
         </div>
         {r.note && <p className="text-xs text-amber-700 italic mt-0.5 truncate">&ldquo;{r.note}&rdquo;</p>}
       </div>
-      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border capitalize flex-shrink-0 ${badge}`}>
+      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border capitalize shrink-0 ${badge}`}>
         {r.status.replace("_", " ")}
       </span>
     </div>
   );
 }
 
-// ── Source badges ─────────────────────────────────────────────────────────────
 function SourceBadges({ sources }: { sources: ContactSource[] }) {
   if (!sources?.length) return null;
   return <>{sources.map((s) => {
@@ -288,7 +343,7 @@ function SourceBadges({ sources }: { sources: ContactSource[] }) {
   })}</>;
 }
 
-// ─── Contact card (revenue/orders removed) ────────────────────────────────────
+// ─── Contact card ─────────────────────────────────────────────────────────────
 function ContactCard({ customer, onSave, selected, onToggleSelect }: {
   customer: ReservationCustomer;
   onSave: (id: string, patch: { notes?: string; tags?: string[]; marketingOptIn?: boolean }) => Promise<void>;
@@ -330,9 +385,9 @@ function ContactCard({ customer, onSave, selected, onToggleSelect }: {
     <div className={`bg-white rounded-xl border overflow-hidden transition ${selected ? "border-orange-400 ring-1 ring-orange-200" : "border-gray-200 hover:border-gray-300"}`}>
       <div className="flex items-center gap-3 px-4 py-3.5">
         <input type="checkbox" checked={selected} onChange={() => onToggleSelect(customer.id)}
-          className="w-4 h-4 accent-orange-500 flex-shrink-0 cursor-pointer" aria-label={`Select ${customer.name}`} />
+          className="w-4 h-4 accent-orange-500 shrink-0 cursor-pointer" aria-label={`Select ${customer.name}`} />
         <button onClick={toggleExpand} className="flex-1 min-w-0 text-left flex items-center gap-4">
-          <div className="w-9 h-9 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
+          <div className="w-9 h-9 rounded-full bg-orange-100 flex items-center justify-center shrink-0">
             <span className="text-orange-700 font-bold text-sm">{customer.name.charAt(0).toUpperCase() || "?"}</span>
           </div>
           <div className="flex-1 min-w-0">
@@ -348,7 +403,7 @@ function ContactCard({ customer, onSave, selected, onToggleSelect }: {
               {customer.visitCount > 0 && <span className="flex items-center gap-1"><Star size={10} className="text-orange-400" />{customer.visitCount} visit{customer.visitCount !== 1 ? "s" : ""}</span>}
             </div>
           </div>
-          <div className="text-gray-400 flex-shrink-0">{expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</div>
+          <div className="text-gray-400 shrink-0">{expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</div>
         </button>
       </div>
 
@@ -356,7 +411,7 @@ function ContactCard({ customer, onSave, selected, onToggleSelect }: {
         <div className="border-t border-gray-100 px-5 py-4 space-y-5 bg-gray-50/50">
           <div className="flex items-start justify-between bg-white rounded-xl border border-gray-100 px-4 py-3">
             <div>
-              <p className="text-sm font-semibold text-gray-800">Marketing communications</p>
+              <p className="text-sm font-semibold text-gray-800">Marketing emails</p>
               <p className="text-xs text-gray-400 mt-0.5">{optIn ? "Will receive broadcasts" : "Opted out — excluded from all broadcasts"}</p>
             </div>
             <button onClick={() => setOptIn((v) => !v)} className={`flex items-center transition ${optIn ? "text-green-500" : "text-gray-300 hover:text-gray-400"}`}>
@@ -411,22 +466,22 @@ function ContactCard({ customer, onSave, selected, onToggleSelect }: {
   );
 }
 
-// ═══ Broadcast list item ══════════════════════════════════════════════════════
+// ═══ Campaign types ═══════════════════════════════════════════════════════════
 interface Campaign {
   id: string; subject: string; previewText: string; status: string; audience: Audience;
   scheduledAt?: string; totalRecipients: number; sentCount: number; failedCount: number;
   skippedCount: number; openedCount: number; createdAt: string; completedAt?: string;
 }
-const CAMPAIGN_STATUS: Record<string, { label: string; cls: string; icon: typeof Send }> = {
-  draft:     { label: "Draft",     cls: "bg-gray-100 text-gray-600 border-gray-300",     icon: FileEdit },
-  scheduled: { label: "Scheduled", cls: "bg-blue-50 text-blue-700 border-blue-200",      icon: CalendarClock },
-  sending:   { label: "Sending",   cls: "bg-amber-50 text-amber-700 border-amber-200",   icon: Loader2 },
-  sent:      { label: "Sent",      cls: "bg-green-50 text-green-700 border-green-200",    icon: CheckCircle2 },
-  cancelled: { label: "Cancelled", cls: "bg-red-50 text-red-600 border-red-200",         icon: X },
+const CAMPAIGN_STATUS: Record<string, { label: string; cls: string; dot: string }> = {
+  draft:     { label: "Draft",     cls: "bg-gray-100 text-gray-600 border-gray-300",   dot: "bg-gray-400" },
+  scheduled: { label: "Scheduled", cls: "bg-blue-50 text-blue-700 border-blue-200",    dot: "bg-blue-500" },
+  sending:   { label: "Sending…",  cls: "bg-amber-50 text-amber-700 border-amber-200", dot: "bg-amber-500 animate-pulse" },
+  sent:      { label: "Sent",      cls: "bg-green-50 text-green-700 border-green-200", dot: "bg-green-500" },
+  cancelled: { label: "Cancelled", cls: "bg-red-50 text-red-600 border-red-200",       dot: "bg-red-400" },
 };
 
 // ─── Main panel ───────────────────────────────────────────────────────────────
-type View = "contacts" | "broadcasts" | "compose";
+type View = "broadcasts" | "audience" | "compose";
 
 export default function ReservationCustomersPanel() {
   const { settings } = useApp();
@@ -435,9 +490,9 @@ export default function ReservationCustomersPanel() {
 
   const [customers, setCustomers] = useState<ReservationCustomer[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<View>("contacts");
+  const [view, setView] = useState<View>("broadcasts");
 
-  // Contacts filters + selection
+  // Audience filters + selection
   const [search, setSearch] = useState("");
   const [filterTag, setFilterTag] = useState("");
   const [filterOptIn, setFilterOptIn] = useState(false);
@@ -447,7 +502,7 @@ export default function ReservationCustomersPanel() {
   // Broadcast state
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [composeInitial, setComposeInitial] = useState<{ subject: string; previewText: string; body: string; audience: Audience } | null>(null);
+  const [composeInitial, setComposeInitial] = useState<{ subject: string; previewText: string; body: string; audience: Audience; startStep: 1 | 2 } | null>(null);
 
   const lastDataKey = useRef<string>("");
 
@@ -475,12 +530,11 @@ export default function ReservationCustomersPanel() {
 
   useEffect(() => { fetchCustomers(true); fetchCampaigns(); }, [fetchCustomers, fetchCampaigns]);
 
-  // Poll contacts only on the contacts view (not while composing).
   useEffect(() => {
     const id = setInterval(() => {
       if (document.visibilityState !== "visible") return;
-      if (view === "contacts") fetchCustomers();
-      if (view === "broadcasts") fetchCampaigns();
+      if (view === "audience") fetchCustomers();
+      if (view === "broadcasts") { fetchCampaigns(); fetchCustomers(); }
     }, 10_000);
     return () => clearInterval(id);
   }, [fetchCustomers, fetchCampaigns, view]);
@@ -493,48 +547,21 @@ export default function ReservationCustomersPanel() {
       ...c,
       ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
       ...(patch.tags !== undefined ? { tags: patch.tags } : {}),
-      ...(patch.marketingOptIn !== undefined ? { marketingOptIn: patch.marketingOptIn, unsubscribedAt: patch.marketingOptIn ? undefined : c.unsubscribedAt } : {}),
+      ...(patch.marketingOptIn !== undefined ? { marketingOptIn: patch.marketingOptIn } : {}),
     } : c));
   }
 
   const allTags = [...new Set(customers.flatMap((c) => c.tags))].sort();
-  const filtered = customers.filter((c) => {
-    if (filterOptIn && !c.marketingOptIn) return false;
-    if (filterTag && !c.tags.includes(filterTag)) return false;
-    if (sourceFilter.size > 0 && !(c.sources ?? []).some((s) => sourceFilter.has(s))) return false;
-    if (search) { const q = search.toLowerCase(); return c.name.toLowerCase().includes(q) || c.email.toLowerCase().includes(q) || c.phone.toLowerCase().includes(q); }
-    return true;
-  });
-
-  function toggleSource(s: ContactSource) { setSourceFilter((p) => { const n = new Set(p); if (n.has(s)) n.delete(s); else n.add(s); return n; }); }
-  function toggleSelect(id: string) { setSelected((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; }); }
-
-  const filteredMailableIds = filtered.filter(isMailable).map((c) => c.id);
-  const allFilteredSelected = filteredMailableIds.length > 0 && filteredMailableIds.every((id) => selected.has(id));
-  function toggleSelectAll() {
-    setSelected((prev) => { const n = new Set(prev); if (allFilteredSelected) filteredMailableIds.forEach((id) => n.delete(id)); else filteredMailableIds.forEach((id) => n.add(id)); return n; });
-  }
-
-  const optInCount = customers.filter((c) => c.marketingOptIn).length;
-  const unsubCount = customers.filter((c) => !c.marketingOptIn).length;
   const reachableCount = customers.filter(isMailable).length;
-  const sourceCounts = ALL_SOURCES.reduce((acc, s) => { acc[s] = customers.filter((c) => (c.sources ?? []).includes(s)).length; return acc; }, {} as Record<ContactSource, number>);
 
-  function exportCsv() {
-    const header = ["Name", "Email", "Phone", "Sources", "Opted in", "Unsubscribed", "Tags", "Notes"];
-    const rows = filtered.map((c) => [c.name, c.email, c.phone, (c.sources ?? []).map((s) => SOURCE_META[s]?.label ?? s).join("; "), c.marketingOptIn ? "Yes" : "No", c.unsubscribedAt ? fmtDate(c.unsubscribedAt) : "", c.tags.join("; "), c.notes.replace(/\n/g, " ")]);
-    const csv = [header, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    const a = document.createElement("a"); a.href = url; a.download = `marketing-contacts-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); URL.revokeObjectURL(url);
-  }
-
-  // ── Open composer (new / from selection / resume draft) ─────────────────────
+  // ── Open composer ───────────────────────────────────────────────────────────
   function newBroadcast(fromSelection: boolean) {
     const ids = [...selected].filter((id) => customers.find((c) => c.id === id && isMailable(c)));
     setEditingId(null);
     setComposeInitial({
       subject: "", previewText: "", body: "",
       audience: fromSelection && ids.length > 0 ? { mode: "selection", ids } : { mode: "all" },
+      startStep: 1,
     });
     setView("compose");
   }
@@ -544,7 +571,7 @@ export default function ReservationCustomersPanel() {
       const json = await res.json() as { ok: boolean; campaign?: { subject: string; previewText: string; bodyHtml: string; audience: Audience } };
       if (json.ok && json.campaign) {
         setEditingId(id);
-        setComposeInitial({ subject: json.campaign.subject, previewText: json.campaign.previewText, body: json.campaign.bodyHtml, audience: json.campaign.audience });
+        setComposeInitial({ subject: json.campaign.subject, previewText: json.campaign.previewText, body: json.campaign.bodyHtml, audience: json.campaign.audience, startStep: 2 });
         setView("compose");
       }
     } catch (err) { console.error("resumeDraft:", err); }
@@ -552,208 +579,354 @@ export default function ReservationCustomersPanel() {
 
   if (view === "compose" && composeInitial) {
     return (
-      <ComposeView
+      <ComposeWizard
+        key={editingId ?? "new"}
         contacts={customers} allTags={allTags} brandColor={brandColor} restaurantName={restaurantName}
         editingId={editingId} initial={composeInitial}
-        onExit={() => { setView("broadcasts"); setComposeInitial(null); setEditingId(null); fetchCampaigns(); }}
+        onExit={() => { setView("broadcasts"); setComposeInitial(null); setEditingId(null); setSelected(new Set()); fetchCampaigns(); }}
       />
     );
   }
 
   return (
     <div className="space-y-5">
-      {/* Header + view switch */}
+      {/* Header */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-4 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-row gap-3">
-          <div className="w-10 h-10 bg-orange-50 rounded-xl flex items-center justify-center flex-shrink-0"><Megaphone size={20} className="text-orange-600" /></div>
+        <div className="flex flex-row gap-3 items-center">
+          <div className="w-10 h-10 bg-orange-50 rounded-xl flex items-center justify-center shrink-0"><Megaphone size={20} className="text-orange-600" /></div>
           <div className="min-w-0">
             <h2 className="font-bold text-gray-900">Marketing</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Contacts captured across the app, and email broadcasts to reach them.</p>
+            <p className="text-xs text-gray-500 mt-0.5">Send offers and news to everyone who&apos;s ordered, booked, or bought from you.</p>
           </div>
         </div>
         <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
-          <button onClick={() => setView("contacts")} className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition ${view === "contacts" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Contacts</button>
-          <button onClick={() => setView("broadcasts")} className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition ${view === "broadcasts" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>Broadcasts</button>
+          <button onClick={() => setView("broadcasts")} className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold transition ${view === "broadcasts" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+            <Send size={14} /> Broadcasts
+          </button>
+          <button onClick={() => setView("audience")} className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold transition ${view === "audience" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+            <Users size={14} /> Audience
+            <span className="text-[10px] bg-gray-200 text-gray-600 rounded-full px-1.5 py-0.5">{customers.length}</span>
+          </button>
         </div>
       </div>
 
-      {view === "contacts" ? (
-        <>
-          {/* Stats — marketing-focused, no revenue */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {[
-              { label: "Total contacts", value: customers.length, cls: "bg-gray-50 border-gray-200 text-gray-800" },
-              { label: "Reachable", value: reachableCount, cls: "bg-emerald-50 border-emerald-200 text-emerald-700" },
-              { label: "Opted in", value: optInCount, cls: "bg-green-50 border-green-200 text-green-700" },
-              { label: "Unsubscribed", value: unsubCount, cls: "bg-red-50 border-red-200 text-red-600" },
-            ].map((s) => (
-              <div key={s.label} className={`border rounded-xl p-3.5 ${s.cls}`}>
-                <div className="text-xl font-bold">{s.value}</div>
-                <div className="text-xs text-gray-500 mt-0.5">{s.label}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Source chips */}
-          <div className="flex flex-wrap gap-2">
-            {ALL_SOURCES.map((s) => {
-              const meta = SOURCE_META[s]; const Icon = meta.icon; const active = sourceFilter.has(s);
-              return (
-                <button key={s} onClick={() => toggleSource(s)}
-                  className={`flex items-center gap-1.5 border rounded-full px-3 py-1.5 text-xs font-semibold transition ${active ? meta.active : "bg-white border-gray-200 text-gray-500 hover:border-gray-300"}`}>
-                  <Icon size={12} /> {meta.label}<span className="text-[10px] opacity-70">{sourceCounts[s]}</span>
-                </button>
-              );
-            })}
-            {sourceFilter.size > 0 && <button onClick={() => setSourceFilter(new Set())} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 px-2"><X size={12} /> Clear</button>}
-          </div>
-
-          {/* Filters + export */}
-          <div className="bg-white rounded-2xl border border-gray-200 p-4 flex flex-wrap gap-3">
-            <div className="flex items-center gap-2 flex-1 min-w-[180px] border border-gray-200 rounded-xl px-3 py-2">
-              <Search size={14} className="text-gray-400 flex-shrink-0" />
-              <input type="text" placeholder="Name, email, or phone…" value={search} onChange={(e) => setSearch(e.target.value)} className="w-full text-sm focus:outline-none placeholder-gray-400" />
-            </div>
-            {allTags.length > 0 && (
-              <select value={filterTag} onChange={(e) => setFilterTag(e.target.value)} className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition">
-                <option value="">All tags</option>{allTags.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-            )}
-            <button onClick={() => setFilterOptIn((v) => !v)} className={`flex items-center gap-1.5 border rounded-xl px-3 py-2 text-sm font-medium transition ${filterOptIn ? "bg-green-50 border-green-300 text-green-700" : "border-gray-200 text-gray-500 hover:border-gray-300"}`}><Mail size={13} /> Opted-in only</button>
-            <button onClick={exportCsv} disabled={filtered.length === 0} className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-600 hover:text-gray-800 hover:border-gray-300 transition disabled:opacity-40"><FileDown size={14} /> CSV</button>
-            <button onClick={() => fetchCustomers(true)} disabled={loading} className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300 transition"><RefreshCw size={14} className={loading ? "animate-spin" : ""} /></button>
-          </div>
-
-          {/* Selection / broadcast bar */}
-          <div className="bg-white rounded-2xl border border-gray-200 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-                <input type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAll} className="w-4 h-4 accent-orange-500" />
-                Select opted-in ({filteredMailableIds.length})
-              </label>
-              {selected.size > 0 && <button onClick={() => setSelected(new Set())} className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"><X size={12} /> Clear {selected.size}</button>}
-            </div>
-            <div className="flex items-center gap-2">
-              {selected.size > 0 && (
-                <button onClick={() => newBroadcast(true)} className="flex items-center gap-2 border border-orange-300 text-orange-700 hover:bg-orange-50 font-semibold px-3 py-2 rounded-xl text-sm transition">
-                  <Send size={14} /> Broadcast to {selected.size} selected
-                </button>
-              )}
-              <button onClick={() => newBroadcast(false)} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold px-4 py-2 rounded-xl text-sm transition">
-                <Megaphone size={15} /> New broadcast
-              </button>
-            </div>
-          </div>
-
-          {/* Contacts list */}
-          {loading ? <div className="flex justify-center py-16"><Loader2 size={28} className="animate-spin text-orange-500" /></div>
-            : filtered.length === 0 ? (
-              <div className="flex flex-col items-center py-16 gap-3 text-center bg-white rounded-2xl border border-gray-200">
-                <Megaphone size={32} className="text-gray-300" />
-                <p className="font-semibold text-gray-600">No contacts found</p>
-                <p className="text-sm text-gray-400 max-w-xs">{customers.length === 0 ? "Contacts are captured automatically whenever a customer gives an email." : "No contacts match the current filters."}</p>
-              </div>
-            ) : (
-              <div className="space-y-3">{filtered.map((c) => <ContactCard key={c.id} customer={c} onSave={handleSave} selected={selected.has(c.id)} onToggleSelect={toggleSelect} />)}</div>
-            )}
-        </>
+      {view === "broadcasts" ? (
+        <BroadcastsHome
+          campaigns={campaigns} reachableCount={reachableCount} loading={loading}
+          onNew={() => newBroadcast(false)} onResume={resumeDraft} onChanged={fetchCampaigns}
+        />
       ) : (
-        <BroadcastsView campaigns={campaigns} onNew={() => newBroadcast(false)} onResume={resumeDraft} onRefresh={fetchCampaigns} onDeleted={fetchCampaigns} />
+        <AudienceSection
+          customers={customers} loading={loading}
+          search={search} setSearch={setSearch}
+          filterTag={filterTag} setFilterTag={setFilterTag} allTags={allTags}
+          filterOptIn={filterOptIn} setFilterOptIn={setFilterOptIn}
+          sourceFilter={sourceFilter} setSourceFilter={setSourceFilter}
+          selected={selected} setSelected={setSelected}
+          onSave={handleSave} onRefresh={() => fetchCustomers(true)}
+          onBroadcastToSelection={() => newBroadcast(true)}
+        />
       )}
     </div>
   );
 }
 
-// ═══ Broadcasts history view ══════════════════════════════════════════════════
-function BroadcastsView({ campaigns, onNew, onResume, onRefresh, onDeleted }: {
-  campaigns: Campaign[]; onNew: () => void; onResume: (id: string) => void; onRefresh: () => void; onDeleted: () => void;
+// ═══ Broadcasts home ══════════════════════════════════════════════════════════
+function BroadcastsHome({ campaigns, reachableCount, loading, onNew, onResume, onChanged }: {
+  campaigns: Campaign[]; reachableCount: number; loading: boolean;
+  onNew: () => void; onResume: (id: string) => void; onChanged: () => void;
 }) {
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
   async function del(id: string) {
     setDeleting(id);
-    try { await fetch(`/api/admin/campaigns/${id}`, { method: "DELETE" }); onDeleted(); }
-    finally { setDeleting(null); }
+    try { await fetch(`/api/admin/campaigns/${id}`, { method: "DELETE" }); onChanged(); }
+    finally { setDeleting(null); setConfirmDelete(null); }
   }
+
+  const sentCampaigns = campaigns.filter((c) => c.status === "sent");
+  const totalSent = sentCampaigns.reduce((s, c) => s + c.sentCount, 0);
+  const totalOpened = sentCampaigns.reduce((s, c) => s + c.openedCount, 0);
+  const avgOpenRate = totalSent > 0 ? Math.round((totalOpened / totalSent) * 100) : null;
+
+  if (loading && campaigns.length === 0) {
+    return <div className="flex justify-center py-16"><Loader2 size={28} className="animate-spin text-orange-500" /></div>;
+  }
+
+  // ── First-time hero ─────────────────────────────────────────────────────────
+  if (campaigns.length === 0) {
+    return (
+      <div className="bg-gradient-to-br from-orange-50 via-amber-50 to-white border border-orange-100 rounded-2xl px-8 py-12 text-center">
+        <div className="w-14 h-14 rounded-2xl bg-orange-500 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-orange-200">
+          <PartyPopper size={26} className="text-white" />
+        </div>
+        <h3 className="text-2xl font-bold text-gray-900">Send your first broadcast</h3>
+        <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">
+          {reachableCount > 0
+            ? <>You have <span className="font-bold text-orange-600">{reachableCount} customers</span> ready to hear from you. A weekend offer, a new dish, a friendly hello — it takes two minutes.</>
+            : <>As customers order, book tables, and buy gift cards, their emails collect here automatically — then you can reach them all in one go.</>}
+        </p>
+
+        <div className="grid sm:grid-cols-3 gap-3 max-w-2xl mx-auto mt-8 text-left">
+          {[
+            { icon: Users,  title: "1 · Pick who",   desc: "Everyone, or filter by tags and where they came from." },
+            { icon: Pencil, title: "2 · Write it",   desc: "Start from a ready-made template and make it yours." },
+            { icon: Send,   title: "3 · Send it",    desc: "Test it on yourself first, then send now or schedule." },
+          ].map((s) => (
+            <div key={s.title} className="bg-white/80 border border-orange-100 rounded-xl p-4">
+              <s.icon size={18} className="text-orange-500 mb-2" />
+              <p className="text-sm font-bold text-gray-800">{s.title}</p>
+              <p className="text-xs text-gray-500 mt-1">{s.desc}</p>
+            </div>
+          ))}
+        </div>
+
+        <button onClick={onNew} className="mt-8 inline-flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-bold px-7 py-3 rounded-xl text-sm transition shadow-lg shadow-orange-200">
+          <Sparkles size={16} /> Create your first broadcast
+        </button>
+      </div>
+    );
+  }
+
+  // ── History ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">{campaigns.length} broadcast{campaigns.length !== 1 ? "s" : ""}</p>
-        <div className="flex gap-2">
-          <button onClick={onRefresh} className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 hover:border-gray-300 transition"><RefreshCw size={14} /></button>
-          <button onClick={onNew} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold px-4 py-2 rounded-xl text-sm transition"><Megaphone size={15} /> New broadcast</button>
-        </div>
+      {/* Quick stats */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: "Reachable audience", value: reachableCount, hint: "opted-in contacts" },
+          { label: "Broadcasts sent", value: sentCampaigns.length, hint: `${totalSent} emails delivered` },
+          { label: "Average open rate", value: avgOpenRate === null ? "—" : `${avgOpenRate}%`, hint: "across sent broadcasts" },
+        ].map((s) => (
+          <div key={s.label} className="bg-white border border-gray-200 rounded-xl p-4">
+            <div className="text-2xl font-bold text-gray-900">{s.value}</div>
+            <div className="text-xs font-medium text-gray-600 mt-0.5">{s.label}</div>
+            <div className="text-[11px] text-gray-400">{s.hint}</div>
+          </div>
+        ))}
       </div>
 
-      {campaigns.length === 0 ? (
-        <div className="flex flex-col items-center py-16 gap-3 text-center bg-white rounded-2xl border border-gray-200">
-          <Send size={32} className="text-gray-300" />
-          <p className="font-semibold text-gray-600">No broadcasts yet</p>
-          <p className="text-sm text-gray-400 max-w-xs">Create your first broadcast to email your opted-in contacts.</p>
-        </div>
-      ) : (
-        <div className="space-y-2.5">
-          {campaigns.map((c) => {
-            const st = CAMPAIGN_STATUS[c.status] ?? CAMPAIGN_STATUS.draft; const Icon = st.icon;
-            const openRate = c.sentCount > 0 ? Math.round((c.openedCount / c.sentCount) * 100) : 0;
-            const editable = c.status === "draft" || c.status === "scheduled";
-            return (
-              <div key={c.id} className="bg-white rounded-xl border border-gray-200 px-5 py-4 flex flex-wrap items-center gap-4 hover:border-gray-300 transition">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-gray-700">Your broadcasts</p>
+        <button onClick={onNew} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold px-4 py-2 rounded-xl text-sm transition">
+          <Sparkles size={15} /> New broadcast
+        </button>
+      </div>
+
+      <div className="space-y-2.5">
+        {campaigns.map((c) => {
+          const st = CAMPAIGN_STATUS[c.status] ?? CAMPAIGN_STATUS.draft;
+          const openRate = c.sentCount > 0 ? Math.round((c.openedCount / c.sentCount) * 100) : null;
+          const editable = c.status === "draft" || c.status === "scheduled";
+          return (
+            <div key={c.id} className="bg-white rounded-xl border border-gray-200 px-5 py-4 hover:border-gray-300 transition">
+              <div className="flex flex-wrap items-center gap-4">
+                <span className={`w-2 h-2 rounded-full shrink-0 ${st.dot}`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${st.cls}`}><Icon size={10} className={c.status === "sending" ? "animate-spin" : ""} /> {st.label}</span>
                     <span className="font-semibold text-gray-900 text-sm truncate">{c.subject || "(no subject)"}</span>
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${st.cls}`}>{st.label}</span>
                   </div>
-                  <p className="text-xs text-gray-400 mt-1">
-                    {c.status === "scheduled" && c.scheduledAt ? `Scheduled for ${fmtDateTime(c.scheduledAt)}`
-                      : c.status === "sent" && c.completedAt ? `Sent ${fmtDateTime(c.completedAt)}`
-                      : `Created ${fmtDateTime(c.createdAt)}`}
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {c.status === "scheduled" && c.scheduledAt ? <>Scheduled for <span className="font-medium text-blue-600">{fmtDateTime(c.scheduledAt)}</span> · {audienceLabel(c.audience)}</>
+                      : c.status === "sent" && c.completedAt ? <>Sent {fmtDateTime(c.completedAt)} · to {c.sentCount} people</>
+                      : c.status === "sending" ? <>Sending now… {c.sentCount}/{c.totalRecipients}</>
+                      : <>Draft · saved {fmtDateTime(c.createdAt)} · {audienceLabel(c.audience)}</>}
                   </p>
                 </div>
 
                 {(c.status === "sent" || c.status === "sending") && (
-                  <div className="flex items-center gap-5 text-center">
+                  <div className="flex items-center gap-5 text-center shrink-0">
                     <div><div className="text-sm font-bold text-gray-800">{c.sentCount}</div><div className="text-[10px] text-gray-400 uppercase">sent</div></div>
-                    <div><div className="text-sm font-bold text-emerald-700">{openRate}%</div><div className="text-[10px] text-gray-400 uppercase">opened</div></div>
+                    <div><div className="text-sm font-bold text-emerald-700">{openRate === null ? "—" : `${openRate}%`}</div><div className="text-[10px] text-gray-400 uppercase">opened</div></div>
                     {c.failedCount > 0 && <div><div className="text-sm font-bold text-red-600">{c.failedCount}</div><div className="text-[10px] text-gray-400 uppercase">failed</div></div>}
                   </div>
                 )}
 
-                <div className="flex items-center gap-1.5">
-                  {editable && <button onClick={() => onResume(c.id)} className="flex items-center gap-1 text-sm text-orange-600 hover:bg-orange-50 border border-orange-200 rounded-lg px-3 py-1.5 transition"><FileEdit size={13} /> Edit</button>}
-                  {c.status !== "sending" && (
-                    <button onClick={() => del(c.id)} disabled={deleting === c.id} className="text-gray-300 hover:text-red-500 transition p-1.5" title="Delete">
-                      {deleting === c.id ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {editable && (
+                    <button onClick={() => onResume(c.id)} className="flex items-center gap-1 text-sm text-orange-600 hover:bg-orange-50 border border-orange-200 rounded-lg px-3 py-1.5 transition">
+                      <FileEdit size={13} /> {c.status === "draft" ? "Continue" : "Edit"}
                     </button>
+                  )}
+                  {c.status !== "sending" && (
+                    confirmDelete === c.id ? (
+                      <button onClick={() => del(c.id)} disabled={deleting === c.id} className="flex items-center gap-1 text-xs font-semibold text-white bg-red-500 hover:bg-red-600 rounded-lg px-2.5 py-1.5 transition">
+                        {deleting === c.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />} Sure?
+                      </button>
+                    ) : (
+                      <button onClick={() => { setConfirmDelete(c.id); setTimeout(() => setConfirmDelete((v) => v === c.id ? null : v), 4000); }} className="text-gray-300 hover:text-red-500 transition p-1.5" title="Delete">
+                        <Trash2 size={15} />
+                      </button>
+                    )
                   )}
                 </div>
               </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ═══ Audience section ═════════════════════════════════════════════════════════
+function AudienceSection(props: {
+  customers: ReservationCustomer[]; loading: boolean;
+  search: string; setSearch: (v: string) => void;
+  filterTag: string; setFilterTag: (v: string) => void; allTags: string[];
+  filterOptIn: boolean; setFilterOptIn: (fn: (v: boolean) => boolean) => void;
+  sourceFilter: Set<ContactSource>; setSourceFilter: (fn: (v: Set<ContactSource>) => Set<ContactSource>) => void;
+  selected: Set<string>; setSelected: (fn: (v: Set<string>) => Set<string>) => void;
+  onSave: (id: string, patch: { notes?: string; tags?: string[]; marketingOptIn?: boolean }) => Promise<void>;
+  onRefresh: () => void;
+  onBroadcastToSelection: () => void;
+}) {
+  const {
+    customers, loading, search, setSearch, filterTag, setFilterTag, allTags,
+    filterOptIn, setFilterOptIn, sourceFilter, setSourceFilter,
+    selected, setSelected, onSave, onRefresh, onBroadcastToSelection,
+  } = props;
+
+  const filtered = customers.filter((c) => {
+    if (filterOptIn && !c.marketingOptIn) return false;
+    if (filterTag && !c.tags.includes(filterTag)) return false;
+    if (sourceFilter.size > 0 && !(c.sources ?? []).some((s) => sourceFilter.has(s))) return false;
+    if (search) { const q = search.toLowerCase(); return c.name.toLowerCase().includes(q) || c.email.toLowerCase().includes(q) || c.phone.toLowerCase().includes(q); }
+    return true;
+  });
+
+  const reachableCount = customers.filter(isMailable).length;
+  const unsubCount = customers.filter((c) => !c.marketingOptIn).length;
+  const sourceCounts = ALL_SOURCES.reduce((acc, s) => { acc[s] = customers.filter((c) => (c.sources ?? []).includes(s)).length; return acc; }, {} as Record<ContactSource, number>);
+
+  const filteredMailableIds = filtered.filter(isMailable).map((c) => c.id);
+  const allFilteredSelected = filteredMailableIds.length > 0 && filteredMailableIds.every((id) => selected.has(id));
+
+  function toggleSource(s: ContactSource) { setSourceFilter((p) => { const n = new Set(p); if (n.has(s)) n.delete(s); else n.add(s); return n; }); }
+  function toggleSelect(id: string) { setSelected((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; }); }
+  function toggleSelectAll() {
+    setSelected((prev) => { const n = new Set(prev); if (allFilteredSelected) filteredMailableIds.forEach((id) => n.delete(id)); else filteredMailableIds.forEach((id) => n.add(id)); return n; });
+  }
+
+  function exportCsv() {
+    const header = ["Name", "Email", "Phone", "Sources", "Opted in", "Unsubscribed", "Tags", "Notes"];
+    const rows = filtered.map((c) => [c.name, c.email, c.phone, (c.sources ?? []).map((s) => SOURCE_META[s]?.label ?? s).join("; "), c.marketingOptIn ? "Yes" : "No", c.unsubscribedAt ? fmtDate(c.unsubscribedAt) : "", c.tags.join("; "), c.notes.replace(/\n/g, " ")]);
+    const csv = [header, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const a = document.createElement("a"); a.href = url; a.download = `marketing-contacts-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="space-y-4 pb-24">
+      {/* Compact stats */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: "All contacts", value: customers.length, cls: "text-gray-900" },
+          { label: "Reachable", value: reachableCount, cls: "text-emerald-600" },
+          { label: "Unsubscribed", value: unsubCount, cls: "text-red-500" },
+        ].map((s) => (
+          <div key={s.label} className="bg-white border border-gray-200 rounded-xl p-4">
+            <div className={`text-2xl font-bold ${s.cls}`}>{s.value}</div>
+            <div className="text-xs text-gray-500 mt-0.5">{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* One combined filter card */}
+      <div className="bg-white rounded-2xl border border-gray-200 p-4 space-y-3">
+        <div className="flex flex-wrap gap-3">
+          <div className="flex items-center gap-2 flex-1 min-w-45 border border-gray-200 rounded-xl px-3 py-2">
+            <Search size={14} className="text-gray-400 shrink-0" />
+            <input type="text" placeholder="Search name, email, or phone…" value={search} onChange={(e) => setSearch(e.target.value)} className="w-full text-sm focus:outline-none placeholder-gray-400" />
+          </div>
+          {allTags.length > 0 && (
+            <select value={filterTag} onChange={(e) => setFilterTag(e.target.value)} className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition">
+              <option value="">All tags</option>{allTags.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          )}
+          <button onClick={() => setFilterOptIn((v) => !v)} className={`flex items-center gap-1.5 border rounded-xl px-3 py-2 text-sm font-medium transition ${filterOptIn ? "bg-green-50 border-green-300 text-green-700" : "border-gray-200 text-gray-500 hover:border-gray-300"}`}><Mail size={13} /> Opted-in only</button>
+          <button onClick={exportCsv} disabled={filtered.length === 0} className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-600 hover:text-gray-800 hover:border-gray-300 transition disabled:opacity-40"><FileDown size={14} /> CSV</button>
+          <button onClick={onRefresh} disabled={loading} className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300 transition" title="Refresh"><RefreshCw size={14} className={loading ? "animate-spin" : ""} /></button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Came from:</span>
+          {ALL_SOURCES.map((s) => {
+            const meta = SOURCE_META[s]; const Icon = meta.icon; const active = sourceFilter.has(s);
+            return (
+              <button key={s} onClick={() => toggleSource(s)}
+                className={`flex items-center gap-1.5 border rounded-full px-3 py-1 text-xs font-semibold transition ${active ? meta.active : "bg-white border-gray-200 text-gray-500 hover:border-gray-300"}`}>
+                <Icon size={11} /> {meta.label}<span className="text-[10px] opacity-70">{sourceCounts[s]}</span>
+              </button>
             );
           })}
+          {sourceFilter.size > 0 && <button onClick={() => setSourceFilter(() => new Set())} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 px-1"><X size={12} /> Clear</button>}
+        </div>
+      </div>
+
+      {/* Select-all row */}
+      {filtered.length > 0 && (
+        <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer px-1">
+          <input type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAll} className="w-4 h-4 accent-orange-500" />
+          Select all reachable in this view ({filteredMailableIds.length})
+        </label>
+      )}
+
+      {/* List */}
+      {loading ? <div className="flex justify-center py-16"><Loader2 size={28} className="animate-spin text-orange-500" /></div>
+        : filtered.length === 0 ? (
+          <div className="flex flex-col items-center py-16 gap-3 text-center bg-white rounded-2xl border border-gray-200">
+            <Users size={32} className="text-gray-300" />
+            <p className="font-semibold text-gray-600">No contacts found</p>
+            <p className="text-sm text-gray-400 max-w-xs">{customers.length === 0 ? "Emails collect here automatically when customers order online, book a table, buy a gift card, or ask for an e-bill." : "Nothing matches the current filters."}</p>
+          </div>
+        ) : (
+          <div className="space-y-3">{filtered.map((c) => <ContactCard key={c.id} customer={c} onSave={onSave} selected={selected.has(c.id)} onToggleSelect={toggleSelect} />)}</div>
+        )}
+
+      {/* Floating action bar when contacts are selected */}
+      {selected.size > 0 && (
+        <div className="fixed bottom-6 inset-x-0 z-40 flex justify-center pointer-events-none px-4">
+          <div className="pointer-events-auto bg-gray-900 text-white rounded-full shadow-2xl pl-5 pr-2 py-2 flex items-center gap-4">
+            <span className="text-sm font-semibold">{selected.size} selected</span>
+            <button onClick={onBroadcastToSelection} className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold rounded-full px-4 py-1.5 transition">
+              <Send size={13} /> Send them a broadcast
+            </button>
+            <button onClick={() => setSelected(() => new Set())} className="text-gray-400 hover:text-white transition p-1.5" title="Clear selection"><X size={16} /></button>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-// ═══ Compose view (full page, not a modal) ════════════════════════════════════
+// ═══ Compose wizard — ① Who → ② Write → ③ Review & send ══════════════════════
 type SendPhase =
   | { phase: "idle" }
   | { phase: "sending"; done: number; total: number }
   | { phase: "done"; sent: number; failed: number; skipped: number }
   | { phase: "error"; message: string };
 
-function ComposeView({ contacts, allTags, brandColor, restaurantName, editingId: initialEditingId, initial, onExit }: {
+const STEPS = [
+  { n: 1, label: "Who" },
+  { n: 2, label: "Write" },
+  { n: 3, label: "Review & send" },
+] as const;
+
+function ComposeWizard({ contacts, allTags, brandColor, restaurantName, editingId: initialEditingId, initial, onExit }: {
   contacts: ReservationCustomer[]; allTags: string[]; brandColor: string; restaurantName: string;
-  editingId: string | null; initial: { subject: string; previewText: string; body: string; audience: Audience }; onExit: () => void;
+  editingId: string | null;
+  initial: { subject: string; previewText: string; body: string; audience: Audience; startStep: 1 | 2 };
+  onExit: () => void;
 }) {
+  const [step, setStep] = useState<1 | 2 | 3>(initial.startStep);
   const [subject, setSubject] = useState(initial.subject);
   const [previewText, setPreviewText] = useState(initial.previewText);
   const [body, setBody] = useState(initial.body);
   const [audience, setAudience] = useState<Audience>(initial.audience);
   const [editingId, setEditingId] = useState<string | null>(initialEditingId);
-  // Stable across the first save (which sets editingId): the editor must NOT
-  // reset when a new draft id is assigned, or it would wipe the typed content.
-  const editorKey = useRef(initialEditingId ?? `new-${Date.now()}`).current;
+  const [editorVersion, setEditorVersion] = useState(0);
 
   const [testTo, setTestTo] = useState("");
   const [testState, setTestState] = useState<"idle" | "sending" | "sent" | "error">("idle");
@@ -763,11 +936,26 @@ function ComposeView({ contacts, allTags, brandColor, restaurantName, editingId:
   const [showSchedule, setShowSchedule] = useState(false);
   const [scheduleAt, setScheduleAt] = useState("");
   const [scheduled, setScheduled] = useState(false);
+  const [confirmArm, setConfirmArm] = useState(false);
   const inFlight = useRef(false);
+  const editorKeyBase = useRef(initialEditingId ?? `new-${Date.now()}`).current;
 
   const recipients = resolveRecipients(contacts, audience);
   const total = recipients.length;
   const busy = send.phase === "sending" || savingDraft;
+
+  const bodyHasText = body.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").trim().length > 0;
+  const step1Done = total > 0;
+  const step2Done = subject.trim().length > 0 && bodyHasText;
+  const canSend = step1Done && step2Done;
+
+  function applyTemplate(t: Template) {
+    if (bodyHasText && !window.confirm("Replace your current message with this template?")) return;
+    setSubject(t.subject);
+    setPreviewText(t.preview);
+    setBody(t.body);
+    setEditorVersion((v) => v + 1);
+  }
 
   /** Create the draft on first persist, PATCH thereafter. Returns the id. */
   async function persist(): Promise<string | null> {
@@ -800,7 +988,7 @@ function ComposeView({ contacts, allTags, brandColor, restaurantName, editingId:
   }
 
   async function sendTest() {
-    if (!testTo.trim() || !subject.trim() || !body.trim()) return;
+    if (!testTo.trim() || !canSend) return;
     setTestState("sending");
     try {
       const res = await fetch("/api/admin/campaigns/test", {
@@ -814,8 +1002,7 @@ function ComposeView({ contacts, allTags, brandColor, restaurantName, editingId:
   }
 
   async function sendNow() {
-    if (inFlight.current || busy) return;
-    if (!subject.trim() || !body.trim() || total === 0) return;
+    if (inFlight.current || busy || !canSend) return;
     inFlight.current = true;
     setSend({ phase: "sending", done: 0, total });
     const id = await persist();
@@ -823,7 +1010,7 @@ function ComposeView({ contacts, allTags, brandColor, restaurantName, editingId:
     try {
       for (;;) {
         const res = await fetch(`/api/admin/campaigns/${id}/send`, { method: "POST" });
-        const json = await res.json() as { ok: boolean; done?: boolean; error?: string; remaining?: number; totals?: { sent: number; failed: number; skipped: number } };
+        const json = await res.json() as { ok: boolean; done?: boolean; error?: string; totals?: { sent: number; failed: number; skipped: number } };
         if (!json.ok) { setSend({ phase: "error", message: json.error ?? "Sending failed." }); return; }
         const t = json.totals ?? { sent: 0, failed: 0, skipped: 0 };
         if (json.done) { setSend({ phase: "done", sent: t.sent, failed: t.failed, skipped: t.skipped }); return; }
@@ -834,160 +1021,292 @@ function ComposeView({ contacts, allTags, brandColor, restaurantName, editingId:
   }
 
   async function schedule() {
-    if (busy || !scheduleAt || !subject.trim() || !body.trim() || total === 0) return;
+    if (busy || !scheduleAt || !canSend) return;
     const id = await persist();
     if (!id) return;
-    const iso = new Date(scheduleAt).toISOString();
     const res = await fetch(`/api/admin/campaigns/${id}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scheduledAt: iso }),
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scheduledAt: new Date(scheduleAt).toISOString() }),
     });
     const json = await res.json() as { ok: boolean };
-    if (json.ok) { setScheduled(true); }
+    if (json.ok) setScheduled(true);
   }
 
-  const canSend = subject.trim() && body.trim() && total > 0;
   const minSchedule = new Date(Date.now() + 5 * 60_000).toISOString().slice(0, 16);
 
-  // ── Success / scheduled screens ─────────────────────────────────────────────
+  // ── Terminal screens ────────────────────────────────────────────────────────
   if (send.phase === "done") {
     return (
-      <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
-        <CheckCircle2 size={52} className="text-green-500" />
-        <h3 className="text-xl font-bold text-gray-900">Broadcast sent</h3>
+      <div className="flex flex-col items-center justify-center py-24 gap-3 text-center">
+        <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center"><PartyPopper size={30} className="text-green-600" /></div>
+        <h3 className="text-2xl font-bold text-gray-900">Broadcast sent!</h3>
         <p className="text-sm text-gray-500">{send.sent} delivered{send.failed > 0 && ` · ${send.failed} failed`}{send.skipped > 0 && ` · ${send.skipped} skipped`}</p>
-        <button onClick={onExit} className="mt-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition">Back to broadcasts</button>
+        <p className="text-xs text-gray-400">Open rates will appear on the Broadcasts page as people read it.</p>
+        <button onClick={onExit} className="mt-4 bg-orange-500 hover:bg-orange-600 text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition">Back to broadcasts</button>
       </div>
     );
   }
   if (scheduled) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
-        <CalendarClock size={52} className="text-blue-500" />
-        <h3 className="text-xl font-bold text-gray-900">Broadcast scheduled</h3>
-        <p className="text-sm text-gray-500">Sending to {total} contact{total !== 1 ? "s" : ""} on {fmtDateTime(new Date(scheduleAt).toISOString())}.</p>
-        <button onClick={onExit} className="mt-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition">Back to broadcasts</button>
+      <div className="flex flex-col items-center justify-center py-24 gap-3 text-center">
+        <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center"><CalendarClock size={30} className="text-blue-600" /></div>
+        <h3 className="text-2xl font-bold text-gray-900">Scheduled ✓</h3>
+        <p className="text-sm text-gray-500">Going to {total} contact{total !== 1 ? "s" : ""} on {fmtDateTime(new Date(scheduleAt).toISOString())}.</p>
+        <button onClick={onExit} className="mt-4 bg-orange-500 hover:bg-orange-600 text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition">Back to broadcasts</button>
+      </div>
+    );
+  }
+  if (send.phase === "sending") {
+    const pct = send.total > 0 ? Math.min(100, Math.round((send.done / send.total) * 100)) : 5;
+    return (
+      <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
+        <Loader2 size={36} className="animate-spin text-orange-500" />
+        <h3 className="text-xl font-bold text-gray-900">Sending your broadcast…</h3>
+        <div className="w-full max-w-sm bg-gray-100 rounded-full h-3 overflow-hidden">
+          <div className="bg-orange-500 h-3 rounded-full transition-all duration-500" style={{ width: `${Math.max(5, pct)}%` }} />
+        </div>
+        <p className="text-sm text-gray-500">{send.done} of {send.total} sent — keep this page open.</p>
       </div>
     );
   }
 
+  // ── Wizard chrome ──────────────────────────────────────────────────────────
+  const stepReachable = (n: number) => n === 1 || (n === 2 && step1Done) || (n === 3 && step1Done && step2Done);
+
   return (
     <div className="space-y-5">
-      {/* Top bar */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <button onClick={onExit} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition"><ArrowLeft size={16} /> Back</button>
-        <div className="flex items-center gap-2">
-          <button onClick={saveDraft} disabled={busy} className={`flex items-center gap-1.5 border rounded-xl px-3 py-2 text-sm font-medium transition disabled:opacity-50 ${draftSaved ? "border-green-300 text-green-700 bg-green-50" : "border-gray-200 text-gray-600 hover:border-gray-300"}`}>
-            {savingDraft ? <Loader2 size={14} className="animate-spin" /> : draftSaved ? <CheckCircle2 size={14} /> : <FileEdit size={14} />}
-            {draftSaved ? "Saved" : "Save draft"}
-          </button>
-          <button onClick={() => setShowSchedule((v) => !v)} disabled={!canSend || busy} className="flex items-center gap-1.5 border border-blue-200 text-blue-700 hover:bg-blue-50 rounded-xl px-3 py-2 text-sm font-medium transition disabled:opacity-50"><CalendarClock size={14} /> Schedule</button>
-          <button onClick={sendNow} disabled={!canSend || busy} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold px-5 py-2 rounded-xl text-sm transition disabled:opacity-50">
-            {send.phase === "sending" ? <><Loader2 size={16} className="animate-spin" /> Sending {send.done}/{send.total}</> : <><Send size={16} /> Send to {total}</>}
-          </button>
+      {/* Top bar: back · stepper · save draft */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-3.5 flex items-center justify-between gap-3 flex-wrap">
+        <button onClick={onExit} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition"><ArrowLeft size={16} /> Exit</button>
+
+        <div className="flex items-center gap-1">
+          {STEPS.map((s, i) => (
+            <div key={s.n} className="flex items-center">
+              <button
+                onClick={() => stepReachable(s.n) && setStep(s.n as 1 | 2 | 3)}
+                disabled={!stepReachable(s.n)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold transition ${
+                  step === s.n ? "bg-orange-500 text-white"
+                  : stepReachable(s.n) ? "text-gray-600 hover:bg-gray-100"
+                  : "text-gray-300 cursor-not-allowed"}`}
+              >
+                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold ${
+                  step === s.n ? "bg-white/25 text-white"
+                  : (s.n === 1 && step1Done) || (s.n === 2 && step2Done) ? "bg-green-100 text-green-700"
+                  : "bg-gray-100 text-gray-500"}`}>
+                  {(s.n === 1 && step1Done && step !== 1) || (s.n === 2 && step2Done && step !== 2) ? <Check size={11} /> : s.n}
+                </span>
+                <span className="hidden sm:inline">{s.label}</span>
+              </button>
+              {i < STEPS.length - 1 && <div className="w-6 h-px bg-gray-200 mx-0.5" />}
+            </div>
+          ))}
         </div>
+
+        <button onClick={saveDraft} disabled={busy} className={`flex items-center gap-1.5 text-sm font-medium transition disabled:opacity-50 ${draftSaved ? "text-green-600" : "text-gray-400 hover:text-gray-700"}`}>
+          {savingDraft ? <Loader2 size={14} className="animate-spin" /> : draftSaved ? <CheckCircle2 size={14} /> : <FileEdit size={14} />}
+          {draftSaved ? "Saved" : "Save draft"}
+        </button>
       </div>
 
       {send.phase === "error" && (
-        <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 rounded-xl px-3 py-2.5 text-sm"><AlertTriangle size={16} className="flex-shrink-0 mt-0.5" /> {send.message}</div>
+        <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 rounded-xl px-3 py-2.5 text-sm"><AlertTriangle size={16} className="shrink-0 mt-0.5" /> {send.message}</div>
       )}
 
-      {/* Schedule row */}
-      {showSchedule && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex flex-wrap items-center gap-3">
-          <CalendarClock size={16} className="text-blue-600" />
-          <span className="text-sm text-blue-800 font-medium">Send automatically at:</span>
-          <input type="datetime-local" min={minSchedule} value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} className="border border-blue-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
-          <button onClick={schedule} disabled={!scheduleAt || !canSend} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-1.5 rounded-lg transition disabled:opacity-50">Schedule broadcast</button>
-          <span className="text-xs text-blue-500">Requires the campaign cron to be configured.</span>
-        </div>
-      )}
+      {/* ── STEP 1: WHO ── */}
+      {step === 1 && (
+        <div className="max-w-3xl mx-auto space-y-4">
+          <div className="text-center">
+            <h3 className="text-xl font-bold text-gray-900">Who should get this email?</h3>
+            <p className="text-sm text-gray-500 mt-1">Only opted-in contacts are ever emailed — unsubscribes are always respected.</p>
+          </div>
 
-      <div className="grid lg:grid-cols-2 gap-5">
-        {/* Left: compose */}
-        <div className="space-y-4">
-          {/* Recipients */}
-          <div className="bg-white rounded-2xl border border-gray-200 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-1.5"><Users size={15} /> Recipients</h3>
-              <span className="text-sm font-bold text-orange-600">{total} contact{total !== 1 ? "s" : ""}</span>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {([
-                { mode: "all", label: "All opted-in" },
-                { mode: "sources", label: "By source" },
-                { mode: "tags", label: "By tag" },
-                { mode: "selection", label: "Hand-picked" },
-              ] as const).map((opt) => (
+          <div className="grid sm:grid-cols-2 gap-3">
+            {([
+              { mode: "all",       icon: Users,     title: "Everyone",       desc: "All opted-in contacts" },
+              { mode: "sources",   icon: Tag,       title: "By source",      desc: "Where their email came from" },
+              { mode: "tags",      icon: Star,      title: "By tag",         desc: "VIPs, regulars, birthdays…" },
+              { mode: "selection", icon: UserCheck, title: "Hand-picked",    desc: "Choose them in Audience" },
+            ] as const).map((opt) => {
+              const active = audience.mode === opt.mode;
+              return (
                 <button key={opt.mode}
-                  onClick={() => setAudience(opt.mode === "all" ? { mode: "all" } : opt.mode === "sources" ? { mode: "sources", sources: [] } : opt.mode === "tags" ? { mode: "tags", tags: [] } : { mode: "selection", ids: audience.mode === "selection" ? audience.ids : [] })}
-                  className={`text-sm font-medium rounded-xl px-3 py-2 border transition ${audience.mode === opt.mode ? "border-orange-400 bg-orange-50 text-orange-700" : "border-gray-200 text-gray-600 hover:border-gray-300"}`}>
-                  {opt.label}
+                  onClick={() => setAudience(opt.mode === "all" ? { mode: "all" } : opt.mode === "sources" ? { mode: "sources", sources: audience.mode === "sources" ? audience.sources : [] } : opt.mode === "tags" ? { mode: "tags", tags: audience.mode === "tags" ? audience.tags : [] } : { mode: "selection", ids: audience.mode === "selection" ? audience.ids : [] })}
+                  className={`text-left rounded-2xl border-2 p-4 transition ${active ? "border-orange-400 bg-orange-50" : "border-gray-200 bg-white hover:border-orange-200"}`}>
+                  <opt.icon size={18} className={active ? "text-orange-600" : "text-gray-400"} />
+                  <p className={`text-sm font-bold mt-2 ${active ? "text-orange-800" : "text-gray-800"}`}>{opt.title}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{opt.desc}</p>
                 </button>
-              ))}
+              );
+            })}
+          </div>
+
+          {audience.mode === "sources" && (
+            <div className="bg-white border border-gray-200 rounded-2xl p-4 flex flex-wrap gap-1.5">
+              {ALL_SOURCES.map((s) => {
+                const meta = SOURCE_META[s]; const on = audience.sources.includes(s);
+                return <button key={s} onClick={() => setAudience({ mode: "sources", sources: on ? audience.sources.filter((x) => x !== s) : [...audience.sources, s] })}
+                  className={`text-xs font-semibold rounded-full px-3 py-1.5 border transition ${on ? meta.active : "bg-white border-gray-200 text-gray-500 hover:border-gray-300"}`}>{meta.label}</button>;
+              })}
             </div>
-            {audience.mode === "sources" && (
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {ALL_SOURCES.map((s) => {
-                  const meta = SOURCE_META[s]; const on = audience.sources.includes(s);
-                  return <button key={s} onClick={() => setAudience({ mode: "sources", sources: on ? audience.sources.filter((x) => x !== s) : [...audience.sources, s] })}
-                    className={`text-xs font-semibold rounded-full px-3 py-1 border transition ${on ? meta.active : "bg-white border-gray-200 text-gray-500 hover:border-gray-300"}`}>{meta.label}</button>;
-                })}
-              </div>
-            )}
-            {audience.mode === "tags" && (
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {allTags.length === 0 ? <p className="text-xs text-gray-400">No tags yet — tag contacts first.</p> : allTags.map((t) => {
-                  const on = audience.tags.includes(t);
-                  return <button key={t} onClick={() => setAudience({ mode: "tags", tags: on ? audience.tags.filter((x) => x !== t) : [...audience.tags, t] })}
-                    className={`text-xs font-semibold rounded-full px-3 py-1 border transition ${on ? "bg-orange-100 border-orange-400 text-orange-800" : "bg-white border-gray-200 text-gray-500 hover:border-gray-300"}`}>{t}</button>;
-                })}
-              </div>
-            )}
-            {audience.mode === "selection" && (
-              <p className="text-xs text-gray-500 pt-1">{audience.ids.length} contact{audience.ids.length !== 1 ? "s" : ""} hand-picked from the list{total !== audience.ids.length && ` (${total} still opted-in)`}.</p>
+          )}
+          {audience.mode === "tags" && (
+            <div className="bg-white border border-gray-200 rounded-2xl p-4 flex flex-wrap gap-1.5">
+              {allTags.length === 0 ? <p className="text-xs text-gray-400">No tags yet — add tags to contacts in the Audience view first.</p> : allTags.map((t) => {
+                const on = audience.tags.includes(t);
+                return <button key={t} onClick={() => setAudience({ mode: "tags", tags: on ? audience.tags.filter((x) => x !== t) : [...audience.tags, t] })}
+                  className={`text-xs font-semibold rounded-full px-3 py-1.5 border transition ${on ? "bg-orange-100 border-orange-400 text-orange-800" : "bg-white border-gray-200 text-gray-500 hover:border-gray-300"}`}>{t}</button>;
+              })}
+            </div>
+          )}
+          {audience.mode === "selection" && audience.ids.length === 0 && (
+            <p className="text-sm text-gray-500 text-center bg-white border border-gray-200 rounded-2xl p-4">
+              Go to the <span className="font-semibold">Audience</span> view, tick the contacts you want, then press &ldquo;Send them a broadcast&rdquo;.
+            </p>
+          )}
+
+          {/* Live reach banner */}
+          <div className={`rounded-2xl border px-5 py-4 flex items-center gap-4 ${total > 0 ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"}`}>
+            {total > 0 ? (
+              <>
+                <div className="flex -space-x-2 shrink-0">
+                  {recipients.slice(0, 5).map((r) => (
+                    <div key={r.id} className="w-8 h-8 rounded-full bg-white border-2 border-emerald-200 flex items-center justify-center text-xs font-bold text-emerald-700">
+                      {(r.name || r.email).charAt(0).toUpperCase()}
+                    </div>
+                  ))}
+                  {total > 5 && <div className="w-8 h-8 rounded-full bg-emerald-600 border-2 border-emerald-200 flex items-center justify-center text-[10px] font-bold text-white">+{total - 5}</div>}
+                </div>
+                <p className="text-sm text-emerald-800"><span className="font-bold">{total} {total === 1 ? "person" : "people"}</span> will get this email.</p>
+              </>
+            ) : (
+              <p className="text-sm text-amber-700 flex items-center gap-2"><AlertTriangle size={15} /> No one matches yet — pick at least one option above.</p>
             )}
           </div>
 
-          {/* Subject + preview text */}
+          <div className="flex justify-end">
+            <button onClick={() => setStep(2)} disabled={!step1Done} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-bold px-6 py-2.5 rounded-xl text-sm transition disabled:opacity-40">
+              Next: write your message <ArrowRight size={15} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── STEP 2: WRITE ── */}
+      {step === 2 && (
+        <div className="max-w-3xl mx-auto space-y-4">
+          <div className="text-center">
+            <h3 className="text-xl font-bold text-gray-900">Write your message</h3>
+            <p className="text-sm text-gray-500 mt-1">Start from a template or write your own — {"{{name}}"} becomes each customer&apos;s real name.</p>
+          </div>
+
+          {/* Quick starts */}
+          <div className="flex flex-wrap gap-2 justify-center">
+            {TEMPLATES.map((t) => (
+              <button key={t.name} onClick={() => applyTemplate(t)}
+                className="flex items-center gap-1.5 bg-white border border-gray-200 hover:border-orange-300 hover:bg-orange-50 rounded-full px-3.5 py-1.5 text-xs font-semibold text-gray-600 hover:text-orange-700 transition">
+                <span>{t.emoji}</span> {t.name}
+              </button>
+            ))}
+          </div>
+
           <div className="bg-white rounded-2xl border border-gray-200 p-4 space-y-3">
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1">Subject line</label>
-              <input type="text" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="A little treat from us, {{name}} 🎁" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-orange-400 transition" />
+              <input type="text" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="A little treat from us, {{name}} 🎁"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-base font-medium focus:outline-none focus:border-orange-400 transition" />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Preview text <span className="text-gray-400 font-normal">(inbox snippet, optional)</span></label>
-              <input type="text" value={previewText} onChange={(e) => setPreviewText(e.target.value)} placeholder="Show this email for 20% off this weekend" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-orange-400 transition" />
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Preview text <span className="text-gray-400 font-normal">— the grey snippet shown in the inbox (optional)</span></label>
+              <input type="text" value={previewText} onChange={(e) => setPreviewText(e.target.value)} placeholder="Show this email for 20% off this weekend"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-orange-400 transition" />
             </div>
           </div>
 
-          {/* Body editor */}
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Message</label>
-            <BroadcastEditor editorKey={editorKey} initialValue={initial.body} onChange={setBody} />
-          </div>
+          <BroadcastEditor editorKey={`${editorKeyBase}-v${editorVersion}`} initialValue={body} onChange={setBody} />
 
-          {/* Test send */}
-          <div className="bg-white rounded-2xl border border-gray-200 p-4 space-y-2">
-            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Send a test first</p>
-            <div className="flex gap-2">
-              <input type="email" value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="you@example.com" className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
-              <button onClick={sendTest} disabled={!testTo.trim() || !subject.trim() || !body.trim() || testState === "sending"} className="flex shrink-0 items-center gap-1.5 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 hover:border-orange-300 hover:text-orange-600 transition disabled:opacity-40">
-                {testState === "sending" ? <Loader2 size={13} className="animate-spin" /> : testState === "sent" ? <CheckCircle2 size={13} className="text-green-600" /> : <Send size={13} />}
-                {testState === "sent" ? "Sent!" : testState === "error" ? "Failed" : "Test"}
+          <div className="flex justify-between items-center">
+            <button onClick={() => setStep(1)} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition"><ArrowLeft size={15} /> Back</button>
+            <button onClick={() => setStep(3)} disabled={!step2Done} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-bold px-6 py-2.5 rounded-xl text-sm transition disabled:opacity-40">
+              Next: review &amp; send <ArrowRight size={15} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── STEP 3: REVIEW & SEND ── */}
+      {step === 3 && (
+        <div className="grid lg:grid-cols-2 gap-5">
+          <div className="space-y-4">
+            {/* Summary */}
+            <div className="bg-white rounded-2xl border border-gray-200 divide-y divide-gray-100">
+              {[
+                { label: "To", value: `${audienceLabel(audience)} — ${total} ${total === 1 ? "person" : "people"}`, edit: 1 as const },
+                { label: "Subject", value: subject || "(no subject)", edit: 2 as const },
+                { label: "Preview text", value: previewText || "—", edit: 2 as const },
+              ].map((row) => (
+                <div key={row.label} className="flex items-center gap-3 px-4 py-3">
+                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide w-24 shrink-0">{row.label}</span>
+                  <span className="text-sm text-gray-800 flex-1 min-w-0 truncate">{row.value}</span>
+                  <button onClick={() => setStep(row.edit)} className="text-xs text-orange-600 hover:underline shrink-0">Edit</button>
+                </div>
+              ))}
+            </div>
+
+            {/* Test send */}
+            <div className="bg-white rounded-2xl border border-gray-200 p-4 space-y-2">
+              <p className="text-sm font-semibold text-gray-800 flex items-center gap-1.5"><Eye size={14} /> Send yourself a test first</p>
+              <p className="text-xs text-gray-400">Exactly what your customers will receive — check it on your phone.</p>
+              <div className="flex gap-2">
+                <input type="email" value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="you@example.com"
+                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
+                <button onClick={sendTest} disabled={!testTo.trim() || !canSend || testState === "sending"} className="flex shrink-0 items-center gap-1.5 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 hover:border-orange-300 hover:text-orange-600 transition disabled:opacity-40">
+                  {testState === "sending" ? <Loader2 size={13} className="animate-spin" /> : testState === "sent" ? <CheckCircle2 size={13} className="text-green-600" /> : <Send size={13} />}
+                  {testState === "sent" ? "Sent!" : testState === "error" ? "Failed" : "Send test"}
+                </button>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="bg-white rounded-2xl border border-gray-200 p-4 space-y-3">
+              <button
+                onClick={() => { if (!confirmArm) { setConfirmArm(true); setTimeout(() => setConfirmArm(false), 6000); } else { setConfirmArm(false); sendNow(); } }}
+                disabled={!canSend || busy}
+                className={`w-full flex items-center justify-center gap-2 font-bold px-4 py-3.5 rounded-xl text-sm transition disabled:opacity-50 ${confirmArm ? "bg-orange-700 hover:bg-orange-800 text-white" : "bg-orange-500 hover:bg-orange-600 text-white"}`}>
+                <Send size={16} />
+                {confirmArm ? `Yes — send to ${total} ${total === 1 ? "person" : "people"} now` : "Send now"}
               </button>
+              {confirmArm && <p className="text-[11px] text-center text-gray-400">Click again to confirm, or wait to cancel.</p>}
+
+              <button onClick={() => setShowSchedule((v) => !v)} disabled={!canSend || busy}
+                className="w-full flex items-center justify-center gap-2 border border-blue-200 text-blue-700 hover:bg-blue-50 font-semibold px-4 py-2.5 rounded-xl text-sm transition disabled:opacity-50">
+                <CalendarClock size={15} /> {showSchedule ? "Hide scheduling" : "Schedule for later"}
+              </button>
+              {showSchedule && (
+                <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 space-y-2">
+                  <input type="datetime-local" min={minSchedule} value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)}
+                    className="w-full border border-blue-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 bg-white" />
+                  <button onClick={schedule} disabled={!scheduleAt || !canSend} className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition disabled:opacity-50">
+                    Schedule broadcast
+                  </button>
+                  <p className="text-[11px] text-blue-500">Needs the campaign cron set up on the server (docs/marketing/SCHEDULING.md).</p>
+                </div>
+              )}
+            </div>
+
+            <button onClick={() => setStep(2)} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition"><ArrowLeft size={15} /> Back to writing</button>
+          </div>
+
+          {/* Live preview */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider"><Eye size={13} /> What they&apos;ll see</div>
+            <div className="lg:sticky lg:top-4">
+              <EmailPreview subject={subject} previewText={previewText} body={body} brandColor={brandColor} restaurantName={restaurantName} />
+              <p className="text-[11px] text-gray-400 mt-2">Shown with sample data — each customer gets their own name.</p>
             </div>
           </div>
         </div>
-
-        {/* Right: live preview */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider"><Eye size={13} /> Live preview</div>
-          <div className="sticky top-4">
-            <EmailPreview subject={subject} previewText={previewText} body={body} brandColor={brandColor} restaurantName={restaurantName} />
-            <p className="text-[11px] text-gray-400 mt-2 flex items-center gap-1"><ChevronRight size={11} /> {"{{name}}"} and {"{{email}}"} shown with sample data; each contact gets their own.</p>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
