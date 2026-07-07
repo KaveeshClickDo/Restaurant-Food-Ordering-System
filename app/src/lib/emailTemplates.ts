@@ -532,9 +532,31 @@ function buildVatString(
   return `${sym}${vatAmount.toFixed(2)} (${mode})`;
 }
 
-/** Replace {{variable}} placeholders with actual values. */
-export function applyVars(template: string, vars: Record<string, string>): string {
-  return template.replace(/\{\{([a-z_]+)\}\}/g, (_, key) => vars[key] ?? `{{${key}}}`);
+/**
+ * Replace {{variable}} placeholders with actual values.
+ *
+ * Kit-style fallbacks are supported: `{{name | "friend"}}` renders the
+ * variable's value, or the quoted fallback when the value is empty. Plain
+ * `{{name}}` with an empty value falls back to `defaults[name]` (when the
+ * caller provides one) so e.g. broadcasts can greet "there" instead of
+ * rendering "Hi ,". Unknown variables without a fallback are left as-is
+ * (existing behaviour, so typos stay visible).
+ */
+export function applyVars(
+  template: string,
+  vars: Record<string, string>,
+  defaults: Record<string, string> = {},
+): string {
+  return template.replace(
+    /\{\{\s*([a-z_]+)(?:\s*\|\s*(?:"([^"]*)"|'([^']*)'))?\s*\}\}/g,
+    (_m, key: string, dq?: string, sq?: string) => {
+      const fallback = dq ?? sq;
+      const value = vars[key];
+      if (value === undefined) return fallback !== undefined ? fallback : `{{${key}}}`;
+      if (value.trim() === "") return fallback ?? defaults[key] ?? "";
+      return value;
+    },
+  );
 }
 
 /** Build the preview var map using dummy data (no real order needed). */

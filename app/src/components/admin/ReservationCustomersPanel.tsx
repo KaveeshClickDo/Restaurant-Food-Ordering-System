@@ -106,6 +106,11 @@ const BROADCAST_VARS = [
   { name: "email", label: "Recipient's email" },
 ];
 
+// Token regex shared by the chip renderer: plain `{{name}}` or with a
+// Kit-style fallback `{{name | "friend"}}`. The full inner text is kept in
+// data-var so displayToStorage round-trips the fallback intact.
+const TOKEN_RE = /\{\{\s*([a-z_]+(?:\s*\|\s*"[^"]*")?)\s*\}\}/g;
+
 function storageToDisplay(html: string): string {
   if (typeof document === "undefined") return html;
   const root = document.createElement("div");
@@ -114,12 +119,12 @@ function storageToDisplay(html: string): string {
   const targets: Text[] = [];
   let node: Node | null;
   while ((node = walker.nextNode())) {
-    if (/\{\{[a-z_]+\}\}/.test((node as Text).nodeValue ?? "")) targets.push(node as Text);
+    if (/\{\{[^{}]+\}\}/.test((node as Text).nodeValue ?? "")) targets.push(node as Text);
   }
   for (const textNode of targets) {
     const text = textNode.nodeValue ?? "";
     const frag = document.createDocumentFragment();
-    const re = /\{\{([a-z_]+)\}\}/g;
+    const re = new RegExp(TOKEN_RE.source, "g");
     let lastIdx = 0, m: RegExpExecArray | null;
     while ((m = re.exec(text)) !== null) {
       if (m.index > lastIdx) frag.appendChild(document.createTextNode(text.slice(lastIdx, m.index)));
@@ -226,7 +231,16 @@ function BroadcastEditor({ editorKey, initialValue, onChange }: {
             {`{{${v.name}}}`}
           </button>
         ))}
-        <span className="text-[11px] text-amber-600">— becomes each customer&apos;s real name</span>
+        <button type="button" title='Name with a fallback — shows your chosen word when we have no name for a contact'
+          onMouseDown={(e) => { e.preventDefault(); saveRange(); }}
+          onClick={() => {
+            const fb = (prompt('If we don’t have their name, show:', "friend") ?? "").replace(/["{}]/g, "").trim();
+            if (fb) insertVariable(`name | "${fb}"`);
+          }}
+          className="text-[11px] bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-200 rounded-md px-2 py-0.5 font-mono transition">
+          {'{{name | "…"}}'}
+        </button>
+        <span className="text-[11px] text-amber-600">— real name, or your fallback word when there isn&apos;t one</span>
       </div>
       <div ref={editorRef} contentEditable suppressContentEditableWarning
         onInput={() => { if (editorRef.current) onChange(displayToStorage(editorRef.current)); }}
@@ -239,10 +253,12 @@ function BroadcastEditor({ editorKey, initialValue, onChange }: {
 
 // ── Email preview ────────────────────────────────────────────────────────────
 function previewHtml(body: string, restaurantName: string): string {
+  // Fallback-tolerant: `{{name}}` and `{{name | "friend"}}` both preview as
+  // the sample name (real fallback resolution happens at send time).
   return body
-    .replace(/\{\{name\}\}/g, "Alex")
-    .replace(/\{\{email\}\}/g, "alex@example.com")
-    .replace(/\{\{restaurant_name\}\}/g, restaurantName)
+    .replace(/\{\{\s*name\s*(?:\|[^}]*)?\}\}/g, "Alex")
+    .replace(/\{\{\s*email\s*(?:\|[^}]*)?\}\}/g, "alex@example.com")
+    .replace(/\{\{\s*restaurant_name\s*(?:\|[^}]*)?\}\}/g, restaurantName)
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script\s*>/gi, "")
     .replace(/\bon\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, "");
 }
@@ -281,33 +297,33 @@ interface Template { emoji: string; name: string; subject: string; preview: stri
 const TEMPLATES: Template[] = [
   {
     emoji: "🎉", name: "Weekend offer",
-    subject: "A weekend treat for you, {{name}} 🎉",
+    subject: 'A weekend treat for you, {{name | "friend"}} 🎉',
     preview: "This weekend only — something special is waiting",
-    body: "<h2>Weekend special 🎉</h2><p>Hi {{name}},</p><p>This weekend only — enjoy <strong>20% off</strong> your order with us. Dinner in or takeaway night, we've got you covered.</p><p>Just show this email when you order.</p><p>See you soon!</p>",
+    body: '<h2>Weekend special 🎉</h2><p>Hi {{name | "there"}},</p><p>This weekend only — enjoy <strong>20% off</strong> your order with us. Dinner in or takeaway night, we\'ve got you covered.</p><p>Just show this email when you order.</p><p>See you soon!</p>',
   },
   {
     emoji: "🍽️", name: "New on the menu",
-    subject: "Fresh on the menu — come try it, {{name}}",
+    subject: 'Fresh on the menu — come try it, {{name | "friend"}}',
     preview: "Our kitchen has been busy. You'll want to see this.",
-    body: "<h2>Something new is cooking 🍽️</h2><p>Hi {{name}},</p><p>We've just added new dishes to the menu and we think you're going to love them.</p><p>Be one of the first to try them — order online or book a table.</p><p>Hungry yet?</p>",
+    body: '<h2>Something new is cooking 🍽️</h2><p>Hi {{name | "there"}},</p><p>We\'ve just added new dishes to the menu and we think you\'re going to love them.</p><p>Be one of the first to try them — order online or book a table.</p><p>Hungry yet?</p>',
   },
   {
     emoji: "💜", name: "We miss you",
-    subject: "We miss you, {{name}}",
+    subject: 'We miss you, {{name | "friend"}}',
     preview: "It's been a while — here's a little something to bring you back",
-    body: "<h2>It's been a while 💜</h2><p>Hi {{name}},</p><p>We noticed you haven't visited in a bit — and we'd love to see you again.</p><p>Here's <strong>10% off your next order</strong>, just for coming back. Show this email when you order.</p><p>Hope to see you soon!</p>",
+    body: '<h2>It\'s been a while 💜</h2><p>Hi {{name | "there"}},</p><p>We noticed you haven\'t visited in a bit — and we\'d love to see you again.</p><p>Here\'s <strong>10% off your next order</strong>, just for coming back. Show this email when you order.</p><p>Hope to see you soon!</p>',
   },
   {
     emoji: "🎁", name: "Gift cards",
     subject: "The easiest gift? Dinner. 🎁",
     preview: "Gift cards for the food-lovers in your life",
-    body: "<h2>Give the gift of a great meal 🎁</h2><p>Hi {{name}},</p><p>Stuck for a gift idea? Our gift cards are perfect for birthdays, thank-yous, or just because.</p><p>Pick any amount, add a personal message, and we'll email it straight to them.</p><p>Find them on our website.</p>",
+    body: '<h2>Give the gift of a great meal 🎁</h2><p>Hi {{name | "there"}},</p><p>Stuck for a gift idea? Our gift cards are perfect for birthdays, thank-yous, or just because.</p><p>Pick any amount, add a personal message, and we\'ll email it straight to them.</p><p>Find them on our website.</p>',
   },
   {
     emoji: "📣", name: "Announcement",
-    subject: "Big news from us, {{name}} 📣",
+    subject: 'Big news from us, {{name | "friend"}} 📣',
     preview: "We've got something exciting to share",
-    body: "<h2>We've got news 📣</h2><p>Hi {{name}},</p><p>Write your announcement here — new opening hours, a special event, live music night, or anything else your customers should know about.</p><p>Thanks for being part of our story.</p>",
+    body: '<h2>We\'ve got news 📣</h2><p>Hi {{name | "there"}},</p><p>Write your announcement here — new opening hours, a special event, live music night, or anything else your customers should know about.</p><p>Thanks for being part of our story.</p>',
   },
 ];
 
@@ -920,6 +936,8 @@ function ComposeWizard({ contacts, allTags, brandColor, restaurantName, editingI
   initial: { subject: string; previewText: string; body: string; audience: Audience; startStep: 1 | 2 };
   onExit: () => void;
 }) {
+  const { settings, updateSettings } = useApp();
+  const savedTemplates = settings.broadcastTemplates ?? [];
   const [step, setStep] = useState<1 | 2 | 3>(initial.startStep);
   const [subject, setSubject] = useState(initial.subject);
   const [previewText, setPreviewText] = useState(initial.previewText);
@@ -949,12 +967,27 @@ function ComposeWizard({ contacts, allTags, brandColor, restaurantName, editingI
   const step2Done = subject.trim().length > 0 && bodyHasText;
   const canSend = step1Done && step2Done;
 
-  function applyTemplate(t: Template) {
+  function applyStarter(s: { subject: string; preview: string; body: string }) {
     if (bodyHasText && !window.confirm("Replace your current message with this template?")) return;
-    setSubject(t.subject);
-    setPreviewText(t.preview);
-    setBody(t.body);
+    setSubject(s.subject);
+    setPreviewText(s.preview);
+    setBody(s.body);
     setEditorVersion((v) => v + 1);
+  }
+
+  function saveAsTemplate() {
+    const name = (prompt("Name this template (e.g. Monthly offer):") ?? "").trim();
+    if (!name) return;
+    const next = [
+      ...savedTemplates,
+      { id: crypto.randomUUID(), name, subject, previewText, body, createdAt: new Date().toISOString() },
+    ];
+    updateSettings({ broadcastTemplates: next });
+  }
+
+  function deleteTemplate(id: string) {
+    if (!window.confirm("Delete this saved template?")) return;
+    updateSettings({ broadcastTemplates: savedTemplates.filter((t) => t.id !== id) });
   }
 
   /** Create the draft on first persist, PATCH thereafter. Returns the id. */
@@ -1200,10 +1233,21 @@ function ComposeWizard({ contacts, allTags, brandColor, restaurantName, editingI
             <p className="text-sm text-gray-500 mt-1">Start from a template or write your own — {"{{name}}"} becomes each customer&apos;s real name.</p>
           </div>
 
-          {/* Quick starts */}
+          {/* Quick starts — your saved templates first, then the built-ins */}
           <div className="flex flex-wrap gap-2 justify-center">
+            {savedTemplates.map((t) => (
+              <span key={t.id} className="flex items-center bg-orange-50 border border-orange-200 rounded-full pl-3.5 pr-1.5 py-1 text-xs font-semibold text-orange-700">
+                <button onClick={() => applyStarter({ subject: t.subject, preview: t.previewText, body: t.body })}
+                  className="flex items-center gap-1.5 hover:text-orange-900 transition" title="Use this template">
+                  <Star size={11} className="fill-orange-400 text-orange-400" /> {t.name}
+                </button>
+                <button onClick={() => deleteTemplate(t.id)} className="ml-1.5 p-0.5 text-orange-300 hover:text-red-500 transition" title="Delete template">
+                  <X size={11} />
+                </button>
+              </span>
+            ))}
             {TEMPLATES.map((t) => (
-              <button key={t.name} onClick={() => applyTemplate(t)}
+              <button key={t.name} onClick={() => applyStarter({ subject: t.subject, preview: t.preview, body: t.body })}
                 className="flex items-center gap-1.5 bg-white border border-gray-200 hover:border-orange-300 hover:bg-orange-50 rounded-full px-3.5 py-1.5 text-xs font-semibold text-gray-600 hover:text-orange-700 transition">
                 <span>{t.emoji}</span> {t.name}
               </button>
@@ -1225,11 +1269,17 @@ function ComposeWizard({ contacts, allTags, brandColor, restaurantName, editingI
 
           <BroadcastEditor editorKey={`${editorKeyBase}-v${editorVersion}`} initialValue={body} onChange={setBody} />
 
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center gap-3 flex-wrap">
             <button onClick={() => setStep(1)} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition"><ArrowLeft size={15} /> Back</button>
-            <button onClick={() => setStep(3)} disabled={!step2Done} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-bold px-6 py-2.5 rounded-xl text-sm transition disabled:opacity-40">
-              Next: review &amp; send <ArrowRight size={15} />
-            </button>
+            <div className="flex items-center gap-3">
+              <button onClick={saveAsTemplate} disabled={!step2Done}
+                className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-orange-600 transition disabled:opacity-40" title="Save subject + message to reuse next time">
+                <Star size={14} /> Save as template
+              </button>
+              <button onClick={() => setStep(3)} disabled={!step2Done} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-bold px-6 py-2.5 rounded-xl text-sm transition disabled:opacity-40">
+                Next: review &amp; send <ArrowRight size={15} />
+              </button>
+            </div>
           </div>
         </div>
       )}

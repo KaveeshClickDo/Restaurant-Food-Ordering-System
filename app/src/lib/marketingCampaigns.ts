@@ -127,14 +127,18 @@ export function buildCampaignEmail(args: {
   const { settings } = args;
   const base = siteUrl();
 
+  // Raw values in, fallback logic in applyVars: `{{name | "friend"}}` uses its
+  // own fallback when the name is empty; plain `{{name}}` gets the "there"
+  // default so a nameless contact never renders "Hi ,".
   const vars = {
-    name:  args.recipientName.trim() || "there",
+    name:  args.recipientName.trim(),
     email: args.recipientEmail,
     restaurant_name: settings.restaurant?.name ?? "",
   };
+  const varDefaults = { name: "there" };
 
-  const subject = applyVars(args.subjectTemplate, vars);
-  const body    = applyVars(args.bodyTemplate, vars);
+  const subject = applyVars(args.subjectTemplate, vars, varDefaults);
+  const body    = applyVars(args.bodyTemplate, vars, varDefaults);
 
   const unsubscribePage = `${base}/unsubscribe?token=${encodeURIComponent(args.unsubscribeToken)}`;
   const unsubscribeApi  = `${base}/api/unsubscribe?token=${encodeURIComponent(args.unsubscribeToken)}`;

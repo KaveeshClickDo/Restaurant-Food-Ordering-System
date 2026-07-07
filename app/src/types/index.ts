@@ -455,6 +455,17 @@ export interface Reservation {
 export type ContactSource =
   | "reservation" | "online_order" | "account" | "gift_card" | "pos" | "ebill";
 
+/** An admin-saved broadcast starter (subject + preview + body with {{tokens}}),
+ *  stored in settings.broadcastTemplates alongside the built-in quick starts. */
+export interface BroadcastTemplate {
+  id: string;
+  name: string;
+  subject: string;
+  previewText: string;
+  body: string;      // HTML, may contain {{name | "fallback"}} tokens
+  createdAt: string; // ISO
+}
+
 export interface ReservationCustomer {
   id: string;
   email: string;
@@ -585,6 +596,9 @@ export interface AdminSettings {
   customHeadCode: string;   // raw HTML injected into <head> (analytics, verification tags, etc.)
   printer: PrinterSettings;
   emailTemplates: EmailTemplate[];
+  /** Admin-saved broadcast templates (Admin → Marketing → compose step 2).
+   *  Optional: older settings blobs simply don't have the key. */
+  broadcastTemplates?: BroadcastTemplate[];
   /**
    * @deprecated Merged into `customPages`. The AppContext migration converts
    * any remaining entries into `customPages` and resets this to `[]` on load,
