@@ -41,10 +41,10 @@ import CustomerDisplayPanel from "@/components/admin/CustomerDisplayPanel";
 import {
   LayoutDashboard, ExternalLink, ShieldCheck, Store, Calendar, Plug, ChefHat, Users, Truck,
   MapPin, Bell, X, Mail, FileText, Navigation, Palette, ImageIcon, Receipt,
-  Tag, Percent, Car, RotateCcw, BarChart3, LineChart, UtensilsCrossed, CalendarDays, BookUser,
+  Tag, Percent, Car, RotateCcw, BarChart3, LineChart, UtensilsCrossed, CalendarDays,
   Menu as MenuIcon, ChevronDown, ChevronRight, ChevronLeft,
   Tablet, CreditCard, Globe, Monitor, Compass, Gift, ClipboardList,
-  PackageCheck, Award, Tv,
+  PackageCheck, Award, Tv, Megaphone,
 } from "lucide-react";
 
 // ─── Navigation structure ─────────────────────────────────────────────────────
@@ -72,6 +72,9 @@ const NAV_GROUPS: NavGroup[] = [
     id: "customers", label: "Customers & Services",
     items: [
       { id: "customers", label: "Customers", icon: Users },
+      // Tab id stays "reservation-customers" (the table it reads) so existing
+      // deep links keep working — the surface is the marketing contact hub.
+      { id: "reservation-customers", label: "Marketing Contacts", icon: Megaphone },
       { id: "drivers", label: "Drivers", icon: Car },
       { id: "reservations", label: "Reservations", icon: CalendarDays },
       { id: "table-status", label: "Tables", icon: UtensilsCrossed },
@@ -84,7 +87,6 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "kitchen-staff", label: "Kitchen Staff", icon: ChefHat },
       { id: "pos-staff", label: "POS Staff", icon: Tablet },
       { id: "collection-staff", label: "Collection Staff", icon: PackageCheck },
-      { id: "reservation-customers", label: "Guest Profiles", icon: BookUser },
     ],
   },
   {
@@ -200,7 +202,7 @@ function bannerSubtitle(
     case "collection-staff": return "Manage Collection screen login accounts and PINs — for taking pickup payments without the POS.";
     case "reservations": return settings.reservationSystem?.enabled ? "Reservations are live — customers can book tables from the website." : "Reservations are currently disabled — enable them below.";
     case "table-status": return "Live occupancy plus add / edit / delete dining tables — used by the host stand and reservations.";
-    case "reservation-customers": return "Guest profiles built from reservation check-ins — add notes, tags, and manage marketing opt-ins.";
+    case "reservation-customers": return "Every customer email captured across the app — filter by source, manage opt-ins, and send promotional campaigns.";
     case "signage": return "Digital menu boards — create fullscreen poster displays for your TVs, each with its own public URL. One image shows as a poster, several loop as a slideshow.";
     case "customer-display": return "Password-protect the public order board at /customer-display. Set, change, or remove the password staff enter once per screen.";
     default: return "Manage your restaurant settings below.";

@@ -37,6 +37,9 @@ export interface SendEmailArgs {
   subject:  string;
   html:     string;
   fromName?: string;
+  /** Extra SMTP headers. Used by marketing campaigns for the RFC 8058
+   *  one-click unsubscribe pair (List-Unsubscribe / List-Unsubscribe-Post). */
+  headers?: Record<string, string>;
 }
 
 export interface SendEmailResult {
@@ -107,6 +110,7 @@ async function sendViaResend(from: string, args: SendEmailArgs, apiKey: string):
         to:      args.to,
         subject: args.subject,
         html:    args.html,
+        ...(args.headers ? { headers: args.headers } : {}),
       });
       if (error) {
         lastErr = new Error(error.message ?? "Resend API error");
@@ -149,7 +153,13 @@ async function sendViaSmtp(from: string, args: SendEmailArgs): Promise<SendEmail
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, 600));
     try {
-      await transporter.sendMail({ from, to: args.to, subject: args.subject, html: args.html });
+      await transporter.sendMail({
+        from,
+        to:      args.to,
+        subject: args.subject,
+        html:    args.html,
+        ...(args.headers ? { headers: args.headers } : {}),
+      });
       console.log(`[email/smtp] sent "${args.subject}" → ${args.to}`);
       return { ok: true };
     } catch (err) {

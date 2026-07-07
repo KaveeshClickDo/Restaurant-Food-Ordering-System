@@ -2158,6 +2158,68 @@ create index if not exists reservation_customers_sources_gin
 
 
 -- ═══════════════════════════════════════════════════════════════════════════════
+-- Marketing email campaigns
+-- ═══════════════════════════════════════════════════════════════════════════════
+--
+-- A campaign is a promotional email composed in Admin → Marketing Contacts and
+-- sent to a snapshot of contacts. The recipients table is the send queue AND
+-- the audit trail: /api/admin/campaigns/[id]/send processes small batches of
+-- 'pending' rows — send, then stamp each row 'sent' / 'failed' / 'skipped'.
+-- A 'sent' row is never re-selected, so a serverless timeout mid-campaign just
+-- resumes on the next call without re-mailing anyone already delivered (rows
+-- are marked AFTER a successful send, so a crash never silently drops a
+-- recipient — worst case an in-flight row is retried).
+--
+-- body_html carries {{name}} / {{email}} personalisation tokens, resolved per
+-- recipient at send time. audience records the filter that built the snapshot
+-- (for the history view only — the recipient rows are the source of truth).
+
+create table if not exists email_campaigns (
+  id               text        primary key default gen_random_uuid()::text,
+  subject          text        not null,
+  body_html        text        not null,
+  status           text        not null default 'draft'
+                   check (status in ('draft','sending','sent','cancelled')),
+  audience         jsonb       not null default '{}',
+  total_recipients integer     not null default 0,
+  sent_count       integer     not null default 0,
+  failed_count     integer     not null default 0,
+  skipped_count    integer     not null default 0,
+  created_at       timestamptz not null default now(),
+  completed_at     timestamptz
+);
+
+create table if not exists email_campaign_recipients (
+  id          text        primary key default gen_random_uuid()::text,
+  campaign_id text        not null references email_campaigns(id) on delete cascade,
+  -- SET NULL so deleting a contact keeps the campaign audit trail intact.
+  contact_id  text        references reservation_customers(id) on delete set null,
+  email       text        not null,
+  name        text        not null default '',
+  status      text        not null default 'pending'
+              check (status in ('pending','sent','failed','skipped')),
+  error       text,
+  sent_at     timestamptz
+);
+
+-- The send loop's hot query: "next batch of pending rows for this campaign".
+create index if not exists email_campaign_recipients_pending
+  on email_campaign_recipients (campaign_id) where status = 'pending';
+
+-- RLS — server-route only (service role); the browser never reads these.
+alter table email_campaigns           enable row level security;
+alter table email_campaign_recipients enable row level security;
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename = 'email_campaigns' and policyname = 'deny_anon_all') then
+    create policy "deny_anon_all" on email_campaigns for all to anon using (false) with check (false);
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'email_campaign_recipients' and policyname = 'deny_anon_all') then
+    create policy "deny_anon_all" on email_campaign_recipients for all to anon using (false) with check (false);
+  end if;
+end $$;
+
+
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- Verification queries (paste these separately after running the above):
 --
 --   -- new tables present?
