@@ -318,9 +318,14 @@ interface POSContextValue {
   // actual reason (insufficient permission, sale already voided, refund
   // amount exceeds total, etc.) instead of a generic network message.
   voidSale: (saleId: string, reason: string, refundMethod?: "cash" | "card" | "none", refundAmount?: number) => Promise<{ ok: boolean; error?: string }>;
-  clockIn: (staffId: string) => Promise<boolean>;
-  clockOut: (staffId: string) => Promise<boolean>;
+  // Clock in/out return `{ ok, error? }` so the Staff tab can toast the
+  // server's actual reason (409 already clocked in / 404 nothing to close)
+  // instead of failing silently — a stale button state was untraceable before.
+  clockIn: (staffId: string) => Promise<{ ok: boolean; error?: string }>;
+  clockOut: (staffId: string) => Promise<{ ok: boolean; error?: string }>;
   isClocked: (staffId: string) => boolean;
+  /** Re-pull clock entries from the server (Staff tab mount / self-heal). */
+  refreshClockEntries: () => Promise<void>;
   // Convenience
   exportSales: () => void;
 }
@@ -1630,9 +1635,9 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   }, [sales, fetchCustomers]);
 
   // ── Clock in/out ──────────────────────────────────────────────────────────
-  const clockIn = useCallback(async (staffId: string): Promise<boolean> => {
+  const clockIn = useCallback(async (staffId: string): Promise<{ ok: boolean; error?: string }> => {
     const member = staff.find((s) => s.id === staffId);
-    if (!member) return false;
+    if (!member) return { ok: false, error: "Staff member not found." };
     try {
       const res = await fetch(apiBase() + "/api/pos/clock", {
         method:  "POST",
@@ -1645,20 +1650,23 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         // Next.js's dev overlay doesn't trip. 5xx is a real backend problem.
         const log = res.status >= 500 ? console.error : console.warn;
         log("clockIn failed:", res.status, json.error ?? "(no details)");
-        return false;
+        // Self-heal: a 409 means the server has an open entry the UI doesn't
+        // know about (stale list) — re-pull so the button resyncs itself.
+        if (res.status === 409) void fetchClockEntries();
+        return { ok: false, error: json.error ?? "Could not clock in." };
       }
       const json = await res.json() as { ok: boolean; entry?: POSClockEntry };
       if (json.entry) setClockEntries((prev) => [json.entry!, ...prev]);
-      return true;
+      return { ok: true };
     } catch (err) {
       console.error("clockIn network error:", err);
-      return false;
+      return { ok: false, error: "Network error — check the connection and retry." };
     }
-  }, [staff]);
+  }, [staff, fetchClockEntries]);
 
-  const clockOut = useCallback(async (staffId: string): Promise<boolean> => {
+  const clockOut = useCallback(async (staffId: string): Promise<{ ok: boolean; error?: string }> => {
     const member = staff.find((s) => s.id === staffId);
-    if (!member) return false;
+    if (!member) return { ok: false, error: "Staff member not found." };
     try {
       const res = await fetch(apiBase() + "/api/pos/clock", {
         method:  "POST",
@@ -1671,23 +1679,31 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         // Next.js's dev overlay doesn't trip. 5xx is a real backend problem.
         const log = res.status >= 500 ? console.error : console.warn;
         log("clockOut failed:", res.status, json.error ?? "(no details)");
-        return false;
+        // Self-heal: a 404 means there is no open entry server-side (stale
+        // list showing "clocked in") — re-pull so the button resyncs itself.
+        if (res.status === 404) void fetchClockEntries();
+        return { ok: false, error: json.error ?? "Could not clock out." };
       }
       const json = await res.json() as { ok: boolean; entry?: POSClockEntry };
       if (json.entry) {
         const updated = json.entry;
         setClockEntries((prev) => prev.map((e) => e.id === updated.id ? updated : e));
       }
-      return true;
+      return { ok: true };
     } catch (err) {
       console.error("clockOut network error:", err);
-      return false;
+      return { ok: false, error: "Network error — check the connection and retry." };
     }
-  }, [staff]);
+  }, [staff, fetchClockEntries]);
 
+  // Clocked in = ANY open entry for this staff member. Order-independent on
+  // purpose: the server list arrives newest-first while POSTed entries are
+  // prepended, and the old "reverse().find()" picked the OLDEST entry — after
+  // one completed shift it always saw a closed row, so the button stuck on
+  // "Clock In" while the server 409'd every press. The DB's partial unique
+  // index guarantees at most one open entry, so `some()` is exact.
   const isClocked = useCallback((staffId: string): boolean => {
-    const last = [...clockEntries].reverse().find((e) => e.staffId === staffId);
-    return !!last && !last.clockOut;
+    return clockEntries.some((e) => e.staffId === staffId && !e.clockOut);
   }, [clockEntries]);
 
   // ── Convenience: export sales as JSON for archival / accounting ──────────
@@ -1749,6 +1765,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       subtotal, discountAmount, taxAmount, afterTaxTotal, grandTotal,
       completeSale, voidSale,
       clockIn, clockOut, isClocked,
+      refreshClockEntries: fetchClockEntries,
       exportSales,
     }}>
       {children}

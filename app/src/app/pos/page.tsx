@@ -147,7 +147,9 @@ function POSPageContent() {
       collection: true,
       dashboard: p.canAccessDashboard,
       customers: p.canManageCustomers,
-      staff: p.canManageStaff,
+      // Staff tab is open to everyone: cashiers get a self-only profile with
+      // their clock in/out; management tools inside require canManageStaff.
+      staff: true,
       settings: p.canAccessSettings,
       tables: true,
       reservations: true,
@@ -196,7 +198,7 @@ function POSPageContent() {
     { id: "customers"    as View, label: "Customers",     icon: Users,           show: perms.canManageCustomers },
     { id: "tables"       as View, label: "Table Service", icon: UtensilsCrossed, show: true },
     { id: "reservations" as View, label: "Reservations",  icon: CalendarDays,    show: true },
-    { id: "staff"        as View, label: "Staff",         icon: UserCog,         show: perms.canManageStaff },
+    { id: "staff"        as View, label: perms.canManageStaff ? "Staff" : "My Profile", icon: UserCog, show: true },
     { id: "settings"     as View, label: "Settings",      icon: Settings2,       show: perms.canAccessSettings },
   ].filter((n) => n.show);
 
@@ -205,7 +207,7 @@ function POSPageContent() {
     collection: "Collection Pickups",
     dashboard: "Sales Dashboard",
     customers: "Customers",
-    staff: "Staff & Attendance",
+    staff: perms.canManageStaff ? "Staff & Attendance" : "My Profile",
     settings: "Settings",
     tables: "Table Service",
     reservations: "Reservations",
@@ -316,7 +318,7 @@ function POSPageContent() {
         {view === "collection" && <CollectionView />}
         {view === "dashboard" && perms.canAccessDashboard && <DashboardView />}
         {view === "customers" && perms.canManageCustomers && <CustomersView />}
-        {view === "staff" && perms.canManageStaff && <StaffView />}
+        {view === "staff" && <StaffView />}
         {view === "settings" && perms.canAccessSettings && <SettingsView />}
         {view === "tables" && <TableStatusView />}
         {view === "reservations" && <ReservationsView />}

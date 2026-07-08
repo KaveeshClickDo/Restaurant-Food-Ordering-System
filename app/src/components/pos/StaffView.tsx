@@ -13,9 +13,13 @@ import { fmtTime, getInitials } from "./_utils";
 
 export default function StaffView() {
   const { staff, addPosStaff, updatePosStaff, deletePosStaff,
-    clockEntries, clockIn, clockOut, isClocked, currentStaff, settings } = usePOS();
+    clockEntries, clockIn, clockOut, isClocked, refreshClockEntries,
+    currentStaff, settings } = usePOS();
   const { isOnline } = useConnectivity();
   const sym = settings.currencySymbol;
+  // Everyone can open this tab now; management tools stay behind the flag —
+  // cashiers get a self-only profile with their own clock in/out + history.
+  const canManage = currentStaff?.permissions?.canManageStaff === true;
   const [showAdd, setShowAdd] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
   const [showPin, setShowPin] = useState(false);
@@ -25,6 +29,10 @@ export default function StaffView() {
   const COLORS = ["#7c3aed", "#0891b2", "#16a34a", "#dc2626", "#ea580c", "#0284c7", "#9333ea", "#be185d"];
   const [, tick] = useState(0);
   useEffect(() => { const id = setInterval(() => tick((n) => n + 1), 10000); return () => clearInterval(id); }, []);
+
+  // Re-pull clock entries whenever the tab opens — the context only fetches
+  // at login, so a long-lived session would otherwise show stale attendance.
+  useEffect(() => { void refreshClockEntries(); }, [refreshClockEntries]);
 
   // Edit state
   const [editingStaff, setEditingStaff] = useState<POSStaff | null>(null);
@@ -49,6 +57,11 @@ export default function StaffView() {
   const [saveBusy, setSaveBusy] = useState(false);
   const [clockBusy, setClockBusy] = useState(false);
 
+  // Failed clock actions surface here (409 already in / 404 nothing to close /
+  // network) instead of dying silently in the console — a stuck button with no
+  // feedback was undebuggable for staff.
+  const [clockError, setClockError] = useState("");
+
   // Double-click guard for the self clock-in/out button (QA #32). Without
   // this a rapid second click fires a second API request that 409s/404s.
   async function toggleClock(staffId: string, currentlyClocked: boolean) {
@@ -56,9 +69,13 @@ export default function StaffView() {
     if (clockInFlight.current) return;
     clockInFlight.current = true;
     setClockBusy(true);
+    setClockError("");
     try {
-      if (currentlyClocked) await clockOut(staffId);
-      else await clockIn(staffId);
+      const result = currentlyClocked ? await clockOut(staffId) : await clockIn(staffId);
+      if (!result.ok) {
+        setClockError(result.error ?? "Clock action failed — try again.");
+        setTimeout(() => setClockError(""), 6000);
+      }
     } finally {
       clockInFlight.current = false;
       setClockBusy(false);
@@ -162,6 +179,103 @@ export default function StaffView() {
   const today = new Date().toDateString();
   const todayEntries = clockEntries.filter((e) => new Date(e.clockIn).toDateString() === today);
 
+  // Total minutes worked today across ALL of a member's shifts. The old code
+  // looked at one entry only, so a 9–12 + 13–17 day displayed just the last
+  // cycle. Open entries count up to now (the 10 s tick keeps this fresh).
+  function minutesToday(staffId: string): number | null {
+    let total = 0;
+    let hasEntry = false;
+    for (const e of todayEntries) {
+      if (e.staffId !== staffId) continue;
+      hasEntry = true;
+      total += e.clockOut
+        ? (e.totalMinutes ?? 0)
+        : Math.max(0, Math.floor((Date.now() - new Date(e.clockIn).getTime()) / 60000));
+    }
+    return hasEntry ? total : null;
+  }
+
+  // ── Self-only profile view (no canManageStaff) ─────────────────────────────
+  // Cashiers land here: own details, own clock in/out, own history. The clock
+  // API is self-scoped for them anyway, so clockEntries only holds their rows.
+  if (!canManage && currentStaff) {
+    const clocked = isClocked(currentStaff.id);
+    const myMinutes = minutesToday(currentStaff.id);
+    const myRecent = clockEntries.filter((e) => e.staffId === currentStaff.id).slice(0, 10);
+    return (
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="max-w-2xl mx-auto space-y-6">
+          <h2 className="text-white font-bold text-xl">My Profile</h2>
+
+          {/* Profile card */}
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5 flex items-center gap-4">
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center font-bold text-lg text-white flex-shrink-0" style={{ backgroundColor: currentStaff.avatarColor }}>
+              {getInitials(currentStaff.name)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-white font-bold">{currentStaff.name}</p>
+              <p className="text-slate-400 text-xs capitalize">{currentStaff.role}{currentStaff.email ? ` · ${currentStaff.email}` : ""}</p>
+              {currentStaff.hourlyRate ? <p className="text-slate-500 text-xs mt-0.5">{sym}{currentStaff.hourlyRate}/hr</p> : null}
+            </div>
+          </div>
+
+          {/* Clock in/out */}
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
+            <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2"><Clock size={16} className="text-orange-400" /> Today</h3>
+            {clockError && (
+              <div className="mb-3 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2">
+                <p className="text-red-300 text-xs">{clockError}</p>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-semibold ${clocked ? "text-green-400" : "text-slate-400"}`}>
+                  {clocked ? "Clocked in" : "Not clocked in"}
+                </p>
+                {myMinutes !== null && (
+                  <p className="text-slate-400 text-xs mt-0.5 flex items-center gap-1">
+                    <Timer size={10} /> {Math.floor(myMinutes / 60)}h {myMinutes % 60}m worked today {clocked ? "(ongoing)" : ""}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => { void toggleClock(currentStaff.id, clocked); }}
+                disabled={clockBusy || !isOnline}
+                title={!isOnline ? "Reconnect to clock in/out" : ""}
+                className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${clocked
+                  ? "bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30"
+                  : "bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30"
+                  }`}
+              >
+                {clockBusy ? "…" : clocked ? "Clock Out" : "Clock In"}
+              </button>
+            </div>
+          </div>
+
+          {/* Recent history */}
+          {myRecent.length > 0 && (
+            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
+              <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2"><ClockIcon size={16} className="text-slate-400" /> Recent Clock Entries</h3>
+              <div className="space-y-2">
+                {myRecent.map((entry) => (
+                  <div key={entry.id} className="flex items-center gap-3 py-2 border-b border-slate-700/50 last:border-0">
+                    <div className="flex-1">
+                      <p className="text-white text-sm font-medium">{new Date(entry.clockIn).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</p>
+                      <p className="text-slate-400 text-xs">In: {fmtTime(entry.clockIn)} {entry.clockOut ? `· Out: ${fmtTime(entry.clockOut)}` : "· Still clocked in"}</p>
+                    </div>
+                    {entry.totalMinutes !== undefined && (
+                      <p className="text-slate-300 text-sm font-semibold">{Math.floor(entry.totalMinutes / 60)}h {entry.totalMinutes % 60}m</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="max-w-4xl mx-auto space-y-6">
@@ -177,21 +291,22 @@ export default function StaffView() {
           </div>
         )}
 
-        {/* Clock in/out panel — the API is session-scoped (cannot clock another
-            staff member in/out without payroll forgery), so only the currently
-            logged-in cashier sees an action button. Everyone else's tile is
-            read-only status. */}
+        {/* Clock in/out panel. Clock WRITES are session-scoped (you can only
+            clock yourself — no payroll forgery), so only the logged-in staff
+            member gets an action button. Colleagues' tiles are read-only live
+            status: managers' GET returns all staff entries, so these are
+            truthful, not permanently "Off". */}
         <div className="bg-slate-800 border border-slate-700 rounded-2xl p-4 sm:p-5">
           <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2"><Clock size={16} className="text-orange-400" /> Today&apos;s Attendance</h3>
+          {clockError && (
+            <div className="mb-3 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2">
+              <p className="text-red-300 text-xs">{clockError}</p>
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {staff.filter((s) => s.active).map((member) => {
               const clocked = isClocked(member.id);
-              const lastEntry = [...clockEntries].reverse().find((e) => e.staffId === member.id && new Date(e.clockIn).toDateString() === today);
-              const minutesWorked = lastEntry
-                ? clocked
-                  ? Math.floor((Date.now() - new Date(lastEntry.clockIn).getTime()) / 60000)
-                  : (lastEntry.totalMinutes ?? 0)
-                : null;
+              const minutesWorked = minutesToday(member.id);
               const isSelf = currentStaff?.id === member.id;
 
               return (
@@ -217,7 +332,8 @@ export default function StaffView() {
                   {isSelf ? (
                     <button
                       onClick={() => { void toggleClock(member.id, clocked); }}
-                      disabled={clockBusy}
+                      disabled={clockBusy || !isOnline}
+                      title={!isOnline ? "Reconnect to clock in/out" : ""}
                       className={`ml-auto px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${clocked
                         ? "bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30"
                         : "bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30"

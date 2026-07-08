@@ -42,9 +42,14 @@ function rowToEntry(r: ClockRow): POSClockEntry {
 }
 
 // ── GET ─────────────────────────────────────────────────────────────────────
-// Always scoped to the caller's own staff_id. The body/query staffId from the
-// previous implementation is now ignored — a cashier cannot read another
-// cashier's clock history. Manager/admin reports go through the admin tree.
+// Scoped by permission:
+//   • canManageStaff (POS admin/manager) → ALL staff entries, so the Staff
+//     tab's attendance grid shows colleagues' live clocked-in status
+//     truthfully (optionally narrowed with ?staffId=).
+//   • everyone else → own entries only; a cashier cannot read another
+//     cashier's clock history.
+// Writes stay strictly self-scoped (see POST) — widening the read does not
+// let anyone clock someone else in/out.
 export async function GET(req: NextRequest) {
   const gate = await requirePosSession();
   if (!gate.ok) return gate.response;
@@ -53,14 +58,19 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const from    = searchParams.get("from");
   const to      = searchParams.get("to");
+  const staffId = searchParams.get("staffId");
   const limit   = Math.min(Number(searchParams.get("limit") ?? 500), 2000);
+
+  const canSeeAll = session.permissions?.canManageStaff === true;
+  const scope = canSeeAll ? (staffId || null) : session.id;
 
   let q = supabaseAdmin
     .from("pos_clock_entries")
     .select("*")
-    .eq("staff_id", session.id)
     .order("clock_in", { ascending: false })
     .limit(limit);
+
+  if (scope) q = q.eq("staff_id", scope);
 
   if (from) q = q.gte("clock_in", from);
   if (to)   q = q.lte("clock_in", to);
