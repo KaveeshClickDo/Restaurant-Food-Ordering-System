@@ -6,6 +6,7 @@ import ReservationModal from "@/components/ReservationModal";
 import SiteFooter from "@/components/SiteFooter";
 import SiteMobileHeader from "@/components/SiteMobileHeader";
 import SiteSidebar from "@/components/SiteSidebar";
+import { useApp } from "@/context/AppContext";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 
@@ -18,6 +19,8 @@ function SiteLayoutContent({ children }: { children: React.ReactNode }) {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const activeCat    = searchParams.get("cat") || "all";
+  const { cart }     = useApp();
+  const cartHasItems = cart.length > 0;
 
   const [authModal,       setAuthModal]       = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
   const [showReservation, setShowReservation] = useState(false);
@@ -50,9 +53,22 @@ function SiteLayoutContent({ children }: { children: React.ReactNode }) {
 
       </div>
 
-      {/* ── Desktop Right Cart Panel ── */}
-      <aside className="hidden lg:flex w-[310px] xl:w-[350px] flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
-        <Cart onOrderPlaced={() => router.push('/my-orders')} />
+      {/* ── Desktop Right Cart Panel ──
+          Collapsed (w-0) while the basket is empty; slides open when the first
+          item lands. Width is animated (NOT transform: a transform here would
+          become the containing block for the fixed-position CheckoutModal that
+          renders inside <Cart>, breaking the overlay when the cart empties on
+          order success). The inner wrapper keeps the panel's natural width so
+          content doesn't reflow while the aside clips it during the slide. */}
+      <aside
+        className={`hidden lg:flex flex-shrink-0 h-full overflow-hidden transition-[width] duration-500 ease-in-out ${
+          cartHasItems ? "w-[310px] xl:w-[350px] border-l border-zinc-200/70" : "w-0"
+        }`}
+        aria-hidden={!cartHasItems}
+      >
+        <div className="w-[310px] xl:w-[350px] flex-shrink-0 h-full flex">
+          <Cart onOrderPlaced={() => router.push('/my-orders')} />
+        </div>
       </aside>
 
       {/* ── Global Modals triggered by Sidebar ── */}
