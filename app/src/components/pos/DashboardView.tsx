@@ -382,10 +382,31 @@ export default function DashboardView() {
     }
   }, [startDate, endDate]);
 
+  // ── Gift cards SOLD at the till in the reports period ──────────────────────
+  // Pre-issued cards activated on the Sale tab (payment_ref 'pos:…'). Prepaid
+  // money booked as income at the sale moment — surfaced as its own KPI, NOT
+  // folded into Total Revenue, which stays reconciled with pos_sales rows
+  // (same treatment as till VIP fees, which this dashboard also excludes).
+  const [reportsGiftCardSales, setReportsGiftCardSales] = useState<{ id: string; amount: number; soldAt: string }[]>([]);
+  const refreshReportsGiftCards = useCallback(async () => {
+    try {
+      const params = new URLSearchParams({
+        view: "sold",
+        from: startDate.toISOString(),
+        to: endDate.toISOString(),
+      });
+      const r = await fetch(`${apiBase()}/api/pos/gift-cards?${params}`, { cache: "no-store" });
+      if (!r.ok) return;
+      const json = await r.json() as { ok: boolean; sales?: { id: string; amount: number; soldAt: string }[] };
+      if (json.ok) setReportsGiftCardSales(json.sales ?? []);
+    } catch { /* network blip — keep last-known */ }
+  }, [startDate, endDate]);
+
   useEffect(() => {
     if (dashTab !== "reports") return;
     refreshReportsDineIn(true);
-  }, [dashTab, refreshReportsDineIn]);
+    void refreshReportsGiftCards();
+  }, [dashTab, refreshReportsDineIn, refreshReportsGiftCards]);
 
   // ── Polling: every 6 s refresh the active tab's data ──────────────────────
   // Replaces the prior supabase Realtime channel; anon will no longer get
@@ -396,10 +417,10 @@ export default function DashboardView() {
       // so background refreshes never tear down the visible list/cards.
       if (dashTab === "overview") { refreshTodayDineIn(); refreshWeekDineIn(); }
       if (dashTab === "dine-in")  refreshDineInTab();
-      if (dashTab === "reports")  refreshReportsDineIn();
+      if (dashTab === "reports")  { refreshReportsDineIn(); void refreshReportsGiftCards(); }
     }, 6_000);
     return () => clearInterval(id);
-  }, [dashTab, refreshTodayDineIn, refreshWeekDineIn, refreshDineInTab, refreshReportsDineIn]);
+  }, [dashTab, refreshTodayDineIn, refreshWeekDineIn, refreshDineInTab, refreshReportsDineIn, refreshReportsGiftCards]);
 
   const inRange = useMemo(
     () => sales.filter((s) => { const d = new Date(s.date); return d >= startDate && d <= endDate; }),
@@ -516,6 +537,9 @@ export default function DashboardView() {
   const giftCardRedeemed =
     rFiltered.reduce((s, x) => s + (x.giftCardUsed ?? 0), 0) +
     diSettled.reduce((s, o) => s + (o.giftCardUsed ?? 0), 0);
+  // Gift cards SOLD at the till in the period — prepaid money in, booked as
+  // income at the sale (the finance tab's POS slice shows the same number).
+  const giftCardSoldTotal = reportsGiftCardSales.reduce((s, g) => s + Number(g.amount ?? 0), 0);
 
   // ── Reports charts + payment mix — POS + dine-in combined ─────────────────
   // Both sides net out gift card + refund (rSaleNet / diSaleNet) so the bars and
@@ -1046,6 +1070,12 @@ export default function DashboardView() {
                       { label: "Discounts", value: fmt(combinedDiscounts, sym), sub: "reductions applied", icon: Tag, color: "text-red-400", bg: "bg-red-500/10" },
                       { label: "Service Fees", value: fmt(combinedServiceFees, sym), sub: "POS + dine-in", icon: DollarSign, color: "text-blue-400", bg: "bg-blue-500/10" },
                       { label: "Gift Cards Redeemed", value: fmt(giftCardRedeemed, sym), sub: "settled · not revenue", icon: Gift, color: "text-purple-300", bg: "bg-purple-500/10" },
+                      // Cards SOLD at the till (Sale tab, gold category). Shown
+                      // only once one exists — prepaid income on top of Total
+                      // Revenue, which stays pos_sales-only.
+                      ...(reportsGiftCardSales.length > 0 ? [
+                        { label: "Gift Cards Sold", value: fmt(giftCardSoldTotal, sym), sub: `${reportsGiftCardSales.length} card${reportsGiftCardSales.length === 1 ? "" : "s"} · prepaid income`, icon: Gift, color: "text-amber-400", bg: "bg-amber-500/10" },
+                      ] : []),
                     ].map((card) => (
                       <div key={card.label} className="bg-slate-800 border border-slate-700 rounded-2xl p-3 sm:p-4">
                         <div className={`w-9 h-9 ${card.bg} rounded-xl flex items-center justify-center mb-2.5`}>

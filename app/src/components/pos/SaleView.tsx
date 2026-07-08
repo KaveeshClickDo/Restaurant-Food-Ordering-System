@@ -1,15 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePOS } from "@/context/POSContext";
 import { POSProduct, POSSale, getOfferPrice, isOfferActive } from "@/types/pos";
-import { ChevronRight, Search, X, Users, Star, Package, ShoppingCart } from "lucide-react";
+import { ChevronRight, Gift, Search, X, Users, Star, Package, ShoppingCart } from "lucide-react";
 import { fmt, getInitials } from "./_utils";
+import { apiBase } from "@/lib/apiBase";
 import ModifierModal from "./ModifierModal";
 import PaymentModal from "./PaymentModal";
 import ReceiptModal from "./ReceiptModal";
 import OrderPanel from "./OrderPanel";
+import SellGiftCardModal, { type SellableGiftCard } from "./SellGiftCardModal";
 import { resolveStock, isAvailable, LOW_STOCK_THRESHOLD } from "@/lib/stockUtils";
+
+// Pseudo-category id for the permanent gold "Gift Cards" pill. Not a real menu
+// category — selecting it swaps the product grid for the sellable-card rack.
+const GIFT_CARDS_CATEGORY = "__gift_cards__";
 
 export default function SaleView({ isOffline = false }: { isOffline?: boolean }) {
   const { products, categories, addToCart, settings, cart, imageCache } = usePOS();
@@ -29,6 +35,34 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
   const [tipCustom, setTipCustom] = useState("");
   const [serviceFeeInput, setServiceFeeInput] = useState(serviceFeePct.pct.toString());
   const [customerSearch, setCustomerSearch] = useState("");
+
+  // ── Sellable gift cards (admin pre-issued, inactive) ────────────────────────
+  // POS can't mint cards — it only sells what admin created. The gold pill and
+  // the rack only exist while there is stock to sell, and never offline (the
+  // activation is a server-side income event that can't be queued).
+  const [giftCards, setGiftCards] = useState<SellableGiftCard[]>([]);
+  const [sellTarget, setSellTarget] = useState<SellableGiftCard | null>(null);
+
+  const refreshGiftCards = useCallback(async () => {
+    if (isOffline) return;
+    try {
+      const res = await fetch(`${apiBase()}/api/pos/gift-cards`, { cache: "no-store" });
+      if (!res.ok) return;
+      const json = await res.json() as { ok: boolean; giftCards?: SellableGiftCard[] };
+      if (json.ok) setGiftCards(json.giftCards ?? []);
+    } catch { /* network blip — keep last-known rack */ }
+  }, [isOffline]);
+
+  useEffect(() => { void refreshGiftCards(); }, [refreshGiftCards]);
+
+  const giftCatActive = activeCategory === GIFT_CARDS_CATEGORY;
+  const showGiftCategory = giftCards.length > 0 && !isOffline;
+
+  // If the rack sells out or the till goes offline while the gift category is
+  // open, fall back to All so the cashier never faces a dead tab.
+  useEffect(() => {
+    if (giftCatActive && !showGiftCategory) setActiveCategory("all");
+  }, [giftCatActive, showGiftCategory]);
 
   const sortedCats = [...categories].sort((a, b) => a.order - b.order);
 
@@ -74,6 +108,14 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
     return true;
   });
 
+  // Same search box filters the rack by code or value while the gift
+  // category is open.
+  const filteredGiftCards = giftCards.filter((gc) => {
+    if (!search.trim()) return true;
+    const q = search.trim().toLowerCase();
+    return gc.code.toLowerCase().includes(q) || gc.initialAmount.toFixed(2).includes(q);
+  });
+
   function handleProductTap(product: POSProduct) {
     if (product.modifiers && product.modifiers.length > 0) {
       setModifierProduct(product);
@@ -116,6 +158,17 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
           currencySymbol={settings.currencySymbol}
           onConfirm={(mods, note) => { addToCart(modifierProduct, mods, note); setModifierProduct(null); }}
           onClose={() => setModifierProduct(null)}
+        />
+      )}
+
+      {/* Sell gift card modal — the rack refresh happens on success so a sold
+          card disappears immediately (and the pill hides when stock hits 0). */}
+      {sellTarget && (
+        <SellGiftCardModal
+          card={sellTarget}
+          currencySymbol={settings.currencySymbol}
+          onClose={() => setSellTarget(null)}
+          onSold={() => { void refreshGiftCards(); }}
         />
       )}
 
@@ -303,7 +356,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search items…"
+              placeholder={giftCatActive ? "Search gift cards by code or value…" : "Search items…"}
               className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-9 pr-4 py-2 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500"
             />
           </div>
@@ -332,6 +385,20 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
                 </button>
               );
             })}
+            {/* Permanent gold Gift Cards pill — only while admin pre-issued
+                (inactive) stock exists and the till is online. Not a menu
+                category: it swaps the grid for the sellable-card rack. */}
+            {showGiftCategory && (
+              <button
+                onClick={() => setActiveCategory(GIFT_CARDS_CATEGORY)}
+                className={`flex-shrink-0 flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold transition-all ${giftCatActive
+                  ? "bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-900 shadow-lg shadow-amber-500/25"
+                  : "bg-slate-800 text-amber-400 border border-amber-500/40 hover:border-amber-400 hover:text-amber-300"}`}
+              >
+                <Gift size={12} /> Gift Cards
+                <span className={`text-[10px] px-1.5 py-px rounded-full ${giftCatActive ? "bg-slate-900/20" : "bg-amber-500/15"}`}>{giftCards.length}</span>
+              </button>
+            )}
           </div>
 
           {/* Row 2: Subcategories (Only visible if the active parent has children) */}
@@ -358,9 +425,40 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
 
         </div>
 
-        {/* Product grid */}
+        {/* Product grid — or the gift-card rack when the gold pill is active */}
         <div className="flex-1 overflow-y-auto p-4">
-          {filtered.length === 0 ? (
+          {giftCatActive ? (
+            filteredGiftCards.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-48 text-slate-500">
+                <Gift size={36} className="mb-3 text-slate-700" />
+                <p className="text-sm">No gift cards found</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
+                {filteredGiftCards.map((gc) => (
+                  <button
+                    key={gc.id}
+                    onClick={() => setSellTarget(gc)}
+                    className="relative flex flex-col items-start rounded-2xl border text-left transition-all active:scale-95 overflow-hidden bg-gradient-to-br from-amber-500/15 to-slate-800 border-amber-500/40 hover:border-amber-400/70 hover:shadow-lg hover:shadow-amber-500/15"
+                  >
+                    <span className="absolute top-2 left-2 text-[9px] bg-amber-400 text-slate-900 px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wide">
+                      Gift Card
+                    </span>
+                    <div className="w-full p-4 pb-0">
+                      <div className="w-15 h-15 rounded-xl flex items-center justify-center bg-amber-500/20">
+                        <Gift size={24} className="text-amber-400" />
+                      </div>
+                    </div>
+                    <div className="p-3 w-full">
+                      <p className="text-amber-400 font-bold text-lg tabular-nums">{fmt(gc.initialAmount, settings.currencySymbol)}</p>
+                      <p className="text-slate-400 text-[11px] font-mono tracking-wider mt-0.5 truncate">{gc.code}</p>
+                      <p className="text-slate-500 text-[10px] mt-1">Tap to sell &amp; activate</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )
+          ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 text-slate-500">
               <Package size={36} className="mb-3 text-slate-700" />
               <p className="text-sm">No items found</p>

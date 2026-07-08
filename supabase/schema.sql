@@ -1030,9 +1030,11 @@ create unique index if not exists gift_cards_code_lower_unique
 -- Sale attribution for gift cards (mirrors reservations.payment_method/_ref).
 -- Online purchases: payment_method='stripe', payment_ref = PaymentIntent id.
 -- Admin-issued sales: payment_method='cash'|'card', payment_ref='admin:cash'|'admin:card'.
+-- POS till sales:    payment_method='cash'|'card', payment_ref='pos:cash'|'pos:card'.
 -- Lets the finance reports book a gift card SALE as income and split it onto the
--- Online tab (gateway) vs the Admin tab (back-office), the same way VIP booking
--- fees are split. POS cannot issue gift cards, so there is no 'pos:' variant.
+-- Online tab (gateway) vs the Admin tab (back-office) vs the POS tab (till), the
+-- same way VIP booking fees are split. POS cannot MINT cards — it only sells
+-- (activates) admin pre-issued inactive stock.
 alter table gift_cards add column if not exists payment_method text;
 alter table gift_cards add column if not exists payment_ref    text;
 

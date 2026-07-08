@@ -115,6 +115,23 @@ export const AdminGiftCardActivateSchema = z.object({
   marketingOptIn: z.boolean().optional().default(true),
 });
 
+// ── POS: sell (activate) a pre-issued card at the till ──────────────────────
+// Same sale moment as the admin activate. Recipient email is REQUIRED — every
+// till sale captures a marketing contact (with the consent tick recorded), the
+// same policy as the admin counter sale, so the buyer shows up on
+// /admin?tab=marketing.
+export const PosGiftCardActivateSchema = z.object({
+  paymentMethod: z.enum(["cash", "card"]),
+  recipientEmail: Email,
+  recipientName:  z.string().trim().max(120).optional(),
+  notes: z.string().trim().max(500).optional(),
+  /** If true, sends the delivery email after activating. */
+  sendEmail: z.boolean().optional().default(true),
+  /** Marketing checkbox at the till (default ticked; unticked → the contact
+   *  is captured unsubscribed). */
+  marketingOptIn: z.boolean().optional().default(true),
+});
+
 // ── Refund routing into a gift card ──────────────────────────────────────────
 // The shape that gets posted to /api/admin/orders/[id]/refund when the chosen
 // method is "gift_card". The route resolves which gift card to credit from

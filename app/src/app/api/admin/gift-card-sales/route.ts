@@ -3,18 +3,20 @@
  *
  * A gift card is income when it's SOLD (it's prepaid money). This surfaces those
  * sales so the finance reports can book them the same way VIP booking fees are
- * booked. Two origins:
+ * booked. Three origins:
  *   • online — bought through Stripe (stripe_payment_intent_id set) → Online tab
  *   • admin  — sold at the counter cash/card (payment_method 'cash'|'card',
  *              payment_ref 'admin:…') → Admin tab
- * POS cannot issue gift cards, so there is no POS slice.
+ *   • pos    — pre-issued card sold at the till (payment_ref 'pos:…') → POS tab
+ * POS cannot MINT cards — it only sells (activates) admin pre-issued stock, so
+ * every POS row here started life as an inactive card.
  *
  * Legacy comp cards issued before paid admin-sales existed (no payment_method
  * and no stripe id) carried no money, so they are excluded — they were never a
  * sale and must not inflate revenue.
  *
  * Query params:
- *   • source — "online" | "admin" | "all" (default)
+ *   • source — "online" | "admin" | "pos" | "all" (default)
  *   • from   — ISO lower bound on created_at (inclusive)
  *   • to     — ISO upper bound on created_at (inclusive)
  *   • limit  — page size (default 500, max 2000)
@@ -30,7 +32,7 @@ export async function GET(req: NextRequest) {
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
 
   const url    = new URL(req.url);
-  const source = (url.searchParams.get("source") ?? "all") as "all" | "online" | "admin";
+  const source = (url.searchParams.get("source") ?? "all") as "all" | "online" | "admin" | "pos";
   const from   = url.searchParams.get("from");
   const to     = url.searchParams.get("to");
   const limit  = Math.min(2000, Math.max(1, Number(url.searchParams.get("limit")) || 500));
@@ -63,8 +65,12 @@ export async function GET(req: NextRequest) {
   const sales: Array<Record<string, unknown>> = [];
   for (const r of data ?? []) {
     const isOnline = !!r.stripe_payment_intent_id || r.payment_method === "stripe";
-    const isAdmin  = r.payment_method === "cash" || r.payment_method === "card";
-    const origin: "online" | "admin" | null = isOnline ? "online" : isAdmin ? "admin" : null;
+    // Cash/card sales split by WHERE the till rang: 'pos:…' payment_ref → POS
+    // slice, otherwise (admin:… / legacy null ref with a payment_method) → Admin.
+    const isPos    = typeof r.payment_ref === "string" && r.payment_ref.startsWith("pos:");
+    const isAdmin  = !isPos && (r.payment_method === "cash" || r.payment_method === "card");
+    const origin: "online" | "admin" | "pos" | null =
+      isOnline ? "online" : isPos ? "pos" : isAdmin ? "admin" : null;
     if (!origin) continue;                                   // legacy comp / not-yet-activated — no money
     if (source !== "all" && origin !== source) continue;
 

@@ -36,13 +36,13 @@ function vipFeeSource(f: VipFeeRow): "online" | "pos" | "admin" {
 
 // A gift card SALE — prepaid money booked as income at purchase. The endpoint
 // (/api/admin/gift-card-sales) classifies origin: online (Stripe) → Online tab,
-// admin (counter cash/card) → Admin tab. POS can't sell cards, so there is no
-// POS / dine-in slice.
+// admin (counter cash/card) → Admin tab, pos (pre-issued card sold at the
+// till, payment_ref 'pos:…') → POS tab. Dine-in never sells cards.
 interface GiftCardSaleRow {
   id: string;
   created_at: string;
   amount: number;
-  origin: "online" | "admin";
+  origin: "online" | "admin" | "pos";
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -469,10 +469,11 @@ export default function OnlineReportsPanel() {
   );
 
   // Gift card sales that belong on the current tab. Online sales → Online tab;
-  // admin (counter) sales → Admin tab; "all" shows both. POS / dine-in never
-  // sell cards. Folded into Gross/Net revenue + the chart like VIP fees.
+  // admin (counter) sales → Admin tab; till sales of pre-issued cards → POS
+  // tab; "all" shows everything. Dine-in never sells cards. Folded into
+  // Gross/Net revenue + the chart like VIP fees.
   const giftCardSalesForSource = useMemo(() => {
-    if (source === "pos" || source === "dine-in") return [];
+    if (source === "dine-in") return [];
     if (source === "all") return giftCardSales;
     return giftCardSales.filter((g) => g.origin === source);
   }, [giftCardSales, source]);
@@ -891,13 +892,14 @@ export default function OnlineReportsPanel() {
           />
         )}
         {/* Gift card SALES for the selected source — prepaid money booked as
-            income at purchase, already inside Gross Revenue above. Online +
-            Admin only (POS / dine-in can't sell cards). */}
-        {(source === "all" || source === "online" || source === "admin") && (
+            income at purchase, already inside Gross Revenue above. Online,
+            Admin and POS all sell cards (POS sells admin pre-issued stock);
+            dine-in never does. */}
+        {source !== "dine-in" && (
           <StatCard
             label="Gift Card Sales"
             value={cur(giftCardSalesTotal)}
-            sub={`${giftCardSalesForSource.length} card${giftCardSalesForSource.length !== 1 ? "s" : ""} sold · ${source === "all" ? "online + admin" : source}`}
+            sub={`${giftCardSalesForSource.length} card${giftCardSalesForSource.length !== 1 ? "s" : ""} sold · ${source === "all" ? "online + POS + admin" : source === "pos" ? "POS" : source}`}
             icon={Gift}
             accent="bg-purple-500"
           />

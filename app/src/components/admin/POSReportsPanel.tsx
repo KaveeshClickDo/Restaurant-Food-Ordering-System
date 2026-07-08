@@ -68,6 +68,28 @@ async function fetchPosVipFees(): Promise<VipFeeRow[]> {
   }
 }
 
+// Gift cards SOLD at the till (admin pre-issued stock activated on the Sale
+// tab, payment_ref 'pos:…'). Prepaid money booked as income at the sale moment;
+// lives on gift_cards, not pos_sales — fetched separately, like VIP fees.
+// created_at from this endpoint is already the RECOGNITION date (activated_at).
+interface PosGiftCardSaleRow {
+  id: string;
+  code: string;
+  created_at: string;
+  amount: number;
+  payment_method: string | null;
+}
+async function fetchPosGiftCardSales(): Promise<PosGiftCardSaleRow[]> {
+  try {
+    const res = await fetch("/api/admin/gift-card-sales?source=pos&limit=2000", { cache: "no-store" });
+    if (!res.ok) return [];
+    const json = await res.json() as { ok: boolean; sales?: PosGiftCardSaleRow[] };
+    return json.ok && Array.isArray(json.sales) ? json.sales : [];
+  } catch {
+    return [];
+  }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const fmtCur = (n: number, sym = "£") => `${sym}${n.toFixed(2)}`;
@@ -206,6 +228,7 @@ export default function POSReportsPanel() {
   const [sales, setSales] = useState<POSSale[]>([]);
   const [products, setProducts] = useState<POSProduct[]>([]);
   const [vipFees, setVipFees] = useState<VipFeeRow[]>([]);
+  const [giftCardSales, setGiftCardSales] = useState<PosGiftCardSaleRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [viewingReceipt, setViewingReceipt] = useState<POSSale | null>(null);
@@ -230,10 +253,11 @@ export default function POSReportsPanel() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [fetched, fees] = await Promise.all([fetchAllSales(), fetchPosVipFees()]);
+      const [fetched, fees, gcSales] = await Promise.all([fetchAllSales(), fetchPosVipFees(), fetchPosGiftCardSales()]);
       if (!cancelled) {
         setSales(fetched);
         setVipFees(fees);
+        setGiftCardSales(gcSales);
         setProducts(loadPOS<POSProduct[]>("pos_products", []));
         setLoaded(true);
       }
@@ -245,9 +269,10 @@ export default function POSReportsPanel() {
     if (refreshing) return;
     setRefreshing(true);
     try {
-      const [fetched, fees] = await Promise.all([fetchAllSales(), fetchPosVipFees()]);
+      const [fetched, fees, gcSales] = await Promise.all([fetchAllSales(), fetchPosVipFees(), fetchPosGiftCardSales()]);
       setSales(fetched);
       setVipFees(fees);
+      setGiftCardSales(gcSales);
       setProducts(loadPOS<POSProduct[]>("pos_products", []));
     } finally {
       setRefreshing(false);
@@ -313,6 +338,19 @@ export default function POSReportsPanel() {
   const vipFeesTotal = useMemo(
     () => vipFeesInRange.reduce((s, f) => s + Number(f.vip_fee ?? 0), 0),
     [vipFeesInRange],
+  );
+
+  // Gift cards sold at the till in the same window. Prepaid money in — folded
+  // into Total Revenue exactly like VIP fees (the redemption later is NOT
+  // revenue; that's the separate "Gift Card Redeemed" reconciliation line).
+  const giftCardSalesInRange = useMemo(() =>
+    giftCardSales.filter((g) => {
+      const d = new Date(g.created_at);
+      return d >= startDate && d <= endDate;
+    }), [giftCardSales, startDate, endDate]);
+  const giftCardSoldTotal = useMemo(
+    () => giftCardSalesInRange.reduce((s, g) => s + Number(g.amount ?? 0), 0),
+    [giftCardSalesInRange],
   );
 
   // ── KPIs ────────────────────────────────────────────────────────────────────
@@ -425,8 +463,9 @@ export default function POSReportsPanel() {
         <div>
           <h2 className="text-xl font-bold text-gray-900">POS Finance Reports</h2>
           <p className="text-gray-500 text-sm mt-0.5">
-            {moneyBearing.length} transactions · {fmtCur(revenue + vipFeesTotal, sym)} revenue
+            {moneyBearing.length} transactions · {fmtCur(revenue + vipFeesTotal + giftCardSoldTotal, sym)} revenue
             {vipFeesInRange.length > 0 && <span className="ml-1 text-amber-500">(incl. {fmtCur(vipFeesTotal, sym)} VIP fees)</span>}
+            {giftCardSalesInRange.length > 0 && <span className="ml-1 text-purple-500">(incl. {fmtCur(giftCardSoldTotal, sym)} gift cards)</span>}
             {voidedCount > 0 && <span className="ml-2 text-red-400">({voidedCount} voided)</span>}
           </p>
         </div>
@@ -484,7 +523,7 @@ export default function POSReportsPanel() {
         <>
           {/* ── KPI cards ──────────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-4">
-            <KpiCard label="Total Revenue" value={fmtCur(revenue + vipFeesTotal, sym)} sub={vipFeesTotal > 0 ? `${moneyBearing.length} sales + ${fmtCur(vipFeesTotal, sym)} VIP fees` : `${moneyBearing.length} txns`} icon={TrendingUp} color="text-green-600" bg="bg-green-50" />
+            <KpiCard label="Total Revenue" value={fmtCur(revenue + vipFeesTotal + giftCardSoldTotal, sym)} sub={vipFeesTotal > 0 || giftCardSoldTotal > 0 ? `${moneyBearing.length} sales + fees/gift cards` : `${moneyBearing.length} txns`} icon={TrendingUp} color="text-green-600" bg="bg-green-50" />
             <KpiCard label="Average Order" value={fmtCur(avgOrder, sym)} sub={`${moneyBearing.length} sales`} icon={Receipt} color="text-blue-600" bg="bg-blue-50" />
             <KpiCard label="Gross Profit" value={fmtCur(grossProfit, sym)} sub={`Margin ${fmtPct(marginPct)}`} icon={BarChart3} color="text-purple-600" bg="bg-purple-50" />
             <KpiCard label="VAT Collected" value={fmtCur(taxCollected, sym)} sub="excl. refunded" icon={Percent} color="text-amber-600" bg="bg-amber-50" />
@@ -495,6 +534,9 @@ export default function POSReportsPanel() {
             <KpiCard label="Refunded" value={fmtCur(refundedTotal, sym)} sub={`${refundedCount} txn${refundedCount === 1 ? "" : "s"}`} icon={RotateCcw} color="text-teal-600" bg="bg-teal-50" />
             {giftCardRedeemed > 0 && (
               <KpiCard label="Gift Card Redeemed" value={fmtCur(giftCardRedeemed, sym)} sub="settled · not revenue" icon={Gift} color="text-fuchsia-600" bg="bg-fuchsia-50" />
+            )}
+            {giftCardSalesInRange.length > 0 && (
+              <KpiCard label="Gift Cards Sold" value={fmtCur(giftCardSoldTotal, sym)} sub={`${giftCardSalesInRange.length} card${giftCardSalesInRange.length === 1 ? "" : "s"} sold at till`} icon={Gift} color="text-purple-600" bg="bg-purple-50" />
             )}
           </div>
 
@@ -681,7 +723,10 @@ export default function POSReportsPanel() {
                       ...(vipFeesTotal > 0
                         ? [["VIP Booking Fees", fmtCur(vipFeesTotal, sym), "text-amber-700"] as [string, string, string]]
                         : []),
-                      ["Total Revenue", fmtCur(revenue + vipFeesTotal, sym), "font-bold text-gray-900"],
+                      ...(giftCardSoldTotal > 0
+                        ? [["Gift Cards Sold", fmtCur(giftCardSoldTotal, sym), "text-purple-700"] as [string, string, string]]
+                        : []),
+                      ["Total Revenue", fmtCur(revenue + vipFeesTotal + giftCardSoldTotal, sym), "font-bold text-gray-900"],
                       ["Estimated COGS", `–${fmtCur(totalCost, sym)}`, "text-gray-500"],
                       ["Gross Profit", fmtCur(grossProfit, sym), "font-semibold text-green-700"],
                       ["Gross Margin", fmtPct(marginPct), "text-purple-600"],
