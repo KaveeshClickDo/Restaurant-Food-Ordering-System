@@ -342,8 +342,9 @@ function effectiveCatIds(activeCat: string, cats: Category[]): string[] | null {
 export default function HomePage() {
   const {
     categories, menuItems: allMenuItems, mealPeriods, settings,
-    isOpen, currentUser, logout
+    isOpen, currentUser, logout, cart
   } = useApp();
+  const cartHasItems = cart.length > 0;
 
   const router = useRouter();
   const [activeCat, setActiveCat] = useState("all");
@@ -806,9 +807,20 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* ── Right cart panel (desktop lg+) ───────────────────────────────── */}
-      <aside className="hidden lg:flex w-[310px] xl:w-[350px] flex-shrink-0 h-full border-l border-zinc-200/70 overflow-hidden">
-        <Cart onOrderPlaced={() => router.push('/my-orders')} />
+      {/* ── Right cart panel (desktop lg+) ───────────────────────────────────
+          Collapsed while the basket is empty; slides open when the first item
+          lands. Width is animated (NOT transform — a transform would become
+          the containing block for the fixed-position CheckoutModal rendered
+          inside <Cart>). Mirrors the identical panel in (site)/layout.tsx. */}
+      <aside
+        className={`hidden lg:flex flex-shrink-0 h-full overflow-hidden transition-[width] duration-500 ease-in-out ${
+          cartHasItems ? "w-[310px] xl:w-[350px] border-l border-zinc-200/70" : "w-0"
+        }`}
+        aria-hidden={!cartHasItems}
+      >
+        <div className="w-[310px] xl:w-[350px] flex-shrink-0 h-full flex">
+          <Cart onOrderPlaced={() => router.push('/my-orders')} />
+        </div>
       </aside>
 
       {/* ── Mobile bottom nav ─────────────────────────────────────────────── */}
