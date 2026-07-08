@@ -47,6 +47,15 @@ import {
   PackageCheck, Award, Tv, Megaphone,
 } from "lucide-react";
 
+// ─── Feature flags ────────────────────────────────────────────────────────────
+
+// Marketing tab (contacts + broadcasts) rollout flag. Set
+// NEXT_PUBLIC_FEATURE_MARKETING=off in a deploy's .env.local to hide the tab
+// entirely (sidebar item removed; ?tab=marketing deep links fall back to the
+// default tab). NEXT_PUBLIC_ values are inlined at BUILD time — changing the
+// env requires a rebuild, not just a service restart.
+const MARKETING_ENABLED = process.env.NEXT_PUBLIC_FEATURE_MARKETING !== "off";
+
 // ─── Navigation structure ─────────────────────────────────────────────────────
 
 type NavItem = { id: string; label: string; icon: React.ComponentType<{ size?: number; className?: string }> };
@@ -74,7 +83,8 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "customers", label: "Customers", icon: Users },
       // The marketing hub (contacts + broadcasts). The old "reservation-customers"
       // id is kept working as a legacy deep-link alias in the ?tab resolver.
-      { id: "marketing", label: "Marketing", icon: Megaphone },
+      // Gated behind NEXT_PUBLIC_FEATURE_MARKETING while the feature rolls out.
+      ...(MARKETING_ENABLED ? [{ id: "marketing", label: "Marketing", icon: Megaphone }] : []),
       { id: "drivers", label: "Drivers", icon: Car },
       { id: "reservations", label: "Reservations", icon: CalendarDays },
       { id: "table-status", label: "Tables", icon: UtensilsCrossed },
@@ -239,7 +249,7 @@ function AdminPageContent() {
   // "payments" → online-payments, "refunds" → online-refunds,
   // "online-reports" → finance-reports.
   const rawTab = searchParams.get("tab");
-  const initialTab = (
+  const aliasedTab = (
     rawTab === "delivery" ? "online-orders" :
       rawTab === "payments" ? "online-payments" :
         rawTab === "refunds" ? "online-refunds" :
@@ -247,6 +257,10 @@ function AdminPageContent() {
             rawTab === "reservation-customers" ? "marketing" :
               rawTab ?? "online-orders"
   ) as TabId;
+  // Unknown ids (and feature-flagged tabs filtered out of NAV_GROUPS, e.g.
+  // "marketing" when NEXT_PUBLIC_FEATURE_MARKETING=off) fall back to the
+  // default tab instead of rendering an empty content area.
+  const initialTab: TabId = ALL_TABS.some((t) => t.id === aliasedTab) ? aliasedTab : "online-orders";
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
