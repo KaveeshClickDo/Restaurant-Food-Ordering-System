@@ -12,6 +12,7 @@ import { rateLimit }                  from "@/lib/rateLimit";
 import { parseBody }                  from "@/lib/apiValidation";
 import { ReservationPublicSchema }    from "@/lib/schemas/reservation";
 import { getOrderOccupiedTableIds }   from "@/lib/tableOccupancy";
+import { upsertMarketingContact }     from "@/lib/marketingContacts";
 
 function toMins(time: string): number {
   const [h, m] = time.split(":").map(Number);
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
 
   const parsed = await parseBody(req, ReservationPublicSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { tableId, date, time, partySize, customerName, customerEmail, customerPhone, note, source } = parsed.data;
+  const { tableId, date, time, partySize, customerName, customerEmail, customerPhone, note, source, marketingOptIn } = parsed.data;
 
   // Reject past slots — 5-minute buffer for slow submissions
   if (new Date(`${date}T${time}`).getTime() < Date.now() - 5 * 60 * 1000) {
@@ -152,6 +153,17 @@ export async function POST(req: NextRequest) {
     console.error("reservations POST:", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
+
+  // Marketing contact — this route inserts directly (it doesn't go through
+  // lib/reservations createReservation), so capture the contact here with the
+  // form's consent checkbox. Best-effort; never blocks the booking.
+  await upsertMarketingContact({
+    email:   row.customer_email,
+    source:  "reservation",
+    name:    row.customer_name,
+    phone:   row.customer_phone,
+    consent: marketingOptIn,
+  });
 
   // Build the origin from the request so the cancel link is absolute
   const origin = req.headers.get("origin") ?? req.nextUrl.origin;

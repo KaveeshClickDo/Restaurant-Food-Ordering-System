@@ -89,7 +89,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const parsed = await parseBody(req, AdminGiftCardCreateSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { amount, paymentMethod, recipientEmail, recipientName, personalMessage, notes, sendEmail } = parsed.data;
+  const { amount, paymentMethod, recipientEmail, recipientName, personalMessage, notes, sendEmail, marketingOptIn } = parsed.data;
 
   const expiresAt = new Date();
   expiresAt.setMonth(expiresAt.getMonth() + GIFT_CARD_EXPIRY_MONTHS);
@@ -137,9 +137,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // Marketing contact — counter-sale recipient email enters the system here.
   if (recipientEmail) {
     await upsertMarketingContact({
-      email:  recipientEmail,
-      source: "gift_card",
-      name:   recipientName,
+      email:   recipientEmail,
+      source:  "gift_card",
+      name:    recipientName,
+      consent: marketingOptIn,
     });
   }
 

@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
   const {
     tableId, tableLabel, tableSeats, section,
     date, time, partySize, customerName, customerEmail, customerPhone,
-    note, source, paymentMethod,
+    note, source, paymentMethod, marketingOptIn,
   } = parsed.data;
 
   // Load settings (slot duration + email templates) and the table itself — we
@@ -100,6 +100,7 @@ export async function POST(req: NextRequest) {
       paymentMethod: isVip ? paymentMethod : null,
       paymentRef:    isVip && paymentMethod ? `pos:${paymentMethod}` : null,
       slotDurationMinutes: slotDuration,
+      marketingConsent: marketingOptIn,
     },
     settingsRow?.data ?? null,
     req.headers.get("origin") ?? req.nextUrl.origin,

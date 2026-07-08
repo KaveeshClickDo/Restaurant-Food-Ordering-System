@@ -136,6 +136,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [note,  setNote]  = useState("");
+  const [marketingOptIn, setMarketingOptIn] = useState(true);
 
   // ── Availability state ────────────────────────────────────────────────────
   const [tables,       setTables]       = useState<AvailableTable[]>([]);
@@ -224,6 +225,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
           date,
           time,
           ...check.data,
+          marketingOptIn,
         }),
       });
       const json = await res.json() as { ok: boolean; reservationId?: string; error?: string };
@@ -587,6 +589,13 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                 />
               </div>
 
+              {/* Marketing consent — PECR: opt-out offered at collection time */}
+              <label className="flex items-start gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={marketingOptIn} onChange={(e) => setMarketingOptIn(e.target.checked)}
+                  className="w-4 h-4 accent-orange-500 mt-0.5 shrink-0" />
+                <span className="text-xs text-gray-500">Email me offers and news. You can unsubscribe anytime.</span>
+              </label>
+
               {submitError && (
                 <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700">
                   <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />
@@ -608,6 +617,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                 customerEmail: email.trim(),
                 customerPhone: phone.trim(),
                 note:          note.trim() || undefined,
+                marketingOptIn,
               }}
               fee={selectedTable.vipPrice ?? 0}
               currencyCode={(settings.currency?.code ?? "GBP").toUpperCase()}

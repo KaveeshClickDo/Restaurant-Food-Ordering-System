@@ -33,7 +33,7 @@ export async function POST(
 
   const parsed = await parseBody(req, AdminGiftCardActivateSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { paymentMethod, recipientEmail, recipientName, personalMessage, notes, sendEmail } = parsed.data;
+  const { paymentMethod, recipientEmail, recipientName, personalMessage, notes, sendEmail, marketingOptIn } = parsed.data;
 
   const { data: card, error: cardErr } = await supabaseAdmin
     .from("gift_cards")
@@ -89,9 +89,10 @@ export async function POST(
 
   // Marketing contact — the physical-card buyer's email enters the system here.
   await upsertMarketingContact({
-    email:  recipientEmail,
-    source: "gift_card",
-    name:   recipientName,
+    email:   recipientEmail,
+    source:  "gift_card",
+    name:    recipientName,
+    consent: marketingOptIn,
   });
 
   // Optional delivery email (same shape as the counter-sale flow).

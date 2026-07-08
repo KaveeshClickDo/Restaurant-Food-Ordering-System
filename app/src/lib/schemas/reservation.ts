@@ -14,6 +14,9 @@ export const ReservationPublicSchema = z.object({
   customerPhone: OptionalPhone,
   note:          z.string().optional(),
   source:        z.string().optional(),
+  /** Marketing checkbox on the booking form (default ticked). false → the
+   *  marketing contact is created/kept unsubscribed. */
+  marketingOptIn: z.boolean().optional().default(true),
 });
 
 // How a VIP booking fee was collected at a POS till or by an admin. There is no
@@ -35,6 +38,8 @@ export const ReservationAdminSchema = z.object({
   // Required by the route only when the chosen table is VIP — validated there
   // against the live table record rather than trusted from the client.
   paymentMethod: ManualPaymentMethod.optional(),
+  /** Marketing checkbox (default ticked) — asked at the desk/on the phone. */
+  marketingOptIn: z.boolean().optional().default(true),
 }).refine(
   (data) => data.source !== "phone" || (data.customerPhone && data.customerPhone.length > 0),
   { message: "Phone number is required for phone bookings.", path: ["customerPhone"] },
@@ -56,6 +61,8 @@ export const ReservationPosSchema = z.object({
   note:          z.string().optional(),
   source:        z.enum(["walk-in", "phone"]).default("walk-in"),
   paymentMethod: ManualPaymentMethod.optional(),
+  /** Marketing checkbox (default ticked) — asked at the till. */
+  marketingOptIn: z.boolean().optional().default(true),
 }).refine(
   (data) => data.source !== "phone" || (data.customerPhone && data.customerPhone.length > 0),
   { message: "Phone number is required for phone bookings.", path: ["customerPhone"] },

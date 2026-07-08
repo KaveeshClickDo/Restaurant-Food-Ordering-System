@@ -46,6 +46,17 @@ export interface UpsertMarketingContactArgs {
   order?: { total: number };
   /** Record one completed restaurant visit (reservation check-out). */
   visit?: boolean;
+  /**
+   * The capture form's marketing checkbox (PECR: opt-out offered at collection).
+   *   • false     → new contact is created UNSUBSCRIBED; an existing contact is
+   *                 unsubscribed immediately (an opt-out always wins).
+   *   • true      → new contact opts in (the DB default anyway); an existing
+   *                 contact is NOT changed — a pre-ticked box must never
+   *                 silently re-subscribe someone who unsubscribed before.
+   *                 Re-subscribing is explicit only (/account, POS, admin).
+   *   • undefined → flow has no checkbox; never touches opt-in (old behaviour).
+   */
+  consent?: boolean;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -84,6 +95,12 @@ export async function upsertMarketingContact(args: UpsertMarketingContactArgs): 
       if (args.customerId && existing.customer_id !== args.customerId)
                                                      patch.customer_id    = args.customerId;
       if (!existing.first_visit_at)                  patch.first_visit_at = now;
+      // Opt-out expressed on this form wins immediately. (consent=true is
+      // deliberately ignored for existing contacts — see the field's JSDoc.)
+      if (args.consent === false) {
+        patch.marketing_opt_in = false;
+        patch.unsubscribed_at  = now;
+      }
       if (args.order) {
         patch.order_count   = ((existing.order_count as number) ?? 0) + 1;
         patch.total_spend   = parseFloat((((existing.total_spend as number) ?? 0) + spend).toFixed(2));
@@ -102,13 +119,18 @@ export async function upsertMarketingContact(args: UpsertMarketingContactArgs): 
       return;
     }
 
-    // marketing_opt_in / unsubscribe_token intentionally omitted — DB defaults.
+    // marketing_opt_in / unsubscribe_token omitted → DB defaults (opted in) —
+    // unless the capture form's checkbox was UNTICKED, in which case the
+    // contact starts life unsubscribed.
     const { error } = await supabaseAdmin
       .from("reservation_customers")
       .insert({
         email,
         name,
         phone,
+        ...(args.consent === false
+          ? { marketing_opt_in: false, unsubscribed_at: now }
+          : {}),
         sources:        [args.source],
         customer_id:    args.customerId ?? null,
         visit_count:    args.visit ? 1 : 0,
@@ -130,6 +152,70 @@ export async function upsertMarketingContact(args: UpsertMarketingContactArgs): 
     }
   } catch (err) {
     console.error("marketingContacts upsert:", err instanceof Error ? err.message : err);
+  }
+}
+
+/** Read a contact's current opt-in state by email. null = no contact row yet. */
+export async function getMarketingOptInByEmail(email: string): Promise<boolean | null> {
+  const e = email.trim().toLowerCase();
+  if (!isMarketableEmail(e)) return null;
+  const { data } = await supabaseAdmin
+    .from("reservation_customers")
+    .select("marketing_opt_in")
+    .eq("email", e)
+    .maybeSingle();
+  if (!data) return null;
+  return data.marketing_opt_in === true;
+}
+
+/**
+ * EXPLICIT opt-in/opt-out by email — the re-subscribe toggles (/account, POS
+ * customers tab). Unlike the capture-form `consent`, optIn=true here DOES
+ * re-subscribe: the person (or staff on their behalf) deliberately flipped a
+ * switch. Creates the contact row if missing. Returns false on failure.
+ */
+export async function setMarketingOptInByEmail(args: {
+  email: string;
+  optIn: boolean;
+  source: ContactSource;
+  name?: string;
+  customerId?: string;
+}): Promise<boolean> {
+  try {
+    const email = args.email.trim().toLowerCase();
+    if (!isMarketableEmail(email)) return false;
+    const now = new Date().toISOString();
+
+    const { data: existing } = await supabaseAdmin
+      .from("reservation_customers")
+      .select("id")
+      .eq("email", email)
+      .maybeSingle();
+
+    if (!existing) {
+      await upsertMarketingContact({
+        email,
+        source:     args.source,
+        name:       args.name,
+        customerId: args.customerId,
+        consent:    args.optIn,
+      });
+      return true;
+    }
+
+    const { error } = await supabaseAdmin
+      .from("reservation_customers")
+      .update({
+        marketing_opt_in: args.optIn,
+        unsubscribed_at:  args.optIn ? null : now,
+        updated_at:       now,
+      })
+      .eq("email", email);
+    if (error) { console.error("setMarketingOptInByEmail:", error.message); return false; }
+    return true;
+  } catch (err) {
+    console.error("setMarketingOptInByEmail:", err instanceof Error ? err.message : err);
+    return false;
   }
 }
 

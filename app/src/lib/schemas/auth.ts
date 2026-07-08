@@ -13,6 +13,9 @@ export const RegisterSchema = z.object({
   phone:     OptionalPhone,
   password:  Password,
   createdAt: z.string().optional(),
+  /** Marketing checkbox on the sign-up form (default ticked). false → the
+   *  marketing contact is created unsubscribed. */
+  marketingOptIn: z.boolean().optional().default(true),
 });
 
 export const ChangePasswordSchema = z.object({

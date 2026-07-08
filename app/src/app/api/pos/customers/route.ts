@@ -197,12 +197,14 @@ export async function POST(req: NextRequest) {
 
   // Marketing contact — only when a REAL email was typed at the till; the
   // synthetic pos-*@internal.local fallback is filtered inside the helper.
+  // consent carries the form's marketing checkbox (unticked → unsubscribed).
   await upsertMarketingContact({
     email,
     source:     "pos",
     name:       body.name,
     phone:      body.phone,
     customerId: id,
+    consent:    body.marketingOptIn,
   });
 
   // Seed any opening loyalty balance through the lot ledger (never the column).

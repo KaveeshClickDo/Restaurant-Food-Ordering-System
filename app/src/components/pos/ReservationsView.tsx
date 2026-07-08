@@ -112,6 +112,7 @@ export default function ReservationsView() {
   const [addEmail,       setAddEmail]       = useState("");
   const [addPhone,       setAddPhone]       = useState("");
   const [addNote,        setAddNote]        = useState("");
+  const [addMarketing,   setAddMarketing]   = useState(true);
   const [addPayMethod,   setAddPayMethod]   = useState<"cash" | "card">("cash");
   const [addSaving,      setAddSaving]      = useState(false);
   const [addError,       setAddError]       = useState("");
@@ -194,7 +195,7 @@ export default function ReservationsView() {
     const today = localTodayStrRes();
     setAddSource("walk-in"); setAddDate(today); setAddTime(currentSlotRes(allSlots));
     setAddParty(2); setAddTableId(""); setAddTableMeta(null); setAddAvailTables([]); setAddUpcoming({});
-    setAddName(""); setAddEmail(""); setAddPhone(""); setAddNote("");
+    setAddName(""); setAddEmail(""); setAddPhone(""); setAddNote(""); setAddMarketing(true);
     setAddError(""); setAddSaving(false); setShowAdd(true);
   }
 
@@ -234,6 +235,7 @@ export default function ReservationsView() {
           date: addDate, time: addTime, partySize: addParty,
           customerName: addName.trim(), customerEmail: addEmail.trim(),
           customerPhone: addPhone.trim(), note: addNote.trim(), source: addSource,
+          marketingOptIn: addMarketing,
           // Sent only for VIP tables; ignored by the server otherwise.
           ...(addTableMeta.isVip ? { paymentMethod: addPayMethod } : {}),
         }),
@@ -746,6 +748,13 @@ export default function ReservationsView() {
                   className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" />
                 <textarea rows={2} placeholder="Notes (optional)" value={addNote} onChange={(e) => setAddNote(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 text-sm placeholder-slate-500 resize-none focus:outline-none focus:border-orange-500 transition" />
+                {/* Marketing consent — PECR: opt-out offered at collection.
+                    Only meaningful when an email is given. */}
+                <label className="flex items-start gap-2 cursor-pointer select-none pt-0.5">
+                  <input type="checkbox" checked={addMarketing} onChange={(e) => setAddMarketing(e.target.checked)}
+                    className="w-4 h-4 accent-orange-500 mt-0.5 shrink-0" />
+                  <span className="text-xs text-slate-400">Guest agrees to receive offers &amp; news by email</span>
+                </label>
               </div>
 
               {/* VIP booking fee — collected cash/card at the till, no gateway */}

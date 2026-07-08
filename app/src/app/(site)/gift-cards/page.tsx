@@ -36,6 +36,7 @@ export default function GiftCardsPage() {
   const [message, setMessage] = useState("");
   const [sendToMe, setSendToMe] = useState(false);
   const [purchaserEmail, setPurchaserEmail] = useState("");
+  const [marketingOptIn, setMarketingOptIn] = useState(true);
 
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -80,6 +81,7 @@ export default function GiftCardsPage() {
           personalMessage: message.trim() || undefined,
           // Anonymous buyers only — signed-in buyers are identified by session.
           purchaserEmail: !currentUser && purchaserEmail.trim() ? purchaserEmail.trim() : undefined,
+          marketingOptIn,
         }),
       });
       const json = await res.json() as { ok: boolean; clientSecret?: string; error?: string };
@@ -209,6 +211,13 @@ export default function GiftCardsPage() {
               <p className="text-xs text-zinc-400 mt-1">So we can reach you about this purchase and occasional offers.</p>
             </div>
           )}
+
+          {/* Marketing consent — PECR: opt-out offered at collection time */}
+          <label className="flex items-start gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={marketingOptIn} onChange={(e) => setMarketingOptIn(e.target.checked)}
+              className="w-4 h-4 accent-orange-500 mt-0.5 shrink-0" />
+            <span className="text-xs text-zinc-500">Email me offers and news. You can unsubscribe anytime.</span>
+          </label>
 
           {/* Personal message */}
           <div>

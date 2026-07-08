@@ -194,7 +194,7 @@ interface AppContextValue {
   updateCustomer: (customer: Customer) => void;
   currentUser: Customer | null;
   login: (email: string, password: string) => Promise<{ ok: boolean; needsVerification?: boolean; email?: string; error?: string }>;
-  register: (name: string, email: string, phone: string, password: string) => Promise<{ success: boolean; error?: string; needsVerification?: boolean; email?: string }>;
+  register: (name: string, email: string, phone: string, password: string, marketingOptIn?: boolean) => Promise<{ success: boolean; error?: string; needsVerification?: boolean; email?: string }>;
   logout: () => Promise<void>;
   toggleFavourite: (menuItemId: string) => void;
   isFavourite: (menuItemId: string) => boolean;
@@ -1545,6 +1545,7 @@ export function AppProvider({
 
   const register = async (
     name: string, email: string, phone: string, password: string,
+    marketingOptIn: boolean = true,
   ): Promise<{ success: boolean; error?: string; needsVerification?: boolean; email?: string }> => {
     const id = uuid();
     const createdAt = new Date().toISOString();
@@ -1552,7 +1553,7 @@ export function AppProvider({
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, name, email, phone, password, createdAt }),
+        body: JSON.stringify({ id, name, email, phone, password, createdAt, marketingOptIn }),
       });
       const json = await res.json() as {
         ok: boolean;

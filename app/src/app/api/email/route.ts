@@ -50,7 +50,7 @@ export async function POST(request: Request) {
 
   const parsed = await parseBody(request, EmailRelaySchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { to, subject, html, fromName } = parsed.data;
+  const { to, subject, html, fromName, marketingOptIn } = parsed.data;
 
   if (!emailConfigured()) {
     return NextResponse.json(
@@ -68,7 +68,9 @@ export async function POST(request: Request) {
   // their address — capture it as a marketing contact. No name/phone here
   // (the receipt UI only collects the address). Best-effort, after the send
   // succeeded so a typo'd bounced address is less likely to pollute the list.
-  await upsertMarketingContact({ email: to, source: "ebill" });
+  // consent carries the checkbox next to the email field (unticked →
+  // contact is created/kept unsubscribed).
+  await upsertMarketingContact({ email: to, source: "ebill", consent: marketingOptIn });
 
   return NextResponse.json({ ok: true });
 }

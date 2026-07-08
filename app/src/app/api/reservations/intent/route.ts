@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
 
   const parsed = await parseBody(req, ReservationIntentSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { tableId, date, time, partySize, customerName, customerEmail, customerPhone, note, gateway } = parsed.data;
+  const { tableId, date, time, partySize, customerName, customerEmail, customerPhone, note, gateway, marketingOptIn } = parsed.data;
 
   // Reject past slots — 5-minute grace for slow submissions.
   if (new Date(`${date}T${time}`).getTime() < Date.now() - 5 * 60 * 1000) {
@@ -132,6 +132,9 @@ export async function POST(req: NextRequest) {
     note:         note?.trim() ?? null,
     source:       "online",
     vipFee:       vipPrice,
+    // Consent from the booking form — read back by the webhook when it
+    // creates the reservation (completeReservationFromSession).
+    marketingConsent: marketingOptIn,
   };
 
   // ── PayPal branch ──────────────────────────────────────────────────────────

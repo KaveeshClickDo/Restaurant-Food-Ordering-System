@@ -37,6 +37,7 @@ function LoginContent() {
 
   const [loginForm,    setLoginForm]    = useState({ email: "", password: "" });
   const [registerForm, setRegisterForm] = useState({ name: "", email: "", phone: "", password: "", confirm: "" });
+  const [marketingOptIn, setMarketingOptIn] = useState(true);
   const [forgotEmail,  setForgotEmail]  = useState(() => searchParams.get("email") ?? "");
   const [resetForm,    setResetForm]    = useState({
     email:    searchParams.get("email") ?? "",
@@ -97,6 +98,7 @@ function LoginContent() {
     try {
       const result = await register(
         check.data.name, check.data.email, check.data.phone ?? "", check.data.password,
+        marketingOptIn,
       );
       if (!result.success) {
         setError(result.error ?? "Registration failed.");
@@ -330,6 +332,19 @@ function LoginContent() {
                   onChange={(e) => setRegisterForm((f) => ({ ...f, confirm: e.target.value }))}
                   placeholder="••••••••" className={inputCls} />
               </Field>
+
+              {/* Marketing consent — PECR: opt-out offered at collection time */}
+              <label className="flex items-start gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={marketingOptIn}
+                  onChange={(e) => setMarketingOptIn(e.target.checked)}
+                  className="w-4 h-4 accent-orange-500 mt-0.5 shrink-0"
+                />
+                <span className="text-xs text-zinc-500">
+                  Email me offers and news. You can unsubscribe anytime.
+                </span>
+              </label>
 
               {error && (
                 <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">

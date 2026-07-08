@@ -79,6 +79,9 @@ export const PosCustomerCreateSchema = z.object({
   tags:            z.array(z.string()).optional(),
   loyaltyPoints:   z.number().int().nonnegative().optional(),
   giftCardBalance: Money.optional(),
+  /** Marketing checkbox on the POS create-customer form (default ticked).
+   *  false → the marketing contact is created unsubscribed. */
+  marketingOptIn:  z.boolean().optional().default(true),
 });
 
 export const PosCustomerUpdateSchema = z.object({

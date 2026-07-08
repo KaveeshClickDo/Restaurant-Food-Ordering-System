@@ -527,6 +527,7 @@ export default function ReservationsPanel() {
   const [addDate,       setAddDate]       = useState(todayStr());
   const [addTime,       setAddTime]       = useState(firstSlot);
   const [addNote,       setAddNote]       = useState("");
+  const [addMarketing,  setAddMarketing]  = useState(true);
   const [addPayMethod,  setAddPayMethod]  = useState<"cash" | "card">("cash");
   const [addSaving,     setAddSaving]     = useState(false);
   const [addError,      setAddError]      = useState("");
@@ -617,7 +618,7 @@ export default function ReservationsPanel() {
     const slot = currentSlot(allSlots);
     setAddSource("walk-in"); setAddDate(today); setAddTime(slot);
     setAddParty(2); setAddTableId("");
-    setAddName(""); setAddEmail(""); setAddPhone(""); setAddNote("");
+    setAddName(""); setAddEmail(""); setAddPhone(""); setAddNote(""); setAddMarketing(true);
     setAddBookedIds(new Set()); setAddError(""); setAddSaving(false);
     setShowAddModal(true);
   }
@@ -775,6 +776,7 @@ export default function ReservationsPanel() {
           customerName: addName.trim(), customerEmail: addEmail.trim(),
           customerPhone: addPhone.trim(), note: addNote.trim(),
           source: addSource,
+          marketingOptIn: addMarketing,
           // Sent only for VIP tables; the server ignores it for normal tables.
           ...(table.isVip && (table.vipPrice ?? 0) > 0 ? { paymentMethod: addPayMethod } : {}),
         }),
@@ -1180,6 +1182,12 @@ export default function ReservationsPanel() {
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
                   <textarea rows={2} value={addNote} onChange={(e) => setAddNote(e.target.value)} placeholder="Notes (allergies, special requests…)"
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:border-orange-400 transition" />
+                  {/* Marketing consent — asked at the desk / on the phone */}
+                  <label className="flex items-start gap-2 cursor-pointer select-none pt-0.5">
+                    <input type="checkbox" checked={addMarketing} onChange={(e) => setAddMarketing(e.target.checked)}
+                      className="w-4 h-4 accent-orange-500 mt-0.5 shrink-0" />
+                    <span className="text-xs text-gray-500">Guest agrees to receive offers &amp; news by email</span>
+                  </label>
                 </div>
 
                 {/* VIP booking fee — recorded cash/card (no gateway on admin) */}

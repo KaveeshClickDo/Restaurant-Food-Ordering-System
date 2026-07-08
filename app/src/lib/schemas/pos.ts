@@ -170,6 +170,9 @@ export const EmailRelaySchema = z.object({
   subject:  NonEmptyString,
   html:     NonEmptyString,
   fromName: z.string().optional(),
+  /** Marketing checkbox next to the e-bill email field (default ticked).
+   *  false → the captured contact starts/stays unsubscribed. */
+  marketingOptIn: z.boolean().optional().default(true),
 }).strict();  // reject extra fields (especially the `smtp` injection vector)
 
 export const PrintSchema = z.object({

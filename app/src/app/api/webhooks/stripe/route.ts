@@ -464,6 +464,8 @@ interface GiftCardPayload {
   issued_by_customer_id: string | null;
   /** Anonymous buyer's own email (older sessions predate the field). */
   purchaser_email?: string | null;
+  /** Marketing checkbox from the purchase form (older sessions predate it). */
+  marketing_consent?: boolean;
 }
 
 interface PaymentSessionRow {
@@ -590,22 +592,25 @@ async function handleGiftCardPurchaseSucceeded(
         name:       (buyer.name  as string) ?? "",
         phone:      (buyer.phone as string) ?? "",
         customerId: payload.issued_by_customer_id,
+        consent:    payload.marketing_consent,
       });
     }
   }
 
   // Marketing contact — the recipient's email is now in the system too.
   await upsertMarketingContact({
-    email:  payload.recipient_email,
-    source: "gift_card",
-    name:   payload.recipient_name,
+    email:   payload.recipient_email,
+    source:  "gift_card",
+    name:    payload.recipient_name,
+    consent: payload.marketing_consent,
   });
 
   // Anonymous buyer who left their own email on the purchase form.
   if (payload.purchaser_email) {
     await upsertMarketingContact({
-      email:  payload.purchaser_email,
-      source: "gift_card",
+      email:   payload.purchaser_email,
+      source:  "gift_card",
+      consent: payload.marketing_consent,
     });
   }
 

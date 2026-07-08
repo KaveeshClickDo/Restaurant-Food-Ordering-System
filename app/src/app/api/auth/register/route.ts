@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
 
   const parsed = await parseBody(req, RegisterSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { id, name, email, phone, password, createdAt } = parsed.data;
+  const { id, name, email, phone, password, createdAt, marketingOptIn } = parsed.data;
   const normEmail = email.trim().toLowerCase();
 
   // ── Hash password + generate verification token ───────────────────────────
@@ -122,6 +122,7 @@ export async function POST(req: NextRequest) {
     await upsertMarketingContact({
       email: normEmail, source: "account",
       name, phone, customerId: existing.id as string,
+      consent: marketingOptIn,
     });
 
     await sendVerificationEmail(normEmail, name.trim(), rawToken);
@@ -157,6 +158,7 @@ export async function POST(req: NextRequest) {
   await upsertMarketingContact({
     email: normEmail, source: "account",
     name, phone, customerId: id,
+    consent: marketingOptIn,
   });
 
   // ── Send verification email ───────────────────────────────────────────────

@@ -332,6 +332,7 @@ function IssueCardModal({ sym, onClose, onIssued, addToast }: {
   const [message, setMessage] = useState("");
   const [notes, setNotes] = useState("");
   const [sendEmail, setSendEmail] = useState(true);
+  const [marketingOptIn, setMarketingOptIn] = useState(true);
   const [issuing, setIssuing] = useState(false);
   const [issuedCode, setIssuedCode] = useState<string | null>(null);
 
@@ -362,6 +363,7 @@ function IssueCardModal({ sym, onClose, onIssued, addToast }: {
               personalMessage: message.trim() || undefined,
               notes: notes.trim() || undefined,
               sendEmail,
+              marketingOptIn,
             }),
           });
       const json = await res.json() as { ok: boolean; code?: string; error?: string };
@@ -477,6 +479,12 @@ function IssueCardModal({ sym, onClose, onIssued, addToast }: {
                 <span className="text-sm text-gray-700">Email the card to the recipient</span>
               </label>
             )}
+            {!inactive && (
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={marketingOptIn} onChange={(e) => setMarketingOptIn(e.target.checked)} className="accent-orange-500" />
+                <span className="text-sm text-gray-700">Customer agrees to receive offers &amp; news by email</span>
+              </label>
+            )}
             <div className="flex gap-3 pt-1">
               <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50">Cancel</button>
               <button onClick={() => void handleIssue()} disabled={issuing} className="flex-1 px-4 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold disabled:opacity-60 flex items-center justify-center gap-2">
@@ -505,6 +513,7 @@ function ActivateCardModal({ card, sym, onClose, onActivated, addToast }: {
   const [message, setMessage] = useState("");
   const [notes, setNotes] = useState("");
   const [sendEmail, setSendEmail] = useState(true);
+  const [marketingOptIn, setMarketingOptIn] = useState(true);
   const [busy, setBusy] = useState(false);
 
   async function handleActivate() {
@@ -521,6 +530,7 @@ function ActivateCardModal({ card, sym, onClose, onActivated, addToast }: {
           personalMessage: message.trim() || undefined,
           notes: notes.trim() || undefined,
           sendEmail,
+          marketingOptIn,
         }),
       });
       const json = await res.json() as { ok: boolean; error?: string };
@@ -587,6 +597,10 @@ function ActivateCardModal({ card, sym, onClose, onActivated, addToast }: {
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={sendEmail} onChange={(e) => setSendEmail(e.target.checked)} className="accent-orange-500" />
             <span className="text-sm text-gray-700">Email the card to the recipient</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={marketingOptIn} onChange={(e) => setMarketingOptIn(e.target.checked)} className="accent-orange-500" />
+            <span className="text-sm text-gray-700">Customer agrees to receive offers &amp; news by email</span>
           </label>
           <div className="flex gap-3 pt-1">
             <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50">Cancel</button>

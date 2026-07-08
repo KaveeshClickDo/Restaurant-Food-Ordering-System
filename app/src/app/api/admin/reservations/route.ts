@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const {
     tableId, date, time, partySize, customerName, customerEmail, customerPhone,
-    note, source, paymentMethod,
+    note, source, paymentMethod, marketingOptIn,
   } = parsed.data;
 
   // Reject past slots — 5 min grace for slow submissions. Walk-ins are exempt:
@@ -153,6 +153,7 @@ export async function POST(req: NextRequest) {
       paymentMethod: isVip ? paymentMethod : null,
       paymentRef:    isVip && paymentMethod ? `admin:${paymentMethod}` : null,
       slotDurationMinutes: slotDuration,
+      marketingConsent: marketingOptIn,
     },
     settingsRow?.data ?? null,
     req.headers.get("origin") ?? req.nextUrl.origin,

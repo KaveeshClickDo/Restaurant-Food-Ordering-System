@@ -93,6 +93,7 @@ export default function BookPage() {
   const [email,         setEmail]         = useState("");
   const [phone,         setPhone]         = useState("");
   const [note,          setNote]          = useState("");
+  const [marketingOptIn, setMarketingOptIn] = useState(true);
   const [submitting,    setSubmitting]    = useState(false);
   const [submitError,   setSubmitError]   = useState("");
   const [reservationId, setReservationId] = useState("");
@@ -133,7 +134,7 @@ export default function BookPage() {
     try {
       const res  = await fetch("/api/reservations", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tableId: selectedTable.id, date, time, ...check.data, source: "online" }),
+        body: JSON.stringify({ tableId: selectedTable.id, date, time, ...check.data, source: "online", marketingOptIn }),
       });
       const json = await res.json() as { ok: boolean; reservationId?: string; error?: string };
       if (json.ok && json.reservationId) { setReservationId(json.reservationId); setStep("confirmed"); }
@@ -416,6 +417,12 @@ export default function BookPage() {
                   placeholder="Allergies, dietary requirements, special occasion…"
                   className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm resize-none focus:outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 transition" />
               </div>
+              {/* Marketing consent — PECR: opt-out offered at collection time */}
+              <label className="flex items-start gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={marketingOptIn} onChange={(e) => setMarketingOptIn(e.target.checked)}
+                  className="w-4 h-4 accent-orange-500 mt-0.5 shrink-0" />
+                <span className="text-xs text-gray-500">Email me offers and news. You can unsubscribe anytime.</span>
+              </label>
               {submitError && (
                 <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700">
                   <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />{submitError}

@@ -66,6 +66,8 @@ export default function DashboardView() {
   const [dineInLoading, setDineInLoading] = useState(false);
   const [dineInEmail, setDineInEmail] = useState<Record<string, string>>({});
   const [dineInEmailSt, setDineInEmailSt] = useState<Record<string, "idle" | "sending" | "sent" | "error">>({});
+  // Marketing consent per order-email row; undefined = ticked (the default).
+  const [dineInOptIn, setDineInOptIn] = useState<Record<string, boolean>>({});
   // ── Today's dine-in: always-loaded for Overview KPIs ───────────────────────
   const [todayDineIn, setTodayDineIn] = useState<DineInOrder[]>([]);
   // ── Last-7-days dine-in: feeds the Overview "Revenue — Last 7 Days" chart ───
@@ -200,7 +202,12 @@ export default function DashboardView() {
       const res = await fetch(apiBase() + "/api/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: email, subject: `Your receipt from ${effectiveName} — Table ${order.tableLabel}`, html }),
+        body: JSON.stringify({
+          to: email,
+          subject: `Your receipt from ${effectiveName} — Table ${order.tableLabel}`,
+          html,
+          marketingOptIn: dineInOptIn[order.id] ?? true,
+        }),
       });
       const d = await res.json().catch(() => ({})) as { ok?: boolean };
       setDineInEmailSt((p) => ({ ...p, [order.id]: d.ok ? "sent" : "error" }));
@@ -1731,24 +1738,33 @@ export default function DashboardView() {
                                 <Printer size={14} />
                                 Print
                               </button>
-                              <div className="flex-1 flex flex-col sm:flex-row gap-2">
-                                <input
-                                  type="email"
-                                  placeholder="Email receipt…"
-                                  value={dineInEmail[order.id] ?? ""}
-                                  onChange={e => setDineInEmail(prev => ({ ...prev, [order.id]: e.target.value }))}
-                                  className="flex-1 bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-violet-500 placeholder-slate-500 min-w-0"
-                                />
-                                <button
-                                  onClick={() => sendDineInEmail(order)}
-                                  disabled={dineInEmailSt[order.id] === "sending" || !dineInEmail[order.id]}
-                                  className="flex items-center justify-center sm:justify-start gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-medium rounded-xl transition-colors whitespace-nowrap"
-                                >
-                                  <Mail size={14} />
-                                  {dineInEmailSt[order.id] === "sending" ? "Sending…" :
-                                    dineInEmailSt[order.id] === "sent" ? "Sent!" :
-                                      dineInEmailSt[order.id] === "error" ? "Failed" : "Send"}
-                                </button>
+                              <div className="flex-1 flex flex-col gap-1.5">
+                                <div className="flex flex-col sm:flex-row gap-2">
+                                  <input
+                                    type="email"
+                                    placeholder="Email receipt…"
+                                    value={dineInEmail[order.id] ?? ""}
+                                    onChange={e => setDineInEmail(prev => ({ ...prev, [order.id]: e.target.value }))}
+                                    className="flex-1 bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-violet-500 placeholder-slate-500 min-w-0"
+                                  />
+                                  <button
+                                    onClick={() => sendDineInEmail(order)}
+                                    disabled={dineInEmailSt[order.id] === "sending" || !dineInEmail[order.id]}
+                                    className="flex items-center justify-center sm:justify-start gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-medium rounded-xl transition-colors whitespace-nowrap"
+                                  >
+                                    <Mail size={14} />
+                                    {dineInEmailSt[order.id] === "sending" ? "Sending…" :
+                                      dineInEmailSt[order.id] === "sent" ? "Sent!" :
+                                        dineInEmailSt[order.id] === "error" ? "Failed" : "Send"}
+                                  </button>
+                                </div>
+                                {/* Marketing consent — PECR: opt-out offered at collection */}
+                                <label className="flex items-start gap-1.5 cursor-pointer select-none">
+                                  <input type="checkbox" checked={dineInOptIn[order.id] ?? true}
+                                    onChange={(e) => setDineInOptIn((p) => ({ ...p, [order.id]: e.target.checked }))}
+                                    className="w-3.5 h-3.5 accent-orange-500 mt-px shrink-0" />
+                                  <span className="text-[10px] text-slate-500">Customer agrees to receive offers &amp; news by email</span>
+                                </label>
                               </div>
                               {currentStaff?.permissions.canVoidSale && (
                                 <button
@@ -1821,24 +1837,33 @@ export default function DashboardView() {
                                 <Printer size={14} />
                                 Reprint
                               </button>
-                              <div className="flex-1 flex flex-col sm:flex-row gap-2">
-                                <input
-                                  type="email"
-                                  placeholder="Email receipt…"
-                                  value={dineInEmail[order.id] ?? ""}
-                                  onChange={e => setDineInEmail(prev => ({ ...prev, [order.id]: e.target.value }))}
-                                  className="flex-1 bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-violet-500 placeholder-slate-500 min-w-0"
-                                />
-                                <button
-                                  onClick={() => sendDineInEmail(order)}
-                                  disabled={dineInEmailSt[order.id] === "sending" || !dineInEmail[order.id]}
-                                  className="flex items-center justify-center sm:justify-start gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-medium rounded-xl transition-colors whitespace-nowrap"
-                                >
-                                  <Mail size={14} />
-                                  {dineInEmailSt[order.id] === "sending" ? "Sending…" :
-                                    dineInEmailSt[order.id] === "sent" ? "Sent!" :
-                                      dineInEmailSt[order.id] === "error" ? "Failed" : "Send"}
-                                </button>
+                              <div className="flex-1 flex flex-col gap-1.5">
+                                <div className="flex flex-col sm:flex-row gap-2">
+                                  <input
+                                    type="email"
+                                    placeholder="Email receipt…"
+                                    value={dineInEmail[order.id] ?? ""}
+                                    onChange={e => setDineInEmail(prev => ({ ...prev, [order.id]: e.target.value }))}
+                                    className="flex-1 bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-violet-500 placeholder-slate-500 min-w-0"
+                                  />
+                                  <button
+                                    onClick={() => sendDineInEmail(order)}
+                                    disabled={dineInEmailSt[order.id] === "sending" || !dineInEmail[order.id]}
+                                    className="flex items-center justify-center sm:justify-start gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-medium rounded-xl transition-colors whitespace-nowrap"
+                                  >
+                                    <Mail size={14} />
+                                    {dineInEmailSt[order.id] === "sending" ? "Sending…" :
+                                      dineInEmailSt[order.id] === "sent" ? "Sent!" :
+                                        dineInEmailSt[order.id] === "error" ? "Failed" : "Send"}
+                                  </button>
+                                </div>
+                                {/* Marketing consent — PECR: opt-out offered at collection */}
+                                <label className="flex items-start gap-1.5 cursor-pointer select-none">
+                                  <input type="checkbox" checked={dineInOptIn[order.id] ?? true}
+                                    onChange={(e) => setDineInOptIn((p) => ({ ...p, [order.id]: e.target.checked }))}
+                                    className="w-3.5 h-3.5 accent-orange-500 mt-px shrink-0" />
+                                  <span className="text-[10px] text-slate-500">Customer agrees to receive offers &amp; news by email</span>
+                                </label>
                               </div>
                               {currentStaff?.permissions.canIssueRefund && (
                                 <button

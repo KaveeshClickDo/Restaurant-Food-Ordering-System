@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.ok) {
     return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   }
-  const { amount, recipientEmail, recipientName, personalMessage, purchaserEmail } = parsed.data;
+  const { amount, recipientEmail, recipientName, personalMessage, purchaserEmail, marketingOptIn } = parsed.data;
 
   // Capture the buyer's customer id if they're signed in. Anonymous purchase
   // is fine — we never trust the browser to pick this field, only the cookie.
@@ -93,6 +93,8 @@ export async function POST(req: NextRequest) {
     // Anonymous buyer's own email — the webhook captures it as a marketing
     // contact. Signed-in buyers are resolved from issued_by_customer_id.
     purchaser_email:  purchaserEmail ?? null,
+    // Marketing checkbox from the purchase form — applied by the webhook.
+    marketing_consent: marketingOptIn,
   };
 
   const { error: sessionErr } = await supabaseAdmin

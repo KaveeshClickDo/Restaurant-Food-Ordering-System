@@ -52,6 +52,11 @@ export interface CreateReservationInput {
   paymentMethod?: string | null;  // "stripe" | "paypal" | "cash" | "card"
   paymentRef?: string | null;
 
+  /** Marketing checkbox from the booking form (all three surfaces). Unticked →
+   *  the marketing contact is created/kept unsubscribed. Undefined → legacy
+   *  caller without a checkbox; opt-in state is left untouched. */
+  marketingConsent?: boolean;
+
   /** Re-check for a double-booking before inserting. Defaults true. */
   checkConflict?: boolean;
   slotDurationMinutes?: number;
@@ -184,6 +189,7 @@ export async function createReservation(
       source: "reservation",
       name:  input.customerName,
       phone: input.customerPhone,
+      consent: input.marketingConsent,
     });
   }
 
@@ -284,6 +290,9 @@ export async function completeReservationFromSession(
       paymentMethod,
       paymentRef,
       checkConflict: false,  // payment captured — always honour the booking
+      // Consent from the booking form, stashed in the payment session by
+      // /api/reservations/intent (older sessions predate the field).
+      marketingConsent: typeof payload.marketingConsent === "boolean" ? payload.marketingConsent : undefined,
     },
     settingsRow?.data ?? null,
   );

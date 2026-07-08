@@ -21,6 +21,7 @@ export default function ReceiptModal(
   const rs = appSettings.receiptSettings;
   const customer = customers.find((c) => c.id === sale.customerId);
   const [emailTo, setEmailTo] = useState(customer?.email ?? "");
+  const [marketingOptIn, setMarketingOptIn] = useState(true);
   const [emailStatus, setEmailStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [emailError, setEmailError] = useState("");
   const [printStatus, setPrintStatus] = useState<"idle" | "printing" | "ok" | "error">("idle");
@@ -60,7 +61,7 @@ export default function ReceiptModal(
       const res = await fetch(apiBase() + "/api/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: emailTo.trim(), subject, html }),
+        body: JSON.stringify({ to: emailTo.trim(), subject, html, marketingOptIn }),
       });
       const data = await res.json();
       if (data.ok) {
@@ -288,6 +289,12 @@ export default function ReceiptModal(
                     {emailStatus === "sending" ? "Sending…" : "Send"}
                   </button>
                 </div>
+                {/* Marketing consent — PECR: opt-out offered when the email is collected */}
+                <label className="flex items-start gap-1.5 cursor-pointer select-none pt-1">
+                  <input type="checkbox" checked={marketingOptIn} onChange={(e) => setMarketingOptIn(e.target.checked)}
+                    className="w-3.5 h-3.5 accent-orange-500 mt-px shrink-0" />
+                  <span className="text-[10px] text-gray-500">Customer agrees to receive offers &amp; news by email</span>
+                </label>
                 {emailStatus === "error" && (
                   <p className="text-red-500 text-[10px]">{emailError}</p>
                 )}

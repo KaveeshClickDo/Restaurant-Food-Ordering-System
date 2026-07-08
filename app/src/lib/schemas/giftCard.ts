@@ -28,6 +28,9 @@ export const GiftCardPurchaseSchema = z.object({
    *  by their session instead; this exists so a guest purchase still leaves
    *  the buyer reachable (payment receipt + marketing contact). */
   purchaserEmail: Email.optional(),
+  /** Marketing checkbox on the purchase form (default ticked). Applies to the
+   *  captured contacts (recipient + buyer); false → created unsubscribed. */
+  marketingOptIn: z.boolean().optional().default(true),
 });
 
 export type GiftCardPurchaseInput = z.infer<typeof GiftCardPurchaseSchema>;
@@ -74,6 +77,8 @@ export const AdminGiftCardCreateSchema = z.object({
   /** If true, sends the delivery email after issuing. If false, admin just
    *  gets the code in the response and hand-delivers it. */
   sendEmail: z.boolean().optional().default(true),
+  /** Marketing checkbox on the counter-sale form (default ticked). */
+  marketingOptIn: z.boolean().optional().default(true),
 });
 
 export const AdminGiftCardVoidSchema = z.object({
@@ -106,6 +111,8 @@ export const AdminGiftCardActivateSchema = z.object({
   notes: z.string().trim().max(500).optional(),
   /** If true, sends the delivery email after activating. */
   sendEmail: z.boolean().optional().default(true),
+  /** Marketing checkbox at the point of physical sale (default ticked). */
+  marketingOptIn: z.boolean().optional().default(true),
 });
 
 // ── Refund routing into a gift card ──────────────────────────────────────────

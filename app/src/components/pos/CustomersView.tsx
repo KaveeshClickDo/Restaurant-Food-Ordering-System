@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePOS } from "@/context/POSContext";
 import { useConnectivity } from "@/lib/connectivity";
+import { apiBase } from "@/lib/apiBase";
 import { POSCustomer } from "@/types/pos";
 import {
   UserPlus, Search, Star, Users, Phone, Mail, Pencil, X, Trash2, Save, ArrowLeft, AlertTriangle,
@@ -20,7 +21,7 @@ export default function CustomersView() {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<POSCustomer | null>(null);
   const [showAdd, setShowAdd] = useState(false);
-  const [newCustomer, setNewCustomer] = useState({ name: "", email: "", phone: "", notes: "" });
+  const [newCustomer, setNewCustomer] = useState({ name: "", email: "", phone: "", notes: "", marketingOptIn: true });
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -129,10 +130,11 @@ export default function CustomersView() {
       email: newCustomer.email.trim() || undefined,
       phone: newCustomer.phone.trim() || undefined,
       notes: newCustomer.notes.trim() || undefined,
+      marketingOptIn: newCustomer.marketingOptIn,
     });
     setSaving(false);
     if (!result.ok) { setSaveError(result.error ?? "Failed to add customer"); return; }
-    setNewCustomer({ name: "", email: "", phone: "", notes: "" });
+    setNewCustomer({ name: "", email: "", phone: "", notes: "", marketingOptIn: true });
     setShowAdd(false);
   }
 
@@ -245,6 +247,10 @@ export default function CustomersView() {
                 </div>
               ))}
             </div>
+
+            {/* Marketing preference — explicit toggle: turning it ON here
+                genuinely re-subscribes (customer asked at the till). */}
+            <MarketingPrefRow customer={selectedLive} />
 
             {/* Purchase history */}
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-4 sm:p-5">
@@ -481,12 +487,25 @@ export default function CustomersView() {
               ].map((field) => (
                 <div key={field.key}>
                   <label className="text-xs text-slate-400 mb-1 block">{field.label}</label>
-                  <input value={(newCustomer as Record<string,string>)[field.key]}
+                  <input value={newCustomer[field.key as "name" | "email" | "phone" | "notes"]}
                     onChange={(e) => setNewCustomer((p) => ({ ...p, [field.key]: e.target.value }))}
                     placeholder={field.placeholder}
                     className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
                 </div>
               ))}
+              {/* Marketing consent — PECR: opt-out offered at collection time.
+                  Only matters when an email is given; harmless otherwise. */}
+              <label className="flex items-start gap-2 cursor-pointer select-none pt-1">
+                <input
+                  type="checkbox"
+                  checked={newCustomer.marketingOptIn}
+                  onChange={(e) => setNewCustomer((p) => ({ ...p, marketingOptIn: e.target.checked }))}
+                  className="w-4 h-4 accent-orange-500 mt-0.5 shrink-0"
+                />
+                <span className="text-xs text-slate-400">
+                  Customer agrees to receive offers &amp; news by email (can unsubscribe anytime)
+                </span>
+              </label>
             </div>
             {saveError && <p className="text-red-400 text-xs mb-3">{saveError}</p>}
             <div className="grid grid-cols-2 gap-2">
@@ -496,6 +515,72 @@ export default function CustomersView() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Marketing preference row (customer detail) ────────────────────────────────
+// Reads/writes the customer's marketing-contact opt-in via
+// /api/pos/customers/[id]/marketing. optedIn === null means the customer has
+// no usable email on file, so there's nothing to subscribe. All fetches go
+// through apiBase() — this view ships inside the bundled Capacitor APK.
+function MarketingPrefRow({ customer }: { customer: POSCustomer }) {
+  const [optedIn, setOptedIn] = useState<boolean | null | "loading">("loading");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setOptedIn("loading");
+    fetch(apiBase() + `/api/pos/customers/${customer.id}/marketing`)
+      .then((r) => r.json())
+      .then((j: { ok: boolean; optedIn?: boolean | null }) => {
+        if (!cancelled) setOptedIn(j.ok ? (j.optedIn ?? true) : null);
+      })
+      .catch(() => { if (!cancelled) setOptedIn(null); });
+    return () => { cancelled = true; };
+  }, [customer.id]);
+
+  async function toggle() {
+    if (optedIn === "loading" || optedIn === null || saving) return;
+    const next = !optedIn;
+    setSaving(true);
+    setOptedIn(next); // optimistic
+    try {
+      const res = await fetch(apiBase() + `/api/pos/customers/${customer.id}/marketing`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ optedIn: next }),
+      });
+      const json = await res.json().catch(() => ({})) as { ok?: boolean };
+      if (!json.ok) setOptedIn(!next); // roll back
+    } catch {
+      setOptedIn(!next);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="bg-slate-800 border border-slate-700 rounded-2xl p-4 sm:p-5 flex items-center justify-between gap-4">
+      <div className="min-w-0">
+        <h4 className="text-white font-semibold text-sm flex items-center gap-2">
+          <Mail size={14} className="text-slate-400" /> Marketing emails
+        </h4>
+        <p className="text-slate-400 text-xs mt-1">
+          {optedIn === "loading" ? "Loading…"
+            : optedIn === null ? "No email on file — add one to enable offers"
+            : optedIn ? "Subscribed to offers & news"
+            : "Unsubscribed — ask the customer before re-enabling"}
+        </p>
+      </div>
+      <button
+        onClick={toggle}
+        disabled={optedIn === "loading" || optedIn === null || saving}
+        aria-label={optedIn === true ? "Unsubscribe from marketing" : "Subscribe to marketing"}
+        className={`relative w-11 h-6 rounded-full transition flex-shrink-0 disabled:opacity-40 ${optedIn === true ? "bg-green-500" : "bg-slate-600"}`}
+      >
+        <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${optedIn === true ? "left-[22px]" : "left-0.5"}`} />
+      </button>
     </div>
   );
 }

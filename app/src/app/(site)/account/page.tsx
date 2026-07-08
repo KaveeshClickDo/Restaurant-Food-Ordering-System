@@ -1474,7 +1474,74 @@ function ProfileTab() {
         </div>
       </div>
 
+      <MarketingPrefsCard />
+
       <ChangePasswordCard />
+    </div>
+  );
+}
+
+// ─── Marketing preference ─────────────────────────────────────────────────────
+// The account-side opt-in/opt-out switch. Reads and writes the customer's own
+// marketing-contact row via /api/account/marketing (keyed to the session
+// email server-side). This is the EXPLICIT re-subscribe path — unlike the
+// pre-ticked capture checkboxes, flipping this on genuinely re-subscribes.
+
+function MarketingPrefsCard() {
+  const [optedIn, setOptedIn] = useState<boolean | null>(null); // null = loading
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/account/marketing")
+      .then((r) => r.json())
+      .then((j: { ok: boolean; optedIn?: boolean }) => setOptedIn(j.ok ? (j.optedIn ?? true) : true))
+      .catch(() => setOptedIn(true));
+  }, []);
+
+  async function toggle() {
+    if (optedIn === null || saving) return;
+    const next = !optedIn;
+    setSaving(true);
+    setOptedIn(next); // optimistic
+    try {
+      const res = await fetch("/api/account/marketing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ optedIn: next }),
+      });
+      const json = await res.json() as { ok: boolean };
+      if (!json.ok) setOptedIn(!next); // roll back
+    } catch {
+      setOptedIn(!next);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-6">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <h3 className="font-semibold text-zinc-900 text-sm flex items-center gap-2">
+            <Mail size={15} className="text-zinc-400" /> Offers &amp; news
+          </h3>
+          <p className="text-xs text-zinc-400 mt-1">
+            {optedIn === null
+              ? "Loading your preference…"
+              : optedIn
+                ? "You'll receive occasional offers and news by email."
+                : "You're unsubscribed — order and booking emails still arrive as normal."}
+          </p>
+        </div>
+        <button
+          onClick={toggle}
+          disabled={optedIn === null || saving}
+          aria-label={optedIn ? "Unsubscribe from marketing emails" : "Subscribe to marketing emails"}
+          className={`relative w-11 h-6 rounded-full transition flex-shrink-0 disabled:opacity-50 ${optedIn ? "bg-green-500" : "bg-zinc-300"}`}
+        >
+          <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${optedIn ? "left-[22px]" : "left-0.5"}`} />
+        </button>
+      </div>
     </div>
   );
 }

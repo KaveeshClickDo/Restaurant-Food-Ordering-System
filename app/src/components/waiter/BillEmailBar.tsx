@@ -35,6 +35,7 @@ export default function BillEmailBar({ onPrint, tableLabel, waiterName, consolid
   const restaurantName = rs?.restaurantName?.trim() || settings.restaurant?.name || "Restaurant";
   const [emailTo, setEmailTo] = useState("");
   const [emailStatus, setEmailStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [marketingOptIn, setMarketingOptIn] = useState(true);
 
   async function handleEmail() {
     if (!emailTo.trim()) return;
@@ -62,7 +63,7 @@ export default function BillEmailBar({ onPrint, tableLabel, waiterName, consolid
     const res = await fetch("/api/email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to: emailTo.trim(), subject, html }),
+      body: JSON.stringify({ to: emailTo.trim(), subject, html, marketingOptIn }),
     });
     const d = await res.json().catch(() => ({})) as { ok?: boolean };
     setEmailStatus(d.ok ? "sent" : "error");
@@ -96,6 +97,12 @@ export default function BillEmailBar({ onPrint, tableLabel, waiterName, consolid
           {emailStatus === "sent" ? "Sent!" : emailStatus === "error" ? "Failed" : "Send"}
         </button>
       </div>
+      {/* Marketing consent — PECR: opt-out offered when the email is collected */}
+      <label className="flex items-start gap-2 cursor-pointer select-none">
+        <input type="checkbox" checked={marketingOptIn} onChange={(e) => setMarketingOptIn(e.target.checked)}
+          className="w-4 h-4 accent-orange-500 mt-0.5 shrink-0" />
+        <span className="text-xs text-slate-500">Guest agrees to receive offers &amp; news by email</span>
+      </label>
       {emailStatus === "error" && <p className="text-red-400 text-xs">Failed to send — check email settings.</p>}
     </div>
   );

@@ -263,6 +263,9 @@ interface POSContextValue {
   addCustomer: (input: {
     name: string; email?: string; phone?: string; notes?: string;
     tags?: string[]; loyaltyPoints?: number; giftCardBalance?: number;
+    /** Marketing checkbox on the create form (default ticked; unticked →
+     *  the marketing contact starts unsubscribed). */
+    marketingOptIn?: boolean;
   }) => Promise<{ ok: boolean; error?: string; customer?: POSCustomer }>;
   updateCustomer: (id: string, patch: {
     name?: string; email?: string; phone?: string; notes?: string;
@@ -780,6 +783,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   const addCustomer = useCallback(async (input: {
     name: string; email?: string; phone?: string; notes?: string;
     tags?: string[]; loyaltyPoints?: number; giftCardBalance?: number;
+    marketingOptIn?: boolean;
   }) => {
     try {
       const res = await fetch(apiBase() + "/api/pos/customers", {

@@ -40,6 +40,9 @@ export interface ReservationBookingPayload {
   customerEmail: string;
   customerPhone: string;
   note?: string;
+  /** Marketing checkbox from the booking form — rides through the payment
+   *  session so the webhook applies it when it creates the reservation. */
+  marketingOptIn?: boolean;
 }
 
 interface Props {
