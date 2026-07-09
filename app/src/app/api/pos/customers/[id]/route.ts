@@ -99,7 +99,7 @@ export async function DELETE(
 
   // Optional { block } body — a DELETE with no body defaults to a plain
   // (rejoinable) soft delete. Soft delete preserves the row, its orders, the
-  // loyalty ledger, and the reservation_customers CRM profile.
+  // loyalty ledger, and the marketing_contacts CRM profile.
   let block = false;
   try {
     const parsed = CustomerDeleteSchema.safeParse(await req.json());

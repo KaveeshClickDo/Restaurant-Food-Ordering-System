@@ -52,7 +52,7 @@ export const CustomerDeleteSchema = z.object({
   block: z.boolean().optional(),
 });
 
-// Admin updates on reservation_customers.
+// Admin updates on marketing_contacts.
 export const ReservationCustomerUpdateSchema = z.object({
   notes:          z.string().optional(),
   tags:           z.array(z.string()).optional(),

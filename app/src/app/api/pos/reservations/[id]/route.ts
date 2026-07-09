@@ -72,14 +72,14 @@ export async function PUT(
     if (email) {
       if (body.status === "checked_in") {
         const { data: existing } = await supabaseAdmin
-          .from("reservation_customers")
+          .from("marketing_contacts")
           .select("id, first_visit_at")
           .eq("email", email)
           .single();
 
         if (existing) {
           await supabaseAdmin
-            .from("reservation_customers")
+            .from("marketing_contacts")
             .update({
               name:       resRow.customer_name ?? "",
               phone:      resRow.customer_phone ?? "",
@@ -88,7 +88,7 @@ export async function PUT(
             })
             .eq("email", email);
         } else {
-          await supabaseAdmin.from("reservation_customers").insert({
+          await supabaseAdmin.from("marketing_contacts").insert({
             email,
             name:           resRow.customer_name ?? "",
             phone:          resRow.customer_phone ?? "",
@@ -100,14 +100,14 @@ export async function PUT(
         }
       } else if (body.status === "checked_out") {
         const { data: existing } = await supabaseAdmin
-          .from("reservation_customers")
+          .from("marketing_contacts")
           .select("id, visit_count")
           .eq("email", email)
           .single();
 
         if (existing) {
           await supabaseAdmin
-            .from("reservation_customers")
+            .from("marketing_contacts")
             .update({
               visit_count:   (existing.visit_count as number) + 1,
               last_visit_at: new Date().toISOString(),

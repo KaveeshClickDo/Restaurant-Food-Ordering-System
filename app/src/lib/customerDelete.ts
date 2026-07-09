@@ -4,7 +4,7 @@
  *
  * A "deleted" customer is NOT removed from the table. We stamp `deleted_at` and
  * leave the row (and its FK links) intact, so orders, the loyalty ledger, and
- * the reservation_customers CRM profile all survive. That's what lets a customer
+ * the marketing_contacts CRM profile all survive. That's what lets a customer
  * come back with everything restored when they re-register (see auth/register).
  *
  * `reactivation_blocked` distinguishes a plain delete (the customer may rejoin

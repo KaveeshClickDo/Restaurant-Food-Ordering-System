@@ -7,7 +7,7 @@
  *
  * Waiters deliberately CANNOT confirm, cancel or no-show from here — those stay
  * with POS/admin. The shared helper runs the same side effects (timestamps,
- * reservation_customers profile, status email) as the POS/admin routes and is
+ * marketing_contacts profile, status email) as the POS/admin routes and is
  * idempotent, so a double-tap or a transition another device already made is a
  * no-op (no duplicate email, no double visit_count).
  *

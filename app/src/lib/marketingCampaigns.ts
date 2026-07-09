@@ -54,7 +54,7 @@ export interface AudienceContact { id: string; email: string; name: string }
  *  email. This is the authoritative suppression gate for every send path. */
 export async function resolveAudience(audience: Audience): Promise<AudienceContact[]> {
   let query = supabaseAdmin
-    .from("reservation_customers")
+    .from("marketing_contacts")
     .select("id, email, name, tags, sources, marketing_opt_in, unsubscribed_at");
 
   // Push the cheap equality filters to the DB; array-overlap + email shape are
@@ -105,7 +105,7 @@ export function describeAudience(audience: Audience | Record<string, unknown> | 
 
 /**
  * Render one campaign email for one recipient.
- * `unsubscribeToken` is the contact's reservation_customers.unsubscribe_token;
+ * `unsubscribeToken` is the contact's marketing_contacts.unsubscribe_token;
  * the test route passes the literal "preview" (the public page fails politely).
  */
 function escapeHtml(s: string): string {
@@ -251,7 +251,7 @@ export async function processCampaignBatch(
 
   for (const r of batch ?? []) {
     const { data: contact } = await supabaseAdmin
-      .from("reservation_customers")
+      .from("marketing_contacts")
       .select("marketing_opt_in, unsubscribed_at, unsubscribe_token")
       .eq("id", r.contact_id ?? "")
       .maybeSingle();

@@ -1,6 +1,6 @@
 /**
  * One-time backfill: populate the marketing-contacts table
- * (reservation_customers) from every place the live database already holds a
+ * (marketing_contacts) from every place the live database already holds a
  * customer email — registered customers, orders, reservations, gift cards.
  *
  *   Run with:  npx tsx --env-file=.env.local backfill-marketing-contacts.ts
@@ -34,7 +34,7 @@ const STEPS: Step[] = [
   {
     label: "stamp 'online_order' on existing contacts with order history",
     sql: `
-      update reservation_customers
+      update marketing_contacts
          set sources = sources || '{online_order}'::text[], updated_at = now()
        where order_count > 0
          and not (sources @> '{online_order}'::text[])`,
@@ -42,7 +42,7 @@ const STEPS: Step[] = [
   {
     label: "stamp 'reservation' on existing contacts with visit history",
     sql: `
-      update reservation_customers
+      update marketing_contacts
          set sources = sources || '{reservation}'::text[], updated_at = now()
        where visit_count > 0
          and not (sources @> '{reservation}'::text[])`,
@@ -50,7 +50,7 @@ const STEPS: Step[] = [
   {
     label: "stamp 'reservation' on existing contacts matching a reservation email",
     sql: `
-      update reservation_customers rc
+      update marketing_contacts rc
          set sources = rc.sources || '{reservation}'::text[], updated_at = now()
        where not (rc.sources @> '{reservation}'::text[])
          and exists (select 1 from reservations r
@@ -59,7 +59,7 @@ const STEPS: Step[] = [
   {
     label: "insert contacts for reservation emails with no contact row",
     sql: `
-      insert into reservation_customers
+      insert into marketing_contacts
         (id, email, name, phone, sources, visit_count, first_visit_at, last_visit_at, created_at, updated_at)
       select gen_random_uuid()::text,
              lower(trim(r.customer_email)),
@@ -80,7 +80,7 @@ const STEPS: Step[] = [
   {
     label: "insert contacts for registered customers ('account' / POS-created 'pos')",
     sql: `
-      insert into reservation_customers
+      insert into marketing_contacts
         (id, email, name, phone, sources, customer_id, created_at, updated_at)
       select gen_random_uuid()::text,
              lower(trim(c.email)),
@@ -98,7 +98,7 @@ const STEPS: Step[] = [
   {
     label: "link existing contacts to customer accounts (+source, fill blank name/phone)",
     sql: `
-      update reservation_customers rc
+      update marketing_contacts rc
          set customer_id = c.id,
              sources = case
                when rc.sources @> (case when c.id like 'pc-%' then '{pos}' else '{account}' end)::text[]
@@ -120,7 +120,7 @@ const STEPS: Step[] = [
   {
     label: "aggregate order history onto newly-linked contacts (+'online_order')",
     sql: `
-      update reservation_customers rc
+      update marketing_contacts rc
          set order_count   = s.cnt,
              total_spend   = round(s.spend::numeric, 2),
              last_order_at = s.last_at,
@@ -142,7 +142,7 @@ const STEPS: Step[] = [
   {
     label: "insert contacts for gift card recipients",
     sql: `
-      insert into reservation_customers (id, email, name, sources, created_at, updated_at)
+      insert into marketing_contacts (id, email, name, sources, created_at, updated_at)
       select gen_random_uuid()::text,
              lower(trim(g.issued_to_email)),
              coalesce(max(nullif(trim(g.issued_to_name), '')), ''),
@@ -157,7 +157,7 @@ const STEPS: Step[] = [
   {
     label: "stamp 'gift_card' on existing contacts who received a card",
     sql: `
-      update reservation_customers rc
+      update marketing_contacts rc
          set sources = rc.sources || '{gift_card}'::text[], updated_at = now()
        where not (rc.sources @> '{gift_card}'::text[])
          and exists (select 1 from gift_cards g
@@ -166,7 +166,7 @@ const STEPS: Step[] = [
   {
     label: "stamp 'gift_card' on contacts who BOUGHT a card while signed in",
     sql: `
-      update reservation_customers rc
+      update marketing_contacts rc
          set sources = rc.sources || '{gift_card}'::text[], updated_at = now()
         from gift_cards g
         join customers c on c.id = g.issued_by_customer_id
@@ -193,11 +193,11 @@ async function main(): Promise<void> {
     const col = await client.query(
       `select 1 from information_schema.columns
         where table_schema = 'public'
-          and table_name   = 'reservation_customers'
+          and table_name   = 'marketing_contacts'
           and column_name  = 'sources'`,
     );
     if (col.rowCount === 0) {
-      console.error("✗ reservation_customers.sources does not exist — run `npm run db:migrate` first.");
+      console.error("✗ marketing_contacts.sources does not exist — run `npm run db:migrate` first.");
       process.exit(1);
     }
 
@@ -210,9 +210,9 @@ async function main(): Promise<void> {
 
     const { rows } = await client.query(
       `select unnest(sources) as source, count(*)::int as contacts
-         from reservation_customers group by 1 order by 2 desc`,
+         from marketing_contacts group by 1 order by 2 desc`,
     );
-    const total = await client.query(`select count(*)::int as n from reservation_customers`);
+    const total = await client.query(`select count(*)::int as n from marketing_contacts`);
 
     console.log(`\nContacts total: ${total.rows[0].n}`);
     for (const r of rows) console.log(`  ${String(r.source).padEnd(14)} ${r.contacts}`);

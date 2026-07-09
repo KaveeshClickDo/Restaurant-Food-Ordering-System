@@ -32,7 +32,7 @@ export async function PATCH(
   }
 
   const { error } = await supabaseAdmin
-    .from("reservation_customers")
+    .from("marketing_contacts")
     .update(patch)
     .eq("id", id);
 

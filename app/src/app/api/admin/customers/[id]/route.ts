@@ -11,7 +11,7 @@
  * blocks while the customer has non-terminal orders (409 + payload lists them so
  * the UI can route to Delivery). An optional `{ block: true }` body turns the
  * delete into a ban (re-registration refused). The row, its orders, loyalty
- * ledger, and reservation_customers CRM profile are all preserved.
+ * ledger, and marketing_contacts CRM profile are all preserved.
  */
 
 import { NextRequest, NextResponse }            from "next/server";

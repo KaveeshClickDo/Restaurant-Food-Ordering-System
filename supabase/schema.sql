@@ -366,10 +366,30 @@ create table if not exists reservations (
   created_at     timestamptz not null default now()
 );
 
--- reservation_customers.customer_id is nullable: not every reservation guest is
+-- marketing_contacts.customer_id is nullable: not every reservation guest is
 -- (or becomes) a registered customer. ON DELETE SET NULL so deleting a customer
 -- record doesn't cascade-wipe their reservation history.
-create table if not exists reservation_customers (
+--
+-- Live-safe rename: this table began as reservation-only ("reservation_customers")
+-- and grew into the general marketing contact list (see the CRM section below).
+-- Rename it in place on existing databases — data untouched — so the
+-- create-if-not-exists below becomes a no-op. Guarded to run once and skip on
+-- fresh installs. The two explicitly-named indexes are renamed to match the
+-- create-if-not-exists statements further down; auto-named pkey/unique/fkey
+-- indexes follow the table automatically and need no rename.
+do $$
+begin
+  if to_regclass('public.reservation_customers') is not null
+     and to_regclass('public.marketing_contacts') is null then
+    alter table reservation_customers rename to marketing_contacts;
+  end if;
+end $$;
+alter index if exists reservation_customers_unsubscribe_token_unique
+  rename to marketing_contacts_unsubscribe_token_unique;
+alter index if exists reservation_customers_sources_gin
+  rename to marketing_contacts_sources_gin;
+
+create table if not exists marketing_contacts (
   id               text          primary key default gen_random_uuid()::text,
   email            text          not null unique,
   name             text          not null default '',
@@ -1438,7 +1458,7 @@ alter table orders                 enable row level security;
 alter table dine_in_tickets        enable row level security;
 alter table drivers                enable row level security;
 alter table reservations           enable row level security;
-alter table reservation_customers  enable row level security;
+alter table marketing_contacts     enable row level security;
 alter table reservation_waitlist   enable row level security;
 alter table pos_staff              enable row level security;
 alter table pos_sales              enable row level security;
@@ -1677,7 +1697,7 @@ begin
     foreach t in array array[
       'app_settings', 'categories', 'menu_items',
       'orders', 'drivers',
-      'reservations', 'reservation_customers',
+      'reservations', 'marketing_contacts',
       'dining_tables',
       'meal_periods', 'menu_item_meal_periods'
     ]
@@ -2098,17 +2118,16 @@ end $$;
 
 
 -- ═══════════════════════════════════════════════════════════════════════════════
--- Marketing contacts (CRM) — reservation_customers grows into the single
--- marketing contact list
+-- Marketing contacts (CRM) — marketing_contacts, the single contact list
 -- ═══════════════════════════════════════════════════════════════════════════════
 --
--- reservation_customers is the app's one email-keyed contact table (unique
+-- marketing_contacts is the app's one email-keyed contact table (unique
 -- email, tags, notes, marketing_opt_in). Historically only reservations and
--- anonymous online checkouts wrote to it; it now receives EVERY flow where a
--- customer hands over an email (account sign-up, signed-in orders, gift cards,
--- POS customer creation, e-bill receipts) via lib/marketingContacts.ts.
--- The table name is kept for live-migration safety — in TypeScript the row is
--- typed as a "marketing contact".
+-- anonymous online checkouts wrote to it (it was named reservation_customers
+-- then); it now receives EVERY flow where a customer hands over an email
+-- (account sign-up, signed-in orders, gift cards, POS customer creation, e-bill
+-- receipts) via lib/marketingContacts.ts. Renamed from reservation_customers in
+-- place — see the guarded rename by the table definition above.
 --
 --   • sources            — where the email came from; a contact can hold several:
 --                          'reservation' | 'online_order' | 'account' |
@@ -2128,35 +2147,35 @@ do $$
 begin
   if not exists (select 1 from information_schema.columns
                  where table_schema = 'public'
-                   and table_name   = 'reservation_customers'
+                   and table_name   = 'marketing_contacts'
                    and column_name  = 'sources') then
-    alter table reservation_customers
+    alter table marketing_contacts
       add column sources text[] not null default '{}';
     -- One-time default flip: everyone collected so far becomes opted-in.
     -- Runs exactly once (guarded above) so later opt-outs are never reverted.
-    update reservation_customers set marketing_opt_in = true;
+    update marketing_contacts set marketing_opt_in = true;
   end if;
 end $$;
 
-alter table reservation_customers
+alter table marketing_contacts
   add column if not exists unsubscribe_token text default gen_random_uuid()::text;
-alter table reservation_customers
+alter table marketing_contacts
   add column if not exists unsubscribed_at timestamptz;
 
 -- New rows get marketing_opt_in = true from here on.
-alter table reservation_customers alter column marketing_opt_in set default true;
+alter table marketing_contacts alter column marketing_opt_in set default true;
 
 -- Rows created before the token column existed get NULL — mint their tokens.
-update reservation_customers
+update marketing_contacts
    set unsubscribe_token = gen_random_uuid()::text
  where unsubscribe_token is null;
 
-create unique index if not exists reservation_customers_unsubscribe_token_unique
-  on reservation_customers (unsubscribe_token);
+create unique index if not exists marketing_contacts_unsubscribe_token_unique
+  on marketing_contacts (unsubscribe_token);
 
 -- Source-filter queries use array containment (sources @> '{online_order}').
-create index if not exists reservation_customers_sources_gin
-  on reservation_customers using gin (sources);
+create index if not exists marketing_contacts_sources_gin
+  on marketing_contacts using gin (sources);
 
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -2217,7 +2236,7 @@ create table if not exists email_campaign_recipients (
   id          text        primary key default gen_random_uuid()::text,
   campaign_id text        not null references email_campaigns(id) on delete cascade,
   -- SET NULL so deleting a contact keeps the campaign audit trail intact.
-  contact_id  text        references reservation_customers(id) on delete set null,
+  contact_id  text        references marketing_contacts(id) on delete set null,
   email       text        not null,
   name        text        not null default '',
   status      text        not null default 'pending'

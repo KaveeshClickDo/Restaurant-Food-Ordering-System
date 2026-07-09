@@ -35,7 +35,7 @@ export async function GET() {
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
 
   const { data, error } = await supabaseAdmin
-    .from("reservation_customers")
+    .from("marketing_contacts")
     .select("*")
     .order("last_visit_at", { ascending: false, nullsFirst: false });
 

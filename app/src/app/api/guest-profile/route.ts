@@ -14,7 +14,7 @@ import { upsertMarketingContact }    from "@/lib/marketingContacts";
 
 export async function POST(req: NextRequest) {
   // Per-IP rate limit — 10 upserts per minute. The endpoint accepts an
-  // arbitrary email and writes to reservation_customers; without a cap a bot
+  // arbitrary email and writes to marketing_contacts; without a cap a bot
   // could pollute the CRM table.
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
   const { limited } = rateLimit(`guest-profile:${ip}`, 10, 60_000);

@@ -18,7 +18,7 @@ export async function GET(
 
   // Resolve email from customer profile
   const { data: customer, error: custErr } = await supabaseAdmin
-    .from("reservation_customers")
+    .from("marketing_contacts")
     .select("email")
     .eq("id", id)
     .single();

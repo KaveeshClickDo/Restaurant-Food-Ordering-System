@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { data, error } = await supabaseAdmin
-    .from("reservation_customers")
+    .from("marketing_contacts")
     .update({
       marketing_opt_in: false,
       unsubscribed_at:  new Date().toISOString(),

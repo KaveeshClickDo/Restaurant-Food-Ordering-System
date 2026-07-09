@@ -1,5 +1,5 @@
 /**
- * Marketing contacts — the single write path into `reservation_customers`.
+ * Marketing contacts — the single write path into `marketing_contacts`.
  *
  * Every flow where a customer hands over an email address funnels through
  * {@link upsertMarketingContact}: reservation create/check-in/check-out,
@@ -80,7 +80,7 @@ export async function upsertMarketingContact(args: UpsertMarketingContactArgs): 
     const now   = new Date().toISOString();
 
     const { data: existing } = await supabaseAdmin
-      .from("reservation_customers")
+      .from("marketing_contacts")
       .select("id, name, phone, sources, customer_id, order_count, total_spend, visit_count, first_visit_at")
       .eq("email", email)
       .maybeSingle();
@@ -112,7 +112,7 @@ export async function upsertMarketingContact(args: UpsertMarketingContactArgs): 
       }
 
       const { error } = await supabaseAdmin
-        .from("reservation_customers")
+        .from("marketing_contacts")
         .update(patch)
         .eq("email", email);
       if (error) console.error("marketingContacts update:", error.message);
@@ -123,7 +123,7 @@ export async function upsertMarketingContact(args: UpsertMarketingContactArgs): 
     // unless the capture form's checkbox was UNTICKED, in which case the
     // contact starts life unsubscribed.
     const { error } = await supabaseAdmin
-      .from("reservation_customers")
+      .from("marketing_contacts")
       .insert({
         email,
         name,
@@ -160,7 +160,7 @@ export async function getMarketingOptInByEmail(email: string): Promise<boolean |
   const e = email.trim().toLowerCase();
   if (!isMarketableEmail(e)) return null;
   const { data } = await supabaseAdmin
-    .from("reservation_customers")
+    .from("marketing_contacts")
     .select("marketing_opt_in")
     .eq("email", e)
     .maybeSingle();
@@ -187,7 +187,7 @@ export async function setMarketingOptInByEmail(args: {
     const now = new Date().toISOString();
 
     const { data: existing } = await supabaseAdmin
-      .from("reservation_customers")
+      .from("marketing_contacts")
       .select("id")
       .eq("email", email)
       .maybeSingle();
@@ -204,7 +204,7 @@ export async function setMarketingOptInByEmail(args: {
     }
 
     const { error } = await supabaseAdmin
-      .from("reservation_customers")
+      .from("marketing_contacts")
       .update({
         marketing_opt_in: args.optIn,
         unsubscribed_at:  args.optIn ? null : now,

@@ -332,7 +332,7 @@ export interface StatusChangeResult {
 
 /**
  * Move a reservation to a new status and run the matching side effects
- * (checked_in_at / checked_out_at timestamps, reservation_customers profile
+ * (checked_in_at / checked_out_at timestamps, marketing_contacts profile
  * upsert + visit_count, status-change email). Extracted from the POS/admin
  * [id] routes so the waiter surface reuses the exact same behaviour instead of
  * keeping a third copy.
