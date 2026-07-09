@@ -15,11 +15,13 @@
  */
 
 import pg from "pg";
-import {
-  categories as menuCategories,
-  menuItems,
-  mealPeriods,
-} from "./src/data/menu-lionrestaurant.js";
+
+// Which menu seed to load. Each tenant/deployment ships its own
+// src/data/menu-<name>.ts (e.g. lionrestaurant, demorestaurant) with the same
+// shape but its own items and Supabase image host. Set MENU_SEED in the
+// deployment's .env.local; defaults to the Lion menu so existing setups are
+// unaffected.
+const MENU_SEED = process.env.MENU_SEED ?? "lionrestaurant";
 
 async function tableEmpty(client: pg.Client, table: string): Promise<boolean> {
   const r = await client.query<{ count: string }>(
@@ -35,11 +37,21 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // Load the selected menu seed. The `.js` extension resolves to the `.ts`
+  // source under tsx, matching the static-import convention this script used
+  // before. Cast to the Lion module's type since every seed shares its shape.
+  const {
+    categories: menuCategories,
+    menuItems,
+    mealPeriods,
+  } = (await import(`./src/data/menu-${MENU_SEED}.js`)) as typeof import("./src/data/menu-lionrestaurant.js");
+
   const client = new pg.Client({ connectionString, ssl: { rejectUnauthorized: false } });
 
   try {
     await client.connect();
     console.log("✓ connected to Postgres");
+    console.log(`✓ using menu seed: ${MENU_SEED}`);
     const summary: string[] = [];
 
     // ── Categories ─────────────────────────────────────────────────────────
