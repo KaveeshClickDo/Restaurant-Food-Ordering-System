@@ -656,7 +656,7 @@ export const menuItems: MenuItem[] = [
     name: "Chicken Fillet",
     description: "Cooked with teriyaki sauce",
     price: 19.95, dietary: ["halal"],
-    image: "https://cdn.apartmenttherapy.info/image/upload/f_jpg,q_auto:eco,c_fill,g_auto,w_1500,ar_1:1/k%2FPhoto%2FRecipes%2F2024-05-chicken-teriyaki-190%2Fchicken-teriyaki-190-171-horizontal"
+    image: "https://sqcihdjgaoqbbjtlxlcj.supabase.co/storage/v1/object/public/menu-images/2026-06-18/62c1154e-db5d-43d5-9621-e84286d2f304.jpg"
   },
   {
     id: "m3", categoryId: "meats",
