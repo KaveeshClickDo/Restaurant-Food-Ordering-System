@@ -7,6 +7,7 @@ import { NextRequest, NextResponse }            from "next/server";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin }                        from "@/lib/supabaseAdmin";
 import { sendOrderStatusEmail }                 from "@/lib/emailServer";
+import { notifyOrderCancelledOrRefunded }       from "@/lib/adminNotifications";
 import type { OrderStatus }                     from "@/types";
 import { parseBody }                            from "@/lib/apiValidation";
 import { OrderStatusUpdateSchema }              from "@/lib/schemas/pos";
@@ -159,6 +160,13 @@ export async function PUT(
   sendOrderStatusEmail(id, body.status as OrderStatus).catch((err: unknown) =>
     console.error("[orders] status email:", err instanceof Error ? err.message : err)
   );
+
+  // Staff alert — no-op unless admin enabled it in Integrations → Admin Emails.
+  if (body.status === "cancelled") {
+    notifyOrderCancelledOrRefunded(id, "cancelled").catch((err: unknown) =>
+      console.error("[admin/orders status] admin notification:", err instanceof Error ? err.message : err)
+    );
+  }
 
   return NextResponse.json({ ok: true });
 }

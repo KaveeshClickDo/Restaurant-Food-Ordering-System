@@ -28,6 +28,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendOrderConfirmationEmail, sendGiftCardDeliveredEmail } from "@/lib/emailServer";
+import { notifyNewOnlineOrder, notifyGiftCardPurchased } from "@/lib/adminNotifications";
 import { getStripe, getWebhookSecret, fromStripeAmount } from "@/lib/stripeServer";
 import { redeemGiftCardForRow } from "@/lib/giftCardValidation";
 import { spendStoreCredit, refundStoreCredit, claimCouponUsage } from "@/lib/storeCredit";
@@ -370,6 +371,20 @@ async function handlePaymentSucceeded(intent: Stripe.PaymentIntent): Promise<voi
   }).catch((err: unknown) =>
     console.error("[webhooks/stripe] confirmation email:", err instanceof Error ? err.message : err),
   );
+
+  // Staff alert — no-op unless admin enabled it in Integrations → Admin Emails.
+  notifyNewOnlineOrder({
+    id:             orderRow.id as string,
+    customer_id:    orderRow.customer_id as string | null,
+    fulfillment:    orderRow.fulfillment as string,
+    total:          orderRow.total as number,
+    items:          orderRow.items as Array<{ name: string; qty: number; price: number }>,
+    payment_method: orderRow.payment_method as string | null,
+    address:        (orderRow.address as string | null) ?? undefined,
+    date:           orderRow.date as string,
+  }).catch((err: unknown) =>
+    console.error("[webhooks/stripe] admin notification:", err instanceof Error ? err.message : err),
+  );
 }
 
 async function handlePaymentFailed(intent: Stripe.PaymentIntent): Promise<void> {
@@ -637,4 +652,15 @@ async function handleGiftCardPurchaseSucceeded(
   } catch (err) {
     console.error("[webhooks/stripe] gift card email:", err instanceof Error ? err.message : err);
   }
+
+  // Staff alert — no-op unless admin enabled it in Integrations → Admin Emails.
+  // Awaited for the same reason as the delivery email above.
+  await notifyGiftCardPurchased({
+    code,
+    amount:         payload.amount,
+    recipientEmail: payload.recipient_email,
+    recipientName:  payload.recipient_name,
+    senderName,
+    buyerEmail:     payload.purchaser_email ?? undefined,
+  });
 }

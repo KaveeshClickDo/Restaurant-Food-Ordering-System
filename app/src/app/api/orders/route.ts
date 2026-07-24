@@ -24,6 +24,7 @@
 import { NextRequest, NextResponse }    from "next/server";
 import { supabaseAdmin }                from "@/lib/supabaseAdmin";
 import { sendOrderConfirmationEmail }   from "@/lib/emailServer";
+import { notifyNewOnlineOrder }         from "@/lib/adminNotifications";
 import { getCustomerSession, unauthorizedJson } from "@/lib/auth";
 import { rateLimit }                    from "@/lib/rateLimit";
 import { validateAndNormaliseOrder } from "@/lib/orderValidation";
@@ -231,6 +232,20 @@ export async function POST(req: NextRequest) {
     date:            row.date,
   }).catch((err: unknown) =>
     console.error("[orders] confirmation email:", err instanceof Error ? err.message : err),
+  );
+
+  // Staff alert — no-op unless admin enabled it in Integrations → Admin Emails.
+  notifyNewOnlineOrder({
+    id:             row.id,
+    customer_id:    row.customer_id,
+    fulfillment:    row.fulfillment,
+    total:          row.total,
+    items:          verifiedItems as Array<{ name: string; qty: number; price: number }>,
+    payment_method: row.payment_method,
+    address:        row.address ?? undefined,
+    date:           row.date,
+  }).catch((err: unknown) =>
+    console.error("[orders] admin notification:", err instanceof Error ? err.message : err),
   );
 
   return NextResponse.json({ ok: true, orderId: row.id, total: row.total });

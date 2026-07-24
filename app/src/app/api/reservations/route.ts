@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin }             from "@/lib/supabaseAdmin";
 import type { DiningTable, ReservationSystem } from "@/types";
 import { sendReservationEmailServer }          from "@/lib/emailServer";
+import { notifyNewOnlineReservation }          from "@/lib/adminNotifications";
 import { rateLimit }                  from "@/lib/rateLimit";
 import { parseBody }                  from "@/lib/apiValidation";
 import { ReservationPublicSchema }    from "@/lib/schemas/reservation";
@@ -184,6 +185,20 @@ export async function POST(req: NextRequest) {
     // Only include cancel_token in email if we successfully stored it
     cancel_token:   insertedWithToken ? cancel_token : undefined,
   }, settingsRow?.data ?? {}, origin).catch(console.error);
+
+  // Staff alert — no-op unless admin enabled it in Integrations → Admin Emails.
+  notifyNewOnlineReservation({
+    id,
+    customer_name:  row.customer_name,
+    customer_email: row.customer_email,
+    customer_phone: row.customer_phone,
+    date:           row.date,
+    time:           row.time,
+    table_label:    row.table_label,
+    party_size:     row.party_size,
+    source:         row.source,
+    note:           row.note,
+  }).catch(console.error);
 
   return NextResponse.json({ ok: true, reservationId: id });
 }

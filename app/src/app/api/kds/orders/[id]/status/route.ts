@@ -63,5 +63,9 @@ export async function PUT(
     console.error("[kds] status email:", err instanceof Error ? err.message : err)
   );
 
+  // No admin "order cancelled" alert here: this route only accepts the kitchen
+  // workflow statuses (pending → confirmed → preparing → ready). Cancellation is
+  // admin-only and notifies from /api/admin/orders/[id]/status and .../refund.
+
   return NextResponse.json({ ok: true });
 }

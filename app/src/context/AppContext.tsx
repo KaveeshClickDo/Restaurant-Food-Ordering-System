@@ -522,6 +522,17 @@ function buildSettingsFromData(raw: Record<string, unknown> | null): AdminSettin
     // event templates added in code that aren't yet in the stored array, so
     // existing installs surface new email events without a manual migration.
     emailTemplates: mergeEmailTemplates(d.emailTemplates),
+    // Deep-merged for the same reason as receiptSettings above, one level
+    // further down: `events` is a fixed-key record, so a stored blob written
+    // before a new event existed would otherwise drop that event's default.
+    adminNotifications: {
+      ...DEFAULT_SETTINGS.adminNotifications!,
+      ...(d.adminNotifications ?? {}),
+      events: {
+        ...DEFAULT_SETTINGS.adminNotifications!.events,
+        ...(d.adminNotifications?.events ?? {}),
+      },
+    },
     // Moved-out keys: read from DB tables, not JSONB. Empty arrays here so
     // the legacy panels that haven't been switched (CouponsPanel) keep
     // rendering something sensible — those panels are scheduled for the

@@ -93,6 +93,20 @@ export const DEFAULT_SETTINGS: AdminSettings = {
   customHeadCode: "",
   printer: DEFAULT_PRINTER,
   emailTemplates: DEFAULT_EMAIL_TEMPLATES,
+  // Internal alerts to the restaurant. Ships disabled with no recipients so
+  // upgrading an existing install never starts emailing on its own — the admin
+  // opts in from Integrations → Admin Emails. The per-event flags below are
+  // only the starting state of those checkboxes.
+  adminNotifications: {
+    enabled: false,
+    recipients: [],
+    events: {
+      new_online_order:         true,
+      new_online_reservation:   true,
+      order_cancelled_refunded: false,
+      gift_card_purchased:      false,
+    },
+  },
   // Deprecated — kept as an empty array for back-compat with old snapshots.
   // The unified "Pages" panel now manages everything via `customPages`.
   footerPages: [],

@@ -320,6 +320,27 @@ export interface EmailTemplate {
   lastModified: string;   // ISO date
 }
 
+// ─── Admin notification emails ───────────────────────────────────────────────
+// Internal alerts sent TO the restaurant, not to customers. Deliberately not
+// template-driven (unlike EmailTemplate above) — the body is a fixed key/value
+// summary built in lib/adminNotifications.ts. Online activity only: POS and
+// waiter orders never notify, since staff are already standing there.
+
+export type AdminNotificationEvent =
+  | "new_online_order"
+  | "new_online_reservation"
+  | "order_cancelled_refunded"
+  | "gift_card_purchased";
+
+export interface AdminNotificationSettings {
+  /** Master switch — off means nothing sends, whatever the per-event flags say. */
+  enabled: boolean;
+  /** Internal inboxes to notify. Empty = no-op. */
+  recipients: string[];
+  /** Per-event opt-in. A missing key is treated as false. */
+  events: Record<AdminNotificationEvent, boolean>;
+}
+
 export interface MenuLink {
   id: string;
   label: string;       // display text shown in nav
@@ -596,6 +617,11 @@ export interface AdminSettings {
   customHeadCode: string;   // raw HTML injected into <head> (analytics, verification tags, etc.)
   printer: PrinterSettings;
   emailTemplates: EmailTemplate[];
+  /** Internal alert emails sent to the restaurant (Admin → Integrations →
+   *  Admin Emails). Optional: server-side readers pull the raw app_settings
+   *  blob with no DEFAULT_SETTINGS merge, so on installs that predate this
+   *  feature the key really is undefined — treat missing as "disabled". */
+  adminNotifications?: AdminNotificationSettings;
   /** Admin-saved broadcast templates (Admin → Marketing → compose step 2).
    *  Optional: older settings blobs simply don't have the key. */
   broadcastTemplates?: BroadcastTemplate[];

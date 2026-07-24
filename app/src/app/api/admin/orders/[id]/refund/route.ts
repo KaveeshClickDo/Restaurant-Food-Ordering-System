@@ -26,6 +26,7 @@ import { AdminRefundSchema }                    from "@/lib/schemas/waiter";
 import { restoreStock, type StockItem }         from "@/lib/stockMutation";
 import { deductLoyaltyPoints, refundRedeemedPoints } from "@/lib/loyaltyUtils";
 import { sendOrderStatusEmail }                 from "@/lib/emailServer";
+import { notifyOrderCancelledOrRefunded }       from "@/lib/adminNotifications";
 
 export async function POST(
   req: NextRequest,
@@ -236,6 +237,17 @@ export async function POST(
   if (autoCancel && requestedStatus !== "cancelled") {
     sendOrderStatusEmail(id, "cancelled").catch((err) =>
       console.error("[admin/orders refund] cancellation email:", err instanceof Error ? err.message : err),
+    );
+  }
+
+  // Staff alert — no-op unless admin enabled it in Integrations → Admin Emails.
+  // Fires on every refund (partial or full), not just the auto-cancel case.
+  if (newest) {
+    notifyOrderCancelledOrRefunded(id, "refunded", {
+      amount: Number(newest.amount),
+      reason: newest.reason,
+    }).catch((err: unknown) =>
+      console.error("[admin/orders refund] admin notification:", err instanceof Error ? err.message : err),
     );
   }
 

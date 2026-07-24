@@ -15,6 +15,7 @@
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendReservationEmailServer } from "@/lib/emailServer";
+import { notifyNewOnlineReservation } from "@/lib/adminNotifications";
 import { getOrderOccupiedTableIds, getActiveDineInTableIds } from "@/lib/tableOccupancy";
 import { upsertMarketingContact } from "@/lib/marketingContacts";
 import type { AdminSettings, EmailTemplateEvent } from "@/types";
@@ -302,6 +303,22 @@ export async function completeReservationFromSession(
     // above keeps the retry idempotent.
     throw new Error(`reservation insert failed: ${result.error}`);
   }
+
+  // Staff alert — no-op unless admin enabled it in Integrations → Admin Emails.
+  // Only fires for source "online"; the helper enforces that itself.
+  notifyNewOnlineReservation({
+    id:             payload.id,
+    customer_name:  payload.customerName,
+    customer_email: payload.customerEmail,
+    customer_phone: payload.customerPhone,
+    date:           payload.date,
+    time:           payload.time,
+    table_label:    payload.tableLabel,
+    party_size:     payload.partySize,
+    source:         payload.source ?? "online",
+    note:           payload.note ?? null,
+    vip_fee:        Number(payload.vipFee ?? 0),
+  }).catch(console.error);
 
   await supabaseAdmin
     .from("payment_sessions")

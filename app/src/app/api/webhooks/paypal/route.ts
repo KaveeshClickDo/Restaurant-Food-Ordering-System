@@ -28,6 +28,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendOrderConfirmationEmail } from "@/lib/emailServer";
+import { notifyNewOnlineOrder }       from "@/lib/adminNotifications";
 import {
   fromPaypalAmount,
   getPaypalWebhookId,
@@ -428,6 +429,20 @@ async function handleCaptureCompleted(resource: PaypalCapture): Promise<void> {
     date: orderRow.date as string,
   }).catch((err: unknown) =>
     console.error("[webhooks/paypal] confirmation email:", err instanceof Error ? err.message : err),
+  );
+
+  // Staff alert — no-op unless admin enabled it in Integrations → Admin Emails.
+  notifyNewOnlineOrder({
+    id:             orderRow.id as string,
+    customer_id:    orderRow.customer_id as string | null,
+    fulfillment:    orderRow.fulfillment as string,
+    total:          orderRow.total as number,
+    items:          orderRow.items as Array<{ name: string; qty: number; price: number }>,
+    payment_method: orderRow.payment_method as string | null,
+    address:        (orderRow.address as string | null) ?? undefined,
+    date:           orderRow.date as string,
+  }).catch((err: unknown) =>
+    console.error("[webhooks/paypal] admin notification:", err instanceof Error ? err.message : err),
   );
 }
 

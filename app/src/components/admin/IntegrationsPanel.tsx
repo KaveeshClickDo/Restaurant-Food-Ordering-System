@@ -2,15 +2,16 @@
 
 import { useState } from "react";
 import { useApp } from "@/context/AppContext";
-import { PaymentMethod } from "@/types";
+import { PaymentMethod, type AdminNotificationEvent, type AdminNotificationSettings } from "@/types";
 import {
   Plug, Eye, EyeOff, CheckCircle, CreditCard, Wallet, Banknote,
   GripVertical, Pencil, X, Check, ChevronUp, ChevronDown,
   ToggleRight, ToggleLeft, Clock, ShieldAlert, History, Ruler,
-  Printer, Wifi, WifiOff, AlertTriangle, Loader2,
+  Printer, Wifi, WifiOff, AlertTriangle, Loader2, Mail, Send, Trash2,
 } from "lucide-react";
 import { buildTestReceipt, sendToPrinter, sendToPrinterBluetooth, sendToPrinterUSB, printReceiptBrowser } from "@/lib/escpos";
 import { getBluetoothPairedDevices, isCapacitorAndroid, type BluetoothDevice } from "@/lib/capacitorBridge";
+import { sendEmailViaApi } from "@/lib/emailTemplates";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -893,10 +894,283 @@ function PrinterTab() {
   );
 }
 
+// ─── Admin Emails Tab ─────────────────────────────────────────────────────────
+// Internal alerts sent TO the restaurant when something happens on the customer
+// site. Unlike the customer emails in Admin → Email Templates these have no
+// editable template — the body is a fixed summary built server-side in
+// lib/adminNotifications.ts. Online activity only: POS and waiter orders never
+// notify, since staff are already in the building.
+
+const NOTIFICATION_EVENTS: Array<{
+  id: AdminNotificationEvent;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "new_online_order",
+    label: "New online order",
+    description: "A customer places an order on the website — card, PayPal or cash.",
+  },
+  {
+    id: "new_online_reservation",
+    label: "New online reservation",
+    description: "A guest books a table through the website booking page.",
+  },
+  {
+    id: "order_cancelled_refunded",
+    label: "Order cancelled or refunded",
+    description: "An online order is cancelled from admin or the kitchen screen, or a refund is issued.",
+  },
+  {
+    id: "gift_card_purchased",
+    label: "Gift card purchased online",
+    description: "A customer buys a gift card on the website. Cards you issue from admin or POS never notify.",
+  },
+];
+
+const EMPTY_NOTIFICATIONS: AdminNotificationSettings = {
+  enabled: false,
+  recipients: [],
+  events: {
+    new_online_order: false, new_online_reservation: false,
+    order_cancelled_refunded: false, gift_card_purchased: false,
+  },
+};
+
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function AdminEmailsTab() {
+  const { settings, updateSettings } = useApp();
+  const stored = settings.adminNotifications ?? EMPTY_NOTIFICATIONS;
+
+  const [draft, setDraft] = useState<AdminNotificationSettings>({
+    enabled:    stored.enabled,
+    recipients: [...stored.recipients],
+    events:     { ...EMPTY_NOTIFICATIONS.events, ...stored.events },
+  });
+  const [entry,    setEntry]    = useState("");
+  const [entryErr, setEntryErr] = useState("");
+  const [saved,    setSaved]    = useState(false);
+  const [testing,  setTesting]  = useState(false);
+  const [testMsg,  setTestMsg]  = useState<{ ok: boolean; text: string } | null>(null);
+
+  const activeEvents = NOTIFICATION_EVENTS.filter((e) => draft.events[e.id]).length;
+  // What the server actually requires before anything sends.
+  const willSend = draft.enabled && draft.recipients.length > 0 && activeEvents > 0;
+
+  function addRecipient() {
+    const value = entry.trim().toLowerCase();
+    if (!value) return;
+    if (!isValidEmail(value)) { setEntryErr("That doesn't look like an email address."); return; }
+    if (draft.recipients.includes(value)) { setEntryErr("Already on the list."); return; }
+    if (draft.recipients.length >= 10) { setEntryErr("Maximum 10 recipients."); return; }
+    setDraft((d) => ({ ...d, recipients: [...d.recipients, value] }));
+    setEntry("");
+    setEntryErr("");
+  }
+
+  function removeRecipient(email: string) {
+    setDraft((d) => ({ ...d, recipients: d.recipients.filter((r) => r !== email) }));
+  }
+
+  function handleSave() {
+    updateSettings({ adminNotifications: draft });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
+  }
+
+  // Reuses the admin-only /api/admin/email relay (same endpoint the Email
+  // Templates panel uses for its test send). A 503 from there is also how we
+  // surface "no RESEND_API_KEY / SMTP_HOST configured" without a new endpoint.
+  async function handleTest() {
+    const to = draft.recipients[0];
+    if (!to) return;
+    setTesting(true);
+    setTestMsg(null);
+    const result = await sendEmailViaApi({
+      to,
+      subject: `Test notification — ${settings.restaurant?.name ?? "Restaurant"}`,
+      html: `<div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#1a1a1a">
+               <h2 style="margin:0 0 8px">Admin notifications are working</h2>
+               <p style="color:#555;font-size:14px;margin:0">
+                 If you can read this, alerts for the events you ticked will reach this inbox.
+               </p>
+             </div>`,
+    });
+    setTesting(false);
+    setTestMsg(result.ok
+      ? { ok: true,  text: `Test email sent to ${to}.` }
+      : { ok: false, text: result.error ?? "Send failed." });
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Status card */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
+        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 ${willSend ? "bg-green-50" : "bg-gray-100"}`}>
+          <Mail size={22} className={willSend ? "text-green-600" : "text-gray-400"} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-gray-900 text-sm">Staff notifications</p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {willSend
+              ? `${draft.recipients.length} recipient${draft.recipients.length === 1 ? "" : "s"} · ${activeEvents} event${activeEvents === 1 ? "" : "s"} enabled`
+              : "Nothing is being sent"}
+          </p>
+        </div>
+        <button
+          onClick={() => setDraft((d) => ({ ...d, enabled: !d.enabled }))}
+          className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors flex-shrink-0 ${draft.enabled ? "bg-green-500" : "bg-gray-300"}`}
+          aria-checked={draft.enabled}
+          role="switch"
+        >
+          <span className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${draft.enabled ? "translate-x-6" : "translate-x-1"}`} />
+        </button>
+      </div>
+
+      {/* Privacy notice — app_settings is readable by the anon key on every page */}
+      <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4">
+        <ShieldAlert size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="font-semibold text-amber-800 text-sm">Use a business address, not a personal one</p>
+          <p className="text-amber-700 text-xs mt-1 leading-relaxed">
+            These addresses are stored in the shared settings record, which the public site reads to
+            render the storefront — so they can be seen by visitors. Prefer a role address like
+            <code className="font-mono bg-amber-100 px-1 rounded mx-1">orders@yourdomain.com</code>
+            over a personal inbox.
+          </p>
+        </div>
+      </div>
+
+      {/* Recipients */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100">
+          <h3 className="font-bold text-gray-900 text-sm">Who gets notified</h3>
+          <p className="text-xs text-gray-400 mt-0.5">Up to 10 addresses. Every enabled event goes to all of them.</p>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="email"
+              value={entry}
+              onChange={(e) => { setEntry(e.target.value); setEntryErr(""); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addRecipient(); } }}
+              placeholder="orders@yourdomain.com"
+              className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+            />
+            <button
+              onClick={addRecipient}
+              className="px-5 py-2.5 rounded-xl font-semibold text-sm bg-gray-900 hover:bg-gray-800 text-white transition flex-shrink-0"
+            >
+              Add
+            </button>
+          </div>
+          {entryErr && <p className="text-xs text-red-500">{entryErr}</p>}
+
+          {draft.recipients.length === 0 ? (
+            <p className="text-xs text-gray-400">No recipients yet — add at least one address for notifications to send.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {draft.recipients.map((email) => (
+                <span key={email} className="inline-flex items-center gap-2 bg-gray-100 text-gray-700 text-xs font-medium rounded-full pl-3 pr-1.5 py-1.5">
+                  {email}
+                  <button
+                    onClick={() => removeRecipient(email)}
+                    className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-red-100 hover:text-red-600 text-gray-400 transition"
+                    aria-label={`Remove ${email}`}
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Events */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100">
+          <h3 className="font-bold text-gray-900 text-sm">What to notify about</h3>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Website activity only — orders rung up on the POS or by waiters never send an email.
+          </p>
+        </div>
+        <div className="divide-y divide-gray-50">
+          {NOTIFICATION_EVENTS.map(({ id, label, description }) => (
+            <label key={id} className="flex items-start gap-3 px-6 py-4 cursor-pointer hover:bg-gray-50/60 transition">
+              <input
+                type="checkbox"
+                checked={!!draft.events[id]}
+                onChange={(e) => setDraft((d) => ({ ...d, events: { ...d.events, [id]: e.target.checked } }))}
+                className="mt-0.5 w-4 h-4 accent-orange-500 flex-shrink-0"
+              />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-800">{label}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{description}</p>
+              </div>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {/* Save + test */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+        {draft.enabled && !willSend && (
+          <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            <AlertTriangle size={15} className="text-amber-600 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-700">
+              Notifications are on but nothing will send —
+              {draft.recipients.length === 0 && " add a recipient."}
+              {draft.recipients.length > 0 && activeEvents === 0 && " tick at least one event."}
+            </p>
+          </div>
+        )}
+
+        {testMsg && (
+          <div className={`flex items-start gap-3 rounded-xl px-4 py-3 border ${testMsg.ok ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}>
+            {testMsg.ok
+              ? <CheckCircle size={15} className="text-green-600 flex-shrink-0 mt-0.5" />
+              : <AlertTriangle size={15} className="text-red-500 flex-shrink-0 mt-0.5" />}
+            <p className={`text-xs ${testMsg.ok ? "text-green-700" : "text-red-600"} break-all`}>{testMsg.text}</p>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={handleSave}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all ${
+              saved ? "bg-green-100 text-green-700" : "bg-orange-500 hover:bg-orange-600 text-white"
+            }`}
+          >
+            {saved ? <><CheckCircle size={15} /> Saved!</> : "Save settings"}
+          </button>
+          <button
+            onClick={handleTest}
+            disabled={testing || draft.recipients.length === 0}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm border border-gray-200 text-gray-700 hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {testing ? <><Loader2 size={15} className="animate-spin" /> Sending…</> : <><Send size={15} /> Send test email</>}
+          </button>
+          {draft.recipients.length > 0 && (
+            <span className="text-xs text-gray-400">Test goes to {draft.recipients[0]}</span>
+          )}
+        </div>
+        <p className="text-[11px] text-gray-400">
+          Sending requires <code className="font-mono">RESEND_API_KEY</code> or <code className="font-mono">SMTP_HOST</code> to be
+          configured — see the API Keys &amp; Email tab. The test button reports if they are missing.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main panel ───────────────────────────────────────────────────────────────
 
 export default function IntegrationsPanel() {
-  const [tab, setTab] = useState<"payments" | "api" | "printer">("payments");
+  const [tab, setTab] = useState<"payments" | "api" | "printer" | "notifications">("payments");
 
   return (
     <div className="space-y-5">
@@ -908,16 +1182,17 @@ export default function IntegrationsPanel() {
           </div>
           <div>
             <h2 className="font-bold text-gray-900">Integrations</h2>
-            <p className="text-xs text-gray-400">Payment methods and API credentials</p>
+            <p className="text-xs text-gray-400">Payment methods, API credentials, printer and staff alerts</p>
           </div>
         </div>
 
         {/* Sub-tabs */}
         <div className="flex border-b border-gray-100 px-6 overflow-x-auto scrollbar-hide">
           {([
-            { id: "payments", label: "Payment Methods", icon: <CreditCard size={14} /> },
-            { id: "api",      label: "API Keys & Email", icon: <Plug size={14} /> },
-            { id: "printer",  label: "Thermal Printer",  icon: <Printer size={14} /> },
+            { id: "payments",      label: "Payment Methods", icon: <CreditCard size={14} /> },
+            { id: "api",           label: "API Keys & Email", icon: <Plug size={14} /> },
+            { id: "printer",       label: "Thermal Printer",  icon: <Printer size={14} /> },
+            { id: "notifications", label: "Admin Emails",     icon: <Mail size={14} /> },
           ] as const).map(({ id, label, icon }) => (
             <button
               key={id}
@@ -934,9 +1209,10 @@ export default function IntegrationsPanel() {
         </div>
       </div>
 
-      {tab === "payments" && <PaymentMethodsTab />}
-      {tab === "api"      && <ApiKeysTab />}
-      {tab === "printer"  && <PrinterTab />}
+      {tab === "payments"      && <PaymentMethodsTab />}
+      {tab === "api"           && <ApiKeysTab />}
+      {tab === "printer"       && <PrinterTab />}
+      {tab === "notifications" && <AdminEmailsTab />}
     </div>
   );
 }
