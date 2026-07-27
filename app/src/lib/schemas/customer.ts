@@ -59,6 +59,32 @@ export const ReservationCustomerUpdateSchema = z.object({
   marketingOptIn: z.boolean().optional(),
 });
 
+// CSV import into marketing_contacts (Admin → Marketing → Audience → Import).
+// The browser parses the file and maps its columns, then posts normalised rows
+// in batches. Emails are deliberately NOT validated here: one malformed
+// address in a 900-row spreadsheet must not reject the whole batch, so row
+// validation happens in importMarketingContacts and comes back as a count of
+// skipped rows. `consent` is the admin's PECR confirmation that the list has
+// permission to be emailed — the import is refused without it.
+export const MarketingContactImportSchema = z.object({
+  rows: z
+    .array(
+      z.object({
+        email: z.string().max(320),
+        name:  z.string().max(200).optional(),
+        phone: z.string().max(40).optional(),
+        tags:  z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+        optIn: z.boolean().optional(),
+      }),
+    )
+    .min(1, "There are no rows to import.")
+    .max(500, "Send the file in batches of 500 rows or fewer."),
+  tags: z.array(z.string().trim().min(1).max(40)).max(10).default([]),
+  consent: z.literal(true, {
+    error: "Confirm that these people agreed to receive marketing email from you.",
+  }),
+});
+
 // Guest profile upsert (called at checkout).
 export const GuestProfileSchema = z.object({
   email:      Email,

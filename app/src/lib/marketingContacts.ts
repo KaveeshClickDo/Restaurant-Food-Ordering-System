@@ -33,7 +33,8 @@ export type ContactSource =
   | "account"       // registered account (password or Google)
   | "gift_card"     // gift card recipient or buyer
   | "pos"           // customer created at the POS till
-  | "ebill";        // typed into the POS / waiter "email bill" box
+  | "ebill"         // typed into the POS / waiter "email bill" box
+  | "import";       // uploaded from a CSV (Admin → Marketing → Audience → Import)
 
 export interface UpsertMarketingContactArgs {
   email: string;
@@ -217,6 +218,186 @@ export async function setMarketingOptInByEmail(args: {
     console.error("setMarketingOptInByEmail:", err instanceof Error ? err.message : err);
     return false;
   }
+}
+
+// ─── CSV import ───────────────────────────────────────────────────────────────
+
+/** One already-parsed, already-column-mapped CSV row. The browser does the
+ *  parsing and mapping (that's where the UI lives); the server only ever sees
+ *  this normalised shape. */
+export interface ImportContactRow {
+  email: string;
+  name?: string;
+  phone?: string;
+  /** Tags from a per-row Tags column, unioned with the import-wide tag(s). */
+  tags?: string[];
+  /**
+   * From an "Opted in" column when the file has one (our own CSV export has
+   * it, so an export → edit → re-import round-trip keeps opt-outs out).
+   *   • false     → contact is created / marked UNSUBSCRIBED.
+   *   • true      → new contact opts in; an existing opt-out is NOT revived.
+   *   • undefined → no column; same as true for new rows, no-op for existing.
+   */
+  optIn?: boolean;
+}
+
+export interface ImportContactsResult {
+  /** Emails that weren't in the list before. */
+  created: number;
+  /** Emails already on the list — tag added, blanks filled, history kept. */
+  updated: number;
+  /** Rows with a missing / malformed / @internal.local email. */
+  invalid: number;
+  /** Rows repeating an email that appeared earlier in the same upload. */
+  duplicates: number;
+  /** Rows the database refused — surfaced so no row fails silently. */
+  failed: number;
+  /** First few rejected values, for the "what we skipped" list in the UI. */
+  invalidSamples: string[];
+}
+
+/** Rows per DB round-trip. Postgres `email IN (...)` and the upsert payload
+ *  both stay comfortably small at this size. */
+const IMPORT_CHUNK = 200;
+
+/**
+ * Bulk-add contacts from an uploaded CSV — the import counterpart to
+ * {@link upsertMarketingContact}, kept in this module so the merge rules live
+ * in one file. Same rules as the single-row path, applied set-at-a-time:
+ *
+ *   • sources        — 'import' appended, existing sources kept
+ *   • tags           — unioned (the upload's tag never replaces existing tags)
+ *   • name / phone   — only a NON-EMPTY value from the file overwrites
+ *   • marketing_opt_in — an opt-out in the file wins immediately; an existing
+ *                      opt-out is NEVER revived by an import
+ *   • counters (visits / orders / spend) — untouched: an import is not a visit
+ *
+ * Unlike the single-row helper this one DOES throw (the admin is watching a
+ * progress bar and needs to know it failed). Bad rows never throw — they come
+ * back counted in the result.
+ *
+ * Read-then-upsert: a contact edited by another request in the millisecond
+ * between the two loses that edit for the columns above — the same trade-off
+ * upsertMarketingContact already documents.
+ */
+export async function importMarketingContacts(args: {
+  rows: ImportContactRow[];
+  /** Tag(s) applied to every contact in the upload (Kit-style import tag). */
+  tags: string[];
+}): Promise<ImportContactsResult> {
+  const result: ImportContactsResult = {
+    created: 0, updated: 0, invalid: 0, duplicates: 0, failed: 0, invalidSamples: [],
+  };
+  const importTags = [...new Set(args.tags.map((t) => t.trim()).filter(Boolean))];
+  const now = new Date().toISOString();
+
+  // ── 1. Normalise + collapse duplicates inside the upload itself ───────────
+  const byEmail = new Map<string, Required<Pick<ImportContactRow, "email" | "name" | "phone" | "tags">> & { optIn?: boolean }>();
+  for (const raw of args.rows) {
+    const email = raw.email?.trim().toLowerCase() ?? "";
+    if (!isMarketableEmail(email)) {
+      result.invalid++;
+      if (result.invalidSamples.length < 10) {
+        result.invalidSamples.push(raw.email?.trim() || "(blank)");
+      }
+      continue;
+    }
+    const rowTags = (raw.tags ?? []).map((t) => t.trim()).filter(Boolean);
+    const seen = byEmail.get(email);
+    if (!seen) {
+      byEmail.set(email, {
+        email,
+        name:  raw.name?.trim()  ?? "",
+        phone: raw.phone?.trim() ?? "",
+        tags:  rowTags,
+        optIn: raw.optIn,
+      });
+      continue;
+    }
+    // Same address twice in one file: keep the first row, let later rows fill
+    // blanks and add tags, and let any opt-out in the file win.
+    result.duplicates++;
+    if (!seen.name  && raw.name?.trim())  seen.name  = raw.name.trim();
+    if (!seen.phone && raw.phone?.trim()) seen.phone = raw.phone.trim();
+    if (rowTags.length) seen.tags = [...new Set([...seen.tags, ...rowTags])];
+    if (raw.optIn === false) seen.optIn = false;
+  }
+  if (byEmail.size === 0) return result;
+
+  const emails = [...byEmail.keys()];
+
+  // ── 2. Read the contacts that already exist, so the merge is additive ─────
+  interface Existing { name: string; phone: string; sources: string[]; tags: string[]; optIn: boolean; unsubscribedAt: string | null }
+  const existing = new Map<string, Existing>();
+  for (let i = 0; i < emails.length; i += IMPORT_CHUNK) {
+    const { data, error } = await supabaseAdmin
+      .from("marketing_contacts")
+      .select("email, name, phone, sources, tags, marketing_opt_in, unsubscribed_at")
+      .in("email", emails.slice(i, i + IMPORT_CHUNK));
+    if (error) {
+      console.error("importMarketingContacts read:", error.message);
+      throw new Error(error.message);
+    }
+    for (const row of data ?? []) {
+      existing.set(row.email as string, {
+        name:           (row.name  as string) ?? "",
+        phone:          (row.phone as string) ?? "",
+        sources:        (row.sources as string[] | null) ?? [],
+        tags:           (row.tags    as string[] | null) ?? [],
+        optIn:          row.marketing_opt_in === true,
+        unsubscribedAt: (row.unsubscribed_at as string | null) ?? null,
+      });
+    }
+  }
+
+  // ── 3. Build one uniform upsert payload (PostgREST needs matching keys) ───
+  // Every row carries its FINAL merged values, so `on conflict do update`
+  // writes exactly what we computed above and nothing else. Columns left out
+  // (visit_count, order_count, total_spend, first/last_visit_at, created_at,
+  // unsubscribe_token, id) keep their value on update and take DB defaults on
+  // insert — which is why an import can never dent a contact's history.
+  const planned = emails.map((email) => {
+    const row = byEmail.get(email)!;
+    const cur = existing.get(email);
+    const tags = [...new Set([...(cur?.tags ?? []), ...row.tags, ...importTags])];
+    const optOut = row.optIn === false;
+    return {
+      isNew: !cur,
+      values: {
+        email,
+        name:    row.name  || cur?.name  || "",
+        phone:   row.phone || cur?.phone || "",
+        sources: cur
+          ? (cur.sources.includes("import") ? cur.sources : [...cur.sources, "import"])
+          : ["import"],
+        tags,
+        // New rows opt in (the admin confirmed the list has consent) unless the
+        // file says otherwise. Existing rows keep their state — only an
+        // opt-out in the file may change it.
+        marketing_opt_in: optOut ? false : (cur ? cur.optIn : true),
+        unsubscribed_at:  optOut ? now   : (cur ? cur.unsubscribedAt : null),
+        updated_at:       now,
+      },
+    };
+  });
+
+  // ── 4. Write, chunk by chunk ─────────────────────────────────────────────
+  for (let i = 0; i < planned.length; i += IMPORT_CHUNK) {
+    const chunk = planned.slice(i, i + IMPORT_CHUNK);
+    const { error } = await supabaseAdmin
+      .from("marketing_contacts")
+      .upsert(chunk.map((p) => p.values), { onConflict: "email" });
+    if (error) {
+      console.error("importMarketingContacts upsert:", error.message);
+      result.failed += chunk.length;
+      continue;
+    }
+    for (const p of chunk) {
+      if (p.isNew) result.created++; else result.updated++;
+    }
+  }
+
+  return result;
 }
 
 /**

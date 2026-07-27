@@ -5,8 +5,10 @@
 import { z } from "zod";
 import { Email } from "./primitives";
 
+// Keep in step with ContactSource in types/index.ts — a source missing here
+// makes that source unusable as a broadcast audience.
 const ContactSourceEnum = z.enum([
-  "reservation", "online_order", "account", "gift_card", "pos", "ebill",
+  "reservation", "online_order", "account", "gift_card", "pos", "ebill", "import",
 ]);
 
 /** Audience descriptor stored on a campaign and resolved to contacts at send
