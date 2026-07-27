@@ -34,6 +34,7 @@ export default function WaiterPage() {
 
   // ── Cross-view state ────────────────────────────────────────────────────────
   const [tables, setTables] = useState<DiningTable[]>([]);
+  const [dojoEnabled, setDojoEnabled] = useState(false);
   const [activeSection, setActiveSection] = useState("All");
   const [activeTable, setActiveTable] = useState<DiningTable | null>(null);
   const [covers, setCovers] = useState(2);
@@ -76,7 +77,7 @@ export default function WaiterPage() {
     // Load tables
     fetch("/api/waiter/config")
       .then((r) => r.json())
-      .then((d) => { if (d.ok) setTables(d.tables); })
+      .then((d) => { if (d.ok) { setTables(d.tables); setDojoEnabled(Boolean(d.dojoEnabled)); } })
       .catch(() => { });
   }, [router]);
 
@@ -98,6 +99,7 @@ export default function WaiterPage() {
         const r = await fetch("/api/waiter/config", { cache: "no-store" });
         const d = await r.json();
         if (d.ok && !cancelled) {
+          setDojoEnabled(Boolean(d.dojoEnabled));
           const key = JSON.stringify({ t: d.tables });
           if (key !== lastConfigKey.current) {
             lastConfigKey.current = key;
@@ -189,6 +191,7 @@ export default function WaiterPage() {
         waiter={waiter}
         receipt={receipt}
         setReceipt={setReceipt}
+        dojoEnabled={dojoEnabled}
         onCheckoutReservation={floor.checkoutReservationForLabel}
         onExit={(refresh) => {
           setActiveTable(null);

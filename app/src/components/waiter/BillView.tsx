@@ -29,8 +29,10 @@ import { buildReceiptHtml } from "./_receiptHtml";
 import ReceiptModal from "./ReceiptModal";
 import BillEmailBar from "./BillEmailBar";
 import VoidRefundModal from "./VoidRefundModal";
+import DojoChargePanel from "@/components/pos/DojoChargePanel";
+import type { DojoSaleResult } from "@/lib/dojo/types";
 
-export default function BillView({ table, waiter, receipt, setReceipt, onCheckoutReservation, onExit }: {
+export default function BillView({ table, waiter, receipt, setReceipt, onCheckoutReservation, onExit, dojoEnabled = false }: {
   table: DiningTable;
   waiter: Omit<WaiterStaff, "pin"> | null;
   /** Shared last-receipt state — set after settle, survives leaving this view. */
@@ -40,6 +42,8 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
   onCheckoutReservation: (label: string) => void;
   /** Leave the bill view; refresh=true re-polls occupancy (after settle/void). */
   onExit: (refresh: boolean) => void;
+  /** When true, "Pay by Card" offers the Dojo terminal vs manual choice. */
+  dojoEnabled?: boolean;
 }) {
   const { settings: appSettings } = useApp();
   const sym = appSettings.currency?.symbol ?? "£";
@@ -49,6 +53,8 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
   const [paying, setPaying] = useState(false);
   // Pending settle confirmation (the chosen method) — null means no prompt visible.
   const [settleConfirm, setSettleConfirm] = useState<"cash" | "card" | "gift_card" | null>(null);
+  // Dojo card flow: "choose" shows terminal-vs-manual; "dojo" drives the terminal.
+  const [cardFlow, setCardFlow] = useState<"none" | "choose" | "dojo">("none");
   // Gift card applied to the bill (bearer code). Reduces the amount due; the
   // remainder is settled by cash/card as normal.
   const [billGiftCard, setBillGiftCard] = useState<{ code: string; balance: number } | null>(null);
@@ -152,7 +158,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
     }
   }
 
-  async function payBill(method: "cash" | "card" | "gift_card") {
+  async function payBill(method: "cash" | "card" | "gift_card", dojo?: DojoSaleResult) {
     if (billOrders.length === 0 || paying) return;
     setPaying(true);
     const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -180,6 +186,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
           ...(tipAmount > 0 ? { tipAmount } : {}),
           ...(serviceFeeAmount > 0 ? { serviceFeeAmount } : {}),
           ...(billGiftCard && gcAmount > 0 ? { giftCardCode: billGiftCard.code, giftCardUsed: gcAmount } : {}),
+          ...(dojo ? { dojo } : {}),
         }),
       });
     } catch (err) {
@@ -482,6 +489,34 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                     </button>
                   </div>
                 </div>
+              ) : cardFlow === "dojo" ? (
+                <DojoChargePanel
+                  amount={dueAfterGiftCard}
+                  reference={`Table ${table.label}`}
+                  currencySymbol={sym}
+                  busy={paying}
+                  onApproved={(r) => { setCardFlow("none"); payBill("card", r); }}
+                  onManualFallback={() => { setCardFlow("none"); payBill("card"); }}
+                  onBack={() => setCardFlow("none")}
+                />
+              ) : cardFlow === "choose" ? (
+                <div className="space-y-3">
+                  <p className="text-slate-400 text-xs font-bold uppercase tracking-widest text-center mb-1">
+                    Pay {fmtCur(dueAfterGiftCard, sym)} by card
+                  </p>
+                  <button onClick={() => setCardFlow("dojo")}
+                    className="w-full flex items-center gap-3 p-4 bg-slate-800 hover:bg-slate-700 border border-slate-600 hover:border-blue-500/50 rounded-2xl transition">
+                    <CreditCard size={20} className="text-blue-400 flex-shrink-0" />
+                    <div className="text-left flex-1 min-w-0"><p className="text-white font-semibold text-sm">Card machine</p><p className="text-slate-400 text-xs">Send to the Dojo terminal</p></div>
+                  </button>
+                  <button onClick={() => { setCardFlow("none"); setSettleConfirm("card"); }}
+                    className="w-full flex items-center gap-3 p-4 bg-slate-800 hover:bg-slate-700 border border-slate-600 hover:border-slate-400/50 rounded-2xl transition">
+                    <CreditCard size={20} className="text-slate-300 flex-shrink-0" />
+                    <div className="text-left flex-1 min-w-0"><p className="text-white font-semibold text-sm">Other</p><p className="text-slate-400 text-xs">Record manually — use your own machine</p></div>
+                  </button>
+                  <button onClick={() => setCardFlow("none")}
+                    className="w-full pt-1 text-slate-500 hover:text-slate-300 text-sm font-medium transition">Cancel</button>
+                </div>
               ) : (
                 <>
                   {/* Gift card tender */}
@@ -546,7 +581,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                         <span className="text-sm">Pay by Cash</span>
                       </button>
                       <button
-                        onClick={() => setSettleConfirm("card")}
+                        onClick={() => (dojoEnabled ? setCardFlow("choose") : setSettleConfirm("card"))}
                         disabled={paying}
                         className="flex flex-col items-center gap-1 md:gap-2  bg-blue-600 hover:bg-blue-500 disabled:opacity-50 active:scale-[0.97] text-white font-bold py-2 md:py-5 rounded-2xl transition-all"
                       >

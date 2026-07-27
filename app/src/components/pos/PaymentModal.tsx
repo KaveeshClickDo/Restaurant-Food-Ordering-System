@@ -4,6 +4,8 @@ import { useRef, useState } from "react";
 import { apiBase } from "@/lib/apiBase";
 import { X, Banknote, CreditCard, Shuffle, ChevronRight, AlertTriangle, Gift, Loader2 } from "lucide-react";
 import { fmt } from "./_utils";
+import DojoChargePanel from "./DojoChargePanel";
+import type { DojoSaleResult } from "@/lib/dojo/types";
 
 export default function PaymentModal({
   total,
@@ -12,6 +14,8 @@ export default function PaymentModal({
   currencySymbol,
   isOffline = false,
   allowGiftCard = true,
+  dojoEnabled = false,
+  saleReference,
 }: {
   total: number;
   onClose: () => void;
@@ -20,12 +24,19 @@ export default function PaymentModal({
     payments: { method: "cash" | "card"; amount: number }[],
     cashTendered?: number,
     giftCard?: { code: string; amount: number },
+    /** Set only when the card leg was collected on an integrated Dojo terminal. */
+    dojo?: DojoSaleResult,
   ) => void;
   currencySymbol: string;
   isOffline?: boolean;
   /** Show the gift-card tender step. Off for flows where any gift card was
    *  already applied upstream (e.g. online collection orders paid at the POS). */
   allowGiftCard?: boolean;
+  /** When true and online, the "Card" tender drives a Dojo card terminal instead
+   *  of the manual "Payment Received" confirm. Off → today's manual behaviour. */
+  dojoEnabled?: boolean;
+  /** Reference stamped on the Dojo payment intent (e.g. an order/cart label). */
+  saleReference?: string;
 }) {
   type Step = "method" | "cash" | "card" | "split" | "done";
   const [step, setStep] = useState<Step>("method");
@@ -106,6 +117,30 @@ export default function PaymentModal({
   function completeGiftCardOnly() {
     if (!lock()) return;
     onComplete("gift_card", [], undefined, giftCardArg);
+  }
+
+  // ── Dojo card terminal (feat/dojo-payments) ─────────────────────────────────
+  // When dojoEnabled and online, the Card tender first offers a choice; picking
+  // "Card machine" mounts DojoChargePanel (the shared driven-terminal flow),
+  // which calls onDojoApproved on success. "Other" keeps today's manual confirm.
+  const useDojoCard = dojoEnabled && !isOffline;
+  const [cardMode, setCardMode] = useState<"choose" | "dojo" | "manual">("choose");
+
+  function chooseCard() {
+    setStep("card");
+    setCardMode(useDojoCard ? "choose" : "manual");
+  }
+
+  /** DojoChargePanel → terminal payment approved: stamp it on the sale. */
+  function onDojoApproved(result: DojoSaleResult) {
+    if (lock()) onComplete("card", [{ method: "card", amount: due }], undefined, giftCardArg, result);
+  }
+
+  /** Record the card sale manually (no Dojo txn) — used for the Expired fallback
+   *  and as the tender confirm when Dojo isn't driving the terminal. */
+  function recordCardManually() {
+    if (!lock()) return;
+    onComplete("card", [{ method: "card", amount: due }], undefined, giftCardArg);
   }
 
   return (
@@ -202,7 +237,7 @@ export default function PaymentModal({
                     too. The cashier MUST confirm the terminal beeped approved
                     before tapping "Payment Received" on the next screen. */}
                 <button
-                  onClick={() => setStep("card")}
+                  onClick={chooseCard}
                   className="w-full flex items-center gap-4 p-4 bg-slate-700/60 hover:bg-slate-700 border border-slate-600 hover:border-blue-500/50 rounded-xl transition-all group"
                 >
                   <div className="w-10 h-10 bg-blue-500/20 rounded-xl flex items-center justify-center group-hover:bg-blue-500/30 transition-colors">
@@ -210,7 +245,7 @@ export default function PaymentModal({
                   </div>
                   <div className="text-left">
                     <p className="text-white font-semibold text-sm">Card</p>
-                    <p className="text-slate-400 text-xs">Tap, chip or swipe</p>
+                    <p className="text-slate-400 text-xs">{useDojoCard ? "Send to card machine" : "Tap, chip or swipe"}</p>
                   </div>
                   <ChevronRight size={16} className="text-slate-500 ml-auto" />
                 </button>
@@ -276,9 +311,44 @@ export default function PaymentModal({
           </div>
         )}
 
-        {step === "card" && (
+        {/* Card — choose Dojo terminal vs manual (Dojo on). */}
+        {step === "card" && useDojoCard && cardMode === "choose" && (
+          <div className="p-5 space-y-3">
+            <button onClick={() => setStep("method")} className="text-slate-400 hover:text-white text-sm mb-1 flex items-center gap-1">← Back</button>
+            <p className="text-slate-400 text-sm">Take {fmt(due, currencySymbol)} by card</p>
+            <button onClick={() => setCardMode("dojo")} className="w-full flex items-center gap-4 p-4 bg-slate-700/60 hover:bg-slate-700 border border-slate-600 hover:border-blue-500/50 rounded-xl transition-all">
+              <div className="w-10 h-10 bg-blue-500/20 rounded-xl flex items-center justify-center flex-shrink-0"><CreditCard size={20} className="text-blue-400" /></div>
+              <div className="text-left flex-1 min-w-0"><p className="text-white font-semibold text-sm">Card machine</p><p className="text-slate-400 text-xs">Send to the Dojo terminal</p></div>
+              <ChevronRight size={16} className="text-slate-500" />
+            </button>
+            <button onClick={() => setCardMode("manual")} className="w-full flex items-center gap-4 p-4 bg-slate-700/60 hover:bg-slate-700 border border-slate-600 hover:border-slate-400/50 rounded-xl transition-all">
+              <div className="w-10 h-10 bg-slate-500/20 rounded-xl flex items-center justify-center flex-shrink-0"><CreditCard size={20} className="text-slate-300" /></div>
+              <div className="text-left flex-1 min-w-0"><p className="text-white font-semibold text-sm">Other</p><p className="text-slate-400 text-xs">Record manually — use your own machine</p></div>
+              <ChevronRight size={16} className="text-slate-500" />
+            </button>
+          </div>
+        )}
+
+        {/* Card — Dojo-driven terminal flow (shared component). */}
+        {step === "card" && useDojoCard && cardMode === "dojo" && (
+          <DojoChargePanel
+            amount={due}
+            reference={saleReference}
+            description={saleReference ? `POS sale ${saleReference}` : "POS card sale"}
+            currencySymbol={currencySymbol}
+            busy={submitting}
+            onApproved={onDojoApproved}
+            onManualFallback={recordCardManually}
+            onBack={() => setCardMode("choose")}
+          />
+        )}
+
+        {/* Card — manual confirm: Dojo off, or the operator chose "Other". The
+            standalone terminal handles authorisation; the cashier confirms it
+            beeped approved. */}
+        {step === "card" && (!useDojoCard || cardMode === "manual") && (
           <div className="p-5">
-            <button onClick={() => setStep("method")} className="text-slate-400 hover:text-white text-sm mb-5 flex items-center gap-1">← Back</button>
+            <button onClick={() => (useDojoCard ? setCardMode("choose") : setStep("method"))} className="text-slate-400 hover:text-white text-sm mb-5 flex items-center gap-1">← Back</button>
             <div className="text-center py-6">
               <div className="w-20 h-20 bg-blue-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <CreditCard size={36} className="text-blue-400" />

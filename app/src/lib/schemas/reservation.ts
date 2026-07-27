@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Email, OptionalPhone, Phone, NonEmptyString, IsoDate, IsoTime } from "./primitives";
+import { DojoResultSchema } from "./dojo";
 
 const PartySize = z.number().int().min(1, "Party size must be at least 1.").max(50, "Party size is too large.");
 
@@ -63,6 +64,8 @@ export const ReservationPosSchema = z.object({
   paymentMethod: ManualPaymentMethod.optional(),
   /** Marketing checkbox (default ticked) — asked at the till. */
   marketingOptIn: z.boolean().optional().default(true),
+  /** Present only when the VIP fee was collected on a Dojo terminal. */
+  dojo:          DojoResultSchema.optional(),
 }).refine(
   (data) => data.source !== "phone" || (data.customerPhone && data.customerPhone.length > 0),
   { message: "Phone number is required for phone bookings.", path: ["customerPhone"] },

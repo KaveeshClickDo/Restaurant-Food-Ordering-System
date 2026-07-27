@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { PaymentMethod, type AdminNotificationEvent, type AdminNotificationSettings } from "@/types";
 import {
@@ -283,6 +283,9 @@ function PaymentMethodsTab() {
 
   return (
     <div className="space-y-6">
+      {/* Dojo card terminal — in-person card payments across POS/waiter/collection. */}
+      <CardTerminalTab />
+
       {/* Status bar */}
       <div className="flex items-start gap-4 flex-wrap">
         <div className="flex-1 min-w-[200px] bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 flex items-center gap-4">
@@ -1162,6 +1165,95 @@ function AdminEmailsTab() {
           Sending requires <code className="font-mono">RESEND_API_KEY</code> or <code className="font-mono">SMTP_HOST</code> to be
           configured — see the API Keys &amp; Email tab. The test button reports if they are missing.
         </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Card Terminal (Dojo) Tab ─────────────────────────────────────────────────
+// Secondary on/off switch over the DOJO_MODE env master. The env holds the secret
+// key and is the real gate: while it's off, this toggle is LOCKED and Dojo shows
+// nowhere. When env is on, this lets the restaurant turn the card-machine option
+// off (or back on) without touching the server. See lib/dojo/effectiveFlag.ts.
+
+function CardTerminalTab() {
+  const { settings, updateSettings } = useApp();
+  const [status, setStatus] = useState<{ envAvailable: boolean; envMode: string; sandbox: boolean } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/admin/dojo/status")
+      .then((r) => r.json())
+      .then((j) => { if (!cancelled && j.ok) setStatus({ envAvailable: j.envAvailable, envMode: j.envMode, sandbox: j.sandbox }); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const envAvailable = status?.envAvailable ?? false;
+  const adminEnabled = settings.dojoTerminal?.enabled ?? true; // default on when unset (matches server)
+  const effective = envAvailable && adminEnabled;
+
+  function toggle() {
+    if (!envAvailable) return; // locked while env master is off
+    updateSettings({ dojoTerminal: { enabled: !adminEnabled } });
+    setSaved(true); setTimeout(() => setSaved(false), 2000);
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Status + toggle */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
+        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 ${effective ? "bg-green-50" : "bg-gray-100"}`}>
+          <CreditCard size={22} className={effective ? "text-green-600" : "text-gray-400"} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-gray-900 text-sm">Dojo card terminal</p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {loading ? "Checking server…"
+              : effective ? `Active${status?.sandbox ? " · sandbox/test" : ""} — card payments can use the Dojo machine`
+              : envAvailable ? "Turned off — card payments use the manual method"
+              : "Unavailable — configure the server first"}
+          </p>
+        </div>
+        <div className={!envAvailable && !loading ? "opacity-40 pointer-events-none" : ""}>
+          <Toggle enabled={effective} onToggle={toggle} />
+        </div>
+      </div>
+
+      {/* Env lock notice */}
+      {!loading && !envAvailable && (
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4">
+          <ShieldAlert size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold text-amber-800 text-sm">Set up the server first</p>
+            <p className="text-amber-700 text-xs mt-1 leading-relaxed">
+              The card terminal is gated by the <code className="font-mono bg-amber-100 px-1 rounded">DOJO_MODE</code> server
+              environment variable (it holds the secret key). While it is <code className="font-mono bg-amber-100 px-1 rounded">off</code> this
+              toggle stays locked and Dojo appears nowhere. Set <code className="font-mono bg-amber-100 px-1 rounded">DOJO_MODE=mock</code> (test)
+              or <code className="font-mono bg-amber-100 px-1 rounded">DOJO_MODE=live</code> + an API key, then restart the server.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* How it works */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4">
+        <h3 className="font-semibold text-gray-900 text-sm mb-2">How it works</h3>
+        <ul className="text-xs text-gray-500 space-y-1.5 list-disc list-inside">
+          <li>When on, every <strong>card</strong> payment (POS, waiter, collection, gift cards, bookings) offers <strong>“Card machine (Dojo)”</strong> or <strong>“Other”</strong>.</li>
+          <li>“Card machine” drives the Dojo terminal and records the transaction automatically.</li>
+          <li>“Other” settles the old way — staff run their own machine and confirm.</li>
+          <li>Turn this off (or unset the env) and card payments revert entirely to the manual method.</li>
+        </ul>
+        {!loading && envAvailable && (
+          <p className="text-[11px] text-gray-400 mt-3">
+            Environment mode: <code className="font-mono">{status?.envMode}</code>{status?.sandbox ? " (sandbox/test — no real charges)" : ""}.
+            {saved && <span className="text-green-600 font-semibold ml-1">Saved.</span>}
+          </p>
+        )}
       </div>
     </div>
   );

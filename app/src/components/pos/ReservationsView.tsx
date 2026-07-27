@@ -4,9 +4,12 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { apiBase } from "@/lib/apiBase";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { useApp } from "@/context/AppContext";
+import { usePOS } from "@/context/POSContext";
+import DojoChargePanel from "./DojoChargePanel";
+import type { DojoSaleResult } from "@/lib/dojo/types";
 import {
   AlertTriangle, Calendar, CalendarDays, CheckCircle2, Clock, Loader2,
-  LogIn, LogOut, RefreshCw, Search, UserPlus, Users, UtensilsCrossed, X, Crown,
+  LogIn, LogOut, RefreshCw, Search, UserPlus, Users, UtensilsCrossed, X, Crown, CreditCard,
 } from "lucide-react";
 import { type ResRow, fmt12Pos, fmtTsPos } from "./_reservations";
 import { cleanPhone } from "@/lib/inputUtils";
@@ -72,6 +75,7 @@ interface AvailTablePos { id: string; label: string; seats: number; section: str
 
 export default function ReservationsView() {
   const { settings: appSettings } = useApp();
+  const { dojoEnabled } = usePOS();
   const rs = appSettings.reservationSystem ?? {};
   const currencySymbol = appSettings.currency?.symbol ?? "£";
   const maxParty = rs.maxPartySize ?? 10;
@@ -116,6 +120,9 @@ export default function ReservationsView() {
   const [addPayMethod,   setAddPayMethod]   = useState<"cash" | "card">("cash");
   const [addSaving,      setAddSaving]      = useState(false);
   const [addError,       setAddError]       = useState("");
+  // VIP-fee card flow: "choose" = terminal-vs-manual choice; "dojo" = driving the
+  // terminal. "none" = no overlay.
+  const [cardStage,      setCardStage]      = useState<"none" | "choose" | "dojo">("none");
 
   // Fetch available tables for the add modal. Both walk-in and phone bookings
   // use the same availability check so staff can't accidentally double-book a
@@ -225,6 +232,15 @@ export default function ReservationsView() {
       );
       if (!ok) return;
     }
+    // VIP fee paid by card, with Dojo on → charge the terminal first, then book
+    // with the transaction attached. Otherwise book straight away.
+    const isVipCard = Boolean(addTableMeta.isVip && (addTableMeta.vipPrice ?? 0) > 0 && addPayMethod === "card");
+    if (isVipCard && dojoEnabled) { setAddError(""); setCardStage("choose"); return; }
+    void submitBooking();
+  }
+
+  async function submitBooking(dojo?: DojoSaleResult) {
+    if (!addTableMeta) return;
     setAddSaving(true); setAddError("");
     try {
       const res  = await fetch(apiBase() + "/api/pos/reservations", {
@@ -238,13 +254,14 @@ export default function ReservationsView() {
           marketingOptIn: addMarketing,
           // Sent only for VIP tables; ignored by the server otherwise.
           ...(addTableMeta.isVip ? { paymentMethod: addPayMethod } : {}),
+          ...(dojo ? { dojo } : {}),
         }),
       });
       const json = await res.json() as { ok: boolean; error?: string };
       if (json.ok) { setShowAdd(false); fetchRows(false); }
       else setAddError(json.error ?? "Failed to create booking.");
     } catch { setAddError("Network error — please try again."); }
-    finally { setAddSaving(false); }
+    finally { setAddSaving(false); setCardStage("none"); }
   }
 
   // ── Main list ──────────────────────────────────────────────────────────────
@@ -806,6 +823,45 @@ export default function ReservationsView() {
                    : addSource === "walk-in" ? <><LogIn size={14} />Check In Now</> : <><CheckCircle2 size={14} />Create Booking</>}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* VIP booking fee — choose Dojo terminal vs manual, then charge. */}
+      {cardStage !== "none" && addTableMeta && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
+            <div className="px-5 py-4 border-b border-slate-700">
+              <p className="text-white font-bold text-sm">VIP booking fee · {currencySymbol}{(addTableMeta.vipPrice ?? 0).toFixed(2)}</p>
+              <p className="text-slate-400 text-xs">Table {addTableMeta.label}</p>
+            </div>
+
+            {cardStage === "choose" ? (
+              <div className="p-5 space-y-3">
+                <p className="text-slate-400 text-sm">Take {currencySymbol}{(addTableMeta.vipPrice ?? 0).toFixed(2)} by card</p>
+                <button onClick={() => setCardStage("dojo")}
+                  className="w-full flex items-center gap-3 p-4 bg-slate-900 hover:bg-slate-700 border border-slate-600 hover:border-blue-500/50 rounded-xl transition">
+                  <CreditCard size={20} className="text-blue-400 flex-shrink-0" />
+                  <div className="text-left flex-1 min-w-0"><p className="text-white font-semibold text-sm">Card machine</p><p className="text-slate-400 text-xs">Send to the Dojo terminal</p></div>
+                </button>
+                <button onClick={() => { setCardStage("none"); void submitBooking(); }}
+                  className="w-full flex items-center gap-3 p-4 bg-slate-900 hover:bg-slate-700 border border-slate-600 hover:border-slate-400/50 rounded-xl transition">
+                  <CreditCard size={20} className="text-slate-300 flex-shrink-0" />
+                  <div className="text-left flex-1 min-w-0"><p className="text-white font-semibold text-sm">Other</p><p className="text-slate-400 text-xs">Record manually — use your own machine</p></div>
+                </button>
+                <button onClick={() => setCardStage("none")} className="w-full pt-1 text-slate-500 hover:text-slate-300 text-sm font-medium transition">Cancel</button>
+              </div>
+            ) : (
+              <DojoChargePanel
+                amount={addTableMeta.vipPrice ?? 0}
+                reference={`VIP ${addTableMeta.label}`}
+                currencySymbol={currencySymbol}
+                busy={addSaving}
+                onApproved={(r) => { setCardStage("none"); void submitBooking(r); }}
+                onManualFallback={() => { setCardStage("none"); void submitBooking(); }}
+                onBack={() => setCardStage("choose")}
+              />
+            )}
           </div>
         </div>
       )}

@@ -18,6 +18,8 @@ import { useState } from "react";
 import { apiBase } from "@/lib/apiBase";
 import { Gift, X, Banknote, CreditCard, CheckCircle, Loader2 } from "lucide-react";
 import { fmt } from "./_utils";
+import DojoChargePanel from "./DojoChargePanel";
+import type { DojoSaleResult } from "@/lib/dojo/types";
 
 export interface SellableGiftCard {
   id: string;
@@ -26,12 +28,14 @@ export interface SellableGiftCard {
   createdAt: string;
 }
 
-export default function SellGiftCardModal({ card, currencySymbol, onClose, onSold }: {
+export default function SellGiftCardModal({ card, currencySymbol, onClose, onSold, dojoEnabled = false }: {
   card: SellableGiftCard;
   currencySymbol: string;
   onClose: () => void;
   /** Called after a successful activation so the caller can refresh the rack. */
   onSold: () => void;
+  /** When true, a card-paid sale offers the Dojo terminal vs manual choice. */
+  dojoEnabled?: boolean;
 }) {
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "card">("cash");
   const [email, setEmail] = useState("");
@@ -41,8 +45,17 @@ export default function SellGiftCardModal({ card, currencySymbol, onClose, onSol
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sold, setSold] = useState(false);
+  // Dojo card flow: "choose" shows terminal-vs-manual; "dojo" drives the terminal.
+  const [cardFlow, setCardFlow] = useState<"none" | "choose" | "dojo">("none");
 
-  async function handleSell() {
+  /** Activate clicked: validate, then branch to the Dojo choice for card+enabled. */
+  function onActivateClick() {
+    if (!email.trim()) { setError("Customer email is required to sell the card."); return; }
+    if (paymentMethod === "card" && dojoEnabled) { setError(null); setCardFlow("choose"); return; }
+    void handleSell();
+  }
+
+  async function handleSell(dojo?: DojoSaleResult) {
     // Email is required — every till sale captures a marketing contact (with
     // the consent tick), same policy as the admin counter sale.
     if (!email.trim()) { setError("Customer email is required to sell the card."); return; }
@@ -58,6 +71,7 @@ export default function SellGiftCardModal({ card, currencySymbol, onClose, onSol
           recipientName:  name.trim() || undefined,
           sendEmail,
           marketingOptIn,
+          ...(dojo ? { dojo } : {}),
         }),
       });
       const json = await res.json() as { ok: boolean; error?: string };
@@ -99,6 +113,33 @@ export default function SellGiftCardModal({ card, currencySymbol, onClose, onSol
             <button onClick={onClose} className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold text-sm transition-colors">
               Done
             </button>
+          </div>
+        ) : cardFlow === "dojo" ? (
+          <div className="px-2 py-2">
+            <DojoChargePanel
+              amount={card.initialAmount}
+              reference={`Gift card ${card.code}`}
+              currencySymbol={currencySymbol}
+              busy={busy}
+              onApproved={(r) => { setCardFlow("none"); void handleSell(r); }}
+              onManualFallback={() => { setCardFlow("none"); void handleSell(); }}
+              onBack={() => setCardFlow("none")}
+            />
+          </div>
+        ) : cardFlow === "choose" ? (
+          <div className="px-5 py-5 space-y-3">
+            <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide text-center">Take {fmt(card.initialAmount, currencySymbol)} by card</p>
+            <button onClick={() => setCardFlow("dojo")}
+              className="w-full flex items-center gap-3 p-4 bg-slate-900 hover:bg-slate-700 border border-slate-600 hover:border-blue-500/50 rounded-xl transition">
+              <CreditCard size={20} className="text-blue-400 flex-shrink-0" />
+              <div className="text-left flex-1 min-w-0"><p className="text-white font-semibold text-sm">Card machine</p><p className="text-slate-400 text-xs">Send to the Dojo terminal</p></div>
+            </button>
+            <button onClick={() => { setCardFlow("none"); void handleSell(); }}
+              className="w-full flex items-center gap-3 p-4 bg-slate-900 hover:bg-slate-700 border border-slate-600 hover:border-slate-400/50 rounded-xl transition">
+              <CreditCard size={20} className="text-slate-300 flex-shrink-0" />
+              <div className="text-left flex-1 min-w-0"><p className="text-white font-semibold text-sm">Other</p><p className="text-slate-400 text-xs">Record manually — use your own machine</p></div>
+            </button>
+            <button onClick={() => setCardFlow("none")} className="w-full text-slate-500 hover:text-slate-300 text-sm font-medium pt-1">Cancel</button>
           </div>
         ) : (
           <div className="px-5 py-5 space-y-4">
@@ -165,12 +206,12 @@ export default function SellGiftCardModal({ card, currencySymbol, onClose, onSol
             )}
 
             <button
-              onClick={() => void handleSell()}
+              onClick={onActivateClick}
               disabled={busy}
               className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold text-sm transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
             >
               {busy ? <Loader2 size={16} className="animate-spin" /> : <Gift size={16} />}
-              {busy ? "Activating…" : `Take ${fmt(card.initialAmount, currencySymbol)} · Activate`}
+              {busy ? "Activating…" : paymentMethod === "card" && dojoEnabled ? `Take ${fmt(card.initialAmount, currencySymbol)} by card` : `Take ${fmt(card.initialAmount, currencySymbol)} · Activate`}
             </button>
           </div>
         )}

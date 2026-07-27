@@ -8,6 +8,7 @@ import { fmt, getInitials } from "./_utils";
 import { apiBase } from "@/lib/apiBase";
 import ModifierModal from "./ModifierModal";
 import PaymentModal from "./PaymentModal";
+import type { DojoSaleResult } from "@/lib/dojo/types";
 import ReceiptModal from "./ReceiptModal";
 import OrderPanel from "./OrderPanel";
 import SellGiftCardModal, { type SellableGiftCard } from "./SellGiftCardModal";
@@ -29,7 +30,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
   const [showDiscount, setShowDiscount] = useState(false);
   const [showTip, setShowTip] = useState(false);
   const [showServiceFee, setShowServiceFee] = useState(false);
-  const { completeSale, afterTaxTotal, grandTotal, discount, setDiscount, tipAmount, setTipAmount, serviceFeePct, setServiceFeePct, settings: s, customers, assignedCustomer, setAssignedCustomer } = usePOS();
+  const { completeSale, afterTaxTotal, grandTotal, discount, setDiscount, tipAmount, setTipAmount, serviceFeePct, setServiceFeePct, settings: s, customers, assignedCustomer, setAssignedCustomer, dojoEnabled } = usePOS();
   const [discountInput, setDiscountInput] = useState(discount.pct.toString());
   const [discountNote, setDiscountNote] = useState(discount.note);
   const [tipCustom, setTipCustom] = useState("");
@@ -129,8 +130,9 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
     payments: { method: "cash" | "card"; amount: number }[],
     cashTendered?: number,
     giftCard?: { code: string; amount: number },
+    dojo?: DojoSaleResult,
   ) {
-    const { sale, error } = await completeSale(method, payments, cashTendered, giftCard);
+    const { sale, error } = await completeSale(method, payments, cashTendered, giftCard, dojo);
     if (!sale) {
       // Surface the server's actual reason (e.g. "'Burger' is no longer
       // available on the menu", "Insufficient stock") instead of a generic
@@ -167,6 +169,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
         <SellGiftCardModal
           card={sellTarget}
           currencySymbol={settings.currencySymbol}
+          dojoEnabled={dojoEnabled}
           onClose={() => setSellTarget(null)}
           onSold={() => { void refreshGiftCards(); }}
         />
@@ -180,6 +183,8 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
           onClose={() => setShowPayment(false)}
           onComplete={handlePaymentComplete}
           isOffline={isOffline}
+          dojoEnabled={dojoEnabled}
+          saleReference={assignedCustomer?.name || undefined}
         />
       )}
 

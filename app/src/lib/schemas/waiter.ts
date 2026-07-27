@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { NonEmptyString, PositiveMoney, Money } from "./primitives";
+import { DojoResultSchema } from "./dojo";
 
 const NonEmptyIdArray = z.array(NonEmptyString).min(1, "At least one orderId is required.");
 
@@ -36,6 +37,8 @@ export const WaiterSettleSchema = z.object({
   // Finance Reports' VAT breakdown includes dine-in.
   vatAmount:     Money.optional(),
   vatInclusive:  z.boolean().optional(),
+  // Present only when the card leg was collected on an integrated Dojo terminal.
+  dojo:          DojoResultSchema.optional(),
 });
 
 export const WaiterVoidSchema = z.object({

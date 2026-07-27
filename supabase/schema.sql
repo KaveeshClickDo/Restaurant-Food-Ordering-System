@@ -1275,6 +1275,58 @@ alter table pos_sales add column if not exists synced_at          timestamptz de
 create index if not exists idx_pos_sales_terminal_id
   on pos_sales (terminal_id) where terminal_id is not null;
 
+-- ── Dojo card-terminal payments (feat/dojo-payments) ─────────────────────────
+-- Every card payment collected on an integrated Dojo terminal — across POS
+-- sales, collection/dine-in settle, gift-card sales and reservation deposits —
+-- is recorded here, keyed by the Dojo payment intent, with a polymorphic link
+-- back to whatever it paid for (source_type/source_id). One central place =
+-- clean "all card-machine takings" reporting and refund lookup, with no dojo_*
+-- columns spread across five tables. See docs/dojo/IMPLEMENTATION-PLAN.md.
+--   source_type   pos_sale | collection | dine_in | reservation | gift_card
+create table if not exists dojo_payments (
+  payment_intent_id    text primary key,        -- Dojo "pi_…"
+  terminal_session_id  text,                    -- Dojo "ts_…"
+  transaction_id       text,                    -- acquirer transaction id
+  auth_code            text,
+  card_scheme          text,                    -- VISA / MASTERCARD / …
+  card_last4           text,
+  status               text,                    -- Captured / Authorized / Refunded / …
+  amount               numeric(10,2),
+  currency             text,
+  source_type          text not null,
+  source_id            text,
+  staff_id             text,
+  created_at           timestamptz not null default now()
+);
+create index if not exists idx_dojo_payments_source on dojo_payments (source_type, source_id);
+alter table dojo_payments enable row level security;
+drop policy if exists "deny_anon_all" on dojo_payments;
+create policy "deny_anon_all" on dojo_payments for all to anon using (false) with check (false);
+
+-- An earlier iteration stored dojo_* columns on pos_sales directly; the central
+-- dojo_payments table above supersedes that. Drop them if a prior migrate added
+-- them (idempotent — no-op on fresh databases).
+alter table pos_sales drop column if exists dojo_payment_intent_id;
+alter table pos_sales drop column if exists dojo_terminal_session_id;
+alter table pos_sales drop column if exists dojo_transaction_id;
+alter table pos_sales drop column if exists dojo_auth_code;
+alter table pos_sales drop column if exists dojo_card_scheme;
+alter table pos_sales drop column if exists dojo_card_last4;
+alter table pos_sales drop column if exists dojo_status;
+drop index if exists idx_pos_sales_dojo_payment_intent_id;
+
+-- Received Dojo webhook events, for at-least-once dedup + audit. The webhook
+-- route inserts keyed on Dojo's event id; a duplicate is a harmless no-op.
+create table if not exists dojo_events (
+  id          text primary key,          -- Dojo event id (evt_…)
+  event_type  text,
+  payload     jsonb not null,
+  received_at timestamptz not null default now()
+);
+alter table dojo_events enable row level security;
+drop policy if exists "deny_anon_all" on dojo_events;
+create policy "deny_anon_all" on dojo_events for all to anon using (false) with check (false);
+
 -- ── Session versioning for staff roles ───────────────────────────────────────
 -- Embedded in the HMAC session token so admin-initiated credential changes
 -- (password/email) or deactivation immediately invalidate all live

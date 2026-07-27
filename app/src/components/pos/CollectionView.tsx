@@ -10,6 +10,7 @@ import { usePOS } from "@/context/POSContext";
 import { useConnectivity } from "@/lib/connectivity";
 import { fmt, relTime } from "./_utils";
 import PaymentModal from "./PaymentModal";
+import type { DojoSaleResult } from "@/lib/dojo/types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -66,7 +67,7 @@ type CollectionScope = "all" | "online" | "walkin";
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function CollectionView() {
-  const { settings } = usePOS();
+  const { settings, dojoEnabled } = usePOS();
   const { isOnline } = useConnectivity();
   const sym = settings.currencySymbol ?? "£";
 
@@ -105,12 +106,12 @@ export default function CollectionView() {
   }, [refresh]);
 
   // Take payment for an unpaid order → settle (paid + delivered + loyalty).
-  async function settlePayment(order: CollectionOrder, method: "cash" | "card" | "split") {
+  async function settlePayment(order: CollectionOrder, method: "cash" | "card" | "split", dojo?: DojoSaleResult) {
     setError("");
     const r = await fetch(`${apiBase()}/api/pos/orders/${order.id}/settle`, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ paymentMethod: method }),
+      body:    JSON.stringify({ paymentMethod: method, ...(dojo ? { dojo } : {}) }),
     });
     const json = await r.json().catch(() => ({})) as { ok?: boolean; error?: string };
     if (!r.ok || !json.ok) {
@@ -319,10 +320,12 @@ export default function CollectionView() {
           currencySymbol={sym}
           isOffline={!isOnline}
           allowGiftCard={false}
+          dojoEnabled={dojoEnabled}
+          saleReference={`Collection ${payTarget.id}`}
           onClose={() => setPayTarget(null)}
-          onComplete={(method) => {
+          onComplete={(method, _payments, _cash, _gc, dojo) => {
             const pm = method === "card" ? "card" : method === "split" ? "split" : "cash";
-            settlePayment(payTarget, pm);
+            settlePayment(payTarget, pm, dojo);
           }}
         />
       )}

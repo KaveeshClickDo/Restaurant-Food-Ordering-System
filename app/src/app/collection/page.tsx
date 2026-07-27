@@ -11,6 +11,7 @@ import { useApp } from "@/context/AppContext";
 import { useConnectivity } from "@/lib/connectivity";
 import { fmt, relTime, fmtTime } from "@/components/pos/_utils";
 import PaymentModal from "@/components/pos/PaymentModal";
+import type { DojoSaleResult } from "@/lib/dojo/types";
 import CollectionFooter from "@/components/collection/CollectionFooter";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -71,6 +72,7 @@ export default function CollectionPage() {
 
   const [payTarget, setPayTarget] = useState<CollectionOrder | null>(null);
   const [markingId, setMarkingId] = useState<string | null>(null);
+  const [dojoEnabled, setDojoEnabled] = useState(false);
 
   // Hydrate the staff identity for the header (middleware already gates the route).
   // Re-checked on a light poll + whenever the tab regains focus so an admin edit
@@ -82,10 +84,11 @@ export default function CollectionPage() {
       const r = await fetch("/api/collection/auth", { cache: "no-store" });
       if (r.status === 401) { router.replace("/collection/login"); return; }
       if (!r.ok) return; // transient blip — keep last-known
-      const d = await r.json() as { ok?: boolean; staff?: { name: string; avatarColor?: string } };
+      const d = await r.json() as { ok?: boolean; staff?: { name: string; avatarColor?: string }; dojoEnabled?: boolean };
       if (!d?.ok || !d.staff) return;
       setStaffName(d.staff.name);
       if (d.staff.avatarColor) setStaffColor(d.staff.avatarColor);
+      setDojoEnabled(Boolean(d.dojoEnabled));
     } catch { /* network blip — keep last-known */ }
   }, [router]);
 
@@ -136,12 +139,12 @@ export default function CollectionPage() {
     router.replace("/collection/login");
   }
 
-  async function settlePayment(order: CollectionOrder, method: "cash" | "card" | "split") {
+  async function settlePayment(order: CollectionOrder, method: "cash" | "card" | "split", dojo?: DojoSaleResult) {
     setError("");
     const r = await fetch(`/api/collection/orders/${order.id}/settle`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paymentMethod: method }),
+      body: JSON.stringify({ paymentMethod: method, ...(dojo ? { dojo } : {}) }),
     });
     const json = await r.json().catch(() => ({})) as { ok?: boolean; error?: string };
     if (!r.ok || !json.ok) setError(json.error ?? "Could not take payment. Please try again.");
@@ -394,10 +397,12 @@ export default function CollectionPage() {
           currencySymbol={sym}
           isOffline={!isOnline}
           allowGiftCard={false}
+          dojoEnabled={dojoEnabled}
+          saleReference={`Collection ${payTarget.id}`}
           onClose={() => setPayTarget(null)}
-          onComplete={(method) => {
+          onComplete={(method, _payments, _cash, _gc, dojo) => {
             const pm = method === "card" ? "card" : method === "split" ? "split" : "cash";
-            settlePayment(payTarget, pm);
+            settlePayment(payTarget, pm, dojo);
           }}
         />
       )}

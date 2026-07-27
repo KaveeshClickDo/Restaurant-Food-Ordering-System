@@ -25,6 +25,8 @@ import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutatio
 import { lookupActiveGiftCard, clampGiftCardAmount, redeemGiftCardForRow } from "@/lib/giftCardValidation";
 import { rewardLoyaltyPoints } from "@/lib/loyaltyUtils";
 import { rowToSale } from "@/lib/posSaleMap";
+import { recordDojoPayment } from "@/lib/dojo";
+import type { DojoSaleResult } from "@/lib/dojo/types";
 
 const POS_CUSTOMER_ID = "pos-walk-in";
 
@@ -316,6 +318,12 @@ export async function POST(req: NextRequest) {
     terminal_id:        offlineFields.terminalId       ?? null,
     client_created_at:  offlineFields.clientCreatedAt  ?? null,
   };
+
+  // Dojo card-terminal result (optional) — present only when the card leg was
+  // collected on an integrated Dojo terminal. Recorded in the central
+  // dojo_payments table AFTER the sale row is inserted (below), so it can link
+  // to the sale id. Absent for cash sales and standalone-card sales.
+  const dojo = (body as unknown as { dojo?: DojoSaleResult }).dojo;
   // Offline clients mint their own receipt_no (per-terminal namespace).
   // Omit the field when no value supplied so the DB default fires for online sales.
   if (offlineFields.receiptNo) row.receipt_no = offlineFields.receiptNo;
@@ -351,6 +359,14 @@ export async function POST(req: NextRequest) {
   }
 
   const sale = rowToSale(inserted);
+
+  // Central record of the Dojo card-terminal payment (idempotent), linked to
+  // this sale. Non-fatal: a failure here logs but never rolls back a paid sale.
+  if (dojo?.paymentIntentId) {
+    await recordDojoPayment({
+      result: dojo, sourceType: "pos_sale", sourceId: String(sale.id), amount: netTotal, staffId: session.id,
+    });
+  }
 
   // Gift card redemption AS A GATE — before KDS sync / the orders mirror.
   // The sale row carries the gift_card_id + gift_card_used stamp; the helper

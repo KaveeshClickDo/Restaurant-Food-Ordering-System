@@ -13,6 +13,8 @@ import { supabase } from "@/lib/supabase";
 import { isCapacitorAndroid } from "@/lib/capacitorBridge";
 import { enqueueSale, cancelQueuedSale, listEntries } from "@/lib/posOutbox";
 import { kvGet, kvSet } from "@/lib/posLocalDb";
+import { getDojoConfig } from "@/lib/dojo/posApi";
+import type { DojoSaleResult } from "@/lib/dojo/types";
 import bcrypt from "bcryptjs";
 
 // On-device cache keys (Phase 1.6 / 4). kvGet/kvSet are Capacitor-only (no-ops
@@ -312,8 +314,13 @@ interface POSContextValue {
     paymentMethod: "cash" | "card" | "split" | "gift_card",
     payments: { method: "cash" | "card"; amount: number }[],
     cashTendered?: number,
-    giftCard?: { code: string; amount: number }
+    giftCard?: { code: string; amount: number },
+    // Set only when the card leg was collected on an integrated Dojo terminal;
+    // the details are persisted onto the sale's dojo_* columns.
+    dojo?: DojoSaleResult,
   ) => Promise<{ sale: POSSale | null; error?: string }>;
+  /** True when the Dojo card-terminal flow is enabled (DOJO_MODE=mock|live). */
+  dojoEnabled: boolean;
   // voidSale returns `{ ok, error? }` so callers can surface the server's
   // actual reason (insufficient permission, sale already voided, refund
   // amount exceeds total, etc.) instead of a generic network message.
@@ -1350,11 +1357,26 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   const grandTotal     = round2(grandTotalRaw);
 
   // ── Complete sale ─────────────────────────────────────────────────────────
+  // ── Dojo card-terminal availability ──────────────────────────────────────────
+  // Reflects the server flag (DOJO_MODE). Fetched once a staff session exists so
+  // the /api/pos/dojo/config call is authenticated. Off → PaymentModal keeps the
+  // manual card confirm, i.e. today's behaviour. See lib/dojo/config.ts.
+  const [dojoEnabled, setDojoEnabled] = useState(false);
+  useEffect(() => {
+    if (!currentStaff?.id) { setDojoEnabled(false); return; }
+    let cancelled = false;
+    getDojoConfig()
+      .then((c) => { if (!cancelled) setDojoEnabled(Boolean(c.enabled)); })
+      .catch(() => { if (!cancelled) setDojoEnabled(false); });
+    return () => { cancelled = true; };
+  }, [currentStaff?.id]);
+
   const completeSale = useCallback(async (
     paymentMethod: "cash" | "card" | "split" | "gift_card",
     payments: { method: "cash" | "card"; amount: number }[],
     cashTendered?: number,
-    giftCard?: { code: string; amount: number }
+    giftCard?: { code: string; amount: number },
+    dojo?: DojoSaleResult,
   ): Promise<{ sale: POSSale | null; error?: string }> => {
     // Compute totals at full precision, then round each money field to 2dp
     // before sending. The server's Money primitive rejects float garbage
@@ -1418,6 +1440,8 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       // the sale total, then stamps + redeems. total stays the full goods
       // value; the gift card covers part/all of what's owed.
       ...(giftCard ? { giftCardCode: giftCard.code, giftCardUsed: round2(giftCard.amount) } : {}),
+      // Dojo card-terminal result (server persists onto pos_sales.dojo_* columns).
+      ...(dojo ? { dojo } : {}),
       staffId: currentStaff?.id ?? "",
       staffName: currentStaff?.name ?? "",
       customerId: assignedCustomer?.id,
@@ -1763,7 +1787,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       kitchenNote, setKitchenNote,
       assignedCustomer, setAssignedCustomer,
       subtotal, discountAmount, taxAmount, afterTaxTotal, grandTotal,
-      completeSale, voidSale,
+      completeSale, voidSale, dojoEnabled,
       clockIn, clockOut, isClocked,
       refreshClockEntries: fetchClockEntries,
       exportSales,

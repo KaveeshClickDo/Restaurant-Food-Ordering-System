@@ -12,6 +12,7 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { rewardLoyaltyPoints } from "@/lib/loyaltyUtils";
 import { sendOrderStatusEmail } from "@/lib/emailServer";
+import { recordDojoPayment, type DojoResultInput } from "@/lib/dojo";
 
 const POS_CUSTOMER_ID = "pos-walk-in";
 const ACTIVE_STATUSES = ["pending", "confirmed", "preparing", "ready"];
@@ -82,6 +83,7 @@ export async function listCollectionOrders(opts: {
 export async function settleCollectionOrder(
   id: string,
   paymentMethod: CollectionTender,
+  opts?: { dojo?: DojoResultInput; staffId?: string | null },
 ): Promise<MutationResult> {
   const { data: order, error: fetchErr } = await supabaseAdmin
     .from("orders")
@@ -119,6 +121,13 @@ export async function settleCollectionOrder(
   sendOrderStatusEmail(id, "delivered").catch((err: unknown) =>
     console.error("[collectionOrders] settle email:", err instanceof Error ? err.message : err),
   );
+
+  // Central record of the Dojo card-terminal payment, if this was settled on one.
+  if (opts?.dojo?.paymentIntentId) {
+    await recordDojoPayment({
+      result: opts.dojo, sourceType: "collection", sourceId: id, amount: Number(order.total), staffId: opts.staffId ?? null,
+    });
+  }
 
   return { ok: true, status: 200 };
 }

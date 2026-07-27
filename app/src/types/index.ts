@@ -622,6 +622,12 @@ export interface AdminSettings {
    *  blob with no DEFAULT_SETTINGS merge, so on installs that predate this
    *  feature the key really is undefined — treat missing as "disabled". */
   adminNotifications?: AdminNotificationSettings;
+  /** Dojo card-terminal integration (Admin → Integrations → Card Terminal).
+   *  Secondary switch over the DOJO_MODE env master: can turn the terminal
+   *  payment option off, or back on, but is ignored when env has it off.
+   *  Optional — missing means "not explicitly set" (treated as on when env is
+   *  on). See lib/dojo/effectiveFlag.ts. */
+  dojoTerminal?: { enabled: boolean };
   /** Admin-saved broadcast templates (Admin → Marketing → compose step 2).
    *  Optional: older settings blobs simply don't have the key. */
   broadcastTemplates?: BroadcastTemplate[];

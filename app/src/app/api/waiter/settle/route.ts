@@ -10,6 +10,7 @@ import { requireWaiterAuth } from "@/lib/waiterAuth";
 import { parseBody } from "@/lib/apiValidation";
 import { WaiterSettleSchema } from "@/lib/schemas/waiter";
 import { lookupActiveGiftCard, clampGiftCardAmount, redeemGiftCardForRow } from "@/lib/giftCardValidation";
+import { recordDojoPayment } from "@/lib/dojo";
 
 export async function POST(req: NextRequest) {
   const unauth = await requireWaiterAuth();
@@ -18,7 +19,7 @@ export async function POST(req: NextRequest) {
   const parsed = await parseBody(req, WaiterSettleSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const { orderIds, tableLabel, paymentMethod, giftCardCode, giftCardUsed,
-          discountAmount, discountNote, tipAmount, serviceFeeAmount, vatAmount, vatInclusive } = parsed.data;
+          discountAmount, discountNote, tipAmount, serviceFeeAmount, vatAmount, vatInclusive, dojo } = parsed.data;
 
   const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -177,6 +178,14 @@ export async function POST(req: NextRequest) {
     }
 
     // (Gift card was already debited as a gate above, before settling.)
+
+    // Central record of the Dojo card-terminal payment, if the card leg used one.
+    if (dojo?.paymentIntentId) {
+      await recordDojoPayment({
+        result: dojo, sourceType: "dine_in", sourceId: anchorOrderId ?? orderIds[0],
+        amount: round2(finalTotal - giftCardAmount),
+      });
+    }
 
     return NextResponse.json({ ok: true, settled: orderIds.length, tableLabel });
   } catch (err) {

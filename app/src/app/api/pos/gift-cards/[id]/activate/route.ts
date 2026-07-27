@@ -24,6 +24,7 @@ import { parseBody } from "@/lib/apiValidation";
 import { PosGiftCardActivateSchema } from "@/lib/schemas/giftCard";
 import { sendGiftCardDeliveredEmail } from "@/lib/emailServer";
 import { upsertMarketingContact } from "@/lib/marketingContacts";
+import { recordDojoPayment } from "@/lib/dojo";
 
 const GIFT_CARD_EXPIRY_MONTHS = 12;
 
@@ -38,7 +39,7 @@ export async function POST(
 
   const parsed = await parseBody(req, PosGiftCardActivateSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { paymentMethod, recipientEmail, recipientName, notes, sendEmail, marketingOptIn } = parsed.data;
+  const { paymentMethod, recipientEmail, recipientName, notes, sendEmail, marketingOptIn, dojo } = parsed.data;
 
   const { data: card, error: cardErr } = await supabaseAdmin
     .from("gift_cards")
@@ -116,6 +117,13 @@ export async function POST(
           .then(({ error }) => { if (error) console.error("[pos/gift-cards/activate] delivered_at:", error.message); });
       }
     }).catch((err) => console.error("[pos/gift-cards/activate] email:", err instanceof Error ? err.message : err));
+  }
+
+  // Central record of the Dojo card-terminal payment, if the card was paid on one.
+  if (dojo?.paymentIntentId) {
+    await recordDojoPayment({
+      result: dojo, sourceType: "gift_card", sourceId: id, amount: cardValue, staffId: staff.id,
+    });
   }
 
   return NextResponse.json({ ok: true, id, code: card.code, amount: cardValue });

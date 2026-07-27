@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { NonEmptyString, Money, PositiveMoney } from "./primitives";
+import { DojoResultSchema } from "./dojo";
 
 // ── POS sale ─────────────────────────────────────────────────────────────────
 // The POS cart item shape is rich + flexible — let it pass through and let the
@@ -55,6 +56,11 @@ export const PosSaleCreateSchema = z.object({
   receiptNo:        z.string().max(32).optional(),
   terminalId:       z.string().max(64).optional(),
   clientCreatedAt:  z.string().optional(),
+  // ── Dojo card-terminal result (feat/dojo-payments) ─────────────────────────
+  // Present only when the card leg was collected on an integrated Dojo terminal.
+  // The server records it centrally in dojo_payments (source_type=pos_sale).
+  // Absent for cash / standalone-card sales.
+  dojo: DojoResultSchema.optional(),
 }).passthrough();
 
 export const PosSaleVoidSchema = z.object({
@@ -131,6 +137,8 @@ export const KdsOrderStatusSchema = z.object({
 // outstanding balance was tendered and flips the order to paid + delivered.
 export const PosCollectionSettleSchema = z.object({
   paymentMethod: z.enum(["cash", "card", "split"]),
+  // Present only when the card leg was collected on an integrated Dojo terminal.
+  dojo: DojoResultSchema.optional(),
 });
 
 export const OrderDriverAssignSchema = z.object({

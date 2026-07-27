@@ -28,7 +28,8 @@ export async function POST(
   const parsed = await parseBody(req, PosCollectionSettleSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
 
-  const result = await settleCollectionOrder(id, parsed.data.paymentMethod);
+  const session = await getPosSession();
+  const result = await settleCollectionOrder(id, parsed.data.paymentMethod, { dojo: parsed.data.dojo, staffId: session?.id ?? null });
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
   return NextResponse.json({ ok: true });
 }
