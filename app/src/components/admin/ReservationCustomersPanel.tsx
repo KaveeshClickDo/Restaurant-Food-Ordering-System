@@ -16,6 +16,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import type { ReservationCustomer, ContactSource } from "@/types";
+// Type-only: erased at build, so no server code reaches the client bundle.
+import type { MarketingStatus } from "@/lib/marketingCloud";
 import {
   readContactCsv, buildImportRows, tagFromFilename, NO_MAP,
   type ImportField, type ColumnMap, type ImportRow,
@@ -27,6 +29,7 @@ import {
   ShoppingBag, Megaphone, Gift, Tablet, UserCheck, Send, Eye, Trash2, AlertTriangle,
   Receipt, CalendarCheck, ArrowLeft, ArrowRight, CalendarClock, FileEdit, Minus,
   Variable, Sparkles, PartyPopper, Pencil, Check, Upload, FileSpreadsheet, AlertCircle,
+  Lock,
 } from "lucide-react";
 
 // ─── Small helpers ────────────────────────────────────────────────────────────
@@ -548,6 +551,7 @@ export default function ReservationCustomersPanel() {
 
   // Broadcast state
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [status, setStatus] = useState<MarketingStatus | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [composeInitial, setComposeInitial] = useState<{ subject: string; previewText: string; body: string; audience: Audience; startStep: 1 | 2 } | null>(null);
 
@@ -567,6 +571,16 @@ export default function ReservationCustomersPanel() {
     finally { if (isInitial) setLoading(false); }
   }, []);
 
+  /** Entitlement for this install — drives the locked screen and the badge.
+   *  Resolved server-side by IP; see lib/marketingCloud.ts. */
+  const fetchStatus = useCallback(async (force = false) => {
+    try {
+      const res = await fetch(`/api/admin/marketing/status${force ? "?force=1" : ""}`);
+      const json = await res.json() as { ok: boolean; status?: MarketingStatus };
+      if (json.ok && json.status) setStatus(json.status);
+    } catch (err) { console.error("marketing status fetch:", err); }
+  }, []);
+
   const fetchCampaigns = useCallback(async () => {
     try {
       const res = await fetch("/api/admin/campaigns");
@@ -575,16 +589,24 @@ export default function ReservationCustomersPanel() {
     } catch (err) { console.error("campaigns fetch:", err); }
   }, []);
 
-  useEffect(() => { fetchCustomers(true); fetchCampaigns(); }, [fetchCustomers, fetchCampaigns]);
+  useEffect(() => { fetchCustomers(true); fetchCampaigns(); fetchStatus(); }, [fetchCustomers, fetchCampaigns, fetchStatus]);
 
   useEffect(() => {
     const id = setInterval(() => {
       if (document.visibilityState !== "visible") return;
       if (view === "audience") fetchCustomers();
-      if (view === "broadcasts") { fetchCampaigns(); fetchCustomers(); }
+      if (view === "broadcasts") { fetchCampaigns(); fetchCustomers(); fetchStatus(); }
     }, 10_000);
     return () => clearInterval(id);
-  }, [fetchCustomers, fetchCampaigns, view]);
+  }, [fetchCustomers, fetchCampaigns, fetchStatus, view]);
+
+  // Coming back from the purchase tab: re-check immediately (bypassing the
+  // server-side cache) so a package bought seconds ago unlocks the tab now.
+  useEffect(() => {
+    function onFocus() { if (document.visibilityState === "visible") fetchStatus(true); }
+    document.addEventListener("visibilitychange", onFocus);
+    return () => document.removeEventListener("visibilitychange", onFocus);
+  }, [fetchStatus]);
 
   async function handleSave(id: string, patch: { notes?: string; tags?: string[]; marketingOptIn?: boolean }) {
     const res = await fetch(`/api/admin/reservation-customers/${id}`, {
@@ -644,6 +666,7 @@ export default function ReservationCustomersPanel() {
       <ComposeWizard
         key={editingId ?? "new"}
         contacts={customers} allTags={allTags} brandColor={brandColor} restaurantName={restaurantName}
+        status={status}
         editingId={editingId} initial={composeInitial}
         onExit={() => { setView("broadcasts"); setComposeInitial(null); setEditingId(null); setSelected(new Set()); fetchCampaigns(); }}
       />
@@ -661,6 +684,8 @@ export default function ReservationCustomersPanel() {
             <p className="text-xs text-gray-500 mt-0.5">Send offers and news to everyone who&apos;s ordered, booked, or bought from you.</p>
           </div>
         </div>
+        <div className="flex items-center gap-3 flex-wrap">
+        <PlanBadge status={status} />
         <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
           <button onClick={() => setView("broadcasts")} className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold transition ${view === "broadcasts" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
             <Send size={14} /> Broadcasts
@@ -670,11 +695,12 @@ export default function ReservationCustomersPanel() {
             <span className="text-[10px] bg-gray-200 text-gray-600 rounded-full px-1.5 py-0.5">{customers.length}</span>
           </button>
         </div>
+        </div>
       </div>
 
       {view === "broadcasts" ? (
         <BroadcastsHome
-          campaigns={campaigns} reachableCount={reachableCount} loading={loading}
+          campaigns={campaigns} reachableCount={reachableCount} loading={loading} status={status}
           onNew={() => newBroadcast(false)} onResume={resumeDraft} onChanged={fetchCampaigns}
         />
       ) : (
@@ -693,9 +719,99 @@ export default function ReservationCustomersPanel() {
   );
 }
 
+// ═══ Email allowance ══════════════════════════════════════════════════════════
+// Contacts, tags, CSV and the composer are always free. SENDING is what the
+// package pays for, so everything here is about how many sends are left.
+
+/** True when a broadcast can actually go out right now. */
+function canSendNow(status: MarketingStatus | null): boolean {
+  return status?.state === "active" && status.remaining > 0;
+}
+
+function PlanBadge({ status }: { status: MarketingStatus | null }) {
+  if (!status || status.state === "unavailable") return null;
+  if (status.state === "none") {
+    return (
+      <span className="flex items-center gap-1.5 text-xs font-semibold bg-amber-50 border border-amber-200 text-amber-800 rounded-full px-3 py-1.5">
+        <Lock size={12} /> Sending locked
+      </span>
+    );
+  }
+  const out = status.remaining === 0;
+  const low = !out && status.remaining <= Math.max(50, status.limit * 0.1);
+  const cls = out ? "bg-red-50 border-red-200 text-red-700"
+    : low ? "bg-amber-50 border-amber-200 text-amber-800"
+    : "bg-emerald-50 border-emerald-200 text-emerald-700";
+  return (
+    <span className={`flex items-center gap-1.5 text-xs font-semibold border rounded-full px-3 py-1.5 ${cls}`}
+      title={`${status.packageName} · resets ${fmtDate(status.periodEnd)}${status.stale ? " · showing last known figures" : ""}`}>
+      <Mail size={12} />
+      {out ? "No emails left" : `${status.remaining.toLocaleString()} emails left`}
+    </span>
+  );
+}
+
+/** The sell screen: shown in place of the broadcast history until they buy. */
+function LockedBroadcasts({ status, reachableCount }: { status: Extract<MarketingStatus, { state: "none" }>; reachableCount: number }) {
+  return (
+    <div className="space-y-5">
+      <div className="bg-gradient-to-br from-orange-50 via-amber-50 to-white border border-orange-100 rounded-2xl px-8 py-10 text-center">
+        <div className="w-14 h-14 rounded-2xl bg-orange-500 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-orange-200">
+          <Megaphone size={26} className="text-white" />
+        </div>
+        <h3 className="text-2xl font-bold text-gray-900">
+          {reachableCount > 0
+            ? <>You have <span className="text-orange-600">{reachableCount.toLocaleString()}</span> customers ready to hear from you</>
+            : <>Start emailing your customers</>}
+        </h3>
+        <p className="text-sm text-gray-500 mt-2 max-w-lg mx-auto">
+          Your contact list is building itself every time someone orders, books a table, or buys a gift card.
+          Add an email package to start sending them offers and news.
+        </p>
+      </div>
+
+      <div className="grid sm:grid-cols-3 gap-3">
+        {status.packages.map((p, i) => (
+          <div key={p.id} className={`bg-white border rounded-2xl p-5 flex flex-col gap-3 ${i === 0 ? "border-orange-300 ring-1 ring-orange-100" : "border-gray-200"}`}>
+            <div>
+              <p className="font-bold text-gray-900">{p.name}</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{p.emails.toLocaleString()}<span className="text-sm font-medium text-gray-400"> emails</span></p>
+              <p className="text-sm font-semibold text-orange-600 mt-0.5">{p.priceLabel}</p>
+            </div>
+            {p.blurb && <p className="text-xs text-gray-500 flex-1">{p.blurb}</p>}
+            <a href={`${status.buyUrl}?package=${encodeURIComponent(p.id)}`} target="_blank" rel="noopener noreferrer"
+              className={`flex items-center justify-center gap-1.5 font-bold px-4 py-2.5 rounded-xl text-sm transition ${i === 0 ? "bg-orange-500 hover:bg-orange-600 text-white" : "border border-gray-200 text-gray-700 hover:border-orange-300 hover:text-orange-600"}`}>
+              Choose {p.name} <ArrowRight size={14} />
+            </a>
+          </div>
+        ))}
+      </div>
+
+      <p className="text-xs text-gray-400 text-center">
+        Opens your DirectDine account in a new tab. Come back here once you&apos;ve paid — this page unlocks by itself.
+      </p>
+    </div>
+  );
+}
+
+/** Marketing API not configured or unreachable. */
+function BroadcastsUnavailable({ reason }: { reason: string }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl px-8 py-12 text-center">
+      <AlertTriangle size={28} className="text-amber-500 mx-auto mb-3" />
+      <p className="font-semibold text-gray-800">Broadcasts aren&apos;t set up yet</p>
+      <p className="text-sm text-gray-500 mt-1.5 max-w-md mx-auto">
+        Your contacts are safe and still collecting. Sending needs to be switched on by DirectDine — get in touch and we&apos;ll sort it.
+      </p>
+      <p className="text-[11px] text-gray-400 mt-3 font-mono">{reason}</p>
+    </div>
+  );
+}
+
 // ═══ Broadcasts home ══════════════════════════════════════════════════════════
-function BroadcastsHome({ campaigns, reachableCount, loading, onNew, onResume, onChanged }: {
+function BroadcastsHome({ campaigns, reachableCount, loading, status, onNew, onResume, onChanged }: {
   campaigns: Campaign[]; reachableCount: number; loading: boolean;
+  status: MarketingStatus | null;
   onNew: () => void; onResume: (id: string) => void; onChanged: () => void;
 }) {
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -715,6 +831,28 @@ function BroadcastsHome({ campaigns, reachableCount, loading, onNew, onResume, o
   if (loading && campaigns.length === 0) {
     return <div className="flex justify-center py-16"><Loader2 size={28} className="animate-spin text-orange-500" /></div>;
   }
+
+  // ── Sending not available ───────────────────────────────────────────────────
+  // Checked before the campaign history: with no package there's nothing to
+  // send, so the packages are the useful thing to show. Past broadcasts (if a
+  // package lapsed) still appear underneath.
+  if (status?.state === "unavailable") return <BroadcastsUnavailable reason={status.reason} />;
+  if (status?.state === "none") {
+    return (
+      <div className="space-y-6">
+        <LockedBroadcasts status={status} reachableCount={reachableCount} />
+        {campaigns.length > 0 && (
+          <div className="space-y-2.5">
+            <p className="text-sm font-semibold text-gray-700">Your past broadcasts</p>
+            {campaigns.map((c) => <CampaignRow key={c.id} c={c} editable={false} deleting={deleting} confirmDelete={confirmDelete}
+              setConfirmDelete={setConfirmDelete} onResume={onResume} del={del} />)}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const outOfCredits = status?.state === "active" && status.remaining === 0;
 
   // ── First-time hero ─────────────────────────────────────────────────────────
   if (campaigns.length === 0) {
@@ -754,6 +892,19 @@ function BroadcastsHome({ campaigns, reachableCount, loading, onNew, onResume, o
   // ── History ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
+      {outOfCredits && (
+        <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+          <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
+          <div className="text-sm text-red-800">
+            <p className="font-semibold">You&apos;ve used all this period&apos;s emails.</p>
+            <p className="text-red-700 mt-0.5">
+              You can still write and schedule broadcasts — they just can&apos;t go out until your allowance resets
+              on {status?.state === "active" ? fmtDate(status.periodEnd) : "your next billing date"}, or you add more.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Quick stats */}
       <div className="grid grid-cols-3 gap-3">
         {[
@@ -778,56 +929,70 @@ function BroadcastsHome({ campaigns, reachableCount, loading, onNew, onResume, o
 
       <div className="space-y-2.5">
         {campaigns.map((c) => {
-          const st = CAMPAIGN_STATUS[c.status] ?? CAMPAIGN_STATUS.draft;
-          const openRate = c.sentCount > 0 ? Math.round((c.openedCount / c.sentCount) * 100) : null;
           const editable = c.status === "draft" || c.status === "scheduled";
           return (
-            <div key={c.id} className="bg-white rounded-xl border border-gray-200 px-5 py-4 hover:border-gray-300 transition">
-              <div className="flex flex-wrap items-center gap-4">
-                <span className={`w-2 h-2 rounded-full shrink-0 ${st.dot}`} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-gray-900 text-sm truncate">{c.subject || "(no subject)"}</span>
-                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${st.cls}`}>{st.label}</span>
-                  </div>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {c.status === "scheduled" && c.scheduledAt ? <>Scheduled for <span className="font-medium text-blue-600">{fmtDateTime(c.scheduledAt)}</span> · {audienceLabel(c.audience)}</>
-                      : c.status === "sent" && c.completedAt ? <>Sent {fmtDateTime(c.completedAt)} · to {c.sentCount} people</>
-                      : c.status === "sending" ? <>Sending now… {c.sentCount}/{c.totalRecipients}</>
-                      : <>Draft · saved {fmtDateTime(c.createdAt)} · {audienceLabel(c.audience)}</>}
-                  </p>
-                </div>
-
-                {(c.status === "sent" || c.status === "sending") && (
-                  <div className="flex items-center gap-5 text-center shrink-0">
-                    <div><div className="text-sm font-bold text-gray-800">{c.sentCount}</div><div className="text-[10px] text-gray-400 uppercase">sent</div></div>
-                    <div><div className="text-sm font-bold text-emerald-700">{openRate === null ? "—" : `${openRate}%`}</div><div className="text-[10px] text-gray-400 uppercase">opened</div></div>
-                    {c.failedCount > 0 && <div><div className="text-sm font-bold text-red-600">{c.failedCount}</div><div className="text-[10px] text-gray-400 uppercase">failed</div></div>}
-                  </div>
-                )}
-
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {editable && (
-                    <button onClick={() => onResume(c.id)} className="flex items-center gap-1 text-sm text-orange-600 hover:bg-orange-50 border border-orange-200 rounded-lg px-3 py-1.5 transition">
-                      <FileEdit size={13} /> {c.status === "draft" ? "Continue" : "Edit"}
-                    </button>
-                  )}
-                  {c.status !== "sending" && (
-                    confirmDelete === c.id ? (
-                      <button onClick={() => del(c.id)} disabled={deleting === c.id} className="flex items-center gap-1 text-xs font-semibold text-white bg-red-500 hover:bg-red-600 rounded-lg px-2.5 py-1.5 transition">
-                        {deleting === c.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />} Sure?
-                      </button>
-                    ) : (
-                      <button onClick={() => { setConfirmDelete(c.id); setTimeout(() => setConfirmDelete((v) => v === c.id ? null : v), 4000); }} className="text-gray-300 hover:text-red-500 transition p-1.5" title="Delete">
-                        <Trash2 size={15} />
-                      </button>
-                    )
-                  )}
-                </div>
-              </div>
-            </div>
+            <CampaignRow key={c.id} c={c} editable={editable} deleting={deleting} confirmDelete={confirmDelete}
+              setConfirmDelete={setConfirmDelete} onResume={onResume} del={del} />
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/** One row of broadcast history. Shared by the normal view and the locked
+ *  screen, where past broadcasts are read-only. */
+function CampaignRow({ c, editable, deleting, confirmDelete, setConfirmDelete, onResume, del }: {
+  c: Campaign; editable: boolean;
+  deleting: string | null; confirmDelete: string | null;
+  setConfirmDelete: (fn: string | null | ((v: string | null) => string | null)) => void;
+  onResume: (id: string) => void; del: (id: string) => void;
+}) {
+  const st = CAMPAIGN_STATUS[c.status] ?? CAMPAIGN_STATUS.draft;
+  const openRate = c.sentCount > 0 ? Math.round((c.openedCount / c.sentCount) * 100) : null;
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 px-5 py-4 hover:border-gray-300 transition">
+      <div className="flex flex-wrap items-center gap-4">
+        <span className={`w-2 h-2 rounded-full shrink-0 ${st.dot}`} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold text-gray-900 text-sm truncate">{c.subject || "(no subject)"}</span>
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${st.cls}`}>{st.label}</span>
+          </div>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {c.status === "scheduled" && c.scheduledAt ? <>Scheduled for <span className="font-medium text-blue-600">{fmtDateTime(c.scheduledAt)}</span> · {audienceLabel(c.audience)}</>
+              : c.status === "sent" && c.completedAt ? <>Sent {fmtDateTime(c.completedAt)} · to {c.sentCount} people</>
+              : c.status === "sending" ? <>Sending now… {c.sentCount}/{c.totalRecipients}</>
+              : <>Draft · saved {fmtDateTime(c.createdAt)} · {audienceLabel(c.audience)}</>}
+          </p>
+        </div>
+
+        {(c.status === "sent" || c.status === "sending") && (
+          <div className="flex items-center gap-5 text-center shrink-0">
+            <div><div className="text-sm font-bold text-gray-800">{c.sentCount}</div><div className="text-[10px] text-gray-400 uppercase">sent</div></div>
+            <div><div className="text-sm font-bold text-emerald-700">{openRate === null ? "—" : `${openRate}%`}</div><div className="text-[10px] text-gray-400 uppercase">opened</div></div>
+            {c.failedCount > 0 && <div><div className="text-sm font-bold text-red-600">{c.failedCount}</div><div className="text-[10px] text-gray-400 uppercase">failed</div></div>}
+          </div>
+        )}
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {editable && (
+            <button onClick={() => onResume(c.id)} className="flex items-center gap-1 text-sm text-orange-600 hover:bg-orange-50 border border-orange-200 rounded-lg px-3 py-1.5 transition">
+              <FileEdit size={13} /> {c.status === "draft" ? "Continue" : "Edit"}
+            </button>
+          )}
+          {c.status !== "sending" && (
+            confirmDelete === c.id ? (
+              <button onClick={() => del(c.id)} disabled={deleting === c.id} className="flex items-center gap-1 text-xs font-semibold text-white bg-red-500 hover:bg-red-600 rounded-lg px-2.5 py-1.5 transition">
+                {deleting === c.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />} Sure?
+              </button>
+            ) : (
+              <button onClick={() => { setConfirmDelete(c.id); setTimeout(() => setConfirmDelete((v: string | null) => v === c.id ? null : v), 4000); }} className="text-gray-300 hover:text-red-500 transition p-1.5" title="Delete">
+                <Trash2 size={15} />
+              </button>
+            )
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1375,8 +1540,9 @@ const STEPS = [
   { n: 3, label: "Review & send" },
 ] as const;
 
-function ComposeWizard({ contacts, allTags, brandColor, restaurantName, editingId: initialEditingId, initial, onExit }: {
+function ComposeWizard({ contacts, allTags, brandColor, restaurantName, status, editingId: initialEditingId, initial, onExit }: {
   contacts: ReservationCustomer[]; allTags: string[]; brandColor: string; restaurantName: string;
+  status: MarketingStatus | null;
   editingId: string | null;
   initial: { subject: string; previewText: string; body: string; audience: Audience; startStep: 1 | 2 };
   onExit: () => void;
@@ -1410,7 +1576,17 @@ function ComposeWizard({ contacts, allTags, brandColor, restaurantName, editingI
   const bodyHasText = body.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").trim().length > 0;
   const step1Done = total > 0;
   const step2Done = subject.trim().length > 0 && bodyHasText;
-  const canSend = step1Done && step2Done;
+
+  // Allowance pre-flight. Writing, saving and scheduling are always allowed —
+  // only pressing send needs credit. A broadcast bigger than the allowance
+  // isn't blocked: it sends what's covered and pauses (the server does the
+  // same check per batch, so this is guidance, not enforcement).
+  const remaining = status?.state === "active" ? status.remaining : 0;
+  const shortfall = Math.max(0, total - remaining);
+  const noCredit  = status !== null && !canSendNow(status);
+
+  const canCompose = step1Done && step2Done;
+  const canSend = canCompose && !noCredit;
 
   function applyStarter(s: { subject: string; preview: string; body: string }) {
     if (bodyHasText && !window.confirm("Replace your current message with this template?")) return;
@@ -1465,8 +1641,10 @@ function ComposeWizard({ contacts, allTags, brandColor, restaurantName, editingI
     if (id) { setDraftSaved(true); setTimeout(() => setDraftSaved(false), 2500); }
   }
 
+  // Test sends don't consume the allowance (they're rate-limited instead), so
+  // they only need a finished draft.
   async function sendTest() {
-    if (!testTo.trim() || !canSend) return;
+    if (!testTo.trim() || !canCompose) return;
     setTestState("sending");
     try {
       const res = await fetch("/api/admin/campaigns/test", {
@@ -1479,23 +1657,55 @@ function ComposeWizard({ contacts, allTags, brandColor, restaurantName, editingI
     finally { setTimeout(() => setTestState("idle"), 3000); }
   }
 
+  /**
+   * Drain the campaign one batch at a time.
+   *
+   * A batch that fails on the network is RETRIED with backoff rather than
+   * failing the campaign: sending is resumable by design (recipients are marked
+   * only after a successful send), so a restart of the send service should cost
+   * a few seconds, not a broadcast. Only a definite refusal — out of allowance,
+   * or repeated failures — stops the loop, and even then everything already
+   * sent stays sent and the rest resumes on the next attempt.
+   */
   async function sendNow() {
     if (inFlight.current || busy || !canSend) return;
     inFlight.current = true;
     setSend({ phase: "sending", done: 0, total });
     const id = await persist();
     if (!id) { inFlight.current = false; return; }
+
+    const MAX_RETRIES = 4;
+    let retries = 0;
     try {
       for (;;) {
-        const res = await fetch(`/api/admin/campaigns/${id}/send`, { method: "POST" });
-        const json = await res.json() as { ok: boolean; done?: boolean; error?: string; totals?: { sent: number; failed: number; skipped: number } };
+        let json: { ok: boolean; done?: boolean; error?: string; outOfAllowance?: boolean; totals?: { sent: number; failed: number; skipped: number } };
+        try {
+          const res = await fetch(`/api/admin/campaigns/${id}/send`, { method: "POST" });
+          json = await res.json();
+        } catch {
+          // Network blip or the send service restarting.
+          if (++retries > MAX_RETRIES) {
+            setSend({ phase: "error", message: "Lost connection while sending. Everything sent so far is safe — reopen this broadcast to carry on." });
+            return;
+          }
+          setSend({ phase: "sending", done: 0, total });
+          await new Promise((r) => setTimeout(r, 1000 * 2 ** (retries - 1)));
+          continue;
+        }
+        retries = 0;
+
+        if (json.outOfAllowance) {
+          const t = json.totals ?? { sent: 0, failed: 0, skipped: 0 };
+          setSend({ phase: "error", message: `Sent ${t.sent} and paused — you're out of emails for this period. Top up and reopen this broadcast to send the rest.` });
+          return;
+        }
         if (!json.ok) { setSend({ phase: "error", message: json.error ?? "Sending failed." }); return; }
+
         const t = json.totals ?? { sent: 0, failed: 0, skipped: 0 };
         if (json.done) { setSend({ phase: "done", sent: t.sent, failed: t.failed, skipped: t.skipped }); return; }
         setSend({ phase: "sending", done: t.sent + t.failed + t.skipped, total });
       }
-    } catch { setSend({ phase: "error", message: "Connection error while sending." }); }
-    finally { inFlight.current = false; }
+    } finally { inFlight.current = false; }
   }
 
   async function schedule() {
@@ -1746,7 +1956,38 @@ function ComposeWizard({ contacts, allTags, brandColor, restaurantName, editingI
                   <button onClick={() => setStep(row.edit)} className="text-xs text-orange-600 hover:underline shrink-0">Edit</button>
                 </div>
               ))}
+              {status?.state === "active" && (
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide w-24 shrink-0">Allowance</span>
+                  <span className={`text-sm flex-1 min-w-0 ${remaining === 0 ? "text-red-700" : shortfall > 0 ? "text-amber-700" : "text-gray-800"}`}>
+                    {remaining.toLocaleString()} of {status.limit.toLocaleString()} emails left
+                    {shortfall > 0 && remaining > 0 && <> — this needs {total.toLocaleString()}</>}
+                  </span>
+                </div>
+              )}
             </div>
+
+            {/* Pre-flight warnings — the server re-checks per batch, so these
+                only save the user a surprise, they don't enforce anything. */}
+            {noCredit && (
+              <p className="flex items-start gap-2 text-sm text-red-800 bg-red-50 border border-red-200 rounded-xl px-3.5 py-3">
+                <AlertTriangle size={15} className="shrink-0 mt-0.5 text-red-500" />
+                <span>
+                  <span className="font-semibold">No emails left this period.</span> Save this as a draft or schedule it —
+                  it&apos;ll go out once your allowance resets or you add more.
+                </span>
+              </p>
+            )}
+            {!noCredit && shortfall > 0 && (
+              <p className="flex items-start gap-2 text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3.5 py-3">
+                <AlertTriangle size={15} className="shrink-0 mt-0.5 text-amber-600" />
+                <span>
+                  <span className="font-semibold">This is bigger than your remaining allowance.</span> We&apos;ll send to the
+                  first {remaining.toLocaleString()} and pause — the last {shortfall.toLocaleString()} go out when you top up.
+                  Trim the audience if you&apos;d rather everyone got it together.
+                </span>
+              </p>
+            )}
 
             {/* Test send */}
             <div className="bg-white rounded-2xl border border-gray-200 p-4 space-y-2">
@@ -1755,7 +1996,7 @@ function ComposeWizard({ contacts, allTags, brandColor, restaurantName, editingI
               <div className="flex gap-2">
                 <input type="email" value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="you@example.com"
                   className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
-                <button onClick={sendTest} disabled={!testTo.trim() || !canSend || testState === "sending"} className="flex shrink-0 items-center gap-1.5 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 hover:border-orange-300 hover:text-orange-600 transition disabled:opacity-40">
+                <button onClick={sendTest} disabled={!testTo.trim() || !canCompose || testState === "sending"} className="flex shrink-0 items-center gap-1.5 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 hover:border-orange-300 hover:text-orange-600 transition disabled:opacity-40">
                   {testState === "sending" ? <Loader2 size={13} className="animate-spin" /> : testState === "sent" ? <CheckCircle2 size={13} className="text-green-600" /> : <Send size={13} />}
                   {testState === "sent" ? "Sent!" : testState === "error" ? "Failed" : "Send test"}
                 </button>
@@ -1773,7 +2014,7 @@ function ComposeWizard({ contacts, allTags, brandColor, restaurantName, editingI
               </button>
               {confirmArm && <p className="text-[11px] text-center text-gray-400">Click again to confirm, or wait to cancel.</p>}
 
-              <button onClick={() => setShowSchedule((v) => !v)} disabled={!canSend || busy}
+              <button onClick={() => setShowSchedule((v) => !v)} disabled={!canCompose || busy}
                 className="w-full flex items-center justify-center gap-2 border border-blue-200 text-blue-700 hover:bg-blue-50 font-semibold px-4 py-2.5 rounded-xl text-sm transition disabled:opacity-50">
                 <CalendarClock size={15} /> {showSchedule ? "Hide scheduling" : "Schedule for later"}
               </button>
