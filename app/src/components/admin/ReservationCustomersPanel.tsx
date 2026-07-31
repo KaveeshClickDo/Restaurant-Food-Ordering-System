@@ -1678,17 +1678,21 @@ function ComposeWizard({ contacts, allTags, brandColor, restaurantName, status, 
     let retries = 0;
     try {
       for (;;) {
-        let json: { ok: boolean; done?: boolean; error?: string; outOfAllowance?: boolean; totals?: { sent: number; failed: number; skipped: number } };
+        let json: { ok: boolean; done?: boolean; error?: string; outOfAllowance?: boolean; retryable?: boolean; totals?: { sent: number; failed: number; skipped: number } };
         try {
           const res = await fetch(`/api/admin/campaigns/${id}/send`, { method: "POST" });
           json = await res.json();
         } catch {
-          // Network blip or the send service restarting.
+          json = { ok: false, retryable: true };
+        }
+
+        // A network blip or the sending service restarting. Nobody in this
+        // batch was marked, so the same batch simply repeats.
+        if (!json.ok && json.retryable) {
           if (++retries > MAX_RETRIES) {
             setSend({ phase: "error", message: "Lost connection while sending. Everything sent so far is safe — reopen this broadcast to carry on." });
             return;
           }
-          setSend({ phase: "sending", done: 0, total });
           await new Promise((r) => setTimeout(r, 1000 * 2 ** (retries - 1)));
           continue;
         }

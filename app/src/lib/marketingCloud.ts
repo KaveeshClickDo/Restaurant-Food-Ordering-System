@@ -103,6 +103,127 @@ export function clearMarketingStatusCache(): void {
   cache = null;
 }
 
+/**
+ * Gate for EVERY path that can send a broadcast — the interactive sender, the
+ * test send, and the scheduled-campaign cron. Returns null when sending is
+ * allowed, otherwise the error to hand back.
+ *
+ * Advisory only: the Marketing API re-checks the allowance on every batch, so
+ * this exists to fail early with a readable message, not to enforce anything.
+ * A campaign scheduled last week is checked HERE when it actually fires, not
+ * when it was scheduled.
+ */
+export async function marketingSendBlockedReason(): Promise<{ error: string; status: number } | null> {
+  if (!marketingApiConfigured()) {
+    return { error: "Broadcast sending isn't set up on this site yet.", status: 503 };
+  }
+  const status = await getMarketingStatus();
+  switch (status.state) {
+    case "active":
+      return status.remaining > 0
+        ? null
+        : { error: "No emails left in this period's allowance.", status: 402 };
+    case "none":
+      return { error: "This site doesn't have an email package yet.", status: 402 };
+    case "unavailable":
+      return { error: status.reason, status: 503 };
+  }
+}
+
+// ── Sending ──────────────────────────────────────────────────────────────────
+
+/** One fully-rendered email. We render here rather than sending a template for
+ *  the Marketing API to fill in: the unsubscribe link and tracking pixel are
+ *  unique per recipient and built from this restaurant's own data, so keeping
+ *  all of that in one place is worth the extra bytes on the wire. */
+export interface MarketingMessage {
+  /** email_campaign_recipients.id — doubles as the idempotency key, so a
+   *  retried batch is recognised and never charged twice. */
+  ref: string;
+  to: string;
+  subject: string;
+  html: string;
+  headers?: Record<string, string>;
+}
+
+export type RejectReason =
+  /** Hard-bounced or complained before — permanently undeliverable. Free. */
+  | "suppressed"
+  /** Malformed address. Free. */
+  | "invalid"
+  /** Allowance ran out part-way through the batch. NOT attempted — leave the
+   *  recipient pending so it goes out after a top-up. */
+  | "no_allowance"
+  /** Test sends only — the daily test quota is used up. Free, so capped. */
+  | "rate_limited"
+  /** Attempted and failed at the provider. */
+  | "failed";
+
+export interface MarketingSendResult {
+  accepted: { ref: string; messageId?: string }[];
+  rejected: { ref: string; reason: RejectReason; detail?: string }[];
+  /** True when the allowance ran out mid-batch. */
+  outOfAllowance: boolean;
+  /** Emails left after this batch. */
+  remaining: number;
+}
+
+/**
+ * Hand one batch of rendered emails to the Marketing API, which checks the
+ * allowance, sends via Amazon SES, and counts what it sent.
+ *
+ * THROWS on transport failure — deliberately. The caller must not mark any
+ * recipient when it can't know what happened; leaving them pending means the
+ * batch is simply retried, which the idempotency keys make safe.
+ */
+export async function sendMarketingBatch(args: {
+  /** Campaign id, or "test" for a preview send. */
+  campaignRef: string;
+  /** Display name on the From header. The address itself is ours. */
+  fromName: string;
+  messages: MarketingMessage[];
+  /** Preview to the admin's own address: doesn't touch the allowance, but is
+   *  capped per day by the Marketing API so it can't be used as free sending. */
+  test?: boolean;
+}): Promise<MarketingSendResult> {
+  if (args.messages.length === 0) {
+    return { accepted: [], rejected: [], outOfAllowance: false, remaining: 0 };
+  }
+  if (!marketingApiConfigured()) {
+    throw new Error("MARKETING_API_URL is not set.");
+  }
+  return stubSend(args.messages);
+}
+
+// TODO(amazon-ses): real transport.
+//   const res = await fetch(`${process.env.MARKETING_API_URL}/v1/send`, {
+//     method: "POST",
+//     headers: { "Content-Type": "application/json" },
+//     body: JSON.stringify(args),
+//   });
+//   if (!res.ok && res.status !== 402) throw new Error(`Marketing API ${res.status}`);
+//   return await res.json() as MarketingSendResult;
+//
+/** Development stand-in. `MARKETING_STUB=out` refuses the whole batch so the
+ *  pause-and-resume path can be exercised without a real allowance. */
+function stubSend(messages: MarketingMessage[]): MarketingSendResult {
+  if ((process.env.MARKETING_STUB ?? "active").trim() === "out") {
+    return {
+      accepted: [],
+      rejected: messages.map((m) => ({ ref: m.ref, reason: "no_allowance" as const })),
+      outOfAllowance: true,
+      remaining: 0,
+    };
+  }
+  console.log(`[marketing/stub] would send ${messages.length} email(s) via SES`);
+  return {
+    accepted: messages.map((m) => ({ ref: m.ref, messageId: `stub-${m.ref}` })),
+    rejected: [],
+    outOfAllowance: false,
+    remaining: 1_840,
+  };
+}
+
 // ── Transport ────────────────────────────────────────────────────────────────
 // TODO(amazon-ses): replace the stub with the real HTTP call once the Marketing
 // API contract is agreed. The shape above is the contract — everything that
