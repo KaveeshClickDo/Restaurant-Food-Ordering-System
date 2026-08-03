@@ -17,12 +17,16 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import type { ReservationCustomer, ContactSource } from "@/types";
 import {
+  readContactCsv, buildImportRows, tagFromFilename, NO_MAP,
+  type ImportField, type ColumnMap, type ImportRow,
+} from "@/lib/csvImport";
+import {
   Users, Search, Mail, Phone, Tag, FileDown, Bold, Italic, Underline,
   ChevronDown, ChevronUp, Loader2, RefreshCw, CheckCircle2, List, ListOrdered,
   ToggleLeft, ToggleRight, X, Plus, Star, Clock, UtensilsCrossed, Heading1, Heading2,
   ShoppingBag, Megaphone, Gift, Tablet, UserCheck, Send, Eye, Trash2, AlertTriangle,
   Receipt, CalendarCheck, ArrowLeft, ArrowRight, CalendarClock, FileEdit, Minus,
-  Variable, Sparkles, PartyPopper, Pencil, Check,
+  Variable, Sparkles, PartyPopper, Pencil, Check, Upload, FileSpreadsheet, AlertCircle,
 } from "lucide-react";
 
 // ─── Small helpers ────────────────────────────────────────────────────────────
@@ -59,6 +63,7 @@ const SOURCE_META: Record<ContactSource, { label: string; badge: string; active:
   account:      { label: "Account",       badge: "bg-indigo-50 text-indigo-700 border-indigo-200", active: "bg-indigo-100 text-indigo-800 border-indigo-400", icon: UserCheck },
   pos:          { label: "POS / walk-in", badge: "bg-orange-50 text-orange-700 border-orange-200", active: "bg-orange-100 text-orange-800 border-orange-400", icon: Tablet },
   ebill:        { label: "E-bill",        badge: "bg-gray-100 text-gray-600 border-gray-300",      active: "bg-gray-200 text-gray-800 border-gray-400",       icon: Receipt },
+  import:       { label: "Imported",      badge: "bg-slate-100 text-slate-700 border-slate-300",   active: "bg-slate-200 text-slate-800 border-slate-400",    icon: Upload },
 };
 const ALL_SOURCES = Object.keys(SOURCE_META) as ContactSource[];
 
@@ -360,9 +365,10 @@ function SourceBadges({ sources }: { sources: ContactSource[] }) {
 }
 
 // ─── Contact card ─────────────────────────────────────────────────────────────
-function ContactCard({ customer, onSave, selected, onToggleSelect }: {
+function ContactCard({ customer, onSave, onDelete, selected, onToggleSelect }: {
   customer: ReservationCustomer;
   onSave: (id: string, patch: { notes?: string; tags?: string[]; marketingOptIn?: boolean }) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
   selected: boolean;
   onToggleSelect: (id: string) => void;
 }) {
@@ -375,8 +381,11 @@ function ContactCard({ customer, onSave, selected, onToggleSelect }: {
   const [loadingHist, setLoadingHist] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const dirty = notes !== customer.notes || JSON.stringify(tags) !== JSON.stringify(customer.tags) || optIn !== customer.marketingOptIn;
   const saveInFlight = useRef(false);
+  const delInFlight  = useRef(false);
 
   async function loadHistory() {
     if (history.length > 0) return;
@@ -396,6 +405,12 @@ function ContactCard({ customer, onSave, selected, onToggleSelect }: {
   }
   function addTag(tag: string) { const t = tag.trim(); if (!t || tags.includes(t)) return; setTags((p) => [...p, t]); setTagInput(""); }
   function removeTag(tag: string) { setTags((p) => p.filter((x) => x !== tag)); }
+  async function del() {
+    if (delInFlight.current) return;
+    delInFlight.current = true; setDeleting(true);
+    try { await onDelete(customer.id); }
+    finally { delInFlight.current = false; setDeleting(false); setConfirmDel(false); }
+  }
 
   return (
     <div className={`bg-white rounded-xl border overflow-hidden transition ${selected ? "border-orange-400 ring-1 ring-orange-200" : "border-gray-200 hover:border-gray-300"}`}>
@@ -421,6 +436,22 @@ function ContactCard({ customer, onSave, selected, onToggleSelect }: {
           </div>
           <div className="text-gray-400 shrink-0">{expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</div>
         </button>
+
+        {/* Remove from the marketing list. Not an unsubscribe — they'll be
+            captured again next time they order or book. */}
+        {confirmDel ? (
+          <button onClick={del} disabled={deleting}
+            className="flex items-center gap-1 text-xs font-semibold text-white bg-red-500 hover:bg-red-600 rounded-lg px-2.5 py-1.5 transition shrink-0">
+            {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />} Remove?
+          </button>
+        ) : (
+          <button
+            onClick={() => { setConfirmDel(true); setTimeout(() => setConfirmDel(false), 4000); }}
+            title="Remove from the marketing list"
+            className="text-gray-300 hover:text-red-500 transition p-1.5 shrink-0">
+            <Trash2 size={15} />
+          </button>
+        )}
       </div>
 
       {expanded && (
@@ -567,6 +598,21 @@ export default function ReservationCustomersPanel() {
     } : c));
   }
 
+  /**
+   * Drop a contact off the marketing list. A plain delete, not an unsubscribe:
+   * the same person is captured again the next time they order, book, or buy a
+   * gift card. Their account / orders / bookings are untouched.
+   */
+  async function handleDelete(id: string) {
+    const res = await fetch(`/api/admin/reservation-customers/${id}`, { method: "DELETE" });
+    if (!res.ok) return;
+    setCustomers((prev) => prev.filter((c) => c.id !== id));
+    setSelected((prev) => { if (!prev.has(id)) return prev; const n = new Set(prev); n.delete(id); return n; });
+    // The list cache key is keyed on the last server payload — clear it so the
+    // next poll is treated as new data rather than a no-op.
+    lastDataKey.current = "";
+  }
+
   const allTags = [...new Set(customers.flatMap((c) => c.tags))].sort();
   const reachableCount = customers.filter(isMailable).length;
 
@@ -639,7 +685,7 @@ export default function ReservationCustomersPanel() {
           filterOptIn={filterOptIn} setFilterOptIn={setFilterOptIn}
           sourceFilter={sourceFilter} setSourceFilter={setSourceFilter}
           selected={selected} setSelected={setSelected}
-          onSave={handleSave} onRefresh={() => fetchCustomers(true)}
+          onSave={handleSave} onDelete={handleDelete} onRefresh={() => fetchCustomers(true)}
           onBroadcastToSelection={() => newBroadcast(true)}
         />
       )}
@@ -796,13 +842,14 @@ function AudienceSection(props: {
   sourceFilter: Set<ContactSource>; setSourceFilter: (fn: (v: Set<ContactSource>) => Set<ContactSource>) => void;
   selected: Set<string>; setSelected: (fn: (v: Set<string>) => Set<string>) => void;
   onSave: (id: string, patch: { notes?: string; tags?: string[]; marketingOptIn?: boolean }) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
   onRefresh: () => void;
   onBroadcastToSelection: () => void;
 }) {
   const {
     customers, loading, search, setSearch, filterTag, setFilterTag, allTags,
     filterOptIn, setFilterOptIn, sourceFilter, setSourceFilter,
-    selected, setSelected, onSave, onRefresh, onBroadcastToSelection,
+    selected, setSelected, onSave, onDelete, onRefresh, onBroadcastToSelection,
   } = props;
 
   const filtered = customers.filter((c) => {
@@ -820,15 +867,43 @@ function AudienceSection(props: {
   const filteredMailableIds = filtered.filter(isMailable).map((c) => c.id);
   const allFilteredSelected = filteredMailableIds.length > 0 && filteredMailableIds.every((id) => selected.has(id));
 
+  const [importOpen, setImportOpen] = useState(false);
+  const existingEmails = new Set(customers.map((c) => c.email.toLowerCase()));
+
   function toggleSource(s: ContactSource) { setSourceFilter((p) => { const n = new Set(p); if (n.has(s)) n.delete(s); else n.add(s); return n; }); }
   function toggleSelect(id: string) { setSelected((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; }); }
   function toggleSelectAll() {
     setSelected((prev) => { const n = new Set(prev); if (allFilteredSelected) filteredMailableIds.forEach((id) => n.delete(id)); else filteredMailableIds.forEach((id) => n.add(id)); return n; });
   }
 
+  /**
+   * Download the contacts CURRENTLY IN VIEW (filters and search applied) as a
+   * CSV — everything the panel holds on a contact, minus internal ids.
+   * "Opted in" / "Tags" come back in through the Import modal, so an
+   * export → edit in Excel → re-import round-trip keeps opt-outs and tags.
+   */
   function exportCsv() {
-    const header = ["Name", "Email", "Phone", "Sources", "Opted in", "Unsubscribed", "Tags", "Notes"];
-    const rows = filtered.map((c) => [c.name, c.email, c.phone, (c.sources ?? []).map((s) => SOURCE_META[s]?.label ?? s).join("; "), c.marketingOptIn ? "Yes" : "No", c.unsubscribedAt ? fmtDate(c.unsubscribedAt) : "", c.tags.join("; "), c.notes.replace(/\n/g, " ")]);
+    const header = [
+      "Name", "Email", "Phone", "Sources", "Tags", "Opted in", "Unsubscribed",
+      "Visits", "Orders", "Total spend", "Last visit", "Last order", "Added", "Notes",
+    ];
+    const rows = filtered.map((c) => [
+      c.name,
+      c.email,
+      c.phone,
+      (c.sources ?? []).map((s) => SOURCE_META[s]?.label ?? s).join("; "),
+      c.tags.join("; "),
+      c.marketingOptIn ? "Yes" : "No",
+      c.unsubscribedAt ? fmtDate(c.unsubscribedAt) : "",
+      c.visitCount,
+      c.orderCount,
+      // Bare number, no currency symbol — spreadsheets can then sum the column.
+      c.totalSpend.toFixed(2),
+      c.lastVisitAt ? fmtDate(c.lastVisitAt) : "",
+      c.lastOrderAt ? fmtDate(c.lastOrderAt) : "",
+      fmtDate(c.createdAt),
+      c.notes.replace(/\n/g, " "),
+    ]);
     const csv = [header, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     const a = document.createElement("a"); a.href = url; a.download = `marketing-contacts-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); URL.revokeObjectURL(url);
@@ -863,7 +938,8 @@ function AudienceSection(props: {
             </select>
           )}
           <button onClick={() => setFilterOptIn((v) => !v)} className={`flex items-center gap-1.5 border rounded-xl px-3 py-2 text-sm font-medium transition ${filterOptIn ? "bg-green-50 border-green-300 text-green-700" : "border-gray-200 text-gray-500 hover:border-gray-300"}`}><Mail size={13} /> Opted-in only</button>
-          <button onClick={exportCsv} disabled={filtered.length === 0} className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-600 hover:text-gray-800 hover:border-gray-300 transition disabled:opacity-40"><FileDown size={14} /> CSV</button>
+          <button onClick={() => setImportOpen(true)} className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-600 hover:text-gray-800 hover:border-gray-300 transition"><Upload size={14} /> Import</button>
+          <button onClick={exportCsv} disabled={filtered.length === 0} title={`Download the ${filtered.length} contact${filtered.length === 1 ? "" : "s"} shown, with tags, sources, visits and spend`} className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-600 hover:text-gray-800 hover:border-gray-300 transition disabled:opacity-40"><FileDown size={14} /> Export</button>
           <button onClick={onRefresh} disabled={loading} className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300 transition" title="Refresh"><RefreshCw size={14} className={loading ? "animate-spin" : ""} /></button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -898,7 +974,7 @@ function AudienceSection(props: {
             <p className="text-sm text-gray-400 max-w-xs">{customers.length === 0 ? "Emails collect here automatically when customers order online, book a table, buy a gift card, or ask for an e-bill." : "Nothing matches the current filters."}</p>
           </div>
         ) : (
-          <div className="space-y-3">{filtered.map((c) => <ContactCard key={c.id} customer={c} onSave={onSave} selected={selected.has(c.id)} onToggleSelect={toggleSelect} />)}</div>
+          <div className="space-y-3">{filtered.map((c) => <ContactCard key={c.id} customer={c} onSave={onSave} onDelete={onDelete} selected={selected.has(c.id)} onToggleSelect={toggleSelect} />)}</div>
         )}
 
       {/* Floating action bar when contacts are selected */}
@@ -913,6 +989,375 @@ function AudienceSection(props: {
           </div>
         </div>
       )}
+
+      {importOpen && (
+        <ImportModal
+          allTags={allTags} existingEmails={existingEmails}
+          onClose={() => setImportOpen(false)}
+          onDone={(tag) => {
+            setImportOpen(false);
+            // Imported contacts have no visits, so they sort to the bottom of
+            // the list — filtering by the import tag shows them straight away.
+            if (tag) { setFilterTag(tag); setSearch(""); setSourceFilter(() => new Set()); }
+            onRefresh();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ═══ CSV import ═══════════════════════════════════════════════════════════════
+// Kit-style list upload: pick a file, map its columns, tag everyone in it on
+// the way in. Parsing and mapping live in the browser (that's where the person
+// doing the mapping is); the server receives normalised rows in batches, so a
+// big file drains across several short requests and a dropped connection only
+// costs the batch in flight.
+
+/** Rows per request. Must stay ≤ the server's 500-row cap. */
+const IMPORT_BATCH = 250;
+
+const IMPORT_FIELDS: { key: ImportField; label: string }[] = [
+  { key: "email",    label: "Email" },
+  { key: "name",     label: "Name" },
+  { key: "lastName", label: "Last name" },
+  { key: "phone",    label: "Phone" },
+  { key: "tags",     label: "Tags" },
+  { key: "optIn",    label: "Opted in" },
+];
+
+/** Mirror of ImportContactsResult on the server. */
+interface ImportResult { created: number; updated: number; invalid: number; duplicates: number; failed: number; invalidSamples: string[] }
+
+function downloadSampleCsv() {
+  const csv = [
+    "Email,Name,Phone,Tags,Opted in",
+    "alex@example.com,Alex Morgan,07700 900123,Newsletter;VIP,Yes",
+    "sam@example.com,Sam Patel,,Newsletter,Yes",
+  ].join("\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const a = document.createElement("a"); a.href = url; a.download = "contacts-template.csv"; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function ImportModal({ allTags, existingEmails, onClose, onDone }: {
+  allTags: string[];
+  /** Emails already on the list — powers the new-vs-existing preview counts. */
+  existingEmails: Set<string>;
+  onClose: () => void;
+  /** Called after a finished import with the tag to filter the list by. */
+  onDone: (tag: string | null) => void;
+}) {
+  const [stage, setStage]       = useState<"pick" | "map" | "running" | "done">("pick");
+  const [fileName, setFileName] = useState("");
+  const [headers, setHeaders]   = useState<string[]>([]);
+  const [dataRows, setDataRows] = useState<string[][]>([]);
+  const [map, setMap]           = useState<ColumnMap>(NO_MAP);
+  const [tags, setTags]         = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
+  const [consent, setConsent]   = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [fileError, setFileError] = useState("");
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [result, setResult]     = useState<ImportResult | null>(null);
+  const [error, setError]       = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
+  const inFlight  = useRef(false);
+
+  async function handleFile(file: File) {
+    setFileError("");
+    try {
+      const read = readContactCsv(await file.text());
+      if (!read) { setFileError("We couldn’t find any contacts in that file."); return; }
+      setFileName(file.name);
+      setHeaders(read.headers);
+      setDataRows(read.rows);
+      setMap(read.map);
+      setTags([tagFromFilename(file.name)]);
+      setStage("map");
+    } catch {
+      setFileError("Couldn’t read that file. Save it as CSV and try again.");
+    }
+  }
+
+  // ── Mapping preview ────────────────────────────────────────────────────────
+  const mapped  = stage === "pick" ? [] : buildImportRows(dataRows, map);
+  const badRows = mapped.filter((r) => !isRealEmail(r.email));
+  const seen    = new Set<string>();
+  const rows: ImportRow[] = [];
+  let dupes = 0;
+  for (const r of mapped) {
+    if (!isRealEmail(r.email)) continue;
+    if (seen.has(r.email)) { dupes++; continue; }
+    seen.add(r.email); rows.push(r);
+  }
+  const newCount   = rows.filter((r) => !existingEmails.has(r.email)).length;
+  const optOutRows = rows.filter((r) => r.optIn === false).length;
+  const canImport  = rows.length > 0 && consent;
+
+  function addTag(raw: string) {
+    const t = raw.trim().slice(0, 40);
+    if (!t || tags.includes(t) || tags.length >= 10) return;
+    setTags((p) => [...p, t]); setTagInput("");
+  }
+
+  async function runImport() {
+    if (inFlight.current || !canImport) return;
+    inFlight.current = true;
+    setError(""); setStage("running");
+    setProgress({ done: 0, total: rows.length });
+
+    // Rows the browser already knows are unusable never leave the browser —
+    // count them here so the summary describes the FILE, not the payload.
+    const totals: ImportResult = {
+      created: 0, updated: 0, failed: 0,
+      invalid: badRows.length, duplicates: dupes,
+      invalidSamples: badRows.slice(0, 10).map((r) => r.email || "(blank)"),
+    };
+    try {
+      for (let i = 0; i < rows.length; i += IMPORT_BATCH) {
+        const batch = rows.slice(i, i + IMPORT_BATCH);
+        const res = await fetch("/api/admin/reservation-customers/import", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rows: batch, tags, consent: true }),
+        });
+        const json = await res.json() as { ok: boolean; error?: string; result?: ImportResult };
+        if (!json.ok || !json.result) throw new Error(json.error ?? "The import failed.");
+        totals.created += json.result.created;
+        totals.updated += json.result.updated;
+        totals.failed  += json.result.failed;
+        setProgress({ done: i + batch.length, total: rows.length });
+      }
+    } catch (e) {
+      // Keep the partial totals: batches already accepted DID land.
+      setError(e instanceof Error ? e.message : "The import failed.");
+    } finally {
+      inFlight.current = false;
+      setResult(totals);
+      setStage("done");
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-start sm:items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl w-full max-w-2xl my-auto shadow-2xl overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center"><Upload size={17} className="text-orange-600" /></div>
+            <div>
+              <h3 className="font-bold text-gray-900">Import contacts</h3>
+              <p className="text-xs text-gray-500">Upload a CSV and tag everyone in it.</p>
+            </div>
+          </div>
+          {stage !== "running" && (
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-700 transition p-1"><X size={18} /></button>
+          )}
+        </div>
+
+        {/* ── Step 1: pick a file ───────────────────────────────────────────── */}
+        {stage === "pick" && (
+          <div className="px-6 py-6 space-y-4">
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); }}
+              onClick={() => fileInput.current?.click()}
+              className={`border-2 border-dashed rounded-2xl px-6 py-10 text-center cursor-pointer transition ${dragging ? "border-orange-400 bg-orange-50" : "border-gray-200 hover:border-orange-300 hover:bg-orange-50/40"}`}
+            >
+              <FileSpreadsheet size={30} className="mx-auto text-orange-400 mb-3" />
+              <p className="text-sm font-semibold text-gray-800">Drop your CSV here, or click to choose</p>
+              <p className="text-xs text-gray-500 mt-1">One contact per row. An email column is all we really need.</p>
+              <input ref={fileInput} type="file" accept=".csv,text/csv,text/plain" className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
+            </div>
+            {fileError && (
+              <p className="flex items-start gap-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                <AlertCircle size={15} className="shrink-0 mt-0.5" /> {fileError}
+              </p>
+            )}
+            <div className="flex items-center justify-between text-xs text-gray-500">
+              <span>Exported a list from Kit, Mailchimp, or a spreadsheet? It&apos;ll work.</span>
+              <button onClick={downloadSampleCsv} className="flex items-center gap-1 text-orange-600 hover:text-orange-700 font-semibold">
+                <FileDown size={13} /> Sample CSV
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 2: map columns, name the tag, confirm consent ────────────── */}
+        {stage === "map" && (
+          <div className="px-6 py-5 space-y-5 max-h-[70vh] overflow-y-auto">
+            <div className="flex items-center gap-2 text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+              <FileSpreadsheet size={15} className="text-gray-400 shrink-0" />
+              <span className="font-medium text-gray-800 truncate">{fileName}</span>
+              <span className="text-gray-400">· {dataRows.length} row{dataRows.length === 1 ? "" : "s"}</span>
+              <button onClick={() => { setStage("pick"); setFileError(""); }} className="ml-auto text-xs text-orange-600 hover:text-orange-700 font-semibold shrink-0">Change</button>
+            </div>
+
+            {/* Column mapping */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Which column is which?</p>
+              <div className="grid sm:grid-cols-2 gap-2">
+                {IMPORT_FIELDS.map((f) => (
+                  <label key={f.key} className="flex items-center gap-2">
+                    <span className="w-22 shrink-0 text-sm text-gray-700">{f.label}</span>
+                    <select
+                      value={map[f.key]}
+                      onChange={(e) => setMap((m) => ({ ...m, [f.key]: Number(e.target.value) }))}
+                      className={`flex-1 min-w-0 border rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-orange-400 transition ${f.key === "email" && map.email === -1 ? "border-red-300" : "border-gray-200"}`}
+                    >
+                      <option value={-1}>{f.key === "email" ? "— choose —" : "— skip —"}</option>
+                      {headers.map((h, i) => <option key={`${h}-${i}`} value={i}>{h}</option>)}
+                    </select>
+                  </label>
+                ))}
+              </div>
+              <p className="text-[11px] text-gray-400">Notes and spend aren&apos;t imported — those come from what people do with you.</p>
+            </div>
+
+            {/* Preview */}
+            {map.email >= 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Preview</p>
+                <div className="border border-gray-200 rounded-xl overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50 text-gray-500">
+                      <tr><th className="text-left px-3 py-2 font-semibold">Email</th><th className="text-left px-3 py-2 font-semibold">Name</th><th className="text-left px-3 py-2 font-semibold">Phone</th><th className="text-left px-3 py-2 font-semibold">Tags</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {rows.slice(0, 4).map((r) => (
+                        <tr key={r.email}>
+                          <td className="px-3 py-2 text-gray-800">{r.email}{existingEmails.has(r.email) && <span className="ml-1.5 text-[10px] text-gray-400">already on list</span>}</td>
+                          <td className="px-3 py-2 text-gray-600">{r.name || "—"}</td>
+                          <td className="px-3 py-2 text-gray-600">{r.phone || "—"}</td>
+                          <td className="px-3 py-2 text-gray-600">{[...new Set([...r.tags, ...tags])].join(", ") || "—"}</td>
+                        </tr>
+                      ))}
+                      {rows.length === 0 && <tr><td colSpan={4} className="px-3 py-3 text-gray-400">No usable email addresses in that column.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                  <span><span className="font-bold text-emerald-600">{newCount}</span> new</span>
+                  <span><span className="font-bold text-gray-700">{rows.length - newCount}</span> already on your list</span>
+                  {dupes > 0 && <span><span className="font-bold text-gray-700">{dupes}</span> repeated in the file</span>}
+                  {badRows.length > 0 && <span><span className="font-bold text-amber-600">{badRows.length}</span> skipped (no valid email)</span>}
+                  {optOutRows > 0 && <span><span className="font-bold text-red-500">{optOutRows}</span> marked opted out</span>}
+                </div>
+              </div>
+            )}
+
+            {/* Import tag */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider flex items-center gap-1.5"><Tag size={11} /> Tag everyone in this import</p>
+              <div className="flex flex-wrap gap-1.5">
+                {tags.map((t) => (
+                  <span key={t} className="inline-flex items-center gap-1 text-xs bg-orange-50 border border-orange-200 text-orange-700 px-2.5 py-1 rounded-full font-medium">
+                    {t}
+                    {!allTags.includes(t) && <span className="text-[9px] text-orange-500 uppercase">new</span>}
+                    <button onClick={() => setTags((p) => p.filter((x) => x !== t))} className="hover:text-red-600 transition ml-0.5"><X size={10} /></button>
+                  </span>
+                ))}
+                {tags.length === 0 && <span className="text-xs text-gray-400">No tag — contacts go in untagged.</span>}
+              </div>
+              <div className="flex gap-2">
+                <input type="text" list="import-existing-tags" value={tagInput} onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(tagInput); } }}
+                  placeholder="Add another tag…" className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400 transition" />
+                <datalist id="import-existing-tags">{allTags.map((t) => <option key={t} value={t} />)}</datalist>
+                <button onClick={() => addTag(tagInput)} disabled={!tagInput.trim()} className="flex shrink-0 items-center gap-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:text-orange-600 hover:border-orange-300 transition disabled:opacity-40"><Plus size={13} /> Add</button>
+              </div>
+              <p className="text-[11px] text-gray-400">New tags are created as the file uploads. You can then broadcast to just this tag.</p>
+            </div>
+
+            {/* Consent gate */}
+            <label className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-xl px-3.5 py-3 cursor-pointer">
+              <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="w-4 h-4 accent-orange-500 mt-0.5 shrink-0" />
+              <span className="text-xs text-amber-900">
+                <span className="font-semibold">These people agreed to hear from us.</span> They&apos;re our own customers or they opted in — we&apos;re not emailing a bought or scraped list.
+                Anyone already unsubscribed stays unsubscribed, and every broadcast carries an unsubscribe link.
+              </span>
+            </label>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button onClick={onClose} className="text-sm text-gray-500 hover:text-gray-700 px-4 py-2 transition">Cancel</button>
+              <button onClick={runImport} disabled={!canImport}
+                className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:hover:bg-orange-500 text-white font-bold px-5 py-2.5 rounded-xl text-sm transition">
+                <Upload size={15} /> Import {rows.length} contact{rows.length === 1 ? "" : "s"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 3: running ──────────────────────────────────────────────── */}
+        {stage === "running" && (
+          <div className="px-6 py-10 text-center space-y-4">
+            <Loader2 size={30} className="animate-spin text-orange-500 mx-auto" />
+            <div>
+              <p className="font-semibold text-gray-800">Importing your contacts…</p>
+              <p className="text-xs text-gray-500 mt-1">{progress.done} of {progress.total} · don&apos;t close this window</p>
+            </div>
+            <div className="h-2 bg-gray-100 rounded-full overflow-hidden max-w-sm mx-auto">
+              <div className="h-full bg-orange-500 transition-all" style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} />
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 4: summary ─────────────────────────────────────────────── */}
+        {stage === "done" && result && (
+          <div className="px-6 py-6 space-y-4">
+            {error ? (
+              <p className="flex items-start gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                <AlertCircle size={15} className="shrink-0 mt-0.5" />
+                <span>{error} Anything counted below did land — re-importing the same file is safe, it just updates them again.</span>
+              </p>
+            ) : (
+              <div className="flex items-center gap-2 text-sm font-semibold text-green-700 bg-green-50 border border-green-200 rounded-xl px-3 py-2">
+                <CheckCircle2 size={16} /> Import finished
+              </div>
+            )}
+
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: "Added", value: result.created, cls: "text-emerald-600" },
+                { label: "Updated", value: result.updated, cls: "text-gray-900" },
+                { label: "Skipped", value: result.invalid + result.duplicates + result.failed, cls: "text-amber-600" },
+              ].map((s) => (
+                <div key={s.label} className="bg-white border border-gray-200 rounded-xl p-3 text-center">
+                  <div className={`text-xl font-bold ${s.cls}`}>{s.value}</div>
+                  <div className="text-[11px] text-gray-500">{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {tags.length > 0 && (
+              <p className="text-sm text-gray-600">
+                Tagged <span className="font-semibold text-orange-600">{tags.join(", ")}</span> — pick that tag as your audience to broadcast to just this list.
+              </p>
+            )}
+
+            {(result.invalid > 0 || result.duplicates > 0 || result.failed > 0) && (
+              <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-xl px-3.5 py-3 space-y-1">
+                {result.invalid > 0 && (
+                  <p>
+                    <span className="font-semibold text-gray-700">{result.invalid}</span> row{result.invalid === 1 ? "" : "s"} had no usable email
+                    {result.invalidSamples.length > 0 && <> — e.g. {result.invalidSamples.slice(0, 5).map((s) => `“${s}”`).join(", ")}</>}.
+                  </p>
+                )}
+                {result.duplicates > 0 && <p><span className="font-semibold text-gray-700">{result.duplicates}</span> row{result.duplicates === 1 ? "" : "s"} repeated an email already in the file.</p>}
+                {result.failed > 0 && <p className="text-red-600"><span className="font-semibold">{result.failed}</span> row{result.failed === 1 ? "" : "s"} couldn&apos;t be saved. Try importing those again.</p>}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button onClick={() => onDone(tags[0] ?? null)} className="bg-orange-500 hover:bg-orange-600 text-white font-bold px-5 py-2.5 rounded-xl text-sm transition">
+                See my contacts
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

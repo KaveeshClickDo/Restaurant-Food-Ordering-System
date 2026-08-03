@@ -2183,7 +2183,10 @@ end $$;
 --
 --   • sources            — where the email came from; a contact can hold several:
 --                          'reservation' | 'online_order' | 'account' |
---                          'gift_card' | 'pos' | 'ebill'
+--                          'gift_card' | 'pos' | 'ebill' | 'import'
+--                          ('import' = uploaded from a CSV in Admin →
+--                          Marketing → Audience → Import; see
+--                          lib/marketingContacts.ts importMarketingContacts)
 --   • unsubscribe_token  — bearer token for the public one-click unsubscribe
 --                          link embedded in campaign emails. Unique per contact.
 --   • unsubscribed_at    — stamped when the contact opts out (via the public

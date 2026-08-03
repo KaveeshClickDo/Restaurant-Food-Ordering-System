@@ -474,7 +474,7 @@ export interface Reservation {
 /** Where a marketing contact's email entered the system (see
  *  lib/marketingContacts.ts). A contact accumulates several. */
 export type ContactSource =
-  | "reservation" | "online_order" | "account" | "gift_card" | "pos" | "ebill";
+  | "reservation" | "online_order" | "account" | "gift_card" | "pos" | "ebill" | "import";
 
 /** An admin-saved broadcast starter (subject + preview + body with {{tokens}}),
  *  stored in settings.broadcastTemplates alongside the built-in quick starts. */
