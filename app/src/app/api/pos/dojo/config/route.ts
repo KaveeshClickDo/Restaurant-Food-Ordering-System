@@ -9,7 +9,7 @@
 
 import { NextResponse } from "next/server";
 import { requirePosSession } from "@/lib/posPermissions";
-import { dojoMode, isDojoSandboxKey, isDojoEffectivelyEnabled } from "@/lib/dojo";
+import { dojoMode, dojoProvider, isDojoSandboxKey, isDojoEffectivelyEnabled } from "@/lib/dojo";
 
 export async function GET() {
   const gate = await requirePosSession();
@@ -21,6 +21,7 @@ export async function GET() {
     ok: true,
     enabled: await isDojoEffectivelyEnabled(),
     mode, // "off" | "mock" | "live"
+    provider: dojoProvider(), // "dojo_cloud" | "connect" (informational; UI is provider-agnostic)
     sandbox: mode === "live" ? isDojoSandboxKey() : mode === "mock",
   });
 }

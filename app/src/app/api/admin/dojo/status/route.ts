@@ -7,7 +7,7 @@
 
 import { NextResponse } from "next/server";
 import { isAdminAuthenticated } from "@/lib/adminAuth";
-import { dojoMode, isDojoEnabled, isDojoSandboxKey, getDojoAdminEnabled, isDojoEffectivelyEnabled } from "@/lib/dojo";
+import { dojoMode, dojoProvider, isDojoEnabled, isDojoSandboxKey, getDojoAdminEnabled, isDojoEffectivelyEnabled } from "@/lib/dojo";
 
 export async function GET() {
   if (!(await isAdminAuthenticated())) {
@@ -17,6 +17,7 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     envMode: mode,                 // "off" | "mock" | "live"
+    provider: dojoProvider(),      // "dojo_cloud" | "connect" (live-mode only; set by us)
     envAvailable: isDojoEnabled(), // env master is on (mode !== off)
     sandbox: mode === "live" ? isDojoSandboxKey() : mode === "mock",
     adminEnabled: await getDojoAdminEnabled(),

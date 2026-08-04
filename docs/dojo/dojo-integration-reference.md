@@ -231,6 +231,8 @@ Dojo requires a QA pass before production. Notable items:
 - **All Dojo calls are server-side** — they live in our Next.js `/api/*` routes (server → `api.dojo.tech`). The Android POS keeps calling our server; **no APK rebuild** for the backend. Only the POS "Pay on terminal" button/waiting UI needs to ship once in the bundle (flag-gated).
 - **Env vars (server-side secrets, never `NEXT_PUBLIC_`, never in `.env.capacitor`):**
   ```bash
+  DOJO_MODE=mock                       # off | mock | live — master switch (we set per deployment)
+  DOJO_PROVIDER=dojo_cloud             # dojo_cloud (api.dojo.tech) | connect (legacy Paymentsense)
   DOJO_API_BASE=https://api.dojo.tech
   DOJO_API_KEY=sk_sandbox_xxx          # the only secret to obtain; sk_prod_ later
   DOJO_API_VERSION=2026-02-27
@@ -239,7 +241,9 @@ Dojo requires a QA pass before production. Notable items:
   DOJO_WEBHOOK_SECRET=whsec_xxx          # if using webhooks
   # terminal id discovered at runtime via GET /terminals
   ```
-- **Feature flag = presence of `DOJO_API_KEY`** (per tenant). Absent → button hidden, app behaves exactly as today (cash/card record only).
+- **Feature flag (two levels, both must be on):** the `DOJO_MODE` env master (off ⇒ Dojo hidden everywhere) **AND** the admin toggle at `/admin?tab=integrations`. The admin can turn it off, but **can never turn it on when the env is off** (`lib/dojo/effectiveFlag.ts`). Off anywhere ⇒ app behaves exactly as today (cash/card record only).
+- **Provider switch (`DOJO_PROVIDER`, live mode only):** picks which client `getDojoGateway()` returns — `dojo_cloud` = the built + tested `lib/dojo/client.ts` (api.dojo.tech); `connect` = `lib/dojo/client.connect.ts`, currently a **loud stub** (`ConnectNotImplementedError`) to be filled once Connect test creds + a terminal exist. The mock is provider-agnostic, and everything else (the 8 routes, the 6 payment surfaces, the `dojo_payments` table) is provider-neutral — only the one client file differs.
+- **Mode/provider ladder (env only, no code change):** `off` (non-Dojo customer) → `mock` (build/demo now, no account) → `live` + `sk_sandbox_` (test on api.dojo.tech virtual terminals) → `live` + `sk_prod_` (real go-live after Dojo QA + a terminal).
 - **DB columns to add** on the order/payment: `dojo_payment_intent_id`, `dojo_terminal_session_id`, `transaction_id`, `auth_code`, `card_last4`, `card_type`, `dojo_status`.
 - **Adapter with `mock | sandbox | live` mode** → we can build 90% now against a mock, then flip to sandbox when the key arrives, then prod. Same code throughout.
 - **Multi-tenant:** each restaurant = its own Dojo Company/Location account, own key(s), own terminal(s), own server env. Turn Dojo on per tenant.
