@@ -12,12 +12,16 @@
  *   onBack()             — operator cancelled / went back to the tender choice
  *
  * All Dojo logic lives in useDojoTerminal; this is purely presentation.
+ *
+ * Pass scope="waiter" when mounting inside the /waiter app so its calls stay on
+ * /api/waiter/* (the surface boundary); the POS family uses the default "pos".
  */
 
 import { useEffect, useRef } from "react";
 import { CreditCard, Loader2, CheckCircle2, XCircle, RefreshCw, PenLine, AlertTriangle } from "lucide-react";
 import { fmt } from "./_utils";
 import { useDojoTerminal } from "./useDojoTerminal";
+import type { DojoScope } from "@/lib/dojo/posApi";
 import type { DojoSaleResult } from "@/lib/dojo/types";
 
 const NOTIF_TEXT: Record<string, string> = {
@@ -35,6 +39,7 @@ export default function DojoChargePanel({
   description,
   currencySymbol,
   busy = false,
+  scope = "pos",
   onApproved,
   onManualFallback,
   onBack,
@@ -45,11 +50,13 @@ export default function DojoChargePanel({
   currencySymbol: string;
   /** Disable + spin the "Record as paid" fallback while the parent settles. */
   busy?: boolean;
+  /** Which surface's API routes to drive. "waiter" for the /waiter app. */
+  scope?: DojoScope;
   onApproved: (result: DojoSaleResult) => void;
   onManualFallback?: () => void;
   onBack: () => void;
 }) {
-  const dojo = useDojoTerminal();
+  const dojo = useDojoTerminal(scope);
   const doneRef = useRef(false);
   const startedRef = useRef(false);
 

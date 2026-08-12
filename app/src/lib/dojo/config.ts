@@ -14,7 +14,7 @@
  *                                    sk_prod_ = production. (Base URL is the same
  *                                    for both — Dojo routes by key.)
  *
- * Cutover path (per docs/dojo/dojo-integration-reference.md §2, §11):
+ * Cutover path (per docs/dojo/README.md §2 + reference §1):
  *   build now:  DOJO_MODE=mock
  *   sandbox:    DOJO_MODE=live  DOJO_API_KEY=sk_sandbox_…   (+ real software-house-id/reseller-id if issued)
  *   production: DOJO_MODE=live  DOJO_API_KEY=sk_prod_…      + Dojo-assigned software-house-id/reseller-id
@@ -29,18 +29,8 @@
 
 export type DojoMode = "off" | "mock" | "live";
 
-/**
- * Which provider drives the terminal when mode === "live". Chosen by the
- * DOJO_PROVIDER env var, which WE set per deployment — the merchant never sees it:
- *   "dojo_cloud" (default) → api.dojo.tech REST (Terminals / payment-intents).
- *   "connect"              → legacy Paymentsense Connect (<host>.connect.paymentsense.cloud).
- * The mock is provider-agnostic, so this only takes effect in live mode.
- */
-export type DojoProvider = "dojo_cloud" | "connect";
-
 export interface DojoConfig {
   mode: DojoMode;
-  provider: DojoProvider;
   baseUrl: string;
   apiKey: string;
   version: string;
@@ -70,16 +60,6 @@ export function dojoMode(): DojoMode {
   return "off";
 }
 
-/**
- * Which provider to use in live mode. Defaults to "dojo_cloud" (api.dojo.tech);
- * any unrecognised value also falls back to "dojo_cloud" — the built + tested
- * provider — so a typo can never silently pick the unfinished Connect adapter.
- * WE set this per deployment; merchants never see or control it.
- */
-export function dojoProvider(): DojoProvider {
-  return env("DOJO_PROVIDER", "dojo_cloud").toLowerCase() === "connect" ? "connect" : "dojo_cloud";
-}
-
 /** The POS "Pay on terminal" option is available when a mode is active. */
 export function isDojoEnabled(): boolean {
   return dojoMode() !== "off";
@@ -93,7 +73,6 @@ export function isDojoSandboxKey(): boolean {
 export function dojoConfig(): DojoConfig {
   return {
     mode: dojoMode(),
-    provider: dojoProvider(),
     baseUrl: env("DOJO_API_BASE", "https://api.dojo.tech").replace(/\/+$/, ""),
     apiKey: env("DOJO_API_KEY"),
     version: env("DOJO_API_VERSION", "2026-02-27"),

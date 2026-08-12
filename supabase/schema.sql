@@ -1281,7 +1281,7 @@ create index if not exists idx_pos_sales_terminal_id
 -- is recorded here, keyed by the Dojo payment intent, with a polymorphic link
 -- back to whatever it paid for (source_type/source_id). One central place =
 -- clean "all card-machine takings" reporting and refund lookup, with no dojo_*
--- columns spread across five tables. See docs/dojo/IMPLEMENTATION-PLAN.md.
+-- columns spread across five tables. See docs/dojo/README.md.
 --   source_type   pos_sale | collection | dine_in | reservation | gift_card
 create table if not exists dojo_payments (
   payment_intent_id    text primary key,        -- Dojo "pi_…"

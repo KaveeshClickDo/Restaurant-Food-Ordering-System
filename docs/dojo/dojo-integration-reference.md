@@ -1,258 +1,239 @@
-# Dojo Pay-at-Counter Integration Reference
+# Dojo Pay-at-Counter — verified API reference
 
-> Compiled from Dojo's **authoritative** LLM docs (`docs.dojo.tech/llms-*.txt`, auto-generated
-> from their live documentation), read in full on 2026-07-24. Source files:
-> `llms-core-concepts.txt`, `llms-inperson-pac.txt`, `llms-payment-intents.txt`.
-> Machine-readable spec of record: https://docs.dojo.tech/api/v3/bundled.json
+> **Provenance.** Every fact below was checked on **2026-08-12** against two
+> independent sources:
+> 1. the live HTML documentation pages under `https://docs.dojo.tech/` (the
+>    Pay-at-Counter, manage-payments, development-resources and go-live sections), and
+> 2. the machine-readable OpenAPI spec of record, `https://docs.dojo.tech/api/v3/bundled.json`.
 >
-> This is the reference for **our** use case: our POS/EPOS drives a physical Dojo card
-> terminal to take a card-present payment. It is **not** the "Pay at Table / EPOS Data"
-> model (that's the reverse direction — Dojo's own products driving our POS — which we do
-> not need).
+> The `llms-*.txt` bundles were used only as a cross-check, never as the sole
+> source — they are auto-generated and summarise some tables away. Where the two
+> disagreed, the OpenAPI spec wins and the difference is called out below.
+>
+> Anything not stated here was not verified. Do not infer.
 
 ---
 
-## 1. Which integration model we use
+## 0. Two traps to avoid before you read anything else
 
-Dojo has two directions. We only need the first:
+**Trap 1 — `/pac/*` in the docs is a DIFFERENT product.** The pages under
+`docs.dojo.tech/pac/` document the *Dojo-only Pay at Counter **WebSockets** API*:
 
-| Model | Who calls whom | For us? |
+| | This reference (what we use) | `/pac/*` (what we do NOT use) |
 |---|---|---|
-| **Pay at Counter (Terminals API)** | **Our POS → Dojo** REST API drives a Dojo card machine | ✅ **This one** |
-| Pay at Table / EPOS Data API | Dojo products call **into** our POS (capability registration, WebSocket) | ❌ Not needed |
+| Transport | HTTPS REST | WebSocket |
+| Base URL | `https://api.dojo.tech` | `wss://api.dojo.tech/ws/v2/pac/epos` |
+| Auth | `Basic <key>`, **not** base64 | `accountName:apiKey`, **base64-encoded** |
 
-**Card data never touches our app or tablet.** The physical Dojo terminal handles the card;
-we only send an amount and read back a result. No native SDK, no PCI scope on the device.
+They share the name "Pay at Counter" and nothing else. Reading `/pac/` pages
+while building this integration is the fastest way to get the auth wrong.
 
----
-
-## 2. Auth & environment (identical for sandbox and production)
-
-- **Base URL:** `https://api.dojo.tech` — **same for sandbox and production**. The **API key prefix** decides the environment (`sk_sandbox_…` vs `sk_prod_…`).
-- **Auth header:** `Authorization: Basic <api_key>` — the literal word `Basic ` then the key. **Do NOT base64-encode** (this is not standard Basic auth).
-- **Version header (required on every call):** `version: 2026-02-27` (YYYY-MM-DD scheme; Dojo never auto-upgrades you — you change it yourself).
-- **Content-Type:** `application/json`
-- **Terminal endpoints also require:** `software-house-id` and `reseller-id` headers.
-  - Sandbox dummy values: `softwareHouse1` / `reseller1` (public, documented).
-  - Production: real values **assigned by Dojo** during partner onboarding.
-- **Key is location-bound.** Dojo accounts are two-tier: **Company → Location**. Each Location has its own sandbox + prod keys. Pick the right location before generating a key.
+**Trap 2 — Pay at Table is the reverse direction.** "Pay at Table" / EPOS Data
+has Dojo's products calling *into* our POS (capability registration, WebSocket).
+We drive Dojo, so it does not apply. We want **Pay at Counter → Terminals API**.
 
 ---
 
-## 3. The complete Sale flow (verified from docs, real bodies)
+## 1. Auth, base URL, versioning
 
-```
-1. POST /payment-intents                       → create charge (amount, currency, ref)
-2. GET  /terminals?statuses=Available          → find a card machine (or use known id)
-3. POST /terminal-sessions                      → bind intent to terminal (starts the machine)
-4. GET  /terminal-sessions/{id}  (poll ~1s)     → watch status until terminal state
-   └ if status = SignatureVerificationRequired:
-     PUT /terminal-sessions/{id}/signature {accepted:true|false}
-5. GET  /payment-intents/{id}                   → read final transactionId / authCode / card
-```
+- **Base URL:** `https://api.dojo.tech` — identical for sandbox and production.
+  The **API key prefix** selects the environment: `sk_sandbox_…` vs `sk_prod_…`.
+- **Auth header:** `Authorization: Basic <api_key>` — the literal word `Basic `,
+  then the raw key. **Not base64-encoded**, despite the name. Verified against
+  the api-keys page's worked example.
+- **Version header:** `version`, `YYYY-MM-DD` scheme, **required on every call**.
+  Published versions: **`2026-02-27`** (current, what we send), `2025-09-10`,
+  `2024-02-05`, and `2022-04-07` (Payments API). Dojo never auto-upgrades you.
+- **Content-Type:** `application/json`.
+- **Key is location-bound.** Accounts are two-tier, Company → Location; each
+  Location has its own sandbox and production keys.
 
-### Step 1 — Create payment intent
-`POST /payment-intents`
-```json
-{
-  "amount": { "value": 1000, "currencyCode": "GBP" },
-  "reference": "Order-234",
-  "description": "Card terminal sale for table 12",
-  "captureMode": "Auto"
-}
-```
-- `value` is **minor units** (1000 = £10.00).
-- `captureMode: "Auto"` = charge immediately (our normal case). `"Manual"` = pre-auth/tab, capture later.
-- Response has `id` (`pi_...`), `status: "Created"`, `paymentLink`, empty `paymentEvents` / `terminalSessionHistory`.
+### Per-endpoint headers (from the OpenAPI spec — this corrects earlier notes)
 
-### Step 2 — Find an available terminal
-`GET /terminals?statuses=Available` → array; take `[].id` (`tm_...`).
-- Do **not** hard-code the terminal id (Dojo QA requires discovery or configurable TID).
-- Note: `terminalId` (Dojo's id) ≠ `tid` (8-digit hardware id on the device).
+| Endpoint | `version` | `software-house-id` | `reseller-id` | `idempotencyKey` |
+|---|---|---|---|---|
+| `POST /payment-intents` | required | — | — | — |
+| `GET /payment-intents/{id}` | required | — | — | — |
+| `GET /terminals` | required | **required** | optional | — |
+| `POST /terminal-sessions` | required | **required** | optional | — |
+| `GET /terminal-sessions/{id}` | required | **required** | optional | — |
+| `PUT /terminal-sessions/{id}/signature` | required | **required** | optional | — |
+| `PUT /terminal-sessions/{id}/cancel` | required | **required** | optional | — |
+| `POST /payment-intents/{id}/refunds` | required | — | — | **required** |
 
-### Step 3 — Create terminal session
-`POST /terminal-sessions`
-```json
-{
-  "terminalId": "tm_sandbox_65c5fe8a104a1222b2d8b968",
-  "details": {
-    "sessionType": "Sale",
-    "sale": { "paymentIntentId": "pi_sandbox_G_FeegU8WESxtY_Nct8jqw" }
-  }
-}
-```
-- Creating the session **auto-initiates** the linked payment intent and wakes the machine.
-- Response starts at `status: "InitiateRequested"`, with `expireAt` and `statusEvents[]`.
-- `sessionType`: `"Sale"` | `"MatchedRefund"` (both need `paymentIntentId`) | `"UnlinkedRefund"` (needs `amount`, no intent).
-
-### Step 4 — Poll until terminal state
-`GET /terminal-sessions/{id}` every ~1s. Keep polling while status ∈ `InitiateRequested`, `Initiated`, `CancelRequested`. Stop on a terminal state (see §4).
-- `notificationEvents[]` carry screen prompts to show staff: `PresentCard`, `PleaseWait`, `EnterPin`, `RemoveCard`, etc.
-
-### Step 5 — Read the final result
-`GET /payment-intents/{id}` → on success `status: "Captured"` and `paymentDetails`:
-```json
-"paymentDetails": {
-  "transactionId": "19e4535e-ef6e-48e2-90be-d2b313c1cefd",
-  "transactionDateTime": "2024-07-25T08:49:20Z",
-  "message": "DEPOSITED",
-  "authCode": "123456",
-  "card": {
-    "cardNumber": "44565300****1096",
-    "cardType": "VISA",
-    "entryMode": "Contactless",
-    "verificationMethod": "Pin"
-  }
-}
-```
-Store `transactionId`, `authCode`, masked `cardNumber`, `cardType` against our order.
+Notes:
+- `reseller-id` is **optional**, not required as previously documented here. We
+  send it anyway — harmless, and Dojo's own examples include it.
+- The refund idempotency header is spelled `idempotencyKey` in the spec. HTTP
+  header names are case-insensitive (RFC 9110), so our `IdempotencyKey` is
+  equivalent — but it is **required**, so never omit it.
+- Sandbox dummy ids `softwareHouse1` / `reseller1` are Dojo's public test values.
+  Production values are assigned by Dojo during partner onboarding.
 
 ---
 
-## 4. Terminal-session statuses (the state machine)
+## 2. The sale flow
 
-| Status | Meaning | Poll action |
+```
+1. POST /payment-intents                    → create the charge
+2. GET  /terminals?statuses=Available       → discover a machine (or use a configured TID)
+3. POST /terminal-sessions                  → bind intent to terminal; this WAKES the machine
+4. GET  /terminal-sessions/{id}   (poll ~1s) → watch status
+   └ if SignatureVerificationRequired:
+     PUT /terminal-sessions/{id}/signature {accepted}
+5. GET  /payment-intents/{id}               → read final transactionId / authCode / card
+```
+
+**Step 1 — create intent.** `value` is in **minor units** (1000 = £10.00).
+`captureMode: "Auto"` charges immediately (our case); `"Manual"` pre-authorises.
+
+```json
+{ "amount": { "value": 1000, "currencyCode": "GBP" },
+  "reference": "Order-234", "captureMode": "Auto" }
+```
+
+**Step 3 — create session.** Exactly one of `sale` / `matchedRefund` /
+`unlinkedRefund` must be present, and it must agree with `sessionType`:
+
+```json
+{ "terminalId": "tm_sandbox_65c5fe8a104a1222b2d8b968",
+  "details": { "sessionType": "Sale",
+               "sale": { "paymentIntentId": "pi_sandbox_G_FeegU8WESxtY_Nct8jqw" } } }
+```
+
+Spec detail (verified): `unlinkedRefund` takes `amount` (a `Money` object) and an
+optional `cardholderNotPresent`; `matchedRefund` takes `paymentIntentId` plus an
+**optional** `amount` for partial card-present refunds.
+
+**Step 5 — final result.** On success `status: "Captured"` with `paymentDetails`
+carrying `transactionId`, `authCode`, `message`, and `card` (masked
+`cardNumber`, `cardType`, `entryMode`, `verificationMethod`). Persist these.
+
+---
+
+## 3. Session status machine
+
+| Status | Meaning | Action |
 |---|---|---|
-| `InitiateRequested` | Sent to terminal, awaiting confirm | keep polling |
-| `Initiated` | Terminal ready, awaiting card | keep polling |
-| `Authorized` | Pre-auth done (Manual mode) — needs later capture | stop; capture later |
-| `Captured` | **Success**, funds captured | stop ✅ |
-| `SignatureVerificationRequired` | Need operator to accept/reject signature | call signature endpoint |
-| `SignatureVerificationAccepted` | Signature accepted → captured | stop ✅ |
-| `SignatureVerificationRejected` | Signature rejected → reversed | stop ❌ |
-| `CancelRequested` | Cancel sent, awaiting confirm | keep polling |
-| `Canceled` | Session cancelled (no payment) | stop |
-| `Declined` | Card issuer declined | stop ❌ (reuse the intent to retry) |
-| `Expired` | Terminal/API disconnect — **result unknown** | stop → see §7 |
+| `InitiateRequested` | sent to terminal | keep polling |
+| `Initiated` | awaiting card | keep polling |
+| `Authorized` | pre-auth done (Manual) | stop; capture later |
+| `Captured` | **success** | stop ✅ |
+| `SignatureVerificationRequired` | operator must decide | call the signature endpoint |
+| `SignatureVerificationAccepted` | accepted → captured | stop ✅ |
+| `SignatureVerificationRejected` | rejected → reversed | stop ❌ |
+| `CancelRequested` | cancel sent | keep polling |
+| `Canceled` | cancelled, no payment | stop |
+| `Declined` | issuer declined | stop ❌ — **reuse the intent** to retry |
+| `Expired` | disconnect — **result unknown** | stop → §5 |
 
-> `Refunded` and `Reversed` are **payment-intent** states, not terminal-session states.
+`Refunded` / `Reversed` are **payment-intent** states, not session states.
+`notificationEvents[]` carry screen prompts (`PresentCard`, `EnterPin`,
+`RemoveCard`, …) that the go-live checklist requires you to show staff.
 
-**Signature 80-second rule:** after `SignatureVerificationRequired`, the operator has **80 seconds** to `PUT …/signature`. If no decision is sent, Dojo **finalises as accepted** and the sale proceeds. A late reject after timeout does nothing — the sale already succeeded. Design the UI around this.
-
----
-
-## 5. Capture modes
-
-- **Auto** (our default): captured immediately on card present. `Created → Captured`.
-- **Manual (pre-auth / tab):** `Created → Authorized`, then:
-  - Top up: `POST /payment-intents/{id}/amount` (repeatable before capture).
-  - Settle: `POST /payment-intents/{id}/captures` with `{ "amount": 2000 }` → returns `captureId`.
-  - If not captured within **7 days**, it auto-reverses.
-  - Bills over £100 require Chip & PIN or device verification (not contactless).
+**The 80-second signature rule.** After `SignatureVerificationRequired` the
+operator has 80 seconds. With no decision, Dojo **finalises as accepted** and the
+sale proceeds (`Captured` for auto-capture, `Authorized` for manual). A rejection
+sent after the timeout does nothing — the sale already succeeded. The UI must not
+promise staff that a late reject will undo the payment.
 
 ---
 
-## 6. Refunds, reversal, cancel — 4 tools, know which to use
+## 4. Refund, reversal, cancel — four different tools
 
-| Action | Endpoint | When |
+| Action | Call | When |
 |---|---|---|
-| **Cancel** | `DELETE /payment-intents/{id}` | Intent still `Created` (never authorised). Frees it. |
-| **Cancel session** | `PUT /terminal-sessions/{id}/cancel` | Before card is presented. `→ CancelRequested → Canceled`. Fails once a card is presented (incl. failed attempts). Note it's **PUT**, session is not deleted. |
-| **Reversal** | `POST /payment-intents/{id}/reversal` | Same-day/near (Auto: within 7 days of payment; Manual: while `Authorized`). Full amount only. Returns `reversalId`. |
-| **Refund (server-side)** | `POST /payment-intents/{id}/refunds` | After capture, customer **not present**. Full or partial, multiple allowed up to original. Needs `IdempotencyKey` header. Returns `refundId`; intent → `Refunded` (full) or stays `Captured` (partial). |
-| **Refund (card-present)** | `POST /terminal-sessions` with `sessionType: "MatchedRefund"` (+ original `paymentIntentId`) or `"UnlinkedRefund"` (+ `amount`, no intent) | Customer + card present at the terminal. |
+| Cancel intent | `DELETE /payment-intents/{id}` | still `Created`, never authorised |
+| Cancel session | `PUT /terminal-sessions/{id}/cancel` | before the card is presented; **PUT**, not DELETE — the session is not deleted |
+| Reversal | `POST /payment-intents/{id}/reversal` | same-day-ish, full amount only |
+| Refund (remote) | `POST /payment-intents/{id}/refunds` | after capture, customer absent; full or partial; needs `idempotencyKey` |
+| Refund (card present) | `POST /terminal-sessions` with `MatchedRefund` or `UnlinkedRefund` | customer + card at the machine |
 
-**Go-live requirement:** Dojo **mandates at least one working refund path** in the integration before approving production.
-
-Refund request body:
-```json
-{ "amount": 1000, "refundReason": "Demo refund", "notes": "Customer returned order" }
-```
+**Go-live gate:** Dojo mandates **at least one working refund path** before
+approving production.
 
 ---
 
-## 7. Error handling & the `Expired` case (required by QA)
+## 5. Errors and the `Expired` case
 
-| HTTP | Cause | POS should |
+| HTTP | Cause | POS must |
 |---|---|---|
-| 400 | Bad request | Fix payload before release |
-| 401 | Invalid API key | Clear "check your API key" message (esp. self-install) |
-| 404 | Terminal offline/unknown TID | Tell staff to check the device |
-| 422 | e.g. cancel outside "Insert Card" phase | Continue prior request; explain why |
+| 400 | bad request | fix before release |
+| 401 | invalid key | clear "check your API key" message |
+| 404 | terminal offline / unknown TID | tell staff to check the device |
+| 422 | e.g. cancelling after card presented | explain, continue the prior request |
 
-**`Expired`** = API↔terminal disconnect mid-transaction; **result genuinely unknown**. POS must show a dialog telling staff to **check the card machine screen/receipt**, and offer to **manually record as paid** or **retry**. Don't silently assume failure.
-
----
-
-## 8. Webhooks (recommended, alternative/supplement to polling)
-
-- Subscribe: `POST /webhooks` `{ "events": ["payment_intent.status_updated"], "url": "https://…" }`. URL must be **public HTTPS**.
-- List event types: `GET /webhooks/events`. Manage secrets: `GET/POST/PUT/DELETE /webhooks/secrets`.
-- **Payment-intent events:** `payment_intent.created`, `payment_intent.status_updated`, `payment_intent.send-receipt`. Payload `data`: `{ paymentIntentId, paymentStatus, captureMode }`. `paymentStatus` ∈ `Created|Authorized|Captured|Reversed|Refunded|Canceled`.
-- **Terminal-session events:** `terminal_session.created`, `terminal_session.status_updated`, `terminal_session.signature_verification_required`, `terminal_session.notification`. Payload `data`: `{ terminalSessionId, state, terminalId, sessionType, paymentIntentId, paymentDetails{cardScheme,maskedPan,authCode} }`. **Delivered in order per session.**
-- **Delivery:** any `2xx` = accepted; `4xx/5xx` = retried up to **12 times** with exponential backoff. **Handle idempotently** (at-least-once; if both webhook + capability registered, events arrive twice).
-- **Signature verification (required):** each webhook has a `Dojo-Signature` header (case-insensitive). Compute `HMAC-SHA256(rawBody, secret.value)`, format as `sha256=` + uppercase hex bytes joined by `-`, compare with constant-time equality. **Use the raw request body** (no reformatting).
-
-```py
-digest = hmac.new(secret.encode(), raw_body, sha256).digest()
-expected = "sha256=" + "-".join(f"{b:02X}" for b in digest)
-hmac.compare_digest(header, expected)
-```
+**`Expired` is not a failure.** It means the API↔terminal link dropped and the
+result is genuinely unknown. The checklist requires a dialogue telling staff to
+**check the card machine screen**, then offering **record as paid** or **retry**.
+Never silently treat it as declined.
 
 ---
 
-## 9. Sandbox testing — NO physical hardware needed ✅
+## 6. Sandbox testing — no hardware needed
 
-**Decisive finding:** sandbox provides **virtual terminals**. Use a terminal whose **TID ends in a magic suffix** to force outcomes:
+The `/development-resources/testing` page only covers **online** test cards and
+says Dojo issues *physical* POS test cards. The virtual-terminal trick is
+documented elsewhere: in the **Pay at Counter go-live checklist** test tables,
+which repeatedly say "using a Virtual Machine with `TID` ending in …".
 
 | TID suffix | Forced outcome |
 |---|---|
-| `SIP0` | Success via insert/PIN **and** signature-verification sale path |
-| `DIP0` | **Declined** |
-| `TIP0` | **Expired** |
-| `SIS0` | Refund requiring signature verification |
+| `SIP0` | success (chip/PIN) **and** the signature-verification path |
+| `DIP0` | declined |
+| `TIP0` | expired |
+| `SIS0` | refund requiring signature verification |
 
-So the full happy path, declines, expiry, signature accept/reject, and refunds are all testable **remotely, with only a sandbox API key** — no Dojo Go required for development.
-
-- **Test cards:** Dojo issues physical POS test cards for in-person; virtual test card numbers exist for online. Sandbox-only.
-- The public sandbox key in the docs is shared/public — **generate your own private sandbox key** in the Developer Portal for real testing (don't send PII with the public one).
-- For webhook testing before a public endpoint exists: webhook.site or ngrok.
+So happy path, decline, expiry, signature accept/reject/timeout and refunds are
+all testable with only a sandbox key. Generate your **own** sandbox key — the one
+in the public docs is shared.
 
 ---
 
-## 10. Go-live checklist (Dojo QA gate)
+## 7. Go-live checklist (Dojo QA gate)
 
-Dojo requires a QA pass before production. Notable items:
-- API key is **configurable, never hard-coded**; wrong key shows a clear error.
-- Terminal discovery via `GET /terminals` or a configurable TID (not hard-coded).
-- Payment intent create (Auto; Manual optional), retrieve final result, cancel, list/search.
-- MOTO/card-not-present: `cardHolderNotPresent: true` skips "Present Card" → key entry.
-- At least one **refund** path working (mandated).
-- Handle all terminal outcomes incl. `Declined`, `Expired`, signature (accept/reject/timeout), cancel-from-POS and cancel-from-PDQ, busy terminal.
-- Poll `GET /terminal-sessions` ~once per second; surface `notificationEvents` to staff.
-- Provide API version + min POS version to Dojo during QA.
+- API key **configurable, never hard-coded**; a wrong key shows a clear error.
+- Terminal discovery via `GET /terminals` or a configurable TID — **never hard-coded**.
+- Create intent (Auto; Manual optional), retrieve, cancel, list/search.
+- MOTO: `cardHolderNotPresent: true` skips "Present Card" → key entry.
+- **At least one refund path** (mandatory), full and partial.
+- Handle every outcome: declined (and intent reuse), expired, signature
+  accept/reject/80s-timeout, cancel from POS **and** from the PDQ, busy terminal.
+- Poll `GET /terminal-sessions/{id}` ~once per second and surface
+  `notificationEvents` to staff.
+- Report the API version and minimum POS version to Dojo.
 
-**Sandbox → production is then just:** swap `sk_sandbox_` → `sk_prod_`, swap dummy `software-house-id`/`reseller-id` → Dojo-assigned values, point webhooks at the prod URL. **No code change.**
+Sandbox → production is env-only: swap the key prefix, swap the dummy
+`software-house-id` for the Dojo-assigned value, repoint webhooks.
 
 ---
 
-## 11. How this maps to OUR app
+## 8. Webhooks
 
-- **All Dojo calls are server-side** — they live in our Next.js `/api/*` routes (server → `api.dojo.tech`). The Android POS keeps calling our server; **no APK rebuild** for the backend. Only the POS "Pay on terminal" button/waiting UI needs to ship once in the bundle (flag-gated).
-- **Env vars (server-side secrets, never `NEXT_PUBLIC_`, never in `.env.capacitor`):**
-  ```bash
-  DOJO_MODE=mock                       # off | mock | live — master switch (we set per deployment)
-  DOJO_PROVIDER=dojo_cloud             # dojo_cloud (api.dojo.tech) | connect (legacy Paymentsense)
-  DOJO_API_BASE=https://api.dojo.tech
-  DOJO_API_KEY=sk_sandbox_xxx          # the only secret to obtain; sk_prod_ later
-  DOJO_API_VERSION=2026-02-27
-  DOJO_SOFTWARE_HOUSE_ID=softwareHouse1  # sandbox dummy; real in prod
-  DOJO_RESELLER_ID=reseller1             # sandbox dummy; real in prod
-  DOJO_WEBHOOK_SECRET=whsec_xxx          # if using webhooks
-  # terminal id discovered at runtime via GET /terminals
+- Subscribe: `POST /webhooks` `{ "events": [...], "url": "https://…" }` (public HTTPS).
+- Payment-intent events: `payment_intent.created`, `payment_intent.status_updated`,
+  `payment_intent.send-receipt`.
+- Terminal-session events: `terminal_session.created`, `.status_updated`,
+  `.signature_verification_required`, `.notification`. Ordered per session.
+- Delivery: any `2xx` = accepted; `4xx`/`5xx` retried up to **12 times** with
+  exponential backoff. **At least once — handle idempotently.**
+- **Signature (verified byte-for-byte):** header `Dojo-Signature`
+  (case-insensitive). Compute `HMAC-SHA256(rawBody, secret)`, then format as
+  `sha256=` + **uppercase** hex bytes **joined by `-`**:
+
   ```
-- **Feature flag (two levels, both must be on):** the `DOJO_MODE` env master (off ⇒ Dojo hidden everywhere) **AND** the admin toggle at `/admin?tab=integrations`. The admin can turn it off, but **can never turn it on when the env is off** (`lib/dojo/effectiveFlag.ts`). Off anywhere ⇒ app behaves exactly as today (cash/card record only).
-- **Provider switch (`DOJO_PROVIDER`, live mode only):** picks which client `getDojoGateway()` returns — `dojo_cloud` = the built + tested `lib/dojo/client.ts` (api.dojo.tech); `connect` = `lib/dojo/client.connect.ts`, currently a **loud stub** (`ConnectNotImplementedError`) to be filled once Connect test creds + a terminal exist. The mock is provider-agnostic, and everything else (the 8 routes, the 6 payment surfaces, the `dojo_payments` table) is provider-neutral — only the one client file differs.
-- **Mode/provider ladder (env only, no code change):** `off` (non-Dojo customer) → `mock` (build/demo now, no account) → `live` + `sk_sandbox_` (test on api.dojo.tech virtual terminals) → `live` + `sk_prod_` (real go-live after Dojo QA + a terminal).
-- **DB columns to add** on the order/payment: `dojo_payment_intent_id`, `dojo_terminal_session_id`, `transaction_id`, `auth_code`, `card_last4`, `card_type`, `dojo_status`.
-- **Adapter with `mock | sandbox | live` mode** → we can build 90% now against a mock, then flip to sandbox when the key arrives, then prod. Same code throughout.
-- **Multi-tenant:** each restaurant = its own Dojo Company/Location account, own key(s), own terminal(s), own server env. Turn Dojo on per tenant.
+  sha256=4B-49-F8-FE-25-A7-E6-7D-00-4F-A7-9C-F8-0B-63-00-C7-77-B4-F2-2D-E5-E1-22-84-FA-04-18-50-A1-76-FD
+  ```
+
+  Hash the **raw** body — never re-serialise the parsed JSON. Compare in
+  constant time.
 
 ---
 
-## 12. Commercial gate (not code)
+## 9. Commercial gate (not code)
 
-- Can build/test in **sandbox** with just a sandbox key (obtain via the restaurant's Dojo account / partner onboarding; developer sign-up is not fully self-serve like Stripe).
-- Going **live** needs: the merchant onboarded by Dojo, Dojo-assigned `software-house-id`/`reseller-id`, a physical Dojo terminal, and passing Dojo QA.
-- Partner/tech contact: `partnertech@dojo.tech`. Portal: https://developer.dojo.tech. Sample code: https://github.com/dojo-engineering/dojo-samples.
-</invoke>
+Sandbox needs only a sandbox key, obtained through the restaurant's Dojo account
+or partner onboarding (not self-serve like Stripe). Production needs the merchant
+onboarded, Dojo-assigned `software-house-id`, a physical terminal, and a QA pass.
+Partner contact `partnertech@dojo.tech`; portal `https://developer.dojo.tech`;
+samples `https://github.com/dojo-engineering/dojo-samples`.

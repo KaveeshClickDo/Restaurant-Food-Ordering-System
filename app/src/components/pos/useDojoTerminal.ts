@@ -7,12 +7,15 @@
  * It exposes a small phase + status surface the PaymentModal renders, and a
  * `result` the caller persists on the sale. All network calls go through
  * lib/dojo/posApi (which uses apiBase(), so it works in the Capacitor APK).
+ *
+ * `scope` selects which surface's routes to call — "waiter" keeps the /waiter
+ * app inside /api/waiter/*, "pos" (default) serves the POS family.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createDojoSession, getDojoSession, signDojoSession, cancelDojoSession,
-  type CreateDojoSessionBody,
+  type CreateDojoSessionBody, type DojoScope,
 } from "@/lib/dojo/posApi";
 import type { DojoSessionSnapshot, DojoSaleResult } from "@/lib/dojo/types";
 
@@ -42,7 +45,7 @@ export interface UseDojoTerminal {
   reset: () => void;
 }
 
-export function useDojoTerminal(): UseDojoTerminal {
+export function useDojoTerminal(scope: DojoScope = "pos"): UseDojoTerminal {
   const [phase, setPhase] = useState<DojoPhase>("idle");
   const [status, setStatus] = useState<string | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
@@ -78,7 +81,7 @@ export function useDojoTerminal(): UseDojoTerminal {
     const id = sessionIdRef.current;
     if (!id || !activeRef.current) return;
     try {
-      const { snapshot } = await getDojoSession(id);
+      const { snapshot } = await getDojoSession(id, scope);
       if (!activeRef.current) return;
       applySnapshot(snapshot);
       if (activeRef.current && !snapshot.done) timerRef.current = setTimeout(poll, POLL_MS);
@@ -94,7 +97,7 @@ export function useDojoTerminal(): UseDojoTerminal {
       }
       timerRef.current = setTimeout(poll, POLL_MS);
     }
-  }, [applySnapshot]);
+  }, [applySnapshot, scope]);
 
   const start = useCallback(async (body: CreateDojoSessionBody) => {
     clearTimer();
@@ -103,7 +106,7 @@ export function useDojoTerminal(): UseDojoTerminal {
     setPhase("starting");
     activeRef.current = true;
     try {
-      const res = await createDojoSession(body);
+      const res = await createDojoSession(body, scope);
       sessionIdRef.current = res.terminalSessionId;
       if (!activeRef.current) return;
       applySnapshot(res.snapshot);
@@ -113,18 +116,18 @@ export function useDojoTerminal(): UseDojoTerminal {
       setError(e instanceof Error ? e.message : "Could not start the card payment.");
       setPhase("error");
     }
-  }, [applySnapshot, poll]);
+  }, [applySnapshot, poll, scope]);
 
   const submitSignature = useCallback(async (accepted: boolean) => {
     const id = sessionIdRef.current;
     if (!id) return;
     try {
-      const { snapshot } = await signDojoSession(id, accepted);
+      const { snapshot } = await signDojoSession(id, accepted, scope);
       applySnapshot(snapshot); // the ongoing poll loop (still active) carries on if not yet done
     } catch (e) {
       setError(e instanceof Error ? e.message : "Signature submission failed.");
     }
-  }, [applySnapshot]);
+  }, [applySnapshot, scope]);
 
   const cancel = useCallback(async () => {
     const id = sessionIdRef.current;
@@ -132,13 +135,13 @@ export function useDojoTerminal(): UseDojoTerminal {
     clearTimer();
     if (!id) { setPhase("idle"); return; }
     try {
-      const { snapshot } = await cancelDojoSession(id);
+      const { snapshot } = await cancelDojoSession(id, scope);
       applySnapshot(snapshot);
     } catch {
       // A 422 (card already presented) means cancel is no longer possible; the
       // payment continues — leave the last known state on screen.
     }
-  }, [applySnapshot]);
+  }, [applySnapshot, scope]);
 
   const reset = useCallback(() => {
     activeRef.current = false;

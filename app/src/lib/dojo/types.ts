@@ -1,8 +1,9 @@
 /**
  * Dojo API types — Pay at Counter (Terminals) integration.
  *
- * Transcribed from Dojo's authoritative docs (docs.dojo.tech/llms-*.txt, read
- * 2026-07-24) and the v3 OpenAPI spec. See docs/dojo/dojo-integration-reference.md.
+ * Transcribed from the v3 OpenAPI spec (docs.dojo.tech/api/v3/bundled.json) and
+ * the live doc pages, re-verified 2026-08-12.
+ * See docs/dojo/dojo-integration-reference.md.
  *
  * SERVER-SIDE ONLY. These describe the wire shapes we exchange with
  * https://api.dojo.tech. The POS client never imports this file — it talks to

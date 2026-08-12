@@ -495,6 +495,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                   reference={`Table ${table.label}`}
                   currencySymbol={sym}
                   busy={paying}
+                  scope="waiter"
                   onApproved={(r) => { setCardFlow("none"); payBill("card", r); }}
                   onManualFallback={() => { setCardFlow("none"); payBill("card"); }}
                   onBack={() => setCardFlow("none")}

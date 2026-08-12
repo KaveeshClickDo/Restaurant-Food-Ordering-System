@@ -4,7 +4,8 @@
  * Auth per docs: `Authorization: Basic <api_key>` where "Basic " is a LITERAL
  * prefix — the key is NOT base64-encoded. Every call carries the dated `version`
  * header. Terminal endpoints additionally require `software-house-id` and
- * `reseller-id`. See docs/dojo/dojo-integration-reference.md §2.
+ * `software-house-id` (and accept an optional `reseller-id`).
+ * See docs/dojo/dojo-integration-reference.md §1 for the verified header matrix.
  */
 
 import { dojoConfig } from "./config";

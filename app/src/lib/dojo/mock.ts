@@ -5,7 +5,7 @@
  * key. It mirrors Dojo's own sandbox convention: the OUTCOME is chosen by the
  * terminal's id suffix, exactly like the real virtual terminals
  * (SIP0=success/signature, DIP0=declined, TIP0=expired, SIS0=refund-signature).
- * See docs/dojo/dojo-integration-reference.md §9.
+ * See docs/dojo/dojo-integration-reference.md §6 (sandbox testing).
  *
  * Progression is poll-count based and deterministic: each getTerminalSession()
  * advances the session one tick, so it settles in ~3 polls (~3s at 1 poll/sec) —
