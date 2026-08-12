@@ -47,6 +47,17 @@ import {
   PackageCheck, Award, Tv, Megaphone,
 } from "lucide-react";
 
+// ─── Feature flags ────────────────────────────────────────────────────────────
+
+// Marketing tab (contacts + broadcasts) rollout flag. The feature is not
+// finished, so it is OPT-IN: the tab is hidden unless a deploy explicitly sets
+// NEXT_PUBLIC_FEATURE_MARKETING=on in its .env.local. Demo sites turn it on;
+// production sites leave it unset and never see it. Hiding removes the sidebar
+// item and makes ?tab=marketing deep links fall back to the default tab.
+// NEXT_PUBLIC_ values are inlined at BUILD time — changing the env requires a
+// rebuild (npm run build), not just a service restart.
+const MARKETING_ENABLED = process.env.NEXT_PUBLIC_FEATURE_MARKETING === "on";
+
 // ─── Navigation structure ─────────────────────────────────────────────────────
 
 type NavItem = { id: string; label: string; icon: React.ComponentType<{ size?: number; className?: string }> };
@@ -74,9 +85,11 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "customers", label: "Customers", icon: Users },
       // The marketing hub (contacts + broadcasts). The old "reservation-customers"
       // id is kept working as a legacy deep-link alias in the ?tab resolver.
-      // Always visible: contacts and the audience are free, and the tab sells
-      // the email package when there isn't one. Sending is what's metered.
-      { id: "marketing", label: "Marketing", icon: Megaphone },
+      // Gated behind NEXT_PUBLIC_FEATURE_MARKETING while the feature is
+      // unfinished. Where it IS shown, contacts and the audience are free and
+      // the tab sells the email package when there isn't one — only sending is
+      // metered.
+      ...(MARKETING_ENABLED ? [{ id: "marketing", label: "Marketing", icon: Megaphone }] : []),
       { id: "drivers", label: "Drivers", icon: Car },
       { id: "reservations", label: "Reservations", icon: CalendarDays },
       { id: "table-status", label: "Tables", icon: UtensilsCrossed },
@@ -249,8 +262,9 @@ function AdminPageContent() {
             rawTab === "reservation-customers" ? "marketing" :
               rawTab ?? "online-orders"
   ) as TabId;
-  // Unknown ids fall back to the default tab instead of rendering an empty
-  // content area.
+  // Unknown ids (and feature-flagged tabs filtered out of NAV_GROUPS, e.g.
+  // "marketing" when NEXT_PUBLIC_FEATURE_MARKETING isn't "on") fall back to the
+  // default tab instead of rendering an empty content area.
   const initialTab: TabId = ALL_TABS.some((t) => t.id === aliasedTab) ? aliasedTab : "online-orders";
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
