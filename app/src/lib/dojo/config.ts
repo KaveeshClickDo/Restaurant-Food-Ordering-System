@@ -71,15 +71,20 @@ export function isDojoSandboxKey(): boolean {
 }
 
 export function dojoConfig(): DojoConfig {
+  // Sandbox dummies are Dojo's documented public values; production values are
+  // assigned by Dojo once the partner agreement is signed.
+  const softwareHouseId = env("DOJO_SOFTWARE_HOUSE_ID", "softwareHouse1");
   return {
     mode: dojoMode(),
     baseUrl: env("DOJO_API_BASE", "https://api.dojo.tech").replace(/\/+$/, ""),
     apiKey: env("DOJO_API_KEY"),
     version: env("DOJO_API_VERSION", "2026-02-27"),
-    // Sandbox dummies are the documented public values; production values are
-    // assigned by Dojo during onboarding.
-    softwareHouseId: env("DOJO_SOFTWARE_HOUSE_ID", "softwareHouse1"),
-    resellerId: env("DOJO_RESELLER_ID", "reseller1"),
+    softwareHouseId,
+    // reseller-id names whoever resells the EPOS to the merchant. We sell our
+    // own software, so Dojo's guidance (partner enablement, 2026-08-12) is to
+    // send our own software-house-id here rather than a separate value.
+    // Set DOJO_RESELLER_ID explicitly only if a reseller is genuinely involved.
+    resellerId: env("DOJO_RESELLER_ID", softwareHouseId),
     webhookSecret: env("DOJO_WEBHOOK_SECRET"),
     terminalId: env("DOJO_TERMINAL_ID"),
     currencyCode: env("DOJO_CURRENCY_CODE", "GBP"),

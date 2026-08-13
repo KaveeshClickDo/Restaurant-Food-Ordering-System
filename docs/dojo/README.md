@@ -176,8 +176,15 @@ sessions/[id]/signature,sessions/[id]/cancel,refunds,webhook}` and
 ## 9. Known gaps (deliberate)
 
 - **Split cash+card:** the card leg still uses the manual confirm.
-- **Pre-auth (Manual capture):** gateway and routes support `captureMode` and
-  captures; there is no bar-tab UI.
+- **Pre-auth (Manual capture):** `captureMode` can be sent, but nothing calls
+  `POST /payment-intents/{id}/captures`, so a pre-auth could be started and
+  never settled. Both the capture call and a bar-tab UI are missing. Dojo's
+  checklist marks pre-auth `[Optional]`.
+- **Cashback, gratuity and `itemLines`:** not implemented. Tips are agreed at
+  the table and included in the amount sent to the terminal, so terminal-side
+  gratuity is deliberately not used.
+- **MOTO (`cardHolderNotPresent`):** the flag reaches the wire, but no surface
+  sets it.
 - **Receipt:** `ReceiptModal` does not yet print the captured scheme/last-4/auth,
   though `dojo_payments` holds them.
 - **Refund UI:** refunds exist as an API route (`canIssueRefund`-gated); there is
