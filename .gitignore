@@ -1,3 +1,7 @@
 
 # Stripe CLI
 stripe.exe
+
+# Internal planning docs — never ship these to a restaurant customer.
+# They describe our pricing, margin and enforcement design.
+docs/internal/

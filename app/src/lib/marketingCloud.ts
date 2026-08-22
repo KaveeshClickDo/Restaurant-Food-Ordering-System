@@ -192,22 +192,126 @@ export async function sendMarketingBatch(args: {
   if (!marketingApiConfigured()) {
     throw new Error("MARKETING_API_URL is not set.");
   }
-  return stubSend(args.messages);
+  const stub = stubMode();
+  if (stub) return stubSend(args.messages, stub);
+
+  const res = await fetch(`${apiBaseUrl()}/v1/send`, {
+    method:  "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      campaignRef: args.campaignRef,
+      fromName:    args.fromName,
+      messages:    args.messages,
+      test:        args.test ?? false,
+    }),
+    cache:  "no-store",
+    signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+  });
+
+  // 402 still carries a real result body (nothing could be sent, here's why).
+  // Any OTHER non-OK response means we don't know what happened — so throw,
+  // and the caller marks nobody. Those recipients stay `pending`, the batch is
+  // retried, and the idempotency keys make the retry free.
+  if (!res.ok && res.status !== 402) {
+    throw new Error(await describeError(res));
+  }
+
+  const body = await res.json() as Partial<MarketingSendResult>;
+  if (!Array.isArray(body.accepted) || !Array.isArray(body.rejected)) {
+    throw new Error("Marketing service returned an unrecognised response.");
+  }
+  return {
+    accepted:       body.accepted,
+    rejected:       body.rejected,
+    outOfAllowance: body.outOfAllowance ?? false,
+    remaining:      body.remaining ?? 0,
+  };
 }
 
-// TODO(amazon-ses): real transport.
-//   const res = await fetch(`${process.env.MARKETING_API_URL}/v1/send`, {
-//     method: "POST",
-//     headers: { "Content-Type": "application/json" },
-//     body: JSON.stringify(args),
-//   });
-//   if (!res.ok && res.status !== 402) throw new Error(`Marketing API ${res.status}`);
-//   return await res.json() as MarketingSendResult;
+// ── Transport ────────────────────────────────────────────────────────────────
 //
-/** Development stand-in. `MARKETING_STUB=out` refuses the whole batch so the
- *  pause-and-resume path can be exercised without a real allowance. */
-function stubSend(messages: MarketingMessage[]): MarketingSendResult {
-  if ((process.env.MARKETING_STUB ?? "active").trim() === "out") {
+// Both calls are made SERVER-TO-SERVER, and that is the whole authentication
+// scheme. DirectDine provisions one VM per install and registers its address,
+// so the source IP of these requests is what identifies this restaurant.
+// A call made from the browser would carry the owner's laptop address and
+// prove nothing — which is why the admin routes proxy through this module
+// instead of letting the Marketing tab call DirectDine directly.
+
+/** Status sits on the render path, so fail fast and fall back to cache. */
+const STATUS_TIMEOUT_MS = 10_000;
+/** A batch is up to 20 rendered emails, handed to SES one at a time, and a
+ *  sandboxed SES account is paced at roughly one send a second. A tighter
+ *  timeout would abandon batches that were about to succeed. */
+const SEND_TIMEOUT_MS = 120_000;
+
+function apiBaseUrl(): string {
+  return (process.env.MARKETING_API_URL ?? "").trim().replace(/\/$/, "");
+}
+
+/**
+ * Development-only escape hatch, inert unless MARKETING_STUB is set — it lets
+ * the Marketing tab be worked on without running the Go service.
+ *
+ * Deliberately ignored in production: the stub reports recipients as sent
+ * when nothing was sent, and that must never be possible on a real install.
+ * It grants nothing either way — the allowance is enforced by the Marketing
+ * API on hardware we own, so a tenant setting this can only stop their own
+ * email going out.
+ */
+function stubMode(): string | null {
+  if (process.env.NODE_ENV === "production") return null;
+  const mode = process.env.MARKETING_STUB?.trim();
+  return mode ? mode : null;
+}
+
+async function fetchStatus(): Promise<MarketingStatus> {
+  if (!marketingApiConfigured()) {
+    return { state: "unavailable", reason: "MARKETING_API_URL is not set." };
+  }
+  const stub = stubMode();
+  if (stub) return stubStatus(stub);
+
+  const res = await fetch(`${apiBaseUrl()}/v1/status`, {
+    cache:  "no-store",
+    signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
+  });
+
+  // A 4xx is a DEFINITIVE answer about this install — its address isn't
+  // registered, or it's registered to two accounts. Surface the service's own
+  // message, which is written to be read by the restaurant owner. Throwing
+  // here instead would let a stale cached "active" hide a real
+  // misconfiguration for fifteen minutes.
+  if (res.status >= 400 && res.status < 500) {
+    return { state: "unavailable", reason: await describeError(res) };
+  }
+  // 5xx and transport failures are transient: throw, so the caller serves the
+  // last good answer rather than locking a paying customer out over a restart.
+  if (!res.ok) throw new Error(await describeError(res));
+
+  const body = await res.json() as MarketingStatus;
+  if (body?.state !== "active" && body?.state !== "none") {
+    throw new Error("Marketing service returned an unrecognised status.");
+  }
+  return body;
+}
+
+/** Prefer the service's own wording — it's written for a restaurant owner
+ *  ("this server is not registered…"), which is far more use than a code. */
+async function describeError(res: Response): Promise<string> {
+  try {
+    const body = await res.json() as { error?: unknown };
+    if (typeof body.error === "string" && body.error.trim()) return body.error;
+  } catch { /* not JSON — fall through */ }
+  return `Marketing service returned ${res.status}.`;
+}
+
+// ── Development stand-ins ────────────────────────────────────────────────────
+// Only reachable via MARKETING_STUB outside production. See stubMode().
+
+/** `MARKETING_STUB=out` refuses the whole batch, so the pause-and-resume path
+ *  can be exercised without a real allowance. */
+function stubSend(messages: MarketingMessage[], mode: string): MarketingSendResult {
+  if (mode === "out") {
     return {
       accepted: [],
       rejected: messages.map((m) => ({ ref: m.ref, reason: "no_allowance" as const })),
@@ -224,35 +328,13 @@ function stubSend(messages: MarketingMessage[]): MarketingSendResult {
   };
 }
 
-// ── Transport ────────────────────────────────────────────────────────────────
-// TODO(amazon-ses): replace the stub with the real HTTP call once the Marketing
-// API contract is agreed. The shape above is the contract — everything that
-// consumes it is already written against these types, so the swap is local to
-// this function.
-//
-//   const res = await fetch(`${process.env.MARKETING_API_URL}/v1/status`, {
-//     headers: { "X-Install-Secret": process.env.MARKETING_API_SECRET ?? "" },
-//     cache: "no-store",
-//   });
-//
-async function fetchStatus(): Promise<MarketingStatus> {
-  if (!marketingApiConfigured()) {
-    return { state: "unavailable", reason: "MARKETING_API_URL is not set." };
-  }
-  return stubStatus();
-}
-
-/**
- * Development stand-in for the Marketing API. Drive it with MARKETING_STUB:
- *   active (default) · out · none · unavailable
- * Delete this function when the real transport lands.
- */
-function stubStatus(): MarketingStatus {
-  switch ((process.env.MARKETING_STUB ?? "active").trim()) {
+/** Drive with MARKETING_STUB: active (default) · out · none · unavailable */
+function stubStatus(mode: string): MarketingStatus {
+  switch (mode) {
     case "none":
       return {
         state: "none",
-        buyUrl: "https://admin.directdine.tech/portal/marketing",
+        buyUrl: "https://admin.directdine.tech/portal/email-subscriptions",
         packages: [
           { id: "starter", name: "Starter", emails: 2_000,  priceLabel: "£10 / month", blurb: "Plenty for a monthly newsletter." },
           { id: "growth",  name: "Growth",  emails: 10_000, priceLabel: "£25 / month", blurb: "Weekly offers to a bigger list." },
