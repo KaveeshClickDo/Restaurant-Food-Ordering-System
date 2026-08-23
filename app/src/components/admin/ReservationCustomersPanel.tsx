@@ -17,7 +17,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import type { ReservationCustomer, ContactSource } from "@/types";
 // Type-only: erased at build, so no server code reaches the client bundle.
-import type { MarketingStatus } from "@/lib/marketingCloud";
+import type { MarketingStatus, MarketingPackage } from "@/lib/marketingCloud";
 import {
   readContactCsv, buildImportRows, tagFromFilename, NO_MAP,
   type ImportField, type ColumnMap, type ImportRow,
@@ -738,7 +738,10 @@ function PlanBadge({ status }: { status: MarketingStatus | null }) {
     );
   }
   const out = status.remaining === 0;
-  const low = !out && status.remaining <= Math.max(50, status.limit * 0.1);
+  // 10% of the package, with a floor of 1. The old `Math.max(50, ...)` meant
+  // any package smaller than 50 emails showed "running low" from the moment
+  // it was bought, which is exactly the warning nobody reads twice.
+  const low = !out && status.remaining <= Math.max(1, Math.round(status.limit * 0.1));
   const cls = out ? "bg-red-50 border-red-200 text-red-700"
     : low ? "bg-amber-50 border-amber-200 text-amber-800"
     : "bg-emerald-50 border-emerald-200 text-emerald-700";
@@ -748,6 +751,40 @@ function PlanBadge({ status }: { status: MarketingStatus | null }) {
       <Mail size={12} />
       {out ? "No emails left" : `${status.remaining.toLocaleString()} emails left`}
     </span>
+  );
+}
+
+/**
+ * The pricing tiers, shared by the locked screen and the out-of-credits
+ * banner. Extracted because those are the only two moments an owner actually
+ * wants to buy, and until now only one of them could take the money.
+ */
+function PackageTiers({ packages, buyUrl, compact = false }: {
+  packages: MarketingPackage[]; buyUrl?: string; compact?: boolean;
+}) {
+  // An account whose currency has no packages configured gets an empty list.
+  // Rendering nothing is better than an empty grid with a stray heading.
+  if (packages.length === 0 || !buyUrl) return null;
+  return (
+    <div className={`grid sm:grid-cols-3 gap-3 ${compact ? "mt-3" : ""}`}>
+      {packages.map((p, i) => (
+        <div key={p.id}
+          className={`bg-white border rounded-2xl flex flex-col gap-3 ${compact ? "p-4" : "p-5"} ${i === 0 ? "border-orange-300 ring-1 ring-orange-100" : "border-gray-200"}`}>
+          <div>
+            <p className="font-bold text-gray-900 text-sm">{p.name}</p>
+            <p className={`font-bold text-gray-900 mt-1 ${compact ? "text-xl" : "text-2xl"}`}>
+              {p.emails.toLocaleString()}<span className="text-sm font-medium text-gray-400"> emails</span>
+            </p>
+            <p className="text-sm font-semibold text-orange-600 mt-0.5">{p.priceLabel}</p>
+          </div>
+          {p.blurb && !compact && <p className="text-xs text-gray-500 flex-1">{p.blurb}</p>}
+          <a href={`${buyUrl}?package=${encodeURIComponent(p.id)}`} target="_blank" rel="noopener noreferrer"
+            className={`flex items-center justify-center gap-1.5 font-bold rounded-xl text-sm transition ${compact ? "px-3 py-2" : "px-4 py-2.5"} ${i === 0 ? "bg-orange-500 hover:bg-orange-600 text-white" : "border border-gray-200 text-gray-700 hover:border-orange-300 hover:text-orange-600"}`}>
+            Choose {p.name} <ArrowRight size={14} />
+          </a>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -770,22 +807,7 @@ function LockedBroadcasts({ status, reachableCount }: { status: Extract<Marketin
         </p>
       </div>
 
-      <div className="grid sm:grid-cols-3 gap-3">
-        {status.packages.map((p, i) => (
-          <div key={p.id} className={`bg-white border rounded-2xl p-5 flex flex-col gap-3 ${i === 0 ? "border-orange-300 ring-1 ring-orange-100" : "border-gray-200"}`}>
-            <div>
-              <p className="font-bold text-gray-900">{p.name}</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{p.emails.toLocaleString()}<span className="text-sm font-medium text-gray-400"> emails</span></p>
-              <p className="text-sm font-semibold text-orange-600 mt-0.5">{p.priceLabel}</p>
-            </div>
-            {p.blurb && <p className="text-xs text-gray-500 flex-1">{p.blurb}</p>}
-            <a href={`${status.buyUrl}?package=${encodeURIComponent(p.id)}`} target="_blank" rel="noopener noreferrer"
-              className={`flex items-center justify-center gap-1.5 font-bold px-4 py-2.5 rounded-xl text-sm transition ${i === 0 ? "bg-orange-500 hover:bg-orange-600 text-white" : "border border-gray-200 text-gray-700 hover:border-orange-300 hover:text-orange-600"}`}>
-              Choose {p.name} <ArrowRight size={14} />
-            </a>
-          </div>
-        ))}
-      </div>
+      <PackageTiers packages={status.packages} buyUrl={status.buyUrl} />
 
       <p className="text-xs text-gray-400 text-center">
         Opens your DirectDine account in a new tab. Come back here once you&apos;ve paid — this page unlocks by itself.
@@ -816,11 +838,21 @@ function BroadcastsHome({ campaigns, reachableCount, loading, status, onNew, onR
 }) {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState<string | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
 
   async function del(id: string) {
     setDeleting(id);
     try { await fetch(`/api/admin/campaigns/${id}`, { method: "DELETE" }); onChanged(); }
     finally { setDeleting(null); setConfirmDelete(null); }
+  }
+
+  // Stopping an in-flight broadcast. Separate from delete, which refuses
+  // anything `sending` — the history of what already went out has to survive.
+  async function cancel(id: string) {
+    setCancelling(id);
+    try { await fetch(`/api/admin/campaigns/${id}/cancel`, { method: "POST" }); onChanged(); }
+    finally { setCancelling(null); setConfirmCancel(null); }
   }
 
   const sentCampaigns = campaigns.filter((c) => c.status === "sent");
@@ -845,7 +877,9 @@ function BroadcastsHome({ campaigns, reachableCount, loading, status, onNew, onR
           <div className="space-y-2.5">
             <p className="text-sm font-semibold text-gray-700">Your past broadcasts</p>
             {campaigns.map((c) => <CampaignRow key={c.id} c={c} editable={false} deleting={deleting} confirmDelete={confirmDelete}
-              setConfirmDelete={setConfirmDelete} onResume={onResume} del={del} />)}
+              setConfirmDelete={setConfirmDelete} onResume={onResume} del={del}
+              stalled={false} cancelling={cancelling} confirmCancel={confirmCancel}
+              setConfirmCancel={setConfirmCancel} cancel={cancel} />)}
           </div>
         )}
       </div>
@@ -853,6 +887,11 @@ function BroadcastsHome({ campaigns, reachableCount, loading, status, onNew, onR
   }
 
   const outOfCredits = status?.state === "active" && status.remaining === 0;
+  // Recipients already frozen onto a broadcast but never attempted. This is
+  // the concrete thing a top-up buys, which beats an abstract "add more".
+  const waitingCount = campaigns
+    .filter((c) => c.status === "sending")
+    .reduce((n, c) => n + Math.max(0, c.totalRecipients - c.sentCount - c.failedCount - c.skippedCount), 0);
 
   // ── First-time hero ─────────────────────────────────────────────────────────
   if (campaigns.length === 0) {
@@ -892,16 +931,23 @@ function BroadcastsHome({ campaigns, reachableCount, loading, status, onNew, onR
   // ── History ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
-      {outOfCredits && (
-        <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-          <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
-          <div className="text-sm text-red-800">
-            <p className="font-semibold">You&apos;ve used all this period&apos;s emails.</p>
-            <p className="text-red-700 mt-0.5">
-              You can still write and schedule broadcasts — they just can&apos;t go out until your allowance resets
-              on {status?.state === "active" ? fmtDate(status.periodEnd) : "your next billing date"}, or you add more.
-            </p>
+      {outOfCredits && status?.state === "active" && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3.5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
+            <div className="text-sm text-red-800 flex-1">
+              <p className="font-semibold">You&apos;ve used all this period&apos;s emails.</p>
+              <p className="text-red-700 mt-0.5">
+                {waitingCount > 0
+                  ? <><span className="font-semibold">{waitingCount} {waitingCount === 1 ? "person is" : "people are"} still waiting</span> on a paused broadcast. Top up and it carries on from where it stopped — nobody gets it twice.</>
+                  : <>You can still write and schedule broadcasts — they just can&apos;t go out until your allowance resets on {fmtDate(status.periodEnd)}, or you add more.</>}
+              </p>
+            </div>
           </div>
+          {/* The tiers, right here. Someone who has just hit the wall mid-send
+              is the most willing buyer this product ever has, and until now
+              this banner said "or you add more" with nothing to click. */}
+          <PackageTiers packages={status.packages ?? []} buyUrl={status.buyUrl} compact />
         </div>
       )}
 
@@ -932,7 +978,10 @@ function BroadcastsHome({ campaigns, reachableCount, loading, status, onNew, onR
           const editable = c.status === "draft" || c.status === "scheduled";
           return (
             <CampaignRow key={c.id} c={c} editable={editable} deleting={deleting} confirmDelete={confirmDelete}
-              setConfirmDelete={setConfirmDelete} onResume={onResume} del={del} />
+              setConfirmDelete={setConfirmDelete} onResume={onResume} del={del}
+              stalled={c.status === "sending" && !!outOfCredits}
+              cancelling={cancelling} confirmCancel={confirmCancel}
+              setConfirmCancel={setConfirmCancel} cancel={cancel} />
           );
         })}
       </div>
@@ -942,13 +991,20 @@ function BroadcastsHome({ campaigns, reachableCount, loading, status, onNew, onR
 
 /** One row of broadcast history. Shared by the normal view and the locked
  *  screen, where past broadcasts are read-only. */
-function CampaignRow({ c, editable, deleting, confirmDelete, setConfirmDelete, onResume, del }: {
+function CampaignRow({ c, editable, deleting, confirmDelete, setConfirmDelete, onResume, del,
+  stalled, cancelling, confirmCancel, setConfirmCancel, cancel }: {
   c: Campaign; editable: boolean;
   deleting: string | null; confirmDelete: string | null;
   setConfirmDelete: (fn: string | null | ((v: string | null) => string | null)) => void;
   onResume: (id: string) => void; del: (id: string) => void;
+  /** `sending`, but the allowance is gone — so it is parked, not progressing. */
+  stalled: boolean;
+  cancelling: string | null; confirmCancel: string | null;
+  setConfirmCancel: (fn: string | null | ((v: string | null) => string | null)) => void;
+  cancel: (id: string) => void;
 }) {
   const st = CAMPAIGN_STATUS[c.status] ?? CAMPAIGN_STATUS.draft;
+  const waiting = Math.max(0, c.totalRecipients - c.sentCount - c.failedCount - c.skippedCount);
   const openRate = c.sentCount > 0 ? Math.round((c.openedCount / c.sentCount) * 100) : null;
   return (
     <div className="bg-white rounded-xl border border-gray-200 px-5 py-4 hover:border-gray-300 transition">
@@ -957,12 +1013,18 @@ function CampaignRow({ c, editable, deleting, confirmDelete, setConfirmDelete, o
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold text-gray-900 text-sm truncate">{c.subject || "(no subject)"}</span>
-            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${st.cls}`}>{st.label}</span>
+            {/* A parked broadcast must not keep animating "Sending…" — that
+                reads as progress, and there is none until they top up. */}
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${stalled ? "bg-red-50 text-red-600 border-red-200" : st.cls}`}>
+              {stalled ? "Paused" : st.label}
+            </span>
           </div>
           <p className="text-xs text-gray-400 mt-0.5">
             {c.status === "scheduled" && c.scheduledAt ? <>Scheduled for <span className="font-medium text-blue-600">{fmtDateTime(c.scheduledAt)}</span> · {audienceLabel(c.audience)}</>
               : c.status === "sent" && c.completedAt ? <>Sent {fmtDateTime(c.completedAt)} · to {c.sentCount} people</>
+              : c.status === "sending" && stalled ? <><span className="text-red-600 font-medium">Out of emails</span> · {c.sentCount}/{c.totalRecipients} sent · {waiting} still waiting</>
               : c.status === "sending" ? <>Sending now… {c.sentCount}/{c.totalRecipients}</>
+              : c.status === "cancelled" ? <>Cancelled · {c.sentCount} of {c.totalRecipients} had already gone out</>
               : <>Draft · saved {fmtDateTime(c.createdAt)} · {audienceLabel(c.audience)}</>}
           </p>
         </div>
@@ -980,6 +1042,25 @@ function CampaignRow({ c, editable, deleting, confirmDelete, setConfirmDelete, o
             <button onClick={() => onResume(c.id)} className="flex items-center gap-1 text-sm text-orange-600 hover:bg-orange-50 border border-orange-200 rounded-lg px-3 py-1.5 transition">
               <FileEdit size={13} /> {c.status === "draft" ? "Continue" : "Edit"}
             </button>
+          )}
+          {/* Cancel is the ONLY way out of a broadcast parked on an empty
+              allowance. Delete refuses anything `sending`, and rightly so —
+              what already went out has to stay on the record. Without this the
+              owner's only option was to pay. */}
+          {c.status === "sending" && (
+            confirmCancel === c.id ? (
+              <button onClick={() => cancel(c.id)} disabled={cancelling === c.id}
+                className="flex items-center gap-1 text-xs font-semibold text-white bg-red-500 hover:bg-red-600 rounded-lg px-2.5 py-1.5 transition"
+                title={waiting > 0 ? `${waiting} recipients will be skipped` : undefined}>
+                {cancelling === c.id ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
+                Stop {waiting > 0 ? `${waiting} unsent` : "it"}?
+              </button>
+            ) : (
+              <button onClick={() => { setConfirmCancel(c.id); setTimeout(() => setConfirmCancel((v: string | null) => v === c.id ? null : v), 4000); }}
+                className="flex items-center gap-1 text-sm text-gray-500 hover:text-red-600 border border-gray-200 hover:border-red-200 rounded-lg px-3 py-1.5 transition">
+                <X size={13} /> Cancel
+              </button>
+            )
           )}
           {c.status !== "sending" && (
             confirmDelete === c.id ? (

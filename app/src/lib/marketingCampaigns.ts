@@ -260,6 +260,12 @@ export async function processCampaignBatch(
     .select("id, contact_id, email, name")
     .eq("campaign_id", campaign.id)
     .eq("status", "pending")
+    // Ordered so "who got the first five" has an answer. Without it Postgres
+    // returns rows in whatever order suits it, which shifts as rows are updated
+    // and rewritten — so a part-sent campaign could pick a different subset on
+    // every tick. Everyone still receives it eventually, but "why did Sam get
+    // it and not Alex" deserves a better answer than "the planner felt like it".
+    .order("id")
     .limit(BATCH_SIZE);
 
   let outOfAllowance = false;

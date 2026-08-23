@@ -38,6 +38,12 @@ export interface MarketingActive {
   remaining: number;
   /** ISO — when the allowance resets. */
   periodEnd: string;
+  /** Where to go to top up or change plan. Always present. */
+  buyUrl?: string;
+  /** Only sent when `remaining` is 0 — the moment the owner actually wants to
+   *  buy. Absent while they still have credit, so the normal view stays about
+   *  sending rather than selling. */
+  packages?: MarketingPackage[];
   /** True when served from cache because the Marketing API was unreachable. */
   stale?: boolean;
 }
