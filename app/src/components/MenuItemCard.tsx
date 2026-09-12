@@ -34,9 +34,9 @@ export default function MenuItemCard({ item }: { item: MenuItem }) {
   return (
     <>
       <div
-        className={`group flex items-start gap-3 py-4 border-b border-gray-100 last:border-0 transition-colors ${
+        className={`group flex items-start gap-3 py-4 border-b border-gray-100 dark:border-[var(--brand-border-dark)] last:border-0 ${
           canAdd
-            ? "cursor-pointer active:bg-orange-50/60 -mx-3 px-3 rounded-xl"
+            ? "cursor-pointer active:bg-orange-50/60 dark:active:bg-white/5 -mx-3 px-3 rounded-xl"
             : "opacity-60 cursor-not-allowed"
         }`}
         onClick={() => canAdd && setShowModal(true)}
@@ -45,7 +45,7 @@ export default function MenuItemCard({ item }: { item: MenuItem }) {
         <div className="flex-1 min-w-0">
           {/* Name + status badges */}
           <div className="flex items-start gap-2 flex-wrap">
-            <h3 className="font-semibold text-gray-900 text-sm leading-snug">{item.name}</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-[var(--brand-text-dark)] text-sm leading-snug">{item.name}</h3>
             {item.popular && !outOfStock && (
               <span className="flex items-center gap-0.5 text-xs font-medium text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full border border-orange-200 whitespace-nowrap">
                 <Flame size={10} />
@@ -77,7 +77,7 @@ export default function MenuItemCard({ item }: { item: MenuItem }) {
               {item.dietary.map((d) => (
                 <span
                   key={d}
-                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${DIETARY_BADGES[d]?.className ?? "bg-gray-100 text-gray-600"}`}
+                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${DIETARY_BADGES[d]?.className ?? "bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-zinc-300"}`}
                 >
                   {DIETARY_BADGES[d]?.label ?? d}
                 </span>
@@ -85,17 +85,17 @@ export default function MenuItemCard({ item }: { item: MenuItem }) {
             </div>
           )}
 
-          <p className="text-gray-500 text-xs mt-1.5 line-clamp-2 leading-relaxed">
+          <p className="text-gray-500 dark:text-zinc-400 text-xs mt-1.5 line-clamp-2 leading-relaxed">
             {item.description}
           </p>
 
           {discountedBase !== null && !outOfStock ? (
             <p className="font-bold text-sm mt-2 flex items-baseline gap-1.5">
               <span className="text-orange-600">{sym}{discountedBase.toFixed(2)}</span>
-              <span className="text-xs text-gray-400 line-through font-medium">{sym}{basePrice.toFixed(2)}</span>
+              <span className="text-xs text-gray-400 dark:text-zinc-500 line-through font-medium">{sym}{basePrice.toFixed(2)}</span>
             </p>
           ) : (
-            <p className={`font-bold text-sm mt-2 ${outOfStock ? "text-gray-400" : "text-gray-900"}`}>
+            <p className={`font-bold text-sm mt-2 ${outOfStock ? "text-gray-400 dark:text-zinc-500" : "text-gray-900 dark:text-[var(--brand-text-dark)]"}`}>
               {sym}{basePrice.toFixed(2)}
             </p>
           )}
@@ -105,42 +105,42 @@ export default function MenuItemCard({ item }: { item: MenuItem }) {
         <div className="flex flex-col items-center gap-2.5 flex-shrink-0">
           {/* Image */}
           {item.image ? (
-            <div className={`relative w-[88px] h-[88px] rounded-xl overflow-hidden border border-gray-100 shadow-sm ${outOfStock ? "grayscale opacity-60" : ""}`}>
+            <div className={`relative w-[88px] h-[88px] rounded-xl overflow-hidden border border-gray-100 dark:border-white/10 shadow-sm ${outOfStock ? "grayscale opacity-60" : ""}`}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
               {currentUser && (
                 <button
                   onClick={(e) => { e.stopPropagation(); toggleFavourite(item.id); }}
-                  className="absolute top-1 right-1 w-7 h-7 flex items-center justify-center rounded-full bg-white/85 backdrop-blur-sm shadow transition active:scale-90"
+                  className="absolute top-1 right-1 w-7 h-7 flex items-center justify-center rounded-full bg-white/85 dark:bg-black/50 backdrop-blur-sm shadow active:scale-90"
                   title={isFavourite(item.id) ? "Remove from favourites" : "Add to favourites"}
                 >
-                  <Heart size={13} className={isFavourite(item.id) ? "text-red-500 fill-red-500" : "text-gray-400"} />
+                  <Heart size={13} className={isFavourite(item.id) ? "text-red-500 fill-red-500" : "text-gray-400 dark:text-zinc-400"} />
                 </button>
               )}
             </div>
           ) : currentUser && (
             <button
               onClick={(e) => { e.stopPropagation(); toggleFavourite(item.id); }}
-              className="w-8 h-8 flex items-center justify-center rounded-full border border-gray-200 hover:border-red-300 transition active:scale-90"
+              className="w-8 h-8 flex items-center justify-center rounded-full border border-gray-200 dark:border-white/15 hover:border-red-300 active:scale-90"
               title={isFavourite(item.id) ? "Remove from favourites" : "Add to favourites"}
             >
-              <Heart size={14} className={isFavourite(item.id) ? "text-red-500 fill-red-500" : "text-gray-300"} />
+              <Heart size={14} className={isFavourite(item.id) ? "text-red-500 fill-red-500" : "text-gray-300 dark:text-zinc-500"} />
             </button>
           )}
 
           {/* Add / unavailable button — 44×44 px minimum touch target */}
           {outOfStock ? (
-            <div className="w-11 h-11 rounded-full flex items-center justify-center border-2 border-gray-200 text-gray-300 cursor-not-allowed">
+            <div className="w-11 h-11 rounded-full flex items-center justify-center border-2 border-gray-200 dark:border-white/10 text-gray-300 dark:text-zinc-600 cursor-not-allowed">
               <PackageX size={15} />
             </div>
           ) : (
             <button
               disabled={!canAdd}
               onClick={(e) => { e.stopPropagation(); if (canAdd) setShowModal(true); }}
-              className={`w-11 h-11 rounded-full flex items-center justify-center border-2 transition-all active:scale-90 ${
+              className={`w-11 h-11 rounded-full flex items-center justify-center border-2 active:scale-90 ${
                 canAdd
                   ? "border-orange-500 text-orange-500 hover:bg-orange-500 hover:text-white active:bg-orange-600 active:border-orange-600 active:text-white"
-                  : "border-gray-300 text-gray-300 cursor-not-allowed"
+                  : "border-gray-300 dark:border-white/15 text-gray-300 dark:text-zinc-600 cursor-not-allowed"
               }`}
             >
               <Plus size={20} />

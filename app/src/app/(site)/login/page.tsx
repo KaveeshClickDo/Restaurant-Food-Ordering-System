@@ -180,9 +180,9 @@ function LoginContent() {
     }
   }
 
-  const inputCls    = "w-full pl-9 pr-4 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition bg-white";
-  const pwdInputCls = "w-full pl-9 pr-10 py-2.5 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition bg-white";
-  const btnCls      = "w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition text-sm flex items-center justify-center gap-2";
+  const inputCls    = "w-full pl-9 pr-4 py-2.5 border border-zinc-200 dark:border-[var(--brand-border-dark)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 bg-white dark:bg-white/5 dark:text-[var(--brand-text-dark)]";
+  const pwdInputCls = "w-full pl-9 pr-10 py-2.5 border border-zinc-200 dark:border-[var(--brand-border-dark)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 bg-white dark:bg-white/5 dark:text-[var(--brand-text-dark)]";
+  const btnCls      = "w-full bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl text-sm flex items-center justify-center gap-2";
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-4">
@@ -192,26 +192,26 @@ function LoginContent() {
         </Link>
       </div>
 
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.06)] border border-zinc-200/70 overflow-hidden">
+      <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl w-full max-w-md shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.06)] border border-zinc-200/70 dark:border-[var(--brand-border-dark)] overflow-hidden">
 
         {/* Verification pending — shown after register or 403 needsVerification.
             Replaces the tab bar + form entirely until dismissed. */}
         {verificationEmail && (
           <div className="p-8 text-center space-y-4">
             <CheckCircle size={48} className="text-green-500 mx-auto" />
-            <h2 className="text-lg font-semibold text-zinc-900">Check your inbox</h2>
-            <p className="text-sm text-zinc-500 leading-relaxed">
+            <h2 className="text-lg font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)]">Check your inbox</h2>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed">
               We&apos;ve sent a verification link to{" "}
-              <strong className="text-zinc-700">{verificationEmail}</strong>.
+              <strong className="text-zinc-700 dark:text-zinc-200">{verificationEmail}</strong>.
               Click the link to finish creating your account — it expires in 24 hours.
             </p>
             <button type="button" onClick={handleResendVerification}
-              className="text-sm text-orange-500 hover:text-orange-600 font-semibold transition">
+              className="text-sm text-orange-500 hover:text-orange-600 font-semibold">
               Resend verification email
             </button>
             <button type="button"
               onClick={() => { setVerificationEmail(null); switchTab("login"); }}
-              className="block w-full mt-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-semibold py-2.5 rounded-xl text-sm transition">
+              className="block w-full mt-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-white/10 dark:hover:bg-white/15 text-zinc-700 dark:text-zinc-200 font-semibold py-2.5 rounded-xl text-sm">
               Back to sign in
             </button>
           </div>
@@ -219,11 +219,11 @@ function LoginContent() {
 
         {/* Tab bar */}
         {!verificationEmail && (tab === "login" || tab === "register") && (
-          <div className="flex border-b border-zinc-100">
+          <div className="flex border-b border-zinc-100 dark:border-[var(--brand-border-dark)]">
             {(["login", "register"] as const).map((t) => (
               <button key={t} onClick={() => switchTab(t)}
-                className={`flex-1 py-4 text-sm font-semibold transition-colors ${
-                  tab === t ? "text-zinc-900 border-b-2 border-zinc-900" : "text-zinc-400 hover:text-zinc-600"
+                className={`flex-1 py-4 text-sm font-semibold ${
+                  tab === t ? "text-zinc-900 dark:text-white border-b-2 border-zinc-900 dark:border-white" : "text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
                 }`}>
                 {t === "login" ? "Sign in" : "Create account"}
               </button>
@@ -235,12 +235,12 @@ function LoginContent() {
         {!verificationEmail && (tab === "forgot" || tab === "reset") && (
           <div className="flex items-center gap-3 px-6 pt-5 pb-1">
             <button onClick={() => switchTab("login")}
-              className="w-8 h-8 flex items-center justify-center rounded-xl text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition">
+              className="w-8 h-8 flex items-center justify-center rounded-xl text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-white/10 transition">
               <ChevronLeft size={18} />
             </button>
             <div className="flex items-center gap-2">
-              <KeyRound size={16} className="text-zinc-700" />
-              <h2 className="text-base font-semibold text-zinc-800 tracking-tight">
+              <KeyRound size={16} className="text-zinc-700 dark:text-zinc-300" />
+              <h2 className="text-base font-semibold text-zinc-800 dark:text-zinc-200 tracking-tight">
                 {tab === "forgot" ? "Reset your password" : "Set new password"}
               </h2>
             </div>
@@ -293,7 +293,7 @@ function LoginContent() {
               </button>
 
               <div className="flex items-center justify-between text-xs">
-                <button type="button" onClick={() => switchTab("register")} className="text-zinc-700 font-semibold hover:underline">
+                <button type="button" onClick={() => switchTab("register")} className="text-zinc-700 dark:text-zinc-200 font-semibold hover:underline">
                   Create account
                 </button>
                 <button type="button" onClick={goToForgot} className="text-zinc-400 hover:text-zinc-700 transition hover:underline">
@@ -358,7 +358,7 @@ function LoginContent() {
               </button>
               <p className="text-center text-xs text-zinc-400">
                 Already have an account?{" "}
-                <button type="button" onClick={() => switchTab("login")} className="text-zinc-700 font-semibold hover:underline">
+                <button type="button" onClick={() => switchTab("login")} className="text-zinc-700 dark:text-zinc-200 font-semibold hover:underline">
                   Sign in
                 </button>
               </p>
@@ -374,9 +374,9 @@ function LoginContent() {
                     <CheckCircle size={28} className="text-green-500" />
                   </div>
                   <div>
-                    <p className="font-semibold text-zinc-900 text-base">Check your inbox</p>
-                    <p className="text-sm text-zinc-500 mt-1 leading-relaxed">
-                      If <span className="font-semibold text-zinc-700">{forgotEmail}</span> is registered,
+                    <p className="font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)] text-base">Check your inbox</p>
+                    <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
+                      If <span className="font-semibold text-zinc-700 dark:text-zinc-200">{forgotEmail}</span> is registered,
                       a reset link has been sent. It expires in 1 hour.
                     </p>
                   </div>
@@ -422,8 +422,8 @@ function LoginContent() {
                     <CheckCircle size={28} className="text-green-500" />
                   </div>
                   <div>
-                    <p className="font-semibold text-zinc-900 text-base">Password updated!</p>
-                    <p className="text-sm text-zinc-500 mt-1">You can now sign in with your new password.</p>
+                    <p className="font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)] text-base">Password updated!</p>
+                    <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">You can now sign in with your new password.</p>
                   </div>
                 </div>
                 <button type="button" onClick={() => switchTab("login")} className={btnCls}>Sign in</button>
@@ -478,7 +478,7 @@ export default function LoginPage() {
 function Field({ label, icon, children }: { label: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-xs font-medium text-zinc-500 mb-1">{label}</label>
+      <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">{label}</label>
       <div className="relative">
         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400">{icon}</span>
         {children}

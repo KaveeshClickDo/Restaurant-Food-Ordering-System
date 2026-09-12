@@ -49,19 +49,19 @@ function VerifyEmailContent() {
   }, [params, router]);
 
   return (
-    <div className="bg-white rounded-2xl border border-zinc-200/70 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.06)] p-8 w-full max-w-sm text-center space-y-4">
+    <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-200/70 dark:border-[var(--brand-border-dark)] shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.06)] p-8 w-full max-w-sm text-center space-y-4">
       {state === "verifying" && (
         <>
           <Loader2 size={40} className="animate-spin text-zinc-400 mx-auto" />
-          <p className="text-zinc-600 font-medium">Verifying your email…</p>
+          <p className="text-zinc-600 dark:text-zinc-300 font-medium">Verifying your email…</p>
         </>
       )}
 
       {state === "success" && (
         <>
           <CheckCircle2 size={48} className="text-green-500 mx-auto" />
-          <h1 className="text-xl font-semibold text-zinc-900 tracking-tight">Email verified!</h1>
-          <p className="text-zinc-500 text-sm">Your email address has been confirmed. You&apos;re all set.</p>
+          <h1 className="text-xl font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)] tracking-tight">Email verified!</h1>
+          <p className="text-zinc-500 dark:text-zinc-400 text-sm">Your email address has been confirmed. You&apos;re all set.</p>
           <Link href="/"
             className="inline-block mt-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition">
             Back to menu
@@ -72,8 +72,8 @@ function VerifyEmailContent() {
       {state === "already" && (
         <>
           <CheckCircle2 size={48} className="text-zinc-400 mx-auto" />
-          <h1 className="text-xl font-semibold text-zinc-900 tracking-tight">Already verified</h1>
-          <p className="text-zinc-500 text-sm">Your email address was already confirmed.</p>
+          <h1 className="text-xl font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)] tracking-tight">Already verified</h1>
+          <p className="text-zinc-500 dark:text-zinc-400 text-sm">Your email address was already confirmed.</p>
           <Link href="/"
             className="inline-block mt-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition">
             Back to menu
@@ -84,11 +84,11 @@ function VerifyEmailContent() {
       {state === "error" && (
         <>
           <XCircle size={48} className="text-red-400 mx-auto" />
-          <h1 className="text-xl font-semibold text-zinc-900 tracking-tight">Verification failed</h1>
+          <h1 className="text-xl font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)] tracking-tight">Verification failed</h1>
           <p className="text-red-500 text-sm">{error}</p>
           <p className="text-zinc-400 text-xs">Links expire after 24 hours.</p>
           <ResendButton email={verifyEmail.current} />
-          <Link href="/" className="block text-sm text-zinc-400 hover:text-zinc-600 transition mt-1">
+          <Link href="/" className="block text-sm text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition mt-1">
             Back to menu
           </Link>
         </>
@@ -131,7 +131,7 @@ function ResendButton({ email }: { email: string | null }) {
 
   return (
     <button onClick={handleResend} disabled={state === "sending"}
-      className="inline-flex items-center gap-1.5 text-sm text-zinc-700 hover:text-zinc-900 font-semibold disabled:opacity-50 transition">
+      className="inline-flex items-center gap-1.5 text-sm text-zinc-700 dark:text-zinc-200 hover:text-zinc-900 dark:hover:text-white font-semibold disabled:opacity-50 transition">
       {state === "sending" ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />}
       {state === "sending" ? "Sending…" : state === "error" ? "Failed — try again" : "Resend verification email"}
     </button>
@@ -143,9 +143,9 @@ export default function VerifyEmailPage() {
     <div className="flex-1 flex items-center justify-center p-4">
       <Suspense
         fallback={
-          <div className="bg-white rounded-2xl border border-zinc-200/70 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.06)] p-8 w-full max-w-sm text-center">
+          <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-200/70 dark:border-[var(--brand-border-dark)] shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.06)] p-8 w-full max-w-sm text-center">
             <Loader2 size={40} className="animate-spin text-zinc-400 mx-auto" />
-            <p className="text-zinc-600 font-medium mt-4">Loading…</p>
+            <p className="text-zinc-600 dark:text-zinc-300 font-medium mt-4">Loading…</p>
           </div>
         }
       >

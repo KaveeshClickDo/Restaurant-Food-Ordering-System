@@ -64,6 +64,9 @@ export function generateShades(hex: string): Record<string, string> | null {
  *     reflects the chosen brand colour.
  *  2. Exposes semantic --brand-* variables that can be referenced anywhere with
  *     style={{ color: 'var(--brand-primary)' }} or in globals.css.
+ *
+ * Scope: admin, POS, kitchen, waiter, driver and collection only. The customer
+ * ordering site has its own fixed light/dark theme.
  */
 export function buildColorCss(primaryColor: string, backgroundColor: string): string {
   const shades = generateShades(primaryColor);

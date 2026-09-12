@@ -114,13 +114,13 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
       {/* Modal */}
-      <div className={`relative bg-white rounded-t-2xl sm:rounded-2xl w-full shadow-2xl overflow-hidden flex flex-col
+      <div className={`relative bg-white dark:bg-[var(--brand-surface-dark)] rounded-t-2xl sm:rounded-2xl w-full shadow-2xl overflow-hidden flex flex-col
         ${hasImage ? "sm:max-w-2xl" : "sm:max-w-md"} max-h-[92vh]`}>
 
         {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/90 backdrop-blur-sm shadow-md hover:bg-gray-100 transition text-gray-600"
+          className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/90 dark:bg-black/60 backdrop-blur-sm shadow-md hover:bg-gray-100 dark:hover:bg-black/80 transition text-gray-600 dark:text-zinc-300"
         >
           <X size={16} strokeWidth={2.5} />
         </button>
@@ -130,7 +130,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
 
           {/* ── Left: Image pane ──────────────────────────────────────────── */}
           {hasImage ? (
-            <div className="relative sm:w-[42%] flex-shrink-0 bg-zinc-100 h-48 sm:h-auto overflow-hidden">
+            <div className="relative sm:w-[42%] flex-shrink-0 bg-zinc-100 dark:bg-white/5 h-48 sm:h-auto overflow-hidden">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={item.image}
@@ -147,15 +147,15 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
           <div className="flex flex-col flex-1 min-h-0 min-w-0">
 
             {/* Header */}
-            <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex-shrink-0">
+            <div className="px-6 pt-6 pb-4 border-b border-gray-100 dark:border-[var(--brand-border-dark)] flex-shrink-0">
               {!hasImage && !item.image && (
-                <div className="w-12 h-12 rounded-xl bg-zinc-100 flex items-center justify-center mb-3">
+                <div className="w-12 h-12 rounded-xl bg-zinc-100 dark:bg-white/5 flex items-center justify-center mb-3">
                   <UtensilsCrossed className="w-6 h-6 text-zinc-400" strokeWidth={1.4} />
                 </div>
               )}
-              <h2 className="text-xl font-bold text-gray-900 leading-snug pr-6">{item.name}</h2>
+              <h2 className="text-xl font-bold text-gray-900 dark:text-[var(--brand-text-dark)] leading-snug pr-6">{item.name}</h2>
               {item.description && (
-                <p className="text-gray-500 text-sm mt-1 leading-relaxed line-clamp-2 sm:line-clamp-4">{item.description}</p>
+                <p className="text-gray-500 dark:text-zinc-400 text-sm mt-1 leading-relaxed line-clamp-2 sm:line-clamp-4">{item.description}</p>
               )}
               {offerOn && offerLabel && (
                 <div className="mt-2 inline-flex items-center gap-2">
@@ -163,7 +163,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                     {offerLabel}
                   </span>
                   {getOfferUnitPrice(item) !== null && (
-                    <span className="text-xs text-gray-500">
+                    <span className="text-xs text-gray-500 dark:text-zinc-400">
                       <span className="font-semibold text-orange-700">{sym}{discountedBase.toFixed(2)}</span>
                       <span className="ml-1.5 line-through">{sym}{basePrice.toFixed(2)}</span>
                     </span>
@@ -175,7 +175,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                   {item.dietary.map((d) => (
                     <span
                       key={d}
-                      className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${DIETARY_COLORS[d] ?? "bg-gray-100 text-gray-600"}`}
+                      className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${DIETARY_COLORS[d] ?? "bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-zinc-300"}`}
                     >
                       {d}
                     </span>
@@ -189,10 +189,10 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
 
               {/* Variations */}
               {item.variations?.map((variation) => (
-                <div key={variation.id} className="px-6 py-4 border-b border-gray-50">
+                <div key={variation.id} className="px-6 py-4 border-b border-gray-50 dark:border-white/5">
                   <div className="flex items-center gap-1.5 mb-3">
                     <ChevronRight size={13} className="text-orange-500 flex-shrink-0" />
-                    <span className="text-[11px] font-bold uppercase tracking-widest text-gray-500">
+                    <span className="text-[11px] font-bold uppercase tracking-widest text-gray-500 dark:text-zinc-400">
                       {variation.name}
                     </span>
                     {variation.required !== false ? (
@@ -213,8 +213,8 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                           }
                           className={`relative rounded-xl border-2 px-4 py-3 text-left transition-all ${
                             active
-                              ? "border-orange-500 bg-orange-50"
-                              : "border-gray-200 bg-gray-50 hover:border-gray-300"
+                              ? "border-orange-500 bg-orange-50 dark:bg-orange-500/10"
+                              : "border-gray-200 bg-gray-50 hover:border-gray-300 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:hover:border-zinc-600"
                           }`}
                         >
                           {active && (
@@ -222,10 +222,10 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                               <Check size={9} className="text-white" strokeWidth={3} />
                             </span>
                           )}
-                          <p className={`text-[13px] sm:text-sm font-semibold ${active ? "text-orange-700" : "text-gray-800"}`}>
+                          <p className={`text-[13px] sm:text-sm font-semibold ${active ? "text-orange-700" : "text-gray-800 dark:text-zinc-200"}`}>
                             {opt.label}
                           </p>
-                          <p className={`text-xs mt-0.5 ${active ? "text-orange-500" : "text-gray-500"}`}>
+                          <p className={`text-xs mt-0.5 ${active ? "text-orange-500" : "text-gray-500 dark:text-zinc-400"}`}>
                             {sym}{(discountedBase + (opt.price ?? 0)).toFixed(2)}
                           </p>
                         </button>
@@ -237,10 +237,10 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
 
               {/* Add-ons */}
               {item.addOns && item.addOns.length > 0 && (
-                <div className="px-6 py-4 border-b border-gray-50">
+                <div className="px-6 py-4 border-b border-gray-50 dark:border-white/5">
                   <div className="flex items-center gap-1.5 mb-3">
                     <ChevronRight size={13} className="text-orange-500 flex-shrink-0" />
-                    <span className="text-[11px] font-bold uppercase tracking-widest text-gray-500">
+                    <span className="text-[11px] font-bold uppercase tracking-widest text-gray-500 dark:text-zinc-400">
                       Add-ons
                     </span>
                     <span className="text-[10px] text-gray-400 font-medium ml-0.5">· Optional</span>
@@ -259,19 +259,19 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                           }
                           className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-all text-left ${
                             checked
-                              ? "border-orange-400 bg-orange-50"
-                              : "border-gray-200 bg-gray-50 hover:border-gray-300"
+                              ? "border-orange-400 bg-orange-50 dark:bg-orange-500/10"
+                              : "border-gray-200 bg-gray-50 hover:border-gray-300 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:hover:border-zinc-600"
                           }`}
                         >
                           <span className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
-                            checked ? "bg-orange-500 border-orange-500" : "border-gray-300"
+                            checked ? "bg-orange-500 border-orange-500" : "border-gray-300 dark:border-zinc-600"
                           }`}>
                             {checked && <Check size={10} className="text-white" strokeWidth={3} />}
                           </span>
-                          <span className={`flex-1 text-sm ${checked ? "text-orange-800 font-medium" : "text-gray-700"}`}>
+                          <span className={`flex-1 text-sm ${checked ? "text-orange-800 dark:text-orange-300 font-medium" : "text-gray-700 dark:text-zinc-300"}`}>
                             {ao.name}
                           </span>
-                          <span className={`text-sm flex-shrink-0 ${checked ? "text-orange-600 font-semibold" : "text-gray-500"}`}>
+                          <span className={`text-sm flex-shrink-0 ${checked ? "text-orange-600 font-semibold" : "text-gray-500 dark:text-zinc-400"}`}>
                             +{sym}{ao.price.toFixed(2)}
                           </span>
                         </button>
@@ -285,7 +285,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
               <div className="px-6 py-4">
                 <div className="flex items-center gap-1.5 mb-3">
                   <ChevronRight size={13} className="text-orange-500 flex-shrink-0" />
-                  <span className="text-[11px] font-bold uppercase tracking-widest text-gray-500">
+                  <span className="text-[11px] font-bold uppercase tracking-widest text-gray-500 dark:text-zinc-400">
                     Notes for the kitchen
                   </span>
                 </div>
@@ -294,26 +294,26 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                   onChange={(e) => setInstructions(e.target.value)}
                   placeholder="Allergies, preferences…"
                   rows={3}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 placeholder-gray-400 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-orange-300 focus:border-orange-400 resize-none transition"
+                  className="w-full border border-gray-200 dark:border-[var(--brand-border-dark)] rounded-xl px-4 py-3 text-sm text-gray-700 dark:text-zinc-200 placeholder-gray-400 bg-gray-50 dark:bg-white/5 focus:outline-none focus:ring-2 focus:ring-orange-300 focus:border-orange-400 resize-none transition"
                 />
               </div>
             </div>
 
             {/* Footer */}
-            <div className="px-6 py-4 border-t border-gray-100 bg-white flex-shrink-0">
+            <div className="px-6 py-4 border-t border-gray-100 dark:border-[var(--brand-border-dark)] bg-white dark:bg-[var(--brand-surface-dark)] flex-shrink-0">
               <div className="flex items-center gap-3">
                 {/* Qty controls */}
-                <div className="flex items-center gap-2 bg-gray-100 rounded-xl px-3 py-2">
+                <div className="flex items-center gap-2 bg-gray-100 dark:bg-white/5 rounded-xl px-3 py-2">
                   <button
                     onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                    className="w-7 h-7 rounded-lg bg-white shadow-sm flex items-center justify-center text-gray-600 hover:text-gray-900 transition active:scale-90"
+                    className="w-7 h-7 rounded-lg bg-white dark:bg-white/10 shadow-sm flex items-center justify-center text-gray-600 hover:text-gray-900 dark:text-zinc-300 dark:hover:text-white transition active:scale-90"
                   >
                     <Minus size={13} strokeWidth={2.5} />
                   </button>
-                  <span className="w-7 text-center font-bold text-gray-900 text-sm sm:text-[15px] tabular-nums">{quantity}</span>
+                  <span className="w-7 text-center font-bold text-gray-900 dark:text-[var(--brand-text-dark)] text-sm sm:text-[15px] tabular-nums">{quantity}</span>
                   <button
                     onClick={() => setQuantity((q) => q + 1)}
-                    className="w-7 h-7 rounded-lg bg-white shadow-sm flex items-center justify-center text-gray-600 hover:text-gray-900 transition active:scale-90"
+                    className="w-7 h-7 rounded-lg bg-white dark:bg-white/10 shadow-sm flex items-center justify-center text-gray-600 hover:text-gray-900 dark:text-zinc-300 dark:hover:text-white transition active:scale-90"
                   >
                     <Plus size={13} strokeWidth={2.5} />
                   </button>
@@ -322,7 +322,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                 {/* Add to order */}
                 <button
                   onClick={handleAddToCart}
-                  className="flex-1 flex-wrap bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white font-bold py-3 rounded-xl transition-all flex items-center justify-between px-5 text-sm sm:text-[15px]"
+                  className="flex-1 flex-wrap bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100 active:scale-[0.98] text-white font-bold py-3 rounded-xl transition-all flex items-center justify-between px-5 text-sm sm:text-[15px]"
                 >
                   <span>Add to order</span>
                   <span className="tabular-nums">{sym}{total.toFixed(2)}</span>

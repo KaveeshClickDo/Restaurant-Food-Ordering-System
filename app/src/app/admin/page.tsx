@@ -194,7 +194,7 @@ function bannerSubtitle(
     case "email": return `${s.emailTemplates?.filter((t) => t.enabled).length ?? 0} active email templates · customise messages sent to customers.`;
     case "custom-pages": return `${(s.customPages ?? []).filter((p) => p.published).length} published · standalone pages with custom content and SEO.`;
     case "nav-menus": return "Assign pages to header and footer menus, control ordering, and toggle visibility.";
-    case "colors": return "Customise brand colour and page background — changes apply live across the site.";
+    case "colors": return "Customise brand colour and page background — changes apply live across the admin, POS, kitchen, waiter, driver and collection screens. The customer ordering site has its own fixed light/dark theme.";
     case "footer-logos": return `${(s.footerLogos ?? []).filter((l) => l.enabled).length} active logo${(s.footerLogos ?? []).filter((l) => l.enabled).length !== 1 ? "s" : ""} · upload payment icons, partner logos, and badges.`;
     case "receipt": return "Configure what appears on printed and emailed receipts — name, phone, VAT number, and footer.";
     case "coupons": return `${(s.coupons ?? []).filter((c) => c.active).length} active coupon${(s.coupons ?? []).filter((c) => c.active).length !== 1 ? "s" : ""} · percentage and fixed-amount discount codes.`;

@@ -22,16 +22,16 @@ export default function DynamicPage() {
       {metaDescription && <meta name="description" content={metaDescription} />}
 
       {page ? (
-        <article className="bg-white rounded-2xl border border-zinc-200/70 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.04)] p-5 sm:p-8">
-          <div className="rich-content" dangerouslySetInnerHTML={{ __html: page.content }} />
+        <article className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-200/70 dark:border-[var(--brand-border-dark)] shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.04)] p-5 sm:p-8">
+          <div className="rich-content dark:text-zinc-300" dangerouslySetInnerHTML={{ __html: page.content }} />
         </article>
       ) : (
-        <div className="bg-white rounded-2xl border border-zinc-200/70 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.04)] p-6 sm:p-8 text-center">
-          <p className="text-zinc-500 font-medium mb-1">Page not found</p>
+        <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-200/70 dark:border-[var(--brand-border-dark)] shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.04)] p-6 sm:p-8 text-center">
+          <p className="text-zinc-500 dark:text-zinc-400 font-medium mb-1">Page not found</p>
           <p className="text-sm text-zinc-400 mb-4">
             This page doesn&apos;t exist or hasn&apos;t been published yet.
           </p>
-          <Link href="/" className="text-sm text-zinc-700 font-semibold hover:underline">
+          <Link href="/" className="text-sm text-zinc-700 dark:text-zinc-200 font-semibold hover:underline">
             Return to menu
           </Link>
         </div>

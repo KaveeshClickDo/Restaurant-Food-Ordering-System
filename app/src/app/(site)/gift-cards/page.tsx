@@ -116,25 +116,25 @@ export default function GiftCardsPage() {
           <Gift size={22} className="text-orange-600" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-zinc-900">Gift Cards</h1>
-          <p className="text-sm text-zinc-500">Give the gift of a great meal at {settings.restaurant.name}.</p>
+          <h1 className="text-2xl font-bold text-zinc-900 dark:text-[var(--brand-text-dark)]">Gift Cards</h1>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">Give the gift of a great meal at {settings.restaurant.name}.</p>
         </div>
       </div>
 
       {step === "form" && (
-        <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6 space-y-5">
+        <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm p-5 sm:p-6 space-y-5">
           {/* Amount */}
           <div>
-            <label className="block text-sm font-semibold text-zinc-700 mb-2">Amount</label>
+            <label className="block text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-2">Amount</label>
             <div className="grid grid-cols-4 gap-2">
               {presets.map((p) => (
                 <button
                   key={p}
                   onClick={() => { setAmount(p); setCustomAmount(""); setError(""); }}
-                  className={`py-3 rounded-xl text-sm font-bold border-2 transition ${
+                  className={`py-3 rounded-xl text-sm font-bold border-2 ${
                     !customAmount && amount === p
-                      ? "border-orange-500 bg-orange-50 text-orange-700"
-                      : "border-zinc-200 text-zinc-700 hover:border-orange-300"
+                      ? "border-orange-500 bg-orange-50 dark:bg-orange-500/10 text-orange-700"
+                      : "border-zinc-200 dark:border-[var(--brand-border-dark)] text-zinc-700 dark:text-zinc-300 hover:border-orange-300"
                   }`}
                 >
                   {sym}{p}
@@ -150,7 +150,7 @@ export default function GiftCardsPage() {
                 value={customAmount}
                 onChange={(e) => { setCustomAmount(e.target.value); setError(""); }}
                 placeholder={`Custom amount (${sym}${minAmount}–${sym}${maxAmount})`}
-                className="w-full pl-7 pr-4 py-2.5 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                className="w-full pl-7 pr-4 py-2.5 rounded-xl border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
               />
             </div>
           </div>
@@ -159,7 +159,7 @@ export default function GiftCardsPage() {
           {currentUser && (
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={sendToMe} onChange={(e) => { setSendToMe(e.target.checked); setError(""); }} className="accent-orange-500" />
-              <span className="text-sm text-zinc-700">Send the card to me ({currentUser.email})</span>
+              <span className="text-sm text-zinc-700 dark:text-zinc-300">Send the card to me ({currentUser.email})</span>
             </label>
           )}
 
@@ -167,17 +167,17 @@ export default function GiftCardsPage() {
           {!sendToMe && (
             <>
               <div>
-                <label className="block text-sm font-semibold text-zinc-700 mb-1.5">Recipient name</label>
+                <label className="block text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">Recipient name</label>
                 <input
                   type="text"
                   value={recipientName}
                   onChange={(e) => { setRecipientName(e.target.value); setError(""); }}
                   placeholder="Who's it for?"
-                  className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                  className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-zinc-700 mb-1.5">Recipient email</label>
+                <label className="block text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">Recipient email</label>
                 <div className="relative">
                   <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
                   <input
@@ -185,7 +185,7 @@ export default function GiftCardsPage() {
                     value={recipientEmail}
                     onChange={(e) => { setRecipientEmail(e.target.value); setError(""); }}
                     placeholder="recipient@example.com"
-                    className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                    className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                   />
                 </div>
                 <p className="text-xs text-zinc-400 mt-1">We&apos;ll email the code here once payment completes.</p>
@@ -197,7 +197,7 @@ export default function GiftCardsPage() {
               known from their account) */}
           {!currentUser && (
             <div>
-              <label className="block text-sm font-semibold text-zinc-700 mb-1.5">Your email <span className="text-zinc-400 font-normal">(optional)</span></label>
+              <label className="block text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">Your email <span className="text-zinc-400 font-normal">(optional)</span></label>
               <div className="relative">
                 <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
                 <input
@@ -205,7 +205,7 @@ export default function GiftCardsPage() {
                   value={purchaserEmail}
                   onChange={(e) => { setPurchaserEmail(e.target.value); setError(""); }}
                   placeholder="you@example.com"
-                  className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                  className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                 />
               </div>
               <p className="text-xs text-zinc-400 mt-1">So we can reach you about this purchase and occasional offers.</p>
@@ -216,18 +216,18 @@ export default function GiftCardsPage() {
           <label className="flex items-start gap-2 cursor-pointer select-none">
             <input type="checkbox" checked={marketingOptIn} onChange={(e) => setMarketingOptIn(e.target.checked)}
               className="w-4 h-4 accent-orange-500 mt-0.5 shrink-0" />
-            <span className="text-xs text-zinc-500">Email me offers and news. You can unsubscribe anytime.</span>
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">Email me offers and news. You can unsubscribe anytime.</span>
           </label>
 
           {/* Personal message */}
           <div>
-            <label className="block text-sm font-semibold text-zinc-700 mb-1.5">Personal message <span className="text-zinc-400 font-normal">(optional)</span></label>
+            <label className="block text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">Personal message <span className="text-zinc-400 font-normal">(optional)</span></label>
             <textarea
               rows={2}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               placeholder="Happy birthday — enjoy a meal on me!"
-              className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+              className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-400"
             />
           </div>
 
@@ -241,7 +241,7 @@ export default function GiftCardsPage() {
           <button
             onClick={() => void startPurchase()}
             disabled={submitting}
-            className="w-full bg-orange-600 hover:bg-orange-700 disabled:bg-orange-300 text-white font-bold px-2 py-3.5 text-[15px] sm:text-base rounded-xl transition flex items-center justify-center gap-2"
+            className="w-full bg-orange-600 dark:bg-orange-50 hover:bg-orange-700 dark:hover:bg-orange-100/80 disabled:bg-orange-300 text-white font-bold px-2 py-3.5 text-[15px] sm:text-base rounded-xl flex items-center justify-center gap-2"
           >
             {submitting ? <><Loader2 size={16} className="animate-spin" /> Preparing…</> : <>Continue to payment · {sym}{effectiveAmount.toFixed(2)}</>}
           </button>
@@ -249,8 +249,8 @@ export default function GiftCardsPage() {
       )}
 
       {step === "payment" && clientSecret && (
-        <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
-          <button onClick={() => setStep("form")} className="flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-700 mb-4">
+        <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm p-5 sm:p-6">
+          <button onClick={() => setStep("form")} className="flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 mb-4">
             <ArrowLeft size={14} /> Back
           </button>
           <Elements stripe={getStripePromise()} options={{ clientSecret, appearance: { theme: "stripe" } }}>
@@ -263,12 +263,12 @@ export default function GiftCardsPage() {
       )}
 
       {step === "success" && (
-        <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-8 text-center space-y-4">
-          <div className="w-14 h-14 bg-green-50 rounded-full flex items-center justify-center mx-auto">
+        <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm p-8 text-center space-y-4">
+          <div className="w-14 h-14 bg-green-50 dark:bg-green-950/40 rounded-full flex items-center justify-center mx-auto">
             <CheckCircle2 size={28} className="text-green-500" />
           </div>
-          <h2 className="text-xl font-bold text-zinc-900">Gift card purchased!</h2>
-          <p className="text-sm text-zinc-500">
+          <h2 className="text-xl font-bold text-zinc-900 dark:text-[var(--brand-text-dark)]">Gift card purchased!</h2>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
             {sendToMe
               ? "Check your inbox — we've emailed your gift card code."
               : `We've emailed the gift card code to ${recipientEmail}.`}
@@ -331,7 +331,7 @@ function GiftCardPaymentForm({ amountLabel, onPaid }: { amountLabel: string; onP
       <button
         type="submit"
         disabled={!stripe || submitting}
-        className="w-full bg-orange-600 hover:bg-orange-700 disabled:bg-orange-300 text-white font-bold px-2 py-3.5 text-[15px] sm:text-base rounded-xl transition flex items-center justify-center gap-2"
+        className="w-full bg-orange-600 dark:bg-orange-50 hover:bg-orange-700 dark:hover:bg-orange-100/80 disabled:bg-orange-300 text-white font-bold px-2 py-3.5 text-[15px] sm:text-base rounded-xl flex items-center justify-center gap-2"
       >
         {submitting ? <><Loader2 size={16} className="animate-spin" /> Processing…</> : <><Lock size={14} /> Pay {amountLabel}</>}
       </button>
