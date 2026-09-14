@@ -33,7 +33,7 @@ import { cleanPhone } from "@/lib/inputUtils";
 const LocationMap = dynamic(() => import("@/components/maps/LocationMap"), {
   ssr: false,
   loading: () => (
-    <div className="h-[200px] w-full bg-zinc-50 rounded-xl flex items-center justify-center text-xs text-zinc-400 border border-zinc-100">
+    <div className="h-[200px] w-full bg-zinc-50 dark:bg-white/5 rounded-xl flex items-center justify-center text-xs text-zinc-400 border border-zinc-100 dark:border-[var(--brand-border-dark)]">
       Loading map…
     </div>
   ),
@@ -42,12 +42,12 @@ const LocationMap = dynamic(() => import("@/components/maps/LocationMap"), {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<OrderStatus, { label: string; color: string; dot: string }> = {
-  pending: { label: "Pending", color: "bg-yellow-100 text-yellow-700", dot: "bg-yellow-500" },
-  confirmed: { label: "Confirmed", color: "bg-blue-100 text-blue-700", dot: "bg-blue-500" },
-  preparing: { label: "Preparing", color: "bg-amber-100 text-amber-700", dot: "bg-amber-500" },
-  ready: { label: "Ready", color: "bg-purple-100 text-purple-700", dot: "bg-purple-500" },
-  delivered: { label: "Delivered", color: "bg-green-100 text-green-700", dot: "bg-green-500" },
-  cancelled: { label: "Cancelled", color: "bg-red-100 text-red-700", dot: "bg-red-400" },
+  pending: { label: "Pending", color: "bg-yellow-100 dark:bg-yellow-900/50 text-yellow-700", dot: "bg-yellow-500" },
+  confirmed: { label: "Confirmed", color: "bg-blue-100 dark:bg-blue-900/50 text-blue-700", dot: "bg-blue-500" },
+  preparing: { label: "Preparing", color: "bg-amber-100 dark:bg-amber-900/50 text-amber-700", dot: "bg-amber-500" },
+  ready: { label: "Ready", color: "bg-purple-100 dark:bg-purple-900/50 text-purple-700", dot: "bg-purple-500" },
+  delivered: { label: "Delivered", color: "bg-green-100 dark:bg-green-900/50 text-green-700", dot: "bg-green-500" },
+  cancelled: { label: "Cancelled", color: "bg-red-100 dark:bg-red-900/50 text-red-700", dot: "bg-red-400" },
 };
 
 // Refund state is a payment fact, not a fulfillment status — it gets its own
@@ -153,9 +153,9 @@ function OrderTracker({ order }: { order: Order }) {
         const done = i <= currentIdx || order.status === "delivered";
         return (
           <div key={step} className="flex items-center flex-1 last:flex-none">
-            <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 transition-colors ${done ? "bg-orange-500" : "bg-gray-200"}`} />
+            <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 transition-colors ${done ? "bg-orange-500" : "bg-gray-200 dark:bg-white/10"}`} />
             {i < steps.length - 1 && (
-              <div className={`h-0.5 flex-1 mx-0.5 transition-colors ${i < (order.status === "delivered" ? steps.length : currentIdx) ? "bg-orange-500" : "bg-gray-200"}`} />
+              <div className={`h-0.5 flex-1 mx-0.5 transition-colors ${i < (order.status === "delivered" ? steps.length : currentIdx) ? "bg-orange-500" : "bg-gray-200 dark:bg-white/10"}`} />
             )}
           </div>
         );
@@ -183,10 +183,10 @@ function DeliveryTracker({ order }: { order: Order }) {
   const cfg = DS_CONFIG[ds];
 
   return (
-    <div className={`mt-3 rounded-xl px-3 py-2.5 border ${ds === "on_the_way" ? "bg-indigo-50 border-indigo-200" :
-      ds === "delivered" ? "bg-green-50 border-green-200" :
-        ds === "picked_up" ? "bg-blue-50 border-blue-200" :
-          "bg-amber-50 border-amber-200"
+    <div className={`mt-3 rounded-xl px-3 py-2.5 border ${ds === "on_the_way" ? "bg-indigo-50 dark:bg-indigo-950/50 border-indigo-200 dark:border-indigo-700" :
+      ds === "delivered" ? "bg-green-50 dark:bg-green-950/50 border-green-200 dark:border-green-700" :
+        ds === "picked_up" ? "bg-blue-50 dark:bg-blue-950/50 border-blue-200 dark:border-blue-700" :
+          "bg-amber-50 dark:bg-amber-950/50 border-amber-200 dark:border-amber-700"
       }`}>
       <div className="flex items-center gap-2 mb-2">
         <span className="text-sm">{cfg.emoji}</span>
@@ -221,8 +221,8 @@ function DeliveryTracker({ order }: { order: Order }) {
         </div>
       </div>
       {order.driverName && (
-        <p className="text-[10px] text-zinc-500 mt-2 flex items-center gap-1">
-          <Truck size={9} /> Driver: <span className="font-semibold text-zinc-700">{order.driverName}</span>
+        <p className="text-[10px] text-zinc-500 dark:text-zinc-400 mt-2 flex items-center gap-1">
+          <Truck size={9} /> Driver: <span className="font-semibold text-zinc-700 dark:text-zinc-300">{order.driverName}</span>
         </p>
       )}
     </div>
@@ -314,36 +314,36 @@ function QuickReorder({
   if (eligible.length === 0) return null;
 
   return (
-    <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm overflow-hidden">
-      <div className="px-5 py-4 border-b border-zinc-100 flex items-center gap-3">
-        <div className="w-8 h-8 bg-zinc-100 rounded-xl flex items-center justify-center">
-          <RotateCcw size={15} className="text-zinc-700" />
+    <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-zinc-100 dark:border-[var(--brand-border-dark)] flex items-center gap-3">
+        <div className="w-8 h-8 bg-zinc-100 dark:bg-white/10 rounded-xl flex items-center justify-center">
+          <RotateCcw size={15} className="text-zinc-700 dark:text-zinc-300" />
         </div>
         <div>
-          <h3 className="font-bold text-zinc-900 text-sm">Quick Re-order</h3>
+          <h3 className="font-bold text-zinc-900 dark:text-[var(--brand-text-dark)] text-sm">Quick Re-order</h3>
           <p className="text-xs text-zinc-400">Repeat a previous order with one click</p>
         </div>
       </div>
 
-      <div className="divide-y divide-gray-50">
+      <div className="divide-y divide-gray-50 dark:divide-white/5">
         {eligible.map((order) => (
-          <div key={order.id} className="flex flex-wrap items-center gap-3 px-4 sm:px-5 py-3.5 hover:bg-zinc-50 transition">
+          <div key={order.id} className="flex flex-wrap items-center gap-3 px-4 sm:px-5 py-3.5 hover:bg-zinc-50 dark:hover:bg-white/5">
             <div className="flex items-center gap-3">
 
               {/* Icon */}
-              <div className="w-9 h-9 sm:w-10 sm:h-10 bg-zinc-50 rounded-xl flex items-center justify-center flex-shrink-0 text-base sm:text-lg">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 bg-zinc-50 dark:bg-white/5 rounded-xl flex items-center justify-center flex-shrink-0 text-base sm:text-lg">
                 🍛
               </div>
 
               {/* Info */}
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-gray-800 ">
+                <p className="text-sm font-semibold text-gray-800 dark:text-zinc-200">
                   {itemSummary(order.items, 2)}
                 </p>
                 <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                   <span className="text-xs text-zinc-400">{formatDate(order.date)}</span>
-                  <span className="text-zinc-300 text-xs">·</span>
-                  <span className="text-xs font-semibold text-zinc-700 tabular-nums">{sym}{order.total.toFixed(2)}</span>
+                  <span className="text-zinc-300 dark:text-zinc-600 text-xs">·</span>
+                  <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 tabular-nums">{sym}{order.total.toFixed(2)}</span>
                 </div>
               </div>
             </div>
@@ -351,7 +351,7 @@ function QuickReorder({
             {/* Re-order button */}
             <button
               onClick={() => onReorder(order)}
-              className="flex ml-auto items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-2.5 rounded-xl transition flex-shrink-0 min-h-[38px]"
+              className="flex ml-auto items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-2.5 rounded-xl flex-shrink-0 min-h-[38px]"
             >
               <RotateCcw size={12} />
               <span className="hidden sm:inline">Re-order</span>
@@ -361,7 +361,7 @@ function QuickReorder({
         ))}
       </div>
 
-      <div className="px-5 py-3 bg-zinc-50 border-t border-zinc-100">
+      <div className="px-5 py-3 bg-zinc-50 dark:bg-white/5 border-t border-zinc-100 dark:border-[var(--brand-border-dark)]">
         <p className="text-xs text-zinc-400 flex items-center gap-1.5">
           <AlertCircle size={11} className="text-zinc-300 flex-shrink-0" />
           Items are added at current menu prices. Unavailable items are skipped.
@@ -401,19 +401,19 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
   const showVat = order.vatInclusive ? tax.showBreakdown : true;
 
   return (
-    <div className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all ${isActive ? "border-zinc-200" : "border-zinc-100"}`}>
+    <div className={`bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border shadow-sm overflow-hidden ${isActive ? "border-zinc-200 dark:border-[var(--brand-border-dark)]" : "border-zinc-100 dark:border-[var(--brand-border-dark)]"}`}>
       {/* Header row */}
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="w-full text-left hover:bg-zinc-50 transition block p-4 sm:p-5"
+        className="w-full text-left hover:bg-zinc-50 dark:hover:bg-white/5 transition block p-4 sm:p-5"
       >
         <div className="flex items-start justify-between w-full">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span title={fullOrderNumber(order.id)} className="font-semibold text-gray-800 text-sm truncate max-w-[180px]">{fullOrderNumber(order.id)}</span>
+              <span title={fullOrderNumber(order.id)} className="font-semibold text-gray-800 dark:text-zinc-200 text-sm truncate max-w-[180px]">{fullOrderNumber(order.id)}</span>
               <StatusBadge order={order} />
               {isActive && (
-                <span className="text-[10px] font-semibold bg-zinc-50 text-zinc-700 border border-zinc-200 rounded-full px-2 py-0.5">
+                <span className="text-[10px] font-semibold bg-zinc-50 dark:bg-white/10 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-[var(--brand-border-dark)] rounded-full px-2 py-0.5">
                   Live
                 </span>
               )}
@@ -423,7 +423,7 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
             </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-            <span className="font-bold text-zinc-900 tabular-nums">{sym}{order.total.toFixed(2)}</span>
+            <span className="font-bold text-zinc-900 dark:text-[var(--brand-text-dark)] tabular-nums">{sym}{order.total.toFixed(2)}</span>
             {expanded ? <ChevronUp size={16} className="text-zinc-400" /> : <ChevronDown size={16} className="text-zinc-400" />}
           </div>
         </div>
@@ -434,9 +434,9 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
 
       {/* Expanded detail */}
       {expanded && (
-        <div className="border-t border-zinc-100 px-4 sm:px-5 py-4 bg-zinc-50 space-y-4">
+        <div className="border-t border-zinc-100 dark:border-[var(--brand-border-dark)] px-4 sm:px-5 py-4 bg-zinc-50 dark:bg-white/5 space-y-4">
           <div>
-            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Items</p>
+            <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-3">Items</p>
             <div className="space-y-3"> {/* Added space-y for better separation between items */}
               {order.items.map((item, i) => {
                 // 1. Extract variations and add-ons
@@ -449,8 +449,8 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
                 return (
                   <div key={i} className="flex justify-between gap-3 text-sm items-start">
                     <div className="min-w-0 flex-1">
-                      <div className="text-zinc-600">
-                        <span className="font-medium text-gray-800">{item.qty}×</span> {item.name}
+                      <div className="text-zinc-600 dark:text-zinc-400">
+                        <span className="font-medium text-gray-800 dark:text-zinc-200">{item.qty}×</span> {item.name}
                       </div>
 
                       {/* 3. Display details on a secondary line */}
@@ -460,7 +460,7 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
                         </p>
                       )}
                     </div>
-                    <span className="font-medium text-gray-800 flex-shrink-0 tabular-nums">
+                    <span className="font-medium text-gray-800 dark:text-zinc-200 flex-shrink-0 tabular-nums">
                       {sym}{(item.price * item.qty).toFixed(2)}
                     </span>
                   </div>
@@ -468,7 +468,7 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
               })}
             </div>
           </div>
-          <div className="pt-3 border-t border-zinc-200 border-dashed space-y-1.5">
+          <div className="pt-3 border-t border-zinc-200 dark:border-[var(--brand-border-dark)] border-dashed space-y-1.5">
             {/* Subtotal */}
             <div className="flex justify-between text-xs text-zinc-500">
               <span>Subtotal</span>
@@ -525,23 +525,23 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
           </div>
 
           {/* Final Total */}
-          <div className="border-t border-zinc-200 pt-3 flex justify-between items-baseline">
-            <span className="text-xs font-bold text-zinc-900 uppercase tracking-wider">Total</span>
-            <span className="text-lg font-black text-zinc-900 tabular-nums leading-none">
+          <div className="border-t border-zinc-200 dark:border-[var(--brand-border-dark)] pt-3 flex justify-between items-baseline">
+            <span className="text-xs font-bold text-zinc-900 dark:text-[var(--brand-text-dark)] uppercase tracking-wider">Total</span>
+            <span className="text-lg font-black text-zinc-900 dark:text-[var(--brand-text-dark)] tabular-nums leading-none">
               {sym}{order.total.toFixed(2)}
             </span>
           </div>
 
           {(order.vatAmount ?? 0) > 0 && order.vatInclusive && showVat && (
-            <p className="text-right text-xs text-zinc-500">Prices include {vatRate}% VAT</p>
+            <p className="text-right text-xs text-zinc-500 dark:text-zinc-400">Prices include {vatRate}% VAT</p>
           )}
 
           {(order.paymentMethod || order.status) && (
             <div>
               {order.paymentMethod && (
                 <div className="flex justify-between">
-                  <span className="text-zinc-500 text-sm">Payment</span>
-                  <span className="font-medium text-sm">{order.paymentMethod}</span>
+                  <span className="text-zinc-500 dark:text-zinc-400 text-sm">Payment</span>
+                  <span className="font-medium text-sm dark:text-zinc-200">{order.paymentMethod}</span>
                 </div>
               )}
             </div>
@@ -550,7 +550,7 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
           <div className="space-y-1">
             {order.address && (
               <p className="text-xs text-zinc-400 mt-2 break-words">
-                Delivered to: <span className="text-zinc-600">{order.address}</span>
+                Delivered to: <span className="text-zinc-600 dark:text-zinc-300">{order.address}</span>
               </p>
             )}
             {order.note && (
@@ -560,10 +560,10 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
 
           {/* Re-order button in expanded view */}
           {canReorder && (
-            <div className="pt-3 border-t border-zinc-200">
+            <div className="pt-3 border-t border-zinc-200 dark:border-[var(--brand-border-dark)]">
               <button
                 onClick={() => onReorder(order)}
-                className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold py-3 rounded-xl transition"
+                className="w-full flex items-center justify-center gap-2 bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 text-white text-sm font-semibold py-3 rounded-xl transition"
               >
                 <RotateCcw size={15} />
                 Re-order this meal
@@ -597,11 +597,11 @@ function FavouritesTab() {
 
   if (favouriteItems.length === 0) {
     return (
-      <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm py-16 text-center">
-        <Heart size={40} className="mx-auto text-zinc-200 mb-3" />
+      <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm py-16 text-center">
+        <Heart size={40} className="mx-auto text-zinc-200 dark:text-zinc-700 mb-3" />
         <p className="font-semibold text-zinc-400">No favourites yet</p>
-        <p className="text-sm text-zinc-300 mt-1">Tap the heart icon on any menu item to save it here.</p>
-        <Link href="/" className="mt-4 inline-flex items-center gap-1.5 text-sm text-zinc-700 font-semibold hover:underline">
+        <p className="text-sm text-zinc-300 dark:text-zinc-600 mt-1">Tap the heart icon on any menu item to save it here.</p>
+        <Link href="/" className="mt-4 inline-flex items-center gap-1.5 text-sm text-zinc-700 dark:text-zinc-200 font-semibold hover:underline">
           Browse the menu
         </Link>
       </div>
@@ -615,22 +615,22 @@ function FavouritesTab() {
           const outOfStock = resolveStock(item) === "out_of_stock";
 
           return (
-            <div key={item.id} className="bg-white rounded-2xl border border-zinc-100 shadow-sm overflow-hidden flex flex-col">
+            <div key={item.id} className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm overflow-hidden flex flex-col">
 
               {/* Image or Placeholder Area */}
               {hasAnyImage && (
-                <div className={`relative w-full h-36 bg-orange-50 flex items-center justify-center overflow-hidden ${outOfStock ? "grayscale opacity-60" : ""}`}>
+                <div className={`relative w-full h-36 bg-orange-50 dark:bg-orange-500/10 flex items-center justify-center overflow-hidden ${outOfStock ? "grayscale opacity-60" : ""}`}>
                   {item.image ? (
                     /* eslint-disable-next-line @next/next/no-img-element */
                     <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
                   ) : (
                     // Placeholder for items without images
-                    <UtensilsCrossed size={48} strokeWidth={1} className="text-zinc-200" />
+                    <UtensilsCrossed size={48} strokeWidth={1} className="text-zinc-200 dark:text-zinc-700" />
                   )}
 
                   <button
                     onClick={() => toggleFavourite(item.id)}
-                    className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-white/90 backdrop-blur-sm hover:bg-white shadow transition z-10"
+                    className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-white/90 dark:bg-black/50 backdrop-blur-sm hover:bg-white dark:hover:bg-black/70 shadow z-10"
                     title="Remove from favourites"
                   >
                     <Heart size={14} className="text-red-500 fill-red-500" />
@@ -642,11 +642,11 @@ function FavouritesTab() {
               <div className="p-4 flex-1 flex flex-col gap-2">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-zinc-900 text-sm leading-snug">{item.name}</p>
+                    <p className="font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)] text-sm leading-snug">{item.name}</p>
                     {item.dietary.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-1">
                         {item.dietary.map((d) => (
-                          <span key={d} className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500">
+                          <span key={d} className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-white/10 text-zinc-500 dark:text-zinc-400">
                             {d}
                           </span>
                         ))}
@@ -658,7 +658,7 @@ function FavouritesTab() {
                   {!hasAnyImage && (
                     <button
                       onClick={() => toggleFavourite(item.id)}
-                      className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full border border-red-200 hover:bg-red-50 transition"
+                      className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full border border-red-200 dark:border-red-900 hover:bg-red-50 dark:hover:bg-red-950/40"
                       title="Remove from favourites"
                     >
                       <Heart size={12} className="text-red-500 fill-red-500" />
@@ -668,14 +668,14 @@ function FavouritesTab() {
 
                 <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">{item.description}</p>
 
-                <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-50">
+                <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-50 dark:border-white/5">
                   {getOfferUnitPrice(item) !== null ? (
                     <span className="flex items-baseline gap-1.5">
                       <span className="font-bold text-orange-600 text-sm">{sym}{getOfferUnitPrice(item)!.toFixed(2)}</span>
                       <span className="text-xs text-zinc-400 line-through">{sym}{effectiveMenuPrice(item).toFixed(2)}</span>
                     </span>
                   ) : (
-                    <span className="font-bold text-zinc-900 text-sm">{sym}{effectiveMenuPrice(item).toFixed(2)}</span>
+                    <span className="font-bold text-zinc-900 dark:text-[var(--brand-text-dark)] text-sm">{sym}{effectiveMenuPrice(item).toFixed(2)}</span>
                   )}
                   {outOfStock ? (
                     <span className="flex items-center gap-1 text-xs font-semibold text-red-500 bg-red-50 px-3 py-1.5 rounded-xl border border-red-100">
@@ -685,9 +685,9 @@ function FavouritesTab() {
                     <button
                       disabled={!canOrder}
                       onClick={() => canOrder && setModalItem(item)}
-                      className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition ${canOrder
+                      className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl ${canOrder
                         ? "bg-orange-500 hover:bg-orange-600 text-white"
-                        : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
+                        : "bg-zinc-100 dark:bg-white/10 text-zinc-400 dark:text-zinc-500 cursor-not-allowed"
                         }`}
                     >
                       <Plus size={12} />
@@ -859,7 +859,7 @@ function AddressesTab() {
     const isPhone = key === "phone";
     return (
       <div>
-        <label className="block text-xs font-medium text-zinc-500 mb-1">{label}</label>
+        <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">{label}</label>
         <input
           type={opts?.type ?? "text"}
           inputMode={isPhone ? "tel" : undefined}
@@ -871,7 +871,7 @@ function AddressesTab() {
             setErrors((er) => ({ ...er, [key]: undefined }));
           }}
           placeholder={opts?.placeholder}
-          className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition ${errors[key] ? "border-red-400" : "border-zinc-200"}`}
+          className={`w-full border rounded-xl px-4 py-2.5 text-sm dark:bg-white/5 dark:text-[var(--brand-text-dark)] focus:outline-none focus:ring-2 focus:ring-zinc-300 transition ${errors[key] ? "border-red-400" : "border-zinc-200 dark:border-[var(--brand-border-dark)]"}`}
         />
         {errors[key] && <p className="text-xs text-red-500 mt-1">{errors[key]}</p>}
       </div>
@@ -881,21 +881,21 @@ function AddressesTab() {
   return (
     <div className="space-y-4">
       {saved && (
-        <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 text-sm text-green-700 font-medium">
+        <div className="flex items-center gap-2 bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-900 rounded-xl px-4 py-2.5 text-sm text-green-700 dark:text-green-400 font-medium">
           <Check size={14} /> Address saved successfully
         </div>
       )}
 
       {/* Add / Edit form */}
       {showForm && (
-        <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 space-y-4">
-          <h3 className="font-semibold text-zinc-900 text-sm">
+        <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm p-5 space-y-4">
+          <h3 className="font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)] text-sm">
             {editingId ? "Edit address" : "Add new address"}
           </h3>
 
           {/* Label quick-select */}
           <div>
-            <label className="block text-xs font-medium text-zinc-500 mb-1.5">Label</label>
+            <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1.5">Label</label>
             <div className="flex gap-2 mb-2">
               {["Home", "Work", "Other"].map((l) => (
                 <button
@@ -904,7 +904,7 @@ function AddressesTab() {
                   onClick={() => setForm((f) => ({ ...f, label: l }))}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${form.label === l
                     ? "bg-orange-500 border-orange-500 text-white"
-                    : "border-zinc-200 text-zinc-600 hover:border-zinc-300"
+                    : "border-zinc-200 dark:border-[var(--brand-border-dark)] text-zinc-600 dark:text-zinc-300 hover:border-zinc-300"
                     }`}
                 >
                   {l === "Home" ? <Home size={12} /> : l === "Work" ? <Briefcase size={12} /> : <MapPin size={12} />}
@@ -918,7 +918,7 @@ function AddressesTab() {
                 value={form.label === "Other" ? "" : form.label}
                 onChange={(e) => { setForm((f) => ({ ...f, label: e.target.value || "Other" })); setErrors((er) => ({ ...er, label: undefined })); }}
                 placeholder="Custom label…"
-                className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition ${errors.label ? "border-red-400" : "border-zinc-200"}`}
+                className={`w-full border rounded-xl px-4 py-2.5 text-sm dark:bg-white/5 dark:text-[var(--brand-text-dark)] focus:outline-none focus:ring-2 focus:ring-zinc-300 transition ${errors.label ? "border-red-400" : "border-zinc-200 dark:border-[var(--brand-border-dark)]"}`}
               />
             ) : null}
             {errors.label && <p className="text-xs text-red-500 mt-1">{errors.label}</p>}
@@ -932,7 +932,7 @@ function AddressesTab() {
           {/* Pin on map (optional but helps the driver find you) */}
           <div>
             <div className="flex gap-3 items-center justify-between mb-1.5">
-              <label className="text-xs font-medium text-zinc-500">
+              <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
                 Pin on map <span className="text-zinc-300">(optional — helps the driver find you)</span>
               </label>
               <button
@@ -951,7 +951,7 @@ function AddressesTab() {
                 form.lng ?? settings.restaurant.lng ?? -0.063,
               ]}
               height={200}
-              className="rounded-xl border border-zinc-200"
+              className="rounded-xl border border-zinc-200 dark:border-[var(--brand-border-dark)]"
               markers={[
                 {
                   lat: settings.restaurant.lat ?? 51.515,
@@ -1003,7 +1003,7 @@ function AddressesTab() {
             </button>
             <button
               onClick={() => setShowForm(false)}
-              className="px-4 py-2.5 bg-zinc-100 hover:bg-gray-200 text-zinc-700 font-semibold rounded-xl text-sm transition"
+              className="px-4 py-2.5 bg-zinc-100 dark:bg-white/10 hover:bg-gray-200 dark:hover:bg-white/15 text-zinc-700 dark:text-zinc-200 font-semibold rounded-xl text-sm transition"
             >
               Cancel
             </button>
@@ -1013,10 +1013,10 @@ function AddressesTab() {
 
       {/* Address list */}
       {addresses.length === 0 && !showForm ? (
-        <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm py-14 text-center">
-          <MapPin size={36} className="mx-auto text-zinc-200 mb-3" />
+        <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm py-14 text-center">
+          <MapPin size={36} className="mx-auto text-zinc-200 dark:text-zinc-700 mb-3" />
           <p className="font-semibold text-zinc-400">No saved addresses</p>
-          <p className="text-sm text-zinc-300 mt-1">Save your delivery addresses for faster checkout.</p>
+          <p className="text-sm text-zinc-300 dark:text-zinc-600 mt-1">Save your delivery addresses for faster checkout.</p>
           <button
             onClick={openAdd}
             className="mt-4 inline-flex items-center gap-1.5 text-sm bg-orange-500 hover:bg-orange-600 text-white font-semibold px-4 py-2 rounded-xl transition"
@@ -1027,23 +1027,23 @@ function AddressesTab() {
       ) : (
         <>
           {addresses.map((addr) => (
-            <div key={addr.id} className={`bg-white rounded-2xl border shadow-sm overflow-hidden ${addr.isDefault ? "border-zinc-200" : "border-zinc-100"}`}>
+            <div key={addr.id} className={`bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border shadow-sm overflow-hidden ${addr.isDefault ? "border-zinc-200 dark:border-[var(--brand-border-dark)]" : "border-zinc-100 dark:border-[var(--brand-border-dark)]"}`}>
               <div className="p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2 min-w-0">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${addr.isDefault ? "bg-zinc-100" : "bg-zinc-100"}`}>
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${addr.isDefault ? "bg-zinc-100 dark:bg-white/10" : "bg-zinc-100 dark:bg-white/10"}`}>
                       {getLabelIcon(addr.label)}
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-zinc-900 text-sm">{addr.label}</span>
+                        <span className="font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)] text-sm">{addr.label}</span>
                         {addr.isDefault && (
-                          <span className="text-[10px] font-bold bg-zinc-100 text-zinc-700 rounded-full px-2 py-0.5 flex items-center gap-1">
-                            <StarIcon size={9} className="fill-zinc-600" /> Default
+                          <span className="text-[10px] font-bold bg-zinc-100 dark:bg-white/10 text-zinc-700 dark:text-zinc-300 rounded-full px-2 py-0.5 flex items-center gap-1">
+                            <StarIcon size={9} className="fill-zinc-600 dark:fill-zinc-300" /> Default
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-zinc-600 mt-0.5 truncate">{addr.address}</p>
+                      <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-0.5 truncate">{addr.address}</p>
                       <p className="text-xs text-zinc-400">{addr.postcode}</p>
                     </div>
                   </div>
@@ -1051,7 +1051,7 @@ function AddressesTab() {
                   <div className="flex items-center gap-1 flex-shrink-0">
                     <button
                       onClick={() => openEdit(addr)}
-                      className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-100 text-zinc-400 hover:text-zinc-700 transition"
+                      className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-100 dark:hover:bg-white/10 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition"
                     >
                       <Edit2 size={13} />
                     </button>
@@ -1059,14 +1059,14 @@ function AddressesTab() {
                       <div className="flex items-center gap-1 animate-in fade-in zoom-in-95 duration-200">
                         <button
                           onClick={() => handleDelete(addr.id)}
-                          className="w-8 h-8 flex items-center justify-center rounded-lg bg-red-100 hover:bg-red-200 text-red-600 transition"
+                          className="w-8 h-8 flex items-center justify-center rounded-lg bg-red-100 dark:bg-red-950/50 hover:bg-red-200 dark:hover:bg-red-950/70 text-red-600 dark:text-red-400 transition"
                           title="Confirm Delete"
                         >
                           <Check size={14} strokeWidth={2.5} />
                         </button>
                         <button
                           onClick={() => setDeleteConfirm(null)}
-                          className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-600 transition"
+                          className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-white/10 hover:bg-zinc-200 dark:hover:bg-white/15 text-zinc-600 dark:text-zinc-300 transition"
                           title="Cancel"
                         >
                           <X size={14} strokeWidth={2.5} />
@@ -1075,7 +1075,7 @@ function AddressesTab() {
                     ) : (
                       <button
                         onClick={() => setDeleteConfirm(addr.id)}
-                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50 text-zinc-400 hover:text-red-500 transition"
+                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 text-zinc-400 hover:text-red-500 transition"
                       >
                         <Trash2 size={13} />
                       </button>
@@ -1084,15 +1084,15 @@ function AddressesTab() {
                 </div>
 
                 {(addr.phone || addr.note) && (
-                  <div className="mt-3 pt-3 border-t border-gray-50 space-y-1">
+                  <div className="mt-3 pt-3 border-t border-gray-50 dark:border-white/5 space-y-1">
                     {addr.phone && (
-                      <p className="text-xs text-zinc-500 flex items-center gap-1.5">
-                        <Phone size={11} className="text-zinc-300" /> {addr.phone}
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400 flex items-center gap-1.5">
+                        <Phone size={11} className="text-zinc-300 dark:text-zinc-600" /> {addr.phone}
                       </p>
                     )}
                     {addr.note && (
-                      <p className="text-xs text-zinc-500 flex items-center gap-1.5 italic">
-                        <AlertCircle size={11} className="text-zinc-300" /> {addr.note}
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400 flex items-center gap-1.5 italic">
+                        <AlertCircle size={11} className="text-zinc-300 dark:text-zinc-600" /> {addr.note}
                       </p>
                     )}
                   </div>
@@ -1101,7 +1101,7 @@ function AddressesTab() {
                 {!addr.isDefault && (
                   <button
                     onClick={() => setDefaultAddress(user.id, addr.id)}
-                    className="mt-3 text-xs text-zinc-700 hover:text-zinc-700 font-semibold transition"
+                    className="mt-3 text-xs text-zinc-700 dark:text-zinc-300 hover:text-zinc-700 dark:hover:text-zinc-100 font-semibold transition"
                   >
                     Set as default
                   </button>
@@ -1113,7 +1113,7 @@ function AddressesTab() {
           {!showForm && (
             <button
               onClick={openAdd}
-              className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-zinc-200 hover:border-zinc-400 text-zinc-400 hover:text-zinc-700 font-semibold text-sm py-4 rounded-2xl transition"
+              className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-zinc-200 dark:border-[var(--brand-border-dark)] hover:border-zinc-400 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 font-semibold text-sm py-4 rounded-2xl transition"
             >
               <Plus size={16} /> Add new address
             </button>
@@ -1217,20 +1217,20 @@ function ChangePasswordCard() {
     }
   }
 
-  const pwdInputCls = "w-full border border-zinc-200 rounded-xl px-4 py-2.5 pr-11 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition";
+  const pwdInputCls = "w-full border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 pr-11 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition";
 
   return (
-    <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm overflow-hidden">
+    <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm overflow-hidden">
       <button
         onClick={handleToggle}
-        className="w-full flex items-center justify-between px-4 sm:px-6 py-5 hover:bg-zinc-50 transition text-left"
+        className="w-full flex items-center justify-between px-4 sm:px-6 py-5 hover:bg-zinc-50 dark:hover:bg-white/5 transition text-left"
       >
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-zinc-100 rounded-xl flex items-center justify-center">
-            <ShieldCheck size={15} className="text-zinc-700" />
+          <div className="w-8 h-8 bg-zinc-100 dark:bg-white/10 rounded-xl flex items-center justify-center">
+            <ShieldCheck size={15} className="text-zinc-700 dark:text-zinc-300" />
           </div>
           <div>
-            <p className="font-semibold text-zinc-900 text-sm">Change password</p>
+            <p className="font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)] text-sm">Change password</p>
             <p className="text-xs text-zinc-400 mt-0.5">Update your account password</p>
           </div>
         </div>
@@ -1241,16 +1241,16 @@ function ChangePasswordCard() {
       </button>
 
       {open && (
-        <div className="border-t border-zinc-100 px-4 sm:px-6 pb-6 pt-4">
+        <div className="border-t border-zinc-100 dark:border-[var(--brand-border-dark)] px-4 sm:px-6 pb-6 pt-4">
           {success ? (
-            <div className="flex items-center gap-2.5 bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700 font-medium">
+            <div className="flex items-center gap-2.5 bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-900 rounded-xl px-4 py-3 text-sm text-green-700 dark:text-green-400 font-medium">
               <Check size={15} className="flex-shrink-0" /> Password updated successfully
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Current password */}
               <div>
-                <label className="block text-xs font-medium text-zinc-500 mb-1.5">Current password</label>
+                <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1.5">Current password</label>
                 <div className="relative">
                   <input
                     type={showCurrent ? "text" : "password"}
@@ -1274,7 +1274,7 @@ function ChangePasswordCard() {
 
               {/* New password */}
               <div>
-                <label className="block text-xs font-medium text-zinc-500 mb-1.5">New password</label>
+                <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1.5">New password</label>
                 <div className="relative">
                   <input
                     type={showNew ? "text" : "password"}
@@ -1298,7 +1298,7 @@ function ChangePasswordCard() {
 
               {/* Confirm password */}
               <div>
-                <label className="block text-xs font-medium text-zinc-500 mb-1.5">Confirm new password</label>
+                <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1.5">Confirm new password</label>
                 <input
                   type="password"
                   value={confirmPassword}
@@ -1306,14 +1306,14 @@ function ChangePasswordCard() {
                   placeholder="Repeat new password"
                   required
                   autoComplete="new-password"
-                  className="w-full border border-zinc-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition"
+                  className="w-full border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition"
                 />
               </div>
 
               {error && (
-                <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                <div className="flex items-start gap-2 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2.5">
                   <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-red-600">{error}</p>
+                  <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
                 </div>
               )}
 
@@ -1328,14 +1328,14 @@ function ChangePasswordCard() {
                 <button
                   type="button"
                   onClick={handleToggle}
-                  className="px-4 py-2.5 bg-zinc-100 hover:bg-gray-200 text-zinc-700 font-semibold rounded-xl text-sm transition"
+                  className="px-4 py-2.5 bg-zinc-100 dark:bg-white/10 hover:bg-gray-200 dark:hover:bg-white/15 text-zinc-700 dark:text-zinc-200 font-semibold rounded-xl text-sm transition"
                 >
                   Cancel
                 </button>
               </div>
 
               {resetSent ? (
-                <p className="text-center text-xs text-green-600">
+                <p className="text-center text-xs text-green-600 dark:text-green-400">
                   Reset link sent to <span className="font-semibold">{currentUser?.email}</span>. Check your inbox — it expires in 1 hour.
                 </p>
               ) : (
@@ -1345,7 +1345,7 @@ function ChangePasswordCard() {
                     type="button"
                     onClick={handleSendReset}
                     disabled={resetLoading}
-                    className="text-zinc-700 font-semibold hover:underline disabled:opacity-50"
+                    className="text-zinc-700 dark:text-zinc-300 font-semibold hover:underline disabled:opacity-50"
                   >
                     {resetLoading ? "Sending…" : "Send password reset email"}
                   </button>
@@ -1387,19 +1387,19 @@ function ProfileTab() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-6">
+      <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm p-4 sm:p-6">
         <div className="flex flex-wrap gap-3 items-center justify-between mb-5">
-          <h3 className="font-semibold text-zinc-900">Personal details</h3>
+          <h3 className="font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)]">Personal details</h3>
           {!editing ? (
             <button
               onClick={() => setEditing(true)}
-              className="flex items-center gap-1.5 text-sm text-zinc-700 hover:text-zinc-700 font-medium transition"
+              className="flex items-center gap-1.5 text-sm text-zinc-700 dark:text-zinc-300 hover:text-zinc-700 dark:hover:text-zinc-100 font-medium transition"
             >
               <Edit2 size={14} /> Edit
             </button>
           ) : (
             <div className="flex items-center gap-2">
-              <button onClick={handleCancel} className="flex items-center gap-1 text-sm text-zinc-400 hover:text-zinc-600 transition">
+              <button onClick={handleCancel} className="flex items-center gap-1 text-sm text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition">
                 <X size={14} /> Cancel
               </button>
               <button
@@ -1413,40 +1413,40 @@ function ProfileTab() {
         </div>
 
         {saved && (
-          <div className="mb-4 flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 text-sm text-green-700 font-medium">
+          <div className="mb-4 flex items-center gap-2 bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-900 rounded-xl px-4 py-2.5 text-sm text-green-700 dark:text-green-400 font-medium">
             <Check size={14} /> Profile updated successfully
           </div>
         )}
 
         <div className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-zinc-500 mb-1.5">Full name</label>
+            <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1.5">Full name</label>
             {editing ? (
               <input
                 type="text"
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                className="w-full border border-zinc-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition"
+                className="w-full border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition"
               />
             ) : (
-              <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-50 rounded-xl">
+              <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-50 dark:bg-white/5 rounded-xl">
                 <User size={15} className="text-zinc-400 flex-shrink-0" />
-                <span className="text-sm text-gray-800">{currentUser.name}</span>
+                <span className="text-sm text-gray-800 dark:text-zinc-200">{currentUser.name}</span>
               </div>
             )}
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-zinc-500 mb-1.5">Email address</label>
-            <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-50 rounded-xl min-w-0">
+            <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1.5">Email address</label>
+            <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-50 dark:bg-white/5 rounded-xl min-w-0">
               <Mail size={15} className="text-zinc-400 flex-shrink-0" />
-              <span className="text-sm text-gray-800 truncate flex-1 min-w-0">{currentUser.email}</span>
-              <span className="flex-shrink-0 text-[10px] text-zinc-400 bg-zinc-100 rounded-full px-2 py-0.5 whitespace-nowrap">Cannot change</span>
+              <span className="text-sm text-gray-800 dark:text-zinc-200 truncate flex-1 min-w-0">{currentUser.email}</span>
+              <span className="flex-shrink-0 text-[10px] text-zinc-400 bg-zinc-100 dark:bg-white/10 rounded-full px-2 py-0.5 whitespace-nowrap">Cannot change</span>
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-zinc-500 mb-1.5">Phone number</label>
+            <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1.5">Phone number</label>
             {editing ? (
               <input
                 type="tel"
@@ -1454,21 +1454,21 @@ function ProfileTab() {
                 autoComplete="tel"
                 value={form.phone}
                 onChange={(e) => setForm((f) => ({ ...f, phone: cleanPhone(e.target.value) }))}
-                className="w-full border border-zinc-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition"
+                className="w-full border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition"
               />
             ) : (
-              <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-50 rounded-xl">
+              <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-50 dark:bg-white/5 rounded-xl">
                 <Phone size={15} className="text-zinc-400 flex-shrink-0" />
-                <span className="text-sm text-gray-800">{currentUser.phone || "—"}</span>
+                <span className="text-sm text-gray-800 dark:text-zinc-200">{currentUser.phone || "—"}</span>
               </div>
             )}
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-zinc-500 mb-1.5">Member since</label>
-            <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-50 rounded-xl">
+            <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1.5">Member since</label>
+            <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-50 dark:bg-white/5 rounded-xl">
               <Calendar size={15} className="text-zinc-400 flex-shrink-0" />
-              <span className="text-sm text-gray-800">{formatDate(currentUser.createdAt)}</span>
+              <span className="text-sm text-gray-800 dark:text-zinc-200">{formatDate(currentUser.createdAt)}</span>
             </div>
           </div>
         </div>
@@ -1519,10 +1519,10 @@ function MarketingPrefsCard() {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-6">
+    <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm p-4 sm:p-6">
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
-          <h3 className="font-semibold text-zinc-900 text-sm flex items-center gap-2">
+          <h3 className="font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)] text-sm flex items-center gap-2">
             <Mail size={15} className="text-zinc-400" /> Offers &amp; news
           </h3>
           <p className="text-xs text-zinc-400 mt-1">
@@ -1537,7 +1537,7 @@ function MarketingPrefsCard() {
           onClick={toggle}
           disabled={optedIn === null || saving}
           aria-label={optedIn ? "Unsubscribe from marketing emails" : "Subscribe to marketing emails"}
-          className={`relative w-11 h-6 rounded-full transition flex-shrink-0 disabled:opacity-50 ${optedIn ? "bg-green-500" : "bg-zinc-300"}`}
+          className={`relative w-11 h-6 rounded-full transition flex-shrink-0 disabled:opacity-50 ${optedIn ? "bg-green-500" : "bg-zinc-300 dark:bg-zinc-700"}`}
         >
           <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${optedIn ? "left-[22px]" : "left-0.5"}`} />
         </button>
@@ -1679,15 +1679,15 @@ function RewardsTab() {
   return (
     <div className="space-y-6">
       {/* ── Points hero + milestone bar ── */}
-      <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
+      <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm p-5 sm:p-6">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-4">
-            <div className="w-11 h-11 bg-amber-50 rounded-2xl flex items-center justify-center flex-shrink-0">
+            <div className="w-11 h-11 bg-amber-50 dark:bg-amber-950/40 rounded-2xl flex items-center justify-center flex-shrink-0">
               <Award size={20} className="text-amber-500" />
             </div>
             <div>
-              <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Loyalty points</p>
-              <p className="text-3xl font-bold text-zinc-900 tabular-nums mt-0.5">
+              <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">Loyalty points</p>
+              <p className="text-3xl font-bold text-zinc-900 dark:text-[var(--brand-text-dark)] tabular-nums mt-0.5">
                 {loyaltyPoints.toLocaleString()}
                 <span className="text-sm font-semibold text-zinc-400 ml-1.5">points</span>
               </p>
@@ -1707,7 +1707,7 @@ function RewardsTab() {
         {/* Milestone progress bar */}
         {maxTier > 0 && (
           <div className="mt-5">
-            <div className="relative h-2.5 bg-zinc-100 rounded-full overflow-visible">
+            <div className="relative h-2.5 bg-zinc-100 dark:bg-white/10 rounded-full overflow-visible">
               <div
                 className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-orange-400 via-amber-400 to-amber-500 transition-all duration-700"
                 style={{ width: `${fillPct}%` }}
@@ -1719,7 +1719,7 @@ function RewardsTab() {
                 return (
                   <div
                     key={t}
-                    className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full border-2 ${reached ? "bg-amber-500 border-amber-200" : "bg-white border-zinc-300"
+                    className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full border-2 ${reached ? "bg-amber-500 border-amber-200" : "bg-white dark:bg-[var(--brand-surface-dark)] border-zinc-300 dark:border-zinc-600"
                       }`}
                     style={{ left: `${pos}%` }}
                   />
@@ -1749,7 +1749,7 @@ function RewardsTab() {
           every {sym}1 you spend - then trade them for free food below.
         </p>
         {nextExpiry && (
-          <p className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mt-3">
+          <p className="text-xs font-medium text-amber-700 dark:text-amber-500 bg-amber-50 dark:bg-amber-900/50 border border-amber-100 dark:border-amber-800 rounded-lg px-3 py-2 mt-3">
             {nextExpiry.points.toLocaleString()} point{nextExpiry.points === 1 ? "" : "s"} expire on{" "}
             {new Date(nextExpiry.expiresAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
             {" "}— use them before then. Your oldest points are always spent first.
@@ -1758,15 +1758,15 @@ function RewardsTab() {
 
         {/* History (collapsible) */}
         {showHistory && history.length > 0 && (
-          <div className="mt-5 border-t border-zinc-100 pt-4 space-y-4">
+          <div className="mt-5 border-t border-zinc-100 dark:border-[var(--brand-border-dark)] pt-4 space-y-4">
             {historyGroups.map((g) => (
               <div key={g.label}>
-                <p className="text-xs font-bold text-zinc-900 uppercase tracking-wide mb-2">{g.label}</p>
+                <p className="text-xs font-bold text-zinc-900 dark:text-[var(--brand-text-dark)] uppercase tracking-wide mb-2">{g.label}</p>
                 <div className="space-y-1.5">
                   {g.rows.map((t) => (
-                    <div key={t.id} className="flex items-center justify-between gap-3 rounded-xl bg-zinc-50 px-3 py-2">
+                    <div key={t.id} className="flex items-center justify-between gap-3 rounded-xl bg-zinc-50 dark:bg-white/5 px-3 py-2">
                       <div className="min-w-0">
-                        <p className={`text-sm font-bold tabular-nums ${t.points >= 0 ? "text-emerald-600" : "text-zinc-900"}`}>
+                        <p className={`text-sm font-bold tabular-nums ${t.points >= 0 ? "text-emerald-600" : "text-zinc-900 dark:text-[var(--brand-text-dark)]"}`}>
                           {t.points >= 0 ? "+" : ""}{t.points.toLocaleString()} points
                         </p>
                         <p className="text-[11px] text-zinc-400 truncate">
@@ -1787,15 +1787,15 @@ function RewardsTab() {
       </div>
 
       {/* ── Reward catalog ── */}
-      <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
+      <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm p-5 sm:p-6">
         <div className="flex items-center gap-2 mb-1">
           <Gift size={18} className="text-orange-500 flex-shrink-0" />
-          <h3 className="font-semibold text-zinc-900 text-sm">My Rewards</h3>
+          <h3 className="font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)] text-sm">My Rewards</h3>
         </div>
-        <p className="text-xs text-zinc-500 mb-4">Redeem your points for free items - they&apos;re added to your basket and go out with your next order.</p>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">Redeem your points for free items - they&apos;re added to your basket and go out with your next order.</p>
 
         {rewardToast && (
-          <div className="flex items-center justify-between gap-3 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5 mb-4">
+          <div className="flex items-center justify-between gap-3 text-xs text-emerald-700 dark:text-emerald-500 bg-emerald-50 dark:bg-emerald-900/50 border border-emerald-200 dark:border-emerald-800 rounded-xl px-3 py-2.5 mb-4">
             <span className="flex items-center gap-1.5"><Check size={14} /> {rewardToast}</span>
             <button onClick={() => router.push("/")} className="font-bold underline flex-shrink-0">Go to menu →</button>
           </div>
@@ -1815,19 +1815,19 @@ function RewardsTab() {
               const inBasket = cartRewardId === r.id;
               const shortBy = r.pointsCost - loyaltyPoints;
               return (
-                <div key={r.id} className={`rounded-2xl border p-4 flex flex-col ${affordable ? "border-amber-200 bg-amber-50/40" : "border-zinc-100 bg-zinc-50/50"}`}>
+                <div key={r.id} className={`rounded-2xl border p-4 flex flex-col ${affordable ? "border-amber-200 dark:border-amber-800 bg-amber-50/40 dark:bg-amber-950/20" : "border-zinc-100 dark:border-[var(--brand-border-dark)] bg-zinc-50/50 dark:bg-white/5"}`}>
                   {r.menuItemImage ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={r.menuItemImage} alt={name} className="w-full h-28 object-cover rounded-xl mb-3" />
                   ) : (
-                    <div className="w-full h-28 rounded-xl mb-3 bg-gradient-to-br from-amber-100 to-orange-100 flex items-center justify-center">
+                    <div className="w-full h-28 rounded-xl mb-3 bg-gradient-to-br from-amber-100 to-orange-100 dark:from-amber-950/40 dark:to-orange-950/30 flex items-center justify-center">
                       <Gift size={28} className="text-amber-400" />
                     </div>
                   )}
-                  <p className="text-sm font-bold text-zinc-900 leading-snug">{name}</p>
-                  {r.description && <p className="text-[11.5px] text-zinc-500 mt-0.5 line-clamp-2">{r.description}</p>}
-                  <div className="flex items-center justify-between gap-2 pt-3 border-t border-zinc-100/80 mt-auto">
-                    <span className="inline-flex items-center gap-1 text-[12px] font-bold text-amber-700">
+                  <p className="text-sm font-bold text-zinc-900 dark:text-[var(--brand-text-dark)] leading-snug">{name}</p>
+                  {r.description && <p className="text-[11.5px] text-zinc-500 dark:text-zinc-400 mt-0.5 line-clamp-2">{r.description}</p>}
+                  <div className="flex items-center justify-between gap-2 pt-3 border-t border-zinc-100/80 dark:border-white/5 mt-auto">
+                    <span className="inline-flex items-center gap-1 text-[12px] font-bold text-amber-700 dark:text-amber-400">
                       <Star size={12} className="fill-amber-400 text-amber-400" />
                       {r.pointsCost.toLocaleString()} pts
                     </span>
@@ -1837,9 +1837,9 @@ function RewardsTab() {
                       <button
                         onClick={() => redeemReward(r)}
                         disabled={!affordable}
-                        className={`text-[11.5px] font-bold rounded-full px-3 py-1.5 transition ${affordable
+                        className={`text-[11.5px] font-bold rounded-full px-3 py-1.5 ${affordable
                           ? "bg-orange-500 hover:bg-orange-600 text-white"
-                          : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
+                          : "bg-zinc-100 dark:bg-white/10 text-zinc-400 dark:text-zinc-500 cursor-not-allowed"
                           }`}
                         title={affordable ? `Redeem for ${r.pointsCost.toLocaleString()} points` : `${shortBy.toLocaleString()} more points needed`}
                       >
@@ -1855,17 +1855,17 @@ function RewardsTab() {
       </div>
 
       {/* ── Store credit ── */}
-      <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
+      <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm p-5 sm:p-6">
         <div className="flex items-start gap-4">
-          <div className="w-11 h-11 bg-teal-50 rounded-2xl flex items-center justify-center flex-shrink-0">
+          <div className="w-11 h-11 bg-teal-50 dark:bg-teal-950/40 rounded-2xl flex items-center justify-center flex-shrink-0">
             <Gift size={20} className="text-teal-500" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Store credit</p>
-            <p className="text-2xl font-bold text-zinc-900 tabular-nums mt-1">
+            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">Store credit</p>
+            <p className="text-2xl font-bold text-zinc-900 dark:text-[var(--brand-text-dark)] tabular-nums mt-1">
               {sym}{storeCredit.toFixed(2)}
             </p>
-            <p className="text-xs text-zinc-500 mt-1">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
               {storeCredit > 0
                 ? "Automatically applied at online checkout - you can toggle it off before paying."
                 : "Issued when an order is refunded as store credit instead of a card return."}
@@ -1876,11 +1876,11 @@ function RewardsTab() {
 
 
       {/* Gift cards I've bought */}
-      <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 sm:p-6">
+      <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm p-5 sm:p-6">
         <div className="flex flex-wrap gap-2 items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <CreditCard size={18} className="text-orange-500 flex-shrink-0" />
-            <h3 className="font-semibold text-zinc-900 text-sm">Gift cards I&apos;ve bought</h3>
+            <h3 className="font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)] text-sm">Gift cards I&apos;ve bought</h3>
           </div>
           <Link href="/gift-cards" className="text-xs font-semibold text-orange-600 hover:text-orange-700">
             Buy a gift card →
@@ -1888,7 +1888,7 @@ function RewardsTab() {
         </div>
 
         {cardToast && (
-          <div className="text-xs text-zinc-600 bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 mb-3">{cardToast}</div>
+          <div className="text-xs text-zinc-600 dark:text-zinc-300 bg-zinc-50 dark:bg-white/5 border border-zinc-200 dark:border-[var(--brand-border-dark)] rounded-lg px-3 py-2 mb-3">{cardToast}</div>
         )}
 
         {loadingCards ? (
@@ -1902,9 +1902,9 @@ function RewardsTab() {
         ) : (
           <div className="space-y-2">
             {myCards.map((c) => (
-              <div key={c.id} className="flex items-center justify-between gap-3 border border-zinc-100 rounded-xl px-3 py-2.5">
+              <div key={c.id} className="flex items-center justify-between gap-3 border border-zinc-100 dark:border-[var(--brand-border-dark)] rounded-xl px-3 py-2.5">
                 <div className="min-w-0">
-                  <p className="text-sm font-bold font-mono tracking-wider text-zinc-900 truncate">{c.code}</p>
+                  <p className="text-sm font-bold font-mono tracking-wider text-zinc-900 dark:text-[var(--brand-text-dark)] truncate">{c.code}</p>
                   <p className="text-[11px] text-zinc-400 truncate">
                     {sym}{c.balance.toFixed(2)} of {sym}{c.initialAmount.toFixed(2)} · {c.issuedToEmail ?? "—"}
                     {c.status !== "active" && ` · ${c.status}`}
@@ -2046,11 +2046,11 @@ function AccountPageContent() {
   if (!currentUser) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-6">
-        <div className="bg-white rounded-2xl shadow-sm border border-zinc-100 p-10 max-w-sm w-full text-center">
-          <div className="w-16 h-16 bg-zinc-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <User size={28} className="text-zinc-700" />
+        <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl shadow-sm border border-zinc-100 dark:border-[var(--brand-border-dark)] p-10 max-w-sm w-full text-center">
+          <div className="w-16 h-16 bg-zinc-100 dark:bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4">
+            <User size={28} className="text-zinc-700 dark:text-zinc-300" />
           </div>
-          <h1 className="text-xl font-bold text-zinc-900 mb-2">Sign in to your account</h1>
+          <h1 className="text-xl font-bold text-zinc-900 dark:text-[var(--brand-text-dark)] mb-2">Sign in to your account</h1>
           <p className="text-sm text-zinc-400 mb-6">View your orders, track deliveries, and manage your profile.</p>
           <button
             onClick={() => setShowAuth(true)}
@@ -2196,7 +2196,7 @@ function AccountPageContent() {
         <div className="flex-1 flex flex-col min-w-0 h-full">
 
           {/* Top search header */}
-          <header className="hidden lg:flex items-center justify-between gap-3 px-4 md:px-6 py-3.5 border-b border-zinc-200/70 bg-white flex-shrink-0">
+          <header className="hidden lg:flex items-center justify-between gap-3 px-4 md:px-6 py-3.5 border-b border-zinc-200/70 dark:border-[var(--brand-border-dark)] bg-white dark:bg-[var(--brand-surface-dark)] flex-shrink-0">
             {/* Mobile: logo */}
             <div className="lg:hidden flex items-center gap-2 flex-shrink-0">
               {settings.restaurant.logoImage ? (
@@ -2211,16 +2211,16 @@ function AccountPageContent() {
             </div>
 
             {/* Search */}
-            <div className="flex-1 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-100 max-w-xl">
+            <div className="flex-1 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-100 dark:bg-white/5 max-w-xl">
               <Search className="w-4 h-4 text-zinc-400 flex-shrink-0" strokeWidth={1.8} />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search dishes…"
-                className="flex-1 bg-transparent outline-none text-[13.5px] text-zinc-900 placeholder:text-zinc-400"
+                className="flex-1 bg-transparent outline-none text-[13.5px] text-zinc-900 dark:text-[var(--brand-text-dark)] placeholder:text-zinc-400"
               />
               {search && (
-                <button onClick={() => setSearch("")} className="text-[11px] font-medium text-zinc-400 hover:text-zinc-700 transition-colors">
+                <button onClick={() => setSearch("")} className="text-[11px] font-medium text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors">
                   Clear
                 </button>
               )}
@@ -2232,23 +2232,23 @@ function AccountPageContent() {
                 <div className="relative">
                   <button
                     onClick={() => setUserMenuOpen((o) => !o)}
-                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 transition-colors"
+                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 transition-colors"
                   >
-                    <div className="w-6 h-6 rounded-full bg-orange-500 text-white flex items-center justify-center text-[11px] font-bold">
+                    <div className="w-6 h-6 rounded-full bg-orange-500 dark:bg-orange-50 text-white flex items-center justify-center text-[11px] font-bold">
                       {currentUser.name?.charAt(0).toUpperCase() ?? "U"}
                     </div>
-                    <span className="text-[13px] font-medium text-zinc-700">{currentUser.name?.split(" ")[0]}</span>
+                    <span className="text-[13px] font-medium text-zinc-700 dark:text-zinc-300">{currentUser.name?.split(" ")[0]}</span>
                   </button>
                   {userMenuOpen && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setUserMenuOpen(false)} />
-                      <div className="absolute right-0 top-full mt-2 w-44 bg-white rounded-xl border border-zinc-200/70 shadow-lg z-20 overflow-hidden py-1">
+                      <div className="absolute right-0 top-full mt-2 w-44 bg-white dark:bg-[var(--brand-surface-dark)] rounded-xl border border-zinc-200/70 dark:border-[var(--brand-border-dark)] shadow-lg z-20 overflow-hidden py-1">
                         <Link href="/account" onClick={() => setUserMenuOpen(false)}
-                          className="flex items-center gap-2.5 px-4 py-2.5 text-[13px] text-zinc-700 hover:bg-zinc-50 transition-colors">
+                          className="flex items-center gap-2.5 px-4 py-2.5 text-[13px] text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-white/5 transition-colors">
                           <LayoutDashboard className="w-4 h-4" strokeWidth={1.6} />Account
                         </Link>
                         <button onClick={() => { logout(); setUserMenuOpen(false); }}
-                          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[13px] text-red-600 hover:bg-red-50 transition-colors">
+                          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[13px] text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors">
                           <LogOut className="w-4 h-4" strokeWidth={1.6} />Sign out
                         </button>
                       </div>
@@ -2292,27 +2292,27 @@ function AccountPageContent() {
 
               {/* Stats */}
               <div className={`grid gap-3 sm:gap-4 ${(liveUser.storeCredit ?? 0) > 0 ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3"}`}>
-                <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5">
+                <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm p-4 sm:p-5">
                   <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
-                    <ShoppingBag size={14} className="text-zinc-700 flex-shrink-0" />
-                    <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total online orders</span>
+                    <ShoppingBag size={14} className="text-zinc-700 dark:text-zinc-300 flex-shrink-0" />
+                    <span className="text-[11px] sm:text-xs font-medium text-zinc-500 dark:text-zinc-400 truncate">Total online orders</span>
                   </div>
-                  <p className="text-lg sm:text-xl font-bold text-zinc-900 tabular-nums">{orders.length}</p>
+                  <p className="text-lg sm:text-xl font-bold text-zinc-900 dark:text-[var(--brand-text-dark)] tabular-nums">{orders.length}</p>
                 </div>
-                <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5">
+                <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm p-4 sm:p-5">
                   <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
-                    <TrendingUp size={14} className="text-zinc-700 flex-shrink-0" />
-                    <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Total order spent</span>
+                    <TrendingUp size={14} className="text-zinc-700 dark:text-zinc-300 flex-shrink-0" />
+                    <span className="text-[11px] sm:text-xs font-medium text-zinc-500 dark:text-zinc-400 truncate">Total order spent</span>
                   </div>
-                  <p className="text-[17px] sm:text-[19px] font-bold text-zinc-900 tabular-nums">{sym}{totalSpent.toFixed(2)}</p>
+                  <p className="text-[17px] sm:text-[19px] font-bold text-zinc-900 dark:text-[var(--brand-text-dark)] tabular-nums">{sym}{totalSpent.toFixed(2)}</p>
                 </div>
                 {favourite ? (
-                  <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-4 sm:p-5 col-span-2 sm:col-span-1">
+                  <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm p-4 sm:p-5 col-span-2 sm:col-span-1">
                     <div className="flex items-center gap-1.5 sm:gap-2 mb-1">
-                      <Star size={14} className="text-zinc-700 flex-shrink-0" />
-                      <span className="text-[11px] sm:text-xs font-medium text-zinc-500 truncate">Most ordered</span>
+                      <Star size={14} className="text-zinc-700 dark:text-zinc-300 flex-shrink-0" />
+                      <span className="text-[11px] sm:text-xs font-medium text-zinc-500 dark:text-zinc-400 truncate">Most ordered</span>
                     </div>
-                    <p className="text-sm font-bold text-zinc-900 leading-snug line-clamp-2">{favourite}</p>
+                    <p className="text-sm font-bold text-zinc-900 dark:text-[var(--brand-text-dark)] leading-snug line-clamp-2">{favourite}</p>
                   </div>
                 ) : null}
 
@@ -2331,15 +2331,15 @@ function AccountPageContent() {
 
               {/* Store credit action banner */}
               {(liveUser.storeCredit ?? 0) > 0 && (
-                <div className="flex items-start gap-3 sm:gap-4 bg-teal-50 border border-teal-200 rounded-2xl px-4 sm:px-5 py-4">
+                <div className="flex items-start gap-3 sm:gap-4 bg-teal-50 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-900 rounded-2xl px-4 sm:px-5 py-4">
                   <div className="w-9 h-9 sm:w-10 sm:h-10 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
                     <Gift size={16} className="text-white" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-teal-800">
-                      You have <span className="text-teal-600 tabular-nums">{sym}{(liveUser.storeCredit ?? 0).toFixed(2)}</span> store credit
+                    <p className="text-sm font-semibold text-teal-800 dark:text-teal-300">
+                      You have <span className="text-teal-600 dark:text-teal-400 tabular-nums">{sym}{(liveUser.storeCredit ?? 0).toFixed(2)}</span> store credit
                     </p>
-                    <p className="text-xs text-teal-600 mt-0.5 leading-relaxed">
+                    <p className="text-xs text-teal-600 dark:text-teal-400 mt-0.5 leading-relaxed">
                       Automatically applied at checkout. Toggle on/off before paying.
                     </p>
                   </div>
@@ -2348,24 +2348,24 @@ function AccountPageContent() {
 
               {/* Active orders alert */}
               {activeOrders.length > 0 && (
-                <div className="flex items-start gap-3 bg-zinc-50 border border-zinc-200 rounded-2xl px-4 sm:px-5 py-3.5 sm:py-4">
-                  <Clock size={16} className="text-zinc-700 flex-shrink-0 mt-0.5" />
+                <div className="flex items-start gap-3 bg-zinc-50 dark:bg-white/5 border border-zinc-200 dark:border-[var(--brand-border-dark)] rounded-2xl px-4 sm:px-5 py-3.5 sm:py-4">
+                  <Clock size={16} className="text-zinc-700 dark:text-zinc-300 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-sm font-semibold text-zinc-700">
+                    <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
                       {activeOrders.length} active order{activeOrders.length > 1 ? "s" : ""} in progress
                     </p>
-                    <p className="text-xs text-zinc-500 mt-0.5">Track your live orders in the Orders tab.</p>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">Track your live orders in the Orders tab.</p>
                   </div>
                 </div>
               )}
 
               {/* Tabs */}
-              <div className="flex gap-1 bg-zinc-100 p-1 rounded-xl overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+              <div className="flex gap-1 bg-zinc-100 dark:bg-white/5 p-1 rounded-xl overflow-x-auto" style={{ scrollbarWidth: "none" }}>
                 {(["profile", "orders", "favourites", "addresses", "rewards"] as const).map((t) => (
                   <button
                     key={t}
                     onClick={() => handleTabChange(t)}
-                    className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-[13px] sm:text-sm font-semibold transition-all whitespace-nowrap flex-shrink-0 ${tab === t ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
+                    className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-[13px] sm:text-sm font-semibold whitespace-nowrap flex-shrink-0 ${tab === t ? "bg-white dark:bg-white/10 text-zinc-900 dark:text-white shadow-sm" : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
                       }`}
                   >
                     {t === "orders" ? <Package size={14} /> :
@@ -2403,22 +2403,22 @@ function AccountPageContent() {
                     /* Skeleton shown while the first server fetch is in-flight */
                     <div className="space-y-3">
                       {[1, 2, 3].map((i) => (
-                        <div key={i} className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-5 animate-pulse">
+                        <div key={i} className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm p-5 animate-pulse">
                           <div className="flex items-center justify-between mb-3">
-                            <div className="h-4 w-24 bg-zinc-100 rounded-full" />
-                            <div className="h-5 w-20 bg-zinc-100 rounded-full" />
+                            <div className="h-4 w-24 bg-zinc-100 dark:bg-white/10 rounded-full" />
+                            <div className="h-5 w-20 bg-zinc-100 dark:bg-white/10 rounded-full" />
                           </div>
-                          <div className="h-3 w-40 bg-zinc-100 rounded-full mb-2" />
-                          <div className="h-3 w-28 bg-zinc-100 rounded-full" />
+                          <div className="h-3 w-40 bg-zinc-100 dark:bg-white/10 rounded-full mb-2" />
+                          <div className="h-3 w-28 bg-zinc-100 dark:bg-white/10 rounded-full" />
                         </div>
                       ))}
                     </div>
                   ) : orders.length === 0 ? (
-                    <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm py-16 text-center">
-                      <ShoppingBag size={40} className="mx-auto text-zinc-200 mb-3" />
+                    <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm py-16 text-center">
+                      <ShoppingBag size={40} className="mx-auto text-zinc-200 dark:text-zinc-700 mb-3" />
                       <p className="font-semibold text-zinc-400">No orders yet</p>
-                      <p className="text-sm text-zinc-300 mt-1">Your order history will appear here.</p>
-                      <Link href="/" className="mt-4 inline-flex items-center gap-1.5 text-sm text-zinc-700 font-semibold hover:underline">
+                      <p className="text-sm text-zinc-300 dark:text-zinc-600 mt-1">Your order history will appear here.</p>
+                      <Link href="/" className="mt-4 inline-flex items-center gap-1.5 text-sm text-zinc-700 dark:text-zinc-200 font-semibold hover:underline">
                         Browse the menu
                       </Link>
                     </div>
@@ -2487,7 +2487,7 @@ function AccountPageContent() {
         {showMobileCart && (
           <div className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end">
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowMobileCart(false)} />
-            <div className="relative bg-white rounded-t-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-xl">
+            <div className="relative bg-white dark:bg-[var(--brand-surface-dark)] rounded-t-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-xl">
               <Cart
                 onMobileClose={() => setShowMobileCart(false)}
                 onOrderPlaced={() => { setShowMobileCart(false); router.push('/my-orders'); }}

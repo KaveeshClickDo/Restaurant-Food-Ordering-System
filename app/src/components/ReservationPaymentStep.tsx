@@ -105,18 +105,18 @@ export default function ReservationPaymentStep({
   return (
     <div className="p-5 space-y-4">
       {/* Fee summary */}
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-center justify-between">
+      <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 flex items-center justify-between">
         <div>
-          <p className="text-sm font-semibold text-amber-800">VIP table {tableLabel} — booking fee</p>
-          <p className="text-[11px] text-amber-600">Non-refundable. Charged to confirm your reservation.</p>
+          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">VIP table {tableLabel} — booking fee</p>
+          <p className="text-[11px] text-amber-600 dark:text-amber-500">Non-refundable. Charged to confirm your reservation.</p>
         </div>
-        <span className="text-lg font-bold text-amber-900">{amountLabel}</span>
+        <span className="text-lg font-bold text-amber-900 dark:text-amber-200">{amountLabel}</span>
       </div>
 
       {error && (
-        <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+        <div className="flex items-start gap-2 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2.5">
           <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-red-700">{error}</p>
+          <p className="text-xs text-red-700 dark:text-red-400">{error}</p>
         </div>
       )}
 
@@ -127,7 +127,7 @@ export default function ReservationPaymentStep({
             type="button"
             disabled={loading}
             onClick={() => startPayment("card")}
-            className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold py-3.5 rounded-xl transition"
+            className="w-full flex items-center justify-center gap-2 bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 disabled:opacity-50 text-white font-bold py-3.5 rounded-xl transition"
           >
             {loading && method === "card"
               ? <><Loader2 size={16} className="animate-spin" /> Preparing…</>
@@ -148,7 +148,7 @@ export default function ReservationPaymentStep({
           <button
             type="button"
             onClick={onBack}
-            className="w-full flex items-center justify-center gap-1.5 text-gray-500 hover:text-gray-700 text-sm font-semibold py-2"
+            className="w-full flex items-center justify-center gap-1.5 text-gray-500 dark:text-zinc-400 hover:text-gray-700 dark:hover:text-zinc-200 text-sm font-semibold py-2"
           >
             <ChevronLeft size={15} /> Back
           </button>
@@ -214,21 +214,21 @@ function CardForm({ amountLabel, onPaid }: { amountLabel: string; onPaid: () => 
     <form onSubmit={handleSubmit} className="space-y-4">
       <PaymentElement options={{ layout: "tabs" }} />
       {error && (
-        <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+        <div className="flex items-start gap-2 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2.5">
           <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-red-700">{error}</p>
+          <p className="text-xs text-red-700 dark:text-red-400">{error}</p>
         </div>
       )}
       <button
         type="submit"
         disabled={!stripe || submitting}
-        className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2"
+        className="w-full bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 disabled:bg-orange-300 text-white font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2"
       >
         {submitting
           ? <><Loader2 size={16} className="animate-spin" /> Processing…</>
           : <><Lock size={14} /> Pay {amountLabel}</>}
       </button>
-      <p className="text-[10px] text-gray-400 text-center">
+      <p className="text-[10px] text-gray-400 dark:text-zinc-500 text-center">
         Payments are processed securely by Stripe. Your card details are never stored on our servers.
       </p>
     </form>
@@ -267,13 +267,13 @@ function PaypalButtonsInner({ paypalOrderId, onPaid }: { paypalOrderId: string; 
         onError={(err) => setError(err instanceof Error ? err.message : "PayPal encountered an error.")}
       />
       {error && (
-        <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+        <div className="flex items-start gap-2 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2.5">
           <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-red-700">{error}</p>
+          <p className="text-xs text-red-700 dark:text-red-400">{error}</p>
         </div>
       )}
       {capturing && (
-        <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
+        <div className="flex items-center justify-center gap-2 text-xs text-gray-500 dark:text-zinc-400">
           <Loader2 size={14} className="animate-spin" /> Finalising your payment…
         </div>
       )}

@@ -77,7 +77,7 @@ function getStripePromise(): Promise<StripeJs | null> {
 const LocationMap = dynamic(() => import("@/components/maps/LocationMap"), {
   ssr: false,
   loading: () => (
-    <div className="h-[180px] w-full bg-gray-50 rounded-xl flex items-center justify-center text-xs text-gray-400 border border-gray-100">
+    <div className="h-[180px] w-full bg-gray-50 dark:bg-white/5 rounded-xl flex items-center justify-center text-xs text-gray-400 border border-gray-100 dark:border-[var(--brand-border-dark)]">
       Loading map…
     </div>
   ),
@@ -154,9 +154,9 @@ function MethodIcon({ id }: { id: string }) {
 }
 
 function hoverColor(id: string) {
-  if (id === "cash") return "hover:border-green-400";
-  if (id === "paypal") return "hover:border-blue-400";
-  return "hover:border-orange-400";
+  if (id === "cash") return "hover:border-green-400 dark:hover:border-green-700";
+  if (id === "paypal") return "hover:border-blue-400 dark:hover:border-blue-700 ";
+  return "hover:border-orange-400 dark:hover:border-orange-500";
 }
 
 // ─── Location detector widget ─────────────────────────────────────────────────
@@ -176,11 +176,11 @@ function LocationWidget({
     return (
       <button
         onClick={onDetect}
-        className="w-full flex items-center gap-3 border-2 border-dashed border-gray-200 hover:border-orange-400 rounded-xl px-4 py-3 transition group text-left"
+        className="w-full flex items-center gap-3 border-2 border-dashed border-gray-200 dark:border-[var(--brand-border-dark)] hover:border-orange-400 rounded-xl px-4 py-3 transition group text-left"
       >
         <Navigation size={16} className="text-gray-400 group-hover:text-orange-500 flex-shrink-0 transition" />
         <div>
-          <p className="text-sm font-semibold text-gray-600 group-hover:text-gray-800 transition">Detect my delivery distance</p>
+          <p className="text-sm font-semibold text-gray-600 dark:text-zinc-300 group-hover:text-gray-800 dark:group-hover:text-white transition">Detect my delivery distance</p>
           <p className="text-xs text-gray-400">Confirms which payment methods are available to you</p>
         </div>
       </button>
@@ -189,20 +189,20 @@ function LocationWidget({
 
   if (state === "detecting") {
     return (
-      <div className="flex items-center gap-3 border border-gray-200 rounded-xl px-4 py-3 bg-gray-50">
+      <div className="flex items-center gap-3 border border-gray-200 dark:border-[var(--brand-border-dark)] rounded-xl px-4 py-3 bg-gray-50 dark:bg-white/5">
         <Loader2 size={16} className="text-orange-500 animate-spin flex-shrink-0" />
-        <p className="text-sm text-gray-600">Detecting your location…</p>
+        <p className="text-sm text-gray-600 dark:text-zinc-300">Detecting your location…</p>
       </div>
     );
   }
 
   if (state === "denied") {
     return (
-      <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+      <div className="flex items-start gap-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-xl px-4 py-3">
         <AlertCircle size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
         <div>
-          <p className="text-sm font-semibold text-amber-700">Location access denied</p>
-          <p className="text-xs text-amber-600 mt-0.5">Showing all active payment methods. Some may have distance restrictions.</p>
+          <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">Location access denied</p>
+          <p className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">Showing all active payment methods. Some may have distance restrictions.</p>
         </div>
       </div>
     );
@@ -210,13 +210,13 @@ function LocationWidget({
 
   if (state === "outside") {
     return (
-      <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+      <div className="flex items-start gap-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-xl px-4 py-3">
         <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
         <div>
-          <p className="text-sm font-semibold text-red-700">
+          <p className="text-sm font-semibold text-red-700 dark:text-red-400">
             You&apos;re {distKm !== null ? `${distKm.toFixed(1)} km` : "far"} from our restaurant
           </p>
-          <p className="text-xs text-red-500 mt-0.5">Outside all active delivery zones. Contact us to arrange delivery.</p>
+          <p className="text-xs text-red-500 dark:text-red-400/80 mt-0.5">Outside all active delivery zones. Contact us to arrange delivery.</p>
         </div>
       </div>
     );
@@ -230,13 +230,13 @@ function LocationWidget({
     >
       <MapPin size={16} className="flex-shrink-0" style={{ color: zone?.color ?? "#22c55e" }} />
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-gray-800">
+        <p className="text-sm font-semibold text-gray-800 dark:text-zinc-100">
           {distKm !== null ? `${distKm.toFixed(1)} km` : "Near"} from our restaurant
-          {zone && <span className="ml-2 text-xs font-normal text-gray-500">— {zone.name}</span>}
+          {zone && <span className="ml-2 text-xs font-normal text-gray-500 dark:text-zinc-400">— {zone.name}</span>}
         </p>
         {zone && (
-          <p className="text-xs text-gray-500 mt-0.5">
-            Delivery fee for your area: <span className="font-semibold text-gray-700">{currencySymbol}{zone.fee.toFixed(2)}</span>
+          <p className="text-xs text-gray-500 dark:text-zinc-400 mt-0.5">
+            Delivery fee for your area: <span className="font-semibold text-gray-700 dark:text-zinc-200">{currencySymbol}{zone.fee.toFixed(2)}</span>
           </p>
         )}
       </div>
@@ -942,11 +942,11 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     return (
       <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-        <div className="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
-          <div className="flex items-center justify-between p-5 border-b border-gray-100">
+        <div className="relative bg-white dark:bg-[var(--brand-surface-dark)] rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+          <div className="flex items-center justify-between p-5 border-b border-gray-100 dark:border-[var(--brand-border-dark)]">
             <div>
-              <h2 className="text-xl font-bold text-gray-900">Complete payment</h2>
-              <p className="text-xs text-gray-500 mt-0.5">{sym}{chargeTotal.toFixed(2)} · {chosenMethod?.name}</p>
+              <h2 className="text-xl font-bold text-gray-900 dark:text-[var(--brand-text-dark)]">Complete payment</h2>
+              <p className="text-xs text-gray-500 dark:text-zinc-400 mt-0.5">{sym}{chargeTotal.toFixed(2)} · {chosenMethod?.name}</p>
             </div>
             <button
               onClick={() => {
@@ -957,16 +957,16 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                 setPendingOrder(null);
                 setAuthoritativeTotal(null);
               }}
-              className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition"
+              className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/15 transition"
             >
-              <X size={16} />
+              <X size={16} className="dark:text-zinc-300" />
             </button>
           </div>
           {totalAdjusted && (
             <div className="px-5 pt-4">
-              <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+              <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-xl px-3 py-2.5">
                 <AlertCircle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-amber-800">
+                <p className="text-xs text-amber-800 dark:text-amber-300">
                   <span className="font-semibold">Total updated to {sym}{chargeTotal.toFixed(2)}.</span> Your delivery fee was recalculated based on your address. You&apos;ll be charged this amount.
                 </p>
               </div>
@@ -1001,11 +1001,11 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     return (
       <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-        <div className="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
-          <div className="flex items-center justify-between p-5 border-b border-gray-100">
+        <div className="relative bg-white dark:bg-[var(--brand-surface-dark)] rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+          <div className="flex items-center justify-between p-5 border-b border-gray-100 dark:border-[var(--brand-border-dark)]">
             <div>
-              <h2 className="text-xl font-bold text-gray-900">Pay with PayPal</h2>
-              <p className="text-xs text-gray-500 mt-0.5">{sym}{chargeTotal.toFixed(2)} · {chosenMethod?.name}</p>
+              <h2 className="text-xl font-bold text-gray-900 dark:text-[var(--brand-text-dark)]">Pay with PayPal</h2>
+              <p className="text-xs text-gray-500 dark:text-zinc-400 mt-0.5">{sym}{chargeTotal.toFixed(2)} · {chosenMethod?.name}</p>
             </div>
             <button
               onClick={() => {
@@ -1018,16 +1018,16 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                 setPendingOrder(null);
                 setAuthoritativeTotal(null);
               }}
-              className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition"
+              className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/15 transition"
             >
-              <X size={16} />
+              <X size={16} className="dark:text-zinc-300" />
             </button>
           </div>
           {totalAdjusted && (
             <div className="px-5 pt-4">
-              <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+              <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-xl px-3 py-2.5">
                 <AlertCircle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-amber-800">
+                <p className="text-xs text-amber-800 dark:text-amber-300">
                   <span className="font-semibold">Total updated to {sym}{chargeTotal.toFixed(2)}.</span> Your delivery fee was recalculated based on your address. PayPal will charge this amount.
                 </p>
               </div>
@@ -1057,24 +1057,24 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
-        <div className="relative bg-white rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+        <div className="relative bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl">
+          <div className="w-16 h-16 bg-green-100 dark:bg-green-950/40 rounded-full flex items-center justify-center mx-auto mb-4">
             <CheckCircle size={32} className="text-green-500" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Order placed! </h2>
-          <p className="text-gray-500 text-sm leading-relaxed">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-[var(--brand-text-dark)] mb-2">Order placed! </h2>
+          <p className="text-gray-500 dark:text-zinc-400 text-sm leading-relaxed">
             Thank you for your order. A confirmation has been sent to{" "}
-            <span className="font-medium text-gray-700">{form.email || "your email"}</span>.
+            <span className="font-medium text-gray-700 dark:text-zinc-200">{form.email || "your email"}</span>.
           </p>
           {chosenMethod?.id === "cash" ? (
-            <p className="text-green-700 font-semibold mt-3 text-sm bg-green-50 rounded-xl px-4 py-2">
+            <p className="text-green-700 dark:text-green-300 font-semibold mt-3 text-sm bg-green-50 dark:bg-green-950/40 rounded-xl px-4 py-2">
               💵 {chosenMethod.adminNote || "Please pay on delivery or in store."}
             </p>
           ) : null}
           {placedScheduledTime ? (
-            <div className="mt-3 flex items-center justify-center gap-2 bg-green-50 border border-green-100 rounded-xl px-4 py-2">
+            <div className="mt-3 flex items-center justify-center gap-2 bg-green-50 dark:bg-green-950/40 border border-green-100 dark:border-green-900 rounded-xl px-4 py-2">
               <CalendarDays size={14} className="text-green-600" />
-              <p className="text-green-700 font-semibold text-sm">
+              <p className="text-green-700 dark:text-green-300 font-semibold text-sm">
                 Scheduled for {placedScheduledTime}
               </p>
             </div>
@@ -1085,7 +1085,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
           ) : null}
           <button
             onClick={() => { onClose(); onOrderPlaced?.(); }}
-            className="mt-6 w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl transition"
+            className="mt-6 w-full bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 text-white font-bold py-3 rounded-xl transition"
           >
             View my orders
           </button>
@@ -1099,72 +1099,72 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between p-5 border-b border-gray-100">
-          <h2 className="text-xl font-bold text-gray-900">Checkout</h2>
+      <div className="relative bg-white dark:bg-[var(--brand-surface-dark)] rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between p-5 border-b border-gray-100 dark:border-[var(--brand-border-dark)]">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-[var(--brand-text-dark)]">Checkout</h2>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition"
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/15 transition"
           >
-            <X size={16} />
+            <X size={16} className="dark:text-zinc-300" />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
           {/* Scheduled time banner */}
           {scheduledTime && (
-            <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+            <div className="flex items-center gap-3 bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-900 rounded-xl px-4 py-3">
               <CalendarDays size={15} className="text-green-600 flex-shrink-0" />
               <div>
-                <p className="text-xs font-semibold text-green-800">Scheduled order</p>
-                <p className="text-xs text-green-700 mt-0.5">{scheduledTime}</p>
+                <p className="text-xs font-semibold text-green-800 dark:text-green-400">Scheduled order</p>
+                <p className="text-xs text-green-700 dark:text-green-400 mt-0.5">{scheduledTime}</p>
               </div>
             </div>
           )}
 
           {/* Order summary */}
-          <div className="bg-gray-50 rounded-xl p-4">
-            <h3 className="font-semibold text-gray-900 mb-3 text-sm">Order summary</h3>
+          <div className="bg-gray-50 dark:bg-white/5 rounded-xl p-4">
+            <h3 className="font-semibold text-gray-900 dark:text-[var(--brand-text-dark)] mb-3 text-sm">Order summary</h3>
             <ul className="space-y-1.5">
               {cart.map((item) => (
                 <li key={item.id} className="flex justify-between text-sm">
                   <div>
                     <div className="flex flex-wrap flex-row">
-                      <span className="text-gray-600 mr-1.5">{item.quantity}× {item.name} </span>
+                      <span className="text-gray-600 dark:text-zinc-300 mr-1.5">{item.quantity}× {item.name} </span>
                       {item.selectedVariations && item.selectedVariations.length > 0 && (
-                        <p className="text-[12.5px] text-gray-500 mt-0.5 mr-1">({item.selectedVariations.map((v) => v.label).join(", ")})</p>
+                        <p className="text-[12.5px] text-gray-500 dark:text-zinc-400 mt-0.5 mr-1">({item.selectedVariations.map((v) => v.label).join(", ")})</p>
                       )}
                       {item.selectedAddOns && item.selectedAddOns.length > 0 && (
-                        <p className="text-[12.5px] text-gray-500 mt-0.5">+ {item.selectedAddOns.map((a) => a.name).join(", ")}</p>
+                        <p className="text-[12.5px] text-gray-500 dark:text-zinc-400 mt-0.5">+ {item.selectedAddOns.map((a) => a.name).join(", ")}</p>
                       )}
                     </div>
                     {item.specialInstructions && (
-                      <p className="text-[12.5px] text-gray-500 italic">&ldquo;{item.specialInstructions}&rdquo;</p>
+                      <p className="text-[12.5px] text-gray-500 dark:text-zinc-400 italic">&ldquo;{item.specialInstructions}&rdquo;</p>
                     )}
                   </div>
-                  <span className="font-medium text-gray-900">{sym}{(item.price * item.quantity).toFixed(2)}</span>
+                  <span className="font-medium text-gray-900 dark:text-[var(--brand-text-dark)]">{sym}{(item.price * item.quantity).toFixed(2)}</span>
                 </li>
               ))}
             </ul>
-            <div className="mt-3 pt-3 border-t border-gray-200 space-y-1">
-              <div className="flex justify-between text-[13px] text-gray-700">
+            <div className="mt-3 pt-3 border-t border-gray-200 dark:border-[var(--brand-border-dark)] space-y-1">
+              <div className="flex justify-between text-[13px] text-gray-700 dark:text-zinc-300">
                 <span>Subtotal</span>
                 <span>{sym}{baseCartTotal.toFixed(2)}</span>
               </div>
               {appliedCoupon && (
-                <div className="flex justify-between text-xs text-green-700 font-semibold">
+                <div className="flex justify-between text-xs text-green-700 dark:text-green-600 font-semibold">
                   <span className="flex items-center gap-1">
                     <Tag size={11} /> Coupon ({appliedCoupon.code})
                   </span>
                   <span>−{sym}{appliedCoupon.discountAmount.toFixed(2)}</span>
                 </div>
               )}
-              <div className="flex justify-between text-xs text-gray-500">
+              <div className="flex justify-between text-xs text-gray-500 dark:text-zinc-400">
                 <span>Service fee ({settings.restaurant.serviceFee}%)</span>
                 <span>{sym}{serviceFee.toFixed(2)}</span>
               </div>
               {isDelivery && (
-                <div className="flex justify-between text-xs text-gray-500">
+                <div className="flex justify-between text-xs text-gray-500 dark:text-zinc-400">
                   <span>Delivery fee{zone ? ` (${zone.name})` : ""}</span>
                   <span>{sym}{deliveryFee.toFixed(2)}</span>
                 </div>
@@ -1178,7 +1178,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
               )}
 
               {storeCreditApplied > 0 && (
-                <div className="flex justify-between text-xs text-teal-700 font-semibold">
+                <div className="flex justify-between text-xs text-teal-700 dark:text-teal-400 font-semibold">
                   <span className="flex items-center gap-1">
                     <Gift size={11} /> Store credit
                   </span>
@@ -1193,7 +1193,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                   <span>−{sym}{giftCardApplied.toFixed(2)}</span>
                 </div>
               )}
-              <div className="flex justify-between font-bold text-gray-900 pt-1 border-t border-gray-200 mt-1">
+              <div className="flex justify-between font-bold text-gray-900 dark:text-[var(--brand-text-dark)] pt-1 border-t border-gray-200 dark:border-[var(--brand-border-dark)] mt-1">
                 <span>Total</span>
                 <span>{sym}{orderTotal.toFixed(2)}</span>
               </div>
@@ -1205,14 +1205,14 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
 
           {/* Coupon code input */}
           <div>
-            <h3 className="font-semibold text-gray-900 text-sm mb-2">Coupon code</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-[var(--brand-text-dark)] text-sm mb-2">Coupon code</h3>
             {appliedCoupon ? (
-              <div className="flex items-center justify-between gap-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+              <div className="flex items-center justify-between gap-3 bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-900 rounded-xl px-4 py-3">
                 <div className="flex items-center gap-2 min-w-0">
                   <Tag size={15} className="text-green-600 flex-shrink-0" />
                   <div className="min-w-0">
-                    <p className="text-sm font-bold text-green-800 font-mono tracking-wider">{appliedCoupon.code}</p>
-                    <p className="text-xs text-green-600">−{sym}{appliedCoupon.discountAmount.toFixed(2)} discount applied</p>
+                    <p className="text-sm font-bold text-green-800 dark:text-green-400 font-mono tracking-wider">{appliedCoupon.code}</p>
+                    <p className="text-xs text-green-600 dark:text-green-400">−{sym}{appliedCoupon.discountAmount.toFixed(2)} discount applied</p>
                   </div>
                 </div>
                 <button
@@ -1231,18 +1231,18 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                     onChange={(e) => { setCouponInput(e.target.value.toUpperCase().replace(/\s/g, "")); setCouponError(""); }}
                     onKeyDown={(e) => e.key === "Enter" && applyCode()}
                     placeholder="Enter coupon code"
-                    className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-mono tracking-widest uppercase placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                    className="flex-1 border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 text-xs sm:text-sm font-mono tracking-widest uppercase placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
                   />
                   <button
                     onClick={applyCode}
                     disabled={!couponInput.trim()}
-                    className="flex items-center gap-1.5 bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition"
+                    className="flex items-center gap-1.5 bg-gray-900 dark:bg-orange-50 hover:bg-gray-800 dark:hover:bg-orange-100/80 disabled:bg-gray-200 dark:disabled:bg-white/10 disabled:text-gray-400 dark:disabled:text-zinc-500 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition"
                   >
                     <Tag size={14} /> Apply
                   </button>
                 </div>
                 {couponError && (
-                  <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  <div className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-lg px-3 py-2">
                     <AlertCircle size={12} className="flex-shrink-0" /> {couponError}
                   </div>
                 )}
@@ -1252,15 +1252,15 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
 
           {/* Gift card code */}
           <div>
-            <h3 className="font-semibold text-gray-900 text-sm mb-2">Gift card</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-[var(--brand-text-dark)] text-sm mb-2">Gift card</h3>
             {appliedGiftCard ? (
               <>
-                <div className="flex items-center justify-between gap-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
+                <div className="flex items-center justify-between gap-3 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500 rounded-xl px-4 py-3">
                   <div className="flex items-center gap-2 min-w-0">
                     <Gift size={15} className="text-orange-600 flex-shrink-0" />
                     <div className="min-w-0">
-                      <p className="text-sm font-bold text-orange-800 font-mono tracking-wider truncate">{appliedGiftCard.code}</p>
-                      <p className="text-xs text-orange-600">
+                      <p className="text-sm font-bold text-orange-800 dark:text-orange-600 font-mono tracking-wider truncate">{appliedGiftCard.code}</p>
+                      <p className="text-xs text-orange-600 dark:text-orange-500">
                         −{sym}{giftCardApplied.toFixed(2)} applied
                         {appliedGiftCard.balance - giftCardApplied > 0.001 &&
                           ` · ${sym}${(appliedGiftCard.balance - giftCardApplied).toFixed(2)} left after`}
@@ -1274,7 +1274,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                     <XCircle size={14} /> Remove
                   </button>
                 </div>
-                <p className="text-[11px] text-gray-500 mt-1.5 flex items-start gap-1">
+                <p className="text-[11px] text-gray-500 dark:text-zinc-400 mt-1.5 flex items-start gap-1">
                   <AlertCircle size={12} className="flex-shrink-0 text-gray-400 mt-px" />
                   Gift card payments are non-refundable — only the amount paid by card can be refunded.
                 </p>
@@ -1288,18 +1288,18 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                     onChange={(e) => { setGiftCardInput(e.target.value.toUpperCase()); setGiftCardError(""); }}
                     onKeyDown={(e) => e.key === "Enter" && applyGiftCardCode()}
                     placeholder="GC-XXXX-XXXX-XXXX"
-                    className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-mono tracking-widest uppercase placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                    className="flex-1 border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 text-xs sm:text-sm font-mono tracking-widest uppercase placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
                   />
                   <button
                     onClick={applyGiftCardCode}
                     disabled={!giftCardInput.trim() || giftCardLookingUp}
-                    className="flex items-center gap-1.5 bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition"
+                    className="flex items-center gap-1.5 bg-gray-900 dark:bg-orange-50 hover:bg-gray-800 dark:hover:bg-orange-100/80 disabled:bg-gray-200 dark:disabled:bg-white/10 disabled:text-gray-400 dark:disabled:text-zinc-500 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition"
                   >
                     <Gift size={14} /> {giftCardLookingUp ? "…" : "Apply"}
                   </button>
                 </div>
                 {giftCardError && (
-                  <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  <div className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-lg px-3 py-2">
                     <AlertCircle size={12} className="flex-shrink-0" /> {giftCardError}
                   </div>
                 )}
@@ -1310,22 +1310,22 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
           {/* Store credit */}
           {availableCredit > 0 && (
             <div>
-              <h3 className="font-semibold text-gray-900 text-sm mb-2">Store credit</h3>
+              <h3 className="font-semibold text-gray-900 dark:text-[var(--brand-text-dark)] text-sm mb-2">Store credit</h3>
               <button
                 type="button"
                 onClick={() => setUseCredit((v) => !v)}
                 className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 border-2 transition ${useCredit
-                  ? "border-teal-400 bg-teal-50"
-                  : "border-gray-200 hover:border-teal-300"
+                  ? "border-teal-400 bg-teal-50 dark:bg-teal-950/30 dark:border-teal-700"
+                  : "border-gray-200 dark:border-[var(--brand-border-dark)] hover:border-teal-300 dark:hover:border-teal-700"
                   }`}
               >
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${useCredit ? "bg-teal-500" : "bg-teal-100"
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${useCredit ? "bg-teal-500" : "bg-teal-100 dark:bg-teal-950/50"
                   }`}>
-                  <Gift size={18} className={useCredit ? "text-white" : "text-teal-600"} />
+                  <Gift size={18} className={useCredit ? "text-white" : "text-teal-600 dark:text-teal-400"} />
                 </div>
                 <div className="flex-1 text-left">
-                  <p className="text-sm font-semibold text-gray-900">
-                    Store credit — <span className="text-teal-600">{sym}{availableCredit.toFixed(2)} available</span>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-[var(--brand-text-dark)]">
+                    Store credit — <span className="text-teal-600 dark:text-teal-400">{sym}{availableCredit.toFixed(2)} available</span>
                   </p>
                   <p className="text-xs text-gray-400">
                     {useCredit
@@ -1333,7 +1333,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                       : "Tap to apply your credit to this order"}
                   </p>
                 </div>
-                <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${useCredit ? "border-teal-500 bg-teal-500" : "border-gray-300"
+                <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${useCredit ? "border-teal-500 bg-teal-500" : "border-gray-300 dark:border-zinc-600"
                   }`}>
                   {useCredit && <div className="w-2 h-2 rounded-full bg-white" />}
                 </div>
@@ -1346,14 +1346,14 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
               written back to the account on order placement (see
               syncAccountFromCheckout); email is fixed to the account identity. */}
           <div className="space-y-3">
-            <h3 className="font-semibold text-gray-900 text-sm">Your details</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-[var(--brand-text-dark)] text-sm">Your details</h3>
             {([
               { key: "name",  label: "Full name",     type: "text",  placeholder: "Jane Smith",         readOnly: false },
               { key: "email", label: "Email address", type: "email", placeholder: "jane@example.com",   readOnly: true  },
               { key: "phone", label: "Phone number",  type: "tel",   placeholder: "+44 7700 900000",    readOnly: false },
             ] as const).map(({ key, label, type, placeholder, readOnly }) => (
               <div key={key}>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
+                <label className="block text-xs font-medium text-gray-600 dark:text-zinc-400 mb-1">
                   {label} <span className="text-red-400">*</span>
                   {readOnly && <span className="ml-1 text-gray-400 font-normal">(linked to your account)</span>}
                 </label>
@@ -1370,10 +1370,10 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                   }}
                   placeholder={placeholder}
                   className={`w-full border rounded-xl px-4 py-2.5 text-sm placeholder-gray-400 focus:outline-none transition ${readOnly
-                    ? "border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed"
+                    ? "border-gray-200 dark:border-[var(--brand-border-dark)] bg-gray-50 dark:bg-white/5 text-gray-500 dark:text-zinc-400 cursor-not-allowed"
                     : fieldErrors[key]
-                      ? "border-red-400 focus:ring-2 focus:ring-red-300 bg-red-50 text-gray-800"
-                      : "border-gray-200 focus:ring-2 focus:ring-orange-400 text-gray-800"
+                      ? "border-red-400 focus:ring-2 focus:ring-red-300 bg-red-50 dark:bg-red-950/30 text-gray-800 dark:text-zinc-100"
+                      : "border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 focus:ring-2 focus:ring-orange-400 text-gray-800 dark:text-zinc-100"
                     }`}
                 />
                 {fieldErrors[key] && (
@@ -1387,7 +1387,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
             {/* Delivery address — saved picker or manual input */}
             {isDelivery && (
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
+                <label className="block text-xs font-medium text-gray-600 dark:text-zinc-400 mb-1">
                   Delivery address <span className="text-red-400">*</span>
                 </label>
 
@@ -1424,24 +1424,24 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                           }
                         }}
                         className={`w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-xl border transition ${selectedAddressId === addr.id
-                          ? "border-orange-400 bg-orange-50"
-                          : "border-gray-200 hover:border-orange-300 bg-white"
+                          ? "border-orange-400 bg-orange-50 dark:bg-orange-500/10"
+                          : "border-gray-200 dark:border-[var(--brand-border-dark)] hover:border-orange-300 bg-white dark:bg-transparent"
                           }`}
                       >
-                        <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 mt-0.5 flex items-center justify-center ${selectedAddressId === addr.id ? "border-orange-500" : "border-gray-300"
+                        <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 mt-0.5 flex items-center justify-center ${selectedAddressId === addr.id ? "border-orange-500" : "border-gray-300 dark:border-zinc-600"
                           }`}>
                           {selectedAddressId === addr.id && (
                             <div className="w-2 h-2 rounded-full bg-orange-500" />
                           )}
                         </div>
                         <div className="min-w-0">
-                          <p className="text-xs font-semibold text-gray-800 flex items-center gap-1.5">
+                          <p className="text-xs font-semibold text-gray-800 dark:text-zinc-200 flex items-center gap-1.5">
                             {addr.label}
                             {addr.isDefault && (
                               <span className="text-[9px] font-bold bg-orange-100 text-orange-600 rounded-full px-1.5 py-0.5">Default</span>
                             )}
                           </p>
-                          <p className="text-xs text-gray-500 truncate">{addr.address}, {addr.postcode}</p>
+                          <p className="text-xs text-gray-500 dark:text-zinc-400 truncate">{addr.address}, {addr.postcode}</p>
                           {addr.note && <p className="text-[10px] text-gray-400 italic mt-0.5 truncate">{addr.note}</p>}
                         </div>
                       </button>
@@ -1463,17 +1463,17 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                         setZone(null);
                       }}
                       className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl border transition ${selectedAddressId === "manual"
-                        ? "border-orange-400 bg-orange-50"
-                        : "border-dashed border-gray-200 hover:border-orange-300"
+                        ? "border-orange-400 bg-orange-50 dark:bg-orange-500/10"
+                        : "border-dashed border-gray-200 dark:border-[var(--brand-border-dark)] hover:border-orange-300"
                         }`}
                     >
-                      <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${selectedAddressId === "manual" ? "border-orange-500" : "border-gray-300"
+                      <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${selectedAddressId === "manual" ? "border-orange-500" : "border-gray-300 dark:border-zinc-600"
                         }`}>
                         {selectedAddressId === "manual" && (
                           <div className="w-2 h-2 rounded-full bg-orange-500" />
                         )}
                       </div>
-                      <p className="text-xs font-semibold text-gray-600">Enter a different address</p>
+                      <p className="text-xs font-semibold text-gray-600 dark:text-zinc-300">Enter a different address</p>
                     </button>
                   </div>
                 )}
@@ -1493,9 +1493,9 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                         // guard skips when pinSource === "user").
                       }}
                       placeholder="42 Example Street, London"
-                      className={`w-full border rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 transition ${fieldErrors.address
-                        ? "border-red-400 focus:ring-red-300 bg-red-50"
-                        : "border-gray-200 focus:ring-orange-400"
+                      className={`w-full border rounded-xl px-4 py-2.5 text-sm text-gray-800 dark:text-zinc-100 placeholder-gray-400 focus:outline-none focus:ring-2 transition ${fieldErrors.address
+                        ? "border-red-400 focus:ring-red-300 bg-red-50 dark:bg-red-950/30"
+                        : "border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 focus:ring-orange-400"
                         }`}
                     />
                     {fieldErrors.address && (
@@ -1510,7 +1510,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                     flat/unit, gate code, "leave at door", etc. Optional but
                     valuable in housing schemes / large complexes. */}
                 <div className="mt-3">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                  <label className="block text-xs font-medium text-gray-600 dark:text-zinc-400 mb-1">
                     Delivery note <span className="text-gray-400">(optional — flat / unit / access instructions)</span>
                   </label>
                   <input
@@ -1519,7 +1519,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                     onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
                     placeholder="Flat 3B, gate code 1234, leave at door"
                     maxLength={200}
-                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                    className="w-full border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 rounded-xl px-4 py-2.5 text-sm text-gray-800 dark:text-zinc-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
                   />
                 </div>
               </div>
@@ -1529,7 +1529,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
           {/* Delivery distance detector (delivery only) */}
           {isDelivery && (
             <div className="space-y-2">
-              <h3 className="font-semibold text-gray-900 text-sm">Delivery area</h3>
+              <h3 className="font-semibold text-gray-900 dark:text-[var(--brand-text-dark)] text-sm">Delivery area</h3>
               <LocationWidget
                 state={locState}
                 distKm={distKm}
@@ -1543,31 +1543,31 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                   Encourages drag-to-refine when the pin came from geocoding. */}
               {custLat != null && custLng != null ? (
                 pinSource === "estimated" ? (
-                  <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-lg px-3 py-2">
                     <MapPin size={12} className="text-amber-600 flex-shrink-0 mt-0.5" />
-                    <p className="text-[11px] text-amber-700">
+                    <p className="text-[11px] text-amber-700 dark:text-amber-300">
                       <span className="font-semibold">Pin estimated from your address.</span> Drag the blue pin on the map to confirm the exact spot.
                     </p>
                   </div>
                 ) : (
-                  <div className="flex items-start gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                  <div className="flex items-start gap-2 bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-900 rounded-lg px-3 py-2">
                     <MapPin size={12} className="text-green-600 flex-shrink-0 mt-0.5" />
-                    <p className="text-[11px] text-green-700">
+                    <p className="text-[11px] text-green-700 dark:text-green-400">
                       <span className="font-semibold">Exact pin set.</span> Drag it if you need to refine.
                     </p>
                   </div>
                 )
               ) : (
-                <div className="flex items-start gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                <div className="flex items-start gap-2 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-[var(--brand-border-dark)] rounded-lg px-3 py-2">
                   <MapPin size={12} className="text-gray-400 flex-shrink-0 mt-0.5" />
-                  <p className="text-[11px] text-gray-500">
+                  <p className="text-[11px] text-gray-500 dark:text-zinc-400">
                     <span className="font-semibold">No pin yet.</span> Type your address, tap &quot;Detect&quot;, or click the map.
                   </p>
                 </div>
               )}
 
               {/* Mini-map: restaurant + zone circles + customer pin (when detected) */}
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
+              <div className="rounded-xl border border-gray-200 dark:border-[var(--brand-border-dark)] overflow-hidden">
                 <LocationMap
                   center={
                     custLat != null && custLng != null
@@ -1597,15 +1597,15 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
 
           {/* Submit error */}
           {submitError && (
-            <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+            <div className="flex items-start gap-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-xl px-4 py-3">
               <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-red-700 font-medium">{submitError}</p>
+              <p className="text-sm text-red-700 dark:text-red-400 font-medium">{submitError}</p>
             </div>
           )}
 
           {/* Payment methods */}
           <div className="space-y-3">
-            <h3 className="font-semibold text-gray-900 text-sm">Payment</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-[var(--brand-text-dark)] text-sm">Payment</h3>
 
             {/* Fully covered by gift card / store credit — nothing left to
                 charge, so skip the payment-method tiles and offer a single
@@ -1614,15 +1614,15 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
               <button
                 onClick={() => placeCashOrder(COVERED_METHOD)}
                 disabled={submitting}
-                className="group w-full flex items-center gap-3 border-2 border-green-200 bg-green-50 rounded-xl px-4 py-3.5 transition disabled:opacity-60"
+                className="group w-full flex items-center gap-3 border-2 border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/30 rounded-xl px-4 py-3.5 transition disabled:opacity-60"
               >
                 {submitting
                   ? <div className="w-10 h-10 flex items-center justify-center flex-shrink-0"><Loader2 size={20} className="animate-spin text-gray-400" /></div>
                   : <div className="w-10 h-10 rounded-lg bg-green-500 flex items-center justify-center flex-shrink-0"><Gift size={18} className="text-white" /></div>
                 }
                 <div className="text-left flex-1">
-                  <p className="font-semibold text-sm text-gray-900">{submitting ? "Placing order…" : "Place order"}</p>
-                  <p className="text-xs text-gray-500">
+                  <p className="font-semibold text-sm text-gray-900 dark:text-[var(--brand-text-dark)]">{submitting ? "Placing order…" : "Place order"}</p>
+                  <p className="text-xs text-gray-500 dark:text-zinc-400">
                     Fully covered by {appliedGiftCard ? "gift card" : "store credit"} — nothing to pay
                   </p>
                 </div>
@@ -1631,11 +1631,11 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
             )}
 
             {orderTotal > 0 && availableMethods.length === 0 && locState !== "outside" && (
-              <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-4">
+              <div className="flex items-start gap-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-xl px-4 py-4">
                 <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-semibold text-red-700">No payment methods available</p>
-                  <p className="text-xs text-red-500 mt-0.5">
+                  <p className="text-sm font-semibold text-red-700 dark:text-red-400">No payment methods available</p>
+                  <p className="text-xs text-red-500 dark:text-red-400/80 mt-0.5">
                     The restaurant has not enabled any payment methods. Please contact us to place your order.
                   </p>
                 </div>
@@ -1643,11 +1643,11 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
             )}
 
             {locState === "outside" && (
-              <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-4">
+              <div className="flex items-start gap-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-xl px-4 py-4">
                 <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-semibold text-red-700">Outside delivery area</p>
-                  <p className="text-xs text-red-500 mt-0.5">
+                  <p className="text-sm font-semibold text-red-700 dark:text-red-400">Outside delivery area</p>
+                  <p className="text-xs text-red-500 dark:text-red-400/80 mt-0.5">
                     We&apos;re unable to deliver to your location. Please contact us directly.
                   </p>
                 </div>
@@ -1666,14 +1666,14 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                   onClick={() => handlePay(method)}
                   disabled={submitting || disabledByMin}
                   title={disabledByMin ? `${method.name} requires a minimum of ${sym}${methodMin.toFixed(2)}` : undefined}
-                  className={`group w-full flex items-center gap-3 border-2 border-gray-200 rounded-xl px-4 py-3.5 transition disabled:opacity-60 disabled:cursor-not-allowed ${hoverColor(method.id)}`}
+                  className={`group w-full flex items-center gap-3 border-2 border-gray-200 dark:border-[var(--brand-border-dark)] rounded-xl px-4 py-3.5 transition disabled:opacity-60 disabled:cursor-not-allowed ${hoverColor(method.id)}`}
                 >
                   {submitting
                     ? <div className="w-10 h-10 flex items-center justify-center flex-shrink-0"><Loader2 size={20} className="animate-spin text-gray-400" /></div>
                     : <MethodIcon id={method.id} />
                   }
                   <div className="text-left flex-1">
-                    <p className="font-semibold text-sm text-gray-900">{method.name}</p>
+                    <p className="font-semibold text-sm text-gray-900 dark:text-[var(--brand-text-dark)]">{method.name}</p>
                     <p className="text-xs text-gray-400">
                       {submitting
                         ? "Placing order…"
@@ -1689,8 +1689,8 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
 
             {/* Methods hidden due to distance — shown as info only when location is detected */}
             {locState === "found" && restrictedMethods.length > 0 && (
-              <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3">
-                <p className="text-xs font-semibold text-gray-500 mb-2">Not available at your distance</p>
+              <div className="bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-[var(--brand-border-dark)] rounded-xl px-4 py-3">
+                <p className="text-xs font-semibold text-gray-500 dark:text-zinc-400 mb-2">Not available at your distance</p>
                 {restrictedMethods.map((m) => (
                   <div key={m.id} className="flex items-center gap-2 text-xs text-gray-400 py-0.5">
                     <span>–</span>
@@ -1775,15 +1775,15 @@ function CardPaymentForm({
     <form onSubmit={handleSubmit} className="space-y-4">
       <PaymentElement options={{ layout: "tabs" }} />
       {error && (
-        <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+        <div className="flex items-start gap-2 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2.5">
           <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-red-700">{error}</p>
+          <p className="text-xs text-red-700 dark:text-red-400">{error}</p>
         </div>
       )}
       <button
         type="submit"
         disabled={!stripe || submitting}
-        className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 disabled:cursor-not-allowed text-white font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2"
+        className="w-full bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 disabled:bg-orange-300 disabled:cursor-not-allowed text-white font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2"
       >
         {submitting
           ? <><Loader2 size={16} className="animate-spin" /> Processing…</>
@@ -1821,9 +1821,9 @@ function PaypalPaymentForm({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 flex items-center justify-between">
-        <span className="text-sm font-medium text-gray-700">Amount to pay</span>
-        <span className="text-base font-bold text-gray-900">{amountLabel}</span>
+      <div className="rounded-xl border border-gray-200 dark:border-[var(--brand-border-dark)] bg-gray-50 dark:bg-white/5 px-4 py-3 flex items-center justify-between">
+        <span className="text-sm font-medium text-gray-700 dark:text-zinc-300">Amount to pay</span>
+        <span className="text-base font-bold text-gray-900 dark:text-[var(--brand-text-dark)]">{amountLabel}</span>
       </div>
 
       <PayPalScriptProvider
@@ -1869,14 +1869,14 @@ function PaypalPaymentForm({
       </PayPalScriptProvider>
 
       {error && (
-        <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+        <div className="flex items-start gap-2 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2.5">
           <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-red-700">{error}</p>
+          <p className="text-xs text-red-700 dark:text-red-400">{error}</p>
         </div>
       )}
 
       {capturing && (
-        <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
+        <div className="flex items-center justify-center gap-2 text-xs text-gray-500 dark:text-zinc-400">
           <Loader2 size={14} className="animate-spin" />
           Finalising your payment with PayPal…
         </div>

@@ -57,6 +57,13 @@
   }
 }
 
+/*
+ * Dark-mode map tiles (LocationMap.tsx, Leaflet).
+ */
+.dark .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.96) contrast(0.9);
+}
+
 @layer base {
   :root {
     --font-inter: 'Inter', sans-serif;

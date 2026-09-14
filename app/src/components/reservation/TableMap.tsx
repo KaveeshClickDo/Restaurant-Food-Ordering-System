@@ -58,7 +58,7 @@ export default function TableMap({
 
   return (
     <div className="space-y-3">
-      <div className="relative w-full rounded-2xl overflow-hidden border border-gray-200 bg-gray-50">
+      <div className="relative w-full rounded-2xl overflow-hidden border border-gray-200 dark:border-[var(--brand-border-dark)] bg-gray-50 dark:bg-white/5">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={imageUrl}
@@ -76,7 +76,7 @@ export default function TableMap({
             : t.status === "booked"
               ? "bg-gray-100 border-gray-300 text-gray-400 line-through"
               : t.status === "too_small"
-                ? "bg-gray-50 border-dashed border-gray-300 text-gray-400"
+                ? "bg-gray-50 border-dashed border-gray-30 text-gray-400"
                 : t.isVip
                   ? "bg-amber-100 border-amber-400 text-amber-800 hover:bg-amber-200"
                   : "bg-emerald-50 border-emerald-500 text-emerald-700 hover:bg-emerald-100";
@@ -114,10 +114,10 @@ export default function TableMap({
       </div>
 
       {/* Legend */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-gray-500">
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-emerald-50 border-2 border-emerald-500" /> Available</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-amber-100 border-2 border-amber-400" /><Crown size={11} className="text-amber-500" /> VIP</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-gray-100 border-2 border-gray-300" /> Booked</span>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-gray-500 dark:text-zinc-400">
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border-2 border-emerald-500" /> Available</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-amber-100 dark:bg-amber-950/50 border-2 border-amber-400" /><Crown size={11} className="text-amber-500" /> VIP</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-gray-100 dark:bg-white/10 border-2 border-gray-300 dark:border-white/15" /> Booked</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-orange-500 border-2 border-orange-600" /> Selected</span>
       </div>
     </div>

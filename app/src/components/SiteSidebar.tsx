@@ -169,7 +169,7 @@ export default function SiteSidebar({
           {reservationEnabled && (
             <button
               onClick={onReserve}
-              className="w-full flex items-center gap-3 px-3 py-2 mt-1 rounded-xl text-[13.5px] font-semibold border border-orange-200 bg-orange-50 dark:bg-orange-500/10 dark:border-orange-500/10 dark:text-[var(--brand-text-dark)] hover:bg-orange-500 hover:text-white hover:border-orange-500 active:scale-[0.98] group"
+              className="w-full flex items-center gap-3 px-3 py-2 mt-1 rounded-xl text-[13.5px] font-semibold border border-orange-200 bg-orange-50 dark:bg-orange-500/10 dark:border-orange-500/10 dark:text-[var(--brand-text-dark)] hover:bg-orange-500 dark:hover:bg-orange-500/30 hover:text-white hover:border-orange-500 active:scale-[0.98] group"
             >
               <CalendarDays className="w-[17px] h-[17px]" strokeWidth={1.6} />
               <span>Reserve a Table</span>

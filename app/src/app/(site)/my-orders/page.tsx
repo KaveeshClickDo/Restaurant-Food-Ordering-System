@@ -868,7 +868,7 @@ export default function MyOrdersPage() {
                                                 {activeOrder.fulfillment === "delivery" && activeOrder.deliveryCode && (
                                                     <div className="mb-4 rounded-2xl border border-orange-400/40 bg-orange-500/10 px-3.5 py-2.5 flex items-center gap-3">
                                                         <div className="flex-1 min-w-0">
-                                                            <p className="text-[9.5px] font-bold uppercase tracking-[0.18em] text-orange-300 leading-none mb-1">
+                                                            <p className="text-[9.5px] font-bold uppercase tracking-[0.18em] text-orange-300 dark:text-orange-500 leading-none mb-1">
                                                                 Driver code
                                                             </p>
                                                             <p className="text-[11px] text-zinc-300 leading-snug">
