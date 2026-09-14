@@ -8,7 +8,7 @@ import { Heart, UtensilsCrossed, Plus, Search, LayoutDashboard, LogOut, Clock } 
 import AuthModal from "@/components/AuthModal";
 import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MenuItem } from "@/types";
 import { useRouter } from "next/navigation";
 import Cart from "@/components/Cart";
@@ -23,6 +23,8 @@ export default function FavouritesPage() {
     const [authModal, setAuthModal] = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
     const [openItem, setOpenItem] = useState<MenuItem | null>(null);
     const [userMenuOpen, setUserMenuOpen] = useState(false);
+    const [searchFocused, setSearchFocused] = useState(false);
+    const searchInputRef = useRef<HTMLInputElement>(null);
 
     // Tick to re-evaluate "is this item's meal period active?" every 30s
     // so favourites flip from greyed-out → orderable as windows open.
@@ -57,14 +59,33 @@ export default function FavouritesPage() {
       return { orderable: false, label: next ? `Available ${next.label}` : "Currently unavailable" };
     }
 
+    // Search-bar autocomplete: same dropdown as the main menu page, but since
+    // this isn't the menu grid, picking a suggestion hands off to "/" (via sessionStorage)
+    const searchSuggestions = (() => {
+      const q = search.trim().toLowerCase();
+      if (!q) return [];
+      return menuItems
+        .filter((i) => isOnChannel(i, "online"))
+        .filter((i) => i.name.toLowerCase().includes(q) || i.description.toLowerCase().includes(q))
+        .sort((a, b) => {
+          const an = a.name.toLowerCase().includes(q) ? 0 : 1;
+          const bn = b.name.toLowerCase().includes(q) ? 0 : 1;
+          return an - bn;
+        })
+        .slice(0, 6);
+    })();
+
+    function openSuggestion(item: MenuItem) {
+      searchInputRef.current?.blur();
+      setSearchFocused(false);
+      sessionStorage.setItem("pendingOpenItem", item.id);
+      router.push("/");
+    }
+
     return (
-        <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: 'var(--brand-bg, #FAFAF9)' }}>
-
-
-            {/* ── Main content area ─────────────────────────────────────────────── */}
-            <div className="flex-1 flex flex-col min-w-0 h-full">
-                {/* Top search header */}
-                <header className="hidden lg:flex items-center justify-between gap-3 px-4 md:px-6 py-3.5 border-b border-zinc-200/70 dark:border-[var(--brand-border-dark)] bg-white dark:bg-[var(--brand-surface-dark)] flex-shrink-0">
+        <>
+                {/* Top search header — sticky */}
+                <header className="hidden lg:flex items-center justify-between gap-3 px-4 md:px-6 py-3.5 border-b border-zinc-200/70 dark:border-[var(--brand-border-dark)] bg-white dark:bg-[var(--brand-surface-dark)] sticky top-0 z-20">
                     {/* Mobile: logo */}
                     <div className="lg:hidden flex items-center gap-2 flex-shrink-0">
                         {settings.restaurant.logoImage ? (
@@ -79,18 +100,60 @@ export default function FavouritesPage() {
                     </div>
 
                     {/* Search */}
-                    <div className="flex-1 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-100 dark:bg-white/5 max-w-xl">
-                        <Search className="w-4 h-4 text-zinc-400 flex-shrink-0" strokeWidth={1.8} />
-                        <input
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            placeholder="Search dishes…"
-                            className="flex-1 bg-transparent outline-none text-[13.5px] text-zinc-900 dark:text-[var(--brand-text-dark)] placeholder:text-zinc-400"
-                        />
-                        {search && (
-                            <button onClick={() => setSearch("")} className="text-[11px] font-medium text-zinc-400 hover:text-zinc-700 transition-colors">
-                                Clear
-                            </button>
+                    <div className="relative flex-1 max-w-xl min-w-0">
+                        <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-100 dark:bg-white/5">
+                            <Search className="w-4 h-4 text-zinc-400 flex-shrink-0" strokeWidth={1.8} />
+                            <input
+                                ref={searchInputRef}
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                onFocus={() => setSearchFocused(true)}
+                                onBlur={() => setSearchFocused(false)}
+                                placeholder="Search dishes…"
+                                className="flex-1 min-w-0 bg-transparent outline-none text-[13.5px] text-zinc-900 dark:text-[var(--brand-text-dark)] placeholder:text-zinc-400"
+                            />
+                            {search && (
+                                <button onMouseDown={(e) => e.preventDefault()} onClick={() => setSearch("")} className="text-[11px] font-medium text-zinc-400 hover:text-zinc-700 transition-colors flex-shrink-0">
+                                    Clear
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Suggestions dropdown */}
+                        {searchFocused && search.trim() && (
+                            <div className="absolute left-0 right-0 top-full mt-2 bg-white dark:bg-[var(--brand-surface-dark)] rounded-xl border border-zinc-200/70 dark:border-[var(--brand-border-dark)] shadow-lg z-30 py-1 max-h-[55vh] overflow-y-auto overscroll-contain">
+                                {searchSuggestions.length > 0 ? (
+                                    searchSuggestions.map((item) => {
+                                        const price = effectiveMenuPrice(item, "online");
+                                        return (
+                                            <button
+                                                key={item.id}
+                                                onMouseDown={(e) => e.preventDefault()}
+                                                onClick={() => openSuggestion(item)}
+                                                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-white/5 active:bg-zinc-100 dark:active:bg-white/10 transition-colors text-left"
+                                            >
+                                                <div className="w-11 h-11 rounded-lg bg-orange-50 dark:bg-orange-500/10 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                                                    {item.image ? (
+                                                        /* eslint-disable-next-line @next/next/no-img-element */
+                                                        <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        <UtensilsCrossed className="w-5 h-5 text-zinc-300 dark:text-zinc-700" strokeWidth={1.4} />
+                                                    )}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="text-[13.5px] font-medium text-zinc-900 dark:text-[var(--brand-text-dark)] truncate">{item.name}</div>
+                                                    {item.description && (
+                                                        <div className="text-[11.5px] text-zinc-400 truncate">{item.description}</div>
+                                                    )}
+                                                </div>
+                                                <span className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-300 flex-shrink-0">{sym}{price.toFixed(2)}</span>
+                                            </button>
+                                        );
+                                    })
+                                ) : (
+                                    <div className="px-3.5 py-4 text-[13px] text-zinc-400 text-center">No dishes found</div>
+                                )}
+                            </div>
                         )}
                     </div>
 
@@ -100,7 +163,7 @@ export default function FavouritesPage() {
                             <div className="relative">
                                 <button
                                     onClick={() => setUserMenuOpen((o) => !o)}
-                                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 transition-colors"
+                                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10"
                                 >
                                     <div className="w-6 h-6 rounded-full bg-orange-500 dark:bg-orange-50 text-white flex items-center justify-center text-[11px] font-bold">
                                         {currentUser.name?.charAt(0).toUpperCase() ?? "U"}
@@ -133,10 +196,8 @@ export default function FavouritesPage() {
 
                 </header>
 
-
                 {/* Scrollable content */}
-                <div className="flex-1 overflow-y-auto pb-15">
-                    <div className="flex flex-col px-4 sm:px-6 py-6">
+                <div className="flex flex-col px-4 sm:px-6 py-6 pb-15">
                         <div className="flex items-center justify-between mb-1">
                             <h2 className="font-semibold text-[22px] text-zinc-900 dark:text-[var(--brand-text-dark)] tracking-tight">Favourites</h2>
                             {favItems.length > 0 && (
@@ -261,9 +322,6 @@ export default function FavouritesPage() {
                         )}
                     </div>
 
-                </div>
-            </div>
-
             {/* ── Mobile Bottom Nav ── */}
             <MobileBottomNav
                 onCartOpen={() => setShowMobileCart(true)}
@@ -294,7 +352,6 @@ export default function FavouritesPage() {
                 <ItemCustomizationModal item={openItem} onClose={() => setOpenItem(null)} />
             )}
 
-        </div>
-       
+        </>
     );
 }

@@ -390,6 +390,19 @@ export default function HomePageClient() {
   // mapper, so they stay visible.
   const menuItems = allMenuItems.filter((m) => isOnChannel(m, "online"));
 
+  // Open a dish handed off from another page's search dropdown (account,
+  // favourites, my-orders). Don't clear the pending id until it's actually 
+  // found, in case this runs before menuItems has loaded.
+  useEffect(() => {
+    const pendingItemId = sessionStorage.getItem("pendingOpenItem");
+    if (!pendingItemId) return;
+    const found = menuItems.find((m) => m.id === pendingItemId);
+    if (found) {
+      sessionStorage.removeItem("pendingOpenItem");
+      setOpenItem(found);
+    }
+  }, [menuItems]);
+
   const activeMealPeriods = mealPeriods.filter((p) => isMealPeriodActive(p));
   const activeMealPeriodIds = new Set(activeMealPeriods.map((p) => p.id));
 
