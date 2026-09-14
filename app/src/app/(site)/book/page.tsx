@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   CalendarDays, Clock, Users, UtensilsCrossed, CheckCircle2,
   Loader2, AlertCircle, MapPin, ChevronLeft, ChevronRight,
-  Map as MapIcon, LayoutGrid,
+  Map as MapIcon, LayoutGrid, Crown,
 } from "lucide-react";
 import { ReservationFormSchema } from "@/lib/schemas/reservation";
 import { cleanPhone, formErrorMessage } from "@/lib/inputUtils";
@@ -346,18 +346,13 @@ export default function BookPage() {
                   )}
 
                   {floorPlans.length > 0 && mapTables.length > 0 && tableView === "map" ? (
-                    <>
-                      <MultiFloorTableMap
-                        plans={floorPlans}
-                        tables={mapTables}
-                        selectedId={selectedTable?.id ?? null}
-                        allowVipSelect={false}
-                        onSelect={(t) => setSelectedTable({ id: t.id, label: t.label, seats: t.seats, section: t.section, isVip: t.isVip, vipPrice: t.vipPrice })}
-                      />
-                      {mapTables.some((t) => t.isVip) && (
-                        <p className="text-xs text-gray-400">👑 VIP tables are shown for reference — to reserve one, use the &ldquo;Book a table&rdquo; button at the top of the site.</p>
-                      )}
-                    </>
+                    <MultiFloorTableMap
+                      plans={floorPlans}
+                      tables={mapTables}
+                      selectedId={selectedTable?.id ?? null}
+                      allowVipSelect={false}
+                      onSelect={(t) => setSelectedTable({ id: t.id, label: t.label, seats: t.seats, section: t.section, isVip: t.isVip, vipPrice: t.vipPrice })}
+                    />
                   ) : (
                   <div className="space-y-4">
                   {Object.entries(tablesBySection).map(([section, st]) => (
@@ -368,6 +363,27 @@ export default function BookPage() {
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {st.map((t) => {
                           const sel = selectedTable?.id === t.id;
+                          // VIP tables require a paid booking fee, which /book
+                          // doesn't collect — they're shown for visibility but
+                          // can't be selected here (see the note below). Only
+                          // ReservationModal (header "Book a table") can book them.
+                          if (t.isVip) {
+                            return (
+                              <button
+                                key={t.id}
+                                type="button"
+                                disabled
+                                title="VIP table — please call us or use the header &quot;Book a table&quot; button to reserve it"
+                                className="relative flex flex-col items-center gap-1.5 py-4 px-3 rounded-xl border-2 border-amber-300 dark:border-amber-800 bg-amber-50/40 dark:bg-amber-950/20 cursor-not-allowed opacity-90"
+                              >
+                                <span className="absolute top-1.5 right-1.5 inline-flex items-center">
+                                  <Crown size={14} className="text-amber-500" />
+                                </span>
+                                <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400">{t.label}</div>
+                                <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">VIP</span>
+                              </button>
+                            );
+                          }
                           return (
                             <button key={t.id} type="button" onClick={() => setSelectedTable(t)}
                               className={`flex flex-col items-center gap-1.5 py-4 px-3 rounded-xl border-2 ${
@@ -383,6 +399,12 @@ export default function BookPage() {
                     </div>
                   ))}
                   </div>
+                  )}
+
+                  {/* Shown regardless of which view is active, whenever the
+                      current results include any VIP table. */}
+                  {(tables.some((t) => t.isVip) || mapTables.some((t) => t.isVip)) && (
+                    <p className="text-xs text-gray-400">👑 VIP tables are shown for reference — to reserve one, use the &ldquo;Book a table&rdquo; button at the top of the site.</p>
                   )}
                 </div>
               )}
@@ -449,7 +471,7 @@ export default function BookPage() {
               </button>
             )}
             {step === "table" && (
-              <button type="button" disabled={!selectedTable || loadingTables || blackout}
+              <button type="button" disabled={!selectedTable || selectedTable.isVip || loadingTables || blackout}
                 onClick={() => setStep("details")}
                 className="flex items-center gap-1.5 bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition-all">
                 Continue<ChevronRight size={16} />
