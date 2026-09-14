@@ -27,6 +27,8 @@ import {
     Truck,
     Ban,
     UtensilsCrossed,
+    Sun,
+    Moon,
 } from "lucide-react";
 import AuthModal from "@/components/AuthModal";
 import type { AddOn, CartItem, Customer, MenuItem, Order, OrderStatus } from "@/types";
@@ -36,6 +38,7 @@ import Cart from "@/components/Cart";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import { effectiveMenuPrice, getOfferUnitPrice, isOnChannel } from "@/lib/menuOfferUtils";
 import { resolveStock } from "@/lib/stockUtils";
+import { useSiteTheme } from "@/context/SiteThemeContext";
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
@@ -572,6 +575,7 @@ function ReceiptModal({
 // ── Main Page ───────────────────────────────────────────────────────────────
 export default function MyOrdersPage() {
     const { currentUser, addToCart, settings, menuItems, refreshCurrentUser, logout } = useApp();
+    const { theme, toggleTheme } = useSiteTheme();
     const sym = settings.currency?.symbol ?? "£";
     const router = useRouter();
     const [search, setSearch] = useState("");
@@ -832,6 +836,14 @@ export default function MyOrdersPage() {
 
                     {/* Auth / user (desktop) */}
                     <div className="hidden lg:flex items-center gap-2">
+                        <button
+                            onClick={toggleTheme}
+                            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                            className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white"
+                        >
+                            {theme === "dark" ? <Sun className="w-5 h-5" strokeWidth={1.8} /> : <Moon className="w-5 h-5" strokeWidth={1.8} />}
+                        </button>
                         {currentUser ? (
                             <div className="relative">
                                 <button

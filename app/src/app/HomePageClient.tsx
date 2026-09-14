@@ -8,7 +8,7 @@ import {
   Search, ShoppingBag, UtensilsCrossed,
   Plus, Clock, Bike,
   Star, CalendarDays, LogOut, LayoutDashboard, Heart,
-  AlertCircle,
+  AlertCircle, Sun, Moon,
 } from "lucide-react";
 import Link from "next/link";
 import AuthModal from "@/components/AuthModal";
@@ -346,7 +346,7 @@ export default function HomePageClient() {
     isOpen, currentUser, logout, cart
   } = useApp();
   const cartHasItems = cart.length > 0;
-  const { theme } = useSiteTheme();
+  const { theme, toggleTheme } = useSiteTheme();
 
   const router = useRouter();
   const [activeCat, setActiveCat] = useState("all");
@@ -580,16 +580,19 @@ export default function HomePageClient() {
         {/* Top search header */}
         <header className="flex items-center justify-between gap-3 px-4 md:px-6 py-3.5 border-b border-zinc-200/70 dark:border-[var(--brand-border-dark)] bg-white dark:bg-[var(--brand-surface-dark)] flex-shrink-0">
           {/* Mobile: logo */}
-          <div className="lg:hidden flex items-center gap-2 flex-shrink-0">
+          <div className="lg:hidden flex items-center gap-2 min-w-0">
             {settings.restaurant.logoImage ? (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img src={settings.restaurant.logoImage} alt={settings.restaurant.name}
-                className="w-9 h-9 rounded-xl object-cover" />
+                className="w-9 h-9 rounded-xl object-cover flex-shrink-0" />
             ) : (
               <div className="w-9 h-9 rounded-xl bg-orange-500 text-white flex items-center justify-center text-[14px] font-bold">
                 {settings.restaurant.name.charAt(0).toUpperCase()}
               </div>
             )}
+            <span className="hidden sm:block text-[14px] font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)] tracking-tight truncate">
+            {settings.restaurant.name}
+          </span>
           </div>
 
           {/* Search */}
@@ -653,9 +656,17 @@ export default function HomePageClient() {
           </div>
 
           {/* Auth / user (desktop) */}
-          <div className="hidden lg:flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleTheme}
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white"
+            >
+              {theme === "dark" ? <Sun className="w-5 h-5" strokeWidth={1.8} /> : <Moon className="w-5 h-5" strokeWidth={1.8} />}
+            </button>
             {currentUser ? (
-              <div className="relative">
+              <div className="hidden sm:block relative">
                 <button
                   onClick={() => setUserMenuOpen((o) => !o)}
                   className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10"
@@ -663,7 +674,7 @@ export default function HomePageClient() {
                   <div className="w-6 h-6 rounded-full bg-orange-500 dark:bg-orange-50 text-white flex items-center justify-center text-[11px] font-bold">
                     {currentUser.name?.charAt(0).toUpperCase() ?? "U"}
                   </div>
-                  <span className="text-[13px] font-medium text-zinc-700 dark:text-zinc-300">{currentUser.name?.split(" ")[0]}</span>
+                  <span className="hidden md:block text-[13px] font-medium text-zinc-700 dark:text-zinc-300">{currentUser.name?.split(" ")[0]}</span>
                 </button>
                 {userMenuOpen && (
                   <>

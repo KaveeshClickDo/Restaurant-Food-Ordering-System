@@ -2,9 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { UtensilsCrossed, Heart, Receipt, User, CalendarDays, LogOut, ChevronDown, ChevronUp, Sun, Moon } from "lucide-react";
+import { UtensilsCrossed, Heart, Receipt, User, CalendarDays, LogOut, ChevronDown, ChevronUp } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { useSiteTheme } from "@/context/SiteThemeContext";
 import type { Category } from "@/types";
 import { useMemo, useState } from "react";
 
@@ -38,7 +37,6 @@ export default function SiteSidebar({
   categories?: Category[];
 }) {
   const { settings, categories: allCategories, currentUser, logout } = useApp();
-  const { theme, toggleTheme } = useSiteTheme();
   const categories = categoriesOverride ?? allCategories;
   const { restaurant } = settings;
   const pathname = usePathname();
@@ -107,7 +105,7 @@ export default function SiteSidebar({
 
   return (
     <aside className="hidden lg:flex w-[260px] flex-shrink-0 h-full flex-col bg-white dark:bg-[var(--brand-surface-dark)] border-r border-zinc-200/70 dark:border-[var(--brand-border-dark)]">
-      {/* Logo + theme toggle */}
+      {/* Logo */}
       <div className="p-5 pb-3 flex items-center gap-2">
         <Link
           href="/"
@@ -128,14 +126,6 @@ export default function SiteSidebar({
             <div className="text-[11px] text-zinc-500 dark:text-zinc-400 truncate">{restaurant.tagline || "Restaurant"}</div>
           </div>
         </Link>
-        <button
-          onClick={toggleTheme}
-          title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-          aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-          className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white"
-        >
-          {theme === "dark" ? <Sun className="w-4 h-4" strokeWidth={1.8} /> : <Moon className="w-4 h-4" strokeWidth={1.8} />}
-        </button>
       </div>
 
       {/* Nav */}

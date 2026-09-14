@@ -4,7 +4,7 @@ import { useApp } from "@/context/AppContext";
 import { resolveStock } from "@/lib/stockUtils";
 import { isOnChannel, effectiveMenuPrice, getOfferUnitPrice } from "@/lib/menuOfferUtils";
 import { isMealPeriodActive, nextActivationLabel } from "@/lib/scheduleUtils";
-import { Heart, UtensilsCrossed, Plus, Search, LayoutDashboard, LogOut, Clock } from "lucide-react";
+import { Heart, UtensilsCrossed, Plus, Search, LayoutDashboard, LogOut, Clock, Sun, Moon } from "lucide-react";
 import AuthModal from "@/components/AuthModal";
 import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import Link from "next/link";
@@ -13,12 +13,14 @@ import type { MenuItem } from "@/types";
 import { useRouter } from "next/navigation";
 import Cart from "@/components/Cart";
 import MobileBottomNav from "@/components/MobileBottomNav";
+import { useSiteTheme } from "@/context/SiteThemeContext";
 
 export default function FavouritesPage() {
     const router = useRouter();
     const [search, setSearch] = useState("");
     const [showMobileCart, setShowMobileCart] = useState(false);
     const { currentUser, menuItems, mealPeriods, settings, isOpen, toggleFavourite, logout } = useApp();
+    const { theme, toggleTheme } = useSiteTheme();
     const sym = settings.currency?.symbol ?? "£";
     const [authModal, setAuthModal] = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
     const [openItem, setOpenItem] = useState<MenuItem | null>(null);
@@ -159,6 +161,14 @@ export default function FavouritesPage() {
 
                     {/* Auth / user (desktop) */}
                     <div className="hidden lg:flex items-center gap-2">
+                        <button
+                            onClick={toggleTheme}
+                            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                            className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white"
+                        >
+                            {theme === "dark" ? <Sun className="w-5 h-5" strokeWidth={1.8} /> : <Moon className="w-5 h-5" strokeWidth={1.8} />}
+                        </button>
                         {currentUser ? (
                             <div className="relative">
                                 <button
