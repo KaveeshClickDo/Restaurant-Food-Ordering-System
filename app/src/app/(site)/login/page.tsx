@@ -180,9 +180,9 @@ function LoginContent() {
     }
   }
 
-  const inputCls    = "w-full pl-9 pr-4 py-2.5 border border-zinc-200 dark:border-[var(--brand-border-dark)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 bg-white dark:bg-white/5 dark:text-[var(--brand-text-dark)]";
-  const pwdInputCls = "w-full pl-9 pr-10 py-2.5 border border-zinc-200 dark:border-[var(--brand-border-dark)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 bg-white dark:bg-white/5 dark:text-[var(--brand-text-dark)]";
-  const btnCls      = "w-full bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl text-sm flex items-center justify-center gap-2";
+  const inputCls    = "w-full pl-9 pr-4 py-2.5 border border-zinc-200 dark:border-[var(--brand-border-dark)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 dark:focus:ring-zinc-500 bg-white dark:bg-white/5 dark:text-[var(--brand-text-dark)]";
+  const pwdInputCls = "w-full pl-9 pr-10 py-2.5 border border-zinc-200 dark:border-[var(--brand-border-dark)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 dark:focus:ring-zinc-500 bg-white dark:bg-white/5 dark:text-[var(--brand-text-dark)]";
+  const btnCls      = "w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl text-sm flex items-center justify-center gap-2";
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-4">
@@ -267,7 +267,7 @@ function LoginContent() {
 
               {error && (
                 isAuthError ? (
-                  <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                  <div className="flex items-start gap-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 rounded-xl px-4 py-3">
                     <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-red-700">{error}</p>
@@ -281,7 +281,7 @@ function LoginContent() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                  <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 rounded-xl px-3 py-2.5">
                     <AlertCircle size={14} className="text-red-500 flex-shrink-0" />
                     <p className="text-xs text-red-600">{error}</p>
                   </div>
@@ -347,7 +347,7 @@ function LoginContent() {
               </label>
 
               {error && (
-                <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 rounded-xl px-3 py-2.5">
                   <AlertCircle size={14} className="text-red-500 flex-shrink-0" />
                   <p className="text-xs text-red-600">{error}</p>
                 </div>
@@ -370,7 +370,7 @@ function LoginContent() {
             success === "sent" ? (
               <div className="space-y-5 mt-2">
                 <div className="flex flex-col items-center text-center gap-3 py-4">
-                  <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center">
+                  <div className="w-14 h-14 bg-green-100 dark:bg-green-900/20 rounded-full flex items-center justify-center">
                     <CheckCircle size={28} className="text-green-500" />
                   </div>
                   <div>
@@ -383,7 +383,7 @@ function LoginContent() {
                 </div>
                 <p className="text-center text-xs text-zinc-400">
                   Didn&apos;t receive it?{" "}
-                  <button type="button" onClick={() => setSuccess("")} className="text-zinc-700 font-semibold hover:underline">
+                  <button type="button" onClick={() => setSuccess("")} className="text-zinc-700 dark:text-zinc-200 font-semibold hover:underline">
                     Send again
                   </button>
                 </p>
@@ -393,7 +393,7 @@ function LoginContent() {
               <form onSubmit={handleForgot} className="space-y-4 mt-2">
                 <p className="text-sm text-zinc-500 leading-relaxed">
                   Enter your email and we&apos;ll send a reset link valid for{" "}
-                  <span className="font-semibold text-zinc-700">1 hour</span>.
+                  <span className="font-semibold text-zinc-700 dark:text-zinc-200">1 hour</span>.
                 </p>
                 <Field label="Email address" icon={<Mail size={15} />}>
                   <input type="email" required value={forgotEmail}
@@ -401,7 +401,7 @@ function LoginContent() {
                     placeholder="jane@example.com" autoFocus autoComplete="username" className={inputCls} />
                 </Field>
                 {error && (
-                  <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                  <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 rounded-xl px-3 py-2.5">
                     <AlertCircle size={14} className="text-red-500 flex-shrink-0" />
                     <p className="text-xs text-red-600">{error}</p>
                   </div>
@@ -418,7 +418,7 @@ function LoginContent() {
             success === "done" ? (
               <div className="space-y-5 mt-2">
                 <div className="flex flex-col items-center text-center gap-3 py-4">
-                  <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center">
+                  <div className="w-14 h-14 bg-green-100 dark:bg-green-900/20 rounded-full flex items-center justify-center">
                     <CheckCircle size={28} className="text-green-500" />
                   </div>
                   <div>
@@ -443,7 +443,7 @@ function LoginContent() {
                     placeholder="••••••••" autoComplete="new-password" className={inputCls} />
                 </Field>
                 {error && (
-                  <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                  <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 rounded-xl px-3 py-2.5">
                     <AlertCircle size={14} className="text-red-500 flex-shrink-0" />
                     <p className="text-xs text-red-600">{error}</p>
                   </div>
@@ -460,7 +460,7 @@ function LoginContent() {
       {currentUser && (
         <div className="mt-6 text-center text-sm text-zinc-500">
           Signed in as <strong>{currentUser.email}</strong>.{" "}
-          <button onClick={() => logout()} className="text-zinc-700 font-semibold hover:underline">Sign out</button>
+          <button onClick={() => logout()} className="text-zinc-700 dark:text-zinc-200 font-semibold hover:underline">Sign out</button>
         </div>
       )}
     </div>

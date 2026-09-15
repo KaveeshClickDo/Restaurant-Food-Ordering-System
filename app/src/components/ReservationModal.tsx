@@ -383,7 +383,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
           {/* ── Step 2: Table Selection ───────────────────────────────── */}
           {step === "table" && (
             <div className="p-5">
-              <div className="bg-orange-50 dark:bg-orange-500/10 border border-orange-100 rounded-xl px-4 py-3 mb-5 text-[13px] sm:text-sm text-orange-800 dark:text-orange-600">
+              <div className="bg-orange-50 border border-orange-100 rounded-xl px-4 py-3 mb-5 text-[13px] sm:text-sm text-orange-800 dark:text-orange-600">
                 <span className="font-semibold">{fmtDate(date)}</span>
                 {" · "}{fmt12(time)}{" · "}
                 {partySize} {partySize === 1 ? "guest" : "guests"}
@@ -522,7 +522,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
           {step === "details" && (
             <form id="details-form" onSubmit={handleSubmit} className="p-5 space-y-4">
               {/* Booking summary pill */}
-              <div className="bg-orange-50 dark:bg-orange-500/10 border border-orange-100 rounded-xl px-4 py-3 text-sm text-orange-800 dark:text-orange-600 flex items-center gap-2">
+              <div className="bg-orange-50 border border-orange-100 rounded-xl px-4 py-3 text-sm text-orange-800 dark:text-orange-600 flex items-center gap-2">
                 <UtensilsCrossed size={14} className="text-orange-500 flex-shrink-0" />
                 <span>
                   <span className="font-semibold">{selectedTable?.label}</span>
@@ -683,7 +683,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
 
               <button
                 onClick={onClose}
-                className="w-full bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 active:scale-[0.98] text-white font-semibold py-3 rounded-xl transition-all mt-2"
+                className="w-full bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white font-semibold py-3 rounded-xl transition-all mt-2"
               >
                 Done
               </button>
@@ -724,7 +724,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                 type="button"
                 disabled={!date || !time || slots.length === 0 || isSlotPast(time, date)}
                 onClick={() => setStep("table")}
-                className="flex items-center gap-1.5 bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition-all"
+                className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition-all"
               >
                 Check availability
                 <ChevronRight size={16} />
@@ -736,7 +736,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                 type="button"
                 disabled={!selectedTable || loadingTables}
                 onClick={() => setStep("details")}
-                className="flex items-center gap-1.5 bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition-all"
+                className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition-all"
               >
                 Continue
                 <ChevronRight size={16} />
@@ -748,7 +748,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                 type="submit"
                 form="details-form"
                 disabled={submitting || !name.trim() || !email.trim() || !phone.trim()}
-                className="flex items-center gap-1.5 bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition-all"
+                className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition-all"
               >
                 {submitting ? (
                   <><Loader2 size={15} className="animate-spin" /> Confirming…</>

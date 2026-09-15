@@ -45,19 +45,19 @@ const LocationMap = dynamic(() => import("@/components/maps/LocationMap"), {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<OrderStatus, { label: string; color: string; dot: string }> = {
-  pending: { label: "Pending", color: "bg-yellow-100 dark:bg-yellow-900/50 text-yellow-700", dot: "bg-yellow-500" },
-  confirmed: { label: "Confirmed", color: "bg-blue-100 dark:bg-blue-900/50 text-blue-700", dot: "bg-blue-500" },
-  preparing: { label: "Preparing", color: "bg-amber-100 dark:bg-amber-900/50 text-amber-700", dot: "bg-amber-500" },
-  ready: { label: "Ready", color: "bg-purple-100 dark:bg-purple-900/50 text-purple-700", dot: "bg-purple-500" },
-  delivered: { label: "Delivered", color: "bg-green-100 dark:bg-green-900/50 text-green-700", dot: "bg-green-500" },
-  cancelled: { label: "Cancelled", color: "bg-red-100 dark:bg-red-900/50 text-red-700", dot: "bg-red-400" },
+  pending: { label: "Pending", color: "bg-yellow-100 dark:bg-yellow-900/50 text-yellow-700", dot: "bg-yellow-500 dark:bg-yellow-600" },
+  confirmed: { label: "Confirmed", color: "bg-blue-100 dark:bg-blue-900/50 text-blue-700", dot: "bg-blue-500 dark:bg-blue-600" },
+  preparing: { label: "Preparing", color: "bg-amber-100 dark:bg-amber-900/50 text-amber-700", dot: "bg-amber-500 dark:bg-amber-600" },
+  ready: { label: "Ready", color: "bg-purple-100 dark:bg-purple-900/50 text-purple-700", dot: "bg-purple-500 dark:bg-purple-600" },
+  delivered: { label: "Delivered", color: "bg-green-100 dark:bg-green-900/50 text-green-700", dot: "bg-green-500 dark:bg-green-600" },
+  cancelled: { label: "Cancelled", color: "bg-red-100 dark:bg-red-900/50 text-red-700", dot: "bg-red-400 dark:bg-red-500" },
 };
 
 // Refund state is a payment fact, not a fulfillment status — it gets its own
 // badge config rather than living in STATUS_CONFIG.
 const REFUND_CONFIG: Record<"refunded" | "partially_refunded", { label: string; color: string; dot: string }> = {
-  refunded: { label: "Refunded", color: "bg-teal-100 text-teal-700", dot: "bg-teal-500" },
-  partially_refunded: { label: "Partially Refunded", color: "bg-cyan-100 text-cyan-700", dot: "bg-cyan-500" },
+  refunded: { label: "Refunded", color: "bg-teal-100 dark:bg-teal-900/50 text-teal-700", dot: "bg-teal-500 dark:bg-teal-600" },
+  partially_refunded: { label: "Partially Refunded", color: "bg-cyan-100 dark:bg-cyan-900/50 text-cyan-700", dot: "bg-cyan-500 dark:bg-cyan-600" },
 };
 
 // Kitchen-only steps (delivery hands off to driver after "ready")
@@ -72,10 +72,10 @@ function getReadyLabel(fulfillment: string) {
 // While order.status stays "ready" during the driver leg, these configs override
 // the badge so the customer sees meaningful progress rather than "Ready for Pickup".
 const DELIVERY_STATUS_BADGE: Record<DeliveryStatus, { label: string; color: string; dot: string }> = {
-  assigned: { label: "Driver Assigned", color: "bg-amber-100 text-amber-700", dot: "bg-amber-500" },
-  picked_up: { label: "Picked Up", color: "bg-blue-100 text-blue-700", dot: "bg-blue-500" },
-  on_the_way: { label: "On the Way", color: "bg-indigo-100 text-indigo-700", dot: "bg-indigo-500" },
-  delivered: { label: "Delivered", color: "bg-green-100 text-green-700", dot: "bg-green-500" },
+  assigned: { label: "Driver Assigned", color: "bg-amber-100 dark:bg-amber-900/50 text-amber-700", dot: "bg-amber-500 dark:bg-amber-600" },
+  picked_up: { label: "Picked Up", color: "bg-blue-100 dark:bg-blue-900/50 text-blue-700", dot: "bg-blue-500 dark:bg-blue-600" },
+  on_the_way: { label: "On the Way", color: "bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700", dot: "bg-indigo-500 dark:bg-indigo-600" },
+  delivered: { label: "Delivered", color: "bg-green-100 dark:bg-green-900/50 text-green-700", dot: "bg-green-500 dark:bg-green-600" },
 };
 
 function StatusBadge({ order }: { order: Order }) {
@@ -156,9 +156,9 @@ function OrderTracker({ order }: { order: Order }) {
         const done = i <= currentIdx || order.status === "delivered";
         return (
           <div key={step} className="flex items-center flex-1 last:flex-none">
-            <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 transition-colors ${done ? "bg-orange-500" : "bg-gray-200 dark:bg-white/10"}`} />
+            <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${done ? "bg-orange-500" : "bg-gray-200 dark:bg-white/10"}`} />
             {i < steps.length - 1 && (
-              <div className={`h-0.5 flex-1 mx-0.5 transition-colors ${i < (order.status === "delivered" ? steps.length : currentIdx) ? "bg-orange-500" : "bg-gray-200 dark:bg-white/10"}`} />
+              <div className={`h-0.5 flex-1 mx-0.5 ${i < (order.status === "delivered" ? steps.length : currentIdx) ? "bg-orange-500" : "bg-gray-200 dark:bg-white/10"}`} />
             )}
           </div>
         );
@@ -264,8 +264,8 @@ interface ReorderResult { added: number; skipped: string[]; priceChanged: string
 function ReorderToast({ result, onClose }: { result: ReorderResult; onClose: () => void }) {
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-sm">
-      <div className="bg-gray-900 text-white rounded-2xl shadow-2xl px-5 py-4 flex items-start gap-3">
-        <ShoppingCart size={18} className="text-zinc-500 flex-shrink-0 mt-0.5" />
+      <div className="bg-gray-900 dark:bg-gray-700 text-white rounded-2xl shadow-2xl px-5 py-4 flex items-start gap-3">
+        <ShoppingCart size={18} className="text-zinc-500 dark:text-zinc-400 flex-shrink-0 mt-0.5" />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold">
             {result.added > 0
@@ -278,7 +278,7 @@ function ReorderToast({ result, onClose }: { result: ReorderResult; onClose: () 
             </p>
           )}
           {result.skipped.length > 0 && (
-            <p className="text-xs text-zinc-400 mt-0.5 truncate">
+            <p className="text-xs text-zinc-400 dark:text-zinc-100 mt-0.5 truncate">
               Unavailable: {result.skipped.join(", ")}
             </p>
           )}
@@ -566,7 +566,7 @@ function OrderCard({ order, onReorder }: { order: Order; onReorder: (o: Order) =
             <div className="pt-3 border-t border-zinc-200 dark:border-[var(--brand-border-dark)]">
               <button
                 onClick={() => onReorder(order)}
-                className="w-full flex items-center justify-center gap-2 bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 text-white text-sm font-semibold py-3 rounded-xl transition"
+                className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold py-3 rounded-xl transition"
               >
                 <RotateCcw size={15} />
                 Re-order this meal
@@ -622,7 +622,7 @@ function FavouritesTab() {
 
               {/* Image or Placeholder Area */}
               {hasAnyImage && (
-                <div className={`relative w-full h-36 bg-orange-50 dark:bg-orange-500/10 flex items-center justify-center overflow-hidden ${outOfStock ? "grayscale opacity-60" : ""}`}>
+                <div className={`relative w-full h-36 bg-orange-50 flex items-center justify-center overflow-hidden ${outOfStock ? "grayscale opacity-60" : ""}`}>
                   {item.image ? (
                     /* eslint-disable-next-line @next/next/no-img-element */
                     <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
@@ -714,8 +714,8 @@ function FavouritesTab() {
 // ─── Addresses Tab ────────────────────────────────────────────────────────────
 
 const LABEL_ICONS: Record<string, React.ReactNode> = {
-  Home: <Home size={14} className="text-zinc-700" />,
-  Work: <Briefcase size={14} className="text-blue-500" />,
+  Home: <Home size={14} className="text-zinc-700 dark:text-zinc-400" />,
+  Work: <Briefcase size={14} className="text-blue-500 dark:text-zinc-400" />,
 };
 
 function getLabelIcon(label: string) {
@@ -874,7 +874,7 @@ function AddressesTab() {
             setErrors((er) => ({ ...er, [key]: undefined }));
           }}
           placeholder={opts?.placeholder}
-          className={`w-full border rounded-xl px-4 py-2.5 text-sm dark:bg-white/5 dark:text-[var(--brand-text-dark)] focus:outline-none focus:ring-2 focus:ring-zinc-300 transition ${errors[key] ? "border-red-400" : "border-zinc-200 dark:border-[var(--brand-border-dark)]"}`}
+          className={`w-full border rounded-xl px-4 py-2.5 text-sm dark:bg-white/5 dark:text-[var(--brand-text-dark)] focus:outline-none focus:ring-2 focus:ring-zinc-300 dark:focus:ring-zinc-600 ${errors[key] ? "border-red-400" : "border-zinc-200 dark:border-[var(--brand-border-dark)]"}`}
         />
         {errors[key] && <p className="text-xs text-red-500 mt-1">{errors[key]}</p>}
       </div>
@@ -905,7 +905,7 @@ function AddressesTab() {
                   key={l}
                   type="button"
                   onClick={() => setForm((f) => ({ ...f, label: l }))}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${form.label === l
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${form.label === l
                     ? "bg-orange-500 border-orange-500 text-white"
                     : "border-zinc-200 dark:border-[var(--brand-border-dark)] text-zinc-600 dark:text-zinc-300 hover:border-zinc-300"
                     }`}
@@ -1104,7 +1104,7 @@ function AddressesTab() {
                 {!addr.isDefault && (
                   <button
                     onClick={() => setDefaultAddress(user.id, addr.id)}
-                    className="mt-3 text-xs text-zinc-700 dark:text-zinc-300 hover:text-zinc-700 dark:hover:text-zinc-100 font-semibold transition"
+                    className="mt-3 text-xs text-zinc-700 dark:text-zinc-300 hover:text-zinc-700 dark:hover:text-zinc-100 font-semibold"
                   >
                     Set as default
                   </button>
@@ -1116,7 +1116,7 @@ function AddressesTab() {
           {!showForm && (
             <button
               onClick={openAdd}
-              className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-zinc-200 dark:border-[var(--brand-border-dark)] hover:border-zinc-400 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 font-semibold text-sm py-4 rounded-2xl transition"
+              className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-zinc-200 dark:border-[var(--brand-border-dark)] hover:border-zinc-400 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 font-semibold text-sm py-4 rounded-2xl"
             >
               <Plus size={16} /> Add new address
             </button>
@@ -1220,7 +1220,7 @@ function ChangePasswordCard() {
     }
   }
 
-  const pwdInputCls = "w-full border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 pr-11 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition";
+  const pwdInputCls = "w-full border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 pr-11 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 dark:focus:ring-zinc-600";
 
   return (
     <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-100 dark:border-[var(--brand-border-dark)] shadow-sm overflow-hidden">
@@ -1309,7 +1309,7 @@ function ChangePasswordCard() {
                   placeholder="Repeat new password"
                   required
                   autoComplete="new-password"
-                  className="w-full border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition"
+                  className="w-full border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 dark:focus:ring-zinc-600"
                 />
               </div>
 
@@ -1429,7 +1429,7 @@ function ProfileTab() {
                 type="text"
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                className="w-full border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition"
+                className="w-full border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 dark:focus:ring-zinc-600"
               />
             ) : (
               <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-50 dark:bg-white/5 rounded-xl">
@@ -1457,7 +1457,7 @@ function ProfileTab() {
                 autoComplete="tel"
                 value={form.phone}
                 onChange={(e) => setForm((f) => ({ ...f, phone: cleanPhone(e.target.value) }))}
-                className="w-full border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 transition"
+                className="w-full border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 dark:focus:ring-zinc-600"
               />
             ) : (
               <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-50 dark:bg-white/5 rounded-xl">
@@ -1752,7 +1752,7 @@ function RewardsTab() {
           every {sym}1 you spend - then trade them for free food below.
         </p>
         {nextExpiry && (
-          <p className="text-xs font-medium text-amber-700 dark:text-amber-500 bg-amber-50 dark:bg-amber-900/50 border border-amber-100 dark:border-amber-800 rounded-lg px-3 py-2 mt-3">
+          <p className="text-xs font-medium text-amber-700 dark:text-amber-500 bg-amber-50 dark:bg-amber-950/50 border border-amber-100 dark:border-amber-800 rounded-lg px-3 py-2 mt-3">
             {nextExpiry.points.toLocaleString()} point{nextExpiry.points === 1 ? "" : "s"} expire on{" "}
             {new Date(nextExpiry.expiresAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
             {" "}— use them before then. Your oldest points are always spent first.
@@ -1818,12 +1818,12 @@ function RewardsTab() {
               const inBasket = cartRewardId === r.id;
               const shortBy = r.pointsCost - loyaltyPoints;
               return (
-                <div key={r.id} className={`rounded-2xl border p-4 flex flex-col ${affordable ? "border-amber-200 dark:border-amber-800 bg-amber-50/40 dark:bg-amber-950/20" : "border-zinc-100 dark:border-[var(--brand-border-dark)] bg-zinc-50/50 dark:bg-white/5"}`}>
+                <div key={r.id} className={`rounded-2xl border p-4 flex flex-col ${affordable ? "border-amber-200 dark:border-amber-900 bg-amber-50/40 dark:bg-amber-950/10" : "border-zinc-100 dark:border-[var(--brand-border-dark)] bg-zinc-50/50 dark:bg-white/5"}`}>
                   {r.menuItemImage ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={r.menuItemImage} alt={name} className="w-full h-28 object-cover rounded-xl mb-3" />
                   ) : (
-                    <div className="w-full h-28 rounded-xl mb-3 bg-gradient-to-br from-amber-100 to-orange-100 dark:from-amber-950/40 dark:to-orange-950/30 flex items-center justify-center">
+                    <div className="w-full h-28 rounded-xl mb-3 bg-gradient-to-br from-amber-100 to-orange-100 dark:from-amber-950/50 dark:to-orange-50 flex items-center justify-center">
                       <Gift size={28} className="text-amber-400" />
                     </div>
                   )}
@@ -2306,9 +2306,9 @@ function AccountPageContent() {
                 <div className="relative">
                   <button
                     onClick={() => setUserMenuOpen((o) => !o)}
-                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 transition-colors"
+                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10"
                   >
-                    <div className="w-6 h-6 rounded-full bg-orange-500 dark:bg-orange-50 text-white flex items-center justify-center text-[11px] font-bold">
+                    <div className="w-6 h-6 rounded-full bg-orange-500 text-white flex items-center justify-center text-[11px] font-bold">
                       {currentUser.name?.charAt(0).toUpperCase() ?? "U"}
                     </div>
                     <span className="text-[13px] font-medium text-zinc-700 dark:text-zinc-300">{currentUser.name?.split(" ")[0]}</span>

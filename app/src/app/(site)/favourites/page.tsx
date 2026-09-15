@@ -134,7 +134,7 @@ export default function FavouritesPage() {
                                                 onClick={() => openSuggestion(item)}
                                                 className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-white/5 active:bg-zinc-100 dark:active:bg-white/10 transition-colors text-left"
                                             >
-                                                <div className="w-11 h-11 rounded-lg bg-orange-50 dark:bg-orange-500/10 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                                                <div className="w-11 h-11 rounded-lg bg-orange-50 overflow-hidden flex-shrink-0 flex items-center justify-center">
                                                     {item.image ? (
                                                         /* eslint-disable-next-line @next/next/no-img-element */
                                                         <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
@@ -175,7 +175,7 @@ export default function FavouritesPage() {
                                     onClick={() => setUserMenuOpen((o) => !o)}
                                     className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10"
                                 >
-                                    <div className="w-6 h-6 rounded-full bg-orange-500 dark:bg-orange-50 text-white flex items-center justify-center text-[11px] font-bold">
+                                    <div className="w-6 h-6 rounded-full bg-orange-500 text-white flex items-center justify-center text-[11px] font-bold">
                                         {currentUser.name?.charAt(0).toUpperCase() ?? "U"}
                                     </div>
                                     <span className="text-[13px] font-medium text-zinc-700 dark:text-zinc-300">{currentUser.name?.split(" ")[0]}</span>
@@ -267,7 +267,7 @@ export default function FavouritesPage() {
                                     return (
                                         <div key={item.id} className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-200/70 dark:border-[var(--brand-border-dark)] shadow-sm overflow-hidden group flex flex-col">
                                             {/* Image */}
-                                            <div className="relative h-[160px] bg-orange-50 dark:bg-orange-500/10 overflow-hidden flex-shrink-0">
+                                            <div className="relative h-[160px] bg-orange-50 overflow-hidden flex-shrink-0">
                                                 {item.image ? (
                                                     /* eslint-disable-next-line @next/next/no-img-element */
                                                     <img src={item.image} alt={item.name}
@@ -317,7 +317,7 @@ export default function FavouritesPage() {
                                                     disabled={!canAdd}
                                                     onClick={() => setOpenItem(item)}
                                                     className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[13px] font-semibold transition-all mt-auto active:scale-[0.98] ${canAdd
-                                                        ? "bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100 text-white"
+                                                        ? "bg-orange-500 hover:bg-orange-600 text-white"
                                                         : "bg-zinc-100 dark:bg-white/10 text-zinc-400 dark:text-zinc-500 cursor-not-allowed"
                                                         }`}
                                                 >

@@ -96,7 +96,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
     router.push(url);
   }
 
-  const inputCls = "w-full pl-9 pr-4 py-2.5 border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition";
+  const inputCls = "w-full pl-9 pr-4 py-2.5 border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 dark:focus:ring-zinc-500 transition";
 
   const resendInFlight = useRef(false);
 
@@ -239,7 +239,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
                     onChange={(e) => { setLoginForm((f) => ({ ...f, password: e.target.value })); setError(""); setIsAuthError(false); }}
                     placeholder="••••••••"
                     autoComplete="current-password"
-                    className="w-full pl-9 pr-10 py-2.5 border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                    className="w-full pl-9 pr-10 py-2.5 border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 dark:focus:ring-zinc-500 transition"
                   />
                   <button
                     type="button"
@@ -255,7 +255,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
               {/* Error — contextual callout with reset link on auth failure */}
               {error && (
                 isAuthError ? (
-                  <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                  <div className="flex items-start gap-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3">
                     <AlertCircle size={15} className="text-red-500 flex-shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-red-700">{error}</p>
@@ -272,7 +272,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                  <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-3 py-2.5">
                     <AlertCircle size={14} className="text-red-500 flex-shrink-0" />
                     <p className="text-xs text-red-600">{error}</p>
                   </div>
@@ -282,7 +282,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 disabled:opacity-60 text-white font-bold py-3 rounded-xl transition text-sm"
+                className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-bold py-3 rounded-xl transition text-sm"
               >
                 {loading ? "Signing in…" : "Sign in"}
               </button>
@@ -343,7 +343,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
                     type={showPassword ? "text" : "password"} required value={registerForm.password}
                     onChange={(e) => setRegisterForm((f) => ({ ...f, password: e.target.value }))}
                     placeholder="Min. 6 characters"
-                    className="w-full pl-9 pr-10 py-2.5 border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                    className="w-full pl-9 pr-10 py-2.5 border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 dark:focus:ring-zinc-500 transition"
                   />
                   <button
                     type="button" tabIndex={-1}
@@ -381,7 +381,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
               </label>
 
               {error && (
-                <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-3 py-2.5">
                   <AlertCircle size={14} className="text-red-500 flex-shrink-0" />
                   <p className="text-xs text-red-600">{error}</p>
                 </div>
@@ -390,7 +390,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 disabled:opacity-60 text-white font-bold py-3 rounded-xl transition text-sm"
+                className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-bold py-3 rounded-xl transition text-sm"
               >
                 {loading ? "Creating account…" : "Create account"}
               </button>

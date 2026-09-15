@@ -204,7 +204,7 @@ export default function SiteMobileHeader({
               return (
                 <Link key={href} href={href} onClick={close}
                   className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors ${active
-                    ? "bg-orange-500 dark:bg-orange-50 text-white"
+                    ? "bg-orange-500 text-white"
                     : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-white/5"
                     }`}
                 >

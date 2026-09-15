@@ -59,18 +59,44 @@ export function generateShades(hex: string): Record<string, string> | null {
 }
 
 /**
+ * Generate a 9-stop shade palette (50→900) for the customer site's DARK
+ * theme from a single base hex color — same hue/saturation curve as
+ * `generateShades`, but anchored to `DARK_LIGHTNESS` instead of a
+ * light-background lightness curve, so it reads correctly against the fixed
+ * near-black dark-theme background.
+ */
+export function generateDarkShades(hex: string): Record<string, string> | null {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return null;
+  const [h, s, l] = hexToHsl(hex);
+  return {
+    "50":  hslToHex(h, Math.min(s * 0.20, 35), 5),
+    "100": hslToHex(h, Math.min(s * 0.32, 50), 93),
+    "200": hslToHex(h, Math.min(s * 0.48, 62), 86),
+    "300": hslToHex(h, Math.min(s * 0.68, 74), 75),
+    "400": hslToHex(h, Math.min(s * 0.84, 84), 62),
+    "500": hex,
+    "600": hslToHex(h, Math.min(s + 4,  100), Math.max(l - 7,  10)),
+    "700": hslToHex(h, Math.min(s + 7,  100), Math.max(l - 16,  8)),
+    "800": hslToHex(h, Math.min(s + 9,  100), Math.max(l - 26,  5)),
+    "900": hslToHex(h, Math.min(s + 10, 100), 93),
+  };
+}
+
+/**
  * Build the CSS text that:
  *  1. Overrides Tailwind v4's orange scale so every bg-orange-* / text-orange-* class
  *     reflects the chosen brand colour.
  *  2. Exposes semantic --brand-* variables that can be referenced anywhere with
  *     style={{ color: 'var(--brand-primary)' }} or in globals.css.
  *
- * Scope: admin, POS, kitchen, waiter, driver and collection only. The customer
- * ordering site has its own fixed light/dark theme.
+ * Scope: admin, POS, kitchen, waiter, driver, collection, and the customer
+ * ordering site's LIGHT theme (full) and DARK theme (accent only — buttons,
+ * links, highlights).
  */
 export function buildColorCss(primaryColor: string, backgroundColor: string): string {
   const shades = generateShades(primaryColor);
   if (!shades) return "";
+  const darkShades = generateDarkShades(primaryColor);
   return [
     ":root {",
     // Override Tailwind v4 orange scale — every bg-orange-* / text-orange-* picks this up
@@ -94,5 +120,25 @@ export function buildColorCss(primaryColor: string, backgroundColor: string): st
     // body background — lower specificity than class selectors, so we use
     // the CSS variable on the element directly (see layout.tsx / globals.css)
     `body { background-color: var(--brand-bg, ${backgroundColor}); }`,
+    // Customer site's dark-theme accent — same hue/saturation as above, just
+    // recolored for contrast against the fixed dark background 
+    ...(darkShades ? [
+      ".site-theme.dark {",
+      `  --color-orange-50:  ${darkShades["50"]};`,
+      `  --color-orange-100: ${darkShades["100"]};`,
+      `  --color-orange-200: ${darkShades["200"]};`,
+      `  --color-orange-300: ${darkShades["300"]};`,
+      `  --color-orange-400: ${darkShades["400"]};`,
+      `  --color-orange-500: ${darkShades["500"]};`,
+      `  --color-orange-600: ${darkShades["600"]};`,
+      `  --color-orange-700: ${darkShades["700"]};`,
+      `  --color-orange-800: ${darkShades["800"]};`,
+      `  --color-orange-900: ${darkShades["900"]};`,
+      `  --brand-primary:       ${darkShades["500"]};`,
+      `  --brand-primary-hover: ${darkShades["600"]};`,
+      `  --brand-primary-light: ${darkShades["50"]};`,
+      `  --brand-primary-text:  ${darkShades["700"]};`,
+      "}",
+    ] : []),
   ].join("\n");
 }

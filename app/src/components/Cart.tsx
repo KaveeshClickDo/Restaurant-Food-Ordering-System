@@ -109,7 +109,7 @@ export default function Cart({ onMobileClose, onOrderPlaced }: CartProps) {
                     <p className="text-[13.5px] font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)] leading-snug">
                       {item.name}
                       {item.loyaltyRewardId && (
-                        <span className="ml-2 inline-flex items-center gap-1 align-middle bg-amber-100 text-amber-700 text-[10px] font-bold uppercase tracking-wide rounded-full px-2 py-0.5">
+                        <span className="ml-2 inline-flex items-center gap-1 align-middle bg-amber-100 dark:bg-amber-900/20 text-amber-700 text-[10px] font-bold uppercase tracking-wide rounded-full px-2 py-0.5">
                           Reward
                         </span>
                       )}
@@ -217,7 +217,7 @@ export default function Cart({ onMobileClose, onOrderPlaced }: CartProps) {
                   <p className="text-[11.5px] text-zinc-700 dark:text-zinc-200 font-medium flex-1 min-w-0 truncate">{scheduledTime}</p>
                   <button
                     onClick={() => setShowSchedule(true)}
-                    className="text-[10px] text-zinc-500 hover:text-zinc-800 dark:hover:text-white font-semibold underline flex-shrink-0 transition-colors"
+                    className="text-[10px] text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-white font-semibold underline flex-shrink-0 transition-colors"
                   >
                     Change
                   </button>
@@ -242,11 +242,11 @@ export default function Cart({ onMobileClose, onOrderPlaced }: CartProps) {
             {/* Meal-period blocker — surfaces lines that can't be ordered right now. */}
             {hasBlockedLines && (
               <div className="px-5 pb-3">
-                <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200 text-[12px] text-amber-800">
+                <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-[12px] text-amber-800 dark:text-amber-600">
                   <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold mb-1">
-                      {blockedLines.length === 1
+                      {blockedLines.length === 0
                         ? "1 item isn't available right now."
                         : `${blockedLines.length} items aren't available right now.`}
                     </p>
@@ -275,7 +275,7 @@ export default function Cart({ onMobileClose, onOrderPlaced }: CartProps) {
                 disabled={!canCheckout}
                 onClick={() => currentUser ? setShowCheckout(true) : setShowAuth(true)}
                 className={`w-full py-3.5 rounded-xl font-semibold text-[14px] flex items-center justify-between px-5 ${canCheckout
-                  ? "bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100 active:scale-[0.98] text-white"
+                  ? "bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white"
                   : "bg-zinc-100 dark:bg-white/10 text-zinc-400 dark:text-zinc-500 cursor-not-allowed"
                   }`}
               >

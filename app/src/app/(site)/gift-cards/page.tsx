@@ -103,7 +103,7 @@ export default function GiftCardsPage() {
     return (
       <div className="max-w-xl mx-auto px-4 py-16 text-center">
         <Gift size={40} className="mx-auto text-zinc-300 mb-3" />
-        <h1 className="text-xl font-bold text-zinc-800">Gift cards unavailable</h1>
+        <h1 className="text-xl font-bold text-zinc-800 dark:text-zinc-200">Gift cards unavailable</h1>
         <p className="text-sm text-zinc-500 mt-1">Gift card sales are currently turned off. Please check back later.</p>
       </div>
     );
@@ -112,8 +112,8 @@ export default function GiftCardsPage() {
   return (
     <div className="max-w-xl mx-auto px-4 py-8 sm:py-12">
       <div className="flex items-center gap-3 mb-6">
-        <div className="w-11 h-11 rounded-2xl bg-orange-100 flex items-center justify-center flex-shrink-0">
-          <Gift size={22} className="text-orange-600" />
+        <div className="w-11 h-11 rounded-2xl bg-orange-100 dark:bg-orange-100/80 flex items-center justify-center flex-shrink-0">
+          <Gift size={22} className="text-orange-600"/>
         </div>
         <div>
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-[var(--brand-text-dark)]">Gift Cards</h1>
@@ -133,7 +133,7 @@ export default function GiftCardsPage() {
                   onClick={() => { setAmount(p); setCustomAmount(""); setError(""); }}
                   className={`py-3 rounded-xl text-sm font-bold border-2 ${
                     !customAmount && amount === p
-                      ? "border-orange-500 bg-orange-50 dark:bg-orange-500/10 text-orange-700"
+                      ? "border-orange-500 bg-orange-50 text-orange-700"
                       : "border-zinc-200 dark:border-[var(--brand-border-dark)] text-zinc-700 dark:text-zinc-300 hover:border-orange-300"
                   }`}
                 >
@@ -150,7 +150,7 @@ export default function GiftCardsPage() {
                 value={customAmount}
                 onChange={(e) => { setCustomAmount(e.target.value); setError(""); }}
                 placeholder={`Custom amount (${sym}${minAmount}–${sym}${maxAmount})`}
-                className="w-full pl-7 pr-4 py-2.5 rounded-xl border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                className="w-full pl-7 pr-4 py-2.5 rounded-xl border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 dark:focus:ring-zinc-500"
               />
             </div>
           </div>
@@ -173,7 +173,7 @@ export default function GiftCardsPage() {
                   value={recipientName}
                   onChange={(e) => { setRecipientName(e.target.value); setError(""); }}
                   placeholder="Who's it for?"
-                  className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 dark:focus:ring-zinc-500"
                 />
               </div>
               <div>
@@ -185,7 +185,7 @@ export default function GiftCardsPage() {
                     value={recipientEmail}
                     onChange={(e) => { setRecipientEmail(e.target.value); setError(""); }}
                     placeholder="recipient@example.com"
-                    className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                    className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 dark:focus:ring-zinc-500"
                   />
                 </div>
                 <p className="text-xs text-zinc-400 mt-1">We&apos;ll email the code here once payment completes.</p>
@@ -205,7 +205,7 @@ export default function GiftCardsPage() {
                   value={purchaserEmail}
                   onChange={(e) => { setPurchaserEmail(e.target.value); setError(""); }}
                   placeholder="you@example.com"
-                  className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 dark:focus:ring-zinc-500"
                 />
               </div>
               <p className="text-xs text-zinc-400 mt-1">So we can reach you about this purchase and occasional offers.</p>
@@ -227,12 +227,12 @@ export default function GiftCardsPage() {
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               placeholder="Happy birthday — enjoy a meal on me!"
-              className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-400"
+              className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-400 dark:focus:ring-zinc-500"
             />
           </div>
 
           {error && (
-            <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+            <div className="flex items-start gap-2 bg-red-50 dark:bg-red-950/10 border border-red-200 dark:border-red-700 rounded-xl px-3 py-2.5">
               <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
               <p className="text-xs text-red-700">{error}</p>
             </div>
@@ -241,7 +241,7 @@ export default function GiftCardsPage() {
           <button
             onClick={() => void startPurchase()}
             disabled={submitting}
-            className="w-full bg-orange-600 dark:bg-orange-50 hover:bg-orange-700 dark:hover:bg-orange-100/80 disabled:bg-orange-300 text-white font-bold px-2 py-3.5 text-[15px] sm:text-base rounded-xl flex items-center justify-center gap-2"
+            className="w-full bg-orange-600 hover:bg-orange-700 disabled:bg-orange-300 text-white font-bold px-2 py-3.5 text-[15px] sm:text-base rounded-xl flex items-center justify-center gap-2"
           >
             {submitting ? <><Loader2 size={16} className="animate-spin" /> Preparing…</> : <>Continue to payment · {sym}{effectiveAmount.toFixed(2)}</>}
           </button>
@@ -323,7 +323,7 @@ function GiftCardPaymentForm({ amountLabel, onPaid }: { amountLabel: string; onP
     <form onSubmit={handleSubmit} className="space-y-4">
       <PaymentElement options={{ layout: "tabs" }} />
       {error && (
-        <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+        <div className="flex items-start gap-2 bg-red-50 dark:bg-red-950/10 border border-red-200 dark:border-red-700 rounded-xl px-3 py-2.5">
           <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
           <p className="text-xs text-red-700">{error}</p>
         </div>
@@ -331,7 +331,7 @@ function GiftCardPaymentForm({ amountLabel, onPaid }: { amountLabel: string; onP
       <button
         type="submit"
         disabled={!stripe || submitting}
-        className="w-full bg-orange-600 dark:bg-orange-50 hover:bg-orange-700 dark:hover:bg-orange-100/80 disabled:bg-orange-300 text-white font-bold px-2 py-3.5 text-[15px] sm:text-base rounded-xl flex items-center justify-center gap-2"
+        className="w-full bg-orange-600 hover:bg-orange-700 disabled:bg-orange-300 text-white font-bold px-2 py-3.5 text-[15px] sm:text-base rounded-xl flex items-center justify-center gap-2"
       >
         {submitting ? <><Loader2 size={16} className="animate-spin" /> Processing…</> : <><Lock size={14} /> Pay {amountLabel}</>}
       </button>

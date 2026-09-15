@@ -127,7 +127,7 @@ export default function ReservationPaymentStep({
             type="button"
             disabled={loading}
             onClick={() => startPayment("card")}
-            className="w-full flex items-center justify-center gap-2 bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 disabled:opacity-50 text-white font-bold py-3.5 rounded-xl transition"
+            className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold py-3.5 rounded-xl transition"
           >
             {loading && method === "card"
               ? <><Loader2 size={16} className="animate-spin" /> Preparing…</>
@@ -222,7 +222,7 @@ function CardForm({ amountLabel, onPaid }: { amountLabel: string; onPaid: () => 
       <button
         type="submit"
         disabled={!stripe || submitting}
-        className="w-full bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 disabled:bg-orange-300 text-white font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2"
+        className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2"
       >
         {submitting
           ? <><Loader2 size={16} className="animate-spin" /> Processing…</>

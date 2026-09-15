@@ -90,7 +90,7 @@ function UnsubscribeContent() {
             This unsubscribe link looks incomplete. Please use the link from the
             bottom of one of our emails, or contact us and we&apos;ll take care of it.
           </p>
-          <Link href="/" className="block text-sm text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition mt-1">
+          <Link href="/" className="block text-sm text-zinc-400 dark:text-zinc-300 hover:text-zinc-600 dark:hover:text-zinc-200 transition mt-1">
             Back to menu
           </Link>
         </>

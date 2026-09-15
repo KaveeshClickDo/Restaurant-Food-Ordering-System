@@ -1085,7 +1085,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
           ) : null}
           <button
             onClick={() => { onClose(); onOrderPlaced?.(); }}
-            className="mt-6 w-full bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 text-white font-bold py-3 rounded-xl transition"
+            className="mt-6 w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl transition"
           >
             View my orders
           </button>
@@ -1255,7 +1255,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
             <h3 className="font-semibold text-gray-900 dark:text-[var(--brand-text-dark)] text-sm mb-2">Gift card</h3>
             {appliedGiftCard ? (
               <>
-                <div className="flex items-center justify-between gap-3 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500 rounded-xl px-4 py-3">
+                <div className="flex items-center justify-between gap-3 bg-orange-50 border border-orange-200 dark:border-orange-500 rounded-xl px-4 py-3">
                   <div className="flex items-center gap-2 min-w-0">
                     <Gift size={15} className="text-orange-600 flex-shrink-0" />
                     <div className="min-w-0">
@@ -1424,7 +1424,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                           }
                         }}
                         className={`w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-xl border transition ${selectedAddressId === addr.id
-                          ? "border-orange-400 bg-orange-50 dark:bg-orange-500/10"
+                          ? "border-orange-400 bg-orange-50"
                           : "border-gray-200 dark:border-[var(--brand-border-dark)] hover:border-orange-300 bg-white dark:bg-transparent"
                           }`}
                       >
@@ -1463,7 +1463,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                         setZone(null);
                       }}
                       className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl border transition ${selectedAddressId === "manual"
-                        ? "border-orange-400 bg-orange-50 dark:bg-orange-500/10"
+                        ? "border-orange-400 bg-orange-50"
                         : "border-dashed border-gray-200 dark:border-[var(--brand-border-dark)] hover:border-orange-300"
                         }`}
                     >
@@ -1783,7 +1783,7 @@ function CardPaymentForm({
       <button
         type="submit"
         disabled={!stripe || submitting}
-        className="w-full bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 disabled:bg-orange-300 disabled:cursor-not-allowed text-white font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2"
+        className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 disabled:cursor-not-allowed text-white font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2"
       >
         {submitting
           ? <><Loader2 size={16} className="animate-spin" /> Processing…</>

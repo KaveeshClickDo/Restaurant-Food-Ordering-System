@@ -56,7 +56,7 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
         }`}
     >
       {/* Image */}
-      <div className="relative h-[180px] bg-orange-50 dark:bg-orange-500/10 overflow-hidden">
+      <div className="relative h-[180px] bg-orange-50 overflow-hidden">
         {item.image ? (
           // eslint-disable-next-line @next/next/no-img-element -- admin-uploaded URLs from arbitrary hosts; next/image can't pre-register remotePatterns
           <img
@@ -186,14 +186,14 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
   return (
     <>
       <div className="mx-5 md:mx-6 mt-6 mb-6 rounded-2xl overflow-hidden bg-white dark:bg-[var(--brand-surface-dark)] border border-zinc-200/70 dark:border-[var(--brand-border-dark)] shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.04)]">
-        <div className="relative px-6 md:px-8 py-7 flex items-center gap-7 bg-orange-50 dark:bg-orange-500/10 overflow-hidden">
+        <div className="relative px-6 md:px-8 py-7 flex items-center gap-7 bg-orange-50 dark:bg-[var(--brand-bg-dark)] overflow-hidden">
           {/* Cover image or dot pattern background */}
           {restaurant.coverImage ? (
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={restaurant.coverImage} alt="" aria-hidden
                 className="absolute inset-0 w-full h-full object-cover opacity-20 pointer-events-none select-none" />
-              <div className="absolute inset-0 bg-gradient-to-r from-orange-50/90 via-orange-50/60 to-transparent pointer-events-none" />
+              <div className="absolute inset-0 bg-gradient-to-r from-orange-50/90 via-orange-50/60 to-transparent dark:from-orange-50 dark:via-orange-50/70 dark:to-transparent pointer-events-none" />
             </>
           ) : (
             <div className="absolute right-0 top-0 bottom-0 w-2/5 pointer-events-none opacity-40">
@@ -230,7 +230,7 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
               <div className="inline-flex items-center p-1 rounded-xl bg-white dark:bg-white/5 border border-zinc-200/80 dark:border-[var(--brand-border-dark)] shadow-sm mb-5">
                 <button
                   onClick={() => setFulfillment("delivery")}
-                  className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold ${isDelivery ? "bg-orange-500 dark:bg-orange-50 text-white shadow-sm" : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-white"
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold ${isDelivery ? "bg-orange-500 text-white shadow-sm" : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-white"
                     }`}
                 >
                   <Bike className="w-3.5 h-3.5" strokeWidth={1.8} />
@@ -238,7 +238,7 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
                 </button>
                 <button
                   onClick={() => setFulfillment("collection")}
-                  className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold ${!isDelivery ? "bg-orange-500 dark:bg-orange-50 text-white shadow-sm" : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-white"
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold ${!isDelivery ? "bg-orange-500 text-white shadow-sm" : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-white"
                     }`}
                 >
                   <ShoppingBag className="w-3.5 h-3.5" strokeWidth={1.8} />
@@ -248,7 +248,7 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
             ) : (
               /* Single mode UI: Shows a button-like indicator + text */
               <div className="flex items-center gap-3 mb-5">
-                <div className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold bg-orange-500 dark:bg-orange-50 text-white shadow-sm">
+                <div className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold bg-orange-500 text-white shadow-sm">
                   {isDelivery ? <Bike className="w-3.5 h-3.5" /> : <ShoppingBag className="w-3.5 h-3.5" />}
                   {isDelivery ? "Delivery Only" : "Collection Only"}
                 </div>
@@ -291,7 +291,7 @@ function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void })
               {settings.reservationSystem?.enabled && (
                 <button
                   onClick={onReserve}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100 active:scale-[0.98] text-white text-[13px] font-semibold transition-all"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white text-[13px] font-semibold transition-all"
                 >
                   <CalendarDays className="w-3.5 h-3.5" strokeWidth={1.8} />
                   Reserve a Table
@@ -630,7 +630,7 @@ export default function HomePageClient() {
                         onClick={() => openSuggestion(item)}
                         className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-white/5 active:bg-zinc-100 dark:active:bg-white/10 transition-colors text-left"
                       >
-                        <div className="w-11 h-11 rounded-lg bg-orange-50 dark:bg-orange-500/10 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                        <div className="w-11 h-11 rounded-lg bg-orange-50 overflow-hidden flex-shrink-0 flex items-center justify-center">
                           {item.image ? (
                             // eslint-disable-next-line @next/next/no-img-element -- admin-uploaded URLs from arbitrary hosts
                             <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
@@ -671,7 +671,7 @@ export default function HomePageClient() {
                   onClick={() => setUserMenuOpen((o) => !o)}
                   className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10"
                 >
-                  <div className="w-6 h-6 rounded-full bg-orange-500 dark:bg-orange-50 text-white flex items-center justify-center text-[11px] font-bold">
+                  <div className="w-6 h-6 rounded-full bg-orange-500 text-white flex items-center justify-center text-[11px] font-bold">
                     {currentUser.name?.charAt(0).toUpperCase() ?? "U"}
                   </div>
                   <span className="hidden md:block text-[13px] font-medium text-zinc-700 dark:text-zinc-300">{currentUser.name?.split(" ")[0]}</span>
@@ -694,7 +694,7 @@ export default function HomePageClient() {
               </div>
             ) : (
               <button onClick={() => setAuthModal({ open: true, tab: "login" })}
-                className="px-4 py-2 rounded-xl bg-orange-500 dark:bg-orange-50 text-white text-[13px] font-medium hover:bg-orange-600 dark:hover:bg-orange-100 transition-colors">
+                className="px-4 py-2 rounded-xl bg-orange-500 text-white text-[13px] font-medium hover:bg-orange-600 transition-colors">
                 Sign in
               </button>
             )}
@@ -710,7 +710,7 @@ export default function HomePageClient() {
             {/* Everything pill */}
             <button
               onClick={() => setActiveCat("all")}
-              className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all active:scale-95 ${activeCat === "all"
+              className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium active:scale-95 ${activeCat === "all"
                 ? "bg-orange-500 text-white"
                 : "bg-zinc-100 dark:bg-white/10 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-white/15"
                 }`}
@@ -725,7 +725,7 @@ export default function HomePageClient() {
                 <button
                   key={cat.id}
                   onClick={() => setActiveCat(cat.id)}
-                  className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all active:scale-95 ${active
+                  className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium active:scale-95 ${active
                     ? "bg-orange-500 text-white"
                     : "bg-zinc-100 dark:bg-white/10 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-white/15"
                     }`}
@@ -739,13 +739,13 @@ export default function HomePageClient() {
 
           {/* Row 2: Sub-categories (Only shown if a parent with children is active) */}
           {subCategoriesOfActive.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto scrollbar-hide px-4 pb-2.5 -mt-0.5 border-t border-zinc-50 dark:border-white/5 pt-2 animate-in slide-in-from-top-1 duration-200">
+            <div className="flex gap-2 overflow-x-auto scrollbar-hide px-4 pb-2.5 -mt-0.5 border-t border-zinc-50 dark:border-white/5 pt-2 animate-in slide-in-from-top-1">
               {subCategoriesOfActive.map((sub) => (
                 <button
                   key={sub.id}
                   onClick={() => setActiveCat(sub.id)}
-                  className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold border transition-all ${activeCat === sub.id
-                    ? "bg-orange-500 text-white"
+                  className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold border ${activeCat === sub.id
+                    ? "bg-orange-500 text-white dark:border-orange-500"
                     : "bg-white dark:bg-white/5 border-zinc-200 dark:border-[var(--brand-border-dark)] text-zinc-500 dark:text-zinc-400"
                     }`}
                 >

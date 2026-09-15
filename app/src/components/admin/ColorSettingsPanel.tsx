@@ -287,14 +287,14 @@ export default function ColorSettingsPanel() {
 
         <ColorInput
           label="Primary / Brand Colour"
-          hint="Controls buttons, active states, badges, links, and all accent elements across the admin panel, POS, kitchen, waiter, driver and collection screens. The customer ordering site has its own fixed light/dark theme and is not affected."
+          hint="Controls buttons, active states, badges, links, and all accent elements across both the customer menu and admin panel"
           value={draft.primaryColor}
           onChange={(hex) => update({ primaryColor: hex })}
         />
 
         <ColorInput
           label="Page Background"
-          hint="Background colour of the admin dashboard and other staff-facing screens — defaults to a very light grey. The customer ordering site is not affected."
+          hint="Background colour of the customer menu page and admin dashboard — defaults to a very light grey. Not applied to the customer site's dark theme — only light."
           value={draft.backgroundColor}
           onChange={(hex) => update({ backgroundColor: hex })}
         />
@@ -305,7 +305,7 @@ export default function ColorSettingsPanel() {
         <div>
           <h3 className="font-semibold text-gray-900">Live Preview</h3>
           <p className="text-xs text-gray-400 mt-0.5">
-            Reflects your current selections — applies to the admin, POS, kitchen, waiter, driver and collection screens once you click Apply. The customer ordering site keeps its own fixed light/dark theme and won&apos;t change.
+            Reflects your current selections — changes apply to the whole site once you click Apply
           </p>
         </div>
         <LivePreview draft={draft} name={settings.restaurant.name} />

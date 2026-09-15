@@ -43,7 +43,7 @@ export default function MobileBottomNav({
                 className="flex-1 flex flex-col items-center justify-end pb-2 relative"
               >
                 <div className="relative -mt-5 mb-1">
-                  <div className="w-12 h-12 rounded-full bg-orange-500 dark:bg-orange-50 flex items-center justify-center shadow-lg shadow-orange-500/40 dark:shadow-orange-50 border-[3px] border-white dark:border-[var(--brand-surface-dark)]">
+                  <div className="w-12 h-12 rounded-full bg-orange-500 flex items-center justify-center shadow-lg shadow-orange-500/40 dark:shadow-orange-50 border-[3px] border-white dark:border-[var(--brand-surface-dark)]">
                     <ShoppingBag className="w-5 h-5 text-white" strokeWidth={1.8} />
                   </div>
                   {cartCount > 0 && (

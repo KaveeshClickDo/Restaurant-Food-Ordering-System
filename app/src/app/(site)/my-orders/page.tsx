@@ -142,7 +142,7 @@ function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void
                 {/* Driver info */}
                 {order.driverName && (
                     <div className="mx-5 mt-4 flex items-center gap-3 bg-zinc-50 dark:bg-white/5 rounded-2xl p-3.5">
-                        <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold text-[16px] flex-shrink-0">
+                        <div className="w-10 h-10 rounded-full bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center text-orange-600 font-bold text-[16px] flex-shrink-0">
                             {order.driverName.charAt(0).toUpperCase()}
                         </div>
                         <div className="flex-1 min-w-0">
@@ -162,14 +162,14 @@ function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void
                     && order.status !== "delivered"
                     && order.status !== "cancelled"
                     && order.paymentStatus !== "refunded" && (
-                        <div className="mx-5 mt-3 rounded-2xl p-4 text-center border-2 border-dashed border-orange-300 bg-orange-50">
-                            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-orange-700 mb-1">
+                        <div className="mx-5 mt-3 rounded-2xl p-4 text-center border-2 border-dashed border-orange-300 dark:border-orange-500/50 bg-orange-50">
+                            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-orange-700 dark:text-orange-500 mb-1">
                                 Delivery confirmation code
                             </p>
                             <p className="font-mono font-extrabold text-[28px] tracking-[0.4em] text-zinc-900 dark:text-white leading-none my-2">
                                 {order.deliveryCode}
                             </p>
-                            <p className="text-[11.5px] text-zinc-600 leading-snug">
+                            <p className="text-[11.5px] text-zinc-600 dark:text-zinc-400 leading-snug">
                                 Show or read this to your driver to confirm delivery.
                             </p>
                         </div>
@@ -179,7 +179,7 @@ function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void
                 <div className="px-5 py-4 space-y-3">
                     <div className="bg-zinc-50 dark:bg-white/5 rounded-2xl p-4">
                         <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400 mb-2">Order summary</p>
-                        <p className="text-[13px] text-zinc-700 dark:text-zinc-300 leading-relaxed">{itemSummary}</p>
+                        <p className="text-[13px] text-zinc-700 dark:text-zinc-200 leading-relaxed">{itemSummary}</p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2.5">
@@ -398,7 +398,7 @@ function ReceiptModal({
                         >
                             <Printer size={12} /> Print
                         </button>
-                        <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/15 transition">
+                        <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/15 text-gray-700 dark:text-zinc-200  transition">
                             <X size={13} />
                         </button>
                     </div>
@@ -413,41 +413,41 @@ function ReceiptModal({
                             <img src={rs.logoUrl} alt="Logo" className="h-12 object-contain mx-auto mb-1" />
                         )}
                         <p className="font-bold text-base text-gray-900 dark:text-[var(--brand-text-dark)]">{rs.restaurantName}</p>
-                        {restaurantAddress && <p className="text-gray-500 text-[10px]">{restaurantAddress}</p>}
-                        {rs.phone && <p className="text-gray-500">{rs.phone}</p>}
-                        {rs.website && <p className="text-gray-500">{rs.website}</p>}
-                        {rs.email && <p className="text-gray-500">{rs.email}</p>}
-                        {rs.vatNumber && <p className="text-gray-500">VAT: {rs.vatNumber}</p>}
+                        {restaurantAddress && <p className="text-gray-500 dark:text-zinc-400 text-[10px]">{restaurantAddress}</p>}
+                        {rs.phone && <p className="text-gray-500 dark:text-zinc-400">{rs.phone}</p>}
+                        {rs.website && <p className="text-gray-500 dark:text-zinc-400">{rs.website}</p>}
+                        {rs.email && <p className="text-gray-500 dark:text-zinc-400">{rs.email}</p>}
+                        {rs.vatNumber && <p className="text-gray-500 dark:text-zinc-400">VAT: {rs.vatNumber}</p>}
                     </div>
 
                     <div className="border-t border-dashed border-gray-300 dark:border-zinc-700" />
 
                     <div className="text-center space-y-0.5">
                         <p className="font-bold text-sm">RECEIPT</p>
-                        <p title={fullOrderNumber(order.id)} className="text-gray-500 break-all">{fullOrderNumber(order.id)}</p>
-                        <p className="text-gray-500">{fmtDate(order.date)} at {fmtTime(order.date)}</p>
+                        <p title={fullOrderNumber(order.id)} className="text-gray-500 dark:text-zinc-400 break-all">{fullOrderNumber(order.id)}</p>
+                        <p className="text-gray-500 dark:text-zinc-400">{fmtDate(order.date)} at {fmtTime(order.date)}</p>
                     </div>
 
                     <div className="border-t border-dashed border-gray-300 dark:border-zinc-700" />
 
                     <div className="space-y-1">
                         <div className="flex justify-between">
-                            <span className="text-gray-500">Customer</span>
+                            <span className="text-gray-500 dark:text-zinc-400">Customer</span>
                             <span className="font-medium">{customer.name}</span>
                         </div>
                         <div className="flex justify-between">
-                            <span className="text-gray-500">Type</span>
+                            <span className="text-gray-500 dark:text-zinc-400">Type</span>
                             <span className="font-medium">{order.fulfillment === "delivery" ? "🚚 Delivery" : "🏪 Collection"}</span>
                         </div>
                         {order.address && (
                             <div className="flex justify-between gap-4">
-                                <span className="text-gray-500 flex-shrink-0">Address</span>
+                                <span className="text-gray-500 dark:text-zinc-400 flex-shrink-0">Address</span>
                                 <span className="text-right font-medium">{order.address}</span>
                             </div>
                         )}
                         {order.scheduledTime && (
                             <div className="flex justify-between gap-4">
-                                <span className="text-gray-500 flex-shrink-0">Scheduled</span>
+                                <span className="text-gray-500 dark:text-zinc-400 flex-shrink-0">Scheduled</span>
                                 <span className="text-right font-medium text-green-700">{order.scheduledTime}</span>
                             </div>
                         )}
@@ -488,16 +488,16 @@ function ReceiptModal({
                     <div className="border-t border-dashed border-gray-300 dark:border-zinc-700" />
 
                     <div className="space-y-1">
-                        <div className="flex justify-between text-gray-500">
+                        <div className="flex justify-between text-gray-500 dark:text-zinc-400">
                             <span>Subtotal</span><span>{sym}{subtotal.toFixed(2)}</span>
                         </div>
                         {order.fulfillment === "delivery" && (
-                            <div className="flex justify-between text-gray-500">
+                            <div className="flex justify-between text-gray-500 dark:text-zinc-400">
                                 <span>Delivery fee</span><span>{sym}{deliveryFee.toFixed(2)}</span>
                             </div>
                         )}
                         {serviceFee > 0 && (
-                            <div className="flex justify-between text-gray-500">
+                            <div className="flex justify-between text-gray-500 dark:text-zinc-400">
                                 <span>Service fee</span><span>{sym}{serviceFee.toFixed(2)}</span>
                             </div>
                         )}
@@ -540,12 +540,12 @@ function ReceiptModal({
                         <div className="space-y-1">
                             {order.paymentMethod && (
                                 <div className="flex justify-between">
-                                    <span className="text-gray-500">Payment</span>
+                                    <span className="text-gray-500 dark:text-zinc-400">Payment</span>
                                     <span className="font-medium">{order.paymentMethod}</span>
                                 </div>
                             )}
                             <div className="flex justify-between">
-                                <span className="text-gray-500">Status</span>
+                                <span className="text-gray-500 dark:text-zinc-400">Status</span>
                                 <span className={`font-semibold ${STATUS_CONFIG[order.status].className.split(" ").find((c) => c.startsWith("text-")) ?? "text-gray-900"}`}>
                                     {orderStatusLabel(order)}
                                 </span>
@@ -561,7 +561,7 @@ function ReceiptModal({
 
                     <div className="border-t border-dashed border-gray-300 dark:border-zinc-700" />
 
-                    <div className="text-center space-y-0.5 text-gray-500">
+                    <div className="text-center space-y-0.5 text-gray-500 dark:text-zinc-400">
                         {rs.thankYouMessage && <p className="font-medium text-gray-700 dark:text-zinc-300">{rs.thankYouMessage}</p>}
                         {rs.customMessage && <p className="text-[10px] leading-snug whitespace-pre-wrap">{rs.customMessage}</p>}
                         <p>{rs.restaurantName}</p>
@@ -809,7 +809,7 @@ export default function MyOrdersPage() {
                                                 onClick={() => openSuggestion(item)}
                                                 className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-white/5 active:bg-zinc-100 dark:active:bg-white/10 transition-colors text-left"
                                             >
-                                                <div className="w-11 h-11 rounded-lg bg-orange-50 dark:bg-orange-500/10 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                                                <div className="w-11 h-11 rounded-lg bg-orange-50 overflow-hidden flex-shrink-0 flex items-center justify-center">
                                                     {item.image ? (
                                                         /* eslint-disable-next-line @next/next/no-img-element */
                                                         <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
@@ -850,7 +850,7 @@ export default function MyOrdersPage() {
                                     onClick={() => setUserMenuOpen((o) => !o)}
                                     className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10"
                                 >
-                                    <div className="w-6 h-6 rounded-full bg-orange-500 dark:bg-orange-50 text-white flex items-center justify-center text-[11px] font-bold">
+                                    <div className="w-6 h-6 rounded-full bg-orange-500 text-white flex items-center justify-center text-[11px] font-bold">
                                         {currentUser.name?.charAt(0).toUpperCase() ?? "U"}
                                     </div>
                                     <span className="text-[13px] font-medium text-zinc-700 dark:text-zinc-300">{currentUser.name?.split(" ")[0]}</span>
@@ -967,7 +967,7 @@ export default function MyOrdersPage() {
                                                         </button>
                                                         <button
                                                             onClick={() => setTrackingOrder(activeOrder)}
-                                                            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-white text-zinc-900 text-[13px] font-bold hover:bg-zinc-100 transition-colors active:scale-[0.98]"
+                                                            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 text-[13px] font-bold hover:bg-zinc-100 dark:hover:bg-zinc-700 active:scale-[0.98]"
                                                         >
                                                             <Navigation className="w-3.5 h-3.5" strokeWidth={2} />
                                                             Track order

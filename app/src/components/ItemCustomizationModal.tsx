@@ -213,7 +213,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                           }
                           className={`relative rounded-xl border-2 px-4 py-3 text-left transition-all ${
                             active
-                              ? "border-orange-500 bg-orange-50 dark:bg-orange-500/10"
+                              ? "border-orange-500 bg-orange-50"
                               : "border-gray-200 bg-gray-50 hover:border-gray-300 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:hover:border-zinc-600"
                           }`}
                         >
@@ -259,7 +259,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                           }
                           className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-all text-left ${
                             checked
-                              ? "border-orange-400 bg-orange-50 dark:bg-orange-500/10"
+                              ? "border-orange-400 bg-orange-50"
                               : "border-gray-200 bg-gray-50 hover:border-gray-300 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:hover:border-zinc-600"
                           }`}
                         >
@@ -322,7 +322,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                 {/* Add to order */}
                 <button
                   onClick={handleAddToCart}
-                  className="flex-1 flex-wrap bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100 active:scale-[0.98] text-white font-bold py-3 rounded-xl transition-all flex items-center justify-between px-5 text-sm sm:text-[15px]"
+                  className="flex-1 flex-wrap bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white font-bold py-3 rounded-xl transition-all flex items-center justify-between px-5 text-sm sm:text-[15px]"
                 >
                   <span>Add to order</span>
                   <span className="tabular-nums">{sym}{total.toFixed(2)}</span>

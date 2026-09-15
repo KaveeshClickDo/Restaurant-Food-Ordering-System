@@ -78,7 +78,7 @@ export default function ScheduleOrderModal({ onClose }: Props) {
                       onClick={() => { setSelectedDay(d.dateStr); setSelectedSlot(""); }}
                       className={`flex-shrink-0 px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${
                         selectedDay === d.dateStr
-                          ? "border-orange-500 bg-orange-50 dark:bg-orange-500/10 text-orange-700"
+                          ? "border-orange-500 bg-orange-50 text-orange-700"
                           : "border-gray-200 dark:border-[var(--brand-border-dark)] text-gray-600 dark:text-zinc-400 hover:border-gray-300 dark:hover:border-zinc-600"
                       }`}
                     >

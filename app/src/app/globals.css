@@ -8,50 +8,19 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * Customer site's own fixed light/dark theme, independent of admin's Brand
- * Colors. `.site-theme` sits on the customer site's wrapper div (see
- * SiteLayoutClient.tsx / HomePageClient.tsx), below <html> — so it always
- * wins over whatever admin sets at :root.
+ * Customer site's DARK theme: background/surface/border/text stay fixed here.
+ * The accent (--color-orange-*, --brand-primary*) is injected dynamically
+ * instead, alongside the light theme's, via the `.site-theme.dark { ... }`
+ * rule that layout.tsx's <style id="color-theme-vars"> emits (see
+ * colorUtils.ts's buildColorCss/generateDarkShades).
  */
 @layer base {
-  .site-theme {
-    --color-orange-50:  #f7f7f7;
-    --color-orange-100: #ededed;
-    --color-orange-200: #dadadc;
-    --color-orange-300: #bdbdc2;
-    --color-orange-400: #9999a3;
-    --color-orange-500: #18181b;
-    --color-orange-600: #17171c;
-    --color-orange-700: #121217;
-    --color-orange-800: #0b0b0f;
-    --color-orange-900: #060609;
-    --brand-primary:       #18181b;
-    --brand-primary-hover: #17171c;
-    --brand-primary-light: #f7f7f7;
-    --brand-primary-text:  #121217;
-    --brand-bg: #fafaf9;
-  }
-
   .site-theme.dark {
-    --color-orange-50:  #060609;
-    --color-orange-100: #0b0b0f;
-    --color-orange-200: #121217;
-    --color-orange-300: #17171c;
-    --color-orange-400: #18181b;
-    --color-orange-500: #9999a3;
-    --color-orange-600: #bdbdc2;
-    --color-orange-700: #bdbdc2;
-    --color-orange-800: #dadadc;
-    --color-orange-900: #ededed;
-    --brand-primary:       #9999a3;
-    --brand-primary-hover: #bdbdc2;
-    --brand-primary-light: #060609;
-    --brand-primary-text:  #bdbdc2;
-    --brand-bg: #09090b;
+    --brand-bg: #050505;
     --brand-primary-dark:       #9999a3;
     --brand-primary-dark-hover: #bdbdc2;
-    --brand-bg-dark:      #09090b;
-    --brand-surface-dark: #18181b;
+    --brand-bg-dark:      #090808;
+    --brand-surface-dark: #0f0f10;
     --brand-border-dark:  #27272a;
     --brand-text-dark:    #f4f4f5;
   }
@@ -142,6 +111,7 @@
   .dark .rich-content ul,
   .dark .rich-content ol  { color: #d4d4d8; }
   .dark .rich-content strong,
+  .dark .rich-content a  { color: #aaaaaf; }
   .dark .rich-content b   { color: var(--brand-text-dark, #f4f4f5); }
   .dark .rich-content hr  { border-top-color: var(--brand-border-dark, #3f3f46); }
   .dark .rich-content blockquote { color: #a1a1aa; }

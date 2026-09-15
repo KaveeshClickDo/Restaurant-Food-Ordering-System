@@ -273,7 +273,7 @@ export default function BookPage() {
                           past
                             ? "bg-gray-50 dark:bg-white/5 text-gray-300 dark:text-zinc-600 border-gray-100 dark:border-white/10 cursor-not-allowed line-through"
                             : selected
-                              ? "bg-orange-500 dark:bg-orange-500/50 text-white border-orange-500 shadow-sm"
+                              ? "bg-orange-800/50 text-white border-orange-500 shadow-sm"
                               : "bg-white dark:bg-transparent text-gray-600 dark:text-zinc-300 border-gray-200 dark:border-[var(--brand-border-dark)] hover:border-zinc-300 hover:text-zinc-700 dark:hover:text-white"
                         }`}>{fmt12(slot)}</button>
                     );
@@ -387,9 +387,9 @@ export default function BookPage() {
                           return (
                             <button key={t.id} type="button" onClick={() => setSelectedTable(t)}
                               className={`flex flex-col items-center gap-1.5 py-4 px-3 rounded-xl border-2 ${
-                                sel ? "border-orange-500 bg-orange-50 dark:bg-orange-500/10 shadow-sm" : "border-gray-200 dark:border-[var(--brand-border-dark)] bg-white dark:bg-transparent hover:border-zinc-300"
+                                sel ? "border-orange-500 bg-orange-50 shadow-sm" : "border-gray-200 dark:border-[var(--brand-border-dark)] bg-white dark:bg-transparent hover:border-zinc-300"
                               }`}>
-                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${sel ? "bg-orange-500 dark:bg-orange-500/30 text-white" : "bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-zinc-300"}`}>{t.label}</div>
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${sel ? "bg-orange-800/30 text-white" : "bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-zinc-300"}`}>{t.label}</div>
                               <span className={`text-xs font-medium ${sel ? "text-orange-700" : "text-gray-500 dark:text-zinc-400"}`}>Up to {t.seats} guests</span>
                               {sel && <CheckCircle2 size={14} className="text-orange-600" />}
                             </button>
@@ -428,7 +428,7 @@ export default function BookPage() {
                   </label>
                   <input type={type} inputMode={isPhone ? "tel" : undefined} autoComplete={isPhone ? "tel" : undefined} required={req} value={value} placeholder={ph}
                     onChange={(e) => setter(isPhone ? cleanPhone(e.target.value) : e.target.value)}
-                    className="w-full border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 " />
+                    className="w-full border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 dark:focus:ring-zinc-500" />
                 </div>
               ))}
               <div>
@@ -437,7 +437,7 @@ export default function BookPage() {
                 </label>
                 <textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)}
                   placeholder="Allergies, dietary requirements, special occasion…"
-                  className="w-full border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 text-sm resize-none focus:outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300" />
+                  className="w-full border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 text-sm resize-none focus:outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 dark:focus:ring-zinc-500" />
               </div>
               {/* Marketing consent — PECR: opt-out offered at collection time */}
               <label className="flex items-start gap-2 cursor-pointer select-none">
@@ -466,20 +466,20 @@ export default function BookPage() {
               <button type="button"
                 disabled={!date || !time || slots.length === 0 || isSlotPast(time, date)}
                 onClick={() => setStep("table")}
-                className="flex items-center gap-1.5 bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition-all">
+                className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition-all">
                 Check availability<ChevronRight size={16} />
               </button>
             )}
             {step === "table" && (
               <button type="button" disabled={!selectedTable || selectedTable.isVip || loadingTables || blackout}
                 onClick={() => setStep("details")}
-                className="flex items-center gap-1.5 bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition-all">
+                className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition-all">
                 Continue<ChevronRight size={16} />
               </button>
             )}
             {step === "details" && (
               <button type="submit" form="book-form" disabled={submitting || !name.trim() || !email.trim() || !phone.trim()}
-                className="flex items-center gap-1.5 bg-orange-500 dark:bg-orange-50 hover:bg-orange-600 dark:hover:bg-orange-100/80 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-3 sm:px-5 py-2.5 rounded-xl transition-all">
+                className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-3 sm:px-5 py-2.5 rounded-xl transition-all">
                 {submitting ? <><Loader2 size={15} className="animate-spin" />Confirming…</> : <><CheckCircle2 size={15} />Confirm booking</>}
               </button>
             )}

@@ -99,7 +99,7 @@ export default function ReservationTokenPage() {
   if (notFound) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 px-4 text-center h-full py-8">
-        <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
+        <div className="w-16 h-16 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
           <AlertTriangle size={28} className="text-red-500" />
         </div>
         <h1 className="text-xl font-bold text-gray-900 dark:text-[var(--brand-text-dark)]">Booking not found</h1>
@@ -139,19 +139,19 @@ export default function ReservationTokenPage() {
             <h2 className="font-bold text-gray-900 dark:text-[var(--brand-text-dark)] text-lg">{booking.customer_name}</h2>
 
             <div className="space-y-3">
-              <div className="flex items-center gap-3 text-gray-700 dark:text-zinc-300">
+              <div className="flex items-center gap-3 text-gray-700 dark:text-zinc-400">
                 <CalendarDays size={18} className="text-zinc-600 dark:text-zinc-400 flex-shrink-0" />
                 <span>{fmtDate(booking.date)}</span>
               </div>
-              <div className="flex items-center gap-3 text-gray-700 dark:text-zinc-300">
+              <div className="flex items-center gap-3 text-gray-700 dark:text-zinc-400">
                 <Clock size={18} className="text-zinc-600 dark:text-zinc-400 flex-shrink-0" />
                 <span>{fmt12(booking.time)}</span>
               </div>
-              <div className="flex items-center gap-3 text-gray-700 dark:text-zinc-300">
+              <div className="flex items-center gap-3 text-gray-700 dark:text-zinc-400">
                 <Users size={18} className="text-zinc-600 dark:text-zinc-400 flex-shrink-0" />
                 <span>{booking.party_size} {booking.party_size === 1 ? "guest" : "guests"}</span>
               </div>
-              <div className="flex items-center gap-3 text-gray-700 dark:text-zinc-300">
+              <div className="flex items-center gap-3 text-gray-700 dark:text-zinc-400">
                 <UtensilsCrossed size={18} className="text-zinc-600 dark:text-zinc-400 flex-shrink-0" />
                 <span>{booking.table_label}{booking.section ? ` · ${booking.section}` : ""}</span>
               </div>
@@ -228,7 +228,7 @@ export default function ReservationTokenPage() {
 
         {/* Non-cancellable info */}
         {booking && !isCancellable && !cancelled && booking.status !== "cancelled" && (
-          <div className="bg-amber-50 dark:bg-amber-600/10 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 text-sm text-amber-800">
+          <div className="bg-amber-50 dark:bg-amber-600/10 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 text-sm text-amber-800 dark:text-amber-700">
             This booking can no longer be cancelled online. Please contact us directly for assistance.
           </div>
         )}
