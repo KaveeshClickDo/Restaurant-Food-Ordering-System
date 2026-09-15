@@ -7,7 +7,8 @@ import SiteFooter from "@/components/SiteFooter";
 import SiteMobileHeader from "@/components/SiteMobileHeader";
 import SiteSidebar from "@/components/SiteSidebar";
 import { useApp } from "@/context/AppContext";
-import { SiteThemeProvider, useSiteTheme, type ThemeMode } from "@/context/SiteThemeContext";
+import { SiteThemeProvider, useSiteTheme } from "@/context/SiteThemeContext";
+import { ThemeMode } from "@/context/siteThemeShared";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 

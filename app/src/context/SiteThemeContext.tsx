@@ -12,10 +12,8 @@
  */
 
 import { createContext, useContext, useLayoutEffect, useState, type ReactNode } from "react";
+import { THEME_COOKIE_NAME, type ThemeMode } from "./siteThemeShared";
 
-export type ThemeMode = "light" | "dark";
-
-export const THEME_COOKIE_NAME = "sg_theme";
 const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365; // 1 year
 
 function writeThemeCookie(theme: ThemeMode) {

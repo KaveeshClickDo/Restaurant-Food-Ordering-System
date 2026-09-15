@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import SiteLayoutClient from "./SiteLayoutClient";
-import { THEME_COOKIE_NAME, type ThemeMode } from "@/context/SiteThemeContext";
+import { THEME_COOKIE_NAME, type ThemeMode } from "@/context/siteThemeShared";
 
 // Server component so it can read the sg_theme cookie synchronously and hand
 // down the correct theme before first paint

@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import HomePageClient from "./HomePageClient";
-import { SiteThemeProvider, THEME_COOKIE_NAME, type ThemeMode } from "@/context/SiteThemeContext";
+import { SiteThemeProvider } from "@/context/SiteThemeContext";
+import { THEME_COOKIE_NAME, type ThemeMode } from "@/context/siteThemeShared";
 
 // The home/menu route lives directly at app/src/app/page.tsx — OUTSIDE the
 // (site) route group — so it does NOT inherit app/(site)/layout.tsx's
