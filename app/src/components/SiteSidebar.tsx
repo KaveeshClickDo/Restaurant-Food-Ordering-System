@@ -175,7 +175,7 @@ export default function SiteSidebar({
           <button
             onClick={() => navigateToCategory("all")}
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] ${pathname === "/" && activeCat === "all"
-              ? "bg-orange-50 dark:bg-orange-500/2 text-orange-700 font-medium"
+              ? "bg-orange-50 dark:bg-orange-500/2 text-orange-700 dark:text-[var(--brand-text-dark)] font-medium"
               : "text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-white/5"
               }`}
           >
@@ -198,7 +198,7 @@ export default function SiteSidebar({
                 <button
                   onClick={() => handleParentClick(parent)}
                   className={`w-full flex items-center rounded-xl px-3 py-2 gap-2.5 text-left ${parentActive
-                    ? "bg-orange-50 dark:bg-orange-500/2 text-orange-700 font-medium"
+                    ? "bg-orange-50 dark:bg-orange-500/2 text-orange-700 dark:text-[var(--brand-text-dark)] font-medium"
                     : "text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-white/5"
                     }`}
                 >
@@ -229,7 +229,7 @@ export default function SiteSidebar({
                           key={child.id}
                           onClick={() => navigateToCategory(child.id)}
                           className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] ${childActive
-                            ? "bg-orange-50 dark:bg-orange-500/2 text-orange-700 font-medium"
+                            ? "bg-orange-50 dark:bg-orange-500/2 text-orange-700 dark:text-[var(--brand-text-dark)] font-medium"
                             : "text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 dark:hover:text-white dark:hover:bg-white/5"
                             }`}
                         >
@@ -253,7 +253,7 @@ export default function SiteSidebar({
       <div className="p-4 border-t border-zinc-100 dark:border-[var(--brand-border-dark)]">
         {currentUser ? (
           <div className="flex items-center gap-3 px-2 py-1.5">
-            <div className="w-9 h-9 rounded-full bg-orange-100 flex items-center justify-center text-[13px] font-semibold text-orange-700 flex-shrink-0">
+            <div className="w-9 h-9 rounded-full bg-orange-100 dark:bg-orange-950/60 flex items-center justify-center text-[13px] font-semibold text-orange-700 flex-shrink-0">
               {currentUser.name?.charAt(0).toUpperCase() ?? "U"}
             </div>
             <div className="flex-1 min-w-0 leading-tight">
