@@ -156,7 +156,7 @@ function MethodIcon({ id }: { id: string }) {
 function hoverColor(id: string) {
   if (id === "cash") return "hover:border-green-400 dark:hover:border-green-700";
   if (id === "paypal") return "hover:border-blue-400 dark:hover:border-blue-700 ";
-  return "hover:border-orange-400 dark:hover:border-orange-500";
+  return "hover:border-orange-400";
 }
 
 // ─── Location detector widget ─────────────────────────────────────────────────
@@ -1114,10 +1114,10 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
           {/* Scheduled time banner */}
           {scheduledTime && (
             <div className="flex items-center gap-3 bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-900 rounded-xl px-4 py-3">
-              <CalendarDays size={15} className="text-green-600 flex-shrink-0" />
+              <CalendarDays size={15} className="text-green-600 dark:text-green-400 flex-shrink-0" />
               <div>
                 <p className="text-xs font-semibold text-green-800 dark:text-green-400">Scheduled order</p>
-                <p className="text-xs text-green-700 dark:text-green-400 mt-0.5">{scheduledTime}</p>
+                <p className="text-xs text-green-700 dark:text-green-500 mt-0.5">{scheduledTime}</p>
               </div>
             </div>
           )}
@@ -1236,7 +1236,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                   <button
                     onClick={applyCode}
                     disabled={!couponInput.trim()}
-                    className="flex items-center gap-1.5 bg-gray-900 dark:bg-orange-50 hover:bg-gray-800 dark:hover:bg-orange-100/80 disabled:bg-gray-200 dark:disabled:bg-white/10 disabled:text-gray-400 dark:disabled:text-zinc-500 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition"
+                    className="flex items-center gap-1.5 bg-gray-900 dark:bg-white/30 hover:bg-gray-800 dark:hover:bg-white/50 disabled:bg-gray-200 dark:disabled:bg-white/10 disabled:text-gray-400 dark:disabled:text-zinc-500 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition"
                   >
                     <Tag size={14} /> Apply
                   </button>
@@ -1293,7 +1293,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                   <button
                     onClick={applyGiftCardCode}
                     disabled={!giftCardInput.trim() || giftCardLookingUp}
-                    className="flex items-center gap-1.5 bg-gray-900 dark:bg-orange-50 hover:bg-gray-800 dark:hover:bg-orange-100/80 disabled:bg-gray-200 dark:disabled:bg-white/10 disabled:text-gray-400 dark:disabled:text-zinc-500 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition"
+                    className="flex items-center gap-1.5 bg-gray-900 dark:bg-white/30 hover:bg-gray-800 dark:hover:bg-white/50 disabled:bg-gray-200 dark:disabled:bg-white/10 disabled:text-gray-400 dark:disabled:text-zinc-500 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition"
                   >
                     <Gift size={14} /> {giftCardLookingUp ? "…" : "Apply"}
                   </button>
@@ -1372,8 +1372,8 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                   className={`w-full border rounded-xl px-4 py-2.5 text-sm placeholder-gray-400 focus:outline-none transition ${readOnly
                     ? "border-gray-200 dark:border-[var(--brand-border-dark)] bg-gray-50 dark:bg-white/5 text-gray-500 dark:text-zinc-400 cursor-not-allowed"
                     : fieldErrors[key]
-                      ? "border-red-400 focus:ring-2 focus:ring-red-300 bg-red-50 dark:bg-red-950/30 text-gray-800 dark:text-zinc-100"
-                      : "border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 focus:ring-2 focus:ring-orange-400 text-gray-800 dark:text-zinc-100"
+                      ? "border-red-400 focus:ring-2 focus:ring-red-300 dark:focus:bg-red-950/30 bg-red-50 dark:bg-red-950/30 text-gray-800 dark:text-zinc-100"
+                      : "border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 focus:ring-2 focus:ring-orange-400 dark:focus:ring-orange-500/70 text-gray-800 dark:text-zinc-100"
                     }`}
                 />
                 {fieldErrors[key] && (
@@ -1438,7 +1438,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                           <p className="text-xs font-semibold text-gray-800 dark:text-zinc-200 flex items-center gap-1.5">
                             {addr.label}
                             {addr.isDefault && (
-                              <span className="text-[9px] font-bold bg-orange-100 text-orange-600 rounded-full px-1.5 py-0.5">Default</span>
+                              <span className="text-[9px] font-bold bg-orange-100 dark:bg-orange-900/30 text-orange-600 rounded-full px-1.5 py-0.5">Default</span>
                             )}
                           </p>
                           <p className="text-xs text-gray-500 dark:text-zinc-400 truncate">{addr.address}, {addr.postcode}</p>
@@ -1495,7 +1495,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                       placeholder="42 Example Street, London"
                       className={`w-full border rounded-xl px-4 py-2.5 text-sm text-gray-800 dark:text-zinc-100 placeholder-gray-400 focus:outline-none focus:ring-2 transition ${fieldErrors.address
                         ? "border-red-400 focus:ring-red-300 bg-red-50 dark:bg-red-950/30"
-                        : "border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 focus:ring-orange-400"
+                        : "border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 focus:ring-orange-400 dark:focus:ring-orange-500/70"
                         }`}
                     />
                     {fieldErrors.address && (
@@ -1519,7 +1519,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                     onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
                     placeholder="Flat 3B, gate code 1234, leave at door"
                     maxLength={200}
-                    className="w-full border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 rounded-xl px-4 py-2.5 text-sm text-gray-800 dark:text-zinc-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                    className="w-full border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 rounded-xl px-4 py-2.5 text-sm text-gray-800 dark:text-zinc-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 dark:focus:ring-orange-500/70 transition"
                   />
                 </div>
               </div>
@@ -1690,7 +1690,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
             {/* Methods hidden due to distance — shown as info only when location is detected */}
             {locState === "found" && restrictedMethods.length > 0 && (
               <div className="bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-[var(--brand-border-dark)] rounded-xl px-4 py-3">
-                <p className="text-xs font-semibold text-gray-500 dark:text-zinc-400 mb-2">Not available at your distance</p>
+                <p className="text-xs font-semibold text-gray-500 dark:text-zinc-300 mb-2">Not available at your distance</p>
                 {restrictedMethods.map((m) => (
                   <div key={m.id} className="flex items-center gap-2 text-xs text-gray-400 py-0.5">
                     <span>–</span>

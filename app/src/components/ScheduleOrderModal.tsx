@@ -50,7 +50,7 @@ export default function ScheduleOrderModal({ onClose }: Props) {
 
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
           {/* Fulfillment note */}
-          <p className="text-sm text-gray-500 dark:text-zinc-400 leading-relaxed">
+          <p className="text-sm text-gray-500 dark:text-zinc-300 leading-relaxed">
             Choose when you&apos;d like your{" "}
             <span className="font-semibold text-gray-800 dark:text-zinc-200">
               {fulfillment === "delivery" ? "delivery" : "collection"}
@@ -68,7 +68,7 @@ export default function ScheduleOrderModal({ onClose }: Props) {
             <>
               {/* Day selector */}
               <div>
-                <p className="text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider mb-2">
+                <p className="text-xs font-semibold text-gray-500 dark:text-zinc-300 uppercase tracking-wider mb-2">
                   Date
                 </p>
                 <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-2 -mx-5 px-5">
@@ -91,7 +91,7 @@ export default function ScheduleOrderModal({ onClose }: Props) {
               {/* Time slots */}
               {currentDay && (
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider mb-2">
+                  <p className="text-xs font-semibold text-gray-500 dark:text-zinc-300 uppercase tracking-wider mb-2">
                     Time
                   </p>
                   <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
@@ -102,7 +102,7 @@ export default function ScheduleOrderModal({ onClose }: Props) {
                         className={`py-2 rounded-xl text-sm font-semibold border-2 transition-all ${
                           selectedSlot === slot
                             ? "border-orange-500 bg-orange-500 text-white"
-                            : "border-gray-200 dark:border-[var(--brand-border-dark)] text-gray-700 dark:text-zinc-300 hover:border-orange-300 hover:text-orange-600"
+                            : "border-gray-200 dark:border-[var(--brand-border-dark)] text-gray-700 dark:text-zinc-300 hover:border-gray-300 dark:hover:border-zinc-600"
                         }`}
                       >
                         {slot}
@@ -115,8 +115,8 @@ export default function ScheduleOrderModal({ onClose }: Props) {
               {/* Selected summary */}
               {selectedSlot && currentDay && (
                 <div className="flex items-center gap-3 bg-green-50 dark:bg-orange-50/10 border border-green-100 dark:border-[var(--brand-border-dark)] rounded-xl px-4 py-3">
-                  <CheckCircle2 size={16} className="text-green-500 flex-shrink-0" />
-                  <p className="text-sm text-green-800">
+                  <CheckCircle2 size={16} className="text-green-500 dark:text-green-400 flex-shrink-0" />
+                  <p className="text-sm text-green-800 dark:text-green-500">
                     <span className="font-semibold">
                       {buildSlotLabel(currentDay.label, selectedSlot)}
                     </span>

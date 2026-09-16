@@ -9,10 +9,10 @@ import { resolveStock } from "@/lib/stockUtils";
 import { isOfferActive, getOfferUnitPrice, offerBadgeLabel, effectiveMenuPrice } from "@/lib/menuOfferUtils";
 
 const DIETARY_BADGES: Record<string, { label: string; className: string }> = {
-  vegetarian:    { label: "V",  className: "bg-green-100 text-green-700 border border-green-200"   },
-  vegan:         { label: "Ve", className: "bg-emerald-100 text-emerald-700 border border-emerald-200" },
-  halal:         { label: "H",  className: "bg-purple-100 text-purple-700 border border-purple-200"  },
-  "gluten-free": { label: "GF", className: "bg-amber-100 text-amber-700 border border-amber-200"   },
+  vegetarian:    { label: "V",  className: "bg-green-100 dark:bg-green-950/60 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800"   },
+  vegan:         { label: "Ve", className: "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800" },
+  halal:         { label: "H",  className: "bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800"  },
+  "gluten-free": { label: "GF", className: "bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800"   },
 };
 
 export default function MenuItemCard({ item }: { item: MenuItem }) {
@@ -47,24 +47,24 @@ export default function MenuItemCard({ item }: { item: MenuItem }) {
           <div className="flex items-start gap-2 flex-wrap">
             <h3 className="font-semibold text-gray-900 dark:text-[var(--brand-text-dark)] text-sm leading-snug">{item.name}</h3>
             {item.popular && !outOfStock && (
-              <span className="flex items-center gap-0.5 text-xs font-medium text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full border border-orange-200 whitespace-nowrap">
+              <span className="flex items-center gap-0.5 text-xs font-medium text-orange-600 bg-orange-50 dark:bg-orange-950/60 dark:text-orange-500 px-2 py-0.5 rounded-full border border-orange-200 dark:border-orange-800 whitespace-nowrap">
                 <Flame size={10} />
                 Popular
               </span>
             )}
             {offerOn && !outOfStock && offerLabel && (
-              <span className="flex items-center gap-0.5 text-xs font-semibold text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full border border-orange-200 whitespace-nowrap">
+              <span className="flex items-center gap-0.5 text-xs font-semibold text-orange-700 bg-orange-100 dark:bg-orange-950/60 dark:text-orange-500 px-2 py-0.5 rounded-full border border-orange-200 dark:border-orange-800 whitespace-nowrap">
                 {offerLabel}
               </span>
             )}
             {outOfStock && (
-              <span className="flex items-center gap-0.5 text-xs font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full border border-red-200 whitespace-nowrap">
+              <span className="flex items-center gap-0.5 text-xs font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full border border-red-200 dark:border-red-800 whitespace-nowrap">
                 <PackageX size={10} />
                 Unavailable
               </span>
             )}
             {lowStock && !outOfStock && (
-              <span className="flex items-center gap-0.5 text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 whitespace-nowrap">
+              <span className="flex items-center gap-0.5 text-xs font-semibold text-amber-600 bg-amber-50 dark:bg-amber-950/60 dark:text-amber-600 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-800 whitespace-nowrap">
                 <PackageMinus size={10} />
                 {typeof item.stockQty === "number" ? `${item.stockQty} left` : "Low stock"}
               </span>

@@ -9,10 +9,10 @@ import { isAvailable } from "@/lib/stockUtils";
 import { getOfferUnitPrice, isOfferActive, offerBadgeLabel, effectiveMenuPrice } from "@/lib/menuOfferUtils";
 
 const DIETARY_COLORS: Record<string, string> = {
-  vegetarian:    "bg-green-100 text-green-700",
-  vegan:         "bg-emerald-100 text-emerald-700",
-  halal:         "bg-purple-100 text-purple-700",
-  "gluten-free": "bg-amber-100 text-amber-700",
+  vegetarian:    "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400",
+  vegan:         "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400",
+  halal:         "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400",
+  "gluten-free": "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400",
 };
 
 interface Props {
@@ -192,7 +192,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                 <div key={variation.id} className="px-6 py-4 border-b border-gray-50 dark:border-white/5">
                   <div className="flex items-center gap-1.5 mb-3">
                     <ChevronRight size={13} className="text-orange-500 flex-shrink-0" />
-                    <span className="text-[11px] font-bold uppercase tracking-widest text-gray-500 dark:text-zinc-400">
+                    <span className="text-[11px] font-bold uppercase tracking-widest text-gray-500 dark:text-zinc-300">
                       {variation.name}
                     </span>
                     {variation.required !== false ? (
@@ -240,7 +240,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                 <div className="px-6 py-4 border-b border-gray-50 dark:border-white/5">
                   <div className="flex items-center gap-1.5 mb-3">
                     <ChevronRight size={13} className="text-orange-500 flex-shrink-0" />
-                    <span className="text-[11px] font-bold uppercase tracking-widest text-gray-500 dark:text-zinc-400">
+                    <span className="text-[11px] font-bold uppercase tracking-widest text-gray-500 dark:text-zinc-300">
                       Add-ons
                     </span>
                     <span className="text-[10px] text-gray-400 font-medium ml-0.5">· Optional</span>
@@ -294,7 +294,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
                   onChange={(e) => setInstructions(e.target.value)}
                   placeholder="Allergies, preferences…"
                   rows={3}
-                  className="w-full border border-gray-200 dark:border-[var(--brand-border-dark)] rounded-xl px-4 py-3 text-sm text-gray-700 dark:text-zinc-200 placeholder-gray-400 bg-gray-50 dark:bg-white/5 focus:outline-none focus:ring-2 focus:ring-orange-300 focus:border-orange-400 resize-none transition"
+                  className="w-full border border-gray-200 dark:border-[var(--brand-border-dark)] rounded-xl px-4 py-3 text-sm text-gray-700 dark:text-zinc-200 placeholder-gray-400 bg-gray-50 dark:bg-white/5 focus:outline-none focus:ring-1 focus:ring-orange-300 dark:focus:ring-orange-600 dark:focus:border-orange-400 resize-none transition"
                 />
               </div>
             </div>

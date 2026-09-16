@@ -50,7 +50,7 @@ export default function SiteFooter() {
           <nav className="flex flex-wrap gap-x-6 gap-y-2 mb-7">
             {navLinks.map((link) => (
               <Link key={link.id} href={link.href}
-                className="text-[12.5px] text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white transition-colors">
+                className="text-[12.5px] text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">
                 {link.label}
               </Link>
             ))}

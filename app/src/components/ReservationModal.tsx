@@ -362,7 +362,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                             ? "bg-gray-50 dark:bg-white/5 text-gray-300 dark:text-zinc-600 border-gray-100 dark:border-white/10 cursor-not-allowed line-through"
                             : selected
                               ? "bg-orange-500 text-white border-orange-500 shadow-sm"
-                              : "bg-white dark:bg-transparent text-gray-600 dark:text-zinc-300 border-gray-200 dark:border-[var(--brand-border-dark)] hover:border-orange-300 hover:text-orange-600",
+                              : "bg-white dark:bg-transparent text-gray-600 dark:text-zinc-300 border-gray-200 dark:border-[var(--brand-border-dark)] hover:border-gray-300 dark:hover:border-zinc-500",
                         ].join(" ")}
                       >
                         {fmt12(slot)}
@@ -383,7 +383,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
           {/* ── Step 2: Table Selection ───────────────────────────────── */}
           {step === "table" && (
             <div className="p-5">
-              <div className="bg-orange-50 border border-orange-100 rounded-xl px-4 py-3 mb-5 text-[13px] sm:text-sm text-orange-800 dark:text-orange-600">
+              <div className="bg-orange-50 border border-orange-100 dark:border-orange-800 rounded-xl px-4 py-3 mb-5 text-[13px] sm:text-sm text-orange-800 dark:text-orange-600">
                 <span className="font-semibold">{fmtDate(date)}</span>
                 {" · "}{fmt12(time)}{" · "}
                 {partySize} {partySize === 1 ? "guest" : "guests"}
@@ -522,7 +522,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
           {step === "details" && (
             <form id="details-form" onSubmit={handleSubmit} className="p-5 space-y-4">
               {/* Booking summary pill */}
-              <div className="bg-orange-50 border border-orange-100 rounded-xl px-4 py-3 text-sm text-orange-800 dark:text-orange-600 flex items-center gap-2">
+              <div className="bg-orange-50 border border-orange-100 dark:border-orange-800 rounded-xl px-4 py-3 text-sm text-orange-800 dark:text-orange-600 flex items-center gap-2">
                 <UtensilsCrossed size={14} className="text-orange-500 flex-shrink-0" />
                 <span>
                   <span className="font-semibold">{selectedTable?.label}</span>
@@ -631,7 +631,7 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
           {/* ── Step 4: Confirmed ─────────────────────────────────────── */}
           {step === "confirmed" && (
             <div className="p-6 flex flex-col items-center text-center gap-4">
-              <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center">
+              <div className="w-20 h-20 rounded-full bg-green-100 dark:bg-green-950/60 flex items-center justify-center">
                 <CheckCircle2 size={40} className="text-green-500" />
               </div>
               <div>
