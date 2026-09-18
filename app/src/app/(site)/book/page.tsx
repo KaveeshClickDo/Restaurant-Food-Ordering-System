@@ -273,7 +273,7 @@ export default function BookPage() {
                           past
                             ? "bg-gray-50 dark:bg-white/5 text-gray-300 dark:text-zinc-600 border-gray-100 dark:border-white/10 cursor-not-allowed line-through"
                             : selected
-                              ? "bg-orange-800/50 text-white border-orange-500 shadow-sm"
+                              ? "bg-orange-500 dark:bg-orange-800/50 text-white border-orange-500 shadow-sm"
                               : "bg-white dark:bg-transparent text-gray-600 dark:text-zinc-300 border-gray-200 dark:border-[var(--brand-border-dark)] hover:border-zinc-300 hover:text-zinc-700 dark:hover:text-white"
                         }`}>{fmt12(slot)}</button>
                     );
@@ -389,7 +389,7 @@ export default function BookPage() {
                               className={`flex flex-col items-center gap-1.5 py-4 px-3 rounded-xl border-2 ${
                                 sel ? "border-orange-500 bg-orange-50 shadow-sm" : "border-gray-200 dark:border-[var(--brand-border-dark)] bg-white dark:bg-transparent hover:border-zinc-300"
                               }`}>
-                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${sel ? "bg-orange-800/30 text-white" : "bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-zinc-300"}`}>{t.label}</div>
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${sel ? "bg-orange-500 dark:bg-orange-800/30 text-white" : "bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-zinc-300"}`}>{t.label}</div>
                               <span className={`text-xs font-medium ${sel ? "text-orange-700" : "text-gray-500 dark:text-zinc-400"}`}>Up to {t.seats} guests</span>
                               {sel && <CheckCircle2 size={14} className="text-orange-600" />}
                             </button>

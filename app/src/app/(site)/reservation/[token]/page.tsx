@@ -32,12 +32,12 @@ function fmtDate(d: string) {
 }
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  pending:     { label: "Pending confirmation", color: "text-amber-600 bg-amber-50 dark:bg-amber-600/10 dark:border-amber-200 dark:border-amber-800" },
-  confirmed:   { label: "Confirmed",            color: "text-green-700 bg-green-50 dark:bg-green-600/10 dark:border-green-200 dark:border-green-800" },
-  checked_in:  { label: "Currently dining",     color: "text-blue-700 bg-blue-50 dark:bg-blue-600/10 dark:border-blue-200 dark:border-blue-800" },
-  checked_out: { label: "Visit complete",       color: "text-teal-700 bg-teal-50 dark:bg-teal-600/10 dark:border-teal-200 dark:border-teal-800" },
-  cancelled:   { label: "Cancelled",            color: "text-red-700 bg-red-50 dark:bg-red-600/10 dark:border-red-200 dark:border-red-800" },
-  no_show:     { label: "No show",              color: "text-gray-600 bg-zinc-50 dark:bg-zinc-600/10 dark:border-zinc-200 dark:border-zinc-800" },
+  pending:     { label: "Pending confirmation", color: "text-amber-600 bg-amber-50 border-amber-200 dark:bg-amber-600/10 dark:border-amber-800" },
+  confirmed:   { label: "Confirmed",            color: "text-green-700 bg-green-50 border-green-200 dark:bg-green-600/10 dark:border-green-800" },
+  checked_in:  { label: "Currently dining",     color: "text-blue-700 bg-blue-50 border-blue-200 dark:bg-blue-600/10 dark:border-blue-800" },
+  checked_out: { label: "Visit complete",       color: "text-teal-700 bg-teal-50 border-teal-200 dark:bg-teal-600/10 dark:border-teal-800" },
+  cancelled:   { label: "Cancelled",            color: "text-red-700 bg-red-50 border-red-200 dark:bg-red-600/10 dark:border-red-800" },
+  no_show:     { label: "No show",              color: "text-gray-600 bg-zinc-50 border-zinc-200 dark:bg-zinc-600/10 dark:border-zinc-800" },
 };
 
 export default function ReservationTokenPage() {
