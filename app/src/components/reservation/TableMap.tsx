@@ -76,7 +76,7 @@ export default function TableMap({
             : t.status === "booked"
               ? "bg-gray-100 border-gray-300 text-gray-400 line-through"
               : t.status === "too_small"
-                ? "bg-gray-50 border-dashed border-gray-30 text-gray-400"
+                ? "bg-gray-50 border-dashed border-gray-300 text-gray-400"
                 : t.isVip
                   ? "bg-amber-100 border-amber-400 text-amber-800 hover:bg-amber-200"
                   : "bg-emerald-50 border-emerald-500 text-emerald-700 hover:bg-emerald-100";
