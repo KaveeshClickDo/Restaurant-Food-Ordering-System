@@ -246,7 +246,7 @@ export default function Cart({ onMobileClose, onOrderPlaced }: CartProps) {
                   <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold mb-1">
-                      {blockedLines.length === 0
+                      {blockedLines.length === 1
                         ? "1 item isn't available right now."
                         : `${blockedLines.length} items aren't available right now.`}
                     </p>
