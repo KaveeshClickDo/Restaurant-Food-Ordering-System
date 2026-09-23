@@ -7,7 +7,7 @@
  *  - "browser": window.print() with HTML receipt — universal fallback
  */
 
-import type { AdminSettings, Order } from "@/types";
+import type { AdminSettings, Order, PrinterCategory, PrinterSettings } from "@/types";
 import { fullOrderNumber } from "@/lib/orderNumber";
 import { apiBase } from "@/lib/apiBase";
 
@@ -270,8 +270,8 @@ function fmt(n: number, sym: string) {
 
 /** Build a full order receipt as ESC/POS bytes. `logoBytes` is a pre-rendered
  *  GS v 0 raster (from logoToRaster) printed above the name when Show Logo is on. */
-export function buildReceipt(order: Order, settings: AdminSettings, logoBytes?: number[] | null): number[] {
-  const W  = [32, 48].includes(settings.printer.paperWidth) ? settings.printer.paperWidth : 48;
+export function buildReceipt(order: Order, settings: AdminSettings, printer: PrinterSettings, logoBytes?: number[] | null): number[] {
+  const W  = [32, 48].includes(printer.paperWidth) ? printer.paperWidth : 48;
   const r  = settings.restaurant;
   const rs = settings.receiptSettings;
   const sym = settings.currency?.symbol || "£";
@@ -345,6 +345,10 @@ export function buildReceipt(order: Order, settings: AdminSettings, logoBytes?: 
   if (order.couponDiscount && order.couponDiscount > 0) {
     b.twoCol(`Coupon (${order.couponCode ?? ""})`, `-${fmt(order.couponDiscount, sym)}`, W);
   }
+  if (order.discountAmount && order.discountAmount > 0) {
+    const label = order.discountNote ? `Discount (${order.discountNote})` : "Discount";
+    b.twoCol(label, `-${fmt(order.discountAmount, sym)}`, W);
+  }
   if (showVat) {
     const vatLabel = vatInclusive ? `Incl. VAT (${vatRate}%)` : `VAT (${vatRate}%)`;
     const vatValue = vatInclusive ? fmt(vatAmount, sym) : `+${fmt(vatAmount, sym)}`;
@@ -359,8 +363,8 @@ export function buildReceipt(order: Order, settings: AdminSettings, logoBytes?: 
   if (order.tipAmount && order.tipAmount > 0) {
     b.twoCol("Tip", fmt(order.tipAmount, sym), W);
   }
-  if (order.serviceFee && order.serviceFee > 0) {
-    b.twoCol("Service Fee", fmt(order.serviceFee, sym), W);
+  if (order.giftCardUsed && order.giftCardUsed > 0) {
+    b.twoCol("Gift Card", fmt(order.giftCardUsed, sym), W);
   }
   if (order.changeGiven !== undefined && order.changeGiven > 0) {
     b.twoCol("Change", fmt(order.changeGiven, sym), W);
@@ -389,8 +393,8 @@ export function buildReceipt(order: Order, settings: AdminSettings, logoBytes?: 
 }
 
 /** Build a short test-connection receipt. */
-export function buildTestReceipt(settings: AdminSettings): number[] {
-  const W = [32, 48].includes(settings.printer.paperWidth) ? settings.printer.paperWidth : 48;
+export function buildTestReceipt(settings: AdminSettings, printer: PrinterSettings): number[] {
+  const W = [32, 48].includes(printer.paperWidth) ? printer.paperWidth : 48;
   const r = settings.restaurant;
   const b = new ReceiptBuilder();
 
@@ -403,7 +407,7 @@ export function buildTestReceipt(settings: AdminSettings): number[] {
    .bold(false)
    .separator("=", W)
    .line(r.name)
-   .line(`Printer: ${settings.printer.name || "Unnamed"}`)
+   .line(`Printer: ${printer.name || "Unnamed"}`)
    .line(new Date().toLocaleString("en-GB", {
      day: "2-digit", month: "short", year: "numeric",
      hour: "2-digit", minute: "2-digit",
@@ -412,8 +416,8 @@ export function buildTestReceipt(settings: AdminSettings): number[] {
    .bold(true)
    .line("Printer connected!")
    .bold(false)
-   .line(`Mode: ${settings.printer.connection ?? "network"}`)
-   .line(`Auto-print: ${settings.printer.autoPrint ? "Enabled" : "Disabled"}`)
+   .line(`Mode: ${printer.connection ?? "network"}`)
+   .line(`Auto-print: ${printer.autoPrint ? "Enabled" : "Disabled"}`)
    .line(`Paper: ${W === 48 ? "80 mm" : "58 mm"} (${W} chars)`)
    .feed(5)
    .cut();
@@ -642,6 +646,7 @@ function buildReceiptHTML(
 export function printReceiptBrowser(
   order: Order,
   settings: AdminSettings,
+  printer: PrinterSettings,
 ): { ok: boolean; error?: string } {
   if (typeof window === "undefined") {
     return { ok: false, error: "Browser print is not available server-side." };
@@ -649,7 +654,7 @@ export function printReceiptBrowser(
 
   const r   = settings.restaurant;
   const rs  = settings.receiptSettings;
-  const W   = settings.printer.paperWidth;
+  const W   = printer.paperWidth;
   const sym = settings.currency?.symbol || "£";
   const sep = "-".repeat(W);
   const dbl = "=".repeat(W);
@@ -711,6 +716,10 @@ export function printReceiptBrowser(
   if (order.couponDiscount && order.couponDiscount > 0) {
     lines.push(twoCol(`Coupon (${order.couponCode ?? ""})`, `-${fmt(order.couponDiscount, sym)}`));
   }
+  if (order.discountAmount && order.discountAmount > 0) {
+    const label = order.discountNote ? `Discount (${order.discountNote})` : "Discount";
+    lines.push(twoCol(label, `-${fmt(order.discountAmount, sym)}`));
+  }
   if (showVat) {
     const vatLabel = vatInclusive ? `Incl. VAT (${vatRate}%)` : `VAT (${vatRate}%)`;
     const vatValue = vatInclusive ? fmt(vatAmount, sym) : `+${fmt(vatAmount, sym)}`;
@@ -720,7 +729,7 @@ export function printReceiptBrowser(
   lines.push(dbl);
   lines.push(twoCol("TOTAL", fmt(order.total, sym)));
   if (order.tipAmount && order.tipAmount > 0) lines.push(twoCol("Tip", fmt(order.tipAmount, sym)));
-  if (order.serviceFee && order.serviceFee > 0) lines.push(twoCol("Service Fee", fmt(order.serviceFee, sym)));
+  if (order.giftCardUsed && order.giftCardUsed > 0) lines.push(twoCol("Gift Card", fmt(order.giftCardUsed, sym)));
   if (order.changeGiven !== undefined && order.changeGiven > 0) lines.push(twoCol("Change", fmt(order.changeGiven, sym)));
   if (showVat && vatInclusive) lines.push(center(`Prices include ${vatRate}% VAT`));
   lines.push(dbl);
@@ -748,20 +757,57 @@ export function printReceiptBrowser(
 
 // ─── Unified dispatcher ──────────────────────────────────────────────────────
 
-/**
- * Print an order receipt using the configured connection mode.
- * Optionally kicks the cash drawer after printing (for cash payments).
- * Fire-and-forget safe — logs errors to console, never throws.
- */
-export async function printOrder(
+/** The active, enabled printer for a category, or null if none is set /
+ *  the active id doesn't resolve to an enabled printer. */
+export function resolveActivePrinter(settings: AdminSettings, category: PrinterCategory): PrinterSettings | null {
+  const id = settings.activePrinterIdByCategory?.[category];
+  if (!id) return null;
+  const printer = settings.printers.find((p) => p.id === id);
+  return printer && printer.enabled ? printer : null;
+}
+
+/** Send already-built bytes (or fall back to a browser print) to one printer,
+ *  via that printer's own connection mode. Never throws. */
+async function dispatchToPrinter(
   order: Order,
   settings: AdminSettings,
-  opts: { kickDrawer?: boolean } = {},
-): Promise<void> {
-  const { printer } = settings;
-  if (!printer.enabled || !printer.autoPrint) return;
-
+  printer: PrinterSettings,
+  bytes: number[],
+): Promise<{ ok: boolean; error?: string }> {
   const mode = printer.connection ?? "network";
+
+  if (mode === "bluetooth") {
+    return sendToPrinterBluetooth(bytes, printer.bluetoothAddress ?? "");
+  }
+  if (mode === "usb") {
+    return sendToPrinterUSB(bytes, { promptIfNeeded: false });
+  }
+  if (mode === "browser") {
+    return printReceiptBrowser(order, settings, printer);
+  }
+  // network — try native TCP first (Android, works offline on LAN)
+  // then fall back to /api/print server proxy
+  if (!printer.ip.trim()) {
+    return { ok: false, error: "no_ip_configured" };
+  }
+  const { sendTcpNative } = await import("./capacitorBridge");
+  const nativeResult = await sendTcpNative(printer.ip, printer.port, bytes);
+  if (nativeResult.ok || nativeResult.error !== "native_unavailable") {
+    return nativeResult;
+  }
+  return sendToPrinter(bytes, printer.ip, printer.port);
+}
+
+/** Print to one category's active printer — independent of other categories,
+ *  no auto-fallback if it's unreachable. Never throws. */
+async function printOrderToCategory(
+  order: Order,
+  settings: AdminSettings,
+  category: PrinterCategory,
+  opts: { kickDrawer?: boolean },
+): Promise<void> {
+  const printer = resolveActivePrinter(settings, category);
+  if (!printer || !printer.autoPrint) return;
 
   try {
     // Pre-render the logo raster (async) when Show Logo is on, then build the
@@ -770,43 +816,36 @@ export async function printOrder(
     const logoBytes = rs?.showLogo && rs?.logoUrl
       ? await logoToRaster(rs.logoUrl, paperDotWidth(printer.paperWidth), { dither: rs.logoDither })
       : null;
-    let bytes = buildReceipt(order, settings, logoBytes);
+    let bytes = buildReceipt(order, settings, printer, logoBytes);
 
-    // Append cash drawer kick command when requested
-    if (opts.kickDrawer) {
+    // Cash drawer lives at the counter, not the kitchen — only kick it on the
+    // "pos" category's print.
+    if (opts.kickDrawer && category === "pos") {
       const b = new ReceiptBuilder();
       b.kickDrawer();
       bytes = [...bytes, ...b.build()];
     }
 
-    let result: { ok: boolean; error?: string };
-
-    if (mode === "bluetooth") {
-      result = await sendToPrinterBluetooth(bytes, printer.bluetoothAddress ?? "");
-    } else if (mode === "usb") {
-      result = await sendToPrinterUSB(bytes, { promptIfNeeded: false });
-    } else if (mode === "browser") {
-      result = printReceiptBrowser(order, settings);
-    } else {
-      // network — try native TCP first (Android, works offline on LAN)
-      // then fall back to /api/print server proxy
-      if (!printer.ip.trim()) {
-        console.warn("[printer] Auto-print skipped — no IP configured");
-        return;
-      }
-      const { sendTcpNative } = await import("./capacitorBridge");
-      const nativeResult = await sendTcpNative(printer.ip, printer.port, bytes);
-      if (nativeResult.ok || nativeResult.error !== "native_unavailable") {
-        result = nativeResult;
-      } else {
-        result = await sendToPrinter(bytes, printer.ip, printer.port);
-      }
+    if (printer.connection === "network" && !printer.ip.trim()) {
+      console.warn(`[printer:${category}] Auto-print skipped — no IP configured`);
+      return;
     }
 
+    const result = await dispatchToPrinter(order, settings, printer, bytes);
     if (!result.ok && result.error !== "USB printer selection cancelled.") {
-      console.error("[printer] Print failed:", result.error);
+      console.error(`[printer:${category}] Print failed:`, result.error);
     }
   } catch (err) {
-    console.error("[printer] Unexpected error:", err);
+    console.error(`[printer:${category}] Unexpected error:`, err);
   }
+}
+
+/** Print to each requested category (default both), independently. Never throws. */
+export async function printOrder(
+  order: Order,
+  settings: AdminSettings,
+  opts: { kickDrawer?: boolean; categories?: PrinterCategory[] } = {},
+): Promise<void> {
+  const categories = opts.categories ?? (["kitchen", "pos"] as const);
+  await Promise.all(categories.map((category) => printOrderToCategory(order, settings, category, opts)));
 }

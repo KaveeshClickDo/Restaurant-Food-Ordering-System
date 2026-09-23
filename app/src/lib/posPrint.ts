@@ -19,8 +19,8 @@
  */
 
 import type { POSSale, POSSettings } from "@/types/pos";
-import type { PrinterSettings, ReceiptSettings } from "@/types";
-import { ReceiptBuilder, logoToRaster, paperDotWidth } from "./escpos";
+import type { AdminSettings, PrinterSettings, ReceiptSettings } from "@/types";
+import { ReceiptBuilder, logoToRaster, paperDotWidth, resolveActivePrinter } from "./escpos";
 import { sendToPrinter, sendToPrinterUSB } from "./escpos";
 import { isCapacitorAndroid, sendBluetooth, sendUsb, sendTcpNative } from "./capacitorBridge";
 
@@ -169,21 +169,49 @@ export async function sendReceiptToPrinter(
   }
 }
 
+/** Fire-and-forget kitchen print — never surfaced to the caller, so it can't
+ *  block or be blocked by the user-facing "pos" print below. */
+async function printSaleToKitchen(
+  sale: POSSale,
+  settings: POSSettings,
+  appSettings: AdminSettings,
+  restaurantName: string,
+  receipt: ReceiptSettings,
+): Promise<void> {
+  const printer = resolveActivePrinter(appSettings, "kitchen");
+  if (!printer || !printer.autoPrint) return;
+  try {
+    const logoBytes = receipt.showLogo && receipt.logoUrl
+      ? await logoToRaster(receipt.logoUrl, paperDotWidth(printer.paperWidth), { dither: receipt.logoDither })
+      : null;
+    const bytes = buildPOSReceiptBytes(sale, settings, { paperWidth: printer.paperWidth, restaurantName, receipt, logoBytes });
+    const result = await sendReceiptToPrinter(bytes, printer);
+    if (!result.ok) console.error("[printer:kitchen] POS sale print failed:", result.error);
+  } catch (err) {
+    console.error("[printer:kitchen] Unexpected error:", err);
+  }
+}
+
 /**
- * High-level: print a POS sale to the configured printer.
+ * High-level: print a POS sale. Fires "kitchen" in the background (see
+ * printSaleToKitchen) and returns the "pos" printer's result, which is what
+ * the caller's UI reports status for.
  *
  * Returns `{ browser: true }` when the caller should fall back to window.print()
- * (printer disabled or set to "browser" mode) — those modes have no ESC/POS
- * byte path. Otherwise returns the transport result.
+ * (no active "pos" printer, or it's set to "browser" mode) — those modes have
+ * no ESC/POS byte path. Otherwise returns the transport result.
  */
 export async function printPOSSale(
   sale: POSSale,
   settings: POSSettings,
-  printer: PrinterSettings | undefined,
+  appSettings: AdminSettings,
   restaurantName: string,
   receipt: ReceiptSettings,
 ): Promise<{ ok: boolean; error?: string; browser?: boolean }> {
-  if (!printer?.enabled || printer.connection === "browser") {
+  void printSaleToKitchen(sale, settings, appSettings, restaurantName, receipt);
+
+  const printer = resolveActivePrinter(appSettings, "pos");
+  if (!printer || printer.connection === "browser") {
     return { ok: false, browser: true };
   }
   // Pre-render the logo raster (async) when Show Logo is on.

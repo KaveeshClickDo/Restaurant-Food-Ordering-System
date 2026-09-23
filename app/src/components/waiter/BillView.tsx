@@ -22,7 +22,8 @@ import {
 import CollectionFooter from "@/components/collection/CollectionFooter";
 import { computeTax, taxSurcharge } from "@/lib/taxUtils";
 import { parseTableLabelFromNote } from "@/lib/tableLabel";
-import type { WaiterStaff, DiningTable } from "@/types";
+import { printOrder } from "@/lib/escpos";
+import type { WaiterStaff, DiningTable, Order } from "@/types";
 import type { BillOrder, WaiterReceipt } from "./_types";
 import { fmtCur } from "./_utils";
 import { buildReceiptHtml } from "./_receiptHtml";
@@ -212,6 +213,26 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
         else lineMap.set(it.name, { ...it });
       }
     }
+    // Receipt/POS only — settling sends nothing new to the kitchen.
+    const settledOrder: Order = {
+      id: `BILL-${table.label}-${Date.now()}`,
+      customerId: null,
+      date: new Date().toISOString(),
+      status: "delivered",
+      fulfillment: "dine-in",
+      total: Math.max(0, round2(total - gcAmount)),
+      items: Array.from(lineMap.values()),
+      paymentMethod: method,
+      vatAmount: vatAmount > 0 ? vatAmount : undefined,
+      vatInclusive: vatAmount > 0 ? tax.inclusive : undefined,
+      tipAmount: tipAmount > 0 ? tipAmount : undefined,
+      serviceFee: serviceFeeAmount > 0 ? serviceFeeAmount : undefined,
+      discountAmount: discountAmount > 0 ? discountAmount : undefined,
+      discountNote: discountAmount > 0 ? (billDiscountNote.trim() || undefined) : undefined,
+      giftCardUsed: gcAmount > 0 ? gcAmount : undefined,
+    };
+    void printOrder(settledOrder, appSettings, { categories: ["pos"] });
+
     setReceipt({
       tableLabel: table.label,
       waiterName: waiter?.name ?? "Staff",

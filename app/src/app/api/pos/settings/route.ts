@@ -21,6 +21,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requirePosPermission } from "@/lib/posPermissions";
 import { parseBody } from "@/lib/apiValidation";
 import { PosSettingsPatchSchema } from "@/lib/schemas/pos";
+import { resolvePrinters, resolveActivePrinterIdByCategory } from "@/lib/printerRecords";
 
 export async function PATCH(req: NextRequest) {
   // POS admin / manager (canAccessSettings) OR any admin session.
@@ -50,8 +51,40 @@ export async function PATCH(req: NextRequest) {
   if (patch.taxSettings) {
     next.taxSettings = { ...((data.taxSettings as object) ?? {}), ...patch.taxSettings };
   }
-  if (patch.printer) {
-    next.printer = { ...((data.printer as object) ?? {}), ...patch.printer };
+  // POS may only edit an existing "pos"-category printer, never add/remove
+  // one or touch "kitchen" — checked here since only a DB read can confirm
+  // category membership. resolvePrinters also covers an un-migrated row.
+  if (patch.printer || patch.activePrinterId) {
+    const printers = resolvePrinters(data);
+    let activePrinterIdByCategory = resolveActivePrinterIdByCategory(data, printers);
+
+    if (patch.printer) {
+      const idx = printers.findIndex((p) => p.id === patch.printer!.id);
+      if (idx === -1 || printers[idx].category !== "pos") {
+        return NextResponse.json(
+          { ok: false, error: "Printer not found or not in the pos category." },
+          { status: 403 },
+        );
+      }
+      printers[idx] = { ...printers[idx], ...patch.printer, category: "pos" };
+    }
+
+    if (patch.activePrinterId) {
+      const { id } = patch.activePrinterId;
+      if (id !== null) {
+        const target = printers.find((p) => p.id === id);
+        if (!target || target.category !== "pos" || !target.enabled) {
+          return NextResponse.json(
+            { ok: false, error: "Printer must exist, be enabled, and be in the pos category to be made active." },
+            { status: 403 },
+          );
+        }
+      }
+      activePrinterIdByCategory = { ...activePrinterIdByCategory, pos: id };
+    }
+
+    next.printers = printers;
+    next.activePrinterIdByCategory = activePrinterIdByCategory;
   }
   if (patch.receiptSettings) {
     // Shared with Admin → Receipt: sub-object merge preserves sibling fields the

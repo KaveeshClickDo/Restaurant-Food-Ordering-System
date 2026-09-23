@@ -362,7 +362,12 @@ export interface CustomPage {
   updatedAt: string;    // ISO
 }
 
+/** "pos" = "Receipt / POS" in the UI — counter/receipt printing. */
+export type PrinterCategory = "kitchen" | "pos";
+
 export interface PrinterSettings {
+  id: string;
+  category: PrinterCategory;
   enabled: boolean;
   name: string;              // display label, e.g. "Kitchen Printer"
   connection: "network" | "usb" | "bluetooth" | "browser";
@@ -372,13 +377,6 @@ export interface PrinterSettings {
   bluetoothName: string;     // BT device display name
   autoPrint: boolean;        // send receipt automatically on new order
   paperWidth: number;        // chars per line: 48 = 80 mm, 32 = 58 mm
-  /**
-   * Optional allowlist of IPs the /api/print server proxy is permitted to
-   * forward bytes to. When empty, /api/print falls back to allowing only
-   * the primary `ip` field. Set this to add extra printers (e.g. kitchen
-   * bar printer + counter receipt printer) without weakening the proxy.
-   */
-  allowedIps?: string[];
 }
 
 export interface FooterLogo {
@@ -615,7 +613,10 @@ export interface AdminSettings {
   deliveryZones: DeliveryZone[];
   seo: SeoSettings;
   customHeadCode: string;   // raw HTML injected into <head> (analytics, verification tags, etc.)
-  printer: PrinterSettings;
+  printers: PrinterSettings[];
+  /** Active printer per category — global (not per-device). Must reference
+   *  an enabled printer, or null if none is set. */
+  activePrinterIdByCategory: Record<PrinterCategory, string | null>;
   emailTemplates: EmailTemplate[];
   /** Internal alert emails sent to the restaurant (Admin → Integrations →
    *  Admin Emails). Optional: server-side readers pull the raw app_settings

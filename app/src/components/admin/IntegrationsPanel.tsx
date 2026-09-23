@@ -8,7 +8,9 @@ import {
   GripVertical, Pencil, X, Check, ChevronUp, ChevronDown,
   ToggleRight, ToggleLeft, Clock, ShieldAlert, History, Ruler,
   Printer, Wifi, WifiOff, AlertTriangle, Loader2, Mail, Send, Trash2,
+  Plus, ChefHat, Receipt, CircleDot, Circle,
 } from "lucide-react";
+import type { PrinterCategory, PrinterSettings } from "@/types";
 import { buildTestReceipt, sendToPrinter, sendToPrinterBluetooth, sendToPrinterUSB, printReceiptBrowser } from "@/lib/escpos";
 import { getBluetoothPairedDevices, isCapacitorAndroid, type BluetoothDevice } from "@/lib/capacitorBridge";
 import { sendEmailViaApi } from "@/lib/emailTemplates";
@@ -18,7 +20,7 @@ import { sendEmailViaApi } from "@/lib/emailTemplates";
 const METHOD_ICONS: Record<string, React.ReactNode> = {
   stripe: <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center"><CreditCard size={18} className="text-white" /></div>,
   paypal: <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-blue-700 rounded-xl flex items-center justify-center"><Wallet size={18} className="text-white" /></div>,
-  cash:   <div className="w-9 h-9 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center"><Banknote size={18} className="text-white" /></div>,
+  cash: <div className="w-9 h-9 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center"><Banknote size={18} className="text-white" /></div>,
 };
 
 function getIcon(id: string) {
@@ -41,16 +43,14 @@ function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void 
   return (
     <button
       onClick={onToggle}
-      className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-1 ${
-        enabled ? "bg-green-500" : "bg-gray-300"
-      }`}
+      className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-1 ${enabled ? "bg-green-500" : "bg-gray-300"
+        }`}
       aria-checked={enabled}
       role="switch"
     >
       <span
-        className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${
-          enabled ? "translate-x-6" : "translate-x-1"
-        }`}
+        className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${enabled ? "translate-x-6" : "translate-x-1"
+          }`}
       />
     </button>
   );
@@ -386,19 +386,19 @@ function ApiKeysTab() {
           <p className="text-xs text-gray-400 mt-0.5">Add these to <code className="font-mono">.env.local</code> — never commit them to source control.</p>
         </div>
         <div className="px-5 divide-y divide-gray-50">
-          <EnvVarRow name="SMTP_HOST"            description="SMTP server hostname (e.g. smtp.gmail.com)" />
-          <EnvVarRow name="SMTP_PORT"            description="SMTP port — 587 for STARTTLS (default), 465 for SSL" />
-          <EnvVarRow name="SMTP_USER"            description="SMTP username / sender address" />
-          <EnvVarRow name="SMTP_PASS"            description="SMTP password or app-specific password" />
-          <EnvVarRow name="STRIPE_SECRET_KEY"             description="Stripe secret key (sk_live_… or sk_test_…)" />
-          <EnvVarRow name="STRIPE_WEBHOOK_SECRET"         description="Webhook signing secret (whsec_…) from Stripe Dashboard → Webhooks" />
+          <EnvVarRow name="SMTP_HOST" description="SMTP server hostname (e.g. smtp.gmail.com)" />
+          <EnvVarRow name="SMTP_PORT" description="SMTP port — 587 for STARTTLS (default), 465 for SSL" />
+          <EnvVarRow name="SMTP_USER" description="SMTP username / sender address" />
+          <EnvVarRow name="SMTP_PASS" description="SMTP password or app-specific password" />
+          <EnvVarRow name="STRIPE_SECRET_KEY" description="Stripe secret key (sk_live_… or sk_test_…)" />
+          <EnvVarRow name="STRIPE_WEBHOOK_SECRET" description="Webhook signing secret (whsec_…) from Stripe Dashboard → Webhooks" />
           <EnvVarRow name="NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY" description="Stripe publishable key (pk_live_… or pk_test_…) — public, sent to the browser" />
-          <EnvVarRow name="APPLE_PAY_DOMAIN_ASSOCIATION"      description="Apple Pay domain verification file contents (optional)" />
-          <EnvVarRow name="NEXT_PUBLIC_PAYPAL_CLIENT_ID"      description="PayPal REST API client ID — public, sent to the browser" />
-          <EnvVarRow name="PAYPAL_CLIENT_SECRET"              description="PayPal REST API secret — server-side only" />
-          <EnvVarRow name="PAYPAL_WEBHOOK_ID"                 description="PayPal webhook ID from Developer Dashboard → Webhooks" />
-          <EnvVarRow name="PAYPAL_ENV"                        description="PayPal environment — 'sandbox' for testing, 'live' for production" />
-          <EnvVarRow name="SUPABASE_SERVICE_ROLE_KEY"         description="Supabase service-role key — used by server API routes only" />
+          <EnvVarRow name="APPLE_PAY_DOMAIN_ASSOCIATION" description="Apple Pay domain verification file contents (optional)" />
+          <EnvVarRow name="NEXT_PUBLIC_PAYPAL_CLIENT_ID" description="PayPal REST API client ID — public, sent to the browser" />
+          <EnvVarRow name="PAYPAL_CLIENT_SECRET" description="PayPal REST API secret — server-side only" />
+          <EnvVarRow name="PAYPAL_WEBHOOK_ID" description="PayPal webhook ID from Developer Dashboard → Webhooks" />
+          <EnvVarRow name="PAYPAL_ENV" description="PayPal environment — 'sandbox' for testing, 'live' for production" />
+          <EnvVarRow name="SUPABASE_SERVICE_ROLE_KEY" description="Supabase service-role key — used by server API routes only" />
         </div>
       </div>
 
@@ -427,9 +427,8 @@ function ApiKeysTab() {
           </div>
           <button
             onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 2500); }}
-            className={`mt-3 flex items-center gap-2 px-5 py-2 rounded-xl font-semibold text-sm transition-all ${
-              saved ? "bg-green-100 text-green-700" : "bg-orange-500 hover:bg-orange-600 text-white"
-            }`}
+            className={`mt-3 flex items-center gap-2 px-5 py-2 rounded-xl font-semibold text-sm transition-all ${saved ? "bg-green-100 text-green-700" : "bg-orange-500 hover:bg-orange-600 text-white"
+              }`}
           >
             {saved ? <><CheckCircle size={15} /> Saved!</> : "Save"}
           </button>
@@ -468,27 +467,67 @@ const CONNECTION_OPTIONS = [
 
 type ConnectionMode = "network" | "bluetooth" | "usb" | "browser";
 
-function PrinterTab() {
-  const { settings, updateSettings } = useApp();
-  const p = settings.printer;
+const CATEGORY_META: Record<PrinterCategory, { title: string; subtitle: string; icon: React.ReactNode }> = {
+  kitchen: {
+    title: "Kitchen",
+    subtitle: "Order tickets for food prep",
+    icon: <ChefHat size={15} className="text-orange-500" />,
+  },
+  pos: {
+    title: "Receipt / POS",
+    subtitle: "Customer and counter receipts — checkout, POS sales, settled bills",
+    icon: <Receipt size={15} className="text-orange-500" />,
+  },
+};
 
+// One printer row (list item + inline editor + its own test)
+
+function PrinterRow({
+  printer, isActive, onToggleEnabled, onUpdate, onDelete, onSetActive,
+}: {
+  printer: PrinterSettings;
+  isActive: boolean;
+  onToggleEnabled: () => void;
+  onUpdate: (p: PrinterSettings) => void;
+  onDelete: () => void;
+  onSetActive: () => void;
+}) {
+  const { settings } = useApp();
+  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({
-    enabled:          p.enabled,
-    name:             p.name,
-    connection:       (p.connection ?? "network") as ConnectionMode,
-    ip:               p.ip,
-    port:             p.port,
-    bluetoothAddress: p.bluetoothAddress ?? "",
-    bluetoothName:    p.bluetoothName    ?? "",
-    autoPrint:        p.autoPrint,
-    paperWidth:       p.paperWidth,
+    name: printer.name,
+    connection: (printer.connection ?? "network") as ConnectionMode,
+    ip: printer.ip,
+    port: printer.port,
+    bluetoothAddress: printer.bluetoothAddress ?? "",
+    bluetoothName: printer.bluetoothName ?? "",
+    autoPrint: printer.autoPrint,
+    paperWidth: printer.paperWidth,
   });
-  const [saved,      setSaved]      = useState(false);
-  const [testState,  setTestState]  = useState<TestState>("idle");
-  const [testError,  setTestError]  = useState("");
-  const [btDevices,  setBtDevices]  = useState<BluetoothDevice[]>([]);
+  const [testState, setTestState] = useState<TestState>("idle");
+  const [testError, setTestError] = useState("");
+  const [btDevices, setBtDevices] = useState<BluetoothDevice[]>([]);
   const [btScanning, setBtScanning] = useState(false);
   const onAndroid = isCapacitorAndroid();
+
+  function resetDraft() {
+    setDraft({
+      name: printer.name, connection: (printer.connection ?? "network") as ConnectionMode,
+      ip: printer.ip, port: printer.port,
+      bluetoothAddress: printer.bluetoothAddress ?? "", bluetoothName: printer.bluetoothName ?? "",
+      autoPrint: printer.autoPrint, paperWidth: printer.paperWidth,
+    });
+  }
+
+  function save() {
+    onUpdate({ ...printer, ...draft });
+    setEditing(false);
+  }
+
+  function cancel() {
+    resetDraft();
+    setEditing(false);
+  }
 
   async function scanBluetooth() {
     setBtScanning(true);
@@ -498,17 +537,11 @@ function PrinterTab() {
     if (devices.length === 0) setTestError("No paired Bluetooth devices found. Pair the printer in Android Settings first.");
   }
 
-  function handleSave() {
-    updateSettings({ printer: { ...p, ...draft } });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
-  }
-
   async function handleTest() {
     setTestState("connecting");
     setTestError("");
 
-    const previewSettings = { ...settings, printer: { ...p, ...draft } };
+    const previewPrinter: PrinterSettings = { ...printer, ...draft };
 
     if (draft.connection === "network") {
       if (!draft.ip.trim()) {
@@ -516,10 +549,10 @@ function PrinterTab() {
         setTestError("Enter a printer IP address before testing.");
         return;
       }
-      const bytes  = buildTestReceipt(previewSettings);
+      const bytes = buildTestReceipt(settings, previewPrinter);
       const result = await sendToPrinter(bytes, draft.ip.trim(), draft.port, "/api/admin/print");
       if (result.ok) { setTestState("success"); setTimeout(() => setTestState("idle"), 5000); }
-      else           { setTestState("error"); setTestError(result.error ?? "Unknown error"); }
+      else { setTestState("error"); setTestError(result.error ?? "Unknown error"); }
       return;
     }
 
@@ -529,18 +562,18 @@ function PrinterTab() {
         setTestError("Select a paired Bluetooth device below before testing.");
         return;
       }
-      const bytes  = buildTestReceipt(previewSettings);
+      const bytes = buildTestReceipt(settings, previewPrinter);
       const result = await sendToPrinterBluetooth(bytes, draft.bluetoothAddress);
       if (result.ok) { setTestState("success"); setTimeout(() => setTestState("idle"), 5000); }
-      else           { setTestState("error"); setTestError(result.error ?? "Unknown error"); }
+      else { setTestState("error"); setTestError(result.error ?? "Unknown error"); }
       return;
     }
 
     if (draft.connection === "usb") {
-      const bytes  = buildTestReceipt(previewSettings);
+      const bytes = buildTestReceipt(settings, previewPrinter);
       const result = await sendToPrinterUSB(bytes);
       if (result.ok) { setTestState("success"); setTimeout(() => setTestState("idle"), 5000); }
-      else           { setTestState("error"); setTestError(result.error ?? "Unknown error"); }
+      else { setTestState("error"); setTestError(result.error ?? "Unknown error"); }
       return;
     }
 
@@ -551,96 +584,100 @@ function PrinterTab() {
       total: 0, fulfillment: "collection" as const,
       status: "pending" as const, customerId: "", paymentMethod: "Test",
     };
-    const result = printReceiptBrowser(dummyOrder, previewSettings);
+    const result = printReceiptBrowser(dummyOrder, settings, previewPrinter);
     if (result.ok) { setTestState("success"); setTimeout(() => setTestState("idle"), 5000); }
-    else           { setTestState("error"); setTestError(result.error ?? "Unknown error"); }
+    else { setTestState("error"); setTestError(result.error ?? "Unknown error"); }
   }
 
   const isConfigured =
-    draft.connection === "network"    ? Boolean(draft.ip.trim()) :
-    draft.connection === "bluetooth"  ? Boolean(draft.bluetoothAddress.trim()) : true;
+    draft.connection === "network" ? Boolean(draft.ip.trim()) :
+      draft.connection === "bluetooth" ? Boolean(draft.bluetoothAddress.trim()) : true;
 
-  const statusLabel = !draft.enabled
+  const statusLabel = !printer.enabled
     ? "Disabled"
     : draft.connection === "network"
-    ? isConfigured ? `${draft.ip}:${draft.port}` : "No IP configured"
-    : draft.connection === "bluetooth"
-    ? isConfigured ? draft.bluetoothName || draft.bluetoothAddress : "No device selected"
-    : draft.connection === "usb" ? "USB (Web USB)" : "Browser print";
+      ? isConfigured ? `${draft.ip}:${draft.port}` : "No IP configured"
+      : draft.connection === "bluetooth"
+        ? isConfigured ? draft.bluetoothName || draft.bluetoothAddress : "No device selected"
+        : draft.connection === "usb" ? "USB (Web USB)" : "Browser print";
 
   return (
-    <div className="space-y-5">
-      {/* Status card */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
-        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 ${
-          draft.enabled && isConfigured ? "bg-green-50" : "bg-gray-100"
-        }`}>
-          <Printer size={22} className={draft.enabled && isConfigured ? "text-green-600" : "text-gray-400"} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="font-bold text-gray-900 text-sm">{draft.name || "Thermal Printer"}</p>
-          <p className="text-xs text-gray-400 mt-0.5">
-            {draft.enabled && isConfigured
-              ? `${statusLabel} — auto-print ${draft.autoPrint ? "on" : "off"}`
-              : statusLabel}
-          </p>
-        </div>
-        <div className="flex-shrink-0">
-          {draft.enabled && isConfigured ? (
-            <span className="flex items-center gap-1.5 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-full px-2.5 py-1">
-              <Wifi size={11} /> Ready
-            </span>
-          ) : (
-            <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 bg-gray-100 border border-gray-200 rounded-full px-2.5 py-1">
-              <WifiOff size={11} /> Offline
-            </span>
-          )}
-        </div>
-      </div>
+    <div className={`rounded-2xl border-2 transition-colors ${printer.enabled ? "border-gray-100 bg-white" : "border-dashed border-gray-200 bg-gray-50/60"}`}>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3.5">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          {/* Active radio */}
+          <button
+            onClick={onSetActive}
+            disabled={!printer.enabled}
+            title={printer.enabled ? (isActive ? "Active — click to clear" : "Set as active") : "Enable this printer first"}
+            className={`flex-shrink-0 transition ${printer.enabled ? "cursor-pointer" : "cursor-not-allowed opacity-30"}`}
+          >
+            {isActive ? <CircleDot size={18} className="text-orange-500" /> : <Circle size={18} className="text-gray-300" />}
+          </button>
 
-      {/* Configuration form */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 flex gap-2 items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-orange-50 rounded-xl flex items-center justify-center">
-              <Printer size={15} className="text-orange-500" />
-            </div>
-            <div>
-              <h3 className="font-bold text-gray-900 text-sm">Printer settings</h3>
-              <p className="text-xs text-gray-400">Network, Bluetooth, USB, or browser print</p>
-            </div>
+          <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${printer.enabled && isConfigured ? "bg-green-50" : "bg-gray-100"
+            }`}>
+            <Printer size={16} className={printer.enabled && isConfigured ? "text-green-600" : "text-gray-400"} />
           </div>
+
+          <div className="flex-1 min-w-0 flex flex-col justify-center">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`font-semibold text-sm ${printer.enabled ? "text-gray-900" : "text-gray-400"}`}>
+                {printer.name || "Unnamed printer"}
+              </span>
+              {isActive && (
+                <span className="text-[10px] bg-orange-100 text-orange-600 rounded-full px-2 py-0.5 font-semibold">Active</span>
+              )}
+            </div>
+            <p className="text-xs text-gray-400 truncate mt-0.5">
+              {statusLabel}{printer.enabled ? ` — auto-print ${draft.autoPrint ? "on" : "off"}` : ""}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between sm:justify-end gap-3 flex-shrink-0 mt-2 sm:mt-0 pt-3 sm:pt-0 border-t sm:border-0 border-gray-100">
+          <div className="flex items-center gap-1.5">
+            {printer.enabled && isConfigured ? (
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-full px-2.5 py-1">
+                <Wifi size={11} /> Ready
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 bg-gray-100 border border-gray-200 rounded-full px-2.5 py-1">
+                <WifiOff size={11} /> Offline
+              </span>
+            )}
+          </div>
+
           <div className="flex items-center gap-2">
-            <span className="hidden sm:flex text-xs text-gray-500 font-medium">{draft.enabled ? "Enabled" : "Disabled"}</span>
+            <Toggle enabled={printer.enabled} onToggle={onToggleEnabled} />
             <button
-              onClick={() => setDraft((d) => ({ ...d, enabled: !d.enabled }))}
-              className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors focus:outline-none ${
-                draft.enabled ? "bg-green-500" : "bg-gray-300"
-              }`}
-              aria-checked={draft.enabled}
-              role="switch"
+              onClick={() => setEditing((v) => !v)}
+              className="w-8 h-8 flex items-center justify-center rounded-xl bg-gray-100 hover:bg-orange-100 hover:text-orange-600 text-gray-500 transition"
             >
-              <span className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${
-                draft.enabled ? "translate-x-6" : "translate-x-1"
-              }`} />
+              <Pencil size={13} />
+            </button>
+            <button
+              onClick={() => { if (window.confirm(`Delete "${printer.name || "this printer"}"? This can't be undone.`)) onDelete(); }}
+              className="w-8 h-8 flex items-center justify-center rounded-xl bg-gray-100 hover:bg-red-100 hover:text-red-600 text-gray-500 transition"
+            >
+              <Trash2 size={13} />
             </button>
           </div>
         </div>
+      </div>
 
-        <div className="p-6 space-y-5">
+      {editing && (
+        <div className="border-t border-gray-100 px-4 pb-4 pt-3 bg-gray-50/50 rounded-b-2xl space-y-4">
           {/* Connection type */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Connection type</p>
-            <div className="space-y-2">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Connection type</p>
+            <div className="space-y-1.5">
               {CONNECTION_OPTIONS.map(({ value, label, sub }) => (
                 <button
                   key={value}
                   onClick={() => setDraft((d) => ({ ...d, connection: value }))}
-                  className={`w-full text-left px-4 py-3 rounded-xl border-2 transition ${
-                    draft.connection === value
-                      ? "border-orange-500 bg-orange-50"
-                      : "border-gray-200 hover:border-gray-300"
-                  }`}
+                  className={`w-full text-left px-3 py-2 rounded-xl border-2 transition ${draft.connection === value ? "border-orange-500 bg-orange-50" : "border-gray-200 hover:border-gray-300 bg-white"
+                    }`}
                 >
                   <p className={`text-sm font-bold ${draft.connection === value ? "text-orange-600" : "text-gray-700"}`}>{label}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{sub}</p>
@@ -649,17 +686,16 @@ function PrinterTab() {
             </div>
           </div>
 
-          {/* Network fields */}
           {draft.connection === "network" && (
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Network</p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Network</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-semibold text-gray-600 mb-1.5">Printer IP address</label>
                   <input type="text" value={draft.ip}
                     onChange={(e) => setDraft((d) => ({ ...d, ip: e.target.value }))}
                     placeholder="192.168.1.100"
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-mono text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm font-mono text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition bg-white"
                   />
                   <p className="text-[11px] text-gray-400 mt-1">Set a static IP on your printer to prevent address changes</p>
                 </div>
@@ -667,7 +703,7 @@ function PrinterTab() {
                   <label className="block text-xs font-semibold text-gray-600 mb-1.5">TCP port</label>
                   <input type="number" value={draft.port} min={1} max={65535}
                     onChange={(e) => setDraft((d) => ({ ...d, port: Number(e.target.value) }))}
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-mono text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm font-mono text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400 transition bg-white"
                   />
                   <p className="text-[11px] text-gray-400 mt-1">Default: 9100</p>
                 </div>
@@ -675,13 +711,12 @@ function PrinterTab() {
             </div>
           )}
 
-          {/* Bluetooth device selector */}
           {draft.connection === "bluetooth" && (
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Bluetooth device</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Bluetooth device</p>
               {draft.bluetoothAddress ? (
-                <div className="flex items-center gap-3 px-4 py-3 bg-green-50 border border-green-200 rounded-xl mb-3">
-                  <CheckCircle size={15} className="text-green-600 flex-shrink-0" />
+                <div className="flex items-center gap-3 px-3 py-2.5 bg-green-50 border border-green-200 rounded-xl mb-2">
+                  <CheckCircle size={14} className="text-green-600 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-green-700 truncate">{draft.bluetoothName || "Unnamed device"}</p>
                     <p className="text-xs text-green-600 font-mono">{draft.bluetoothAddress}</p>
@@ -690,13 +725,12 @@ function PrinterTab() {
                     className="text-xs text-gray-400 hover:text-red-500 transition">Clear</button>
                 </div>
               ) : (
-                <p className="text-xs text-gray-400 mb-3">No device selected. Scan for paired devices below.</p>
+                <p className="text-xs text-gray-400 mb-2">No device selected. Scan for paired devices below.</p>
               )}
-
               {onAndroid ? (
                 <>
                   <button onClick={scanBluetooth} disabled={btScanning}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition disabled:opacity-50 mb-3">
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition disabled:opacity-50 mb-2 bg-white">
                     {btScanning ? <><Loader2 size={14} className="animate-spin" /> Scanning…</> : "Scan paired devices"}
                   </button>
                   {btDevices.length > 0 && (
@@ -704,9 +738,8 @@ function PrinterTab() {
                       {btDevices.map((dev) => (
                         <button key={dev.address}
                           onClick={() => setDraft((d) => ({ ...d, bluetoothAddress: dev.address, bluetoothName: dev.name }))}
-                          className={`w-full text-left px-4 py-3 flex items-center gap-3 transition hover:bg-gray-50 ${
-                            draft.bluetoothAddress === dev.address ? "bg-orange-50" : ""
-                          }`}>
+                          className={`w-full text-left px-3 py-2 flex items-center gap-3 transition hover:bg-gray-50 ${draft.bluetoothAddress === dev.address ? "bg-orange-50" : "bg-white"
+                            }`}>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-semibold text-gray-800 truncate">{dev.name}</p>
                             <p className="text-xs text-gray-400 font-mono">{dev.address}</p>
@@ -718,30 +751,28 @@ function PrinterTab() {
                   )}
                 </>
               ) : (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
                   <p className="text-xs font-semibold text-amber-700">Android app required</p>
-                  <p className="text-xs text-amber-600 mt-0.5">Bluetooth printing is only available in the Android Capacitor app. On this device, use Network or Browser print mode.</p>
+                  <p className="text-xs text-amber-600 mt-0.5">Bluetooth printing is only available in the Android Capacitor app.</p>
                 </div>
               )}
             </div>
           )}
 
-          {/* USB info */}
           {draft.connection === "usb" && (
-            <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 space-y-1">
+            <div className="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 space-y-1">
               <p className="text-xs font-semibold text-blue-700">Web USB requirements</p>
               <ul className="text-xs text-blue-600 space-y-0.5 list-disc list-inside">
                 <li>Requires Google Chrome or Microsoft Edge (Firefox/Safari not supported)</li>
                 <li>Printer must be connected via USB to this device</li>
-                <li>Click &quot;Print test page&quot; below to select your USB printer for the first time</li>
+                <li>Click &quot;Print test page&quot; to select the USB printer the first time</li>
                 <li>The browser will remember the device for future prints</li>
               </ul>
             </div>
           )}
 
-          {/* Browser print info */}
           {draft.connection === "browser" && (
-            <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 space-y-1">
+            <div className="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 space-y-1">
               <p className="text-xs font-semibold text-blue-700">Browser print notes</p>
               <ul className="text-xs text-blue-600 space-y-0.5 list-disc list-inside">
                 <li>Opens the browser&apos;s built-in print dialog</li>
@@ -752,23 +783,19 @@ function PrinterTab() {
             </div>
           )}
 
-          {/* Identity */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Identity</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Identity</p>
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">Printer name <span className="font-normal text-gray-400">(admin label)</span></label>
               <input type="text" value={draft.name}
                 onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-                placeholder="Kitchen Printer"
-                className="w-full sm:max-w-xs px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 transition bg-white"
               />
             </div>
           </div>
-
-          {/* Paper */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Paper size</p>
-            <div className="flex gap-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Paper size</p>
+            <div className="flex gap-2">
               {([
                 { value: 48, label: "80 mm", sub: "48 chars / line — most common" },
                 { value: 32, label: "58 mm", sub: "32 chars / line — compact" },
@@ -784,112 +811,173 @@ function PrinterTab() {
             </div>
           </div>
 
-          {/* Auto-print */}
           <div className="flex items-center justify-between py-3 border-t border-gray-100">
             <div>
               <p className="text-sm font-semibold text-gray-800">Auto-print on new order</p>
               <p className="text-xs text-gray-400 mt-0.5">Automatically send a receipt when a customer places an order</p>
             </div>
             <button onClick={() => setDraft((d) => ({ ...d, autoPrint: !d.autoPrint }))}
-              className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-4 ${
-                draft.autoPrint ? "bg-green-500" : "bg-gray-300"
-              }`} aria-checked={draft.autoPrint} role="switch">
-              <span className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${
-                draft.autoPrint ? "translate-x-6" : "translate-x-1"
-              }`} />
+              className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors flex-shrink-0 ${draft.autoPrint ? "bg-green-500" : "bg-gray-300"
+                }`} aria-checked={draft.autoPrint} role="switch">
+              <span className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${draft.autoPrint ? "translate-x-6" : "translate-x-1"
+                }`} />
             </button>
           </div>
 
-          {/* Save */}
-          <button onClick={handleSave}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all ${
-              saved ? "bg-green-100 text-green-700" : "bg-orange-500 hover:bg-orange-600 text-white"
-            }`}>
-            {saved ? <><CheckCircle size={15} /> Saved!</> : "Save settings"}
-          </button>
-        </div>
-      </div>
-
-      {/* Test print */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-50 rounded-xl flex items-center justify-center">
-            <Printer size={15} className="text-blue-500" />
-          </div>
-          <div>
-            <h3 className="font-bold text-gray-900 text-sm">Test connection</h3>
-            <p className="text-xs text-gray-400">Send a test page to verify connectivity and receipt formatting</p>
-          </div>
-        </div>
-
-        <div className="p-6 space-y-4">
           {testState === "success" && (
-            <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
-              <CheckCircle size={16} className="text-green-600 flex-shrink-0" />
-              <div>
-                <p className="text-sm font-semibold text-green-700">Test page sent successfully!</p>
-                <p className="text-xs text-green-600 mt-0.5">Your printer is connected and working correctly.</p>
-              </div>
+            <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-3 py-2">
+              <CheckCircle size={14} className="text-green-600 flex-shrink-0" />
+              <p className="text-xs font-semibold text-green-700">Test page sent successfully!</p>
             </div>
           )}
           {testState === "error" && (
-            <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-              <AlertTriangle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-semibold text-red-700">Print failed</p>
-                <p className="text-xs text-red-500 mt-0.5 break-all">{testError}</p>
-              </div>
+            <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+              <AlertTriangle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-red-500 break-all">{testError}</p>
             </div>
           )}
 
-          <div className="flex items-center gap-3">
-            <button onClick={handleTest} disabled={testState === "connecting"}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm bg-gray-900 hover:bg-gray-800 text-white transition disabled:opacity-60 disabled:cursor-not-allowed">
-              {testState === "connecting"
-                ? <><Loader2 size={15} className="animate-spin" /> Sending…</>
-                : <><Printer size={15} /> Print test page</>}
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button onClick={save}
+              className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition">
+              <Check size={13} /> Save
             </button>
-            {testState !== "idle" && testState !== "connecting" && (
-              <button onClick={() => { setTestState("idle"); setTestError(""); }}
-                className="text-xs text-gray-400 hover:text-gray-600 transition">Dismiss</button>
-            )}
+            <button onClick={cancel}
+              className="flex items-center gap-1.5 border border-gray-200 text-gray-500 hover:text-gray-700 text-xs font-semibold px-3 py-2 rounded-xl transition bg-white">
+              <X size={13} /> Cancel
+            </button>
+            <button onClick={handleTest} disabled={testState === "connecting"}
+              className="flex items-center gap-1.5 bg-gray-900 hover:bg-gray-800 text-white text-xs font-bold px-3 py-2 rounded-xl transition disabled:opacity-60 ml-auto">
+              {testState === "connecting" ? <><Loader2 size={13} className="animate-spin" /> Sending…</> : <><Printer size={13} /> Test print</>}
+            </button>
           </div>
 
-          <div className="bg-gray-50 rounded-xl px-4 py-3 space-y-1">
-            <p className="text-xs font-semibold text-gray-600">Troubleshooting tips</p>
-            {draft.connection === "network" && (
-              <ul className="text-xs text-gray-500 space-y-0.5 list-disc list-inside">
-                <li>Printer and server must be on the same network/VLAN</li>
-                <li>Default port for most thermal printers is <span className="font-mono">9100</span></li>
-                <li>Set a static IP on the printer to prevent address changes</li>
-                <li>Check the printer is powered on and not in error or sleep state</li>
-              </ul>
-            )}
-            {draft.connection === "bluetooth" && (
-              <ul className="text-xs text-gray-500 space-y-0.5 list-disc list-inside">
-                <li>Pair the printer first in Android Settings → Bluetooth</li>
-                <li>Ensure the printer is in Bluetooth pairing/discoverable mode</li>
-                <li>Classic Bluetooth (SPP) is required — BLE-only printers won&apos;t work</li>
-                <li>Only available in the Android Capacitor app</li>
-              </ul>
-            )}
-            {draft.connection === "usb" && (
-              <ul className="text-xs text-gray-500 space-y-0.5 list-disc list-inside">
-                <li>Only works in Chrome or Edge — not Firefox or Safari</li>
-                <li>Connect the printer via USB before clicking the test button</li>
-                <li>If the interface claim fails, try unplugging and replugging the USB cable</li>
-              </ul>
-            )}
-            {draft.connection === "browser" && (
-              <ul className="text-xs text-gray-500 space-y-0.5 list-disc list-inside">
-                <li>Allow pop-ups for this site if the print dialog does not appear</li>
-                <li>Set Margins to None and disable headers/footers in the print dialog</li>
-                <li>Select your thermal printer from the destination list</li>
-              </ul>
-            )}
+          {/* Collapsed by default, scoped to the selected connection type */}
+          <details className="bg-gray-50 rounded-xl px-4 py-3 group">
+            <summary className="text-xs font-semibold text-gray-600 cursor-pointer select-none list-none flex items-center gap-1.5">
+              <ChevronDown size={12} className="text-gray-400 transition-transform group-open:rotate-180" />
+              Troubleshooting tips
+            </summary>
+            <div className="mt-2">
+              {draft.connection === "network" && (
+                <ul className="text-xs text-gray-500 space-y-0.5 list-disc list-inside">
+                  <li>Printer and server must be on the same network/VLAN</li>
+                  <li>Default port for most thermal printers is <span className="font-mono">9100</span></li>
+                  <li>Set a static IP on the printer to prevent address changes</li>
+                  <li>Check the printer is powered on and not in error or sleep state</li>
+                </ul>
+              )}
+              {draft.connection === "bluetooth" && (
+                <ul className="text-xs text-gray-500 space-y-0.5 list-disc list-inside">
+                  <li>Pair the printer first in Android Settings → Bluetooth</li>
+                  <li>Ensure the printer is in Bluetooth pairing/discoverable mode</li>
+                  <li>Classic Bluetooth (SPP) is required — BLE-only printers won&apos;t work</li>
+                  <li>Only available in the Android Capacitor app</li>
+                </ul>
+              )}
+              {draft.connection === "usb" && (
+                <ul className="text-xs text-gray-500 space-y-0.5 list-disc list-inside">
+                  <li>Only works in Chrome or Edge — not Firefox or Safari</li>
+                  <li>Connect the printer via USB before clicking Test print</li>
+                  <li>If the interface claim fails, try unplugging and replugging the USB cable</li>
+                </ul>
+              )}
+              {draft.connection === "browser" && (
+                <ul className="text-xs text-gray-500 space-y-0.5 list-disc list-inside">
+                  <li>Allow pop-ups for this site if the print dialog does not appear</li>
+                  <li>Set Margins to None and disable headers/footers in the print dialog</li>
+                  <li>Select your thermal printer from the destination list</li>
+                </ul>
+              )}
+            </div>
+          </details>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One category section (Kitchen / Receipt-POS)
+function PrinterCategorySection({
+  category, printers, activeId, onAdd, onToggle, onUpdate, onDelete, onSetActive,
+}: {
+  category: PrinterCategory;
+  printers: PrinterSettings[];
+  activeId: string | null;
+  onAdd: () => void;
+  onToggle: (id: string, enabled: boolean) => void;
+  onUpdate: (p: PrinterSettings) => void;
+  onDelete: (id: string) => void;
+  onSetActive: (id: string | null) => void;
+}) {
+  const meta = CATEGORY_META[category];
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-orange-50 rounded-xl flex items-center justify-center flex-shrink-0">
+            {meta.icon}
+          </div>
+          <div>
+            <h3 className="font-bold text-gray-900 text-sm">{meta.title}</h3>
+            <p className="text-xs text-gray-400">{meta.subtitle}</p>
           </div>
         </div>
+        <button onClick={onAdd}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-orange-50 hover:bg-orange-100 text-orange-600 text-xs font-bold transition flex-shrink-0">
+          <Plus size={14} /> Add printer
+        </button>
       </div>
+
+      <div className="p-4 sm:p-6 space-y-3">
+        {printers.length === 0 ? (
+          <p className="text-sm text-gray-400 px-2 py-4 text-center">No printers yet under {meta.title}.</p>
+        ) : (
+          printers.map((p) => (
+            <PrinterRow
+              key={p.id}
+              printer={p}
+              isActive={p.id === activeId}
+              onToggleEnabled={() => onToggle(p.id, !p.enabled)}
+              onUpdate={onUpdate}
+              onDelete={() => onDelete(p.id)}
+              onSetActive={() => onSetActive(p.id === activeId ? null : p.id)}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Thermal Printer Tab
+function PrinterTab() {
+  const { settings, addPrinter, updatePrinter, removePrinter, togglePrinterEnabled, setActivePrinter } = useApp();
+  const printers = settings.printers;
+  const active = settings.activePrinterIdByCategory;
+
+  return (
+    <div className="space-y-5">
+      <PrinterCategorySection
+        category="kitchen"
+        printers={printers.filter((p) => p.category === "kitchen")}
+        activeId={active.kitchen}
+        onAdd={() => addPrinter("kitchen")}
+        onToggle={togglePrinterEnabled}
+        onUpdate={updatePrinter}
+        onDelete={removePrinter}
+        onSetActive={(id) => setActivePrinter("kitchen", id)}
+      />
+      <PrinterCategorySection
+        category="pos"
+        printers={printers.filter((p) => p.category === "pos")}
+        activeId={active.pos}
+        onAdd={() => addPrinter("pos")}
+        onToggle={togglePrinterEnabled}
+        onUpdate={updatePrinter}
+        onDelete={removePrinter}
+        onSetActive={(id) => setActivePrinter("pos", id)}
+      />
     </div>
   );
 }
@@ -906,27 +994,27 @@ const NOTIFICATION_EVENTS: Array<{
   label: string;
   description: string;
 }> = [
-  {
-    id: "new_online_order",
-    label: "New online order",
-    description: "A customer places an order on the website — card, PayPal or cash.",
-  },
-  {
-    id: "new_online_reservation",
-    label: "New online reservation",
-    description: "A guest books a table through the website booking page.",
-  },
-  {
-    id: "order_cancelled_refunded",
-    label: "Order cancelled or refunded",
-    description: "An online order is cancelled from admin or the kitchen screen, or a refund is issued.",
-  },
-  {
-    id: "gift_card_purchased",
-    label: "Gift card purchased online",
-    description: "A customer buys a gift card on the website. Cards you issue from admin or POS never notify.",
-  },
-];
+    {
+      id: "new_online_order",
+      label: "New online order",
+      description: "A customer places an order on the website — card, PayPal or cash.",
+    },
+    {
+      id: "new_online_reservation",
+      label: "New online reservation",
+      description: "A guest books a table through the website booking page.",
+    },
+    {
+      id: "order_cancelled_refunded",
+      label: "Order cancelled or refunded",
+      description: "An online order is cancelled from admin or the kitchen screen, or a refund is issued.",
+    },
+    {
+      id: "gift_card_purchased",
+      label: "Gift card purchased online",
+      description: "A customer buys a gift card on the website. Cards you issue from admin or POS never notify.",
+    },
+  ];
 
 const EMPTY_NOTIFICATIONS: AdminNotificationSettings = {
   enabled: false,
@@ -946,15 +1034,15 @@ function AdminEmailsTab() {
   const stored = settings.adminNotifications ?? EMPTY_NOTIFICATIONS;
 
   const [draft, setDraft] = useState<AdminNotificationSettings>({
-    enabled:    stored.enabled,
+    enabled: stored.enabled,
     recipients: [...stored.recipients],
-    events:     { ...EMPTY_NOTIFICATIONS.events, ...stored.events },
+    events: { ...EMPTY_NOTIFICATIONS.events, ...stored.events },
   });
-  const [entry,    setEntry]    = useState("");
+  const [entry, setEntry] = useState("");
   const [entryErr, setEntryErr] = useState("");
-  const [saved,    setSaved]    = useState(false);
-  const [testing,  setTesting]  = useState(false);
-  const [testMsg,  setTestMsg]  = useState<{ ok: boolean; text: string } | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const activeEvents = NOTIFICATION_EVENTS.filter((e) => draft.events[e.id]).length;
   // What the server actually requires before anything sends.
@@ -1001,7 +1089,7 @@ function AdminEmailsTab() {
     });
     setTesting(false);
     setTestMsg(result.ok
-      ? { ok: true,  text: `Test email sent to ${to}.` }
+      ? { ok: true, text: `Test email sent to ${to}.` }
       : { ok: false, text: result.error ?? "Send failed." });
   }
 
@@ -1141,9 +1229,8 @@ function AdminEmailsTab() {
         <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={handleSave}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all ${
-              saved ? "bg-green-100 text-green-700" : "bg-orange-500 hover:bg-orange-600 text-white"
-            }`}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all ${saved ? "bg-green-100 text-green-700" : "bg-orange-500 hover:bg-orange-600 text-white"
+              }`}
           >
             {saved ? <><CheckCircle size={15} /> Saved!</> : "Save settings"}
           </button>
@@ -1189,19 +1276,18 @@ export default function IntegrationsPanel() {
         {/* Sub-tabs */}
         <div className="flex border-b border-gray-100 px-6 overflow-x-auto scrollbar-hide">
           {([
-            { id: "payments",      label: "Payment Methods", icon: <CreditCard size={14} /> },
-            { id: "api",           label: "API Keys & Email", icon: <Plug size={14} /> },
-            { id: "printer",       label: "Thermal Printer",  icon: <Printer size={14} /> },
-            { id: "notifications", label: "Admin Emails",     icon: <Mail size={14} /> },
+            { id: "payments", label: "Payment Methods", icon: <CreditCard size={14} /> },
+            { id: "api", label: "API Keys & Email", icon: <Plug size={14} /> },
+            { id: "printer", label: "Thermal Printer", icon: <Printer size={14} /> },
+            { id: "notifications", label: "Admin Emails", icon: <Mail size={14} /> },
           ] as const).map(({ id, label, icon }) => (
             <button
               key={id}
               onClick={() => setTab(id)}
-              className={`flex items-center gap-2 px-1 py-3.5 mr-6 text-sm font-medium border-b-2 flex-shrink-0 transition-all ${
-                tab === id
-                  ? "border-orange-500 text-orange-600"
-                  : "border-transparent text-gray-400 hover:text-gray-700"
-              }`}
+              className={`flex items-center gap-2 px-1 py-3.5 mr-6 text-sm font-medium border-b-2 flex-shrink-0 transition-all ${tab === id
+                ? "border-orange-500 text-orange-600"
+                : "border-transparent text-gray-400 hover:text-gray-700"
+                }`}
             >
               {icon} {label}
             </button>
@@ -1209,9 +1295,9 @@ export default function IntegrationsPanel() {
         </div>
       </div>
 
-      {tab === "payments"      && <PaymentMethodsTab />}
-      {tab === "api"           && <ApiKeysTab />}
-      {tab === "printer"       && <PrinterTab />}
+      {tab === "payments" && <PaymentMethodsTab />}
+      {tab === "api" && <ApiKeysTab />}
+      {tab === "printer" && <PrinterTab />}
       {tab === "notifications" && <AdminEmailsTab />}
     </div>
   );

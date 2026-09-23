@@ -9,6 +9,7 @@ import { Mail, CheckCircle2, RefreshCw, Printer, AlertTriangle } from "lucide-re
 import { fmt, fmtDate, fmtTime, isOfflineSale } from "./_utils";
 import { buildReceiptHtml } from "./_receipts";
 import { printPOSSale } from "@/lib/posPrint";
+import { resolveActivePrinter } from "@/lib/escpos";
 import { isCapacitorAndroid } from "@/lib/capacitorBridge";
 
 export default function ReceiptModal(
@@ -82,16 +83,16 @@ export default function ReceiptModal(
   const handlePrint = useCallback(async () => {
     setPrintStatus("printing");
     setPrintError("");
-    const r = await printPOSSale(sale, settings, appSettings.printer, effectiveName, rs);
+    const r = await printPOSSale(sale, settings, appSettings, effectiveName, rs);
     if (r.browser) {
-      // No thermal printer configured (or "browser" mode). On a desktop browser
-      // window.print() opens the OS print dialog; inside the Android WebView it
-      // does nothing — so on the tablet, tell the cashier what to do instead of
-      // silently failing.
+      // No active "pos" printer (or it's set to "browser" mode). On a desktop
+      // browser window.print() opens the OS print dialog; inside the Android
+      // WebView it does nothing — so on the tablet, tell the cashier what to
+      // do instead of silently failing.
       if (onAndroid) {
         setPrintStatus("error");
         setPrintError(
-          appSettings.printer?.enabled
+          resolveActivePrinter(appSettings, "pos")
             ? "Printer set to “browser” mode, which isn’t available on the tablet. Pick Bluetooth, USB, or Network in Settings → Hardware."
             : "No printer configured. Set one up in Settings → Hardware.",
         );
@@ -108,7 +109,7 @@ export default function ReceiptModal(
       setPrintStatus("error");
       setPrintError(r.error ?? "Printing failed.");
     }
-  }, [sale, settings, appSettings.printer, effectiveName, onAndroid, rs]);
+  }, [sale, settings, appSettings, effectiveName, onAndroid, rs]);
 
   // Auto-print once when the receipt opens straight after a sale (autoPrint
   // prop), but only for real thermal modes the cashier configured — never
@@ -117,12 +118,12 @@ export default function ReceiptModal(
   const autoPrinted = useRef(false);
   useEffect(() => {
     if (autoPrinted.current || !autoPrint) return;
-    const pr = appSettings.printer;
-    if (pr?.enabled && pr.autoPrint && pr.connection !== "browser") {
+    const pr = resolveActivePrinter(appSettings, "pos");
+    if (pr?.autoPrint && pr.connection !== "browser") {
       autoPrinted.current = true;
       void handlePrint();
     }
-  }, [autoPrint, appSettings.printer, handlePrint]);
+  }, [autoPrint, appSettings, handlePrint]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">

@@ -19,7 +19,8 @@ import {
 import CollectionFooter from "@/components/collection/CollectionFooter";
 import { resolveStock, isAvailable } from "@/lib/stockUtils";
 import { getOfferUnitPrice, isOfferActive, cartLineTotal, offerBadgeLabel } from "@/lib/menuOfferUtils";
-import type { MenuItem, DiningTable } from "@/types";
+import { printOrder } from "@/lib/escpos";
+import type { MenuItem, DiningTable, Order } from "@/types";
 import type { WaiterCartItem, WaiterReceipt } from "./_types";
 import { fmtCur } from "./_utils";
 import ItemModal from "./ItemModal";
@@ -179,6 +180,20 @@ export default function MenuView({ table, covers, setCovers, waiterName, onBack,
     }
     setSending(false);
     if (res.ok) {
+      // Kitchen ticket for this round's items only, not the whole bill.
+      // Fire-and-forget — a print failure is logged, not shown to the waiter.
+      const roundOrder: Order = {
+        id: `RND-${table.label}-${Date.now()}`,
+        customerId: null,
+        date: new Date().toISOString(),
+        status: "pending",
+        fulfillment: "dine-in",
+        total,
+        items: cart.map((l) => ({ name: l.name + (l.note ? ` [${l.note}]` : ""), qty: l.quantity, price: l.unitPrice })),
+        note: kitchenNote.trim() || undefined,
+      };
+      void printOrder(roundOrder, appSettings, { categories: ["kitchen"] });
+
       onSent({
         tableLabel: table.label,
         waiterName: waiterName ?? "Staff",

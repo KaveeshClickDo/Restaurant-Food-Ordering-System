@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import { useApp } from "@/context/AppContext";
 import { buildTestReceipt, printReceiptBrowser } from "@/lib/escpos";
 import { sendReceiptToPrinter } from "@/lib/posPrint";
-import { Printer, Save, CheckCircle2, AlertTriangle, Loader2, Zap } from "lucide-react";
+import type { PrinterSettings } from "@/types";
+import { Printer, Save, CheckCircle2, AlertTriangle, Loader2, Zap, CircleDot, Circle } from "lucide-react";
 
 // Chars-per-line ↔ paper width. 48 = 80 mm (countertop), 32 = 58 mm (portable).
 const PAPER_WIDTHS = [
@@ -21,17 +22,21 @@ const POS_CONNECTION_OPTIONS = [
 
 type POSConnectionMode = "network" | "bluetooth" | "usb" | "browser";
 
-export default function POSPrinterPanel({ appSettings }: { appSettings: import("@/types").AdminSettings }) {
-  const { updateSettingsViaPos } = useApp();
-  const p = appSettings.printer;
+// One "pos"-category printer: select active + edit connection fields
+function POSPrinterRow({ printer, isActive, onSetActive }: {
+  printer: PrinterSettings;
+  isActive: boolean;
+  onSetActive: () => void;
+}) {
+  const { settings: appSettings, updatePrinterViaPos, togglePrinterEnabledViaPos } = useApp();
 
   const [draft, setDraft] = useState({
-    connection:       (p.connection ?? "network") as POSConnectionMode,
-    ip:               p.ip,
-    port:             p.port,
-    bluetoothAddress: p.bluetoothAddress ?? "",
-    bluetoothName:    p.bluetoothName    ?? "",
-    paperWidth:       p.paperWidth ?? 48,
+    connection:       (printer.connection ?? "network") as POSConnectionMode,
+    ip:               printer.ip,
+    port:             printer.port,
+    bluetoothAddress: printer.bluetoothAddress ?? "",
+    bluetoothName:    printer.bluetoothName    ?? "",
+    paperWidth:       printer.paperWidth ?? 48,
   });
   const [testState,  setTestState]  = useState<"idle" | "sending" | "ok" | "error">("idle");
   const [testError,  setTestError]  = useState("");
@@ -61,7 +66,7 @@ export default function POSPrinterPanel({ appSettings }: { appSettings: import("
   }
 
   function handleSave() {
-    updateSettingsViaPos({ printer: { ...p, ...draft } });
+    updatePrinterViaPos({ ...printer, ...draft });
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   }
@@ -75,7 +80,7 @@ export default function POSPrinterPanel({ appSettings }: { appSettings: import("
     setTestState("sending");
     setTestError("");
 
-    const previewSettings = { ...appSettings, printer: { ...p, ...draft } };
+    const previewPrinter: PrinterSettings = { ...printer, ...draft };
 
     // Browser mode prints an HTML page, not a byte stream — separate path.
     if (draft.connection === "browser") {
@@ -85,7 +90,7 @@ export default function POSPrinterPanel({ appSettings }: { appSettings: import("
         total: 0, fulfillment: "collection" as const,
         status: "pending" as const, customerId: "", paymentMethod: "Test",
       };
-      applyResult(printReceiptBrowser(dummyOrder, previewSettings));
+      applyResult(printReceiptBrowser(dummyOrder, appSettings, previewPrinter));
       return;
     }
 
@@ -100,22 +105,38 @@ export default function POSPrinterPanel({ appSettings }: { appSettings: import("
     // network / bluetooth / usb all go through the same native-first dispatcher,
     // so the test exercises the EXACT path a real receipt takes (incl. offline
     // direct-TCP / native USB on the Android app).
-    const bytes = buildTestReceipt(previewSettings);
-    applyResult(await sendReceiptToPrinter(bytes, previewSettings.printer));
+    const bytes = buildTestReceipt(appSettings, previewPrinter);
+    applyResult(await sendReceiptToPrinter(bytes, previewPrinter));
   }
 
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-white font-semibold text-sm flex items-center gap-2">
-          <Printer size={16} className="text-slate-400" /> Receipt Printer
-        </h3>
-        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-          p.enabled ? "bg-green-500/20 text-green-400" : "bg-slate-700 text-slate-400"
-        }`}>{p.enabled ? "Enabled" : "Disabled"}</span>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <button
+            onClick={onSetActive}
+            disabled={!printer.enabled}
+            title={printer.enabled ? (isActive ? "Active — click to clear" : "Set as active") : "Enable this printer first"}
+            className={`flex-shrink-0 transition ${printer.enabled ? "cursor-pointer" : "cursor-not-allowed opacity-30"}`}
+          >
+            {isActive ? <CircleDot size={18} className="text-orange-400" /> : <Circle size={18} className="text-slate-500" />}
+          </button>
+          <h3 className="text-white font-semibold text-sm flex items-center gap-2 truncate">
+            <Printer size={16} className="text-slate-400 flex-shrink-0" /> {printer.name || "Receipt Printer"}
+          </h3>
+          {isActive && (
+            <span className="text-[10px] bg-orange-500/20 text-orange-300 rounded-full px-2 py-0.5 font-semibold flex-shrink-0">Active</span>
+          )}
+        </div>
+        <button
+          onClick={() => togglePrinterEnabledViaPos(printer.id, !printer.enabled)}
+          className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 transition ${
+            printer.enabled ? "bg-green-500/20 text-green-400" : "bg-slate-700 text-slate-400"
+          }`}
+        >{printer.enabled ? "Enabled" : "Disabled"}</button>
       </div>
 
-      {!p.enabled && (
+      {!printer.enabled && (
         <p className="text-slate-400 text-xs">
           Printer is disabled. Enable it in{" "}
           <span className="text-orange-400 font-medium">Admin → Integrations → Thermal Printer</span>.
@@ -263,6 +284,40 @@ export default function POSPrinterPanel({ appSettings }: { appSettings: import("
             : <><Zap size={14} /> Test print</>}
         </button>
       </div>
+    </div>
+  );
+}
+
+// Select-active only — add/remove and "kitchen" live in Admin → Integrations.
+export default function POSPrinterPanel({ appSettings }: { appSettings: import("@/types").AdminSettings }) {
+  const { setActivePrinterViaPos } = useApp();
+  const posPrinters = appSettings.printers.filter((p) => p.category === "pos");
+  const activeId = appSettings.activePrinterIdByCategory.pos;
+
+  if (posPrinters.length === 0) {
+    return (
+      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
+        <h3 className="text-white font-semibold text-sm flex items-center gap-2 mb-2">
+          <Printer size={16} className="text-slate-400" /> Receipt Printer
+        </h3>
+        <p className="text-slate-400 text-xs">
+          No receipt printer configured yet. Add one in{" "}
+          <span className="text-orange-400 font-medium">Admin → Integrations → Thermal Printer</span>.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {posPrinters.map((printer) => (
+        <POSPrinterRow
+          key={printer.id}
+          printer={printer}
+          isActive={printer.id === activeId}
+          onSetActive={() => setActivePrinterViaPos(printer.id === activeId ? null : printer.id)}
+        />
+      ))}
     </div>
   );
 }

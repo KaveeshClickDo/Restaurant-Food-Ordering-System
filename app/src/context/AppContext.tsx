@@ -22,12 +22,13 @@ import { supabase } from "@/lib/supabase";
 import {
   AdminSettings, AuditEntry, CartItem, Category, Coupon,
   DeliveryStatus, DeliveryZone, Driver, MealPeriod, MenuItem, Customer, Order, OrderStatus, PaymentMethod,
-  PaymentStatus, Refund, SavedAddress, StockStatus,
+  PaymentStatus, PrinterCategory, PrinterSettings, Refund, SavedAddress, StockStatus,
 } from "@/types";
 import { buildColorCss } from "@/lib/colorUtils";
 import { cartSubtotal } from "@/lib/menuOfferUtils";
 import { DEFAULT_EMAIL_TEMPLATES } from "@/lib/emailTemplates";
 import { DEFAULT_SETTINGS, DEFAULT_COLORS } from "@/data/defaultSettings";
+import { resolvePrinters, resolveActivePrinterIdByCategory } from "@/lib/printerRecords";
 import SeoHead from "@/components/SeoHead";
 import EmailVerificationBanner from "@/components/EmailVerificationBanner";
 
@@ -204,6 +205,16 @@ interface AppContextValue {
   addDeliveryZone: (zone: DeliveryZone) => void;
   updateDeliveryZone: (zone: DeliveryZone) => void;
   deleteDeliveryZone: (id: string) => void;
+  // Printers — admin-only surface (both categories). POS staff use the
+  // narrower *ViaPos variants below, scoped server-side to the "pos" category.
+  addPrinter: (category: PrinterCategory) => void;
+  updatePrinter: (printer: PrinterSettings) => void;
+  removePrinter: (id: string) => void;
+  togglePrinterEnabled: (id: string, enabled: boolean) => void;
+  setActivePrinter: (category: PrinterCategory, id: string | null) => void;
+  updatePrinterViaPos: (printer: PrinterSettings) => void;
+  togglePrinterEnabledViaPos: (id: string, enabled: boolean) => void;
+  setActivePrinterViaPos: (id: string | null) => void;
   coupons: Coupon[];
   addCoupon: (coupon: Coupon) => void;
   updateCoupon: (coupon: Coupon) => void;
@@ -477,6 +488,11 @@ function buildSettingsFromData(raw: Record<string, unknown> | null): AdminSettin
   if (!raw) return DEFAULT_SETTINGS;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d = raw as any;
+  // resolvePrinters handles the legacy printer shape; drop the old key so it
+  // doesn't linger in re-persisted data.
+  const printers = resolvePrinters(d);
+  const activePrinterIdByCategory = resolveActivePrinterIdByCategory(d, printers);
+  delete d.printer;
 
   // ── One-time footerPages → customPages migration ──────────────────────────
   // Footer Pages and Custom Pages have been unified into a single "Pages"
@@ -545,6 +561,8 @@ function buildSettingsFromData(raw: Record<string, unknown> | null): AdminSettin
     // We always reset footerPages to [] so a re-run is a no-op.
     customPages: mergedCustomPages,
     footerPages: [],
+    printers,
+    activePrinterIdByCategory,
     // Sensitive fields are explicitly excluded — never reach client state:
     // drivers, stripeSecretKey, paypalClientId, smtpHost/Port/User/Password
   };
@@ -1715,6 +1733,124 @@ export function AppProvider({
   const reorderPaymentMethods = (methods: PaymentMethod[]) =>
     mutateSettings((prev) => ({ ...prev, paymentMethods: methods }));
 
+  // ─── Printers ─────────────────────────────────────────────────────────────
+  // Active must always be an enabled printer — enforced below on every path
+  // that could break that (remove, disable, explicit selection).
+
+  function clearActiveIfMatches(
+    active: Record<PrinterCategory, string | null>,
+    id: string,
+  ): Record<PrinterCategory, string | null> {
+    const next = { ...active };
+    (Object.keys(next) as PrinterCategory[]).forEach((cat) => {
+      if (next[cat] === id) next[cat] = null;
+    });
+    return next;
+  }
+
+  const addPrinter = (category: PrinterCategory) =>
+    mutateSettings((prev) => {
+      const printer: PrinterSettings = {
+        id: uuid(),
+        category,
+        enabled: false,
+        name: category === "kitchen" ? "Kitchen Printer" : "Receipt Printer",
+        connection: "network",
+        ip: "", port: 9100,
+        bluetoothAddress: "", bluetoothName: "",
+        autoPrint: true, paperWidth: 48,
+      };
+      return { ...prev, printers: [...prev.printers, printer] };
+    });
+
+  const updatePrinter = (printer: PrinterSettings) =>
+    mutateSettings((prev) => ({
+      ...prev,
+      printers: prev.printers.map((p) => (p.id === printer.id ? printer : p)),
+    }));
+
+  const removePrinter = (id: string) =>
+    mutateSettings((prev) => ({
+      ...prev,
+      printers: prev.printers.filter((p) => p.id !== id),
+      activePrinterIdByCategory: clearActiveIfMatches(prev.activePrinterIdByCategory, id),
+    }));
+
+  const togglePrinterEnabled = (id: string, enabled: boolean) =>
+    mutateSettings((prev) => ({
+      ...prev,
+      printers: prev.printers.map((p) => (p.id === id ? { ...p, enabled } : p)),
+      // Disabling the active printer clears its category's active pointer —
+      // active must always reference an enabled printer.
+      activePrinterIdByCategory: enabled
+        ? prev.activePrinterIdByCategory
+        : clearActiveIfMatches(prev.activePrinterIdByCategory, id),
+    }));
+
+  const setActivePrinter = (category: PrinterCategory, id: string | null) =>
+    mutateSettings((prev) => {
+      if (id !== null) {
+        const target = prev.printers.find((p) => p.id === id);
+        if (!target || !target.enabled || target.category !== category) return prev;
+      }
+      return { ...prev, activePrinterIdByCategory: { ...prev.activePrinterIdByCategory, [category]: id } };
+    });
+
+  // POS-scoped variants — write through the POS endpoint (no admin cookie),
+  // which enforces "pos" category only server-side. Mirrors updateSettingsViaPos.
+  function postPosPrinterPatch(body: Record<string, unknown>) {
+    fetch(apiBase() + "/api/pos/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(async (r) => {
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({})) as { error?: string };
+        console.error("printer patch:", r.status, j.error);
+      }
+    }).catch((err) => console.error("printer patch:", err));
+  }
+
+  const updatePrinterViaPos = (printer: PrinterSettings) => {
+    if (printer.category !== "pos") return;
+    setSettings((prev) => {
+      const next = {
+        ...prev,
+        printers: prev.printers.map((p) => (p.id === printer.id ? printer : p)),
+      };
+      postPosPrinterPatch({ printer });
+      return next;
+    });
+  };
+
+  const togglePrinterEnabledViaPos = (id: string, enabled: boolean) => {
+    setSettings((prev) => {
+      const target = prev.printers.find((p) => p.id === id);
+      if (!target || target.category !== "pos") return prev;
+      const next = {
+        ...prev,
+        printers: prev.printers.map((p) => (p.id === id ? { ...p, enabled } : p)),
+        activePrinterIdByCategory: enabled
+          ? prev.activePrinterIdByCategory
+          : clearActiveIfMatches(prev.activePrinterIdByCategory, id),
+      };
+      postPosPrinterPatch({ printer: { ...target, enabled } });
+      return next;
+    });
+  };
+
+  const setActivePrinterViaPos = (id: string | null) => {
+    setSettings((prev) => {
+      if (id !== null) {
+        const target = prev.printers.find((p) => p.id === id);
+        if (!target || !target.enabled || target.category !== "pos") return prev;
+      }
+      const next = { ...prev, activePrinterIdByCategory: { ...prev.activePrinterIdByCategory, pos: id } };
+      postPosPrinterPatch({ activePrinterId: { category: "pos", id } });
+      return next;
+    });
+  };
+
   // ─── Delivery zones ───────────────────────────────────────────────────────
 
   const addDeliveryZone = (zone: DeliveryZone) =>
@@ -2019,6 +2155,8 @@ export function AppProvider({
         currentUser, login, register, logout,
         toggleFavourite, isFavourite,
         updatePaymentMethod, togglePaymentMethod, reorderPaymentMethods,
+        addPrinter, updatePrinter, removePrinter, togglePrinterEnabled, setActivePrinter,
+        updatePrinterViaPos, togglePrinterEnabledViaPos, setActivePrinterViaPos,
         addDeliveryZone, updateDeliveryZone, deleteDeliveryZone,
         coupons: settings.coupons ?? [],
         addCoupon, updateCoupon, deleteCoupon, toggleCoupon,
