@@ -11,6 +11,7 @@ import {
   Plus, ChefHat, Receipt, CircleDot, Circle,
 } from "lucide-react";
 import type { PrinterCategory, PrinterSettings } from "@/types";
+import { findOtherCategoryPrintersAtSameAddress } from "@/lib/printerRecords";
 import { buildTestReceipt, sendToPrinter, sendToPrinterBluetooth, sendToPrinterUSB, printReceiptBrowser } from "@/lib/escpos";
 import { getBluetoothPairedDevices, isCapacitorAndroid, type BluetoothDevice } from "@/lib/capacitorBridge";
 import { sendEmailViaApi } from "@/lib/emailTemplates";
@@ -593,6 +594,8 @@ function PrinterRow({
     draft.connection === "network" ? Boolean(draft.ip.trim()) :
       draft.connection === "bluetooth" ? Boolean(draft.bluetoothAddress.trim()) : true;
 
+  const sharedWith = findOtherCategoryPrintersAtSameAddress(settings.printers, { ...printer, ...draft });
+
   const statusLabel = !printer.enabled
     ? "Disabled"
     : draft.connection === "network"
@@ -708,6 +711,16 @@ function PrinterRow({
                   <p className="text-[11px] text-gray-400 mt-1">Default: 9100</p>
                 </div>
               </div>
+              {sharedWith.length > 0 && (
+                <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mt-3">
+                  <AlertTriangle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-700">
+                    Also used by {sharedWith.map((p) => `“${p.name || "Unnamed printer"}” (${CATEGORY_META[p.category].title})`).join(", ")}.
+                    If both are active, checkout orders and POS sales print twice. To print once, turn off Auto-print
+                    on one of them — it then stops printing automatically, including waiter rounds or settled bills.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 

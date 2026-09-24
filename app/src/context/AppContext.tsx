@@ -1750,11 +1750,15 @@ export function AppProvider({
     return next;
   }
 
-  const addPrinter = (category: PrinterCategory) =>
+  const addPrinter = (category: PrinterCategory) => {
+    // Made outside the updater: StrictMode runs updaters twice, which would
+    // give the local row and the saved row different ids.
+    const id = uuid();
     mutateSettings((prev) => ({
       ...prev,
-      printers: [...prev.printers, createDefaultPrinter(category, uuid())],
+      printers: [...prev.printers, createDefaultPrinter(category, id)],
     }));
+  };
 
   const updatePrinter = (printer: PrinterSettings) =>
     mutateSettings((prev) => ({

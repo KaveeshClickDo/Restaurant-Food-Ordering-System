@@ -47,6 +47,24 @@ export function createDefaultPrinter(category: PrinterCategory, id: string): Pri
   };
 }
 
+/** Printers in the OTHER category on the same network IP + port — one physical
+ *  printer that would print every order twice. Ignores `enabled` on purpose:
+ *  new printers start disabled, and the warning matters while setting up. */
+export function findOtherCategoryPrintersAtSameAddress(
+  printers: PrinterSettings[],
+  target: Pick<PrinterSettings, "id" | "category" | "connection" | "ip" | "port">,
+): PrinterSettings[] {
+  const ip = (target.ip ?? "").trim().toLowerCase();
+  if (target.connection !== "network" || !ip) return [];
+  return printers.filter((p) =>
+    p.id !== target.id
+    && p.category !== target.category
+    && p.connection === "network"
+    && (p.ip ?? "").trim().toLowerCase() === ip
+    && p.port === target.port,
+  );
+}
+
 /** Matches resolvePrinters — seeds from the legacy printer's enabled flag
  *  when the row isn't migrated yet. */
 export function resolveActivePrinterIdByCategory(

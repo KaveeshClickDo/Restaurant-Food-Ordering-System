@@ -5,6 +5,7 @@ import { useApp } from "@/context/AppContext";
 import { buildTestReceipt, printReceiptBrowser } from "@/lib/escpos";
 import { sendReceiptToPrinter } from "@/lib/posPrint";
 import type { PrinterSettings } from "@/types";
+import { findOtherCategoryPrintersAtSameAddress } from "@/lib/printerRecords";
 import { Printer, Save, CheckCircle2, AlertTriangle, Loader2, Zap, CircleDot, Circle, Plus, Trash2 } from "lucide-react";
 
 // Chars-per-line ↔ paper width. 48 = 80 mm (countertop), 32 = 58 mm (portable).
@@ -112,6 +113,8 @@ function POSPrinterRow({ printer, isActive, onSetActive, onDelete }: {
     applyResult(await sendReceiptToPrinter(bytes, previewPrinter));
   }
 
+  const sharedWith = findOtherCategoryPrintersAtSameAddress(appSettings.printers, { ...printer, ...draft });
+
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4">
       <div className="flex items-center justify-between gap-3">
@@ -211,6 +214,16 @@ function POSPrinterRow({ printer, isActive, onSetActive, onDelete }: {
               onChange={(e) => setDraft((d) => ({ ...d, port: Number(e.target.value) }))}
               className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2.5 text-white text-sm font-mono outline-none focus:border-orange-500" />
           </div>
+        </div>
+      )}
+
+      {sharedWith.length > 0 && (
+        <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2.5">
+          <AlertTriangle size={14} className="text-amber-400 flex-shrink-0 mt-0.5" />
+          <p className="text-amber-300 text-xs">
+            A Kitchen printer also uses this IP. If both are active, checkout orders and POS sales print twice.
+            To print once, turn off Auto-print on this printer (it then stops printing automatically), or ask an admin to change the Kitchen printer.
+          </p>
         </div>
       )}
 
