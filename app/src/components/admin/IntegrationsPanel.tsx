@@ -972,16 +972,6 @@ function PrinterTab() {
   return (
     <div className="space-y-5">
       <PrinterCategorySection
-        category="kitchen"
-        printers={printers.filter((p) => p.category === "kitchen")}
-        activeId={active.kitchen}
-        onAdd={() => addPrinter("kitchen")}
-        onToggle={togglePrinterEnabled}
-        onUpdate={updatePrinter}
-        onDelete={removePrinter}
-        onSetActive={(id) => setActivePrinter("kitchen", id)}
-      />
-      <PrinterCategorySection
         category="pos"
         printers={printers.filter((p) => p.category === "pos")}
         activeId={active.pos}
@@ -990,6 +980,16 @@ function PrinterTab() {
         onUpdate={updatePrinter}
         onDelete={removePrinter}
         onSetActive={(id) => setActivePrinter("pos", id)}
+      />
+      <PrinterCategorySection
+        category="kitchen"
+        printers={printers.filter((p) => p.category === "kitchen")}
+        activeId={active.kitchen}
+        onAdd={() => addPrinter("kitchen")}
+        onToggle={togglePrinterEnabled}
+        onUpdate={updatePrinter}
+        onDelete={removePrinter}
+        onSetActive={(id) => setActivePrinter("kitchen", id)}
       />
     </div>
   );
