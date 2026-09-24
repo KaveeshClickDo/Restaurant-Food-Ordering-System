@@ -182,6 +182,12 @@ export default function MenuView({ table, covers, setCovers, waiterName, onBack,
     if (res.ok) {
       // Kitchen ticket for this round's items only, not the whole bill.
       // Fire-and-forget — a print failure is logged, not shown to the waiter.
+      // The note uses the same format the server stores (api/waiter/orders),
+      // so the receipt can read the table and kitchen note back out of it.
+      const noteParts = [`[WAITER] Table ${table.label}`];
+      if (covers) noteParts.push(`${covers} cover${covers !== 1 ? "s" : ""}`);
+      if (waiterName) noteParts.push(`Staff: ${waiterName}`);
+      if (kitchenNote.trim()) noteParts.push(kitchenNote.trim());
       const roundOrder: Order = {
         id: `RND-${table.label}-${Date.now()}`,
         customerId: null,
@@ -190,7 +196,7 @@ export default function MenuView({ table, covers, setCovers, waiterName, onBack,
         fulfillment: "dine-in",
         total,
         items: cart.map((l) => ({ name: l.name + (l.note ? ` [${l.note}]` : ""), qty: l.quantity, price: l.unitPrice })),
-        note: kitchenNote.trim() || undefined,
+        note: noteParts.join(" · "),
       };
       void printOrder(roundOrder, appSettings, { categories: ["kitchen"] });
 

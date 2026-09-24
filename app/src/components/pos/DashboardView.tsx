@@ -14,6 +14,8 @@ import {
 import { fmt, fmtPct, fmtDate, fmtTime, relTime } from "./_utils";
 import { buildDineInReceiptHtml, dineInRefundState, type DineInOrder } from "./_receipts";
 import { parseTableLabelFromNote } from "@/lib/tableLabel";
+import { printDineInBill } from "@/lib/posPrint";
+import { isCapacitorAndroid } from "@/lib/capacitorBridge";
 import {
   type POSPeriod, POS_PERIODS, getPOSDateRange, posExportCSV,
 } from "./dashboard/_helpers";
@@ -226,6 +228,25 @@ export default function DashboardView() {
     win.focus();
     win.print();
     win.onafterprint = () => win.close();
+  }
+
+  // Settled bills go to the Receipt / POS thermal printer. Open-table "Print"
+  // stays on the browser dialog (printDineInReceipt).
+  async function reprintDineInBill(order: DineInOrder) {
+    const effectiveName = appSettings.restaurant?.name || appSettings.receiptSettings.restaurantName?.trim() || settings.businessName || "Restaurant";
+    const r = await printDineInBill(order, settings, appSettings, effectiveName, appSettings.receiptSettings);
+    if (r.ok) return;
+    if (r.browser) {
+      // No thermal printer set (or browser mode). window.print() does nothing in
+      // the Android app, so say what to do there instead of silently failing.
+      if (isCapacitorAndroid()) {
+        alert("No receipt printer is set up. Add one in Settings → Hardware.");
+      } else {
+        printDineInReceipt(order);
+      }
+      return;
+    }
+    alert(r.error ?? "Printing failed.");
   }
 
   function openVoidModal(saleId: string) {
@@ -1861,7 +1882,7 @@ export default function DashboardView() {
                             </div>
                             <div className="flex flex-col sm:flex-row gap-2">
                               <button
-                                onClick={() => printDineInReceipt(order)}
+                                onClick={() => reprintDineInBill(order)}
                                 className="flex items-center justify-center sm:justify-start gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded-xl transition-colors"
                               >
                                 <Printer size={14} />

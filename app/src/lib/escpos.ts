@@ -10,6 +10,7 @@
 import type { AdminSettings, Order, PrinterCategory, PrinterSettings } from "@/types";
 import { fullOrderNumber } from "@/lib/orderNumber";
 import { apiBase } from "@/lib/apiBase";
+import { parseTableLabelFromNote, parseKitchenNoteFromNote } from "@/lib/tableLabel";
 
 // ─── ESC/POS byte constants ──────────────────────────────────────────────────
 
@@ -268,6 +269,10 @@ function fmt(n: number, sym: string) {
   return `${sym}${n.toFixed(2)}`;
 }
 
+function orderTypeLabel(order: Order): string {
+  return order.fulfillment === "delivery" ? "DELIVERY" : order.fulfillment === "dine-in" ? "DINE-IN" : "COLLECTION";
+}
+
 /** Build a full order receipt as ESC/POS bytes. `logoBytes` is a pre-rendered
  *  GS v 0 raster (from logoToRaster) printed above the name when Show Logo is on. */
 export function buildReceipt(order: Order, settings: AdminSettings, printer: PrinterSettings, logoBytes?: number[] | null): number[] {
@@ -313,10 +318,16 @@ export function buildReceipt(order: Order, settings: AdminSettings, printer: Pri
      day: "2-digit", month: "short", year: "numeric",
      hour: "2-digit", minute: "2-digit",
    })}`)
-   .line(`Type: ${order.fulfillment === "delivery" ? "DELIVERY" : "COLLECTION"}`);
+   .line(`Type: ${orderTypeLabel(order)}`);
 
   if (order.address)       b.line(`To: ${order.address}`);
   if (order.paymentMethod) b.line(`Pay: ${order.paymentMethod}`);
+  if (order.fulfillment === "dine-in") {
+    const table = parseTableLabelFromNote(order.note);
+    if (table) b.bold(true).line(`Table: ${table}`).bold(false);
+    const kitchenNote = parseKitchenNoteFromNote(order.note);
+    if (kitchenNote) b.line(`Note: ${kitchenNote}`);
+  }
 
   b.separator("=", W);
 
@@ -690,9 +701,15 @@ export function printReceiptBrowser(
     day: "2-digit", month: "short", year: "numeric",
     hour: "2-digit", minute: "2-digit",
   })}`);
-  lines.push(`Type: ${order.fulfillment === "delivery" ? "DELIVERY" : "COLLECTION"}`);
+  lines.push(`Type: ${orderTypeLabel(order)}`);
   if (order.address)       lines.push(`To: ${order.address}`);
   if (order.paymentMethod) lines.push(`Pay: ${order.paymentMethod}`);
+  if (order.fulfillment === "dine-in") {
+    const table = parseTableLabelFromNote(order.note);
+    if (table) lines.push(`Table: ${table}`);
+    const kitchenNote = parseKitchenNoteFromNote(order.note);
+    if (kitchenNote) lines.push(`Note: ${kitchenNote}`);
+  }
   lines.push(dbl);
 
   lines.push(twoCol("ITEM", "PRICE"));
