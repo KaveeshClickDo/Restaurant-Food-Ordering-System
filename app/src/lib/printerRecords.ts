@@ -32,6 +32,21 @@ export function resolvePrinters(data: Record<string, unknown> | null | undefined
   }];
 }
 
+/** A new, disabled printer with default settings. Shared by the admin add,
+ *  the POS add, and the POS route, so their defaults can't drift. */
+export function createDefaultPrinter(category: PrinterCategory, id: string): PrinterSettings {
+  return {
+    id,
+    category,
+    enabled: false,
+    name: category === "kitchen" ? "Kitchen Printer" : "Receipt Printer",
+    connection: "network",
+    ip: "", port: 9100,
+    bluetoothAddress: "", bluetoothName: "",
+    autoPrint: true, paperWidth: 48,
+  };
+}
+
 /** Matches resolvePrinters — seeds from the legacy printer's enabled flag
  *  when the row isn't migrated yet. */
 export function resolveActivePrinterIdByCategory(

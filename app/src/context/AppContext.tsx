@@ -28,7 +28,7 @@ import { buildColorCss } from "@/lib/colorUtils";
 import { cartSubtotal } from "@/lib/menuOfferUtils";
 import { DEFAULT_EMAIL_TEMPLATES } from "@/lib/emailTemplates";
 import { DEFAULT_SETTINGS, DEFAULT_COLORS } from "@/data/defaultSettings";
-import { resolvePrinters, resolveActivePrinterIdByCategory } from "@/lib/printerRecords";
+import { resolvePrinters, resolveActivePrinterIdByCategory, createDefaultPrinter } from "@/lib/printerRecords";
 import SeoHead from "@/components/SeoHead";
 import EmailVerificationBanner from "@/components/EmailVerificationBanner";
 
@@ -212,6 +212,8 @@ interface AppContextValue {
   removePrinter: (id: string) => void;
   togglePrinterEnabled: (id: string, enabled: boolean) => void;
   setActivePrinter: (category: PrinterCategory, id: string | null) => void;
+  addPrinterViaPos: () => void;
+  removePrinterViaPos: (id: string) => void;
   updatePrinterViaPos: (printer: PrinterSettings) => void;
   togglePrinterEnabledViaPos: (id: string, enabled: boolean) => void;
   setActivePrinterViaPos: (id: string | null) => void;
@@ -1749,19 +1751,10 @@ export function AppProvider({
   }
 
   const addPrinter = (category: PrinterCategory) =>
-    mutateSettings((prev) => {
-      const printer: PrinterSettings = {
-        id: uuid(),
-        category,
-        enabled: false,
-        name: category === "kitchen" ? "Kitchen Printer" : "Receipt Printer",
-        connection: "network",
-        ip: "", port: 9100,
-        bluetoothAddress: "", bluetoothName: "",
-        autoPrint: true, paperWidth: 48,
-      };
-      return { ...prev, printers: [...prev.printers, printer] };
-    });
+    mutateSettings((prev) => ({
+      ...prev,
+      printers: [...prev.printers, createDefaultPrinter(category, uuid())],
+    }));
 
   const updatePrinter = (printer: PrinterSettings) =>
     mutateSettings((prev) => ({
@@ -1810,6 +1803,25 @@ export function AppProvider({
       }
     }).catch((err) => console.error("printer patch:", err));
   }
+
+  const addPrinterViaPos = () => {
+    // The id is made outside the state updater so the optimistic entry and the
+    // request carry the same one (updaters may run twice in StrictMode).
+    const id = uuid();
+    setSettings((prev) => ({ ...prev, printers: [...prev.printers, createDefaultPrinter("pos", id)] }));
+    postPosPrinterPatch({ addPrinter: { id } });
+  };
+
+  const removePrinterViaPos = (id: string) => {
+    const target = settings.printers.find((p) => p.id === id);
+    if (!target || target.category !== "pos") return;
+    setSettings((prev) => ({
+      ...prev,
+      printers: prev.printers.filter((p) => p.id !== id),
+      activePrinterIdByCategory: clearActiveIfMatches(prev.activePrinterIdByCategory, id),
+    }));
+    postPosPrinterPatch({ removePrinterId: id });
+  };
 
   const updatePrinterViaPos = (printer: PrinterSettings) => {
     if (printer.category !== "pos") return;
@@ -2156,6 +2168,7 @@ export function AppProvider({
         toggleFavourite, isFavourite,
         updatePaymentMethod, togglePaymentMethod, reorderPaymentMethods,
         addPrinter, updatePrinter, removePrinter, togglePrinterEnabled, setActivePrinter,
+        addPrinterViaPos, removePrinterViaPos,
         updatePrinterViaPos, togglePrinterEnabledViaPos, setActivePrinterViaPos,
         addDeliveryZone, updateDeliveryZone, deleteDeliveryZone,
         coupons: settings.coupons ?? [],

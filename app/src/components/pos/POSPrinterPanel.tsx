@@ -5,7 +5,7 @@ import { useApp } from "@/context/AppContext";
 import { buildTestReceipt, printReceiptBrowser } from "@/lib/escpos";
 import { sendReceiptToPrinter } from "@/lib/posPrint";
 import type { PrinterSettings } from "@/types";
-import { Printer, Save, CheckCircle2, AlertTriangle, Loader2, Zap, CircleDot, Circle } from "lucide-react";
+import { Printer, Save, CheckCircle2, AlertTriangle, Loader2, Zap, CircleDot, Circle, Plus, Trash2 } from "lucide-react";
 
 // Chars-per-line ↔ paper width. 48 = 80 mm (countertop), 32 = 58 mm (portable).
 const PAPER_WIDTHS = [
@@ -22,15 +22,18 @@ const POS_CONNECTION_OPTIONS = [
 
 type POSConnectionMode = "network" | "bluetooth" | "usb" | "browser";
 
-// One "pos"-category printer: select active + edit connection fields
-function POSPrinterRow({ printer, isActive, onSetActive }: {
+// One "pos"-category printer: edit, enable, select active, delete
+function POSPrinterRow({ printer, isActive, onSetActive, onDelete }: {
   printer: PrinterSettings;
   isActive: boolean;
   onSetActive: () => void;
+  onDelete: () => void;
 }) {
   const { settings: appSettings, updatePrinterViaPos, togglePrinterEnabledViaPos } = useApp();
 
   const [draft, setDraft] = useState({
+    name:             printer.name,
+    autoPrint:        printer.autoPrint,
     connection:       (printer.connection ?? "network") as POSConnectionMode,
     ip:               printer.ip,
     port:             printer.port,
@@ -128,20 +131,34 @@ function POSPrinterRow({ printer, isActive, onSetActive }: {
             <span className="text-[10px] bg-orange-500/20 text-orange-300 rounded-full px-2 py-0.5 font-semibold flex-shrink-0">Active</span>
           )}
         </div>
-        <button
-          onClick={() => togglePrinterEnabledViaPos(printer.id, !printer.enabled)}
-          className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 transition ${
-            printer.enabled ? "bg-green-500/20 text-green-400" : "bg-slate-700 text-slate-400"
-          }`}
-        >{printer.enabled ? "Enabled" : "Disabled"}</button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={() => togglePrinterEnabledViaPos(printer.id, !printer.enabled)}
+            className={`text-xs font-semibold px-2 py-0.5 rounded-full transition ${
+              printer.enabled ? "bg-green-500/20 text-green-400" : "bg-slate-700 text-slate-400"
+            }`}
+          >{printer.enabled ? "Enabled" : "Disabled"}</button>
+          <button
+            onClick={() => { if (window.confirm(`Delete "${printer.name || "this printer"}"? This can't be undone.`)) onDelete(); }}
+            title="Delete printer"
+            className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:bg-red-500/20 hover:text-red-400 transition"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
       </div>
 
       {!printer.enabled && (
-        <p className="text-slate-400 text-xs">
-          Printer is disabled. Enable it in{" "}
-          <span className="text-orange-400 font-medium">Admin → Integrations → Thermal Printer</span>.
-        </p>
+        <p className="text-slate-400 text-xs">Disabled — tap the badge above to enable it.</p>
       )}
+
+      {/* Name */}
+      <div>
+        <label className="text-xs text-slate-400 mb-1 block">Printer name</label>
+        <input value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+          placeholder="Receipt Printer"
+          className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+      </div>
 
       {/* Connection type */}
       <div className="space-y-1.5">
@@ -256,6 +273,26 @@ function POSPrinterRow({ printer, isActive, onSetActive }: {
         <p className="text-xs text-slate-400">Opens the browser print dialog. Allow pop-ups for this page. Set margins to None in the dialog.</p>
       )}
 
+      {/* Auto-print */}
+      <div className="flex items-center justify-between py-2 border-t border-slate-700">
+        <div>
+          <p className="text-sm font-semibold text-white">Auto-print</p>
+          <p className="text-xs text-slate-400">Print automatically when a sale or order comes in</p>
+        </div>
+        <button
+          onClick={() => setDraft((d) => ({ ...d, autoPrint: !d.autoPrint }))}
+          className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-4 ${
+            draft.autoPrint ? "bg-green-500" : "bg-slate-600"
+          }`}
+          aria-checked={draft.autoPrint}
+          role="switch"
+        >
+          <span className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${
+            draft.autoPrint ? "translate-x-6" : "translate-x-1"
+          }`} />
+        </button>
+      </div>
+
       {/* Test feedback */}
       {testState === "ok" && (
         <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/30 rounded-xl px-3 py-2.5">
@@ -288,36 +325,39 @@ function POSPrinterRow({ printer, isActive, onSetActive }: {
   );
 }
 
-// Select-active only — add/remove and "kitchen" live in Admin → Integrations.
+// Receipt / POS printers only — "kitchen" printers live in Admin → Integrations.
 export default function POSPrinterPanel({ appSettings }: { appSettings: import("@/types").AdminSettings }) {
-  const { setActivePrinterViaPos } = useApp();
+  const { addPrinterViaPos, removePrinterViaPos, setActivePrinterViaPos } = useApp();
   const posPrinters = appSettings.printers.filter((p) => p.category === "pos");
   const activeId = appSettings.activePrinterIdByCategory.pos;
 
-  if (posPrinters.length === 0) {
-    return (
-      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
-        <h3 className="text-white font-semibold text-sm flex items-center gap-2 mb-2">
-          <Printer size={16} className="text-slate-400" /> Receipt Printer
-        </h3>
-        <p className="text-slate-400 text-xs">
-          No receipt printer configured yet. Add one in{" "}
-          <span className="text-orange-400 font-medium">Admin → Integrations → Thermal Printer</span>.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
-      {posPrinters.map((printer) => (
-        <POSPrinterRow
-          key={printer.id}
-          printer={printer}
-          isActive={printer.id === activeId}
-          onSetActive={() => setActivePrinterViaPos(printer.id === activeId ? null : printer.id)}
-        />
-      ))}
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-white font-semibold text-sm flex items-center gap-2">
+          <Printer size={16} className="text-slate-400" /> Receipt Printers
+        </h3>
+        <button onClick={addPrinterViaPos}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 text-xs font-bold transition">
+          <Plus size={14} /> Add printer
+        </button>
+      </div>
+
+      {posPrinters.length === 0 ? (
+        <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
+          <p className="text-slate-400 text-xs">No receipt printer yet. Tap “Add printer” to set one up.</p>
+        </div>
+      ) : (
+        posPrinters.map((printer) => (
+          <POSPrinterRow
+            key={printer.id}
+            printer={printer}
+            isActive={printer.id === activeId}
+            onSetActive={() => setActivePrinterViaPos(printer.id === activeId ? null : printer.id)}
+            onDelete={() => removePrinterViaPos(printer.id)}
+          />
+        ))
+      )}
     </div>
   );
 }

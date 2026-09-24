@@ -216,6 +216,11 @@ export const PosSettingsPatchSchema = z
       })
       .strict()
       .optional(),
+    addPrinter: z
+      .object({ id: NonEmptyString })
+      .strict()
+      .optional(),
+    removePrinterId: NonEmptyString.optional(),
     // Sets which "pos"-category printer is active. `id: null` clears it.
     activePrinterId: z
       .object({
@@ -246,6 +251,6 @@ export const PosSettingsPatchSchema = z
   })
   .refine(
     (d) => d.taxSettings !== undefined || d.printer !== undefined || d.receiptSettings !== undefined
-      || d.activePrinterId !== undefined,
-    { message: "Provide taxSettings, printer, activePrinterId and/or receiptSettings to update." },
+      || d.activePrinterId !== undefined || d.addPrinter !== undefined || d.removePrinterId !== undefined,
+    { message: "Provide taxSettings, receiptSettings and/or a printer change (printer, addPrinter, removePrinterId, activePrinterId) to update." },
   );
