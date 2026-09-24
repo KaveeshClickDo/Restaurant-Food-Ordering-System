@@ -74,6 +74,12 @@ export async function PATCH(req: NextRequest) {
         );
       }
       printers[idx] = { ...printers[idx], ...patch.printer, category: "pos" };
+      // Disabling the active printer clears the pointer, as the admin panel does —
+      // otherwise it stays "Active" after the next sync and re-enabling it would
+      // silently make it active again.
+      if (patch.printer.enabled === false && activePrinterIdByCategory.pos === patch.printer.id) {
+        activePrinterIdByCategory = { ...activePrinterIdByCategory, pos: null };
+      }
     }
 
     if (patch.removePrinterId) {
