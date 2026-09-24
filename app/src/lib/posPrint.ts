@@ -169,9 +169,10 @@ export async function sendReceiptToPrinter(
   }
 }
 
-/** Fire-and-forget kitchen print — never surfaced to the caller, so it can't
- *  block or be blocked by the user-facing "pos" print below. */
-async function printSaleToKitchen(
+/** Automatic kitchen print for a new POS sale, if the kitchen printer's
+ *  Auto-print is on. Call once per sale — not from the Print button or
+ *  reprints. Never throws. */
+export async function printSaleToKitchen(
   sale: POSSale,
   settings: POSSettings,
   appSettings: AdminSettings,
@@ -193,9 +194,9 @@ async function printSaleToKitchen(
 }
 
 /**
- * High-level: print a POS sale. Fires "kitchen" in the background (see
- * printSaleToKitchen) and returns the "pos" printer's result, which is what
- * the caller's UI reports status for.
+ * High-level: print a POS sale on the active "pos" printer only. Used for both
+ * the automatic print and the Print button / reprints, so it never touches the
+ * kitchen (see printSaleToKitchen).
  *
  * Returns `{ browser: true }` when the caller should fall back to window.print()
  * (no active "pos" printer, or it's set to "browser" mode) — those modes have
@@ -208,8 +209,6 @@ export async function printPOSSale(
   restaurantName: string,
   receipt: ReceiptSettings,
 ): Promise<{ ok: boolean; error?: string; browser?: boolean }> {
-  void printSaleToKitchen(sale, settings, appSettings, restaurantName, receipt);
-
   const printer = resolveActivePrinter(appSettings, "pos");
   if (!printer || printer.connection === "browser") {
     return { ok: false, browser: true };

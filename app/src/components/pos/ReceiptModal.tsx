@@ -8,7 +8,7 @@ import { POSSale } from "@/types/pos";
 import { Mail, CheckCircle2, RefreshCw, Printer, AlertTriangle } from "lucide-react";
 import { fmt, fmtDate, fmtTime, isOfflineSale } from "./_utils";
 import { buildReceiptHtml } from "./_receipts";
-import { printPOSSale } from "@/lib/posPrint";
+import { printPOSSale, printSaleToKitchen } from "@/lib/posPrint";
 import { resolveActivePrinter } from "@/lib/escpos";
 import { isCapacitorAndroid } from "@/lib/capacitorBridge";
 
@@ -111,19 +111,21 @@ export default function ReceiptModal(
     }
   }, [sale, settings, appSettings, effectiveName, onAndroid, rs]);
 
-  // Auto-print once when the receipt opens straight after a sale (autoPrint
-  // prop), but only for real thermal modes the cashier configured — never
-  // auto-trigger the browser print dialog (intrusive), and never on the
-  // dashboard's "view old receipt" path (which doesn't pass autoPrint).
+  // Runs once when the receipt opens straight after a sale (autoPrint prop),
+  // never on the dashboard's "view old receipt" path. The kitchen slip and the
+  // receipt each follow their own printer's Auto-print; browser mode is never
+  // auto-triggered (intrusive dialog).
   const autoPrinted = useRef(false);
   useEffect(() => {
     if (autoPrinted.current || !autoPrint) return;
-    const pr = resolveActivePrinter(appSettings, "pos");
-    if (pr?.autoPrint && pr.connection !== "browser") {
-      autoPrinted.current = true;
-      void handlePrint();
-    }
-  }, [autoPrint, appSettings, handlePrint]);
+    const kitchen = resolveActivePrinter(appSettings, "kitchen");
+    const pos = resolveActivePrinter(appSettings, "pos");
+    const printReceipt = !!pos?.autoPrint && pos.connection !== "browser";
+    if (!kitchen?.autoPrint && !printReceipt) return;
+    autoPrinted.current = true;
+    if (kitchen?.autoPrint) void printSaleToKitchen(sale, settings, appSettings, effectiveName, rs);
+    if (printReceipt) void handlePrint();
+  }, [autoPrint, appSettings, handlePrint, sale, settings, effectiveName, rs]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
