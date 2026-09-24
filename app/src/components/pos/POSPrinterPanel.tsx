@@ -221,7 +221,7 @@ function POSPrinterRow({ printer, isActive, onSetActive, onDelete }: {
         <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2.5">
           <AlertTriangle size={14} className="text-amber-400 flex-shrink-0 mt-0.5" />
           <p className="text-amber-300 text-xs">
-            A Kitchen printer also uses this IP. If both are active, checkout orders and POS sales print twice.
+            A Kitchen printer also uses this IP. If both are active, POS sales print twice.
             To print once, turn off Auto-print on this printer (it then stops printing automatically), or ask an admin to change the Kitchen printer.
           </p>
         </div>
@@ -338,7 +338,7 @@ function POSPrinterRow({ printer, isActive, onSetActive, onDelete }: {
   );
 }
 
-// Receipt / POS printers only — "kitchen" printers live in Admin → Integrations.
+// Receipt / POS printers only — "kitchen" and "online" printers live in Admin → Integrations.
 export default function POSPrinterPanel({ appSettings }: { appSettings: import("@/types").AdminSettings }) {
   const { addPrinterViaPos, removePrinterViaPos, setActivePrinterViaPos } = useApp();
   const posPrinters = appSettings.printers.filter((p) => p.category === "pos");

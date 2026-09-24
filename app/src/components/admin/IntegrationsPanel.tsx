@@ -8,7 +8,7 @@ import {
   GripVertical, Pencil, X, Check, ChevronUp, ChevronDown,
   ToggleRight, ToggleLeft, Clock, ShieldAlert, History, Ruler,
   Printer, Wifi, WifiOff, AlertTriangle, Loader2, Mail, Send, Trash2,
-  Plus, ChefHat, Receipt, CircleDot, Circle,
+  Plus, ChefHat, Receipt, CircleDot, Circle, Globe,
 } from "lucide-react";
 import type { PrinterCategory, PrinterSettings } from "@/types";
 import { findOtherCategoryPrintersAtSameAddress } from "@/lib/printerRecords";
@@ -471,13 +471,18 @@ type ConnectionMode = "network" | "bluetooth" | "usb" | "browser";
 const CATEGORY_META: Record<PrinterCategory, { title: string; subtitle: string; icon: React.ReactNode }> = {
   kitchen: {
     title: "Kitchen",
-    subtitle: "Order tickets for food prep",
+    subtitle: "Order tickets for food prep — POS sales and waiter rounds",
     icon: <ChefHat size={15} className="text-orange-500" />,
   },
   pos: {
     title: "Receipt / POS",
-    subtitle: "Customer and counter receipts — checkout, POS sales, settled bills",
+    subtitle: "Counter receipts — POS sales and settled dine-in bills",
     icon: <Receipt size={15} className="text-orange-500" />,
+  },
+  online: {
+    title: "Online Orders",
+    subtitle: "Printed manually from Admin → Online Orders",
+    icon: <Globe size={15} className="text-orange-500" />,
   },
 };
 
@@ -633,7 +638,7 @@ function PrinterRow({
               )}
             </div>
             <p className="text-xs text-gray-400 truncate mt-0.5">
-              {statusLabel}{printer.enabled ? ` — auto-print ${draft.autoPrint ? "on" : "off"}` : ""}
+              {statusLabel}{printer.enabled && printer.category !== "online" ? ` — auto-print ${draft.autoPrint ? "on" : "off"}` : ""}
             </p>
           </div>
         </div>
@@ -716,8 +721,8 @@ function PrinterRow({
                   <AlertTriangle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
                   <p className="text-xs text-amber-700">
                     Also used by {sharedWith.map((p) => `“${p.name || "Unnamed printer"}” (${CATEGORY_META[p.category].title})`).join(", ")}.
-                    If both are active, checkout orders and POS sales print twice. To print once, turn off Auto-print
-                    on one of them — it then stops printing automatically, including waiter rounds or settled bills.
+                    If both are active, POS sales print twice. To print once, turn off Auto-print on one of
+                    them — that stops its automatic printing (POS sale slips, and waiter rounds for Kitchen).
                   </p>
                 </div>
               )}
@@ -824,18 +829,21 @@ function PrinterRow({
             </div>
           </div>
 
-          <div className="flex items-center justify-between py-3 border-t border-gray-100">
-            <div>
-              <p className="text-sm font-semibold text-gray-800">Auto-print on new order</p>
-              <p className="text-xs text-gray-400 mt-0.5">Automatically send a receipt when a customer places an order</p>
+          {/* Online orders are only ever printed by an admin clicking Print. */}
+          {printer.category !== "online" && (
+            <div className="flex items-center justify-between py-3 border-t border-gray-100">
+              <div>
+                <p className="text-sm font-semibold text-gray-800">Auto-print on new order</p>
+                <p className="text-xs text-gray-400 mt-0.5">Automatically send a receipt when a customer places an order</p>
+              </div>
+              <button onClick={() => setDraft((d) => ({ ...d, autoPrint: !d.autoPrint }))}
+                className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors flex-shrink-0 ${draft.autoPrint ? "bg-green-500" : "bg-gray-300"
+                  }`} aria-checked={draft.autoPrint} role="switch">
+                <span className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${draft.autoPrint ? "translate-x-6" : "translate-x-1"
+                  }`} />
+              </button>
             </div>
-            <button onClick={() => setDraft((d) => ({ ...d, autoPrint: !d.autoPrint }))}
-              className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors flex-shrink-0 ${draft.autoPrint ? "bg-green-500" : "bg-gray-300"
-                }`} aria-checked={draft.autoPrint} role="switch">
-              <span className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${draft.autoPrint ? "translate-x-6" : "translate-x-1"
-                }`} />
-            </button>
-          </div>
+          )}
 
           {testState === "success" && (
             <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-3 py-2">
@@ -990,6 +998,16 @@ function PrinterTab() {
         onUpdate={updatePrinter}
         onDelete={removePrinter}
         onSetActive={(id) => setActivePrinter("kitchen", id)}
+      />
+      <PrinterCategorySection
+        category="online"
+        printers={printers.filter((p) => p.category === "online")}
+        activeId={active.online}
+        onAdd={() => addPrinter("online")}
+        onToggle={togglePrinterEnabled}
+        onUpdate={updatePrinter}
+        onDelete={removePrinter}
+        onSetActive={(id) => setActivePrinter("online", id)}
       />
     </div>
   );

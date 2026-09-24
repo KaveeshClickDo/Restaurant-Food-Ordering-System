@@ -362,8 +362,9 @@ export interface CustomPage {
   updatedAt: string;    // ISO
 }
 
-/** "pos" = "Receipt / POS" in the UI — counter/receipt printing. */
-export type PrinterCategory = "kitchen" | "pos";
+/** "pos" = "Receipt / POS" in the UI — counter/receipt printing.
+ *  "online" = printed manually by an admin from Admin → Online Orders. */
+export type PrinterCategory = "kitchen" | "pos" | "online";
 
 export interface PrinterSettings {
   id: string;

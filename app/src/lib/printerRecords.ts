@@ -32,6 +32,12 @@ export function resolvePrinters(data: Record<string, unknown> | null | undefined
   }];
 }
 
+const DEFAULT_PRINTER_NAME: Record<PrinterCategory, string> = {
+  kitchen: "Kitchen Printer",
+  pos: "Receipt Printer",
+  online: "Online Orders Printer",
+};
+
 /** A new, disabled printer with default settings. Shared by the admin add,
  *  the POS add, and the POS route, so their defaults can't drift. */
 export function createDefaultPrinter(category: PrinterCategory, id: string): PrinterSettings {
@@ -39,7 +45,7 @@ export function createDefaultPrinter(category: PrinterCategory, id: string): Pri
     id,
     category,
     enabled: false,
-    name: category === "kitchen" ? "Kitchen Printer" : "Receipt Printer",
+    name: DEFAULT_PRINTER_NAME[category],
     connection: "network",
     ip: "", port: 9100,
     bluetoothAddress: "", bluetoothName: "",
@@ -48,17 +54,21 @@ export function createDefaultPrinter(category: PrinterCategory, id: string): Pri
 }
 
 /** Printers in the OTHER category on the same network IP + port — one physical
- *  printer that would print every order twice. Ignores `enabled` on purpose:
- *  new printers start disabled, and the warning matters while setting up. */
+ *  printer that would print every POS sale twice. Only kitchen and pos matter:
+ *  a POS sale prints to both, while online orders print only when an admin
+ *  clicks Print, so an "online" printer never double-prints with either.
+ *  Ignores `enabled` on purpose: new printers start disabled, and the warning
+ *  matters while setting up. */
 export function findOtherCategoryPrintersAtSameAddress(
   printers: PrinterSettings[],
   target: Pick<PrinterSettings, "id" | "category" | "connection" | "ip" | "port">,
 ): PrinterSettings[] {
   const ip = (target.ip ?? "").trim().toLowerCase();
-  if (target.connection !== "network" || !ip) return [];
+  if (target.category === "online" || target.connection !== "network" || !ip) return [];
   return printers.filter((p) =>
     p.id !== target.id
     && p.category !== target.category
+    && p.category !== "online"
     && p.connection === "network"
     && (p.ip ?? "").trim().toLowerCase() === ip
     && p.port === target.port,
@@ -73,8 +83,8 @@ export function resolveActivePrinterIdByCategory(
 ): Record<PrinterCategory, string | null> {
   const raw = data as { printers?: unknown; activePrinterIdByCategory?: Record<string, unknown> } | null | undefined;
   if (raw && Array.isArray(raw.printers)) {
-    return { kitchen: null, pos: null, ...(raw.activePrinterIdByCategory ?? {}) } as Record<PrinterCategory, string | null>;
+    return { kitchen: null, pos: null, online: null, ...(raw.activePrinterIdByCategory ?? {}) } as Record<PrinterCategory, string | null>;
   }
   const legacy = printers.find((p) => p.id === LEGACY_PRINTER_ID);
-  return { kitchen: null, pos: legacy?.enabled ? legacy.id : null };
+  return { kitchen: null, pos: legacy?.enabled ? legacy.id : null, online: null };
 }

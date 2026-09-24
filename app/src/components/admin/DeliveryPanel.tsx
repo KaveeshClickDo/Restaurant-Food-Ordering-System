@@ -9,11 +9,13 @@ import {
   Truck, Package, ChefHat, CheckCircle2, Circle, Ban,
   Clock, MapPin, Phone, ShoppingBag, TrendingUp,
   ChevronRight, X, RefreshCw, Bike, Store,
-  AlertCircle, Search, Filter, Navigation, RotateCcw,
+  AlertCircle, Search, Filter, Navigation, RotateCcw, Printer, Loader2, Check,
 } from "lucide-react";
 import { PaymentStatusBadge } from "@/components/admin/PaymentStatusBadge";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { RefundModal } from "@/components/admin/RefundsPanel";
+import { ReceiptModal } from "@/components/admin/ReceiptModal";
+import { printOnlineOrderAsAdmin } from "@/lib/escpos";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -221,13 +223,65 @@ function StatCard({ label, value, sub, icon, accent = "orange" }: {
 
 // ─── Order card (kanban) ──────────────────────────────────────────────────────
 
+// Prints the order to the active "Online" printer (Admin → Integrations). With
+// no active Online printer it hands off to onNoPrinter (the receipt view, whose
+// Print opens the browser dialog).
+function PrintOrderButton({ order, variant, onNoPrinter }: {
+  order: RichOrder;
+  variant: "icon" | "full";
+  onNoPrinter: () => void;
+}) {
+  const { settings } = useApp();
+  const [state, setState] = useState<"idle" | "busy" | "done">("idle");
+
+  async function handlePrint() {
+    if (state === "busy") return;
+    setState("busy");
+    const result = await printOnlineOrderAsAdmin(order, settings, {
+      customerName: order.customerName,
+      customerPhone: order.customerPhone,
+    });
+    if (result.browser) { setState("idle"); onNoPrinter(); return; }
+    if (!result.ok) { setState("idle"); alert(result.error ?? "Printing failed."); return; }
+    setState("done");
+    setTimeout(() => setState("idle"), 2000);
+  }
+
+  const icon = state === "busy" ? <Loader2 size={variant === "icon" ? 12 : 14} className="animate-spin" />
+    : state === "done" ? <Check size={variant === "icon" ? 12 : 14} className="text-green-600" />
+    : <Printer size={variant === "icon" ? 12 : 14} />;
+
+  if (variant === "icon") {
+    return (
+      <button
+        onClick={handlePrint}
+        disabled={state === "busy"}
+        title="Print order"
+        className="flex items-center justify-center border border-gray-200 text-gray-500 hover:bg-gray-50 px-2.5 py-1.5 rounded-lg transition disabled:opacity-60"
+      >
+        {icon}
+      </button>
+    );
+  }
+  return (
+    <button
+      onClick={handlePrint}
+      disabled={state === "busy"}
+      className="w-full border-2 border-gray-200 text-gray-700 hover:bg-gray-50 font-semibold py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-sm disabled:opacity-60"
+    >
+      {icon} {state === "busy" ? "Printing…" : state === "done" ? "Sent to printer" : "Print order"}
+    </button>
+  );
+}
+
 function KanbanCard({
-  order, onAdvance, onCancel, onClick,
+  order, onAdvance, onCancel, onClick, onPrintFallback,
 }: {
   order: RichOrder;
   onAdvance: () => void;
   onCancel: () => void;
   onClick: () => void;
+  onPrintFallback: () => void;
 }) {
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
@@ -305,6 +359,7 @@ function KanbanCard({
             <Truck size={10} /> Awaiting driver
           </div>
         )}
+        <PrintOrderButton order={order} variant="icon" onNoPrinter={onPrintFallback} />
         <button
           onClick={onCancel}
           className="flex items-center justify-center gap-1 border border-red-200 text-red-500 hover:bg-red-50 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg transition"
@@ -318,11 +373,12 @@ function KanbanCard({
 
 // ─── Order detail modal ───────────────────────────────────────────────────────
 
-function OrderModal({ order, onClose, onStatusChange, onRequestCancel }: {
+function OrderModal({ order, onClose, onStatusChange, onRequestCancel, onPrintFallback }: {
   order: RichOrder;
   onClose: () => void;
   onStatusChange: (status: OrderStatus) => void;
   onRequestCancel: () => void;
+  onPrintFallback: () => void;
 }) {
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
@@ -587,6 +643,11 @@ function OrderModal({ order, onClose, onStatusChange, onRequestCancel }: {
             </div>
           </div>
 
+          {/* Print stays available after the order is delivered or cancelled. */}
+          <div className="pt-1">
+            <PrintOrderButton order={order} variant="full" onNoPrinter={onPrintFallback} />
+          </div>
+
           {/* Actions */}
           {isActive && (
             <div className="space-y-2 pt-1">
@@ -627,6 +688,7 @@ export default function DeliveryPanel() {
   const sym = settings.currency?.symbol ?? "£";
 
   const [modalOrder, setModalOrder] = useState<RichOrder | null>(null);
+  const [receiptOrder, setReceiptOrder] = useState<RichOrder | null>(null);
   const [cancelTarget, setCancelTarget] = useState<RichOrder | null>(null);
   const [refundCancelTarget, setRefundCancelTarget] = useState<RichOrder | null>(null);
   const [fulfillmentFilter, setFulfillmentFilter] = useState<"all" | "delivery" | "collection">("all");
@@ -843,6 +905,7 @@ export default function DeliveryPanel() {
                         onAdvance={() => advance(order)}
                         onCancel={() => setCancelTarget(order)}
                         onClick={() => setModalOrder(order)}
+                        onPrintFallback={() => setReceiptOrder(order)}
                       />
                     ))
                   )}
@@ -930,6 +993,19 @@ export default function DeliveryPanel() {
           onClose={() => setModalOrder(null)}
           onStatusChange={(status) => changeStatus(modalOrder, status)}
           onRequestCancel={() => { setCancelTarget(modalOrder); setModalOrder(null); }}
+          onPrintFallback={() => setReceiptOrder(modalOrder)}
+        />
+      )}
+
+      {/* No active Online printer: show the receipt, whose Print is the browser dialog. */}
+      {receiptOrder && (
+        <ReceiptModal
+          order={receiptOrder}
+          customer={
+            customers.find((c: Customer) => c.id === receiptOrder.customerId)
+            ?? ({ id: "guest", name: receiptOrder.customerName } as unknown as Customer)
+          }
+          onClose={() => setReceiptOrder(null)}
         />
       )}
 

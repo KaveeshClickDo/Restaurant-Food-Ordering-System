@@ -80,6 +80,7 @@ export const DEFAULT_PRINTERS: PrinterSettings[] = [];
 export const DEFAULT_ACTIVE_PRINTER_BY_CATEGORY: Record<PrinterCategory, string | null> = {
   kitchen: null,
   pos: null,
+  online: null,
 };
 
 export const DEFAULT_SETTINGS: AdminSettings = {

@@ -273,9 +273,59 @@ function orderTypeLabel(order: Order): string {
   return order.fulfillment === "delivery" ? "DELIVERY" : order.fulfillment === "dine-in" ? "DINE-IN" : "COLLECTION";
 }
 
+/** Customer details that live on the customer record, not the order. */
+export interface OnlineTicketExtras {
+  customerName?: string;
+  customerPhone?: string;
+}
+
+/** PAID / UNPAID line for online orders, so staff know whether to take payment. */
+function onlinePaymentLine(order: Order): string | null {
+  if (order.fulfillment === "dine-in") return null;
+  switch (order.paymentStatus) {
+    case "paid":               return "PAID";
+    case "unpaid":             return "UNPAID - collect payment";
+    case "partially_refunded": return "PAID (partly refunded)";
+    case "refunded":           return "REFUNDED";
+    default:                   return null;
+  }
+}
+
+function wrapText(text: string, width: number): string[] {
+  const out: string[] = [];
+  let line = "";
+  for (const word of text.split(/\s+/)) {
+    if (!word) continue;
+    if (line && line.length + 1 + word.length <= width) { line += ` ${word}`; continue; }
+    if (line) out.push(line);
+    line = word;
+    while (line.length > width) { out.push(line.slice(0, width)); line = line.slice(width); }
+  }
+  if (line) out.push(line);
+  return out;
+}
+
+/** Customer / phone / pickup time / note lines for an online order, wrapped to
+ *  the paper width. Empty for dine-in, which has its own table + note lines. */
+function onlineDetailLines(order: Order, extras: OnlineTicketExtras | undefined, width: number): string[] {
+  if (order.fulfillment === "dine-in") return [];
+  const details: string[] = [];
+  if (extras?.customerName?.trim())  details.push(`Customer: ${extras.customerName.trim()}`);
+  if (extras?.customerPhone?.trim()) details.push(`Phone: ${extras.customerPhone.trim()}`);
+  if (order.scheduledTime?.trim())   details.push(`When: ${order.scheduledTime.trim()}`);
+  if (order.note?.trim())            details.push(`Note: ${order.note.trim()}`);
+  return details.flatMap((d) => wrapText(d, width));
+}
+
 /** Build a full order receipt as ESC/POS bytes. `logoBytes` is a pre-rendered
  *  GS v 0 raster (from logoToRaster) printed above the name when Show Logo is on. */
-export function buildReceipt(order: Order, settings: AdminSettings, printer: PrinterSettings, logoBytes?: number[] | null): number[] {
+export function buildReceipt(
+  order: Order,
+  settings: AdminSettings,
+  printer: PrinterSettings,
+  logoBytes?: number[] | null,
+  extras?: OnlineTicketExtras,
+): number[] {
   const W  = [32, 48].includes(printer.paperWidth) ? printer.paperWidth : 48;
   const r  = settings.restaurant;
   const rs = settings.receiptSettings;
@@ -322,6 +372,9 @@ export function buildReceipt(order: Order, settings: AdminSettings, printer: Pri
 
   if (order.address)       b.line(`To: ${order.address}`);
   if (order.paymentMethod) b.line(`Pay: ${order.paymentMethod}`);
+  const payStatus = onlinePaymentLine(order);
+  if (payStatus) b.bold(true).line(payStatus).bold(false);
+  for (const ln of onlineDetailLines(order, extras, W)) b.line(ln);
   if (order.fulfillment === "dine-in") {
     const table = parseTableLabelFromNote(order.note);
     if (table) b.bold(true).line(`Table: ${table}`).bold(false);
@@ -376,6 +429,9 @@ export function buildReceipt(order: Order, settings: AdminSettings, printer: Pri
   }
   if (order.giftCardUsed && order.giftCardUsed > 0) {
     b.twoCol("Gift Card", fmt(order.giftCardUsed, sym), W);
+  }
+  if (order.storeCreditUsed && order.storeCreditUsed > 0) {
+    b.twoCol("Store credit", fmt(order.storeCreditUsed, sym), W);
   }
   if (order.changeGiven !== undefined && order.changeGiven > 0) {
     b.twoCol("Change", fmt(order.changeGiven, sym), W);
@@ -454,8 +510,9 @@ export async function sendToPrinter(
   ip: string,
   port: number,
   endpoint: string = "/api/print",
+  maxAttempts: number = MAX_RETRIES,
 ): Promise<{ ok: boolean; error?: string }> {
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15_000);
     try {
@@ -468,13 +525,13 @@ export async function sendToPrinter(
       clearTimeout(timer);
       const data = await res.json() as { ok: boolean; error?: string };
       if (data.ok) return { ok: true };
-      if (attempt === MAX_RETRIES) return { ok: false, error: data.error };
+      if (attempt === maxAttempts) return { ok: false, error: data.error };
     } catch (err) {
       clearTimeout(timer);
       const msg = err instanceof Error && err.name === "AbortError"
         ? `Print request timed out after 15 s (attempt ${attempt})`
         : String(err);
-      if (attempt === MAX_RETRIES) return { ok: false, error: msg };
+      if (attempt === maxAttempts) return { ok: false, error: msg };
     }
     await new Promise((r) => setTimeout(r, RETRY_DELAY));
   }
@@ -658,6 +715,7 @@ export function printReceiptBrowser(
   order: Order,
   settings: AdminSettings,
   printer: PrinterSettings,
+  extras?: OnlineTicketExtras,
 ): { ok: boolean; error?: string } {
   if (typeof window === "undefined") {
     return { ok: false, error: "Browser print is not available server-side." };
@@ -704,6 +762,9 @@ export function printReceiptBrowser(
   lines.push(`Type: ${orderTypeLabel(order)}`);
   if (order.address)       lines.push(`To: ${order.address}`);
   if (order.paymentMethod) lines.push(`Pay: ${order.paymentMethod}`);
+  const payStatus = onlinePaymentLine(order);
+  if (payStatus) lines.push(payStatus);
+  lines.push(...onlineDetailLines(order, extras, W));
   if (order.fulfillment === "dine-in") {
     const table = parseTableLabelFromNote(order.note);
     if (table) lines.push(`Table: ${table}`);
@@ -747,6 +808,7 @@ export function printReceiptBrowser(
   lines.push(twoCol("TOTAL", fmt(order.total, sym)));
   if (order.tipAmount && order.tipAmount > 0) lines.push(twoCol("Tip", fmt(order.tipAmount, sym)));
   if (order.giftCardUsed && order.giftCardUsed > 0) lines.push(twoCol("Gift Card", fmt(order.giftCardUsed, sym)));
+  if (order.storeCreditUsed && order.storeCreditUsed > 0) lines.push(twoCol("Store credit", fmt(order.storeCreditUsed, sym)));
   if (order.changeGiven !== undefined && order.changeGiven > 0) lines.push(twoCol("Change", fmt(order.changeGiven, sym)));
   if (showVat && vatInclusive) lines.push(center(`Prices include ${vatRate}% VAT`));
   lines.push(dbl);
@@ -865,4 +927,39 @@ export async function printOrder(
 ): Promise<void> {
   const categories = opts.categories ?? (["kitchen", "pos"] as const);
   await Promise.all(categories.map((category) => printOrderToCategory(order, settings, category, opts)));
+}
+
+/**
+ * Print one online order on demand from the admin panel, to the active "online"
+ * printer. It's a manual click, so Auto-print is ignored. Returns
+ * `{ browser: true }` when no online printer is active, so the caller can fall
+ * back to the browser receipt view.
+ */
+export async function printOnlineOrderAsAdmin(
+  order: Order,
+  settings: AdminSettings,
+  extras?: OnlineTicketExtras,
+): Promise<{ ok: boolean; error?: string; browser?: boolean }> {
+  const printer = resolveActivePrinter(settings, "online");
+  if (!printer) return { ok: false, browser: true };
+
+  try {
+    const mode = printer.connection ?? "network";
+    if (mode === "browser") return printReceiptBrowser(order, settings, printer, extras);
+
+    const rs = settings.receiptSettings;
+    const logoBytes = rs?.showLogo && rs?.logoUrl
+      ? await logoToRaster(rs.logoUrl, paperDotWidth(printer.paperWidth), { dither: rs.logoDither })
+      : null;
+    const bytes = buildReceipt(order, settings, printer, logoBytes, extras);
+
+    if (mode === "bluetooth") return await sendToPrinterBluetooth(bytes, printer.bluetoothAddress ?? "");
+    if (mode === "usb") return await sendToPrinterUSB(bytes);
+    if (!printer.ip.trim()) {
+      return { ok: false, error: "The Online printer has no IP address. Set one in Admin → Integrations." };
+    }
+    return await sendToPrinter(bytes, printer.ip.trim(), printer.port, "/api/admin/print", 1);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
