@@ -137,6 +137,15 @@ export class ReceiptBuilder {
     return this.line(l + right);
   }
 
+  /**
+   * Item row that never truncates: a long name wraps onto extra lines and the
+   * price stays on the last one. Use for item names; twoCol suits short labels.
+   */
+  itemRow(left: string, right: string, width: number) {
+    for (const ln of itemRowLines(left, right, width)) this.line(ln);
+    return this;
+  }
+
   /** GS V 41 03 — partial paper cut with 3-line feed */
   cut() {
     this.buf.push(GS, 0x56, 0x41, 0x03);
@@ -305,6 +314,32 @@ function wrapText(text: string, width: number): string[] {
   return out;
 }
 
+/** One item row that wraps a long name onto extra lines, price on the last line.
+ *  (ReceiptBuilder.twoCol would cut the name off with "~".) */
+function itemRowLines(left: string, right: string, width: number): string[] {
+  const room = Math.max(8, width - right.length - 2);
+  const parts = left.length <= room ? [left] : wrapText(left, room);
+  const last = parts.pop() ?? "";
+  return [...parts, last.padEnd(width - right.length) + right];
+}
+
+/** Choices printed under an item: each variation / add-on as "+ option", then the
+ *  customer's per-item request in quotes. Online order lines keep these in
+ *  separate fields rather than in the name. */
+function itemDetailLines(item: Order["items"][number], width: number): string[] {
+  const variations = item.selectedVariations?.length
+    ? item.selectedVariations
+    : item.selectedVariation ? [item.selectedVariation] : [];
+  const options = [...variations.map((v) => v.label), ...(item.selectedAddOns ?? []).map((a) => a.name)];
+  const out: string[] = [];
+  for (const opt of options) {
+    wrapText(`+ ${opt}`, width - 2).forEach((ln, i) => out.push((i === 0 ? "  " : "    ") + ln));
+  }
+  const request = item.specialInstructions?.trim();
+  if (request) wrapText(`"${request}"`, width - 2).forEach((ln) => out.push(`  ${ln}`));
+  return out;
+}
+
 /** Customer / phone / pickup time / note lines for an online order, wrapped to
  *  the paper width. Empty for dine-in, which has its own table + note lines. */
 function onlineDetailLines(order: Order, extras: OnlineTicketExtras | undefined, width: number): string[] {
@@ -388,7 +423,8 @@ export function buildReceipt(
   b.separator("-", W);
 
   for (const item of order.items) {
-    b.twoCol(`${item.name} x${item.qty}`, fmt(item.price * item.qty, sym), W);
+    b.itemRow(`${item.name} x${item.qty}`, fmt(item.price * item.qty, sym), W);
+    for (const ln of itemDetailLines(item, W)) b.line(ln);
   }
 
   b.separator("-", W);
@@ -777,7 +813,8 @@ export function printReceiptBrowser(
   lines.push(sep);
 
   for (const item of order.items) {
-    lines.push(twoCol(`${item.name} x${item.qty}`, fmt(item.price * item.qty, sym)));
+    lines.push(...itemRowLines(`${item.name} x${item.qty}`, fmt(item.price * item.qty, sym), W));
+    lines.push(...itemDetailLines(item, W));
   }
 
   lines.push(sep);

@@ -78,7 +78,7 @@ export function buildPOSReceiptBytes(
   // ── Items ───────────────────────────────────────────────────────────────--
   b.align("left");
   for (const item of sale.items) {
-    b.twoCol(`${item.name} x${item.quantity}`, money(item.price * item.quantity, sym), W);
+    b.itemRow(`${item.name} x${item.quantity}`, money(item.price * item.quantity, sym), W);
     for (const m of item.modifiers ?? []) b.line(`  + ${m.optionLabel}`);
     if (item.note) b.line(`  "${item.note}"`);
   }
@@ -159,7 +159,7 @@ export function buildDineInReceiptBytes(
   if (order.covers > 0) b.line(`${order.covers} cover${order.covers !== 1 ? "s" : ""}`);
 
   b.separator("=", W).align("left");
-  for (const it of order.items) b.twoCol(`${it.name} x${it.qty}`, money(it.price * it.qty, sym), W);
+  for (const it of order.items) b.itemRow(`${it.name} x${it.qty}`, money(it.price * it.qty, sym), W);
   b.separator("-", W);
 
   const subtotal    = order.items.reduce((s, l) => s + l.price * l.qty, 0);
