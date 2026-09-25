@@ -223,9 +223,9 @@ function StatCard({ label, value, sub, icon, accent = "orange" }: {
 
 // ─── Order card (kanban) ──────────────────────────────────────────────────────
 
-// Prints the order to the active "Online" printer (Admin → Integrations). With
-// no active Online printer it hands off to onNoPrinter (the receipt view, whose
-// Print opens the browser dialog).
+// Prints the order to the active "Online" printer (Admin → Integrations). When no
+// Online printer is set up it prints nothing and calls onNoPrinter, so the panel
+// can tell the admin (and offer the receipt view).
 function PrintOrderButton({ order, variant, onNoPrinter }: {
   order: RichOrder;
   variant: "icon" | "full";
@@ -241,7 +241,7 @@ function PrintOrderButton({ order, variant, onNoPrinter }: {
       customerName: order.customerName,
       customerPhone: order.customerPhone,
     });
-    if (result.browser) { setState("idle"); onNoPrinter(); return; }
+    if (result.noPrinter) { setState("idle"); onNoPrinter(); return; }
     if (!result.ok) { setState("idle"); alert(result.error ?? "Printing failed."); return; }
     setState("done");
     setTimeout(() => setState("idle"), 2000);
@@ -275,13 +275,13 @@ function PrintOrderButton({ order, variant, onNoPrinter }: {
 }
 
 function KanbanCard({
-  order, onAdvance, onCancel, onClick, onPrintFallback,
+  order, onAdvance, onCancel, onClick, onNoPrinter,
 }: {
   order: RichOrder;
   onAdvance: () => void;
   onCancel: () => void;
   onClick: () => void;
-  onPrintFallback: () => void;
+  onNoPrinter: () => void;
 }) {
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
@@ -359,7 +359,7 @@ function KanbanCard({
             <Truck size={10} /> Awaiting driver
           </div>
         )}
-        <PrintOrderButton order={order} variant="icon" onNoPrinter={onPrintFallback} />
+        <PrintOrderButton order={order} variant="icon" onNoPrinter={onNoPrinter} />
         <button
           onClick={onCancel}
           className="flex items-center justify-center gap-1 border border-red-200 text-red-500 hover:bg-red-50 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg transition"
@@ -373,12 +373,12 @@ function KanbanCard({
 
 // ─── Order detail modal ───────────────────────────────────────────────────────
 
-function OrderModal({ order, onClose, onStatusChange, onRequestCancel, onPrintFallback }: {
+function OrderModal({ order, onClose, onStatusChange, onRequestCancel, onNoPrinter }: {
   order: RichOrder;
   onClose: () => void;
   onStatusChange: (status: OrderStatus) => void;
   onRequestCancel: () => void;
-  onPrintFallback: () => void;
+  onNoPrinter: () => void;
 }) {
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
@@ -645,7 +645,7 @@ function OrderModal({ order, onClose, onStatusChange, onRequestCancel, onPrintFa
 
           {/* Print stays available after the order is delivered or cancelled. */}
           <div className="pt-1">
-            <PrintOrderButton order={order} variant="full" onNoPrinter={onPrintFallback} />
+            <PrintOrderButton order={order} variant="full" onNoPrinter={onNoPrinter} />
           </div>
 
           {/* Actions */}
@@ -689,6 +689,7 @@ export default function DeliveryPanel() {
 
   const [modalOrder, setModalOrder] = useState<RichOrder | null>(null);
   const [receiptOrder, setReceiptOrder] = useState<RichOrder | null>(null);
+  const [noPrinterOrder, setNoPrinterOrder] = useState<RichOrder | null>(null);
   const [cancelTarget, setCancelTarget] = useState<RichOrder | null>(null);
   const [refundCancelTarget, setRefundCancelTarget] = useState<RichOrder | null>(null);
   const [fulfillmentFilter, setFulfillmentFilter] = useState<"all" | "delivery" | "collection">("all");
@@ -905,7 +906,7 @@ export default function DeliveryPanel() {
                         onAdvance={() => advance(order)}
                         onCancel={() => setCancelTarget(order)}
                         onClick={() => setModalOrder(order)}
-                        onPrintFallback={() => setReceiptOrder(order)}
+                        onNoPrinter={() => setNoPrinterOrder(order)}
                       />
                     ))
                   )}
@@ -993,11 +994,22 @@ export default function DeliveryPanel() {
           onClose={() => setModalOrder(null)}
           onStatusChange={(status) => changeStatus(modalOrder, status)}
           onRequestCancel={() => { setCancelTarget(modalOrder); setModalOrder(null); }}
-          onPrintFallback={() => setReceiptOrder(modalOrder)}
+          onNoPrinter={() => setNoPrinterOrder(modalOrder)}
         />
       )}
 
-      {/* No active Online printer: show the receipt, whose Print is the browser dialog. */}
+      {/* Print clicked with no usable Online printer: say so, and offer the receipt view. */}
+      <ConfirmDialog
+        open={!!noPrinterOrder}
+        title="No online printer set up"
+        message="Print needs an active Online printer. Add one in Admin → Integrations → Thermal Printer and set it active. You can still view this order's receipt."
+        confirmLabel="View receipt"
+        cancelLabel="Close"
+        tone="primary"
+        onConfirm={() => { setReceiptOrder(noPrinterOrder); setNoPrinterOrder(null); }}
+        onCancel={() => setNoPrinterOrder(null)}
+      />
+
       {receiptOrder && (
         <ReceiptModal
           order={receiptOrder}

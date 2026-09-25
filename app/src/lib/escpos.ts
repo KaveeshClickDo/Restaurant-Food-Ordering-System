@@ -971,16 +971,17 @@ export async function printOrder(
 /**
  * Print one online order on demand from the admin panel, to the active "online"
  * printer. It's a manual click, so Auto-print is ignored. Returns
- * `{ browser: true }` when no online printer is active, so the caller can fall
- * back to the browser receipt view.
+ * `{ noPrinter: true }` without printing when there is no active, enabled online
+ * printer, so the caller can tell the admin to set one up. A printer that is set
+ * up but incomplete or unreachable returns an `error` message instead.
  */
 export async function printOnlineOrderAsAdmin(
   order: Order,
   settings: AdminSettings,
   extras?: OnlineTicketExtras,
-): Promise<{ ok: boolean; error?: string; browser?: boolean }> {
+): Promise<{ ok: boolean; error?: string; noPrinter?: boolean }> {
   const printer = resolveActivePrinter(settings, "online");
-  if (!printer) return { ok: false, browser: true };
+  if (!printer) return { ok: false, noPrinter: true };
 
   try {
     const mode = printer.connection ?? "network";
@@ -994,7 +995,7 @@ export async function printOnlineOrderAsAdmin(
 
     if (mode === "bluetooth") return await sendToPrinterBluetooth(bytes, printer.bluetoothAddress ?? "");
     if (mode === "usb") return await sendToPrinterUSB(bytes);
-    if (!printer.ip.trim()) {
+    if (!printer.ip?.trim()) {
       return { ok: false, error: "The Online printer has no IP address. Set one in Admin → Integrations." };
     }
     return await sendToPrinter(bytes, printer.ip.trim(), printer.port, "/api/admin/print", 1);
