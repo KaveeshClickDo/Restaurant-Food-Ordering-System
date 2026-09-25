@@ -291,9 +291,9 @@ export async function printSaleToKitchen(
  * the automatic print and the Print button / reprints, so it never touches the
  * kitchen (see printSaleToKitchen).
  *
- * Returns `{ browser: true }` when the caller should fall back to window.print()
- * (no active "pos" printer, or it's set to "browser" mode) — those modes have
- * no ESC/POS byte path. Otherwise returns the transport result.
+ * Returns `{ noPrinter: true }` when there is no active "pos" printer, and
+ * `{ browser: true }` when it's in "browser" mode (no ESC/POS byte path).
+ * Otherwise returns the transport result.
  */
 export async function printPOSSale(
   sale: POSSale,
@@ -301,11 +301,10 @@ export async function printPOSSale(
   appSettings: AdminSettings,
   restaurantName: string,
   receipt: ReceiptSettings,
-): Promise<{ ok: boolean; error?: string; browser?: boolean }> {
+): Promise<{ ok: boolean; error?: string; browser?: boolean; noPrinter?: boolean }> {
   const printer = resolveActivePrinter(appSettings, "pos");
-  if (!printer || printer.connection === "browser") {
-    return { ok: false, browser: true };
-  }
+  if (!printer) return { ok: false, noPrinter: true };
+  if (printer.connection === "browser") return { ok: false, browser: true };
   // Pre-render the logo raster (async) when Show Logo is on.
   const logoBytes = receipt.showLogo && receipt.logoUrl
     ? await logoToRaster(receipt.logoUrl, paperDotWidth(printer.paperWidth), { dither: receipt.logoDither })
@@ -322,7 +321,7 @@ export async function printPOSSale(
 /**
  * Print a settled dine-in bill on the active "pos" printer only (manual print:
  * ignores Auto-print, never touches the kitchen). Same return contract as
- * printPOSSale — `{ browser: true }` means the caller should fall back.
+ * printPOSSale.
  */
 export async function printDineInBill(
   order: DineInOrder,
@@ -330,11 +329,10 @@ export async function printDineInBill(
   appSettings: AdminSettings,
   restaurantName: string,
   receipt: ReceiptSettings,
-): Promise<{ ok: boolean; error?: string; browser?: boolean }> {
+): Promise<{ ok: boolean; error?: string; browser?: boolean; noPrinter?: boolean }> {
   const printer = resolveActivePrinter(appSettings, "pos");
-  if (!printer || printer.connection === "browser") {
-    return { ok: false, browser: true };
-  }
+  if (!printer) return { ok: false, noPrinter: true };
+  if (printer.connection === "browser") return { ok: false, browser: true };
   const logoBytes = receipt.showLogo && receipt.logoUrl
     ? await logoToRaster(receipt.logoUrl, paperDotWidth(printer.paperWidth), { dither: receipt.logoDither })
     : null;

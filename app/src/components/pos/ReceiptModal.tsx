@@ -27,6 +27,7 @@ export default function ReceiptModal(
   const [emailError, setEmailError] = useState("");
   const [printStatus, setPrintStatus] = useState<"idle" | "printing" | "ok" | "error">("idle");
   const [printError, setPrintError] = useState("");
+  const [printNoPrinter, setPrintNoPrinter] = useState(false);
   const [kitchenError, setKitchenError] = useState("");
   // Right after a sale, say why nothing printed automatically.
   const posPrinter = resolveActivePrinter(appSettings, "pos");
@@ -99,22 +100,24 @@ export default function ReceiptModal(
 
   // Print to the configured thermal printer. On Android this goes straight to
   // the printer (Bluetooth / USB / direct TCP) with no server — so it works
-  // offline. "browser" mode (or a disabled printer) falls back to the browser print window.
+  // offline. "browser" mode uses the browser print window; with no printer, show an error.
   const handlePrint = useCallback(async () => {
     setPrintStatus("printing");
     setPrintError("");
+    setPrintNoPrinter(false);
     const r = await printPOSSale(sale, settings, appSettings, effectiveName, rs);
+    if (r.noPrinter) {
+      setPrintStatus("error");
+      setPrintNoPrinter(true);
+      setPrintError("No receipt printer is set up. Add one in Settings → Hardware.");
+      return;
+    }
     if (r.browser) {
-      // No active "pos" printer (or it's set to "browser" mode). The browser print
-      // window does nothing inside the Android WebView — so on the tablet, tell the
-      // cashier what to do instead of silently failing.
+      // The browser print window does nothing inside the Android WebView — so on the
+      // tablet, tell the cashier what to do instead of silently failing.
       if (onAndroid) {
         setPrintStatus("error");
-        setPrintError(
-          resolveActivePrinter(appSettings, "pos")
-            ? "Printer set to “browser” mode, which isn’t available on the tablet. Pick Bluetooth, USB, or Network in Settings → Hardware."
-            : "No printer configured. Set one up in Settings → Hardware.",
-        );
+        setPrintError("Printer set to “browser” mode, which isn’t available on the tablet. Pick Bluetooth, USB, or Network in Settings → Hardware.");
       } else {
         setPrintStatus("idle");
         handlePdf();
@@ -341,7 +344,7 @@ export default function ReceiptModal(
           <InfoNote>
             {onAndroid
               ? "No receipt printer is set up. Set one up in Settings → Hardware to print receipts."
-              : "No receipt printer is set up, so nothing printed automatically. Tap Print for the browser print dialog, or set one up in Settings → Hardware."}
+              : "No receipt printer is set up, so nothing printed automatically. Tap PDF to save or print it from the browser, or set one up in Settings → Hardware."}
           </InfoNote>
         )}
         {receiptAutoPrintOff && (
@@ -370,7 +373,7 @@ export default function ReceiptModal(
               {/* Browser printing does not work in the Android WebView. */}
               {!onAndroid && (
                 <button onClick={handlePdf} className="text-red-600 text-xs font-semibold underline mt-0.5">
-                  Print via browser instead
+                  {printNoPrinter ? "Save as PDF instead" : "Print via browser instead"}
                 </button>
               )}
             </div>

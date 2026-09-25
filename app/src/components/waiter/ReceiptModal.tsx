@@ -3,19 +3,26 @@
 /**
  * Receipt overlay shown after an order is sent or a bill is settled.
  * Print / reprint, email to the customer, and (when the caller passes
- * onRefund) hand off to the refund flow.
+ * onRefund) hand off to the refund flow. With `thermalPrint` (POS Dashboard),
+ * Print goes to the Receipt / POS printer and PDF opens the browser print window.
  */
 
 import { useState } from "react";
 import { useApp } from "@/context/AppContext";
 import {
-  Receipt, X, Loader2, CheckCircle2, Mail, Printer, RefreshCw, RotateCcw,
+  Receipt, X, Loader2, CheckCircle2, Mail, Printer, RefreshCw, RotateCcw, FileDown, AlertTriangle,
 } from "lucide-react";
 import type { WaiterReceipt } from "./_types";
 import { fmtCur } from "./_utils";
 import { buildReceiptHtml } from "./_receiptHtml";
+import { isCapacitorAndroid } from "@/lib/capacitorBridge";
 
-export default function ReceiptModal({ receipt, onClose, onRefund }: { receipt: WaiterReceipt; onClose: () => void; onRefund?: () => void }) {
+export default function ReceiptModal({ receipt, onClose, onRefund, thermalPrint }: {
+  receipt: WaiterReceipt;
+  onClose: () => void;
+  onRefund?: () => void;
+  thermalPrint?: () => Promise<{ ok: boolean; error?: string; browser?: boolean; noPrinter?: boolean }>;
+}) {
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
   const rs = settings.receiptSettings;
@@ -23,16 +30,55 @@ export default function ReceiptModal({ receipt, onClose, onRefund }: { receipt: 
   const [emailTo, setEmailTo] = useState("");
   const [emailStatus, setEmailStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [marketingOptIn, setMarketingOptIn] = useState(true);
+  const [printState, setPrintState] = useState<"idle" | "printing" | "ok" | "error">("idle");
+  const [printError, setPrintError] = useState("");
+  const [printNoPrinter, setPrintNoPrinter] = useState(false);
+  const onAndroid = isCapacitorAndroid();
 
   function handlePrint() {
     const html = buildReceiptHtml(receipt, restaurantName, rs?.address ?? "", rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
     const win = window.open("", "_blank", "width=400,height=600");
-    if (!win) return;
+    if (!win) {
+      alert("Pop-up was blocked. Allow pop-ups for this site and try again.");
+      return;
+    }
     win.document.write(html);
     win.document.close();
     win.focus();
     win.print();
     win.onafterprint = () => win.close();
+  }
+
+  // Print to the Receipt / POS printer. "Browser" mode uses the browser window; with no printer, show an error.
+  async function handleThermalPrint() {
+    if (!thermalPrint) return;
+    setPrintState("printing");
+    setPrintError("");
+    setPrintNoPrinter(false);
+    const r = await thermalPrint();
+    if (r.noPrinter) {
+      setPrintState("error");
+      setPrintNoPrinter(true);
+      setPrintError("No receipt printer is set up. Add one in Settings → Hardware.");
+      return;
+    }
+    if (r.browser) {
+      if (onAndroid) {
+        setPrintState("error");
+        setPrintError("The Receipt printer is set to Browser print, which the tablet can't use. Change it in Settings → Hardware.");
+      } else {
+        setPrintState("idle");
+        handlePrint();
+      }
+      return;
+    }
+    if (r.ok) {
+      setPrintState("ok");
+      setTimeout(() => setPrintState("idle"), 4000);
+    } else {
+      setPrintState("error");
+      setPrintError(r.error ?? "Printing failed.");
+    }
   }
 
   async function handleEmail() {
@@ -192,9 +238,46 @@ export default function ReceiptModal({ receipt, onClose, onRefund }: { receipt: 
           </div>
         </div>
 
+        {printState === "ok" && (
+          <div className="mx-5 mb-3 flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-3 py-2">
+            <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
+            <p className="text-emerald-300 text-xs font-semibold">Receipt sent to printer.</p>
+          </div>
+        )}
+        {printState === "error" && (
+          <div role="alert" className="mx-5 mb-3 flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2">
+            <AlertTriangle size={14} className="text-red-400 shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="text-red-300 text-xs break-words">{printError}</p>
+              {/* Browser printing does not work in the Android WebView. */}
+              {!onAndroid && (
+                <button onClick={handlePrint} className="text-red-300 text-xs font-semibold underline mt-0.5">
+                  {printNoPrinter ? "Save as PDF instead" : "Print via browser instead"}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Footer actions */}
-        <div className={`p-5 border-t border-slate-700 grid gap-2 flex-shrink-0 ${onRefund ? "grid-cols-2" : "grid-cols-3"}`}>
-          {!onRefund ? (
+        <div className={`p-5 border-t border-slate-700 grid gap-2 flex-shrink-0 ${thermalPrint ? (onAndroid ? "grid-cols-2" : "grid-cols-3") : onRefund ? "grid-cols-2" : "grid-cols-3"}`}>
+          {thermalPrint ? (
+            <>
+              <button onClick={onClose} className="flex flex-col items-center gap-1 bg-slate-700 hover:bg-slate-600 text-slate-300 py-3 rounded-xl transition text-xs font-medium">
+                <X size={16} /> Close
+              </button>
+              {!onAndroid && (
+                <button onClick={handlePrint} title="Open the print window, then choose Save as PDF" className="flex flex-col items-center gap-1 bg-slate-700 hover:bg-slate-600 text-white py-3 rounded-xl transition text-xs font-medium">
+                  <FileDown size={16} /> PDF
+                </button>
+              )}
+              <button onClick={handleThermalPrint} disabled={printState === "printing"} className="flex flex-col items-center gap-1 bg-orange-500 hover:bg-orange-400 disabled:opacity-60 text-white py-3 rounded-xl transition text-xs font-medium">
+                {printState === "printing"
+                  ? <><Loader2 size={16} className="animate-spin" /> Printing…</>
+                  : <><Printer size={16} /> Print</>}
+              </button>
+            </>
+          ) : !onRefund ? (
             <>
               <button onClick={onClose} className="flex flex-col items-center gap-1 bg-slate-700 hover:bg-slate-600 text-slate-300 py-3 rounded-xl transition text-xs font-medium">
                 <X size={16} /> Close

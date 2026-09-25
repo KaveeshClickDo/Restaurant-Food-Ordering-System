@@ -232,11 +232,15 @@ export default function DashboardView() {
 
   // Settled bills go to the Receipt / POS thermal printer. Open-table "Print"
   // stays on the browser dialog (printDineInReceipt).
-  async function reprintDineInBill(order: DineInOrder) {
+  function printDineInToPosPrinter(order: DineInOrder) {
     const effectiveName = appSettings.restaurant?.name || appSettings.receiptSettings.restaurantName?.trim() || settings.businessName || "Restaurant";
-    const r = await printDineInBill(order, settings, appSettings, effectiveName, appSettings.receiptSettings);
+    return printDineInBill(order, settings, appSettings, effectiveName, appSettings.receiptSettings);
+  }
+
+  async function reprintDineInBill(order: DineInOrder) {
+    const r = await printDineInToPosPrinter(order);
     if (r.ok) return;
-    if (r.browser) {
+    if (r.noPrinter || r.browser) {
       // No thermal printer set (or browser mode). window.print() does nothing in
       // the Android app, so say what to do there instead of silently failing.
       if (isCapacitorAndroid()) {
@@ -2019,6 +2023,7 @@ export default function DashboardView() {
             orderIds: [viewingDineInReceipt.id],
             paymentMethod: viewingDineInReceipt.paymentMethod as "cash" | "card" | "gift_card" | "pending",
           }}
+          thermalPrint={() => printDineInToPosPrinter(viewingDineInReceipt)}
           onClose={() => setViewingDineInReceipt(null)}
         />
       )}
