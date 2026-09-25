@@ -244,27 +244,45 @@ export async function sendReceiptToPrinter(
   }
 }
 
+/** POS staff can't edit the Kitchen printer, so reword errors that point at Settings → Hardware. */
+function kitchenErrorMessage(raw: string | undefined): string {
+  if (!raw) return "The Kitchen printer failed.";
+  if (raw === "browser_mode") {
+    return "The Kitchen printer is set to Browser print, which can't print automatically. An admin can change it in Admin → Integrations.";
+  }
+  if (raw.startsWith("No printer IP set")) {
+    return "The Kitchen printer has no IP address. An admin can set it in Admin → Integrations.";
+  }
+  if (raw.startsWith("No Bluetooth printer selected")) {
+    return "The Kitchen printer has no Bluetooth device chosen. An admin can set it in Admin → Integrations.";
+  }
+  return raw; // already names the address or device
+}
+
 /** Automatic kitchen print for a new POS sale, if the kitchen printer's
  *  Auto-print is on. Call once per sale — not from the Print button or
- *  reprints. Never throws. */
+ *  reprints. Never throws. `skipped` means there was nothing to print. */
 export async function printSaleToKitchen(
   sale: POSSale,
   settings: POSSettings,
   appSettings: AdminSettings,
   restaurantName: string,
   receipt: ReceiptSettings,
-): Promise<void> {
+): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
   const printer = resolveActivePrinter(appSettings, "kitchen");
-  if (!printer || !printer.autoPrint) return;
+  if (!printer || !printer.autoPrint) return { ok: true, skipped: true };
   try {
     const logoBytes = receipt.showLogo && receipt.logoUrl
       ? await logoToRaster(receipt.logoUrl, paperDotWidth(printer.paperWidth), { dither: receipt.logoDither })
       : null;
     const bytes = buildPOSReceiptBytes(sale, settings, { paperWidth: printer.paperWidth, restaurantName, receipt, logoBytes });
     const result = await sendReceiptToPrinter(bytes, printer);
-    if (!result.ok) console.error("[printer:kitchen] POS sale print failed:", result.error);
+    if (result.ok) return { ok: true };
+    console.error("[printer:kitchen] POS sale print failed:", result.error);
+    return { ok: false, error: kitchenErrorMessage(result.error) };
   } catch (err) {
     console.error("[printer:kitchen] Unexpected error:", err);
+    return { ok: false, error: kitchenErrorMessage(err instanceof Error ? err.message : undefined) };
   }
 }
 

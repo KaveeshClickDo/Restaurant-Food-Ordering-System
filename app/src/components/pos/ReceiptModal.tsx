@@ -5,7 +5,7 @@ import { apiBase } from "@/lib/apiBase";
 import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
 import { POSSale } from "@/types/pos";
-import { Mail, CheckCircle2, RefreshCw, Printer, AlertTriangle } from "lucide-react";
+import { Mail, CheckCircle2, RefreshCw, Printer, AlertTriangle, Info } from "lucide-react";
 import { fmt, fmtDate, fmtTime, isOfflineSale } from "./_utils";
 import { buildReceiptHtml } from "./_receipts";
 import { printPOSSale, printSaleToKitchen } from "@/lib/posPrint";
@@ -27,6 +27,13 @@ export default function ReceiptModal(
   const [emailError, setEmailError] = useState("");
   const [printStatus, setPrintStatus] = useState<"idle" | "printing" | "ok" | "error">("idle");
   const [printError, setPrintError] = useState("");
+  const [kitchenError, setKitchenError] = useState("");
+  // Right after a sale, say why nothing printed automatically.
+  const posPrinter = resolveActivePrinter(appSettings, "pos");
+  const kitchenPrinter = resolveActivePrinter(appSettings, "kitchen");
+  const noReceiptPrinter = autoPrint && !posPrinter;
+  const receiptAutoPrintOff = autoPrint && !!posPrinter && !posPrinter.autoPrint;
+  const kitchenAutoPrintOff = autoPrint && !!kitchenPrinter && !kitchenPrinter.autoPrint;
   const sym = settings.currencySymbol;
   // window.print() is a no-op inside the Android WebView, so on Android we never
   // fall back to it — we surface an actionable message instead.
@@ -123,7 +130,12 @@ export default function ReceiptModal(
     const printReceipt = !!pos?.autoPrint && pos.connection !== "browser";
     if (!kitchen?.autoPrint && !printReceipt) return;
     autoPrinted.current = true;
-    if (kitchen?.autoPrint) void printSaleToKitchen(sale, settings, appSettings, effectiveName, rs);
+    if (kitchen?.autoPrint) {
+      // `skipped` is not a failure.
+      void printSaleToKitchen(sale, settings, appSettings, effectiveName, rs).then((r) => {
+        if (!r.ok) setKitchenError(r.error ?? "The Kitchen printer failed.");
+      });
+    }
     if (printReceipt) void handlePrint();
   }, [autoPrint, appSettings, handlePrint, sale, settings, effectiveName, rs]);
 
@@ -313,6 +325,31 @@ export default function ReceiptModal(
             <p className="text-green-700 text-xs font-semibold">Receipt sent to printer.</p>
           </div>
         )}
+        {noReceiptPrinter && (
+          <InfoNote>
+            {onAndroid
+              ? "No receipt printer is set up. Set one up in Settings → Hardware to print receipts."
+              : "No receipt printer is set up, so nothing printed automatically. Tap Print for the browser print dialog, or set one up in Settings → Hardware."}
+          </InfoNote>
+        )}
+        {receiptAutoPrintOff && (
+          <InfoNote>
+            The Receipt printer&apos;s Auto-print is off, so the receipt was not printed. Tap Print, or turn Auto-print on in Settings → Hardware.
+          </InfoNote>
+        )}
+        {kitchenAutoPrintOff && (
+          <InfoNote>
+            The Kitchen printer&apos;s Auto-print is off, so no kitchen slip was printed. An admin can turn it on in Admin → Integrations.
+          </InfoNote>
+        )}
+        {kitchenError && (
+          <div role="alert" className="mx-4 mb-2 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            <AlertTriangle size={13} className="text-red-600 shrink-0 mt-0.5" />
+            <p className="text-red-700 text-xs break-words min-w-0">
+              <span className="font-semibold">Kitchen slip did not print — tell the kitchen.</span> {kitchenError}
+            </p>
+          </div>
+        )}
         {printStatus === "error" && (
           <div className="mx-4 mb-2 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
             <AlertTriangle size={13} className="text-red-600 shrink-0 mt-0.5" />
@@ -348,6 +385,16 @@ export default function ReceiptModal(
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Amber note (not an error). */
+function InfoNote({ children }: { children: React.ReactNode }) {
+  return (
+    <div role="status" className="mx-4 mb-2 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+      <Info size={13} className="text-amber-600 shrink-0 mt-0.5" />
+      <p className="text-amber-800 text-xs break-words min-w-0">{children}</p>
     </div>
   );
 }
