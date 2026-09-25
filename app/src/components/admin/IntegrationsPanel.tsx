@@ -481,7 +481,7 @@ const CATEGORY_META: Record<PrinterCategory, { title: string; subtitle: string; 
   },
   online: {
     title: "Online Orders",
-    subtitle: "Printed manually from Admin → Online Orders",
+    subtitle: "Printed from the admin panel — Online Orders and order receipts",
     icon: <Globe size={15} className="text-orange-500" />,
   },
 };

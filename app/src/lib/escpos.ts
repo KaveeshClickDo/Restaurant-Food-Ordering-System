@@ -286,6 +286,22 @@ function orderTypeLabel(order: Order): string {
 export interface OnlineTicketExtras {
   customerName?: string;
   customerPhone?: string;
+  /** Title ahead of the order number. Defaults to "ORDER"; admin receipt reprints use "RECEIPT". */
+  heading?: string;
+  /** VAT % the order was charged at, when known (old orders). Defaults to today's rate. */
+  vatRate?: number;
+  /** Who served a POS sale — printed as "Served by:" in place of the internal POS note. */
+  staffName?: string;
+}
+
+/** VAT figures for a slip. Exclusive VAT is part of the payable total, so it is always
+ *  shown; inclusive VAT is only a breakdown, shown when the admin's setting allows. */
+function vatInfo(order: Order, settings: AdminSettings, extras?: OnlineTicketExtras) {
+  const amount    = order.vatAmount ?? 0;
+  const inclusive = order.vatInclusive ?? true;
+  const rate      = extras?.vatRate && extras.vatRate > 0 ? extras.vatRate : (settings.taxSettings?.rate ?? 0);
+  const show      = amount > 0 && (!inclusive || (settings.taxSettings?.showBreakdown ?? true));
+  return { amount, inclusive, rate, show };
 }
 
 /** PAID / UNPAID line for online orders, so staff know whether to take payment. */
@@ -348,7 +364,13 @@ function onlineDetailLines(order: Order, extras: OnlineTicketExtras | undefined,
   if (extras?.customerName?.trim())  details.push(`Customer: ${extras.customerName.trim()}`);
   if (extras?.customerPhone?.trim()) details.push(`Phone: ${extras.customerPhone.trim()}`);
   if (order.scheduledTime?.trim())   details.push(`When: ${order.scheduledTime.trim()}`);
-  if (order.note?.trim())            details.push(`Note: ${order.note.trim()}`);
+  const note = order.note?.trim();
+  if (note?.startsWith("[POS]")) {
+    // Internal POS marker ("[POS] | Staff: Sam | Receipt: R1004"), not a customer note.
+    if (extras?.staffName?.trim()) details.push(`Served by: ${extras.staffName.trim()}`);
+  } else if (note) {
+    details.push(`Note: ${note}`);
+  }
   return details.flatMap((d) => wrapText(d, width));
 }
 
@@ -397,7 +419,7 @@ export function buildReceipt(
 
   b.align("left")
    .bold(true)
-   .line(`ORDER ${fullOrderNumber(order.id)}`)
+   .line(`${extras?.heading ?? "ORDER"} ${fullOrderNumber(order.id)}`)
    .bold(false)
    .line(`Date: ${new Date(order.date).toLocaleString("en-GB", {
      day: "2-digit", month: "short", year: "numeric",
@@ -430,10 +452,7 @@ export function buildReceipt(
   b.separator("-", W);
 
   const subtotal     = order.items.reduce((s, i) => s + i.price * i.qty, 0);
-  const vatAmount    = order.vatAmount ?? 0;
-  const vatInclusive = order.vatInclusive ?? true;
-  const vatRate      = settings.taxSettings?.rate ?? 0;
-  const showVat      = vatAmount > 0 && (settings.taxSettings?.showBreakdown ?? true);
+  const { amount: vatAmount, inclusive: vatInclusive, rate: vatRate, show: showVat } = vatInfo(order, settings, extras);
 
   b.twoCol("Subtotal", fmt(subtotal, sym), W);
   if (order.deliveryFee && order.deliveryFee > 0) {
@@ -790,7 +809,7 @@ export function printReceiptBrowser(
   if (rs?.vatNumber?.trim()) lines.push(center(`VAT: ${rs.vatNumber.trim()}`));
   lines.push(dbl);
 
-  lines.push(`ORDER ${fullOrderNumber(order.id)}`);
+  lines.push(`${extras?.heading ?? "ORDER"} ${fullOrderNumber(order.id)}`);
   lines.push(`Date: ${new Date(order.date).toLocaleString("en-GB", {
     day: "2-digit", month: "short", year: "numeric",
     hour: "2-digit", minute: "2-digit",
@@ -820,10 +839,7 @@ export function printReceiptBrowser(
   lines.push(sep);
 
   const subtotal     = order.items.reduce((s, i) => s + i.price * i.qty, 0);
-  const vatAmount    = order.vatAmount ?? 0;
-  const vatInclusive = order.vatInclusive ?? true;
-  const vatRate      = settings.taxSettings?.rate ?? 0;
-  const showVat      = vatAmount > 0 && (settings.taxSettings?.showBreakdown ?? true);
+  const { amount: vatAmount, inclusive: vatInclusive, rate: vatRate, show: showVat } = vatInfo(order, settings, extras);
 
   lines.push(twoCol("Subtotal", fmt(subtotal, sym)));
   if (order.deliveryFee && order.deliveryFee > 0) lines.push(twoCol("Delivery fee", fmt(order.deliveryFee, sym)));

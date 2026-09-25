@@ -1,8 +1,11 @@
 
+import { useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { fullOrderNumber } from "@/lib/orderNumber";
+import { printOnlineOrderAsAdmin } from "@/lib/escpos";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { Customer, Order, OrderStatus } from "@/types";
-import { Ban, CheckCircle2, ChefHat, Circle, Package, Printer, Receipt, Truck, X } from "lucide-react";
+import { Ban, Check, CheckCircle2, ChefHat, Circle, FileDown, Loader2, Package, Printer, Receipt, Truck, X } from "lucide-react";
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
@@ -170,7 +173,7 @@ export function ReceiptModal({
     }
     const vatRate = calculatedVatRate;
 
-    function handlePrint() {
+    function handlePdf() {
         const html = buildPrintHtml(order, customer, rs, restaurantAddress, sym, showVat);
         const win = window.open("", "_blank", "width=420,height=720");
         if (!win) {
@@ -181,14 +184,35 @@ export function ReceiptModal({
         win.document.close();
     }
 
+    // "Print": sends the receipt to the active Online printer (Admin → Integrations).
+    const [printState, setPrintState] = useState<"idle" | "busy" | "done">("idle");
+    const [noPrinterOpen, setNoPrinterOpen] = useState(false);
+
+    async function handlePrint() {
+        if (printState === "busy") return;
+        setPrintState("busy");
+        const result = await printOnlineOrderAsAdmin(order, settings, {
+            customerName: customer.name,
+            customerPhone: customer.phone,
+            heading: "RECEIPT",
+            vatRate,
+            staffName: (order as unknown as { staffName?: string }).staffName,
+        });
+        if (result.noPrinter) { setPrintState("idle"); setNoPrinterOpen(true); return; }
+        if (!result.ok) { setPrintState("idle"); alert(result.error ?? "Printing failed."); return; }
+        setPrintState("done");
+        setTimeout(() => setPrintState("idle"), 2000);
+    }
+
     return (
+        <>
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
-            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-[410px] max-h-[90vh] flex flex-col overflow-hidden">
                 {/* Header */}
                 <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
-                    <div className="flex items-center gap-2 max-w-[60%]">
+                    <div className="flex items-center gap-2 min-w-0">
                         <Receipt size={16} className="text-orange-500" />
                         <h2 title={`Receipt ${fullOrderNumber(order.id)}`} className="font-bold text-gray-900 text-sm truncate">Receipt {fullOrderNumber(order.id)}</h2>
                         {order.id?.startsWith("OFF") && (
@@ -198,9 +222,21 @@ export function ReceiptModal({
                     <div className="flex items-center gap-2">
                         <button
                             onClick={handlePrint}
-                            className="flex items-center gap-1.5 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg transition"
+                            disabled={printState === "busy"}
+                            title="Print to the Online printer"
+                            className="flex items-center gap-1.5 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-1.5 rounded-lg transition disabled:opacity-60"
                         >
-                            <Printer size={12} /> Print
+                            {printState === "busy" ? <Loader2 size={12} className="animate-spin" />
+                                : printState === "done" ? <Check size={12} className="text-green-600" />
+                                : <Printer size={12} />}
+                            {printState === "busy" ? "Printing…" : "Print"}
+                        </button>
+                        <button
+                            onClick={handlePdf}
+                            title="Open the print window, then choose Save as PDF"
+                            className="flex items-center gap-1.5 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-1.5 rounded-lg transition"
+                        >
+                            <FileDown size={12} /> PDF
                         </button>
                         <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition">
                             <X size={13} />
@@ -385,5 +421,18 @@ export function ReceiptModal({
                 </div>
             </div>
         </div>
+
+        {/* Print clicked with no active Online printer: say so, and offer the PDF instead. */}
+        <ConfirmDialog
+            open={noPrinterOpen}
+            title="No online printer set up"
+            message="Print needs an active Online printer. Add one in Admin → Integrations → Thermal Printer and set it active. You can still save this receipt as a PDF."
+            confirmLabel="Save as PDF"
+            cancelLabel="Close"
+            tone="primary"
+            onConfirm={() => { setNoPrinterOpen(false); handlePdf(); }}
+            onCancel={() => setNoPrinterOpen(false)}
+        />
+        </>
     );
 }

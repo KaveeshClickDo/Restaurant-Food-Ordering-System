@@ -31,7 +31,8 @@ interface RawOrder {
   fulfillment: string | null;
   payment_method: string | null;
   customer_id: string | null;
-  customer?: { name?: string | null } | null;
+  customer?: { name?: string | null; phone?: string | null } | null;
+  scheduled_time?: string | null;
   // Financial / detail fields used to render the receipt. Optional because they
   // are only present when the orders query selects them.
   delivery_fee?: number | null;
@@ -324,6 +325,7 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
             storeCreditUsed: viewingReceipt.store_credit_used || 0,
             giftCardUsed: viewingReceipt.gift_card_used || 0,
             address: viewingReceipt.address || undefined,
+            scheduledTime: viewingReceipt.scheduled_time || undefined,
             tableLabel: viewingReceipt.table_label || undefined,
             staffName: viewingReceipt.staff_name || undefined,
           } as unknown as Order}
@@ -331,6 +333,7 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
           customer={{
             id: viewingReceipt.customer_id || "guest",
             name: viewingReceipt.customer?.name || "Guest Customer",
+            phone: viewingReceipt.customer?.phone || "",
           } as unknown as Customer}
           onClose={() => setViewingReceipt(null)}
         />
