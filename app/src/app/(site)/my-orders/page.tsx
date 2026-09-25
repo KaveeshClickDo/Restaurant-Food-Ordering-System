@@ -285,7 +285,7 @@ function buildPrintHtml(
     .logo{max-height:60px;max-width:160px;object-fit:contain;margin:0 auto 6px;display:block}
   </style>
 </head>
-<body onload="window.print();window.close();">
+<body>
 <div class="r">
   ${rs.showLogo && rs.logoUrl ? `<img src="${rs.logoUrl}" class="logo" alt="Logo"/>` : ""}
   <div class="c b" style="font-size:15px">${rs.restaurantName}</div>
@@ -323,6 +323,10 @@ function buildPrintHtml(
   ${rs.customMessage ? `<div class="c sm" style="margin-bottom:3px;white-space:pre-wrap">${rs.customMessage}</div>` : ""}
   <div class="c sm">${rs.restaurantName}</div>
 </div>
+<script>
+  window.onafterprint = function () { window.close(); };
+  window.onload = function () { window.focus(); window.print(); };
+</script>
 </body>
 </html>`;
 }
@@ -375,7 +379,10 @@ function ReceiptModal({
     function handlePrint() {
         const html = buildPrintHtml(order, customer, rs, restaurantAddress, sym, showVat );
         const win = window.open("", "_blank", "width=420,height=720");
-        if (!win) return;
+        if (!win) {
+            alert("Pop-up was blocked. Allow pop-ups for this site and try again.");
+            return;
+        }
         win.document.write(html);
         win.document.close();
     }

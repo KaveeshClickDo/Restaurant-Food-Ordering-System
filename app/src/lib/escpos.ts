@@ -863,9 +863,11 @@ export function printReceiptBrowser(
   }
   win.focus();
   setTimeout(() => {
+    win.onafterprint = () => {
+      win.close();
+      URL.revokeObjectURL(url);
+    };
     win.print();
-    win.close();
-    URL.revokeObjectURL(url);
   }, 400);
 
   return { ok: true };
