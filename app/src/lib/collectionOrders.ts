@@ -19,6 +19,8 @@ const ACTIVE_STATUSES = ["pending", "confirmed", "preparing", "ready"];
 const ORDER_SELECT = `
   id, items, total, note, status, payment_method, payment_status,
   date, scheduled_time, customer_id,
+  service_fee, coupon_code, coupon_discount, vat_amount, vat_inclusive,
+  store_credit_used, gift_card_used,
   customers ( name, phone )
 `;
 

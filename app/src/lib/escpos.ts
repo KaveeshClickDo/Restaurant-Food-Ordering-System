@@ -985,16 +985,21 @@ export async function printOrder(
 }
 
 /**
- * Print one online order on demand from the admin panel, to the active "online"
- * printer. It's a manual click, so Auto-print is ignored. Returns
- * `{ noPrinter: true }` without printing when there is no active, enabled online
- * printer, so the caller can tell the admin to set one up. A printer that is set
- * up but incomplete or unreachable returns an `error` message instead.
+ * Print one online order on demand from the admin panel (or, with `endpoint`,
+ * another staff surface), to the active "online" printer. It's a manual click,
+ * so Auto-print is ignored. Returns `{ noPrinter: true }` without printing when
+ * there is no active, enabled online printer, so the caller can tell the user to
+ * set one up. A printer that is set up but incomplete or unreachable returns an
+ * `error` message instead.
+ *
+ * `endpoint` is the server relay used for a network printer: the admin relay by
+ * default, `/api/collection/print` for the collection-staff page.
  */
 export async function printOnlineOrderAsAdmin(
   order: Order,
   settings: AdminSettings,
   extras?: OnlineTicketExtras,
+  endpoint: string = "/api/admin/print",
 ): Promise<{ ok: boolean; error?: string; noPrinter?: boolean }> {
   const printer = resolveActivePrinter(settings, "online");
   if (!printer) return { ok: false, noPrinter: true };
@@ -1014,7 +1019,7 @@ export async function printOnlineOrderAsAdmin(
     if (!printer.ip?.trim()) {
       return { ok: false, error: "The Online printer has no IP address. Set one in Admin → Integrations." };
     }
-    return await sendToPrinter(bytes, printer.ip.trim(), printer.port, "/api/admin/print", 1);
+    return await sendToPrinter(bytes, printer.ip.trim(), printer.port, endpoint, 1);
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

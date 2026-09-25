@@ -125,6 +125,19 @@ export function buildPrintHtml(
 </html>`;
 }
 
+/** The VAT rate the order was charged at, worked back from its stored VAT amount
+ *  (so an old receipt keeps its rate even if the tax setting changed since). */
+export function historicalVatRate(order: Order): number {
+    const vatAmt = order.vatAmount ?? 0;
+    if (vatAmt <= 0) return 0;
+    const subtotal = order.items.reduce((s, l) => s + l.price * l.qty, 0);
+    // The base amount before store credit/gift cards are applied
+    const baseAmount = subtotal + (order.deliveryFee ?? 0) + (order.serviceFee ?? 0) - (order.couponDiscount ?? 0);
+    if (baseAmount <= 0) return 0;
+    // Inclusive: Rate = (VAT / (Gross - VAT)) * 100.  Exclusive: Rate = (VAT / Net) * 100.
+    return Math.round((order.vatInclusive ? vatAmt / (subtotal - vatAmt) : vatAmt / baseAmount) * 100);
+}
+
 // ─── Receipt Modal ────────────────────────────────────────────────────────────
 
 export function ReceiptModal({
@@ -155,23 +168,7 @@ export function ReceiptModal({
     const discountAmount = order.discountAmount ?? 0;
     const discountNote = order.discountNote ?? "";
 
-    // --- CALCULATE HISTORICAL VAT RATE ---
-    let calculatedVatRate = 0;
-    if (vatAmt > 0) {
-        // The base amount before store credit/gift cards are applied
-        const baseAmount = subtotal + deliveryFee + serviceFee - couponDisc;
-
-        if (baseAmount > 0) {
-            if (order.vatInclusive) {
-                // Math: Rate = (VAT / (Gross - VAT)) * 100
-                calculatedVatRate = Math.round((vatAmt / (subtotal - vatAmt)) * 100);
-            } else {
-                // Math: Rate = (VAT / Net) * 100
-                calculatedVatRate = Math.round((vatAmt / baseAmount) * 100);
-            }
-        }
-    }
-    const vatRate = calculatedVatRate;
+    const vatRate = historicalVatRate(order);
 
     function handlePdf() {
         const html = buildPrintHtml(order, customer, rs, restaurantAddress, sym, showVat);
