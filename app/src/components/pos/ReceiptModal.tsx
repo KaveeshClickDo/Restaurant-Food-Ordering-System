@@ -5,7 +5,7 @@ import { apiBase } from "@/lib/apiBase";
 import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
 import { POSSale } from "@/types/pos";
-import { Mail, CheckCircle2, RefreshCw, Printer, AlertTriangle, Info } from "lucide-react";
+import { Mail, CheckCircle2, RefreshCw, Printer, AlertTriangle, Info, FileDown } from "lucide-react";
 import { fmt, fmtDate, fmtTime, isOfflineSale } from "./_utils";
 import { buildReceiptHtml } from "./_receipts";
 import { printPOSSale, printSaleToKitchen } from "@/lib/posPrint";
@@ -84,18 +84,30 @@ export default function ReceiptModal(
     }
   }
 
+  // PDF / browser print: a small window with only the receipt, then the print dialog.
+  const handlePdf = useCallback(() => {
+    const script = "<script>window.onafterprint=function(){window.close();};window.onload=function(){window.focus();window.print();};</script>";
+    const html = buildReceiptHtml(sale, settings, rs, effectiveName).replace("</body>", `${script}</body>`);
+    const win = window.open("", "_blank", "width=420,height=720");
+    if (!win) {
+      alert("Pop-up was blocked. Allow pop-ups for this site and try again.");
+      return;
+    }
+    win.document.write(html);
+    win.document.close();
+  }, [sale, settings, rs, effectiveName]);
+
   // Print to the configured thermal printer. On Android this goes straight to
   // the printer (Bluetooth / USB / direct TCP) with no server — so it works
-  // offline. "browser" mode (or a disabled printer) falls back to window.print().
+  // offline. "browser" mode (or a disabled printer) falls back to the browser print window.
   const handlePrint = useCallback(async () => {
     setPrintStatus("printing");
     setPrintError("");
     const r = await printPOSSale(sale, settings, appSettings, effectiveName, rs);
     if (r.browser) {
-      // No active "pos" printer (or it's set to "browser" mode). On a desktop
-      // browser window.print() opens the OS print dialog; inside the Android
-      // WebView it does nothing — so on the tablet, tell the cashier what to
-      // do instead of silently failing.
+      // No active "pos" printer (or it's set to "browser" mode). The browser print
+      // window does nothing inside the Android WebView — so on the tablet, tell the
+      // cashier what to do instead of silently failing.
       if (onAndroid) {
         setPrintStatus("error");
         setPrintError(
@@ -105,7 +117,7 @@ export default function ReceiptModal(
         );
       } else {
         setPrintStatus("idle");
-        window.print();
+        handlePdf();
       }
       return;
     }
@@ -116,7 +128,7 @@ export default function ReceiptModal(
       setPrintStatus("error");
       setPrintError(r.error ?? "Printing failed.");
     }
-  }, [sale, settings, appSettings, effectiveName, onAndroid, rs]);
+  }, [sale, settings, appSettings, effectiveName, onAndroid, rs, handlePdf]);
 
   // Runs once when the receipt opens straight after a sale (autoPrint prop),
   // never on the dashboard's "view old receipt" path. The kitchen slip and the
@@ -141,7 +153,7 @@ export default function ReceiptModal(
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl w-full max-w-xs flex flex-col shadow-2xl overflow-hidden max-h-[95vh]">
+      <div className="bg-white rounded-2xl w-full max-w-sm flex flex-col shadow-2xl overflow-hidden max-h-[95vh]">
         <div className="p-6 font-mono text-gray-900 text-xs overflow-y-auto flex-1">
 
           {/* ── Header ───────────────────────────────────────── */}
@@ -355,10 +367,9 @@ export default function ReceiptModal(
             <AlertTriangle size={13} className="text-red-600 shrink-0 mt-0.5" />
             <div className="min-w-0">
               <p className="text-red-700 text-xs break-all">{printError}</p>
-              {/* window.print() only works on a desktop browser, not the Android
-                  WebView — so only offer it off-Android. */}
+              {/* Browser printing does not work in the Android WebView. */}
               {!onAndroid && (
-                <button onClick={() => window.print()} className="text-red-600 text-xs font-semibold underline mt-0.5">
+                <button onClick={handlePdf} className="text-red-600 text-xs font-semibold underline mt-0.5">
                   Print via browser instead
                 </button>
               )}
@@ -367,13 +378,22 @@ export default function ReceiptModal(
         )}
 
         {/* ── Buttons ──────────────────────────────────────────── */}
-        <div className="px-4 pb-4 grid grid-cols-2 gap-2 mt-2">
+        <div className={`px-4 pb-4 grid gap-2 mt-2 ${onAndroid ? "grid-cols-2" : "grid-cols-3"}`}>
           <button
             onClick={onClose}
             className="py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 transition-colors"
           >
             Close
           </button>
+          {!onAndroid && (
+            <button
+              onClick={handlePdf}
+              title="Open the print window, then choose Save as PDF"
+              className="py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
+            >
+              <FileDown size={14} /> PDF
+            </button>
+          )}
           <button
             onClick={handlePrint}
             disabled={printStatus === "printing"}
