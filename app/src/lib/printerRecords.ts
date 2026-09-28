@@ -35,7 +35,7 @@ export function resolvePrinters(data: Record<string, unknown> | null | undefined
 const DEFAULT_PRINTER_NAME: Record<PrinterCategory, string> = {
   kitchen: "Kitchen Printer",
   pos: "Receipt Printer",
-  online: "Online Orders Printer",
+  online: "Admin Receipts Printer",
 };
 
 /** A new, disabled printer with default settings. Shared by the admin add,

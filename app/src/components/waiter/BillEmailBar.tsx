@@ -8,7 +8,7 @@
 
 import { useState } from "react";
 import { useApp } from "@/context/AppContext";
-import { Printer, Loader2, CheckCircle2, Mail } from "lucide-react";
+import { Printer, Loader2, CheckCircle2, Mail, Eye } from "lucide-react";
 import type { WaiterReceipt } from "./_types";
 import { buildReceiptHtml } from "./_receiptHtml";
 
@@ -71,12 +71,12 @@ export default function BillEmailBar({ onPrint, tableLabel, waiterName, consolid
 
   return (
     <div className="px-5 pb-5 border-t border-slate-800 bg-slate-950 space-y-3 pt-4 flex-shrink-0">
-      <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Print or Email Bill</p>
+      <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">View or Email Bill</p>
       <button
         onClick={onPrint}
         className="w-full flex items-center justify-center gap-2 py-3 bg-slate-800 hover:bg-slate-700 text-white text-sm font-semibold rounded-2xl transition"
       >
-        <Printer size={16} /> Print Bill
+        <Eye size={16} /> View Bill
       </button>
       <div className="flex flex-wrap gap-2">
         <input
