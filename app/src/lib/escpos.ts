@@ -933,15 +933,20 @@ async function dispatchToPrinter(
 }
 
 /** Print to one category's active printer — independent of other categories,
- *  no auto-fallback if it's unreachable. Never throws. */
+ *  no auto-fallback if it's unreachable. Never throws. `skipped` is not a failure. */
 async function printOrderToCategory(
   order: Order,
   settings: AdminSettings,
   category: PrinterCategory,
   opts: { kickDrawer?: boolean },
-): Promise<void> {
+): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
   const printer = resolveActivePrinter(settings, category);
-  if (!printer || !printer.autoPrint) return;
+  if (!printer || !printer.autoPrint) return { ok: true, skipped: true };
+
+  // Browser mode would pop the OS print dialog on the waiter's own phone — refuse it up front.
+  if (category === "kitchen" && (printer.connection ?? "network") === "browser") {
+    return { ok: false, error: "The Kitchen printer is set to Browser print, which can't print automatically. An admin can change it in Admin → Integrations." };
+  }
 
   try {
     // Pre-render the logo raster (async) when Show Logo is on, then build the
@@ -962,26 +967,30 @@ async function printOrderToCategory(
 
     if (printer.connection === "network" && !printer.ip.trim()) {
       console.warn(`[printer:${category}] Auto-print skipped — no IP configured`);
-      return;
+      const label = category === "kitchen" ? "Kitchen" : category === "pos" ? "Receipt" : "Online";
+      return { ok: false, error: `The ${label} printer has no IP address. An admin can set it in Admin → Integrations.` };
     }
 
     const result = await dispatchToPrinter(order, settings, printer, bytes);
     if (!result.ok && result.error !== "USB printer selection cancelled.") {
       console.error(`[printer:${category}] Print failed:`, result.error);
     }
+    return result.ok ? { ok: true } : { ok: false, error: result.error };
   } catch (err) {
     console.error(`[printer:${category}] Unexpected error:`, err);
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-/** Print to each requested category (default both), independently. Never throws. */
+/** Print to each requested category (default both), independently. Never throws.
+ *  Returns one outcome per requested category. */
 export async function printOrder(
   order: Order,
   settings: AdminSettings,
   opts: { kickDrawer?: boolean; categories?: PrinterCategory[] } = {},
-): Promise<void> {
+): Promise<{ category: PrinterCategory; ok: boolean; skipped?: boolean; error?: string }[]> {
   const categories = opts.categories ?? (["kitchen", "pos"] as const);
-  await Promise.all(categories.map((category) => printOrderToCategory(order, settings, category, opts)));
+  return Promise.all(categories.map(async (category) => ({ category, ...(await printOrderToCategory(order, settings, category, opts)) })));
 }
 
 /**

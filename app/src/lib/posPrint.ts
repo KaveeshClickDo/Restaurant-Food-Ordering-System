@@ -128,10 +128,11 @@ export function buildPOSReceiptBytes(
   return b.build();
 }
 
-/** Render a dine-in table bill as ESC/POS bytes — mirrors buildDineInReceiptHtml. */
+/** Render a dine-in table bill as ESC/POS bytes — mirrors buildDineInReceiptHtml.
+ *  `settings` needs only currencySymbol/taxRate, so non-POS callers can pass those two alone. */
 export function buildDineInReceiptBytes(
   order: DineInOrder,
-  settings: POSSettings,
+  settings: Pick<POSSettings, "currencySymbol" | "taxRate">,
   opts: { paperWidth: number; restaurantName: string; receipt: ReceiptSettings; logoBytes?: number[] | null },
 ): number[] {
   const W   = [32, 48].includes(opts.paperWidth) ? opts.paperWidth : 48;
@@ -320,12 +321,11 @@ export async function printPOSSale(
 
 /**
  * Print a settled dine-in bill on the active "pos" printer only (manual print:
- * ignores Auto-print, never touches the kitchen). Same return contract as
- * printPOSSale.
+ * ignores Auto-print, never touches the kitchen). Same return contract as printPOSSale.
  */
 export async function printDineInBill(
   order: DineInOrder,
-  settings: POSSettings,
+  settings: Pick<POSSettings, "currencySymbol" | "taxRate">,
   appSettings: AdminSettings,
   restaurantName: string,
   receipt: ReceiptSettings,

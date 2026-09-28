@@ -7,21 +7,28 @@
  * Print goes to the Receipt / POS printer and PDF opens the browser print window.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useApp } from "@/context/AppContext";
 import {
-  Receipt, X, Loader2, CheckCircle2, Mail, Printer, RefreshCw, RotateCcw, FileDown, AlertTriangle,
+  Receipt, X, Loader2, CheckCircle2, Mail, Printer, RefreshCw, RotateCcw, FileDown, AlertTriangle, Info,
 } from "lucide-react";
 import type { WaiterReceipt } from "./_types";
 import { fmtCur } from "./_utils";
 import { buildReceiptHtml } from "./_receiptHtml";
 import { isCapacitorAndroid } from "@/lib/capacitorBridge";
 
-export default function ReceiptModal({ receipt, onClose, onRefund, thermalPrint }: {
+export default function ReceiptModal({ receipt, onClose, onRefund, thermalPrint, noPrinterHint, printerLabel = "Receipt", autoPrintError, autoPrintOff, noPrinterConfigured, autoPrinting }: {
   receipt: WaiterReceipt;
   onClose: () => void;
   onRefund?: () => void;
   thermalPrint?: () => Promise<{ ok: boolean; error?: string; browser?: boolean; noPrinter?: boolean }>;
+  noPrinterHint?: string;
+  printerLabel?: string;
+  autoPrintError?: string;
+  autoPrintOff?: boolean;
+  noPrinterConfigured?: boolean;
+  /** An automatic print is currently in flight — shows the same "Printing…" state as a manual click. */
+  autoPrinting?: boolean;
 }) {
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
@@ -34,6 +41,8 @@ export default function ReceiptModal({ receipt, onClose, onRefund, thermalPrint 
   const [printError, setPrintError] = useState("");
   const [printNoPrinter, setPrintNoPrinter] = useState(false);
   const onAndroid = isCapacitorAndroid();
+  // Manual click or an automatic print in flight — either way, show "Printing…".
+  const isPrinting = printState === "printing" || !!autoPrinting;
 
   function handlePrint() {
     const html = buildReceiptHtml(receipt, restaurantName, rs?.address ?? "", rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
@@ -49,7 +58,21 @@ export default function ReceiptModal({ receipt, onClose, onRefund, thermalPrint 
     win.onafterprint = () => win.close();
   }
 
-  // Print to the Receipt / POS printer. "Browser" mode uses the browser window; with no printer, show an error.
+  // Shared by the manual Print button and the auto-trigger below — UI state only, no real print.
+  function showNoPrinterError() {
+    setPrintState("error");
+    setPrintNoPrinter(true);
+    setPrintError(`No ${printerLabel.toLowerCase()} printer is set up. ${noPrinterHint ?? "Add one in Settings → Hardware."}`);
+  }
+
+  // No active printer at all — show the same message the manual Print button would,
+  // without a click. Never calls thermalPrint(), so no real print is triggered.
+  useEffect(() => {
+    if (noPrinterConfigured) showNoPrinterError();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noPrinterConfigured]);
+
+  // Print to the target printer (see printerLabel). "Browser" mode uses the browser window; with no printer, show an error.
   async function handleThermalPrint() {
     if (!thermalPrint) return;
     setPrintState("printing");
@@ -57,15 +80,13 @@ export default function ReceiptModal({ receipt, onClose, onRefund, thermalPrint 
     setPrintNoPrinter(false);
     const r = await thermalPrint();
     if (r.noPrinter) {
-      setPrintState("error");
-      setPrintNoPrinter(true);
-      setPrintError("No receipt printer is set up. Add one in Settings → Hardware.");
+      showNoPrinterError();
       return;
     }
     if (r.browser) {
       if (onAndroid) {
         setPrintState("error");
-        setPrintError("The Receipt printer is set to Browser print, which the tablet can't use. Change it in Settings → Hardware.");
+        setPrintError(`The ${printerLabel} printer is set to Browser print, which the tablet can't use. ${noPrinterHint ?? "Change it in Settings → Hardware."}`);
       } else {
         setPrintState("idle");
         handlePrint();
@@ -238,6 +259,22 @@ export default function ReceiptModal({ receipt, onClose, onRefund, thermalPrint 
           </div>
         </div>
 
+        {autoPrintOff && !autoPrintError && (
+          <div role="status" className="mx-5 mb-3 flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2">
+            <Info size={14} className="text-amber-400 shrink-0 mt-0.5" />
+            <p className="text-amber-300 text-xs break-words">
+              The {printerLabel} printer&apos;s Auto-print is off, so no kitchen slip was printed. An admin can turn it on in Admin → Integrations.
+            </p>
+          </div>
+        )}
+        {autoPrintError && (
+          <div role="alert" className="mx-5 mb-3 flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2">
+            <AlertTriangle size={14} className="text-red-400 shrink-0 mt-0.5" />
+            <p className="text-red-300 text-xs break-words">
+              <span className="font-semibold">Kitchen slip did not print — tell the kitchen.</span> {autoPrintError}
+            </p>
+          </div>
+        )}
         {printState === "ok" && (
           <div className="mx-5 mb-3 flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-3 py-2">
             <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
@@ -260,8 +297,28 @@ export default function ReceiptModal({ receipt, onClose, onRefund, thermalPrint 
         )}
 
         {/* Footer actions */}
-        <div className={`p-5 border-t border-slate-700 grid gap-2 flex-shrink-0 ${thermalPrint ? (onAndroid ? "grid-cols-2" : "grid-cols-3") : onRefund ? "grid-cols-2" : "grid-cols-3"}`}>
-          {thermalPrint ? (
+        <div className={`p-5 border-t border-slate-700 grid gap-2 flex-shrink-0 ${
+          thermalPrint && onRefund ? (onAndroid ? "grid-cols-3" : "grid-cols-3")
+            : thermalPrint ? (onAndroid ? "grid-cols-2" : "grid-cols-3")
+              : onRefund ? "grid-cols-2" : "grid-cols-3"
+        }`}>
+          {thermalPrint && onRefund ? (
+            <>
+              {!onAndroid && (
+                <button onClick={handlePrint} title="Open the print window, then choose Save as PDF" className="flex flex-col items-center gap-1 bg-slate-700 hover:bg-slate-600 text-white py-3 rounded-xl transition text-xs font-medium">
+                  <FileDown size={16} /> PDF
+                </button>
+              )}
+              <button onClick={handleThermalPrint} disabled={isPrinting} title={`Print to the ${printerLabel} printer`} className="flex flex-col items-center gap-1 bg-orange-500 hover:bg-orange-400 disabled:opacity-60 text-white py-3 rounded-xl transition text-xs font-medium">
+                {isPrinting
+                  ? <><Loader2 size={16} className="animate-spin" /> Printing…</>
+                  : <><Printer size={16} /> Print</>}
+              </button>
+              <button onClick={onRefund} className="flex flex-col items-center gap-1 bg-amber-600 hover:bg-amber-500 text-white py-3 rounded-xl transition text-xs font-medium">
+                <RotateCcw size={16} /> Refund
+              </button>
+            </>
+          ) : thermalPrint ? (
             <>
               <button onClick={onClose} className="flex flex-col items-center gap-1 bg-slate-700 hover:bg-slate-600 text-slate-300 py-3 rounded-xl transition text-xs font-medium">
                 <X size={16} /> Close
@@ -271,8 +328,8 @@ export default function ReceiptModal({ receipt, onClose, onRefund, thermalPrint 
                   <FileDown size={16} /> PDF
                 </button>
               )}
-              <button onClick={handleThermalPrint} disabled={printState === "printing"} className="flex flex-col items-center gap-1 bg-orange-500 hover:bg-orange-400 disabled:opacity-60 text-white py-3 rounded-xl transition text-xs font-medium">
-                {printState === "printing"
+              <button onClick={handleThermalPrint} disabled={isPrinting} title={`Print to the ${printerLabel} printer`} className="flex flex-col items-center gap-1 bg-orange-500 hover:bg-orange-400 disabled:opacity-60 text-white py-3 rounded-xl transition text-xs font-medium">
+                {isPrinting
                   ? <><Loader2 size={16} className="animate-spin" /> Printing…</>
                   : <><Printer size={16} /> Print</>}
               </button>
