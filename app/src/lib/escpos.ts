@@ -914,7 +914,8 @@ async function dispatchToPrinter(
     return sendToPrinterBluetooth(bytes, printer.bluetoothAddress ?? "");
   }
   if (mode === "usb") {
-    return sendToPrinterUSB(bytes, { promptIfNeeded: false });
+    const { isCapacitorAndroid, sendUsb } = await import("./capacitorBridge");
+    return isCapacitorAndroid() ? sendUsb(bytes) : sendToPrinterUSB(bytes, { promptIfNeeded: false });
   }
   if (mode === "browser") {
     return printReceiptBrowser(order, settings, printer);
@@ -975,7 +976,11 @@ async function printOrderToCategory(
     if (!result.ok && result.error !== "USB printer selection cancelled.") {
       console.error(`[printer:${category}] Print failed:`, result.error);
     }
-    return result.ok ? { ok: true } : { ok: false, error: result.error };
+    if (result.ok) return { ok: true };
+    if (category === "kitchen" && result.error?.startsWith("No Bluetooth printer selected")) {
+      return { ok: false, error: "The Kitchen printer has no Bluetooth device chosen. An admin can set it in Admin → Integrations." };
+    }
+    return { ok: false, error: result.error };
   } catch (err) {
     console.error(`[printer:${category}] Unexpected error:`, err);
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -1029,7 +1034,10 @@ export async function printOnlineOrderAsAdmin(
     const bytes = buildReceipt(order, settings, printer, logoBytes, extras);
 
     if (mode === "bluetooth") return await sendToPrinterBluetooth(bytes, printer.bluetoothAddress ?? "");
-    if (mode === "usb") return await sendToPrinterUSB(bytes);
+    if (mode === "usb") {
+      const { isCapacitorAndroid, sendUsb } = await import("./capacitorBridge");
+      return isCapacitorAndroid() ? sendUsb(bytes) : sendToPrinterUSB(bytes);
+    }
     if (!printer.ip?.trim()) {
       const categoryLabel = category === "pos" ? "Receipt" : category === "kitchen" ? "Kitchen" : "Online";
       return { ok: false, error: `The ${categoryLabel} printer has no IP address. Set one in Admin → Integrations.` };
