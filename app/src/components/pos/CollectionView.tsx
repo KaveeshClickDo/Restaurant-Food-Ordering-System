@@ -10,6 +10,8 @@ import { usePOS } from "@/context/POSContext";
 import { useConnectivity } from "@/lib/connectivity";
 import { fmt, relTime } from "./_utils";
 import PaymentModal from "./PaymentModal";
+import CollectionReceiptModal from "@/components/collection/CollectionReceiptModal";
+import type { Customer, Order } from "@/types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -17,6 +19,9 @@ interface CollectionItem {
   name: string;
   qty: number;
   price?: number;
+  selectedVariations?: { variationId: string; optionId: string; label: string }[];
+  selectedAddOns?: { id: string; name: string; price: number }[];
+  specialInstructions?: string;
 }
 
 interface CollectionOrder {
@@ -31,7 +36,20 @@ interface CollectionOrder {
   scheduled_time: string | null;
   customer_id: string | null;
   customers: { name: string | null; phone: string | null } | null;
+  // Money fields, used only to render the receipt after payment.
+  service_fee?: number | null;
+  coupon_code?: string | null;
+  coupon_discount?: number | null;
+  vat_amount?: number | null;
+  vat_inclusive?: boolean | null;
+  store_credit_used?: number | null;
+  gift_card_used?: number | null;
 }
+
+type Tender = "cash" | "card" | "split";
+// Mirrors TENDER_LABEL in lib/collectionOrders.ts (server-only), which is what
+// the settle call stores in payment_method.
+const TENDER_LABEL: Record<Tender, string> = { cash: "Cash", card: "Card", split: "Split (cash + card)" };
 
 const STATUS_LABEL: Record<string, string> = {
   pending:   "Pending",
@@ -61,6 +79,45 @@ function customerName(o: CollectionOrder): string {
   return o.customers?.name?.trim() || "Online customer";
 }
 
+// The receipt shown right after payment. The settle call only returns { ok }, so
+// it is built from the card's own data plus the tender the staff chose — the same
+// values the server just stored (paid, delivered, "Cash" / "Card" / "Split …").
+function toReceipt(o: CollectionOrder, method: Tender): { order: Order; customer: Customer } {
+  const order: Order = {
+    id: o.id,
+    customerId: o.customer_id,
+    date: o.date,
+    status: "delivered",
+    fulfillment: "collection",
+    total: o.total,
+    items: o.items.map((i) => ({
+      name: i.name,
+      qty: i.qty,
+      price: i.price ?? 0,
+      selectedVariations: i.selectedVariations,
+      selectedAddOns: i.selectedAddOns,
+      specialInstructions: i.specialInstructions,
+    })),
+    note: o.note ?? undefined,
+    paymentMethod: TENDER_LABEL[method],
+    paymentStatus: "paid",
+    serviceFee: o.service_fee ?? 0,
+    couponCode: o.coupon_code ?? undefined,
+    couponDiscount: o.coupon_discount ?? 0,
+    vatAmount: o.vat_amount ?? 0,
+    vatInclusive: o.vat_inclusive ?? true,
+    storeCreditUsed: o.store_credit_used ?? 0,
+    giftCardUsed: o.gift_card_used ?? 0,
+    scheduledTime: o.scheduled_time ?? undefined,
+  };
+  const customer = {
+    id: o.customer_id ?? "guest",
+    name: customerName(o),
+    phone: o.customers?.phone ?? "",
+  } as unknown as Customer;
+  return { order, customer };
+}
+
 type CollectionScope = "all" | "online" | "walkin";
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -80,6 +137,9 @@ export default function CollectionView() {
   // Id of the order currently being marked collected (paid path) — drives the
   // per-card spinner.
   const [markingId, setMarkingId] = useState<string | null>(null);
+  // Receipt for the order just paid. Kept apart from `orders`: settling moves the
+  // order off the active board, so the next refresh drops it before the receipt closes.
+  const [receipt, setReceipt] = useState<{ order: Order; customer: Customer } | null>(null);
 
   const refresh = useCallback(async (showSpinner = false) => {
     if (showSpinner) setLoading(true);
@@ -105,7 +165,7 @@ export default function CollectionView() {
   }, [refresh]);
 
   // Take payment for an unpaid order → settle (paid + delivered + loyalty).
-  async function settlePayment(order: CollectionOrder, method: "cash" | "card" | "split") {
+  async function settlePayment(order: CollectionOrder, method: Tender) {
     setError("");
     const r = await fetch(`${apiBase()}/api/pos/orders/${order.id}/settle`, {
       method:  "POST",
@@ -115,6 +175,8 @@ export default function CollectionView() {
     const json = await r.json().catch(() => ({})) as { ok?: boolean; error?: string };
     if (!r.ok || !json.ok) {
       setError(json.error ?? "Could not take payment. Please try again.");
+    } else {
+      setReceipt(toReceipt(order, method));
     }
     setPayTarget(null);
     refresh();
@@ -324,6 +386,17 @@ export default function CollectionView() {
             const pm = method === "card" ? "card" : method === "split" ? "split" : "cash";
             settlePayment(payTarget, pm);
           }}
+        />
+      )}
+
+      {/* Receipt after payment — Print goes to the Receipt / POS printer, PDF opens the print window. */}
+      {receipt && (
+        <CollectionReceiptModal
+          order={receipt.order}
+          customer={receipt.customer}
+          printEndpoint="/api/print"
+          printCategory="pos"
+          onClose={() => setReceipt(null)}
         />
       )}
     </div>

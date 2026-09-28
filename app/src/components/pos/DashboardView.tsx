@@ -221,7 +221,10 @@ export default function DashboardView() {
     const effectiveName = appSettings.restaurant?.name || appSettings.receiptSettings.restaurantName?.trim() || settings.businessName || "Restaurant";
     const html = buildDineInReceiptHtml(order, settings, appSettings.receiptSettings, effectiveName);
     const win = window.open("", "_blank", "width=420,height=650");
-    if (!win) return;
+    if (!win) {
+      alert("Pop-up was blocked. Allow pop-ups for this site and try again.");
+      return;
+    }
     win.document.write(html);
     win.document.close();
     win.focus();

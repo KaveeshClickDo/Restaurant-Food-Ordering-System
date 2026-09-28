@@ -3,16 +3,19 @@
 import { useEffect, useState } from "react";
 import { AlertCircle, Check, FileDown, Info, Loader2, Printer, Receipt, X } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { Customer, Order } from "@/types";
+import { Customer, Order, PrinterCategory } from "@/types";
 import { fullOrderNumber } from "@/lib/orderNumber";
 import { printOnlineOrderAsAdmin } from "@/lib/escpos";
 import { buildPrintHtml, historicalVatRate } from "@/components/admin/ReceiptModal";
 
+const CATEGORY_LABEL: Record<PrinterCategory, string> = { online: "Online", pos: "Receipt", kitchen: "Kitchen" };
+
 /**
- * Receipt shown on the /collection page right after a payment is taken. Same
- * look as the waiter's dine-in receipt (dark card, dashed dividers). Print sends
- * it to the active Online printer through the collection-staff relay; PDF opens
- * the browser print window (choose "Save as PDF"). Closing is final — the order
+ * Receipt shown right after a payment is taken. Same look as the waiter's
+ * dine-in receipt (dark card, dashed dividers). Print sends it to the active
+ * printer in `printCategory` (the Online printer by default) through
+ * `printEndpoint` (the collection-staff relay by default); PDF opens the
+ * browser print window (choose "Save as PDF"). Closing is final — the order
  * has already moved to History — so a backdrop click does not close it, only the
  * Close button, the X or Esc.
  */
@@ -20,11 +23,16 @@ export default function CollectionReceiptModal({
   order,
   customer,
   onClose,
+  printEndpoint = "/api/collection/print",
+  printCategory = "online",
 }: {
   order: Order;
   customer: Customer;
   onClose: () => void;
+  printEndpoint?: string;
+  printCategory?: PrinterCategory;
 }) {
+  const printerLabel = CATEGORY_LABEL[printCategory];
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
   const { restaurant, receiptSettings: rs, taxSettings: tax } = settings;
@@ -65,13 +73,16 @@ export default function CollectionReceiptModal({
       order,
       settings,
       { customerName: customer.name, customerPhone: customer.phone, heading: "RECEIPT", vatRate },
-      "/api/collection/print",
+      printEndpoint,
+      printCategory,
     );
     if (result.noPrinter) {
       setPrintState("idle");
       setNotice({
         tone: "info",
-        text: "No online printer is set up. Ask an admin to add one in Admin → Integrations and set it active. You can still save this receipt as a PDF.",
+        text: printCategory === "pos"
+          ? "No receipt printer is set up. Add one in Settings → Hardware and set it active. You can still save this receipt as a PDF."
+          : "No online printer is set up. Ask an admin to add one in Admin → Integrations and set it active. You can still save this receipt as a PDF.",
       });
       return;
     }
@@ -257,7 +268,7 @@ export default function CollectionReceiptModal({
           <button
             onClick={handlePrint}
             disabled={printState === "busy"}
-            title="Print to the Online printer"
+            title={`Print to the ${printerLabel} printer`}
             className="flex flex-col items-center gap-1 bg-orange-500 hover:bg-orange-400 disabled:opacity-60 text-white py-3 rounded-xl transition text-xs font-medium"
           >
             {printState === "busy" ? <Loader2 size={16} className="animate-spin" />

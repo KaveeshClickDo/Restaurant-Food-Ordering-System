@@ -986,22 +986,27 @@ export async function printOrder(
 
 /**
  * Print one online order on demand from the admin panel (or, with `endpoint`,
- * another staff surface), to the active "online" printer. It's a manual click,
- * so Auto-print is ignored. Returns `{ noPrinter: true }` without printing when
- * there is no active, enabled online printer, so the caller can tell the user to
- * set one up. A printer that is set up but incomplete or unreachable returns an
- * `error` message instead.
+ * another staff surface), to the active printer in `category` (the "online"
+ * printer by default). It's a manual click, so Auto-print is ignored. Returns
+ * `{ noPrinter: true }` without printing when there is no active, enabled
+ * printer in that category, so the caller can tell the user to set one up. A
+ * printer that is set up but incomplete or unreachable returns an `error`
+ * message instead.
  *
  * `endpoint` is the server relay used for a network printer: the admin relay by
- * default, `/api/collection/print` for the collection-staff page.
+ * default, `/api/collection/print` for the collection-staff page, `/api/print`
+ * for a POS session. `category` is the printer category to target — "online"
+ * everywhere except the POS Collection tab, which passes "pos" to use the
+ * Receipt/POS printer POS staff already manage themselves.
  */
 export async function printOnlineOrderAsAdmin(
   order: Order,
   settings: AdminSettings,
   extras?: OnlineTicketExtras,
   endpoint: string = "/api/admin/print",
+  category: PrinterCategory = "online",
 ): Promise<{ ok: boolean; error?: string; noPrinter?: boolean }> {
-  const printer = resolveActivePrinter(settings, "online");
+  const printer = resolveActivePrinter(settings, category);
   if (!printer) return { ok: false, noPrinter: true };
 
   try {
@@ -1017,7 +1022,8 @@ export async function printOnlineOrderAsAdmin(
     if (mode === "bluetooth") return await sendToPrinterBluetooth(bytes, printer.bluetoothAddress ?? "");
     if (mode === "usb") return await sendToPrinterUSB(bytes);
     if (!printer.ip?.trim()) {
-      return { ok: false, error: "The Online printer has no IP address. Set one in Admin → Integrations." };
+      const categoryLabel = category === "pos" ? "Receipt" : category === "kitchen" ? "Kitchen" : "Online";
+      return { ok: false, error: `The ${categoryLabel} printer has no IP address. Set one in Admin → Integrations.` };
     }
     return await sendToPrinter(bytes, printer.ip.trim(), printer.port, endpoint, 1);
   } catch (err) {
