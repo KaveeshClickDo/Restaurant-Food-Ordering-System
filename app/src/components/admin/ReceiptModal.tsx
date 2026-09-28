@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { fullOrderNumber } from "@/lib/orderNumber";
+import { parseTableLabelFromNote } from "@/lib/tableLabel";
 import { printOnlineOrderAsAdmin } from "@/lib/escpos";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { Customer, Order, OrderStatus } from "@/types";
@@ -38,6 +39,12 @@ function fmtTime(iso: string) {
     return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
+// Matches escpos.ts's orderTypeLabel() and the on-screen preview below — all
+// three fulfillment types, not just Delivery/Collection.
+function orderTypeLabel(order: Order): string {
+    return order.fulfillment === "delivery" ? "Delivery" : order.fulfillment === "dine-in" ? "Dine-In" : "Collection";
+}
+
 export function buildPrintHtml(
     order: Order,
     customer: Customer,
@@ -57,6 +64,7 @@ export function buildPrintHtml(
     const tipAmount = order.tipAmount ?? 0;
     const discountAmount = order.discountAmount ?? 0;
     const discountNote = order.discountNote ?? "";
+    const tableLabel = order.fulfillment === "dine-in" ? parseTableLabelFromNote(order.note) : null;
 
     return `<!DOCTYPE html>
 <html>
@@ -92,7 +100,8 @@ export function buildPrintHtml(
   <div class="c sm">${fmtDate(order.date)} at ${fmtTime(order.date)}</div>
   <div class="d"></div>
   <div class="row"><span>Customer:</span><span>${customer.name}</span></div>
-  <div class="row"><span>Type:</span><span>${order.fulfillment === "delivery" ? "Delivery" : "Collection"}</span></div>
+  <div class="row"><span>Type:</span><span>${orderTypeLabel(order)}</span></div>
+  ${tableLabel ? `<div class="row"><span>Table:</span><span>${tableLabel}</span></div>` : ""}
   ${order.address ? `<div class="row"><span>Address:</span><span style="text-align:right;max-width:180px">${order.address}</span></div>` : ""}
   ${order.scheduledTime ? `<div class="row"><span>Scheduled:</span><span>${order.scheduledTime}</span></div>` : ""}
   <div class="d"></div>
@@ -276,6 +285,12 @@ export function ReceiptModal({
                             <span className="text-gray-500">Type</span>
                             <span className="font-medium">{order.fulfillment === "delivery" ? "🚚 Delivery" : order.fulfillment === 'collection' ? "🏪 Collection" : "🍽️ Dine-In"}</span>
                         </div>
+                        {order.fulfillment === "dine-in" && parseTableLabelFromNote(order.note) && (
+                            <div className="flex justify-between">
+                                <span className="text-gray-500">Table</span>
+                                <span className="font-medium">{parseTableLabelFromNote(order.note)}</span>
+                            </div>
+                        )}
                         {order.address && (
                             <div className="flex justify-between gap-4">
                                 <span className="text-gray-500 flex-shrink-0">Address</span>
