@@ -9,7 +9,7 @@ import type { Variation, AddOn } from "@/types";
 import { Plus, Pencil, Trash2, ToggleLeft, ToggleRight, X, Save, Tag, Package, Check } from "lucide-react";
 import { fmt } from "../_utils";
 import { PRESET_COLORS, buildOffer, handleImageFile } from "./_helpers";
-import { deleteMenuImage } from "@/lib/uploadImage";
+import { deleteMenuImage, MAX_RAW_INPUT_LABEL } from "@/lib/uploadImage";
 
 // Dietary options — kept in sync with admin's MenuManagementPanel so both
 // editors offer the same set of tags. Bug #2 (admin / POS field parity).
@@ -462,7 +462,7 @@ export default function MenuTab() {
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2 text-white text-xs outline-none focus:border-orange-500 placeholder-slate-500"
                 />
                 {imgErr && <p className="text-[11px] text-red-400 mt-1">{imgErr}</p>}
-                <p className="text-[11px] text-slate-500 mt-1">Max 1 MB. JPG, PNG, WebP, GIF or AVIF.</p>
+                <p className="text-[11px] text-slate-500 mt-1">Large photos are resized automatically (max {MAX_RAW_INPUT_LABEL} before resizing). JPG, PNG, WebP, GIF or AVIF.</p>
               </div>
 
               {/* Emoji + Name row — emoji only shown when no image */}
@@ -890,7 +890,7 @@ export default function MenuTab() {
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2 text-white text-xs outline-none focus:border-orange-500 placeholder-slate-500"
                 />
                 {imgErr && <p className="text-[11px] text-red-400 mt-1">{imgErr}</p>}
-                <p className="text-[11px] text-slate-500 mt-1">Max 1 MB. JPG, PNG, WebP, GIF or AVIF.</p>
+                <p className="text-[11px] text-slate-500 mt-1">Large photos are resized automatically (max {MAX_RAW_INPUT_LABEL} before resizing). JPG, PNG, WebP, GIF or AVIF.</p>
               </div>
 
               <div className="flex gap-3">

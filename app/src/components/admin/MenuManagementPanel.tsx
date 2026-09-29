@@ -16,7 +16,7 @@ import {
   FolderOpen,
 } from "lucide-react";
 import { resolveStock, stockLabel, LOW_STOCK_THRESHOLD } from "@/lib/stockUtils";
-import { uploadMenuImage, MAX_IMAGE_LABEL, deleteMenuImage } from "@/lib/uploadImage";
+import { uploadMenuImage, MAX_RAW_INPUT_LABEL, deleteMenuImage } from "@/lib/uploadImage";
 import type { StockStatus } from "@/types";
 
 // Bug #2 — POS / admin field parity. A small handful of preset accent
@@ -1437,7 +1437,7 @@ function ItemModal({
                       }}
                     />
                   </label>
-                  <p className="text-[11px] text-gray-400">Max {MAX_IMAGE_LABEL}. JPG, PNG, WebP, GIF or AVIF.</p>
+                  <p className="text-[11px] text-gray-400">Large photos are resized automatically (max {MAX_RAW_INPUT_LABEL} before resizing). JPG, PNG, WebP, GIF or AVIF.</p>
                   {imgError && (
                     <p className="text-[11px] text-red-500 flex items-start gap-1">
                       <AlertTriangle size={12} className="mt-px flex-shrink-0" /> {imgError}

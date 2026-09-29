@@ -13,20 +13,127 @@
 
 import { apiBase } from "@/lib/apiBase";
 
-// Keep in sync with MAX_BYTES in app/src/app/api/uploads/menu-image/route.ts.
+// Cap on the file actually POSTed. Keep in sync with MAX_BYTES in
+// app/src/app/api/uploads/menu-image/route.ts. prepareMenuImage() below
+// keeps uploads well under this, so it's mostly a safety net.
 export const MAX_IMAGE_BYTES = 1024 * 1024; // 1 MB
 export const MAX_IMAGE_LABEL = "1 MB";
 
+// Cap on the raw file the user picks, before prepareMenuImage() resizes it.
+// Generous since phone photos are often several MB.
+const MAX_RAW_INPUT_BYTES = 5 * 1024 * 1024; // 5 MB
+export const MAX_RAW_INPUT_LABEL = "5 MB";
+
+// Resize target + re-encode quality. Covers the widest dish-photo display
+// (mobile grid card/modal, ~640 CSS px) at up to 2x DPR.
+const MENU_IMAGE_MAX_DIMENSION = 1200; // px
+const MENU_IMAGE_WEBP_QUALITY = 0.8;
+const MENU_IMAGE_JPEG_QUALITY = 0.82; // fallback when webp isn't supported
+
 /**
  * Returns a human-readable error string if `file` is not an acceptable image,
- * or null when it's fine. Lets callers warn before the upload round-trip.
+ * or null when it's fine. Checks the file before resizing.
  */
 export function imageSizeError(file: File): string | null {
   if (!file.type.startsWith("image/")) return "Please choose an image file.";
-  if (file.size > MAX_IMAGE_BYTES) {
-    return `Image is too large (${(file.size / 1024 / 1024).toFixed(2)} MB). Maximum is ${MAX_IMAGE_LABEL}.`;
+  if (file.size > MAX_RAW_INPUT_BYTES) {
+    return `Image is too large (${(file.size / 1024 / 1024).toFixed(2)} MB). Maximum is ${MAX_RAW_INPUT_LABEL}.`;
   }
   return null;
+}
+
+/**
+ * Decodes `file`, preferring createImageBitmap (auto-corrects EXIF rotation)
+ * and falling back to an <img> element if unsupported.
+ */
+async function decodeImage(file: File): Promise<ImageBitmap | HTMLImageElement> {
+  if (typeof createImageBitmap === "function") {
+    try {
+      return await createImageBitmap(file, { imageOrientation: "from-image" });
+    } catch {
+      // Fall back to the <img> path below.
+    }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    return await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload  = () => resolve(img);
+      img.onerror = () => reject(new Error("Could not decode image."));
+      img.src = url;
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function sourceDimensions(src: ImageBitmap | HTMLImageElement): { width: number; height: number } {
+  if (src instanceof HTMLImageElement) {
+    return { width: src.naturalWidth || src.width, height: src.naturalHeight || src.height };
+  }
+  return { width: src.width, height: src.height };
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob | null> {
+  return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
+}
+
+/**
+ * Resizes + re-encodes a picked menu image before upload, since dish photos
+ * are shown small (see MENU_IMAGE_MAX_DIMENSION). Same white-fill canvas
+ * approach as logoToRaster() in lib/escpos.ts, so transparent PNGs don't
+ * turn black.
+ *
+ * Returns `file` unchanged on failure, if it's already small, or for GIFs
+ * (keeps the animation).
+ */
+async function prepareMenuImage(file: File): Promise<File> {
+  if (file.type === "image/gif") return file;
+
+  let source: ImageBitmap | HTMLImageElement;
+  try {
+    source = await decodeImage(file);
+  } catch (err) {
+    console.error("prepareMenuImage: decode failed, uploading original:", err);
+    return file;
+  }
+
+  try {
+    const { width, height } = sourceDimensions(source);
+    if (!width || !height) return file;
+
+    const longEdge = Math.max(width, height);
+    if (longEdge <= MENU_IMAGE_MAX_DIMENSION) return file;
+
+    const scale = MENU_IMAGE_MAX_DIMENSION / longEdge;
+    const w = Math.max(1, Math.round(width * scale));
+    const h = Math.max(1, Math.round(height * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    ctx.fillStyle = "#fff"; // flatten transparency onto white, like logoToRaster
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(source, 0, 0, w, h);
+
+    let blob = await canvasToBlob(canvas, "image/webp", MENU_IMAGE_WEBP_QUALITY);
+    let ext = "webp";
+    if (!blob || blob.type !== "image/webp") {
+      // Some engines silently return PNG instead of webp — retry as JPEG.
+      blob = await canvasToBlob(canvas, "image/jpeg", MENU_IMAGE_JPEG_QUALITY);
+      ext = "jpg";
+    }
+    if (!blob) return file;
+
+    const base = file.name.replace(/\.[^.]+$/, "") || "menu-image";
+    return new File([blob], `${base}.${ext}`, { type: blob.type, lastModified: file.lastModified });
+  } catch (err) {
+    console.error("prepareMenuImage: resize failed, uploading original:", err);
+    return file;
+  } finally {
+    if (source instanceof ImageBitmap) source.close();
+  }
 }
 
 // Receipt logos are stored inline as a base64 data URL (like the restaurant logo
@@ -59,15 +166,22 @@ export function readImageAsDataUrl(file: File, maxBytes = MAX_LOGO_BYTES): Promi
 }
 
 /**
- * Uploads an image file and resolves to its public URL. Throws an Error with a
- * user-facing message on validation failure or a non-OK response.
+ * Uploads an image file and resolves to its public URL. Resizes it first
+ * (see prepareMenuImage). Throws a user-facing Error on failure.
  */
 export async function uploadMenuImage(file: File): Promise<string> {
-  const err = imageSizeError(file);
-  if (err) throw new Error(err);
+  const rawErr = imageSizeError(file);
+  if (rawErr) throw new Error(rawErr);
+
+  const prepared = await prepareMenuImage(file);
+  if (prepared.size > MAX_IMAGE_BYTES) {
+    throw new Error(
+      `Image is too large after optimizing (${(prepared.size / 1024 / 1024).toFixed(2)} MB). Maximum is ${MAX_IMAGE_LABEL}.`,
+    );
+  }
 
   const body = new FormData();
-  body.append("file", file);
+  body.append("file", prepared);
 
   const res = await fetch(apiBase() + "/api/uploads/menu-image", { method: "POST", body });
   const json = (await res.json().catch(() => ({}))) as { ok?: boolean; url?: string; error?: string };
@@ -154,7 +268,7 @@ export function signageSizeError(file: File): string | null {
   const isImage = file.type.startsWith("image/");
   const isVideo = file.type.startsWith("video/");
 
-  if (!isImage && !isVideo) return "Please choose an image file.";
+  if (!isImage && !isVideo) return "Please choose an image or video file.";
   if (file.size > MAX_SIGNAGE_BYTES) {
     return `Image is too large (${(file.size / 1024 / 1024).toFixed(2)} MB). Maximum is ${MAX_SIGNAGE_LABEL}.`;
   }
