@@ -173,7 +173,13 @@ interface AppContextValue {
   scheduledTime: string | null;
   setScheduledTime: (t: string | null) => void;
   categories: Category[];
+  /** True once the initial categories fetch has settled (success or error). */
+  categoriesLoaded: boolean;
   menuItems: MenuItem[];
+  /** True once the initial menu_items fetch has settled (success or error).
+   *  Lets callers tell "still loading" apart from "genuinely empty" instead
+   *  of both looking like an empty array. */
+  menuItemsLoaded: boolean;
   addCategory: (cat: Category) => void;
   updateCategory: (cat: Category) => void;
   deleteCategory: (id: string) => void;
@@ -586,7 +592,9 @@ export function AppProvider({
     () => buildSettingsFromData(initialData ?? null),
   );
   const [categories, setCategories] = useState<Category[]>([]);
+  const [categoriesLoaded, setCategoriesLoaded] = useState(false);
   const [menuItems, setMenuItems]   = useState<MenuItem[]>([]);
+  const [menuItemsLoaded, setMenuItemsLoaded] = useState(false);
   const [mealPeriods, setMealPeriods] = useState<MealPeriod[]>([]);
   const [customers, setCustomers]   = useState<Customer[]>([]);
   // Tracks orders with an in-flight optimistic status change so the 8 s
@@ -734,54 +742,83 @@ export function AppProvider({
   }, [settings]);
 
   // ── Initial load from Supabase ─────────────────────────────────────────────
+  // These reads don't depend on each other's results, so they run in
+  // parallel — previously each `await` blocked the next, meaning menu_items
+  // (and every item's image) didn't even start loading until
+  // settings → dining_tables → categories had each finished in turn.
 
   useEffect(() => {
     async function init() {
-      try {
-        // Settings
-        const { data: settingsData, error: settingsErr } = await supabase
-          .from("app_settings").select("data").eq("id", 1).single();
-        if (settingsErr && settingsErr.code !== "PGRST116") {
-          // PGRST116 = no rows (first run) — any other error is unexpected
-          console.error("AppContext: failed to load settings:", settingsErr.message);
-        }
-        if (settingsData?.data) {
-          setSettings(buildSettingsFromData(settingsData.data));
-          // Write-through so an offline POS tablet uses the last-known settings
-          // (tax/currency), not the APK's build-time values. Capacitor-only.
-          void kvSet(CACHE_SETTINGS, settingsData.data);
-        } else if (settingsErr && settingsErr.code !== "PGRST116" && isCapacitorAndroid()) {
-          // Offline on the POS tablet: the fetch failed (network), so fall back
-          // to the last cached settings instead of seeding defaults. (Online,
-          // and on web, the branches below are unchanged.)
-          const cached = await kvGet<Record<string, unknown>>(CACHE_SETTINGS);
-          if (cached) setSettings(buildSettingsFromData(cached));
-        } else if (!settingsData) {
-          // First run — seed settings into the DB
-          await supabase.from("app_settings").insert({ id: 1, data: DEFAULT_SETTINGS });
-        }
+      const onAdminRoute = typeof window !== "undefined" && window.location.pathname.startsWith("/admin");
 
-        // Drivers — admin-only data (DriversPanel + admin dashboard are the
-        // only consumers). Skip on every other surface so we don't fire a 401
-        // on pos / kitchen / driver / storefront pages that never read it.
-        const onAdminRoute = typeof window !== "undefined" && window.location.pathname.startsWith("/admin");
-        if (onAdminRoute) {
-          try {
-            const driversRes = await fetch("/api/admin/drivers");
-            if (driversRes.ok) {
-              const { drivers: loaded } = await driversRes.json() as { drivers: Driver[] };
-              setDrivers(loaded ?? []);
-            }
-          } catch (err) {
-            console.error("AppContext: failed to load drivers:", err);
+      // Settings. Preserves diningTables/waiters/kitchenStaff from `prev` —
+      // buildSettingsFromData always resets those to [] (they live in their
+      // own tables/routes) — now that this runs alongside loadDiningTables()
+      // below, either could resolve first; preserving `prev` means whichever
+      // order they land in, neither overwrites the other's result.
+      async function loadSettings() {
+        try {
+          const { data: settingsData, error: settingsErr } = await supabase
+            .from("app_settings").select("data").eq("id", 1).single();
+          if (settingsErr && settingsErr.code !== "PGRST116") {
+            // PGRST116 = no rows (first run) — any other error is unexpected
+            console.error("AppContext: failed to load settings:", settingsErr.message);
           }
+          if (settingsData?.data) {
+            const data = settingsData.data;
+            setSettings((prev) => ({
+              ...buildSettingsFromData(data),
+              diningTables: prev.diningTables,
+              waiters:      prev.waiters,
+              kitchenStaff: prev.kitchenStaff,
+            }));
+            // Write-through so an offline POS tablet uses the last-known settings
+            // (tax/currency), not the APK's build-time values. Capacitor-only.
+            void kvSet(CACHE_SETTINGS, data);
+          } else if (settingsErr && settingsErr.code !== "PGRST116" && isCapacitorAndroid()) {
+            // Offline on the POS tablet: the fetch failed (network), so fall back
+            // to the last cached settings instead of seeding defaults. (Online,
+            // and on web, the branches below are unchanged.)
+            const cached = await kvGet<Record<string, unknown>>(CACHE_SETTINGS);
+            if (cached) {
+              setSettings((prev) => ({
+                ...buildSettingsFromData(cached),
+                diningTables: prev.diningTables,
+                waiters:      prev.waiters,
+                kitchenStaff: prev.kitchenStaff,
+              }));
+            }
+          } else if (!settingsData) {
+            // First run — seed settings into the DB
+            await supabase.from("app_settings").insert({ id: 1, data: DEFAULT_SETTINGS });
+          }
+        } catch (err) {
+          console.error("AppContext: failed to load settings:", err instanceof Error ? err.message : err);
         }
+      }
 
-        // dining_tables — moved out of app_settings.data.diningTables.
-        // GET is anon-accessible, so this works on customer pages too
-        // (reservations booking UI reads it). Other panels (TableStatusPanel,
-        // ReservationsPanel) read `settings.diningTables` via context — we
-        // hydrate that field here once on mount so those panels Just Work.
+      // Drivers — admin-only data (DriversPanel + admin dashboard are the
+      // only consumers). Skip on every other surface so we don't fire a 401
+      // on pos / kitchen / driver / storefront pages that never read it.
+      async function loadDrivers() {
+        if (!onAdminRoute) return;
+        try {
+          const driversRes = await fetch("/api/admin/drivers");
+          if (driversRes.ok) {
+            const { drivers: loaded } = await driversRes.json() as { drivers: Driver[] };
+            setDrivers(loaded ?? []);
+          }
+        } catch (err) {
+          console.error("AppContext: failed to load drivers:", err);
+        }
+      }
+
+      // dining_tables — moved out of app_settings.data.diningTables.
+      // GET is anon-accessible, so this works on customer pages too
+      // (reservations booking UI reads it). Other panels (TableStatusPanel,
+      // ReservationsPanel) read `settings.diningTables` via context — we
+      // hydrate that field here once on mount so those panels Just Work.
+      async function loadDiningTables() {
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const { data: tableRows } = await (supabase as any)
@@ -794,50 +831,75 @@ export function AppProvider({
         } catch (err) {
           console.error("AppContext: failed to load dining_tables:", err);
         }
+      }
 
-        // Categories — no runtime seed and no fallback to bundled defaults.
-        // An empty DB shows an empty UI; populate via `npm run db:seed-menu` or
-        // through the admin panel.
-        const { data: catsData, error: catsErr } = await supabase
-          .from("categories").select("*").is("deleted_at", null).order("sort_order", { ascending: true });
-        if (catsErr) console.error("AppContext: failed to load categories:", catsErr.message);
-        else setCategories((catsData ?? []).map(mapCategory));
-
-        // Menu items + their meal-period join rows (fetched in parallel).
-        const [menuRes, mimpRes] = await Promise.all([
-          supabase.from("menu_items").select("*"),
-          supabase.from("menu_item_meal_periods").select("menu_item_id, meal_period_id"),
-        ]);
-        if (menuRes.error) console.error("AppContext: failed to load menu items:", menuRes.error.message);
-        if (mimpRes.error) console.error("AppContext: failed to load menu_item_meal_periods:", mimpRes.error.message);
-        if (!menuRes.error) {
-          const tagsByItem = new Map<string, string[]>();
-          for (const row of (mimpRes.data ?? []) as { menu_item_id: string; meal_period_id: string }[]) {
-            const arr = tagsByItem.get(row.menu_item_id) ?? [];
-            arr.push(row.meal_period_id);
-            tagsByItem.set(row.menu_item_id, arr);
-          }
-          setMenuItems((menuRes.data ?? []).map((r) => mapMenuItem(r, tagsByItem.get(r.id) ?? [])));
+      // Categories — no runtime seed and no fallback to bundled defaults.
+      // An empty DB shows an empty UI; populate via `npm run db:seed-menu` or
+      // through the admin panel.
+      async function loadCategories() {
+        try {
+          const { data: catsData, error: catsErr } = await supabase
+            .from("categories").select("*").is("deleted_at", null).order("sort_order", { ascending: true });
+          if (catsErr) console.error("AppContext: failed to load categories:", catsErr.message);
+          else setCategories((catsData ?? []).map(mapCategory));
+        } finally {
+          setCategoriesLoaded(true);
         }
+      }
 
-        // Meal periods
+      // Menu items + their meal-period join rows (fetched in parallel with
+      // each other, same as before).
+      async function loadMenuItems() {
+        try {
+          const [menuRes, mimpRes] = await Promise.all([
+            supabase.from("menu_items").select("*"),
+            supabase.from("menu_item_meal_periods").select("menu_item_id, meal_period_id"),
+          ]);
+          if (menuRes.error) console.error("AppContext: failed to load menu items:", menuRes.error.message);
+          if (mimpRes.error) console.error("AppContext: failed to load menu_item_meal_periods:", mimpRes.error.message);
+          if (!menuRes.error) {
+            const tagsByItem = new Map<string, string[]>();
+            for (const row of (mimpRes.data ?? []) as { menu_item_id: string; meal_period_id: string }[]) {
+              const arr = tagsByItem.get(row.menu_item_id) ?? [];
+              arr.push(row.meal_period_id);
+              tagsByItem.set(row.menu_item_id, arr);
+            }
+            setMenuItems((menuRes.data ?? []).map((r) => mapMenuItem(r, tagsByItem.get(r.id) ?? [])));
+          }
+        } finally {
+          // Flip regardless of success/error so a broken connection doesn't
+          // leave callers (e.g. the homepage skeleton) waiting forever.
+          setMenuItemsLoaded(true);
+        }
+      }
+
+      // Meal periods
+      async function loadMealPeriods() {
         const { data: mpData, error: mpErr } = await supabase
           .from("meal_periods").select("*").order("sort_order", { ascending: true });
         if (mpErr) console.error("AppContext: failed to load meal_periods:", mpErr.message);
         else setMealPeriods((mpData ?? []).map(mapMealPeriod));
-
-        // NOTE: customers + their orders are NOT loaded here. The previous
-        // anon-key SELECT on customers leaked every customer's PII to every
-        // browser visitor (F-DATA-1). The customer site uses `currentUser`
-        // (fetched via /api/auth/me with cookie auth). Admin/driver/POS
-        // surfaces fetch via `loadAllCustomers()` after their own auth
-        // check passes.
-      } catch (err) {
-        // Network down, CORS issue, or unexpected data shape — log it clearly
-        console.error("AppContext init failed:", err instanceof Error ? err.message : err);
       }
+
+      // NOTE: customers + their orders are NOT loaded here. The previous
+      // anon-key SELECT on customers leaked every customer's PII to every
+      // browser visitor (F-DATA-1). The customer site uses `currentUser`
+      // (fetched via /api/auth/me with cookie auth). Admin/driver/POS
+      // surfaces fetch via `loadAllCustomers()` after their own auth
+      // check passes.
+      await Promise.all([
+        loadSettings(),
+        loadDrivers(),
+        loadDiningTables(),
+        loadCategories(),
+        loadMenuItems(),
+        loadMealPeriods(),
+      ]);
     }
-    init();
+    init().catch((err) => {
+      // Network down, CORS issue, or unexpected data shape — log it clearly
+      console.error("AppContext init failed:", err instanceof Error ? err.message : err);
+    });
   }, []);
 
   // ── Realtime subscriptions (replaces storage event listener) ──────────────
@@ -2164,7 +2226,7 @@ export function AppProvider({
         cart, addToCart, removeFromCart, updateQty, clearCart, cartTotal, cartCount,
         settings, updateSettings, updateSettingsViaPos, refreshDiningTables, isOpen,
         fulfillment, setFulfillment, scheduledTime, setScheduledTime,
-        categories, menuItems,
+        categories, categoriesLoaded, menuItems, menuItemsLoaded,
         addCategory, updateCategory, deleteCategory, reorderCategories,
         addMenuItem, updateMenuItem, updateMenuItemStock, deleteMenuItem,
         customers, addOrder, updateOrderStatus, addCustomer, updateCustomer,

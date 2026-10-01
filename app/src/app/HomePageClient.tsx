@@ -155,6 +155,23 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
   );
 }
 
+// ── Grid placeholder while the initial menu fetch is in flight ─────────────
+// Shown instead of FoodCard so the first paint never reads as "no items in
+// this category" before the menu has even loaded (see menuItemsLoaded).
+function FoodCardSkeleton() {
+  return (
+    <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-200/70 dark:border-[var(--brand-border-dark)] overflow-hidden animate-pulse">
+      <div className="h-[180px] bg-zinc-200/70 dark:bg-white/5" />
+      <div className="p-4 space-y-2.5">
+        <div className="h-4 bg-zinc-200/90 dark:bg-white/10 rounded w-3/4" />
+        <div className="h-3 bg-zinc-200/90 dark:bg-white/10 rounded w-full" />
+        <div className="h-3 bg-zinc-200/90 dark:bg-white/10 rounded w-5/6" />
+        <div className="h-5 bg-zinc-200/90 dark:bg-white/10 rounded w-1/3 mt-1" />
+      </div>
+    </div>
+  );
+}
+
 // ── Hero banner ──────────────────────────────────────────────────────────────
 function Hero({ isOpen, onReserve }: { isOpen: boolean; onReserve: () => void }) {
   const { settings, fulfillment, setFulfillment } = useApp();
@@ -342,7 +359,7 @@ function effectiveCatIds(activeCat: string, cats: Category[]): string[] | null {
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function HomePageClient() {
   const {
-    categories, menuItems: allMenuItems, mealPeriods, settings,
+    categories, categoriesLoaded, menuItems: allMenuItems, menuItemsLoaded, mealPeriods, settings,
     isOpen, currentUser, logout, cart
   } = useApp();
   const cartHasItems = cart.length > 0;
@@ -367,6 +384,8 @@ export default function HomePageClient() {
   const [showReservation, setShowReservation] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const contentScrollRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   // Open a dish from a search suggestion. Blur the input first so the mobile
   // keyboard dismisses before the customization modal slides up.
@@ -541,6 +560,47 @@ export default function HomePageClient() {
 
     return sections;
   }, [activeCat, activeCategory, categories, items, search]);
+
+  // ── Infinite-scroll pagination (flat grid only) ────────────────────────────
+  // Mounts 9 cards at a time instead of the whole filtered list, so the
+  // browser only requests that many images at once. Grouped parent-category
+  // sections and meal-period sections stay fully rendered.
+  const ITEMS_PER_PAGE = 9;
+  const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE);
+
+  // Reset to the first page and scroll back to top whenever the category or
+  // search query changes — otherwise a deeply-scrolled count would carry
+  // into the new filter and reveal a burst of items/images at once.
+  useEffect(() => {
+    setVisibleCount(ITEMS_PER_PAGE);
+    contentScrollRef.current?.scrollTo({ top: 0 });
+  }, [activeCat, search]);
+
+  // Grow the visible count as the sentinel (rendered after the flat grid)
+  // scrolls into view. rootMargin starts loading the next batch before the
+  // user hits the true bottom, so it feels seamless rather than a popcorn
+  // "load more" jump. The sentinel always renders in the flat-grid branch —
+  // the guard below just no-ops once everything is already visible.
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const root = contentScrollRef.current;
+    if (!sentinel || !root || groupedCategorySections) return;
+    // No IntersectionObserver support (very old/unusual browser) — show
+    // everything rather than leaving the page stuck on the first batch.
+    if (typeof IntersectionObserver === "undefined") {
+      setVisibleCount(items.length);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return;
+        setVisibleCount((prev) => Math.min(prev + ITEMS_PER_PAGE, items.length));
+      },
+      { root, rootMargin: "600px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [items.length, groupedCategorySections]);
 
   // Search-bar autocomplete: dish suggestions shown in a dropdown as the
   // customer types. Searches every orderable online dish by name/description
@@ -719,7 +779,11 @@ export default function HomePageClient() {
               <span>Everything</span>
             </button>
 
-            {parentCategories.map((cat) => {
+            {!categoriesLoaded ? (
+              Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="flex-shrink-0 w-24 h-8 rounded-full bg-zinc-200/60 dark:bg-white/10 animate-pulse" />
+              ))
+            ) : parentCategories.map((cat) => {
               const active = isParentPillActive(cat.id);
               return (
                 <button
@@ -758,7 +822,7 @@ export default function HomePageClient() {
         </div>
 
         {/* Scrollable content */}
-        <div className="flex-1 flex flex-col overflow-y-auto pb-15 lg:pb-0 h-full">
+        <div ref={contentScrollRef} className="flex-1 flex flex-col overflow-y-auto pb-15 lg:pb-0 h-full">
           <div className="flex-1">
 
             <Hero isOpen={isOpen} onReserve={() => setShowReservation(true)} />
@@ -782,13 +846,21 @@ export default function HomePageClient() {
             <div className="px-6 mb-5 flex items-center justify-between">
               <h2 className="font-semibold tracking-tight text-[20px] text-zinc-900 dark:text-[var(--brand-text-dark)]">
                 {activeCat === "all" ? "Everything" : (activeCategory?.name ?? "Menu")}
-                <span className="ml-2 text-[13px] font-normal text-zinc-400 tabular-nums">· {visibleTotal}</span>
+                {menuItemsLoaded && (
+                  <span className="ml-2 text-[13px] font-normal text-zinc-400 tabular-nums">· {visibleTotal}</span>
+                )}
               </h2>
             </div>
 
             {/* Grid */}
             <div className="px-6 pb-6">
-              {items.length === 0 ? (
+              {!menuItemsLoaded ? (
+                <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+                  {Array.from({ length: ITEMS_PER_PAGE }).map((_, i) => (
+                    <FoodCardSkeleton key={i} />
+                  ))}
+                </div>
+              ) : items.length === 0 ? (
                 <div className="col-span-full text-center py-20 text-zinc-400">
                   {search
                     ? <><p className="text-[15px] font-medium">No dishes found for &ldquo;{search}&rdquo;</p><p className="text-[13px] mt-1">Try a different search term</p></>
@@ -819,11 +891,16 @@ export default function HomePageClient() {
                   ))}
                 </div>
               ) : (
-                <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
-                  {items.map((item) => (
-                    <FoodCard key={item.id} item={item} onOpen={() => setOpenItem(item)} />
-                  ))}
-                </div>
+                <>
+                  <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+                    {items.slice(0, visibleCount).map((item) => (
+                      <FoodCard key={item.id} item={item} onOpen={() => setOpenItem(item)} />
+                    ))}
+                  </div>
+                  {/* Infinite-scroll trigger — invisible, grows visibleCount as it
+                      comes into view. See the pagination effects above. */}
+                  <div ref={sentinelRef} aria-hidden className="h-px" />
+                </>
               )}
             </div>
           </div>

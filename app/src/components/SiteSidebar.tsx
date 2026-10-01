@@ -36,7 +36,7 @@ export default function SiteSidebar({
    *  Falls back to the full AppContext list when omitted. */
   categories?: Category[];
 }) {
-  const { settings, categories: allCategories, currentUser, logout } = useApp();
+  const { settings, categories: allCategories, categoriesLoaded, currentUser, logout } = useApp();
   const categories = categoriesOverride ?? allCategories;
   const { restaurant } = settings;
   const pathname = usePathname();
@@ -184,8 +184,15 @@ export default function SiteSidebar({
             {pathname === "/" && activeCat === "all" && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-orange-500 flex-shrink-0" />}
           </button>
 
-          {/* Parent → children tree */}
-          {parents.map((parent) => {
+          {/* Parent → children tree — skeleton rows until categories arrive,
+              so an empty list doesn't briefly read as "no categories". */}
+          {!categoriesLoaded ? (
+            <div className="space-y-2 px-1 pt-1.5">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="h-7 rounded-xl bg-zinc-200/60 dark:bg-white/5 animate-pulse" />
+              ))}
+            </div>
+          ) : parents.map((parent) => {
             const children = getChildren(parent.id, categories);
             const hasKids = children.length > 0;
             const isExpanded = expandedParents.has(parent.id);
