@@ -81,13 +81,12 @@ function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number):
  * approach as logoToRaster() in lib/escpos.ts, so transparent PNGs don't
  * turn black. Steps down MENU_IMAGE_QUALITY_STEPS if still over MAX_IMAGE_BYTES.
  *
- * Returns `file` unchanged on failure, if it's already small, or for GIFs
- * (keeps the animation).
+ * Returns `file` unchanged on failure, if it's already the right size (small
+ * dimensions and small bytes), or for GIFs (keeps the animation).
  */
 async function prepareMenuImage(file: File): Promise<File> {
   if (file.type === "image/gif") return file;
   if (file.size > MAX_DECODABLE_BYTES) return file; // too large to safely decode
-  if (file.size <= MAX_IMAGE_BYTES) return file; // already small enough
 
   let source: ImageBitmap | HTMLImageElement;
   try {
@@ -101,11 +100,13 @@ async function prepareMenuImage(file: File): Promise<File> {
     const { width, height } = sourceDimensions(source);
     if (!width || !height) return file;
 
-    // Only shrink dimensions if they're over the target — still re-encode
-    // (format conversion) even when they're not, since a lossless format
-    // like PNG can be huge in bytes at small dimensions.
+    // Skip only if both dimensions and bytes are already fine — a file under
+    // MAX_IMAGE_BYTES can still be oversized in pixels.
     const longEdge = Math.max(width, height);
-    const scale = longEdge > MENU_IMAGE_MAX_DIMENSION ? MENU_IMAGE_MAX_DIMENSION / longEdge : 1;
+    const needsResize = longEdge > MENU_IMAGE_MAX_DIMENSION;
+    if (!needsResize && file.size <= MAX_IMAGE_BYTES) return file;
+
+    const scale = needsResize ? MENU_IMAGE_MAX_DIMENSION / longEdge : 1;
     const w = Math.max(1, Math.round(width * scale));
     const h = Math.max(1, Math.round(height * scale));
 
