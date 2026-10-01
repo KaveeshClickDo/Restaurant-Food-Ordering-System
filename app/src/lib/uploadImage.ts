@@ -13,32 +13,29 @@
 
 import { apiBase } from "@/lib/apiBase";
 
-// Cap on the file actually POSTed. Keep in sync with MAX_BYTES in
-// app/src/app/api/uploads/menu-image/route.ts. prepareMenuImage() below
-// keeps uploads well under this, so it's mostly a safety net.
+// The size limit shown to the user — checked after optimizing
 export const MAX_IMAGE_BYTES = 1024 * 1024; // 1 MB
 export const MAX_IMAGE_LABEL = "1 MB";
 
-// Cap on the raw file the user picks, before prepareMenuImage() resizes it.
-// Generous since phone photos are often several MB.
-const MAX_RAW_INPUT_BYTES = 5 * 1024 * 1024; // 5 MB
-export const MAX_RAW_INPUT_LABEL = "5 MB";
+// Internal-only safety net (never shown to the user) against a file too
+// huge to safely decode. Falls through to the same MAX_IMAGE_BYTES check as
+// everything else, so there's only ever one size error.
+const MAX_DECODABLE_BYTES = 50 * 1024 * 1024; // 50 MB
 
-// Resize target + re-encode quality. Covers the widest dish-photo display
-// (mobile grid card/modal, ~640 CSS px) at up to 2x DPR.
+// Resize target. Covers the widest dish-photo display (mobile grid
+// card/modal, ~640 CSS px) at up to 2x DPR.
 const MENU_IMAGE_MAX_DIMENSION = 1200; // px
-const MENU_IMAGE_WEBP_QUALITY = 0.8;
-const MENU_IMAGE_JPEG_QUALITY = 0.82; // fallback when webp isn't supported
+
+// Re-encode quality ladder — steps down only if still over MAX_IMAGE_BYTES.
+const MENU_IMAGE_QUALITY_STEPS = [0.8, 0.65, 0.5];
+const JPEG_QUALITY_BUMP = 0.02; // jpeg needs slightly higher quality than webp
 
 /**
- * Returns a human-readable error string if `file` is not an acceptable image,
- * or null when it's fine. Checks the file before resizing.
+ * Returns a human-readable error string if `file` isn't an image, or null
+ * when it's fine. Size isn't judged here — see uploadMenuImage().
  */
 export function imageSizeError(file: File): string | null {
   if (!file.type.startsWith("image/")) return "Please choose an image file.";
-  if (file.size > MAX_RAW_INPUT_BYTES) {
-    return `Image is too large (${(file.size / 1024 / 1024).toFixed(2)} MB). Maximum is ${MAX_RAW_INPUT_LABEL}.`;
-  }
   return null;
 }
 
@@ -82,13 +79,15 @@ function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number):
  * Resizes + re-encodes a picked menu image before upload, since dish photos
  * are shown small (see MENU_IMAGE_MAX_DIMENSION). Same white-fill canvas
  * approach as logoToRaster() in lib/escpos.ts, so transparent PNGs don't
- * turn black.
+ * turn black. Steps down MENU_IMAGE_QUALITY_STEPS if still over MAX_IMAGE_BYTES.
  *
  * Returns `file` unchanged on failure, if it's already small, or for GIFs
  * (keeps the animation).
  */
 async function prepareMenuImage(file: File): Promise<File> {
   if (file.type === "image/gif") return file;
+  if (file.size > MAX_DECODABLE_BYTES) return file; // too large to safely decode
+  if (file.size <= MAX_IMAGE_BYTES) return file; // already small enough
 
   let source: ImageBitmap | HTMLImageElement;
   try {
@@ -102,10 +101,11 @@ async function prepareMenuImage(file: File): Promise<File> {
     const { width, height } = sourceDimensions(source);
     if (!width || !height) return file;
 
+    // Only shrink dimensions if they're over the target — still re-encode
+    // (format conversion) even when they're not, since a lossless format
+    // like PNG can be huge in bytes at small dimensions.
     const longEdge = Math.max(width, height);
-    if (longEdge <= MENU_IMAGE_MAX_DIMENSION) return file;
-
-    const scale = MENU_IMAGE_MAX_DIMENSION / longEdge;
+    const scale = longEdge > MENU_IMAGE_MAX_DIMENSION ? MENU_IMAGE_MAX_DIMENSION / longEdge : 1;
     const w = Math.max(1, Math.round(width * scale));
     const h = Math.max(1, Math.round(height * scale));
 
@@ -117,17 +117,25 @@ async function prepareMenuImage(file: File): Promise<File> {
     ctx.fillRect(0, 0, w, h);
     ctx.drawImage(source, 0, 0, w, h);
 
-    let blob = await canvasToBlob(canvas, "image/webp", MENU_IMAGE_WEBP_QUALITY);
-    let ext = "webp";
-    if (!blob || blob.type !== "image/webp") {
-      // Some engines silently return PNG instead of webp — retry as JPEG.
-      blob = await canvasToBlob(canvas, "image/jpeg", MENU_IMAGE_JPEG_QUALITY);
-      ext = "jpg";
+    // Step down in quality until it fits the cap; keep the last attempt
+    // even if none fit.
+    let best: { blob: Blob; ext: string } | null = null;
+    for (const quality of MENU_IMAGE_QUALITY_STEPS) {
+      let blob = await canvasToBlob(canvas, "image/webp", quality);
+      let ext = "webp";
+      if (!blob || blob.type !== "image/webp") {
+        // Some engines silently return PNG instead of webp — retry as JPEG.
+        blob = await canvasToBlob(canvas, "image/jpeg", Math.min(quality + JPEG_QUALITY_BUMP, 0.95));
+        ext = "jpg";
+      }
+      if (!blob) continue;
+      best = { blob, ext };
+      if (blob.size <= MAX_IMAGE_BYTES) break;
     }
-    if (!blob) return file;
+    if (!best) return file;
 
     const base = file.name.replace(/\.[^.]+$/, "") || "menu-image";
-    return new File([blob], `${base}.${ext}`, { type: blob.type, lastModified: file.lastModified });
+    return new File([best.blob], `${base}.${best.ext}`, { type: best.blob.type, lastModified: file.lastModified });
   } catch (err) {
     console.error("prepareMenuImage: resize failed, uploading original:", err);
     return file;
@@ -170,13 +178,18 @@ export function readImageAsDataUrl(file: File, maxBytes = MAX_LOGO_BYTES): Promi
  * (see prepareMenuImage). Throws a user-facing Error on failure.
  */
 export async function uploadMenuImage(file: File): Promise<string> {
-  const rawErr = imageSizeError(file);
-  if (rawErr) throw new Error(rawErr);
+  const typeErr = imageSizeError(file);
+  if (typeErr) throw new Error(typeErr);
 
   const prepared = await prepareMenuImage(file);
   if (prepared.size > MAX_IMAGE_BYTES) {
+    const sizeMB = (prepared.size / 1024 / 1024).toFixed(1);
+    // GIFs are never optimized (see prepareMenuImage) — "after optimizing"
+    // would be misleading, so skip that wording for them.
     throw new Error(
-      `Image is too large after optimizing (${(prepared.size / 1024 / 1024).toFixed(2)} MB). Maximum is ${MAX_IMAGE_LABEL}.`,
+      file.type === "image/gif"
+        ? `"${file.name}" is ${sizeMB} MB - each photo must be ${MAX_IMAGE_LABEL} or smaller.`
+        : `"${file.name}" is still ${sizeMB} MB after optimizing - use a smaller photo (max ${MAX_IMAGE_LABEL}).`,
     );
   }
 
