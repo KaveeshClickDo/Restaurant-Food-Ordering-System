@@ -190,7 +190,7 @@ export function ReceiptModal({
         win.document.close();
     }
 
-    // "Print": sends the receipt to the active Online printer (Admin → Integrations).
+    // "Print": sends the receipt to the active Admin Receipts printer (Admin → Integrations).
     const [printState, setPrintState] = useState<"idle" | "busy" | "done">("idle");
     const [noPrinterOpen, setNoPrinterOpen] = useState(false);
 
@@ -229,7 +229,7 @@ export function ReceiptModal({
                         <button
                             onClick={handlePrint}
                             disabled={printState === "busy"}
-                            title="Print to the Online printer"
+                            title="Print to the Admin Receipts printer"
                             className="flex items-center gap-1.5 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-1.5 rounded-lg transition disabled:opacity-60"
                         >
                             {printState === "busy" ? <Loader2 size={12} className="animate-spin" />
@@ -434,11 +434,11 @@ export function ReceiptModal({
             </div>
         </div>
 
-        {/* Print clicked with no active Online printer: say so, and offer the PDF instead. */}
+        {/* Print clicked with no active Admin Receipts printer: say so, and offer the PDF instead. */}
         <ConfirmDialog
             open={noPrinterOpen}
-            title="No online printer set up"
-            message="Print needs an active Online printer. Add one in Admin → Integrations → Thermal Printer and set it active. You can still save this receipt as a PDF."
+            title="No printer set up"
+            message="Print needs an active printer in the Admin Receipts section. Add one in Admin → Integrations → Thermal Printer and set it active. You can still save this receipt as a PDF."
             confirmLabel="Save as PDF"
             cancelLabel="Close"
             tone="primary"

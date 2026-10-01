@@ -1001,8 +1001,8 @@ export default function DeliveryPanel() {
       {/* Print clicked with no usable Online printer: say so, and offer the receipt view. */}
       <ConfirmDialog
         open={!!noPrinterOrder}
-        title="No online printer set up"
-        message="Print needs an active Online printer. Add one in Admin → Integrations → Thermal Printer and set it active. You can still view this order's receipt."
+        title="No printer set up"
+        message="Print needs an active Online printer under the Admin Receipts section. Add one in Admin → Integrations → Thermal Printer and set it active. You can still view this order's receipt."
         confirmLabel="View receipt"
         cancelLabel="Close"
         tone="primary"

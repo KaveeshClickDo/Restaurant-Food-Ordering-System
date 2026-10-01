@@ -363,7 +363,9 @@ export interface CustomPage {
 }
 
 /** "pos" = "Receipt / POS" in the UI — counter/receipt printing.
- *  "online" = printed manually by an admin from Admin → Online Orders. */
+ *  "online" = "Admin Receipts" in the UI — printed manually from several admin
+ *  screens (Online Orders, POS Orders, Dine-in Orders, Order History,
+ *  Customers, POS Reports) and from /collection. */
 export type PrinterCategory = "kitchen" | "pos" | "online";
 
 export interface PrinterSettings {

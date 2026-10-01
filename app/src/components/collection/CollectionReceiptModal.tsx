@@ -82,7 +82,7 @@ export default function CollectionReceiptModal({
         tone: "info",
         text: printCategory === "pos"
           ? "No receipt printer is set up. Add one in Settings → Hardware and set it active. You can still save this receipt as a PDF."
-          : "No online printer is set up. Ask an admin to add one in Admin → Integrations and set it active. You can still save this receipt as a PDF.",
+          : "No online printer is set up under the Admin Receipts section. Ask an admin to add one in Admin → Integrations and set it active. You can still save this receipt as a PDF.",
       });
       return;
     }

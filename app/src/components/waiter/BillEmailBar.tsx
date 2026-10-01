@@ -8,7 +8,7 @@
 
 import { useState } from "react";
 import { useApp } from "@/context/AppContext";
-import { Printer, Loader2, CheckCircle2, Mail, Eye } from "lucide-react";
+import { Loader2, CheckCircle2, Mail, Eye } from "lucide-react";
 import type { WaiterReceipt } from "./_types";
 import { buildReceiptHtml } from "./_receiptHtml";
 
