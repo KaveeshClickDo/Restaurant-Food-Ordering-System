@@ -75,10 +75,7 @@ async function request<T>(opts: RequestOpts): Promise<T> {
   const json = text ? safeParse(text) : null;
 
   if (!res.ok) {
-    const message =
-      (json && typeof json === "object" && "message" in json && typeof (json as { message: unknown }).message === "string"
-        ? (json as { message: string }).message
-        : null) ?? `Dojo API ${opts.method} ${opts.path} failed with ${res.status}`;
+    const message = errorMessage(json) ?? `Dojo API ${opts.method} ${opts.path} failed with ${res.status}`;
     throw new DojoApiError(res.status, message, json ?? text);
   }
   return (json as T);
@@ -86,6 +83,28 @@ async function request<T>(opts: RequestOpts): Promise<T> {
 
 function safeParse(text: string): unknown {
   try { return JSON.parse(text); } catch { return text; }
+}
+
+/**
+ * Dojo's own words for a failure. Its errors are problem details (title,
+ * detail, and per-field `errors`); older endpoints use `message`. The key case
+ * varies by endpoint (the refunds endpoint sends "Detail"), so keys are matched
+ * case-insensitively.
+ */
+function errorMessage(json: unknown): string | null {
+  if (!json || typeof json !== "object") return null;
+  const body = Object.fromEntries(
+    Object.entries(json as Record<string, unknown>).map(([k, v]) => [k.toLowerCase(), v]),
+  );
+  const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  const summary = text(body.message) ?? text(body.detail) ?? text(body.title);
+  const fields = body.errors && typeof body.errors === "object"
+    ? Object.entries(body.errors as Record<string, unknown>)
+        .map(([field, v]) => `${field}: ${Array.isArray(v) ? v.join(", ") : String(v)}`)
+        .join("; ")
+    : "";
+  const parts = [summary, fields].filter((p): p is string => !!p);
+  return parts.length > 0 ? parts.join(" — ") : null;
 }
 
 function sessionDetails(input: CreateTerminalSessionInput): DojoTerminalSessionDetails {

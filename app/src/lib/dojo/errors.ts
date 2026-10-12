@@ -67,10 +67,11 @@ export function describeDojoError(err: DojoApiError, op: DojoOp): DescribedDojoE
     };
   }
   if (op === "create" && s === 409) {
+    // Dojo's own wording for this 409: "the terminal is either offline or currently in use".
     return {
       httpStatus: 409,
       code: "terminal_busy",
-      message: "The card machine is busy. Finish or cancel what's on its screen, then try again.",
+      message: "The card machine isn't available: it's busy or offline. Finish or cancel what's on its screen, check it's on, then try again.",
     };
   }
   if (s === 404) {

@@ -3,17 +3,18 @@
  *
  * Lets us build and test the whole Pay-at-Counter flow with no Dojo account or
  * key. Its nine virtual terminals copy the ones Dojo set up on our sandbox
- * account: same TIDs, same forced outcomes, so DOJO_TERMINAL_ID=VCMSEEKDIP0
+ * account: same TIDs, same outcomes and prompts, so DOJO_TERMINAL_ID=VCMSEEKDIP0
  * means the same machine in mock and live mode.
  *
- *   VCMSEEKSIP0  chip & PIN, approved        VCMSEEKUIP0  unsuccessful result
+ *   VCMSEEKSIP0  chip & PIN, approved        VCMSEEKUIP0  unsuccessful: ends Canceled
  *   VCMSEEKSCN0  contactless, approved       VCMSEEKTIP0  timed out (Expired)
  *   VCMSEEKSIS0  signature check             VCMSEEKCIP0  cancelled on the machine
- *   VCMSEEKDIS0  signature, then declined    VCMSEEKSIP1  approved with a 10% tip
+ *   VCMSEEKDIS0  signature check, as SIS0    VCMSEEKSIP1  approved with a 10% tip
  *   VCMSEEKDIP0  declined
  *
- * UIP0 and DIS0 are our best guess at Dojo's statuses (Declined) until the
- * sandbox shows the real ones.
+ * Statuses and prompts follow what Dojo's sandbox returned on 2026-10-12
+ * (npm run dojo:sandbox). SIP1 wasn't on our account then, so its tip is
+ * modelled from the API spec (tipsAmount / totalAmount).
  *
  * It also behaves like Dojo where the POS has to cope: a busy terminal refuses
  * a second session (409), a cancel after the card is in is refused (422), a
@@ -51,7 +52,6 @@ type Outcome =
   | "contactless"
   | "tip"
   | "signature"
-  | "signatureDeclined"
   | "declined"
   | "unsuccessful"
   | "expired"
@@ -61,7 +61,7 @@ const MOCK_TERMINALS: ReadonlyArray<{ tid: string; outcome: Outcome }> = [
   { tid: "VCMSEEKSIP0", outcome: "approved" },
   { tid: "VCMSEEKSCN0", outcome: "contactless" },
   { tid: "VCMSEEKSIS0", outcome: "signature" },
-  { tid: "VCMSEEKDIS0", outcome: "signatureDeclined" },
+  { tid: "VCMSEEKDIS0", outcome: "signature" },
   { tid: "VCMSEEKDIP0", outcome: "declined" },
   { tid: "VCMSEEKUIP0", outcome: "unsuccessful" },
   { tid: "VCMSEEKTIP0", outcome: "expired" },
@@ -75,14 +75,22 @@ const terminalIdOf = (tid: string) => `tm_mock_${tid}`;
 const SIGNATURE_TIMEOUT_MS = 80_000;
 const SESSION_LIFETIME_MS = 90_000;
 
-/** Session statuses that never change again. */
+/** Session statuses that never change again. In the sandbox an accepted
+ *  signature's session stays SignatureVerificationAccepted, with the intent
+ *  captured. */
 const FINAL: ReadonlySet<DojoTerminalSessionStatus> = new Set<DojoTerminalSessionStatus>([
   "Captured",
   "Authorized",
   "Declined",
   "Expired",
   "Canceled",
+  "SignatureVerificationAccepted",
   "SignatureVerificationRejected",
+]);
+
+/** Outcomes where the sandbox asks for a PIN (and to remove the card) before the result. */
+const PIN_FLOWS: ReadonlySet<Outcome> = new Set<Outcome>([
+  "approved", "tip", "declined", "unsuccessful", "expired", "canceledOnMachine",
 ]);
 
 interface MockSession {
@@ -162,7 +170,7 @@ function reverseIntent(paymentIntentId: string | undefined): void {
   if (pi) { pi.status = "Reversed"; pi.updatedAt = nowIso(); }
 }
 
-/** Advance a session one poll-tick toward its outcome. */
+/** Advance a session one poll-tick toward its outcome, with the sandbox's prompts. */
 function advance(ms: MockSession): void {
   const s = ms.session;
   if (FINAL.has(s.status)) return;
@@ -174,53 +182,50 @@ function advance(ms: MockSession): void {
     case "CancelRequested":
       pushStatus(s, "Canceled");
       return;
-    case "SignatureVerificationAccepted":
-      // Dojo captures straight after an accepted signature.
-      if (ms.outcome === "signatureDeclined") { pushNote(s, "Declined"); pushStatus(s, "Declined"); }
-      else { pushNote(s, "Approved"); pushStatus(s, "Captured"); captureIntent(piId, ms.outcome); }
-      return;
     case "SignatureVerificationRequired": {
       const timedOut = ms.signatureRequiredAt !== null
         && Date.now() - ms.signatureRequiredAt >= SIGNATURE_TIMEOUT_MS;
-      if (ms.signatureDecision === false) { pushStatus(s, "SignatureVerificationRejected"); reverseIntent(piId); }
-      else if (ms.signatureDecision === true || timedOut) pushStatus(s, "SignatureVerificationAccepted");
+      if (ms.signatureDecision === false) {
+        pushStatus(s, "SignatureVerificationRejected");
+        reverseIntent(piId);
+      } else if (ms.signatureDecision === true || timedOut) {
+        pushStatus(s, "SignatureVerificationAccepted");
+        captureIntent(piId, ms.outcome); // the sandbox captures as the signature is accepted
+      }
       return;
     }
   }
 
+  const pin = PIN_FLOWS.has(ms.outcome);
   if (ms.polls === 1) {
     pushStatus(s, "Initiated");
     pushNote(s, "PresentCard");
     return;
   }
   if (ms.polls === 2) {
-    if (ms.outcome === "canceledOnMachine") { pushStatus(s, "Canceled"); return; }
     ms.cardPresented = true;
     pushNote(s, "PleaseWait");
-    if (ms.outcome !== "contactless") pushNote(s, "EnterPin");
+    if (pin) pushNote(s, "EnterPin");
     return;
   }
 
+  if (pin) { pushNote(s, "PleaseWait"); pushNote(s, "RemoveCard"); }
   switch (ms.outcome) {
     case "declined":
-      pushNote(s, "Declined");
       pushStatus(s, "Declined");
       break;
     case "unsuccessful":
-      pushNote(s, "CardError");
-      pushStatus(s, "Declined");
+    case "canceledOnMachine":
+      pushStatus(s, "Canceled"); // both end Canceled in the sandbox, after the card
       break;
     case "expired":
       pushStatus(s, "Expired");
       break;
     case "signature":
-    case "signatureDeclined":
       ms.signatureRequiredAt = Date.now();
       pushStatus(s, "SignatureVerificationRequired");
       break;
     default:
-      pushNote(s, "Approved");
-      if (ms.outcome !== "contactless") pushNote(s, "RemoveCard");
       pushStatus(s, "Captured");
       captureIntent(piId, ms.outcome);
   }

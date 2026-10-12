@@ -139,20 +139,41 @@ card payment. The mock's terminals copy the virtual terminals Dojo set up on our
 sandbox account, with the same TIDs. Pin one with `DOJO_TERMINAL_ID`, which takes
 a TID or a Dojo terminal id (`tm_…`), so the same value works in mock and live:
 
-| `DOJO_TERMINAL_ID` | Outcome |
+| `DOJO_TERMINAL_ID` | Outcome (as the sandbox returns it) |
 |---|---|
-| `VCMSEEKSIP0` | chip & PIN, approved |
+| `VCMSEEKSIP0` | chip & PIN, approved (`Captured`) |
 | `VCMSEEKSCN0` | contactless with device verification, approved |
-| `VCMSEEKSIS0` | signature verification |
-| `VCMSEEKDIS0` | signature, then declined |
-| `VCMSEEKDIP0` | declined |
-| `VCMSEEKUIP0` | unsuccessful |
-| `VCMSEEKTIP0` | timed out (`Expired`, result unknown) |
-| `VCMSEEKCIP0` | cancelled on the machine |
-| `VCMSEEKSIP1` | approved with a 10% tip |
+| `VCMSEEKSIS0` | signature check: accept → approved (session stays `SignatureVerificationAccepted`), reject → `SignatureVerificationRejected` |
+| `VCMSEEKDIS0` | same as SIS0 — the staff decision decides |
+| `VCMSEEKDIP0` | `Declined` |
+| `VCMSEEKUIP0` | "unsuccessful": ends `Canceled`, after the card prompts |
+| `VCMSEEKTIP0` | timed out: `Expired` after about 90 seconds |
+| `VCMSEEKCIP0` | cancelled on the machine: `Canceled`, after the card prompts |
+| `VCMSEEKSIP1` | approved with a 10% tip — not on our account yet (see §6a) |
 
-What the mock returns for UIP0 and DIS0 (`Declined`) is our guess until the
-sandbox shows Dojo's real statuses.
+### 6a. Sandbox results (2026-10-12)
+
+`npm run dojo:sandbox` runs the same scenarios against Dojo's real sandbox. It
+needs only `DOJO_API_KEY=sk_sandbox_…` in `app/.env.local`, refuses any other
+key, and takes sections: `npm run dojo:sandbox -- refunds signature`.
+
+What it showed on the first run:
+- The key, the `softwareHouse1` id and the terminal TIDs (`properties.tid`) work.
+  8 of the 9 virtual terminals are on the account; **VCMSEEKSIP1 is missing**.
+- Every sale outcome, signature accept/reject, retrying a declined card on the
+  same intent, the already-paid check, cancel from the POS, a busy terminal
+  (409), an unknown terminal (404) and a wrong key (401) behave as the code
+  expects.
+- **Refunds:** card-present refunds work (matched and unlinked sessions end
+  `Captured`). Refunding a terminal payment by API fails ("Your refund request
+  was not successful. Status: Failed."), and so does a reversal. After a matched
+  refund the intent still shows `Captured` with `refundedAmount` 0, where the
+  checklist expects `Refunded`.
+
+Open questions for Dojo: add VCMSEEKSIP1 (or confirm gratuity isn't needed);
+whether API refunds and reversals of terminal payments fail only on the sandbox,
+and which refund path to use for accreditation; why a matched refund doesn't
+mark the intent `Refunded`.
 
 ---
 
@@ -216,4 +237,7 @@ sessions/[id]/signature,sessions/[id]/cancel,refunds,webhook}` and
   though `dojo_payments` holds them.
 - **Refund UI:** refunds exist as an API route (`canIssueRefund`-gated), but no
   screen calls it yet, and there is no card-present refund screen. Dojo requires
-  a working refund path before production.
+  a working refund path before production. On the sandbox only card-present
+  refunds work (§6a), so the refund screen should start there. A refund
+  session's snapshot still carries a sale-shaped `result` with an empty
+  `paymentIntentId`; the refund screen will need its own handling.
