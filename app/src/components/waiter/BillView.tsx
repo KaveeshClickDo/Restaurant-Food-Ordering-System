@@ -55,6 +55,9 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
   const [settleConfirm, setSettleConfirm] = useState<"cash" | "card" | "gift_card" | null>(null);
   // Dojo card flow: "choose" shows terminal-vs-manual; "dojo" drives the terminal.
   const [cardFlow, setCardFlow] = useState<"none" | "choose" | "dojo">("none");
+  // True while a terminal payment is live; leaving the bill then would stop the
+  // app watching a machine that can still take the money.
+  const [dojoActive, setDojoActive] = useState(false);
   // Gift card applied to the bill (bearer code). Reduces the amount due; the
   // remainder is settled by cash/card as normal.
   const [billGiftCard, setBillGiftCard] = useState<{ code: string; balance: number } | null>(null);
@@ -312,7 +315,8 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
         <header className="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center gap-3 flex-shrink-0">
           <button
             onClick={() => onExit(false)}
-            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex-shrink-0"
+            disabled={dojoActive}
+            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <ArrowLeft size={16} />
           </button>
@@ -499,6 +503,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                   onApproved={(r) => { setCardFlow("none"); payBill("card", r); }}
                   onManualFallback={() => { setCardFlow("none"); payBill("card"); }}
                   onBack={() => setCardFlow("none")}
+                  onActiveChange={setDojoActive}
                 />
               ) : cardFlow === "choose" ? (
                 <div className="space-y-3">

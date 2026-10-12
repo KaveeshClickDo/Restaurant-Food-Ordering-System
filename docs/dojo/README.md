@@ -1,7 +1,8 @@
 # Dojo card terminal — how it works in this app
 
-Status: **built and working in mock mode.** `tsc --noEmit` ✓, `eslint` ✓,
-`next build` ✓, `npm run dojo:demo` exercises every outcome.
+Status: **built and working in mock mode; sandbox testing next.** The simulator
+now mirrors the nine virtual terminals Dojo set up on our sandbox account, and
+`npm run dojo:demo` checks every outcome plus the go-live edge cases.
 API facts: [dojo-integration-reference.md](./dojo-integration-reference.md)
 (verified 2026-08-12 against the live docs **and** the OpenAPI spec).
 
@@ -85,8 +86,20 @@ recordDojoPayment(...) ─▶ dojo_payments row + the surface's own settle call
   [signature] → success | declined | expired | canceled | error`, showing the
   terminal's own prompts to staff.
 - **Expired** ⇒ result unknown ⇒ offer "Record as paid" or "Retry" (Dojo
-  mandates this). **Declined** ⇒ Retry / Back. **Signature** ⇒ Accept / Reject,
-  with Dojo auto-accepting after 80s.
+  mandates this). Before showing it, the server checks the payment intent: if
+  Dojo shows the money was taken, the sale completes as paid instead.
+  **Declined** ⇒ Retry / Back. **Signature** ⇒ Accept / Reject, with Dojo
+  auto-accepting after 80s.
+- **Retry reuses the payment intent** (Dojo's checklist). The server first checks
+  whether the earlier attempt actually went through, and if so reports it as paid
+  rather than charging again (`lib/dojo/flow.ts`).
+- **Cancel** asks Dojo and keeps polling until Dojo reports `Canceled`. Once the
+  card is in, Dojo refuses (422): staff see "too late to cancel" and the payment's
+  real outcome still arrives. A payment screen can't be closed while a payment is
+  live (`onActiveChange`); if it unmounts anyway, the hook cancels the session.
+- **Errors before a payment starts** (wrong API key, busy, offline or unknown
+  terminal) show a "Couldn't start" screen with a plain message
+  (`lib/dojo/errors.ts`) and no "Record as paid", because nothing was charged.
 
 ### Surface boundary
 
@@ -118,31 +131,42 @@ Apply with `cd app && npm run db:migrate` — idempotent, safe to re-run.
 
 ```bash
 cd app
-npm run dojo:demo        # success / declined / expired / signature / refund
+npm run dojo:demo        # every terminal + retry, cancel, busy, refunds; exits 1 on a failure
 ```
 
 In the UI: set `DOJO_MODE=mock`, `npm run dev`, open `/pos` or `/waiter`, take a
-card payment. The mock picks its outcome from the terminal id suffix, mirroring
-Dojo's real sandbox virtual terminals — pin one with `DOJO_TERMINAL_ID`:
+card payment. The mock's terminals copy the virtual terminals Dojo set up on our
+sandbox account, with the same TIDs. Pin one with `DOJO_TERMINAL_ID`, which takes
+a TID or a Dojo terminal id (`tm_…`), so the same value works in mock and live:
 
-| Pinned id | Outcome |
+| `DOJO_TERMINAL_ID` | Outcome |
 |---|---|
-| `tm_mock_success_SIP0` | approved |
-| `tm_mock_declined_DIP0` | declined |
-| `tm_mock_expired_TIP0` | expired (unknown result) |
-| `tm_mock_signature_SIS0` | signature verification |
+| `VCMSEEKSIP0` | chip & PIN, approved |
+| `VCMSEEKSCN0` | contactless with device verification, approved |
+| `VCMSEEKSIS0` | signature verification |
+| `VCMSEEKDIS0` | signature, then declined |
+| `VCMSEEKDIP0` | declined |
+| `VCMSEEKUIP0` | unsuccessful |
+| `VCMSEEKTIP0` | timed out (`Expired`, result unknown) |
+| `VCMSEEKCIP0` | cancelled on the machine |
+| `VCMSEEKSIP1` | approved with a 10% tip |
+
+What the mock returns for UIP0 and DIS0 (`Declined`) is our guess until the
+sandbox shows Dojo's real statuses.
 
 ---
 
 ## 7. Going live
 
 **Sandbox:** `DOJO_MODE=live`, `DOJO_API_KEY=sk_sandbox_…`, keep the dummy
-`DOJO_SOFTWARE_HOUSE_ID=softwareHouse1`. Restart. Dojo's virtual terminals give
-you every outcome without hardware.
+`DOJO_SOFTWARE_HOUSE_ID=softwareHouse1`, and pin a virtual terminal by its TID
+(e.g. `DOJO_TERMINAL_ID=VCMSEEKSIP0`). Restart after each change. Dojo's virtual
+terminals give you every outcome without hardware.
 
 **Production:** pass Dojo's QA checklist (a working refund path is mandatory —
-we have both server-side and card-present), then `sk_prod_…` plus the
-Dojo-assigned `software-house-id`, and repoint webhooks.
+the API supports server-side and card-present refunds, but no screen calls them
+yet), then `sk_prod_…` plus the Dojo-assigned `software-house-id`, and repoint
+webhooks.
 
 **Android POS needs no rebuild** for sandbox↔prod, because it is all server-side.
 The APK only had to ship the UI once.
@@ -154,10 +178,11 @@ The APK only had to ship the UI once.
 **Core — `app/src/lib/dojo/`** (server-side unless noted)
 `config.ts` (mode + env), `effectiveFlag.ts` (env AND admin toggle),
 `gateway.ts` (interface + snapshot/result mappers), `client.ts` (real HTTP),
-`mock.ts` (simulator), `index.ts` (gateway selector), `sessionHandlers.ts`
-(shared route logic), `recordPayment.ts`, `webhook.ts` (HMAC), `respond.ts`
-(error→HTTP + minor units), `types.ts`, `posApi.ts` (**client-side** fetchers,
-`apiBase()`-aware).
+`mock.ts` (simulator), `index.ts` (gateway selector), `flow.ts` (starting a
+payment: terminal by TID, intent reuse, already-paid check), `sessionHandlers.ts`
+(shared route logic), `recordPayment.ts`, `webhook.ts` (HMAC), `errors.ts`
+(Dojo error → staff message), `respond.ts` (error→HTTP + minor units),
+`types.ts`, `posApi.ts` (**client-side** fetchers, `apiBase()`-aware).
 
 **Routes** — `api/pos/dojo/{config,terminals,sessions,sessions/[id],
 sessions/[id]/signature,sessions/[id]/cancel,refunds,webhook}` and
@@ -180,12 +205,15 @@ sessions/[id]/signature,sessions/[id]/cancel,refunds,webhook}` and
   `POST /payment-intents/{id}/captures`, so a pre-auth could be started and
   never settled. Both the capture call and a bar-tab UI are missing. Dojo's
   checklist marks pre-auth `[Optional]`.
-- **Cashback, gratuity and `itemLines`:** not implemented. Tips are agreed at
-  the table and included in the amount sent to the terminal, so terminal-side
-  gratuity is deliberately not used.
+- **Cashback and `itemLines`:** not implemented.
+- **Gratuity:** a tip the customer adds on the card machine is recorded
+  (`dojo_payments.tip_amount`, with Dojo's `total_amount`) and shown on the
+  approval screen, but the sale's own totals and reports don't include it yet.
+  Tips agreed at the table are still part of the amount sent to the terminal.
 - **MOTO (`cardHolderNotPresent`):** the flag reaches the wire, but no surface
   sets it.
 - **Receipt:** `ReceiptModal` does not yet print the captured scheme/last-4/auth,
   though `dojo_payments` holds them.
-- **Refund UI:** refunds exist as an API route (`canIssueRefund`-gated); there is
-  no dedicated card-present refund screen.
+- **Refund UI:** refunds exist as an API route (`canIssueRefund`-gated), but no
+  screen calls it yet, and there is no card-present refund screen. Dojo requires
+  a working refund path before production.

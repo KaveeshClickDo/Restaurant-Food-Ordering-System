@@ -125,6 +125,9 @@ export default function PaymentModal({
   // which calls onDojoApproved on success. "Other" keeps today's manual confirm.
   const useDojoCard = dojoEnabled && !isOffline;
   const [cardMode, setCardMode] = useState<"choose" | "dojo" | "manual">("choose");
+  // True while a terminal payment is live: closing then would stop the POS
+  // watching a machine that can still take the money, so the X is hidden.
+  const [dojoActive, setDojoActive] = useState(false);
 
   function chooseCard() {
     setStep("card");
@@ -155,9 +158,11 @@ export default function PaymentModal({
               <p className="text-purple-300 text-xs mt-0.5">Gift card −{fmt(giftCardApplied, currencySymbol)} of {fmt(total, currencySymbol)}</p>
             )}
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-1 transition-colors">
-            <X size={20} />
-          </button>
+          {!dojoActive && (
+            <button onClick={onClose} className="text-slate-400 hover:text-white p-1 transition-colors">
+              <X size={20} />
+            </button>
+          )}
         </div>
 
         {step === "method" && (
@@ -340,6 +345,7 @@ export default function PaymentModal({
             onApproved={onDojoApproved}
             onManualFallback={recordCardManually}
             onBack={() => setCardMode("choose")}
+            onActiveChange={setDojoActive}
           />
         )}
 

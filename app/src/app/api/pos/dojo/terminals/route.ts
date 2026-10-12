@@ -3,6 +3,8 @@
  *
  * Returns only Available terminals by default (?all=1 for every status). The POS
  * uses this to pick a machine (or confirm the pinned DOJO_TERMINAL_ID is free).
+ * `tid` is the machine's name as Dojo lists it (e.g. VCMSEEKSIP0), which is also
+ * accepted as DOJO_TERMINAL_ID.
  * Namespaced under /dojo to avoid the existing /api/pos/terminals (the till/POS
  * device concept — unrelated to Dojo hardware).
  */
@@ -21,9 +23,9 @@ export async function GET(req: NextRequest) {
     const terminals = await getDojoGateway().listTerminals(!all);
     return NextResponse.json({
       ok: true,
-      terminals: terminals.map((t) => ({ id: t.id, status: t.status, model: t.model ?? null })),
+      terminals: terminals.map((t) => ({ id: t.id, status: t.status, tid: t.properties?.tid ?? null })),
     });
   } catch (err) {
-    return dojoErrorResponse(err);
+    return dojoErrorResponse(err, "terminals");
   }
 }

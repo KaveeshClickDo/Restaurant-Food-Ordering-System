@@ -47,6 +47,8 @@ export default function SellGiftCardModal({ card, currencySymbol, onClose, onSol
   const [sold, setSold] = useState(false);
   // Dojo card flow: "choose" shows terminal-vs-manual; "dojo" drives the terminal.
   const [cardFlow, setCardFlow] = useState<"none" | "choose" | "dojo">("none");
+  // True while a terminal payment is live; the X is hidden so the POS keeps watching it.
+  const [dojoActive, setDojoActive] = useState(false);
 
   /** Activate clicked: validate, then branch to the Dojo choice for card+enabled. */
   function onActivateClick() {
@@ -95,7 +97,9 @@ export default function SellGiftCardModal({ card, currencySymbol, onClose, onSol
           <h3 className="text-white font-bold flex items-center gap-2">
             <Gift size={16} className="text-amber-400" /> {sold ? "Gift card sold" : "Sell Gift Card"}
           </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-white"><X size={18} /></button>
+          {!dojoActive && (
+            <button onClick={onClose} className="text-slate-400 hover:text-white"><X size={18} /></button>
+          )}
         </div>
 
         {sold ? (
@@ -124,6 +128,7 @@ export default function SellGiftCardModal({ card, currencySymbol, onClose, onSol
               onApproved={(r) => { setCardFlow("none"); void handleSell(r); }}
               onManualFallback={() => { setCardFlow("none"); void handleSell(); }}
               onBack={() => setCardFlow("none")}
+              onActiveChange={setDojoActive}
             />
           </div>
         ) : cardFlow === "choose" ? (

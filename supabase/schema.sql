@@ -1299,6 +1299,10 @@ create table if not exists dojo_payments (
   created_at           timestamptz not null default now()
 );
 create index if not exists idx_dojo_payments_source on dojo_payments (source_type, source_id);
+-- Tip the customer added on the card machine, and Dojo's total for the intent
+-- (from the payment intent's tipsAmount / totalAmount), in major units.
+alter table dojo_payments add column if not exists tip_amount   numeric(10,2);
+alter table dojo_payments add column if not exists total_amount numeric(10,2);
 alter table dojo_payments enable row level security;
 drop policy if exists "deny_anon_all" on dojo_payments;
 create policy "deny_anon_all" on dojo_payments for all to anon using (false) with check (false);

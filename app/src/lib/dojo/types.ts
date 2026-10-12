@@ -45,20 +45,28 @@ export interface DojoPaymentDetails {
   card?: DojoCardDetails;
 }
 
+/** One past terminal session on an intent (PaymentIntent.terminalSessionHistory). */
+export interface DojoTerminalSessionHistoryEntry {
+  terminalSession?: { id?: string; status?: string } | null;
+}
+
 export interface DojoPaymentIntent {
   id: string;                  // "pi_..."
   captureMode: DojoCaptureMode;
   status: DojoPaymentIntentStatus;
   paymentMethods?: string[];
   amount: DojoMoney;
-  totalAmount?: DojoMoney;
+  /** Tip the customer added on the card machine (gratuity prompt), if any. */
+  tipsAmount?: DojoMoney | null;
+  cashbackAmount?: DojoMoney | null;
+  totalAmount?: DojoMoney | null;
   refundedAmount?: number;
   reference?: string;
   description?: string;
   paymentLink?: string;
   paymentDetails?: DojoPaymentDetails;
   paymentEvents?: unknown[];
-  terminalSessionHistory?: unknown[];
+  terminalSessionHistory?: DojoTerminalSessionHistoryEntry[] | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -78,8 +86,9 @@ export type DojoTerminalStatus = "Available" | "InUse" | "Offline" | string;
 export interface DojoTerminal {
   id: string;                  // "tm_..."  (Dojo terminal id, NOT the hardware TID)
   status: DojoTerminalStatus;
-  tid?: string;                // 8-digit hardware id (troubleshooting only)
-  model?: string;
+  /** The TID lives here, not at the top level (OpenAPI Terminal.properties). */
+  properties?: { tid?: string | null } | null;
+  updatedAt?: string;
 }
 
 // ── Terminal sessions ────────────────────────────────────────────────────────
@@ -98,13 +107,20 @@ export type DojoTerminalSessionStatus =
   | "Expired"
   | "Declined";
 
-/** Screen prompts the terminal shows the cardholder — surface these to staff. */
+/** Screen prompts the terminal shows the cardholder — surface these to staff.
+ *  The spec's list (TerminalSessionNotificationType), plus TapCard. */
 export type DojoNotificationType =
+  | "Approved"
+  | "Declined"
   | "PresentCard"
+  | "PresentOnlyOneCard"
   | "PleaseWait"
   | "EnterPin"
   | "RemoveCard"
   | "InsertCard"
+  | "ReEnterCard"
+  | "CardUnsupported"
+  | "CardError"
   | "TapCard"
   | string;
 
@@ -208,5 +224,9 @@ export interface DojoSaleResult {
   authCode: string | null;
   cardScheme: string | null;   // cardType, e.g. "VISA"
   cardLast4: string | null;
+  /** Tip added on the card machine, MAJOR units; null when none. */
+  tipAmount: number | null;
+  /** What Dojo reports as the intent's total, MAJOR units. */
+  totalAmount: number | null;
   status: DojoPaymentIntentStatus | DojoTerminalSessionStatus;
 }

@@ -7,9 +7,12 @@
  * "Card machine"; it auto-starts the terminal, runs the whole state machine
  * (present card → PIN → signature → settle) and calls back:
  *
- *   onApproved(result)   — captured/authorized; persist `result` on your record
- *   onManualFallback()   — (optional) operator records an Expired result manually
- *   onBack()             — operator cancelled / went back to the tender choice
+ *   onApproved(result)    — captured/authorized; persist `result` on your record
+ *   onManualFallback()    — (optional) operator records an Expired result manually
+ *   onBack()              — operator went back to the tender choice
+ *   onActiveChange(bool)  — (optional) true while a payment is live; hide or
+ *                           disable your close/back controls meanwhile, because
+ *                           closing the screen can't stop a card already in
  *
  * All Dojo logic lives in useDojoTerminal; this is purely presentation.
  *
@@ -18,19 +21,26 @@
  */
 
 import { useEffect, useRef } from "react";
-import { CreditCard, Loader2, CheckCircle2, XCircle, RefreshCw, PenLine, AlertTriangle } from "lucide-react";
+import { CreditCard, Loader2, CheckCircle2, XCircle, RefreshCw, PenLine, AlertTriangle, Ban } from "lucide-react";
 import { fmt } from "./_utils";
 import { useDojoTerminal } from "./useDojoTerminal";
 import type { DojoScope } from "@/lib/dojo/posApi";
 import type { DojoSaleResult } from "@/lib/dojo/types";
 
+/** Dojo's terminal prompts (TerminalSessionNotificationType), as staff should read them. */
 const NOTIF_TEXT: Record<string, string> = {
   PresentCard: "Present card",
+  PresentOnlyOneCard: "Present only one card",
   InsertCard: "Insert card",
+  ReEnterCard: "Insert the card again",
   TapCard: "Tap card",
   EnterPin: "Enter PIN",
   PleaseWait: "Please wait…",
   RemoveCard: "Remove card",
+  CardUnsupported: "Card not supported — ask for another card",
+  CardError: "Card error — try the card again",
+  Approved: "Approved",
+  Declined: "Declined",
 };
 
 export default function DojoChargePanel({
@@ -43,6 +53,7 @@ export default function DojoChargePanel({
   onApproved,
   onManualFallback,
   onBack,
+  onActiveChange,
 }: {
   amount: number;
   reference?: string;
@@ -55,14 +66,23 @@ export default function DojoChargePanel({
   onApproved: (result: DojoSaleResult) => void;
   onManualFallback?: () => void;
   onBack: () => void;
+  onActiveChange?: (active: boolean) => void;
 }) {
   const dojo = useDojoTerminal(scope);
   const doneRef = useRef(false);
   const startedRef = useRef(false);
 
+  const active = dojo.phase === "starting" || dojo.phase === "processing" || dojo.phase === "signature";
+
+  /** Start, or retry: the hook reuses the payment intent of the earlier attempt. */
   function begin() {
     doneRef.current = false;
     void dojo.start({ amount, reference, description: description ?? (reference ? `Card sale ${reference}` : "Card sale") });
+  }
+
+  function back() {
+    dojo.reset();
+    onBack();
   }
 
   // Auto-start on mount.
@@ -80,6 +100,16 @@ export default function DojoChargePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dojo.phase, dojo.result]);
 
+  // Tell the parent while a payment is live, and release it on unmount.
+  useEffect(() => {
+    onActiveChange?.(active);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => () => onActiveChange?.(false), []);
+
+  const tip = dojo.result?.tipAmount ?? 0;
+
   return (
     <div className="p-5">
       {(dojo.phase === "starting" || dojo.phase === "processing") && (
@@ -88,18 +118,24 @@ export default function DojoChargePanel({
             <CreditCard size={36} className="text-blue-400" />
           </div>
           <p className="text-white font-bold text-lg mb-1">
-            {dojo.notification ? (NOTIF_TEXT[dojo.notification] ?? dojo.notification) : "Sending to card machine…"}
+            {dojo.cancelState === "cancelling"
+              ? "Cancelling…"
+              : dojo.notification ? (NOTIF_TEXT[dojo.notification] ?? dojo.notification) : "Sending to card machine…"}
           </p>
           <p className="text-slate-400 text-sm">Follow the prompts on the terminal</p>
           <p className="text-lg sm:text-xl font-bold text-blue-400 mt-4 flex items-center justify-center gap-2">
             <Loader2 size={16} className="animate-spin" /> {fmt(amount, currencySymbol)}
           </p>
-          <button
-            onClick={() => { void dojo.cancel(); dojo.reset(); onBack(); }}
-            className="mt-6 text-slate-400 hover:text-white text-sm"
-          >
-            Cancel
-          </button>
+          {dojo.notice && <p className="text-amber-400 text-sm mt-4">{dojo.notice}</p>}
+          {dojo.cancelState !== "too_late" && (
+            <button
+              onClick={() => void dojo.cancel()}
+              disabled={dojo.cancelState === "cancelling"}
+              className="mt-6 text-slate-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+            >
+              {dojo.cancelState === "cancelling" ? "Cancelling…" : "Cancel"}
+            </button>
+          )}
         </div>
       )}
 
@@ -109,7 +145,9 @@ export default function DojoChargePanel({
             <PenLine size={36} className="text-amber-400" />
           </div>
           <p className="text-white font-bold text-lg mb-1">Signature verification</p>
-          <p className="text-slate-400 text-sm mb-5">Check the signature matches the card, then accept or reject.</p>
+          <p className="text-slate-400 text-sm mb-1">Check the signature matches the card, then accept or reject.</p>
+          <p className="text-slate-500 text-xs mb-5">With no answer in 80 seconds, the card machine accepts it.</p>
+          {dojo.notice && <p className="text-amber-400 text-sm mb-4">{dojo.notice}</p>}
           <div className="flex gap-3">
             <button onClick={() => void dojo.submitSignature(false)}
               className="flex-1 py-3 rounded-xl font-bold text-sm bg-red-500/90 hover:bg-red-500 text-white transition-colors">Reject</button>
@@ -123,6 +161,9 @@ export default function DojoChargePanel({
         <div className="text-center py-8">
           <CheckCircle2 size={48} className="text-green-400 mx-auto mb-3" />
           <p className="text-white font-bold text-lg mb-1">Approved</p>
+          {tip > 0 && (
+            <p className="text-green-300 text-sm mb-1">Includes a {fmt(tip, currencySymbol)} tip added on the card machine</p>
+          )}
           <p className="text-slate-400 text-sm flex items-center justify-center gap-2">
             <Loader2 size={14} className="animate-spin" /> Completing…
           </p>
@@ -135,7 +176,7 @@ export default function DojoChargePanel({
           <p className="text-white font-bold text-lg mb-1">Card declined</p>
           <p className="text-slate-400 text-sm mb-5">{dojo.error ?? "The payment was not approved."}</p>
           <div className="flex gap-3">
-            <button onClick={() => { dojo.reset(); onBack(); }}
+            <button onClick={back}
               className="flex-1 py-3 rounded-xl font-bold text-sm bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors">Back</button>
             <button onClick={begin}
               className="flex-1 py-3 rounded-xl font-bold text-sm bg-blue-500 hover:bg-blue-400 text-white transition-colors flex items-center justify-center gap-2">
@@ -145,7 +186,46 @@ export default function DojoChargePanel({
         </div>
       )}
 
-      {(dojo.phase === "expired" || dojo.phase === "error") && (
+      {dojo.phase === "canceled" && (
+        <div className="text-center py-6">
+          <Ban size={44} className="text-slate-400 mx-auto mb-3" />
+          <p className="text-white font-bold text-lg mb-1">Payment cancelled</p>
+          <p className="text-slate-400 text-sm mb-5">Nothing was charged.</p>
+          <div className="flex gap-3">
+            <button onClick={back}
+              className="flex-1 py-3 rounded-xl font-bold text-sm bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors">Back</button>
+            <button onClick={begin}
+              className="flex-1 py-3 rounded-xl font-bold text-sm bg-blue-500 hover:bg-blue-400 text-white transition-colors flex items-center justify-center gap-2">
+              <RefreshCw size={14} /> Try again
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Could not start: Dojo refused or was unreachable before any payment began,
+          so "Record as paid" would record money that was never taken. */}
+      {dojo.phase === "error" && (
+        <div className="text-center py-6">
+          <AlertTriangle size={44} className="text-amber-400 mx-auto mb-3" />
+          <p className="text-white font-bold text-lg mb-1">Couldn&apos;t start the card payment</p>
+          <p className="text-slate-400 text-sm mb-1">{dojo.error ?? "Something went wrong talking to the card machine."}</p>
+          <p className="text-slate-500 text-xs mb-5">
+            {dojo.errorCode === "network"
+              ? "Check the card machine screen before trying again."
+              : "Nothing was charged."}
+          </p>
+          <div className="flex gap-3">
+            <button onClick={back}
+              className="flex-1 py-3 rounded-xl font-bold text-sm bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors">Back</button>
+            <button onClick={begin}
+              className="flex-1 py-3 rounded-xl font-bold text-sm bg-blue-500 hover:bg-blue-400 text-white transition-colors flex items-center justify-center gap-2">
+              <RefreshCw size={14} /> Try again
+            </button>
+          </div>
+        </div>
+      )}
+
+      {dojo.phase === "expired" && (
         <div className="text-center py-6">
           <AlertTriangle size={44} className="text-amber-400 mx-auto mb-3" />
           <p className="text-white font-bold text-lg mb-1">Result unconfirmed</p>
@@ -158,7 +238,7 @@ export default function DojoChargePanel({
               </button>
             )}
             <div className="flex gap-3">
-              <button onClick={() => { dojo.reset(); onBack(); }}
+              <button onClick={back}
                 className="flex-1 py-2.5 rounded-xl font-semibold text-sm bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors">Back</button>
               <button onClick={begin}
                 className="flex-1 py-2.5 rounded-xl font-semibold text-sm bg-blue-500 hover:bg-blue-400 text-white transition-colors flex items-center justify-center gap-2">

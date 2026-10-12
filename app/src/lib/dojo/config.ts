@@ -37,7 +37,8 @@ export interface DojoConfig {
   softwareHouseId: string;
   resellerId: string;
   webhookSecret: string;
-  /** Optional pinned terminal id; when empty we auto-discover an Available one. */
+  /** Optional pinned terminal: a Dojo id (tm_…) or the machine's TID (e.g.
+   *  VCMSEEKSIP0). When empty we auto-discover an Available one. */
   terminalId: string;
   /** Currency for terminal charges (ISO 4217). */
   currencyCode: string;

@@ -15,9 +15,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseBody } from "@/lib/apiValidation";
 import { DojoCreateSessionSchema, DojoSignatureSchema } from "@/lib/schemas/dojo";
-import { getDojoGateway, dojoConfig, toSnapshot, resolveSnapshot } from "@/lib/dojo";
+import { getDojoGateway, dojoConfig, resolveSnapshot } from "@/lib/dojo";
+import { startTerminalPayment } from "@/lib/dojo/flow";
 import { dojoErrorResponse, toMinorUnits } from "@/lib/dojo/respond";
-import type { CreateTerminalSessionInput, DojoMoney } from "@/lib/dojo/types";
 
 const missingId = () =>
   NextResponse.json({ ok: false, error: "Missing terminal session id." }, { status: 400 });
@@ -25,10 +25,10 @@ const missingId = () =>
 /**
  * Start a card-present payment (or card refund) on a terminal.
  *
- * For a Sale it: creates a payment intent, resolves a terminal (explicit
- * body.terminalId → pinned DOJO_TERMINAL_ID → first Available), then opens the
- * session bound to that intent, which wakes the machine. The caller then polls
- * handleGetSession() until it settles.
+ * The work is in lib/dojo/flow: resolve the terminal (explicit body.terminalId
+ * → pinned DOJO_TERMINAL_ID → first Available; an id or a TID), reuse the
+ * intent on a retry or create one, then open the session, which wakes the
+ * machine. The caller then polls handleGetSession() until it settles.
  *
  * Body amounts are in MAJOR units (12.50); we convert to Dojo's minor units.
  */
@@ -37,63 +37,28 @@ export async function handleCreateSession(req: NextRequest): Promise<NextRespons
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const body = parsed.data;
 
-  const cfg = dojoConfig();
-  const gateway = getDojoGateway();
   const sessionType = body.sessionType ?? "Sale";
-  const money: DojoMoney = {
-    value: toMinorUnits(body.amount),
-    currencyCode: body.currencyCode ?? cfg.currencyCode,
-  };
+  if (sessionType === "MatchedRefund" && !body.paymentIntentId) {
+    return NextResponse.json(
+      { ok: false, error: "MatchedRefund requires the original paymentIntentId." },
+      { status: 400 },
+    );
+  }
 
   try {
-    // 1. Resolve a terminal: explicit → pinned → first Available.
-    let terminalId = body.terminalId || cfg.terminalId;
-    if (!terminalId) {
-      const available = await gateway.listTerminals(true);
-      if (available.length === 0) {
-        return NextResponse.json(
-          { ok: false, error: "No card terminal is available. Check the device is on and connected." },
-          { status: 409 },
-        );
-      }
-      terminalId = available[0].id;
-    }
-
-    // 2. Sale needs a fresh intent; MatchedRefund reuses the original one.
-    let paymentIntentId: string | undefined = body.paymentIntentId;
-    if (sessionType === "Sale") {
-      const intent = await gateway.createPaymentIntent({
-        amount: money,
-        reference: body.reference,
-        description: body.description,
-        captureMode: body.captureMode ?? "Auto",
-      });
-      paymentIntentId = intent.id;
-    } else if (sessionType === "MatchedRefund" && !paymentIntentId) {
-      return NextResponse.json(
-        { ok: false, error: "MatchedRefund requires the original paymentIntentId." },
-        { status: 400 },
-      );
-    }
-
-    // 3. Open the session — this initiates the intent and wakes the machine.
-    const input: CreateTerminalSessionInput = {
-      terminalId,
+    const cfg = dojoConfig();
+    const started = await startTerminalPayment(getDojoGateway(), {
       sessionType,
-      paymentIntentId,
-      amount: sessionType === "UnlinkedRefund" ? money : undefined,
-    };
-    const session = await gateway.createTerminalSession(input);
-
-    return NextResponse.json({
-      ok: true,
-      terminalId,
-      paymentIntentId: paymentIntentId ?? null,
-      terminalSessionId: session.id,
-      snapshot: toSnapshot(session, null),
+      amount: { value: toMinorUnits(body.amount), currencyCode: body.currencyCode ?? cfg.currencyCode },
+      reference: body.reference,
+      description: body.description,
+      captureMode: body.captureMode,
+      terminal: body.terminalId || cfg.terminalId || undefined,
+      paymentIntentId: body.paymentIntentId,
     });
+    return NextResponse.json({ ok: true, ...started });
   } catch (err) {
-    return dojoErrorResponse(err);
+    return dojoErrorResponse(err, "create");
   }
 }
 
@@ -109,15 +74,15 @@ export async function handleGetSession(id: string): Promise<NextResponse> {
     const session = await gateway.getTerminalSession(id);
     return NextResponse.json({ ok: true, snapshot: await resolveSnapshot(gateway, session) });
   } catch (err) {
-    return dojoErrorResponse(err);
+    return dojoErrorResponse(err, "poll");
   }
 }
 
 /**
  * Accept or reject a signature verification. Called only after a poll returns
  * SignatureVerificationRequired. Dojo's 80-second rule applies: with no decision
- * the payment auto-accepts, so a late rejection is a no-op — the server just
- * relays whatever the operator chose.
+ * the payment auto-accepts, so a late rejection is refused (and the client
+ * keeps showing what the polls report).
  */
 export async function handleSignSession(req: NextRequest, id: string): Promise<NextResponse> {
   if (!id) return missingId();
@@ -129,14 +94,15 @@ export async function handleSignSession(req: NextRequest, id: string): Promise<N
     const session = await gateway.submitSignature(id, parsed.data.accepted);
     return NextResponse.json({ ok: true, snapshot: await resolveSnapshot(gateway, session) });
   } catch (err) {
-    return dojoErrorResponse(err);
+    return dojoErrorResponse(err, "signature");
   }
 }
 
 /**
  * Cancel a session before a card is presented. Dojo (and the mock) refuse once
- * the card has been presented; that surfaces as a 422 the client tolerates — the
- * payment simply continues. PUT, not DELETE: the session is not removed.
+ * the card has been presented; that comes back as code "cancel_too_late", and
+ * the client keeps polling — the payment simply continues. PUT, not DELETE:
+ * the session is not removed.
  */
 export async function handleCancelSession(id: string): Promise<NextResponse> {
   if (!id) return missingId();
@@ -145,6 +111,6 @@ export async function handleCancelSession(id: string): Promise<NextResponse> {
     const session = await gateway.cancelTerminalSession(id);
     return NextResponse.json({ ok: true, snapshot: await resolveSnapshot(gateway, session) });
   } catch (err) {
-    return dojoErrorResponse(err);
+    return dojoErrorResponse(err, "cancel");
   }
 }

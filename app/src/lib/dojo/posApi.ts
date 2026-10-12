@@ -34,24 +34,61 @@ export interface CreateDojoSessionBody {
   terminalId?: string;
   captureMode?: "Auto" | "Manual";
   sessionType?: "Sale" | "MatchedRefund" | "UnlinkedRefund";
+  /** Sale: the earlier attempt's intent, so a retry reuses it. MatchedRefund: the original. */
   paymentIntentId?: string;
 }
 
 export interface CreateDojoSessionResult {
-  terminalId: string;
+  /** Null when no session was opened because an earlier attempt was already paid. */
+  terminalId: string | null;
   paymentIntentId: string | null;
-  terminalSessionId: string;
+  terminalSessionId: string | null;
   snapshot: DojoSessionSnapshot;
 }
 
+/**
+ * A failed call to our Dojo routes. `message` is written for staff; `code` is
+ * the server's classification (lib/dojo/errors.ts, e.g. "terminal_busy",
+ * "cancel_too_late", "network"); `paymentIntentId` is set when a session
+ * failed after its intent was created, so the retry can reuse it.
+ */
+export class DojoRequestError extends Error {
+  readonly httpStatus: number;
+  readonly code: string | null;
+  readonly paymentIntentId: string | null;
+
+  constructor(message: string, httpStatus: number, code: string | null, paymentIntentId: string | null) {
+    super(message);
+    this.name = "DojoRequestError";
+    this.httpStatus = httpStatus;
+    this.code = code;
+    this.paymentIntentId = paymentIntentId;
+  }
+}
+
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(apiBase() + path, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-  });
-  const json = (await res.json().catch(() => ({}))) as T & { ok?: boolean; error?: string };
+  let res: Response;
+  try {
+    res = await fetch(apiBase() + path, {
+      ...init,
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    });
+  } catch {
+    throw new DojoRequestError("Can't reach the server. Check the internet connection.", 0, "network", null);
+  }
+  const json = (await res.json().catch(() => ({}))) as T & {
+    ok?: boolean;
+    error?: string;
+    code?: string;
+    paymentIntentId?: string | null;
+  };
   if (!res.ok || json.ok === false) {
-    throw new Error(json.error || `Request to ${path} failed (${res.status}).`);
+    throw new DojoRequestError(
+      json.error || `Request to ${path} failed (${res.status}).`,
+      res.status,
+      json.code ?? null,
+      json.paymentIntentId ?? null,
+    );
   }
   return json;
 }

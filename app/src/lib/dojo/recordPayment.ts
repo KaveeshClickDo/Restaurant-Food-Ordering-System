@@ -24,6 +24,9 @@ export interface DojoResultInput {
   authCode?: string | null;
   cardScheme?: string | null;
   cardLast4?: string | null;
+  /** Tip added on the card machine and Dojo's total, MAJOR units. */
+  tipAmount?: number | null;
+  totalAmount?: number | null;
   status?: string | null;
 }
 
@@ -47,6 +50,8 @@ export async function recordDojoPayment(args: {
       auth_code:           result.authCode ?? null,
       card_scheme:         result.cardScheme ?? null,
       card_last4:          result.cardLast4 ?? null,
+      tip_amount:          result.tipAmount ?? null,
+      total_amount:        result.totalAmount ?? null,
       status:              result.status ?? null,
       amount:              amount ?? null,
       currency:            currency ?? null,

@@ -17,12 +17,13 @@ export const DojoCreateSessionSchema = z.object({
   currencyCode: z.string().length(3).optional(),
   reference: z.string().max(120).optional(),
   description: z.string().max(255).optional(),
-  /** Optional explicit terminal; when omitted the server auto-discovers one. */
+  /** Optional explicit terminal (a Dojo id "tm_…" or a TID); when omitted the
+   *  server uses DOJO_TERMINAL_ID, then auto-discovers one. */
   terminalId: z.string().max(80).optional(),
   captureMode: z.enum(["Auto", "Manual"]).optional(),
   /** Sale (default) or a card-present refund flow. */
   sessionType: z.enum(["Sale", "MatchedRefund", "UnlinkedRefund"]).optional(),
-  /** Required for MatchedRefund. */
+  /** Sale: the earlier attempt's intent, reused on retry. Required for MatchedRefund. */
   paymentIntentId: z.string().max(120).optional(),
 });
 
@@ -50,5 +51,8 @@ export const DojoResultSchema = z.object({
   authCode:          z.string().max(32).nullable().optional(),
   cardScheme:        z.string().max(32).nullable().optional(),
   cardLast4:         z.string().max(4).nullable().optional(),
+  /** Tip added on the card machine and Dojo's total, MAJOR units. */
+  tipAmount:         z.number().nonnegative().max(1_000_000).nullable().optional(),
+  totalAmount:       z.number().nonnegative().max(1_000_000).nullable().optional(),
   status:            z.string().max(48).nullable().optional(),
 });

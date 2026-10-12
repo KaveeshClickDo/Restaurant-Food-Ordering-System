@@ -35,6 +35,6 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json({ ok: true, refundId: result.refundId, message: result.message ?? null });
   } catch (err) {
-    return dojoErrorResponse(err);
+    return dojoErrorResponse(err, "refund");
   }
 }
