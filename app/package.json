@@ -13,7 +13,8 @@
     "db:backfill-contacts": "npx tsx --env-file=.env.local backfill-marketing-contacts.ts",
     "android": "npx cap sync android && npx cap open android",
     "android:build": "npm run build && npx cap sync android",
-    "dojo:demo": "npx tsx scripts/dojo-demo.ts"
+    "dojo:demo": "npx tsx scripts/dojo-demo.ts",
+    "dojo:sandbox": "npx tsx --env-file=.env.local scripts/dojo-sandbox.ts"
   },
   "dependencies": {
     "@capacitor-community/sqlite": "^7.0.3",
