@@ -24,7 +24,7 @@ export default function SiteFooter() {
     .sort((a, b) => a.order - b.order);
 
   return (
-    <footer className="border-t border-zinc-200/70 bg-white mt-auto">
+    <footer className="border-t border-zinc-200/70 dark:border-[var(--brand-border-dark)] bg-white dark:bg-[var(--brand-surface-dark)] mt-auto">
       <div className="px-4 sm:px-6 py-8 sm:py-10 max-w-5xl mx-auto">
         {/* Branding */}
         <Link href="/" className="flex items-start gap-3 mb-6 hover:opacity-80 transition-opacity w-fit">
@@ -38,9 +38,9 @@ export default function SiteFooter() {
             </div>
           )}
           <div className="leading-tight">
-            <div className="text-[15px] font-semibold text-zinc-900 tracking-tight">{restaurant.name}</div>
+            <div className="text-[15px] font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)] tracking-tight">{restaurant.name}</div>
             {restaurant.tagline && (
-              <div className="text-[12.5px] text-zinc-500 mt-0.5">{restaurant.tagline}</div>
+              <div className="text-[12.5px] text-zinc-500 dark:text-zinc-400 mt-0.5">{restaurant.tagline}</div>
             )}
           </div>
         </Link>
@@ -50,7 +50,7 @@ export default function SiteFooter() {
           <nav className="flex flex-wrap gap-x-6 gap-y-2 mb-7">
             {navLinks.map((link) => (
               <Link key={link.id} href={link.href}
-                className="text-[12.5px] text-zinc-600 hover:text-zinc-900 transition-colors">
+                className="text-[12.5px] text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">
                 {link.label}
               </Link>
             ))}
@@ -76,7 +76,7 @@ export default function SiteFooter() {
           </div>
         )}
 
-        <div className="pt-5 border-t border-zinc-200/70 text-[11.5px] text-zinc-400">
+        <div className="pt-5 border-t border-zinc-200/70 dark:border-[var(--brand-border-dark)] text-[11.5px] text-zinc-400">
           <span>{settings.footerCopyright || `© ${new Date().getFullYear()} ${restaurant.name}. All rights reserved.`} </span> ·
           <span> Designed by SeekaHost Technologies Ltd.</span>
         </div>

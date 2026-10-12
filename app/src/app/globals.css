@@ -1,5 +1,38 @@
 @import "tailwindcss";
 
+/*
+ * Dark mode is scoped to the customer site ONLY — `dark:` needs an ancestor
+ * `.dark` class, applied on the (site) wrapper div, never on <html>/<body>.
+ * Other portals never render that wrapper, so they can never pick it up.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Customer site's DARK theme: background/surface/border/text stay fixed here.
+ * The accent (--color-orange-*, --brand-primary*) is injected dynamically
+ * instead, alongside the light theme's, via the `.site-theme.dark { ... }`
+ * rule that layout.tsx's <style id="color-theme-vars"> emits (see
+ * colorUtils.ts's buildColorCss/generateDarkShades).
+ */
+@layer base {
+  .site-theme.dark {
+    --brand-bg: #050505;
+    --brand-primary-dark:       #9999a3;
+    --brand-primary-dark-hover: #bdbdc2;
+    --brand-bg-dark:      #090808;
+    --brand-surface-dark: #0f0f10;
+    --brand-border-dark:  #27272a;
+    --brand-text-dark:    #f4f4f5;
+  }
+}
+
+/*
+ * Dark-mode map tiles (LocationMap.tsx, Leaflet).
+ */
+.dark .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.96) contrast(0.9);
+}
+
 @layer base {
   :root {
     --font-inter: 'Inter', sans-serif;
@@ -66,6 +99,22 @@
   .rich-content blockquote { border-left: 3px solid var(--color-orange-500, #ea580c); padding-left: 1rem; color: #6b7280; margin: 1rem 0; }
   .rich-content > :first-child { margin-top: 0; }
   .rich-content > :last-child  { margin-bottom: 0; }
+
+  /* Dark mode (customer ordering site only, scoped via .dark ancestor —
+     see app/(site)/layout.tsx). Overrides the hardcoded light hex colors
+     above; also used by the admin email editor preview, which never has
+     a .dark ancestor so it's unaffected. */
+  .dark .rich-content h1 { color: var(--brand-text-dark, #f4f4f5); }
+  .dark .rich-content h2 { color: var(--brand-text-dark, #f4f4f5); }
+  .dark .rich-content h3 { color: var(--brand-text-dark, #f4f4f5); }
+  .dark .rich-content p,
+  .dark .rich-content ul,
+  .dark .rich-content ol  { color: #d4d4d8; }
+  .dark .rich-content strong,
+  .dark .rich-content a  { color: #aaaaaf; }
+  .dark .rich-content b   { color: var(--brand-text-dark, #f4f4f5); }
+  .dark .rich-content hr  { border-top-color: var(--brand-border-dark, #3f3f46); }
+  .dark .rich-content blockquote { color: #a1a1aa; }
 }
 
 /* ─── Print styles (Finance Reports + general admin print) ───────────────── */

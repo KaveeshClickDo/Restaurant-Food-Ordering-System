@@ -30,7 +30,7 @@ export default function MealPeriodSection({ period, categories, items }: Props) 
       className="mb-5 rounded-2xl overflow-hidden shadow-sm"
       style={{
         borderColor: `${tColor}4D`,
-        background: `linear-gradient(to bottom, ${tColor}1A, #ffffff)`
+        background: `linear-gradient(to bottom, ${tColor}1A, var(--brand-surface-dark, #ffffff))`
       }}
     >
 
@@ -48,7 +48,7 @@ export default function MealPeriodSection({ period, categories, items }: Props) 
             <Clock size={18} className="text-white" />
           </div>
           <div>
-            <h2 className="font-bold text-gray-900 text-base">{period.name}</h2>
+            <h2 className="font-bold text-gray-900 dark:text-[var(--brand-text-dark)] text-base">{period.name}</h2>
             <p
               className="text-xs text-amber-600 font-medium flex items-center gap-1 mt-0.5"
               style={{ color: tColor }}
@@ -89,8 +89,8 @@ export default function MealPeriodSection({ period, categories, items }: Props) 
                 style={{ borderColor: `${tColor}33` }}
               >
                 <span className="text-lg">{cat.emoji}</span>
-                <h3 className="font-semibold text-gray-800 text-sm">{cat.name}</h3>
-                <span className="text-xs text-gray-400">({catItems.length})</span>
+                <h3 className="font-semibold text-gray-800 dark:text-[var(--brand-text-dark)] text-sm">{cat.name}</h3>
+                <span className="text-xs text-gray-400 dark:text-zinc-500">({catItems.length})</span>
               </div>
               <div className="grid grid-cols-1 gap-2">
                 {catItems.map((item) => (

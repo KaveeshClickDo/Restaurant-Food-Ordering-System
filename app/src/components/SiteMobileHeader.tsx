@@ -9,8 +9,10 @@ import {
   Heart, Menu as MenuIcon, X,
   ChevronUp,
   ChevronDown,
+  Sun, Moon,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import { useSiteTheme } from "@/context/SiteThemeContext";
 import { Category } from "@/types";
 
 const navItems = [
@@ -40,6 +42,7 @@ export default function SiteMobileHeader({
   onReserve: () => void;
 }) {
   const { settings, categories, currentUser, logout } = useApp();
+  const { theme, toggleTheme } = useSiteTheme();
   const { restaurant } = settings;
   const pathname = usePathname();
   const router = useRouter();
@@ -70,7 +73,7 @@ export default function SiteMobileHeader({
   return (
     <>
       {/* ── Top bar ── */}
-      <header className="lg:hidden flex-shrink-0 flex items-center gap-2 px-4 py-3 bg-white border-b border-zinc-200/70 sticky top-0 z-30">
+      <header className="lg:hidden flex-shrink-0 flex items-center gap-2 px-4 py-3 bg-white dark:bg-[var(--brand-surface-dark)] border-b border-zinc-200/70 dark:border-[var(--brand-border-dark)] sticky top-0 z-30">
 
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2 min-w-0 mr-auto">
@@ -83,7 +86,7 @@ export default function SiteMobileHeader({
               {restaurant.name.charAt(0).toUpperCase()}
             </div>
           )}
-          <span className="text-[14px] font-semibold text-zinc-900 tracking-tight truncate">
+          <span className="text-[14px] font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)] tracking-tight truncate">
             {restaurant.name}
           </span>
         </Link>
@@ -91,7 +94,7 @@ export default function SiteMobileHeader({
         {/* Nav links */}
         <nav className="flex items-center gap-0.5">
           <Link href="/"
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors ${pathname === "/" ? "bg-orange-500 text-white" : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors ${pathname === "/" ? "bg-orange-500 text-white" : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-white/5"
               }`}
           >
             <UtensilsCrossed size={13} strokeWidth={1.7} />
@@ -99,7 +102,7 @@ export default function SiteMobileHeader({
           </Link>
 
           <Link href="/my-orders"
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors ${pathname === "/my-orders" ? "bg-orange-500 text-white" : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors ${pathname === "/my-orders" ? "bg-orange-500 text-white" : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-white/5"
               }`}
           >
             <Receipt size={13} strokeWidth={1.7} />
@@ -108,7 +111,7 @@ export default function SiteMobileHeader({
 
           {reservationsEnabled && (
             <button onClick={onReserve}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors ${pathname.startsWith("/book") ? "bg-orange-500 text-white" : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100"
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors ${pathname.startsWith("/book") ? "bg-orange-500 text-white" : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-white/5"
                 }`}
             >
               <CalendarDays size={13} strokeWidth={1.7} />
@@ -120,7 +123,7 @@ export default function SiteMobileHeader({
             const active = pathname === link.href || (link.href !== "/" && pathname.startsWith(link.href));
             return (
               <Link key={link.id} href={link.href}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors ${active ? "bg-orange-500 text-white" : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100"
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors ${active ? "bg-orange-500 text-white" : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-white/5"
                   }`}
               >
                 <span className="hidden sm:inline">{link.label}</span>
@@ -130,6 +133,15 @@ export default function SiteMobileHeader({
           })}
         </nav>
 
+        <button
+          onClick={toggleTheme}
+          title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-white/5 transition-colors flex-shrink-0 ml-1"
+        >
+          {theme === "dark" ? <Sun size={16} strokeWidth={1.7} /> : <Moon size={16} strokeWidth={1.7} />}
+        </button>
+
         {currentUser ? (
           <Link href="/account"
             className="w-7 h-7 rounded-full bg-orange-100 flex items-center justify-center text-[12px] font-semibold text-orange-700 flex-shrink-0 ml-1">
@@ -137,7 +149,7 @@ export default function SiteMobileHeader({
           </Link>
         ) : (
           <Link href="/login"
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 transition-colors ml-1">
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-white/5 transition-colors ml-1">
             <User size={13} strokeWidth={1.7} />
             <span className="hidden sm:inline">Sign in</span>
           </Link>
@@ -145,7 +157,7 @@ export default function SiteMobileHeader({
 
         <button
           onClick={() => setDrawerOpen(true)}
-          className="ml-1 p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 transition-colors flex-shrink-0"
+          className="ml-1 p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-white/5 transition-colors flex-shrink-0"
           aria-label="Open menu"
         >
           <MenuIcon size={18} strokeWidth={1.7} />
@@ -158,11 +170,11 @@ export default function SiteMobileHeader({
       )}
 
       {/* ── Drawer panel ── */}
-      <aside className={`lg:hidden fixed top-0 left-0 h-full w-72 bg-white z-50 flex flex-col shadow-2xl transition-transform duration-200 ease-in-out ${drawerOpen ? "translate-x-0" : "-translate-x-full"
+      <aside className={`lg:hidden fixed top-0 left-0 h-full w-72 bg-white dark:bg-[var(--brand-surface-dark)] z-50 flex flex-col shadow-2xl transition-transform duration-200 ease-in-out ${drawerOpen ? "translate-x-0" : "-translate-x-full"
         }`}>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-100">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-100 dark:border-[var(--brand-border-dark)]">
           <Link href="/" onClick={close} className="flex items-center gap-2 min-w-0">
             {restaurant.logoImage ? (
               /* eslint-disable-next-line @next/next/no-img-element */
@@ -174,11 +186,11 @@ export default function SiteMobileHeader({
               </div>
             )}
             <div className="leading-tight min-w-0">
-              <div className="text-[13.5px] font-semibold text-zinc-900 tracking-tight truncate">{restaurant.name}</div>
-              <div className="text-[10.5px] text-zinc-500 truncate">{restaurant.tagline || "Restaurant"}</div>
+              <div className="text-[13.5px] font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)] tracking-tight truncate">{restaurant.name}</div>
+              <div className="text-[10.5px] text-zinc-500 dark:text-zinc-400 truncate">{restaurant.tagline || "Restaurant"}</div>
             </div>
           </Link>
-          <button onClick={close} className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors">
+          <button onClick={close} className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 dark:hover:text-white dark:hover:bg-white/5 transition-colors">
             <X size={18} strokeWidth={1.7} />
           </button>
         </div>
@@ -193,7 +205,7 @@ export default function SiteMobileHeader({
                 <Link key={href} href={href} onClick={close}
                   className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors ${active
                     ? "bg-orange-500 text-white"
-                    : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                    : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-white/5"
                     }`}
                 >
                   <Icon className="w-[17px] h-[17px]" strokeWidth={1.6} />
@@ -205,7 +217,7 @@ export default function SiteMobileHeader({
             {reservationsEnabled && (
               <button
                 onClick={onReserve}
-                className="w-full flex items-center gap-3 px-3 py-2 mt-1 rounded-xl text-[13.5px] font-semibold transition-all border border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-500 hover:text-white hover:border-orange-500 active:scale-[0.98] group"
+                className="w-full flex items-center gap-3 px-3 py-2 mt-1 rounded-xl text-[13.5px] font-semibold transition-all border border-orange-200 bg-orange-50 text-orange-600 dark:bg-orange-500/10 dark:border-orange-500/10 dark:text-[var(--brand-text-dark)] hover:bg-orange-500 hover:text-white hover:border-orange-500 active:scale-[0.98] group"
               >
                 <CalendarDays className="w-[17px] h-[17px]" strokeWidth={1.6} />
                 <span>Reserve a Table</span>
@@ -216,7 +228,7 @@ export default function SiteMobileHeader({
               const active = pathname === link.href || (link.href !== "/" && pathname.startsWith(link.href));
               return (
                 <Link key={link.id} href={link.href} onClick={close}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors ${active ? "bg-orange-500 text-white" : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                  className={`flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors ${active ? "bg-orange-500 text-white" : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-white/5"
                     }`}
                 >
                   <span className="w-[17px] h-[17px] flex items-center justify-center text-[11px] font-bold opacity-60">●</span>
@@ -232,7 +244,7 @@ export default function SiteMobileHeader({
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400 px-2 mb-1.5">Categories</p>
           <nav className="space-y-0.5">
             <button onClick={() => navigateToCategory("all")}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] transition-colors text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50">
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] transition-colors text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-white/5">
               <span className="text-base leading-none">🍽️</span>
               <span>Everything</span>
             </button>
@@ -245,15 +257,15 @@ export default function SiteMobileHeader({
               return (
                 <div key={parent.id} className="space-y-0.5">
                   {/* Row Container */}
-                  <div className="group flex items-center rounded-xl transition-colors hover:bg-zinc-50">
-                    
+                  <div className="group flex items-center rounded-xl transition-colors hover:bg-zinc-50 dark:hover:bg-white/5">
+
                     {/* Main area: Navigates and Closes Drawer */}
                     <button
                       onClick={() => navigateToCategory(parent.id)}
                       className="flex-1 flex items-center gap-2.5 px-3 py-2 text-left min-w-0"
                     >
                       <span className="text-base leading-none flex-shrink-0">{parent.emoji}</span>
-                      <span className="text-[13.5px] font-medium text-zinc-500 group-hover:text-zinc-800 truncate">
+                      <span className="text-[13.5px] font-medium text-zinc-500 group-hover:text-zinc-800 dark:text-zinc-400 dark:group-hover:text-white truncate">
                         {parent.name}
                       </span>
                     </button>
@@ -265,11 +277,11 @@ export default function SiteMobileHeader({
                           e.stopPropagation();
                           setExpandedParent(isExpanded ? null : parent.id);
                         }}
-                        className="p-1.5 mr-1 rounded-lg text-zinc-400 bg-zinc-200/40 hover:bg-zinc-200/50 hover:text-zinc-700 transition-colors flex-shrink-0"
+                        className="p-1.5 mr-1 rounded-lg text-zinc-400 bg-zinc-200/40 hover:bg-zinc-200/50 hover:text-zinc-700 dark:bg-white/5 dark:hover:bg-white/10 dark:hover:text-white transition-colors flex-shrink-0"
                         aria-label={isExpanded ? "Collapse" : "Expand"}
                       >
-                        {isExpanded 
-                          ? <ChevronUp size={16} strokeWidth={2.5} /> 
+                        {isExpanded
+                          ? <ChevronUp size={16} strokeWidth={2.5} />
                           : <ChevronDown size={16} strokeWidth={2.5} />
                         }
                       </button>
@@ -278,12 +290,12 @@ export default function SiteMobileHeader({
 
                   {/* Children — shown when expanded */}
                   {hasKids && isExpanded && (
-                    <div className="ml-5 mt-0.5 mb-1 border-l border-zinc-100 pl-2 space-y-0.5 animate-in slide-in-from-top-1 duration-200">
+                    <div className="ml-5 mt-0.5 mb-1 border-l border-zinc-100 dark:border-[var(--brand-border-dark)] pl-2 space-y-0.5 animate-in slide-in-from-top-1 duration-200">
                       {children.map((child) => (
                         <button
                           key={child.id}
                           onClick={() => navigateToCategory(child.id)}
-                          className="w-full flex items-center text-left gap-2.5 px-2.5 py-1.5 rounded-lg text-[13px] text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 transition-colors"
+                          className="w-full flex items-center text-left gap-2.5 px-2.5 py-1.5 rounded-lg text-[13px] text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 dark:hover:text-white dark:hover:bg-white/5 transition-colors"
                         >
                           <span className="text-sm leading-none flex-shrink-0">{child.emoji}</span>
                           <span className="truncate">{child.name}</span>
@@ -298,26 +310,26 @@ export default function SiteMobileHeader({
         </div>
 
         {/* User */}
-        <div className="p-3 border-t border-zinc-100">
+        <div className="p-3 border-t border-zinc-100 dark:border-[var(--brand-border-dark)]">
           {currentUser ? (
             <div className="flex items-center gap-3 px-2 py-1.5">
               <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-[12px] font-semibold text-orange-700 flex-shrink-0">
                 {currentUser.name?.charAt(0).toUpperCase() ?? "U"}
               </div>
               <div className="flex-1 min-w-0 leading-tight">
-                <div className="text-[13px] font-medium text-zinc-700 truncate">{currentUser.name}</div>
-                <Link href="/account" onClick={close} className="text-[11px] text-zinc-400 hover:text-zinc-600 transition-colors">
+                <div className="text-[13px] font-medium text-zinc-700 dark:text-[var(--brand-text-dark)] truncate">{currentUser.name}</div>
+                <Link href="/account" onClick={close} className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors">
                   View profile
                 </Link>
               </div>
               <button onClick={() => { logout(); close(); }} title="Sign out"
-                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors">
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 dark:hover:text-white dark:hover:bg-white/5 transition-colors">
                 <LogOut className="w-3.5 h-3.5" strokeWidth={1.8} />
               </button>
             </div>
           ) : (
             <Link href="/login" onClick={close}
-              className="flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900 transition-colors">
+              className="flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-white/5 transition-colors">
               <User className="w-[17px] h-[17px]" strokeWidth={1.6} />
               <span>Sign in</span>
             </Link>

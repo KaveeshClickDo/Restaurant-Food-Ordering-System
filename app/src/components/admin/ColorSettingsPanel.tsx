@@ -294,7 +294,7 @@ export default function ColorSettingsPanel() {
 
         <ColorInput
           label="Page Background"
-          hint="Background colour of the customer menu page and admin dashboard — defaults to a very light grey"
+          hint="Background colour of the customer menu page and admin dashboard — defaults to a very light grey. Not applied to the customer site's dark theme — only light."
           value={draft.backgroundColor}
           onChange={(hex) => update({ backgroundColor: hex })}
         />

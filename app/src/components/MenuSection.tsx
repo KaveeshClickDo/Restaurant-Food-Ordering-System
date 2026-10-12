@@ -20,7 +20,7 @@ export default function MenuSection({ categories, items, sectionRefs }: Props) {
 
   if (grouped.length === 0) {
     return (
-      <div className="text-center py-16 text-gray-400">
+      <div className="text-center py-16 text-gray-400 dark:text-zinc-500">
         <p className="text-3xl mb-3">🔍</p>
         <p className="font-medium">No items match your search</p>
         <p className="text-sm mt-1">Try adjusting your filters</p>
@@ -38,8 +38,8 @@ export default function MenuSection({ categories, items, sectionRefs }: Props) {
         >
           <div className="flex items-center gap-2 mb-4">
             <span className="text-xl">{cat.emoji}</span>
-            <h2 className="text-lg font-bold text-gray-900">{cat.name}</h2>
-            <span className="text-xs text-gray-400 font-medium">({items.length})</span>
+            <h2 className="text-lg font-bold text-gray-900 dark:text-[var(--brand-text-dark)]">{cat.name}</h2>
+            <span className="text-xs text-gray-400 dark:text-zinc-500 font-medium">({items.length})</span>
           </div>
           <div>
             {items.map((item) => (

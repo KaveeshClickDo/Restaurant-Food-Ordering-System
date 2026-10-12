@@ -1,7 +1,7 @@
 "use client";
 
 import { uuid } from "@/lib/uuid";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import { useRouter } from "next/navigation";
 import {
@@ -26,15 +26,19 @@ import {
     Package,
     Truck,
     Ban,
+    UtensilsCrossed,
+    Sun,
+    Moon,
 } from "lucide-react";
 import AuthModal from "@/components/AuthModal";
-import type { AddOn, CartItem, Customer, Order, OrderStatus } from "@/types";
+import type { AddOn, CartItem, Customer, MenuItem, Order, OrderStatus } from "@/types";
 import { fullOrderNumber } from "@/lib/orderNumber";
 import Link from "next/link";
 import Cart from "@/components/Cart";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import { effectiveMenuPrice, getOfferUnitPrice, isOnChannel } from "@/lib/menuOfferUtils";
 import { resolveStock } from "@/lib/stockUtils";
+import { useSiteTheme } from "@/context/SiteThemeContext";
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
@@ -95,24 +99,24 @@ function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void
     return (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-            <div className="relative w-full sm:max-w-md bg-white sm:rounded-3xl rounded-t-3xl overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="relative w-full sm:max-w-md bg-white dark:bg-[var(--brand-surface-dark)] sm:rounded-3xl rounded-t-3xl overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto">
 
                 {/* Header */}
-                <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-100">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-100 dark:border-[var(--brand-border-dark)]">
                     <div>
                         <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400">Tracking order</p>
-                        <p title={fullOrderNumber(order.id)} className="text-[15px] font-bold text-zinc-900 mt-0.5 truncate">{fullOrderNumber(order.id)}</p>
+                        <p title={fullOrderNumber(order.id)} className="text-[15px] font-bold text-zinc-900 dark:text-[var(--brand-text-dark)] mt-0.5 truncate">{fullOrderNumber(order.id)}</p>
                     </div>
-                    <button onClick={onClose} className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-500 hover:bg-zinc-200 transition-colors">
+                    <button onClick={onClose} className="w-8 h-8 rounded-full bg-zinc-100 dark:bg-white/10 flex items-center justify-center text-zinc-500 hover:bg-zinc-200 dark:hover:bg-white/15 transition-colors">
                         <X className="w-4 h-4" strokeWidth={2} />
                     </button>
                 </div>
 
                 {/* Route visualization */}
-                <div className="px-3 sm:px-5 py-6 bg-stone-50">
+                <div className="px-3 sm:px-5 py-6 bg-stone-50 dark:bg-white/[0.03]">
                     <div className="relative flex items-center justify-between">
                         {/* Line */}
-                        <div className="absolute left-6 right-6 top-5 h-0.5 bg-zinc-200 z-0" />
+                        <div className="absolute left-6 right-6 top-5 h-0.5 bg-zinc-200 dark:bg-white/10 z-0" />
                         <div
                             className="absolute left-6 top-5 h-0.5 bg-orange-500 z-0 transition-all duration-700"
                             style={{ width: `${(currentStep / 3) * 100}%`, maxWidth: "calc(100% - 3rem)" }}
@@ -122,7 +126,7 @@ function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void
                             <div key={step.key} className="relative z-10 flex flex-col items-center gap-1.5" style={{ width: "25%" }}>
                                 <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-500 ${i <= currentStep
                                     ? "bg-orange-500 text-white shadow-lg shadow-orange-500/30"
-                                    : "bg-white border-2 border-zinc-200 text-zinc-400"
+                                    : "bg-white dark:bg-white/5 border-2 border-zinc-200 dark:border-white/10 text-zinc-400"
                                     }`}>
                                     {step.icon}
                                 </div>
@@ -137,13 +141,13 @@ function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void
 
                 {/* Driver info */}
                 {order.driverName && (
-                    <div className="mx-5 mt-4 flex items-center gap-3 bg-zinc-50 rounded-2xl p-3.5">
-                        <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold text-[16px] flex-shrink-0">
+                    <div className="mx-5 mt-4 flex items-center gap-3 bg-zinc-50 dark:bg-white/5 rounded-2xl p-3.5">
+                        <div className="w-10 h-10 rounded-full bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center text-orange-600 font-bold text-[16px] flex-shrink-0">
                             {order.driverName.charAt(0).toUpperCase()}
                         </div>
                         <div className="flex-1 min-w-0">
                             <p className="text-[11px] text-zinc-400 leading-none mb-0.5">Your driver</p>
-                            <p className="text-[14px] font-semibold text-zinc-800">{order.driverName}</p>
+                            <p className="text-[14px] font-semibold text-zinc-800 dark:text-zinc-200">{order.driverName}</p>
                         </div>
                         <Navigation className="w-5 h-5 text-orange-500" strokeWidth={1.8} />
                     </div>
@@ -158,14 +162,14 @@ function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void
                     && order.status !== "delivered"
                     && order.status !== "cancelled"
                     && order.paymentStatus !== "refunded" && (
-                        <div className="mx-5 mt-3 rounded-2xl p-4 text-center border-2 border-dashed border-orange-300 bg-orange-50">
-                            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-orange-700 mb-1">
+                        <div className="mx-5 mt-3 rounded-2xl p-4 text-center border-2 border-dashed border-orange-300 dark:border-orange-500/50 bg-orange-50">
+                            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-orange-700 dark:text-orange-500 mb-1">
                                 Delivery confirmation code
                             </p>
-                            <p className="font-mono font-extrabold text-[28px] tracking-[0.4em] text-zinc-900 leading-none my-2">
+                            <p className="font-mono font-extrabold text-[28px] tracking-[0.4em] text-zinc-900 dark:text-white leading-none my-2">
                                 {order.deliveryCode}
                             </p>
-                            <p className="text-[11.5px] text-zinc-600 leading-snug">
+                            <p className="text-[11.5px] text-zinc-600 dark:text-zinc-400 leading-snug">
                                 Show or read this to your driver to confirm delivery.
                             </p>
                         </div>
@@ -173,26 +177,26 @@ function TrackOrderModal({ order, onClose }: { order: Order; onClose: () => void
 
                 {/* Order details */}
                 <div className="px-5 py-4 space-y-3">
-                    <div className="bg-zinc-50 rounded-2xl p-4">
+                    <div className="bg-zinc-50 dark:bg-white/5 rounded-2xl p-4">
                         <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400 mb-2">Order summary</p>
-                        <p className="text-[13px] text-zinc-700 leading-relaxed">{itemSummary}</p>
+                        <p className="text-[13px] text-zinc-700 dark:text-zinc-200 leading-relaxed">{itemSummary}</p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2.5">
-                        <div className="bg-zinc-50 rounded-2xl p-3.5">
+                        <div className="bg-zinc-50 dark:bg-white/5 rounded-2xl p-3.5">
                             <p className="text-[10px] text-zinc-400 mb-1">Total</p>
-                            <p className="text-[15px] font-bold text-zinc-900 tabular-nums">{sym}{order.total.toFixed(2)}</p>
+                            <p className="text-[15px] font-bold text-zinc-900 dark:text-[var(--brand-text-dark)] tabular-nums">{sym}{order.total.toFixed(2)}</p>
                         </div>
-                        <div className="bg-zinc-50 rounded-2xl p-3.5">
+                        <div className="bg-zinc-50 dark:bg-white/5 rounded-2xl p-3.5">
                             <p className="text-[10px] text-zinc-400 mb-1">Type</p>
-                            <p className="text-[14px] font-semibold text-zinc-800 capitalize">{order.fulfillment}</p>
+                            <p className="text-[14px] font-semibold text-zinc-800 dark:text-zinc-200 capitalize">{order.fulfillment}</p>
                         </div>
                     </div>
 
                     {order.address && (
-                        <div className="flex items-start gap-2.5 bg-zinc-50 rounded-2xl p-3.5">
+                        <div className="flex items-start gap-2.5 bg-zinc-50 dark:bg-white/5 rounded-2xl p-3.5">
                             <Pin className="w-4 h-4 text-zinc-400 flex-shrink-0 mt-0.5" strokeWidth={1.8} />
-                            <p className="text-[13px] text-zinc-700 leading-snug">{order.address}</p>
+                            <p className="text-[13px] text-zinc-700 dark:text-zinc-300 leading-snug">{order.address}</p>
                         </div>
                     )}
                 </div>
@@ -380,76 +384,76 @@ function ReceiptModal({
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
-            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="relative bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl shadow-2xl w-full max-w-sm max-h-[90vh] flex flex-col overflow-hidden">
                 {/* Header */}
-                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-[var(--brand-border-dark)] flex-shrink-0">
                     <div className="flex items-center gap-2 max-w-[60%]">
                         <Receipt size={16} className="text-orange-500" />
-                        <h2 title={`Receipt ${fullOrderNumber(order.id)}`} className="font-bold text-gray-900 text-sm truncate">Receipt {fullOrderNumber(order.id)}</h2>
+                        <h2 title={`Receipt ${fullOrderNumber(order.id)}`} className="font-bold text-gray-900 dark:text-[var(--brand-text-dark)] text-sm truncate">Receipt {fullOrderNumber(order.id)}</h2>
                     </div>
                     <div className="flex items-center gap-2">
                         <button
                             onClick={handlePrint}
-                            className="flex items-center gap-1.5 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg transition"
+                            className="flex items-center gap-1.5 text-xs font-semibold bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/15 text-gray-700 dark:text-zinc-200 px-3 py-1.5 rounded-lg transition"
                         >
                             <Printer size={12} /> Print
                         </button>
-                        <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition">
+                        <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/15 text-gray-700 dark:text-zinc-200  transition">
                             <X size={13} />
                         </button>
                     </div>
                 </div>
 
                 {/* Receipt body */}
-                <div className="flex-1 overflow-y-auto p-5 font-mono text-xs space-y-3 text-gray-800">
+                <div className="flex-1 overflow-y-auto p-5 font-mono text-xs space-y-3 text-gray-800 dark:text-zinc-300">
                     {/* Restaurant header */}
                     <div className="text-center space-y-0.5">
                         {rs.showLogo && rs.logoUrl && (
                             /* eslint-disable-next-line @next/next/no-img-element */
                             <img src={rs.logoUrl} alt="Logo" className="h-12 object-contain mx-auto mb-1" />
                         )}
-                        <p className="font-bold text-base text-gray-900">{rs.restaurantName}</p>
-                        {restaurantAddress && <p className="text-gray-500 text-[10px]">{restaurantAddress}</p>}
-                        {rs.phone && <p className="text-gray-500">{rs.phone}</p>}
-                        {rs.website && <p className="text-gray-500">{rs.website}</p>}
-                        {rs.email && <p className="text-gray-500">{rs.email}</p>}
-                        {rs.vatNumber && <p className="text-gray-500">VAT: {rs.vatNumber}</p>}
+                        <p className="font-bold text-base text-gray-900 dark:text-[var(--brand-text-dark)]">{rs.restaurantName}</p>
+                        {restaurantAddress && <p className="text-gray-500 dark:text-zinc-400 text-[10px]">{restaurantAddress}</p>}
+                        {rs.phone && <p className="text-gray-500 dark:text-zinc-400">{rs.phone}</p>}
+                        {rs.website && <p className="text-gray-500 dark:text-zinc-400">{rs.website}</p>}
+                        {rs.email && <p className="text-gray-500 dark:text-zinc-400">{rs.email}</p>}
+                        {rs.vatNumber && <p className="text-gray-500 dark:text-zinc-400">VAT: {rs.vatNumber}</p>}
                     </div>
 
-                    <div className="border-t border-dashed border-gray-300" />
+                    <div className="border-t border-dashed border-gray-300 dark:border-zinc-700" />
 
                     <div className="text-center space-y-0.5">
                         <p className="font-bold text-sm">RECEIPT</p>
-                        <p title={fullOrderNumber(order.id)} className="text-gray-500 break-all">{fullOrderNumber(order.id)}</p>
-                        <p className="text-gray-500">{fmtDate(order.date)} at {fmtTime(order.date)}</p>
+                        <p title={fullOrderNumber(order.id)} className="text-gray-500 dark:text-zinc-400 break-all">{fullOrderNumber(order.id)}</p>
+                        <p className="text-gray-500 dark:text-zinc-400">{fmtDate(order.date)} at {fmtTime(order.date)}</p>
                     </div>
 
-                    <div className="border-t border-dashed border-gray-300" />
+                    <div className="border-t border-dashed border-gray-300 dark:border-zinc-700" />
 
                     <div className="space-y-1">
                         <div className="flex justify-between">
-                            <span className="text-gray-500">Customer</span>
+                            <span className="text-gray-500 dark:text-zinc-400">Customer</span>
                             <span className="font-medium">{customer.name}</span>
                         </div>
                         <div className="flex justify-between">
-                            <span className="text-gray-500">Type</span>
+                            <span className="text-gray-500 dark:text-zinc-400">Type</span>
                             <span className="font-medium">{order.fulfillment === "delivery" ? "🚚 Delivery" : "🏪 Collection"}</span>
                         </div>
                         {order.address && (
                             <div className="flex justify-between gap-4">
-                                <span className="text-gray-500 flex-shrink-0">Address</span>
+                                <span className="text-gray-500 dark:text-zinc-400 flex-shrink-0">Address</span>
                                 <span className="text-right font-medium">{order.address}</span>
                             </div>
                         )}
                         {order.scheduledTime && (
                             <div className="flex justify-between gap-4">
-                                <span className="text-gray-500 flex-shrink-0">Scheduled</span>
+                                <span className="text-gray-500 dark:text-zinc-400 flex-shrink-0">Scheduled</span>
                                 <span className="text-right font-medium text-green-700">{order.scheduledTime}</span>
                             </div>
                         )}
                     </div>
 
-                    <div className="border-t border-dashed border-gray-300" />
+                    <div className="border-t border-dashed border-gray-300 dark:border-zinc-700" />
 
                     <div className="space-y-3">
                         {order.items.map((line, i) => {
@@ -481,19 +485,19 @@ function ReceiptModal({
                         })}
                     </div>
 
-                    <div className="border-t border-dashed border-gray-300" />
+                    <div className="border-t border-dashed border-gray-300 dark:border-zinc-700" />
 
                     <div className="space-y-1">
-                        <div className="flex justify-between text-gray-500">
+                        <div className="flex justify-between text-gray-500 dark:text-zinc-400">
                             <span>Subtotal</span><span>{sym}{subtotal.toFixed(2)}</span>
                         </div>
                         {order.fulfillment === "delivery" && (
-                            <div className="flex justify-between text-gray-500">
+                            <div className="flex justify-between text-gray-500 dark:text-zinc-400">
                                 <span>Delivery fee</span><span>{sym}{deliveryFee.toFixed(2)}</span>
                             </div>
                         )}
                         {serviceFee > 0 && (
-                            <div className="flex justify-between text-gray-500">
+                            <div className="flex justify-between text-gray-500 dark:text-zinc-400">
                                 <span>Service fee</span><span>{sym}{serviceFee.toFixed(2)}</span>
                             </div>
                         )}
@@ -523,7 +527,7 @@ function ReceiptModal({
                         )}
                     </div>
 
-                    <div className="border-t border-dashed border-gray-300" />
+                    <div className="border-t border-dashed border-gray-300 dark:border-zinc-700" />
 
                     <div className="flex justify-between font-bold text-base">
                         <span>TOTAL</span><span>{sym}{order.total.toFixed(2)}</span>
@@ -536,12 +540,12 @@ function ReceiptModal({
                         <div className="space-y-1">
                             {order.paymentMethod && (
                                 <div className="flex justify-between">
-                                    <span className="text-gray-500">Payment</span>
+                                    <span className="text-gray-500 dark:text-zinc-400">Payment</span>
                                     <span className="font-medium">{order.paymentMethod}</span>
                                 </div>
                             )}
                             <div className="flex justify-between">
-                                <span className="text-gray-500">Status</span>
+                                <span className="text-gray-500 dark:text-zinc-400">Status</span>
                                 <span className={`font-semibold ${STATUS_CONFIG[order.status].className.split(" ").find((c) => c.startsWith("text-")) ?? "text-gray-900"}`}>
                                     {orderStatusLabel(order)}
                                 </span>
@@ -555,10 +559,10 @@ function ReceiptModal({
                         </div>
                     )}
 
-                    <div className="border-t border-dashed border-gray-300" />
+                    <div className="border-t border-dashed border-gray-300 dark:border-zinc-700" />
 
-                    <div className="text-center space-y-0.5 text-gray-500">
-                        {rs.thankYouMessage && <p className="font-medium text-gray-700">{rs.thankYouMessage}</p>}
+                    <div className="text-center space-y-0.5 text-gray-500 dark:text-zinc-400">
+                        {rs.thankYouMessage && <p className="font-medium text-gray-700 dark:text-zinc-300">{rs.thankYouMessage}</p>}
                         {rs.customMessage && <p className="text-[10px] leading-snug whitespace-pre-wrap">{rs.customMessage}</p>}
                         <p>{rs.restaurantName}</p>
                     </div>
@@ -571,15 +575,41 @@ function ReceiptModal({
 // ── Main Page ───────────────────────────────────────────────────────────────
 export default function MyOrdersPage() {
     const { currentUser, addToCart, settings, menuItems, refreshCurrentUser, logout } = useApp();
+    const { theme, toggleTheme } = useSiteTheme();
     const sym = settings.currency?.symbol ?? "£";
     const router = useRouter();
     const [search, setSearch] = useState("");
+    const [searchFocused, setSearchFocused] = useState(false);
+    const searchInputRef = useRef<HTMLInputElement>(null);
     const [trackingOrder, setTrackingOrder] = useState<Order | null>(null);
     const [authModal, setAuthModal] = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
     const [userMenuOpen, setUserMenuOpen] = useState(false);
     const [showMobileCart, setShowMobileCart] = useState(false);
     const [reorderToast, setReorderToast] = useState<ReorderResult | null>(null);
     const [viewingReceipt, setViewingReceipt] = useState<Order | null>(null);
+
+    // Search-bar autocomplete: same dropdown as the main menu page, but since
+    // this isn't the menu grid, picking a suggestion hands off to "/" (via sessionStorage)
+    const searchSuggestions = (() => {
+        const q = search.trim().toLowerCase();
+        if (!q) return [];
+        return menuItems
+            .filter((i) => isOnChannel(i, "online"))
+            .filter((i) => i.name.toLowerCase().includes(q) || i.description.toLowerCase().includes(q))
+            .sort((a, b) => {
+                const an = a.name.toLowerCase().includes(q) ? 0 : 1;
+                const bn = b.name.toLowerCase().includes(q) ? 0 : 1;
+                return an - bn;
+            })
+            .slice(0, 6);
+    })();
+
+    function openSuggestion(item: MenuItem) {
+        searchInputRef.current?.blur();
+        setSearchFocused(false);
+        sessionStorage.setItem("pendingOpenItem", item.id);
+        router.push("/");
+    }
 
     const ACTIVE_STATUSES = new Set(["pending", "confirmed", "preparing", "ready"]);
     // Only a FULL refund removes an order from "active". A partially refunded
@@ -730,13 +760,9 @@ export default function MyOrdersPage() {
     }
 
     return (
-        <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: '#f5f5f3' }}>
-
-            {/* ── Main content area ─────────────────────────────────────────────── */}
-            <div className="flex-1 flex flex-col min-w-0 h-full">
-
-                {/* Top search header */}
-                <header className="hidden lg:flex items-center justify-between gap-3 px-4 md:px-6 py-3.5 border-b border-zinc-200/70 bg-white flex-shrink-0">
+        <>
+                {/* Top search header — sticky */}
+                <header className="hidden lg:flex items-center justify-between gap-3 px-4 md:px-6 py-3.5 border-b border-zinc-200/70 dark:border-[var(--brand-border-dark)] bg-white dark:bg-[var(--brand-surface-dark)] sticky top-0 z-20">
                     {/* Mobile: logo */}
                     <div className="lg:hidden flex items-center gap-2 flex-shrink-0">
                         {settings.restaurant.logoImage ? (
@@ -751,44 +777,94 @@ export default function MyOrdersPage() {
                     </div>
 
                     {/* Search */}
-                    <div className="flex-1 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-100 max-w-xl">
-                        <Search className="w-4 h-4 text-zinc-400 flex-shrink-0" strokeWidth={1.8} />
-                        <input
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            placeholder="Search dishes…"
-                            className="flex-1 bg-transparent outline-none text-[13.5px] text-zinc-900 placeholder:text-zinc-400"
-                        />
-                        {search && (
-                            <button onClick={() => setSearch("")} className="text-[11px] font-medium text-zinc-400 hover:text-zinc-700 transition-colors">
-                                Clear
-                            </button>
+                    <div className="relative flex-1 max-w-xl min-w-0">
+                        <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-100 dark:bg-white/5">
+                            <Search className="w-4 h-4 text-zinc-400 flex-shrink-0" strokeWidth={1.8} />
+                            <input
+                                ref={searchInputRef}
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                onFocus={() => setSearchFocused(true)}
+                                onBlur={() => setSearchFocused(false)}
+                                placeholder="Search dishes…"
+                                className="flex-1 min-w-0 bg-transparent outline-none text-[13.5px] text-zinc-900 dark:text-[var(--brand-text-dark)] placeholder:text-zinc-400"
+                            />
+                            {search && (
+                                <button onMouseDown={(e) => e.preventDefault()} onClick={() => setSearch("")} className="text-[11px] font-medium text-zinc-400 hover:text-zinc-700 transition-colors flex-shrink-0">
+                                    Clear
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Suggestions dropdown */}
+                        {searchFocused && search.trim() && (
+                            <div className="absolute left-0 right-0 top-full mt-2 bg-white dark:bg-[var(--brand-surface-dark)] rounded-xl border border-zinc-200/70 dark:border-[var(--brand-border-dark)] shadow-lg z-30 py-1 max-h-[55vh] overflow-y-auto overscroll-contain">
+                                {searchSuggestions.length > 0 ? (
+                                    searchSuggestions.map((item) => {
+                                        const price = effectiveMenuPrice(item, "online");
+                                        return (
+                                            <button
+                                                key={item.id}
+                                                onMouseDown={(e) => e.preventDefault()}
+                                                onClick={() => openSuggestion(item)}
+                                                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-white/5 active:bg-zinc-100 dark:active:bg-white/10 transition-colors text-left"
+                                            >
+                                                <div className="w-11 h-11 rounded-lg bg-orange-50 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                                                    {item.image ? (
+                                                        /* eslint-disable-next-line @next/next/no-img-element */
+                                                        <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        <UtensilsCrossed className="w-5 h-5 text-zinc-300 dark:text-zinc-700" strokeWidth={1.4} />
+                                                    )}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="text-[13.5px] font-medium text-zinc-900 dark:text-[var(--brand-text-dark)] truncate">{item.name}</div>
+                                                    {item.description && (
+                                                        <div className="text-[11.5px] text-zinc-400 truncate">{item.description}</div>
+                                                    )}
+                                                </div>
+                                                <span className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-300 flex-shrink-0">{sym}{price.toFixed(2)}</span>
+                                            </button>
+                                        );
+                                    })
+                                ) : (
+                                    <div className="px-3.5 py-4 text-[13px] text-zinc-400 text-center">No dishes found</div>
+                                )}
+                            </div>
                         )}
                     </div>
 
                     {/* Auth / user (desktop) */}
                     <div className="hidden lg:flex items-center gap-2">
+                        <button
+                            onClick={toggleTheme}
+                            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                            className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white"
+                        >
+                            {theme === "dark" ? <Sun className="w-5 h-5" strokeWidth={1.8} /> : <Moon className="w-5 h-5" strokeWidth={1.8} />}
+                        </button>
                         {currentUser ? (
                             <div className="relative">
                                 <button
                                     onClick={() => setUserMenuOpen((o) => !o)}
-                                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 transition-colors"
+                                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10"
                                 >
                                     <div className="w-6 h-6 rounded-full bg-orange-500 text-white flex items-center justify-center text-[11px] font-bold">
                                         {currentUser.name?.charAt(0).toUpperCase() ?? "U"}
                                     </div>
-                                    <span className="text-[13px] font-medium text-zinc-700">{currentUser.name?.split(" ")[0]}</span>
+                                    <span className="text-[13px] font-medium text-zinc-700 dark:text-zinc-300">{currentUser.name?.split(" ")[0]}</span>
                                 </button>
                                 {userMenuOpen && (
                                     <>
                                         <div className="fixed inset-0 z-10" onClick={() => setUserMenuOpen(false)} />
-                                        <div className="absolute right-0 top-full mt-2 w-44 bg-white rounded-xl border border-zinc-200/70 shadow-lg z-20 overflow-hidden py-1">
+                                        <div className="absolute right-0 top-full mt-2 w-44 bg-white dark:bg-[var(--brand-surface-dark)] rounded-xl border border-zinc-200/70 dark:border-[var(--brand-border-dark)] shadow-lg z-20 overflow-hidden py-1">
                                             <Link href="/account" onClick={() => setUserMenuOpen(false)}
-                                                className="flex items-center gap-2.5 px-4 py-2.5 text-[13px] text-zinc-700 hover:bg-zinc-50 transition-colors">
+                                                className="flex items-center gap-2.5 px-4 py-2.5 text-[13px] text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-white/5 transition-colors">
                                                 <LayoutDashboard className="w-4 h-4" strokeWidth={1.6} />Account
                                             </Link>
                                             <button onClick={() => { logout(); setUserMenuOpen(false); }}
-                                                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[13px] text-red-600 hover:bg-red-50 transition-colors">
+                                                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[13px] text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors">
                                                 <LogOut className="w-4 h-4" strokeWidth={1.6} />Sign out
                                             </button>
                                         </div>
@@ -806,32 +882,30 @@ export default function MyOrdersPage() {
                 </header>
 
                 {/* Scrollable content */}
-                <div className="flex-1 overflow-y-auto pb-15">
-
-                    <div className="min-h-full pb-10" style={{ backgroundColor: "#f5f5f3" }}>
+                    <div className="pb-20">
                         <div className="px-5 pt-7 pb-2">
-                            <h1 className="text-[28px] font-extrabold text-zinc-900 tracking-tight leading-tight">My Orders</h1>
-                            <p className="text-[13.5px] text-zinc-500 mt-1">Recent activity from your kitchen.</p>
+                            <h1 className="text-[28px] font-extrabold text-zinc-900 dark:text-[var(--brand-text-dark)] tracking-tight leading-tight">My Orders</h1>
+                            <p className="text-[13.5px] text-zinc-500 dark:text-zinc-400 mt-1">Recent activity from your kitchen.</p>
                         </div>
 
                         {!currentUser ? (
-                            <div className="mx-5 mt-6 bg-white rounded-3xl p-8 flex flex-col items-center gap-4 text-center shadow-sm">
-                                <div className="w-14 h-14 rounded-2xl bg-zinc-100 flex items-center justify-center">
+                            <div className="mx-5 mt-6 bg-white dark:bg-[var(--brand-surface-dark)] rounded-3xl p-8 flex flex-col items-center gap-4 text-center shadow-sm">
+                                <div className="w-14 h-14 rounded-2xl bg-zinc-100 dark:bg-white/5 flex items-center justify-center">
                                     <Receipt className="w-7 h-7 text-zinc-400" strokeWidth={1.4} />
                                 </div>
-                                <p className="text-[13.5px] text-zinc-500">Sign in to see your order history</p>
+                                <p className="text-[13.5px] text-zinc-500 dark:text-zinc-400">Sign in to see your order history</p>
                                 <button onClick={() => setAuthModal({ open: true, tab: "login" })}
-                                    className="px-6 py-2.5 rounded-full bg-zinc-900 hover:bg-zinc-700 text-white text-[13.5px] font-semibold transition-colors">
+                                    className="px-6 py-2.5 rounded-full bg-zinc-900 hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200 text-white text-[13.5px] font-semibold transition-colors">
                                     Sign in
                                 </button>
                             </div>
 
                         ) : displayOrders.length === 0 ? (
-                            <div className="mx-5 mt-6 bg-white rounded-3xl p-8 flex flex-col items-center gap-3 text-center shadow-sm">
-                                <div className="w-14 h-14 rounded-2xl bg-zinc-100 flex items-center justify-center">
+                            <div className="mx-5 mt-6 bg-white dark:bg-[var(--brand-surface-dark)] rounded-3xl p-8 flex flex-col items-center gap-3 text-center shadow-sm">
+                                <div className="w-14 h-14 rounded-2xl bg-zinc-100 dark:bg-white/5 flex items-center justify-center">
                                     <PackageX className="w-7 h-7 text-zinc-400" strokeWidth={1.4} />
                                 </div>
-                                <p className="text-[13.5px] text-zinc-500">No orders yet — your order history will appear here.</p>
+                                <p className="text-[13.5px] text-zinc-500 dark:text-zinc-400">No orders yet — your order history will appear here.</p>
                             </div>
 
                         ) : (
@@ -868,7 +942,7 @@ export default function MyOrdersPage() {
                                                 {activeOrder.fulfillment === "delivery" && activeOrder.deliveryCode && (
                                                     <div className="mb-4 rounded-2xl border border-orange-400/40 bg-orange-500/10 px-3.5 py-2.5 flex items-center gap-3">
                                                         <div className="flex-1 min-w-0">
-                                                            <p className="text-[9.5px] font-bold uppercase tracking-[0.18em] text-orange-300 leading-none mb-1">
+                                                            <p className="text-[9.5px] font-bold uppercase tracking-[0.18em] text-orange-300 dark:text-orange-500 leading-none mb-1">
                                                                 Driver code
                                                             </p>
                                                             <p className="text-[11px] text-zinc-300 leading-snug">
@@ -893,7 +967,7 @@ export default function MyOrdersPage() {
                                                         </button>
                                                         <button
                                                             onClick={() => setTrackingOrder(activeOrder)}
-                                                            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-white text-zinc-900 text-[13px] font-bold hover:bg-zinc-100 transition-colors active:scale-[0.98]"
+                                                            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 text-[13px] font-bold hover:bg-zinc-100 dark:hover:bg-zinc-700 active:scale-[0.98]"
                                                         >
                                                             <Navigation className="w-3.5 h-3.5" strokeWidth={2} />
                                                             Track order
@@ -938,20 +1012,20 @@ export default function MyOrdersPage() {
                                                             ? `Delivered · ${refundLabel}`
                                                             : "Delivered";
                                                 return (
-                                                    <div key={order.id} className="bg-white rounded-3xl p-5 shadow-sm">
+                                                    <div key={order.id} className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-3xl p-5 shadow-sm">
                                                         <div className="flex items-start justify-between gap-2 mb-2">
                                                             <p className="text-[12px] text-zinc-400">{dateStr}</p>
                                                             <span className={`text-[10.5px] font-bold uppercase tracking-wider ${isCancelled ? "text-red-400" : "text-zinc-400"}`}>
                                                                 {pastLabel}
                                                             </span>
                                                         </div>
-                                                        <p className="text-[14px] font-semibold text-zinc-900 leading-snug mb-3 line-clamp-2">{itemSummary}</p>
+                                                        <p className="text-[14px] font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)] leading-snug mb-3 line-clamp-2">{itemSummary}</p>
                                                         <div className="flex flex-wrap gap-2 items-center justify-between">
-                                                            <span className="text-[15px] font-bold text-zinc-900 tabular-nums">{sym}{order.total.toFixed(2)}</span>
+                                                            <span className="text-[15px] font-bold text-zinc-900 dark:text-[var(--brand-text-dark)] tabular-nums">{sym}{order.total.toFixed(2)}</span>
                                                             <div className="flex items-center gap-4">
                                                                 <button
                                                                     onClick={() => setViewingReceipt(order)}
-                                                                    className="flex items-center gap-1 text-[13px] font-semibold text-zinc-500 hover:text-zinc-800 transition-colors"
+                                                                    className="flex items-center gap-1 text-[13px] font-semibold text-zinc-500 hover:text-zinc-800 dark:hover:text-white transition-colors"
                                                                 >
                                                                     <FileText className="w-3.5 h-3.5" strokeWidth={2} />
                                                                     Receipt
@@ -974,8 +1048,6 @@ export default function MyOrdersPage() {
                             </>
                         )}
                     </div>
-                </div>
-            </div>
 
             {viewingReceipt && currentUser && (
                 <ReceiptModal
@@ -1000,7 +1072,7 @@ export default function MyOrdersPage() {
             {showMobileCart && (
                 <div className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end">
                     <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowMobileCart(false)} />
-                    <div className="relative bg-white rounded-t-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-xl">
+                    <div className="relative bg-white dark:bg-[var(--brand-surface-dark)] rounded-t-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-xl">
                         <Cart
                             onMobileClose={() => setShowMobileCart(false)}
                             onOrderPlaced={() => { setShowMobileCart(false); router.push('/my-orders'); }}
@@ -1021,6 +1093,6 @@ export default function MyOrdersPage() {
                 />
             )}
 
-        </div>
+        </>
     );
 }

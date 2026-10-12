@@ -104,13 +104,13 @@ export default function SiteSidebar({
   };
 
   return (
-    <aside className="hidden lg:flex w-[260px] flex-shrink-0 h-full flex-col bg-white border-r border-zinc-200/70">
+    <aside className="hidden lg:flex w-[260px] flex-shrink-0 h-full flex-col bg-white dark:bg-[var(--brand-surface-dark)] border-r border-zinc-200/70 dark:border-[var(--brand-border-dark)]">
       {/* Logo */}
-      <div className="p-5 pb-3">
+      <div className="p-5 pb-3 flex items-center gap-2">
         <Link
           href="/"
           onClick={() => navigateToCategory("all")}
-          className="flex items-center gap-2.5 px-1 hover:opacity-80 transition-opacity w-full text-left"
+          className="flex items-center gap-2.5 px-1 hover:opacity-80 transition-opacity flex-1 min-w-0 text-left"
         >
           {restaurant.logoImage ? (
             /* eslint-disable-next-line @next/next/no-img-element */
@@ -122,8 +122,8 @@ export default function SiteSidebar({
             </div>
           )}
           <div className="leading-tight min-w-0">
-            <div className="text-[14.5px] font-semibold text-zinc-900 tracking-tight truncate">{restaurant.name}</div>
-            <div className="text-[11px] text-zinc-500 truncate">{restaurant.tagline || "Restaurant"}</div>
+            <div className="text-[14.5px] font-semibold text-zinc-900 dark:text-[var(--brand-text-dark)] tracking-tight truncate">{restaurant.name}</div>
+            <div className="text-[11px] text-zinc-500 dark:text-zinc-400 truncate">{restaurant.tagline || "Restaurant"}</div>
           </div>
         </Link>
       </div>
@@ -138,7 +138,7 @@ export default function SiteSidebar({
               <Link key={href} href={href}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors ${active
                   ? "bg-orange-500 text-white"
-                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white"
                   }`}
               >
                 <Icon className="w-[17px] h-[17px]" strokeWidth={1.6} />
@@ -148,7 +148,7 @@ export default function SiteSidebar({
           })}
           {headerLinks.map((link) => (
             <Link key={link.id} href={link.href}
-              className="flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+              className="flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium transition-colors text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white"
             >
               <span className="w-[17px] h-[17px] flex items-center justify-center text-[11px] font-bold text-zinc-400">●</span>
               <span>{link.label}</span>
@@ -159,7 +159,7 @@ export default function SiteSidebar({
           {reservationEnabled && (
             <button
               onClick={onReserve}
-              className="w-full flex items-center gap-3 px-3 py-2 mt-1 rounded-xl text-[13.5px] font-semibold transition-all border border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-500 hover:text-white hover:border-orange-500 active:scale-[0.98] group"
+              className="w-full flex items-center gap-3 px-3 py-2 mt-1 rounded-xl text-[13.5px] font-semibold border border-orange-200 bg-orange-50 text-orange-600 dark:bg-orange-500/10 dark:border-orange-500/10 dark:text-[var(--brand-text-dark)] hover:bg-orange-500 dark:hover:bg-orange-500/30 hover:text-white hover:border-orange-500 active:scale-[0.98] group"
             >
               <CalendarDays className="w-[17px] h-[17px]" strokeWidth={1.6} />
               <span>Reserve a Table</span>
@@ -174,9 +174,9 @@ export default function SiteSidebar({
         <nav className="space-y-0.5">
           <button
             onClick={() => navigateToCategory("all")}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] transition-colors ${pathname === "/" && activeCat === "all"
-              ? "bg-orange-50 text-orange-700 font-medium"
-              : "text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50"
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] ${pathname === "/" && activeCat === "all"
+              ? "bg-orange-50 dark:bg-orange-500/2 text-orange-700 dark:text-[var(--brand-text-dark)] font-medium"
+              : "text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-white/5"
               }`}
           >
             <span className="text-base leading-none">🍽️</span>
@@ -197,9 +197,9 @@ export default function SiteSidebar({
                 {/* Parent row */}
                 <button
                   onClick={() => handleParentClick(parent)}
-                  className={`w-full flex items-center rounded-xl px-3 py-2 gap-2.5 transition-colors text-left ${parentActive
-                    ? "bg-orange-50 text-orange-700 font-medium"
-                    : "text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50"
+                  className={`w-full flex items-center rounded-xl px-3 py-2 gap-2.5 text-left ${parentActive
+                    ? "bg-orange-50 dark:bg-orange-500/2 text-orange-700 dark:text-[var(--brand-text-dark)] font-medium"
+                    : "text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-white/5"
                     }`}
                 >
                   <span className="text-base leading-none flex-shrink-0">{parent.emoji}</span>
@@ -221,16 +221,16 @@ export default function SiteSidebar({
 
                 {/* Children — shown when expanded */}
                 {hasKids && isExpanded && (
-                  <div className="ml-4 mt-0.5 mb-1 border-l border-zinc-100 pl-1 space-y-0.5">
+                  <div className="ml-4 mt-0.5 mb-1 border-l border-zinc-100 dark:border-[var(--brand-border-dark)] pl-1 space-y-0.5">
                     {children.map((child) => {
                       const childActive = pathname === "/" && activeCat === child.id;
                       return (
                         <button
                           key={child.id}
                           onClick={() => navigateToCategory(child.id)}
-                          className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] transition-colors ${childActive
-                            ? "bg-orange-50 text-orange-700 font-medium"
-                            : "text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50"
+                          className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] ${childActive
+                            ? "bg-orange-50 dark:bg-orange-500/2 text-orange-700 dark:text-[var(--brand-text-dark)] font-medium"
+                            : "text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 dark:hover:text-white dark:hover:bg-white/5"
                             }`}
                         >
                           <span className="text-sm leading-none flex-shrink-0">{child.emoji}</span>
@@ -250,23 +250,23 @@ export default function SiteSidebar({
       </div>
 
       {/* User profile */}
-      <div className="p-4 border-t border-zinc-100">
+      <div className="p-4 border-t border-zinc-100 dark:border-[var(--brand-border-dark)]">
         {currentUser ? (
           <div className="flex items-center gap-3 px-2 py-1.5">
-            <div className="w-9 h-9 rounded-full bg-orange-100 flex items-center justify-center text-[13px] font-semibold text-orange-700 flex-shrink-0">
+            <div className="w-9 h-9 rounded-full bg-orange-100 dark:bg-orange-950/60 flex items-center justify-center text-[13px] font-semibold text-orange-700 flex-shrink-0">
               {currentUser.name?.charAt(0).toUpperCase() ?? "U"}
             </div>
             <div className="flex-1 min-w-0 leading-tight">
-              <div className="text-[13px] font-medium text-zinc-700 truncate">{currentUser.name}</div>
-              <Link href="/account" className="text-[11px] text-zinc-400 hover:text-zinc-600 transition-colors">View profile</Link>
+              <div className="text-[13px] font-medium text-zinc-700 dark:text-[var(--brand-text-dark)] truncate">{currentUser.name}</div>
+              <Link href="/account" className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors">View profile</Link>
             </div>
-            <button onClick={logout} title="Sign out" className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors">
+            <button onClick={logout} title="Sign out" className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 dark:hover:text-white dark:hover:bg-white/5 transition-colors">
               <LogOut className="w-3.5 h-3.5" strokeWidth={1.8} />
             </button>
           </div>
         ) : (
           <button onClick={onAuth}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900 transition-colors">
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-medium text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white transition-colors">
             <User className="w-[17px] h-[17px]" strokeWidth={1.6} />
             <span>Sign in</span>
           </button>

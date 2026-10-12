@@ -96,7 +96,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
     router.push(url);
   }
 
-  const inputCls = "w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition";
+  const inputCls = "w-full pl-9 pr-4 py-2.5 border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 dark:focus:ring-zinc-500 transition";
 
   const resendInFlight = useRef(false);
 
@@ -119,13 +119,13 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="relative bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+      <div className="relative bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
         {/* Close */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition z-10"
+          className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/15 transition z-10"
         >
-          <X size={16} />
+          <X size={16} className="dark:text-zinc-300" />
         </button>
 
         {/* Verification pending panel — shown after register or when login
@@ -133,9 +133,9 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
         {verificationEmail && (
           <div className="p-8 text-center space-y-4">
             <CheckCircle2 size={48} className="text-orange-500 mx-auto" />
-            <h2 className="text-lg font-semibold text-gray-900">Check your inbox</h2>
-            <p className="text-sm text-gray-500 leading-relaxed">
-              We&apos;ve sent a verification link to <strong className="text-gray-700">{verificationEmail}</strong>.
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-[var(--brand-text-dark)]">Check your inbox</h2>
+            <p className="text-sm text-gray-500 dark:text-zinc-400 leading-relaxed">
+              We&apos;ve sent a verification link to <strong className="text-gray-700 dark:text-zinc-200">{verificationEmail}</strong>.
               Click the link to finish creating your account — it expires in 24 hours.
             </p>
             <button
@@ -148,7 +148,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
             <button
               type="button"
               onClick={onClose}
-              className="block w-full mt-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2.5 rounded-xl text-sm transition"
+              className="block w-full mt-2 bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/15 text-gray-700 dark:text-zinc-200 font-semibold py-2.5 rounded-xl text-sm transition"
             >
               Close
             </button>
@@ -160,12 +160,12 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
         {/* Checkout context banner */}
         {subtitle && (
           <div className="px-6 pt-5 pb-0">
-            <p className="text-[13px] text-gray-500 leading-relaxed pr-8">{subtitle}</p>
+            <p className="text-[13px] text-gray-500 dark:text-zinc-400 leading-relaxed pr-8">{subtitle}</p>
           </div>
         )}
 
         {/* Tabs */}
-        <div className="flex border-b border-gray-100">
+        <div className="flex border-b border-gray-100 dark:border-[var(--brand-border-dark)]">
           {(["login", "register"] as const).map((t) => (
             <button
               key={t}
@@ -173,7 +173,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
               className={`flex-1 py-4 text-sm font-semibold transition-colors ${
                 tab === t
                   ? "text-orange-500 border-b-2 border-orange-500"
-                  : "text-gray-400 hover:text-gray-600"
+                  : "text-gray-400 hover:text-gray-600 dark:hover:text-zinc-300"
               }`}
             >
               {t === "login" ? "Sign in" : "Create account"}
@@ -186,7 +186,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
           {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- OAuth redirect requires a hard navigation; Link would do a client-side fetch and break the flow */}
           <a
             href="/api/auth/google"
-            className="flex items-center justify-center gap-3 w-full border border-gray-200 rounded-xl py-2.5 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 active:bg-gray-100 transition-colors mb-4"
+            className="flex items-center justify-center gap-3 w-full border border-gray-200 dark:border-[var(--brand-border-dark)] rounded-xl py-2.5 px-4 text-sm font-semibold text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-white/5 active:bg-gray-100 dark:active:bg-white/10 transition-colors mb-4"
           >
             {/* Google "G" logo */}
             <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden>
@@ -199,16 +199,16 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
           </a>
 
           <div className="flex items-center gap-3 mb-4">
-            <div className="flex-1 h-px bg-gray-100" />
+            <div className="flex-1 h-px bg-gray-100 dark:bg-[var(--brand-border-dark)]" />
             <span className="text-xs text-gray-400 font-medium">or</span>
-            <div className="flex-1 h-px bg-gray-100" />
+            <div className="flex-1 h-px bg-gray-100 dark:bg-[var(--brand-border-dark)]" />
           </div>
 
           {/* ── Login form ──────────────────────────────────────────────────── */}
           {tab === "login" && (
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Email address</label>
+                <label className="block text-xs font-medium text-gray-600 dark:text-zinc-400 mb-1">Email address</label>
                 <div className="relative">
                   <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                   <input
@@ -223,7 +223,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
 
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-medium text-gray-600">Password</label>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-zinc-400">Password</label>
                   <button
                     type="button"
                     onClick={goToForgot}
@@ -239,7 +239,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
                     onChange={(e) => { setLoginForm((f) => ({ ...f, password: e.target.value })); setError(""); setIsAuthError(false); }}
                     placeholder="••••••••"
                     autoComplete="current-password"
-                    className="w-full pl-9 pr-10 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                    className="w-full pl-9 pr-10 py-2.5 border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 dark:focus:ring-zinc-500 transition"
                   />
                   <button
                     type="button"
@@ -255,7 +255,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
               {/* Error — contextual callout with reset link on auth failure */}
               {error && (
                 isAuthError ? (
-                  <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                  <div className="flex items-start gap-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3">
                     <AlertCircle size={15} className="text-red-500 flex-shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-red-700">{error}</p>
@@ -272,7 +272,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                  <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-3 py-2.5">
                     <AlertCircle size={14} className="text-red-500 flex-shrink-0" />
                     <p className="text-xs text-red-600">{error}</p>
                   </div>
@@ -287,7 +287,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
                 {loading ? "Signing in…" : "Sign in"}
               </button>
 
-              <p className="text-center text-xs text-gray-400">
+              <p className="text-center text-xs text-gray-400 dark:text-zinc-500">
                 No account?{" "}
                 <button type="button" onClick={() => switchTab("register")} className="text-orange-500 font-semibold hover:underline">
                   Create one
@@ -300,7 +300,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
           {tab === "register" && (
             <form onSubmit={handleRegister} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Full name</label>
+                <label className="block text-xs font-medium text-gray-600 dark:text-zinc-400 mb-1">Full name</label>
                 <div className="relative">
                   <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                   <input
@@ -312,7 +312,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Email address</label>
+                <label className="block text-xs font-medium text-gray-600 dark:text-zinc-400 mb-1">Email address</label>
                 <div className="relative">
                   <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                   <input
@@ -324,7 +324,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Phone number</label>
+                <label className="block text-xs font-medium text-gray-600 dark:text-zinc-400 mb-1">Phone number</label>
                 <div className="relative">
                   <Phone size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                   <input
@@ -336,14 +336,14 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Password</label>
+                <label className="block text-xs font-medium text-gray-600 dark:text-zinc-400 mb-1">Password</label>
                 <div className="relative">
                   <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                   <input
                     type={showPassword ? "text" : "password"} required value={registerForm.password}
                     onChange={(e) => setRegisterForm((f) => ({ ...f, password: e.target.value }))}
                     placeholder="Min. 6 characters"
-                    className="w-full pl-9 pr-10 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+                    className="w-full pl-9 pr-10 py-2.5 border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 dark:focus:ring-zinc-500 transition"
                   />
                   <button
                     type="button" tabIndex={-1}
@@ -356,7 +356,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Confirm password</label>
+                <label className="block text-xs font-medium text-gray-600 dark:text-zinc-400 mb-1">Confirm password</label>
                 <div className="relative">
                   <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                   <input
@@ -375,13 +375,13 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
                   onChange={(e) => setMarketingOptIn(e.target.checked)}
                   className="w-4 h-4 accent-orange-500 mt-0.5 shrink-0"
                 />
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-gray-500 dark:text-zinc-400">
                   Email me offers and news. You can unsubscribe anytime.
                 </span>
               </label>
 
               {error && (
-                <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-3 py-2.5">
                   <AlertCircle size={14} className="text-red-500 flex-shrink-0" />
                   <p className="text-xs text-red-600">{error}</p>
                 </div>
@@ -395,7 +395,7 @@ export default function AuthModal({ initialTab = "login", onClose, onSuccess, su
                 {loading ? "Creating account…" : "Create account"}
               </button>
 
-              <p className="text-center text-xs text-gray-400">
+              <p className="text-center text-xs text-gray-400 dark:text-zinc-500">
                 Already have an account?{" "}
                 <button type="button" onClick={() => switchTab("login")} className="text-orange-500 font-semibold hover:underline">
                   Sign in

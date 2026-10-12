@@ -4,25 +4,29 @@ import { useApp } from "@/context/AppContext";
 import { resolveStock } from "@/lib/stockUtils";
 import { isOnChannel, effectiveMenuPrice, getOfferUnitPrice } from "@/lib/menuOfferUtils";
 import { isMealPeriodActive, nextActivationLabel } from "@/lib/scheduleUtils";
-import { Heart, UtensilsCrossed, Plus, Search, LayoutDashboard, LogOut, Clock } from "lucide-react";
+import { Heart, UtensilsCrossed, Plus, Search, LayoutDashboard, LogOut, Clock, Sun, Moon } from "lucide-react";
 import AuthModal from "@/components/AuthModal";
 import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MenuItem } from "@/types";
 import { useRouter } from "next/navigation";
 import Cart from "@/components/Cart";
 import MobileBottomNav from "@/components/MobileBottomNav";
+import { useSiteTheme } from "@/context/SiteThemeContext";
 
 export default function FavouritesPage() {
     const router = useRouter();
     const [search, setSearch] = useState("");
     const [showMobileCart, setShowMobileCart] = useState(false);
     const { currentUser, menuItems, mealPeriods, settings, isOpen, toggleFavourite, logout } = useApp();
+    const { theme, toggleTheme } = useSiteTheme();
     const sym = settings.currency?.symbol ?? "£";
     const [authModal, setAuthModal] = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
     const [openItem, setOpenItem] = useState<MenuItem | null>(null);
     const [userMenuOpen, setUserMenuOpen] = useState(false);
+    const [searchFocused, setSearchFocused] = useState(false);
+    const searchInputRef = useRef<HTMLInputElement>(null);
 
     // Tick to re-evaluate "is this item's meal period active?" every 30s
     // so favourites flip from greyed-out → orderable as windows open.
@@ -57,14 +61,33 @@ export default function FavouritesPage() {
       return { orderable: false, label: next ? `Available ${next.label}` : "Currently unavailable" };
     }
 
+    // Search-bar autocomplete: same dropdown as the main menu page, but since
+    // this isn't the menu grid, picking a suggestion hands off to "/" (via sessionStorage)
+    const searchSuggestions = (() => {
+      const q = search.trim().toLowerCase();
+      if (!q) return [];
+      return menuItems
+        .filter((i) => isOnChannel(i, "online"))
+        .filter((i) => i.name.toLowerCase().includes(q) || i.description.toLowerCase().includes(q))
+        .sort((a, b) => {
+          const an = a.name.toLowerCase().includes(q) ? 0 : 1;
+          const bn = b.name.toLowerCase().includes(q) ? 0 : 1;
+          return an - bn;
+        })
+        .slice(0, 6);
+    })();
+
+    function openSuggestion(item: MenuItem) {
+      searchInputRef.current?.blur();
+      setSearchFocused(false);
+      sessionStorage.setItem("pendingOpenItem", item.id);
+      router.push("/");
+    }
+
     return (
-        <div className="h-full flex overflow-hidden" style={{ fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif', backgroundColor: 'var(--brand-bg, #FAFAF9)' }}>
-
-
-            {/* ── Main content area ─────────────────────────────────────────────── */}
-            <div className="flex-1 flex flex-col min-w-0 h-full">
-                {/* Top search header */}
-                <header className="hidden lg:flex items-center justify-between gap-3 px-4 md:px-6 py-3.5 border-b border-zinc-200/70 bg-white flex-shrink-0">
+        <>
+                {/* Top search header — sticky */}
+                <header className="hidden lg:flex items-center justify-between gap-3 px-4 md:px-6 py-3.5 border-b border-zinc-200/70 dark:border-[var(--brand-border-dark)] bg-white dark:bg-[var(--brand-surface-dark)] sticky top-0 z-20">
                     {/* Mobile: logo */}
                     <div className="lg:hidden flex items-center gap-2 flex-shrink-0">
                         {settings.restaurant.logoImage ? (
@@ -79,44 +102,94 @@ export default function FavouritesPage() {
                     </div>
 
                     {/* Search */}
-                    <div className="flex-1 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-100 max-w-xl">
-                        <Search className="w-4 h-4 text-zinc-400 flex-shrink-0" strokeWidth={1.8} />
-                        <input
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            placeholder="Search dishes…"
-                            className="flex-1 bg-transparent outline-none text-[13.5px] text-zinc-900 placeholder:text-zinc-400"
-                        />
-                        {search && (
-                            <button onClick={() => setSearch("")} className="text-[11px] font-medium text-zinc-400 hover:text-zinc-700 transition-colors">
-                                Clear
-                            </button>
+                    <div className="relative flex-1 max-w-xl min-w-0">
+                        <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-100 dark:bg-white/5">
+                            <Search className="w-4 h-4 text-zinc-400 flex-shrink-0" strokeWidth={1.8} />
+                            <input
+                                ref={searchInputRef}
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                onFocus={() => setSearchFocused(true)}
+                                onBlur={() => setSearchFocused(false)}
+                                placeholder="Search dishes…"
+                                className="flex-1 min-w-0 bg-transparent outline-none text-[13.5px] text-zinc-900 dark:text-[var(--brand-text-dark)] placeholder:text-zinc-400"
+                            />
+                            {search && (
+                                <button onMouseDown={(e) => e.preventDefault()} onClick={() => setSearch("")} className="text-[11px] font-medium text-zinc-400 hover:text-zinc-700 transition-colors flex-shrink-0">
+                                    Clear
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Suggestions dropdown */}
+                        {searchFocused && search.trim() && (
+                            <div className="absolute left-0 right-0 top-full mt-2 bg-white dark:bg-[var(--brand-surface-dark)] rounded-xl border border-zinc-200/70 dark:border-[var(--brand-border-dark)] shadow-lg z-30 py-1 max-h-[55vh] overflow-y-auto overscroll-contain">
+                                {searchSuggestions.length > 0 ? (
+                                    searchSuggestions.map((item) => {
+                                        const price = effectiveMenuPrice(item, "online");
+                                        return (
+                                            <button
+                                                key={item.id}
+                                                onMouseDown={(e) => e.preventDefault()}
+                                                onClick={() => openSuggestion(item)}
+                                                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-white/5 active:bg-zinc-100 dark:active:bg-white/10 transition-colors text-left"
+                                            >
+                                                <div className="w-11 h-11 rounded-lg bg-orange-50 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                                                    {item.image ? (
+                                                        /* eslint-disable-next-line @next/next/no-img-element */
+                                                        <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        <UtensilsCrossed className="w-5 h-5 text-zinc-300 dark:text-zinc-700" strokeWidth={1.4} />
+                                                    )}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="text-[13.5px] font-medium text-zinc-900 dark:text-[var(--brand-text-dark)] truncate">{item.name}</div>
+                                                    {item.description && (
+                                                        <div className="text-[11.5px] text-zinc-400 truncate">{item.description}</div>
+                                                    )}
+                                                </div>
+                                                <span className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-300 flex-shrink-0">{sym}{price.toFixed(2)}</span>
+                                            </button>
+                                        );
+                                    })
+                                ) : (
+                                    <div className="px-3.5 py-4 text-[13px] text-zinc-400 text-center">No dishes found</div>
+                                )}
+                            </div>
                         )}
                     </div>
 
                     {/* Auth / user (desktop) */}
                     <div className="hidden lg:flex items-center gap-2">
+                        <button
+                            onClick={toggleTheme}
+                            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                            className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white"
+                        >
+                            {theme === "dark" ? <Sun className="w-5 h-5" strokeWidth={1.8} /> : <Moon className="w-5 h-5" strokeWidth={1.8} />}
+                        </button>
                         {currentUser ? (
                             <div className="relative">
                                 <button
                                     onClick={() => setUserMenuOpen((o) => !o)}
-                                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 transition-colors"
+                                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10"
                                 >
                                     <div className="w-6 h-6 rounded-full bg-orange-500 text-white flex items-center justify-center text-[11px] font-bold">
                                         {currentUser.name?.charAt(0).toUpperCase() ?? "U"}
                                     </div>
-                                    <span className="text-[13px] font-medium text-zinc-700">{currentUser.name?.split(" ")[0]}</span>
+                                    <span className="text-[13px] font-medium text-zinc-700 dark:text-zinc-300">{currentUser.name?.split(" ")[0]}</span>
                                 </button>
                                 {userMenuOpen && (
                                     <>
                                         <div className="fixed inset-0 z-10" onClick={() => setUserMenuOpen(false)} />
-                                        <div className="absolute right-0 top-full mt-2 w-44 bg-white rounded-xl border border-zinc-200/70 shadow-lg z-20 overflow-hidden py-1">
+                                        <div className="absolute right-0 top-full mt-2 w-44 bg-white dark:bg-[var(--brand-surface-dark)] rounded-xl border border-zinc-200/70 dark:border-[var(--brand-border-dark)] shadow-lg z-20 overflow-hidden py-1">
                                             <Link href="/account" onClick={() => setUserMenuOpen(false)}
-                                                className="flex items-center gap-2.5 px-4 py-2.5 text-[13px] text-zinc-700 hover:bg-zinc-50 transition-colors">
+                                                className="flex items-center gap-2.5 px-4 py-2.5 text-[13px] text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-white/5 transition-colors">
                                                 <LayoutDashboard className="w-4 h-4" strokeWidth={1.6} />Account
                                             </Link>
                                             <button onClick={() => { logout(); setUserMenuOpen(false); }}
-                                                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[13px] text-red-600 hover:bg-red-50 transition-colors">
+                                                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[13px] text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors">
                                                 <LogOut className="w-4 h-4" strokeWidth={1.6} />Sign out
                                             </button>
                                         </div>
@@ -133,12 +206,10 @@ export default function FavouritesPage() {
 
                 </header>
 
-
                 {/* Scrollable content */}
-                <div className="flex-1 overflow-y-auto pb-15">
-                    <div className="flex flex-col px-4 sm:px-6 py-6">
+                <div className="flex flex-col px-4 sm:px-6 py-6 pb-15">
                         <div className="flex items-center justify-between mb-1">
-                            <h2 className="font-semibold text-[22px] text-zinc-900 tracking-tight">Favourites</h2>
+                            <h2 className="font-semibold text-[22px] text-zinc-900 dark:text-[var(--brand-text-dark)] tracking-tight">Favourites</h2>
                             {favItems.length > 0 && (
                                 <span className="text-[12px] text-zinc-400 tabular-nums">{favItems.length} saved</span>
                             )}
@@ -147,10 +218,10 @@ export default function FavouritesPage() {
 
                         {!currentUser ? (
                             <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
-                                <div className="w-14 h-14 rounded-2xl bg-zinc-100 flex items-center justify-center">
-                                    <Heart className="w-7 h-7 text-zinc-300" strokeWidth={1.4} />
+                                <div className="w-14 h-14 rounded-2xl bg-zinc-100 dark:bg-white/5 flex items-center justify-center">
+                                    <Heart className="w-7 h-7 text-zinc-300 dark:text-zinc-700" strokeWidth={1.4} />
                                 </div>
-                                <p className="text-[13.5px] text-zinc-500">Sign in to save your favourite dishes</p>
+                                <p className="text-[13.5px] text-zinc-500 dark:text-zinc-400">Sign in to save your favourite dishes</p>
                                 <button onClick={() => setAuthModal({ open: true, tab: "login" })}
                                     className="px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-[13.5px] font-semibold transition-colors">
                                     Sign in
@@ -158,10 +229,10 @@ export default function FavouritesPage() {
                             </div>
                         ) : favItems.length === 0 ? (
                             <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
-                                <div className="w-14 h-14 rounded-2xl bg-zinc-100 flex items-center justify-center">
-                                    <Heart className="w-7 h-7 text-zinc-300" strokeWidth={1.4} />
+                                <div className="w-14 h-14 rounded-2xl bg-zinc-100 dark:bg-white/5 flex items-center justify-center">
+                                    <Heart className="w-7 h-7 text-zinc-300 dark:text-zinc-700" strokeWidth={1.4} />
                                 </div>
-                                <p className="text-[14px] font-medium text-zinc-600">No favourites yet</p>
+                                <p className="text-[14px] font-medium text-zinc-600 dark:text-zinc-300">No favourites yet</p>
                                 <p className="text-[13px] text-zinc-400 max-w-xs">
                                     Tap the ♡ on any dish to save it here for quick reordering.
                                 </p>
@@ -194,7 +265,7 @@ export default function FavouritesPage() {
                                           ? (mp.label ?? "Currently unavailable")
                                           : "Add to order";
                                     return (
-                                        <div key={item.id} className="bg-white rounded-2xl border border-zinc-200/70 shadow-sm overflow-hidden group flex flex-col">
+                                        <div key={item.id} className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-200/70 dark:border-[var(--brand-border-dark)] shadow-sm overflow-hidden group flex flex-col">
                                             {/* Image */}
                                             <div className="relative h-[160px] bg-orange-50 overflow-hidden flex-shrink-0">
                                                 {item.image ? (
@@ -204,7 +275,7 @@ export default function FavouritesPage() {
                                                     />
                                                 ) : (
                                                     <div className="w-full h-full flex items-center justify-center">
-                                                        <UtensilsCrossed className="w-8 h-8 text-zinc-300" strokeWidth={1.2} />
+                                                        <UtensilsCrossed className="w-8 h-8 text-zinc-300 dark:text-zinc-700" strokeWidth={1.2} />
                                                     </div>
                                                 )}
                                                 {/* Remove from favourites */}
@@ -230,24 +301,24 @@ export default function FavouritesPage() {
                                             <div className="p-4 flex-1 flex flex-col">
                                                 <div className="flex flex-col flex-1">
                                                     <div className="flex items-start justify-between gap-2 mb-1">
-                                                        <h3 className="font-medium text-[15px] leading-snug text-zinc-900">{item.name}</h3>
+                                                        <h3 className="font-medium text-[15px] leading-snug text-zinc-900 dark:text-[var(--brand-text-dark)]">{item.name}</h3>
                                                         {getOfferUnitPrice(item) !== null ? (
                                                             <span className="flex-shrink-0 tabular-nums text-right">
                                                                 <span className="font-semibold text-[15px] text-orange-600">{sym}{getOfferUnitPrice(item)!.toFixed(2)}</span>
-                                                                <span className="block text-[11px] text-zinc-400 line-through">{sym}{effectiveMenuPrice(item).toFixed(2)}</span>
+                                                                <span className="block text-[11px] text-zinc-400 dark:text-zinc-500 line-through">{sym}{effectiveMenuPrice(item).toFixed(2)}</span>
                                                             </span>
                                                         ) : (
-                                                            <span className="font-semibold text-[15px] text-zinc-900 tabular-nums flex-shrink-0">{sym}{effectiveMenuPrice(item).toFixed(2)}</span>
+                                                            <span className="font-semibold text-[15px] text-zinc-900 dark:text-[var(--brand-text-dark)] tabular-nums flex-shrink-0">{sym}{effectiveMenuPrice(item).toFixed(2)}</span>
                                                         )}
                                                     </div>
-                                                    <p className="text-[12.5px] text-zinc-500 leading-snug line-clamp-2 mb-3">{item.description}</p>
+                                                    <p className="text-[12.5px] text-zinc-500 dark:text-zinc-400 leading-snug line-clamp-2 mb-3">{item.description}</p>
                                                 </div>
                                                 <button
                                                     disabled={!canAdd}
                                                     onClick={() => setOpenItem(item)}
                                                     className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[13px] font-semibold transition-all mt-auto active:scale-[0.98] ${canAdd
                                                         ? "bg-orange-500 hover:bg-orange-600 text-white"
-                                                        : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
+                                                        : "bg-zinc-100 dark:bg-white/10 text-zinc-400 dark:text-zinc-500 cursor-not-allowed"
                                                         }`}
                                                 >
                                                     {canAdd && <Plus className="w-4 h-4" strokeWidth={2.5} />}
@@ -261,9 +332,6 @@ export default function FavouritesPage() {
                         )}
                     </div>
 
-                </div>
-            </div>
-
             {/* ── Mobile Bottom Nav ── */}
             <MobileBottomNav
                 onCartOpen={() => setShowMobileCart(true)}
@@ -274,7 +342,7 @@ export default function FavouritesPage() {
             {showMobileCart && (
                 <div className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end">
                     <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowMobileCart(false)} />
-                    <div className="relative bg-white rounded-t-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-xl">
+                    <div className="relative bg-white dark:bg-[var(--brand-surface-dark)] rounded-t-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-xl">
                         <Cart
                             onMobileClose={() => setShowMobileCart(false)}
                             onOrderPlaced={() => { setShowMobileCart(false); router.push('/my-orders'); }}
@@ -294,7 +362,6 @@ export default function FavouritesPage() {
                 <ItemCustomizationModal item={openItem} onClose={() => setOpenItem(null)} />
             )}
 
-        </div>
-       
+        </>
     );
 }

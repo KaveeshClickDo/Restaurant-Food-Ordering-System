@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   CalendarDays, Clock, Users, UtensilsCrossed, CheckCircle2,
   Loader2, AlertCircle, MapPin, ChevronLeft, ChevronRight,
-  Map as MapIcon, LayoutGrid,
+  Map as MapIcon, LayoutGrid, Crown,
 } from "lucide-react";
 import { ReservationFormSchema } from "@/lib/schemas/reservation";
 import { cleanPhone, formErrorMessage } from "@/lib/inputUtils";
@@ -156,13 +156,13 @@ export default function BookPage() {
   if (!enabled) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-20 min-h-[60vh]">
-        <div className="w-full max-w-md bg-white rounded-3xl shadow-sm border border-gray-100 p-8 text-center space-y-4">
-          <div className="w-16 h-16 rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center mx-auto mb-2">
+        <div className="w-full max-w-md bg-white dark:bg-[var(--brand-surface-dark)] rounded-3xl shadow-sm border border-gray-100 dark:border-[var(--brand-border-dark)] p-8 text-center space-y-4">
+          <div className="w-16 h-16 rounded-2xl bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/10 flex items-center justify-center mx-auto mb-2">
             <CalendarDays size={28} className="text-gray-400" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Reservations Unavailable</h1>
-            <p className="text-gray-500 text-sm mt-2 leading-relaxed">
+            <h1 className="text-xl font-bold text-gray-900 dark:text-[var(--brand-text-dark)]">Reservations Unavailable</h1>
+            <p className="text-gray-500 dark:text-zinc-400 text-sm mt-2 leading-relaxed">
               We are currently not accepting online table reservations. Please check back later or contact us directly to book a table.
             </p>
           </div>
@@ -174,20 +174,20 @@ export default function BookPage() {
   if (step === "confirmed") {
     return (
       <div className="flex-1 flex items-center justify-center px-4 py-12">
-        <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-gray-200 p-6 text-center space-y-5">
-          <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto">
+        <div className="w-full max-w-md bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl shadow-sm border border-gray-200 dark:border-[var(--brand-border-dark)] p-6 text-center space-y-5">
+          <div className="w-20 h-20 rounded-full bg-green-100 dark:bg-green-950/40 flex items-center justify-center mx-auto">
             <CheckCircle2 size={40} className="text-green-500" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Booking Confirmed!</h1>
-            <p className="text-gray-500 text-sm mt-1">We look forward to welcoming you at {restaurantName}.</p>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-[var(--brand-text-dark)]">Booking Confirmed!</h1>
+            <p className="text-gray-500 dark:text-zinc-400 text-sm mt-1">We look forward to welcoming you at {restaurantName}.</p>
           </div>
-          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-left space-y-2.5 text-sm">
-            <p><span className="text-gray-500">Date:</span> <span className="font-semibold text-gray-800">{fmtDate(date)}</span></p>
-            <p><span className="text-gray-500">Time:</span> <span className="font-semibold text-gray-800">{fmt12(time)}</span></p>
-            <p><span className="text-gray-500">Guests:</span> <span className="font-semibold text-gray-800">{partySize}</span></p>
-            <p><span className="text-gray-500">Table:</span> <span className="font-semibold text-gray-800">{selectedTable?.label} — {selectedTable?.section}</span></p>
-            <p><span className="text-gray-500">Name:</span> <span className="font-semibold text-gray-800">{name}</span></p>
+          <div className="bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-[var(--brand-border-dark)] rounded-xl p-4 text-left space-y-2.5 text-sm">
+            <p><span className="text-gray-500">Date:</span> <span className="font-semibold text-gray-800 dark:text-zinc-200">{fmtDate(date)}</span></p>
+            <p><span className="text-gray-500">Time:</span> <span className="font-semibold text-gray-800 dark:text-zinc-200">{fmt12(time)}</span></p>
+            <p><span className="text-gray-500">Guests:</span> <span className="font-semibold text-gray-800 dark:text-zinc-200">{partySize}</span></p>
+            <p><span className="text-gray-500">Table:</span> <span className="font-semibold text-gray-800 dark:text-zinc-200">{selectedTable?.label} — {selectedTable?.section}</span></p>
+            <p><span className="text-gray-500">Name:</span> <span className="font-semibold text-gray-800 dark:text-zinc-200">{name}</span></p>
             <p className="text-xs text-gray-400 pt-1">Ref: <span className="font-mono">{reservationId.slice(0, 8).toUpperCase()}</span></p>
           </div>
           <p className="text-xs text-gray-400">A confirmation email has been sent. Check your inbox for a cancel link.</p>
@@ -206,7 +206,7 @@ export default function BookPage() {
             <CalendarDays size={18} className="text-white" />
           </div>
           <div>
-            <h1 className="font-bold text-gray-900 text-lg leading-tight">Reserve a Table</h1>
+            <h1 className="font-bold text-gray-900 dark:text-[var(--brand-text-dark)] text-lg leading-tight">Reserve a Table</h1>
             <p className="text-gray-400 text-xs">{restaurantName}</p>
           </div>
         </div>
@@ -215,50 +215,50 @@ export default function BookPage() {
         <div className="flex items-center gap-2">
           {STEPS.map((label, i) => (
             <div key={label} className="flex items-center gap-2 flex-1">
-              <div className={`flex items-center gap-1.5 text-xs font-semibold ${i <= stepIdx ? "text-zinc-700" : "text-gray-400"}`}>
+              <div className={`flex items-center gap-1.5 text-xs font-semibold ${i <= stepIdx ? "text-zinc-700 dark:text-zinc-200" : "text-gray-400"}`}>
                 <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                  i < stepIdx ? "bg-orange-500 text-white" : i === stepIdx ? "bg-zinc-100 text-zinc-700 ring-2 ring-zinc-300" : "bg-gray-100 text-gray-400"
+                  i < stepIdx ? "bg-orange-500 text-white" : i === stepIdx ? "bg-zinc-100 dark:bg-white/10 text-zinc-700 dark:text-zinc-200 ring-2 ring-zinc-300 dark:ring-zinc-600" : "bg-gray-100 dark:bg-white/5 text-gray-400"
                 }`}>
                   {i < stepIdx ? <CheckCircle2 size={12} /> : i + 1}
                 </div>
                 <span className="hidden sm:block">{label}</span>
               </div>
-              {i < 2 && <div className={`h-0.5 flex-1 rounded ${i < stepIdx ? "bg-zinc-400" : "bg-gray-200"}`} />}
+              {i < 2 && <div className={`h-0.5 flex-1 rounded ${i < stepIdx ? "bg-zinc-400" : "bg-gray-200 dark:bg-white/10"}`} />}
             </div>
           ))}
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-gray-200 dark:border-[var(--brand-border-dark)] shadow-sm overflow-hidden">
 
           {/* Step 1: Date / Time / Party */}
           {step === "datetime" && (
             <div className="p-5 space-y-5">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  <CalendarDays size={13} className="inline mr-1.5 text-zinc-700" />Date
+                <label className="block text-sm font-semibold text-gray-700 dark:text-zinc-300 mb-2">
+                  <CalendarDays size={13} className="inline mr-1.5 text-zinc-700 dark:text-zinc-300" />Date
                 </label>
                 <input type="date" value={date} min={todayStr()} max={maxDateStr(maxDays)}
                   onChange={(e) => setDate(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 transition" />
+                  className="w-full border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300" />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  <Users size={13} className="inline mr-1.5 text-zinc-700" />Party size
+                <label className="block text-sm font-semibold text-gray-700 dark:text-zinc-300 mb-2">
+                  <Users size={13} className="inline mr-1.5 text-zinc-700 dark:text-zinc-300" />Party size
                 </label>
                 <div className="flex items-center gap-3">
                   <button type="button" onClick={() => setPartySize((p) => Math.max(1, p - 1))}
-                    className="w-10 h-10 rounded-full border border-gray-200 text-gray-600 hover:border-zinc-400 hover:text-zinc-700 font-bold text-lg transition flex items-center justify-center">−</button>
-                  <span className="text-xl font-bold text-gray-900 w-8 text-center">{partySize}</span>
+                    className="w-10 h-10 rounded-full border border-gray-200 dark:border-[var(--brand-border-dark)] text-gray-600 dark:text-zinc-300 hover:border-zinc-400 hover:text-zinc-700 dark:hover:text-white font-bold text-lg flex items-center justify-center">−</button>
+                  <span className="text-xl font-bold text-gray-900 dark:text-[var(--brand-text-dark)] w-8 text-center">{partySize}</span>
                   <button type="button" onClick={() => setPartySize((p) => Math.min(maxPS, p + 1))}
-                    className="w-10 h-10 rounded-full border border-gray-200 text-gray-600 hover:border-zinc-400 hover:text-zinc-700 font-bold text-lg transition flex items-center justify-center">+</button>
+                    className="w-10 h-10 rounded-full border border-gray-200 dark:border-[var(--brand-border-dark)] text-gray-600 dark:text-zinc-300 hover:border-zinc-400 hover:text-zinc-700 dark:hover:text-white font-bold text-lg flex items-center justify-center">+</button>
                   <span className="text-sm text-gray-400">{partySize === 1 ? "1 guest" : `${partySize} guests`}</span>
                 </div>
                 {partySize >= maxPS && <p className="text-xs text-amber-600 mt-1">Maximum party size is {maxPS}. Call us for larger groups.</p>}
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  <Clock size={13} className="inline mr-1.5 text-zinc-700" />Time
+                <label className="block text-sm font-semibold text-gray-700 dark:text-zinc-300 mb-2">
+                  <Clock size={13} className="inline mr-1.5 text-zinc-700 dark:text-zinc-300" />Time
                 </label>
                 <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
                   {slots.map((slot) => {
@@ -269,12 +269,12 @@ export default function BookPage() {
                         disabled={past}
                         onClick={() => !past && setTime(slot)}
                         title={past ? "Time has passed" : undefined}
-                        className={`py-2.5 rounded-xl text-sm font-semibold border transition-all ${
+                        className={`py-2.5 rounded-xl text-sm font-semibold border ${
                           past
-                            ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed line-through"
+                            ? "bg-gray-50 dark:bg-white/5 text-gray-300 dark:text-zinc-600 border-gray-100 dark:border-white/10 cursor-not-allowed line-through"
                             : selected
-                              ? "bg-orange-500 text-white border-orange-500 shadow-sm"
-                              : "bg-white text-gray-600 border-gray-200 hover:border-zinc-300 hover:text-zinc-700"
+                              ? "bg-orange-500 dark:bg-orange-800/50 text-white border-orange-500 shadow-sm"
+                              : "bg-white dark:bg-transparent text-gray-600 dark:text-zinc-300 border-gray-200 dark:border-[var(--brand-border-dark)] hover:border-zinc-300 hover:text-zinc-700 dark:hover:text-white"
                         }`}>{fmt12(slot)}</button>
                     );
                   })}
@@ -290,22 +290,22 @@ export default function BookPage() {
           {/* Step 2: Table selection */}
           {step === "table" && (
             <div className="p-5">
-              <div className="bg-zinc-50 border border-zinc-100 rounded-xl px-4 py-3 mb-5 text-sm text-zinc-700 font-medium">
+              <div className="bg-zinc-50 dark:bg-white/5 border border-zinc-100 dark:border-[var(--brand-border-dark)] rounded-xl px-4 py-3 mb-5 text-sm text-zinc-700 dark:text-zinc-300 font-medium">
                 {fmtDate(date)} · {fmt12(time)} · {partySize} {partySize === 1 ? "guest" : "guests"}
               </div>
               {loadingTables ? (
                 <div className="flex flex-col items-center py-12 gap-3 text-gray-400">
-                  <Loader2 size={28} className="animate-spin text-zinc-700" />
+                  <Loader2 size={28} className="animate-spin text-zinc-700 dark:text-zinc-300" />
                   <span className="text-sm">Checking availability…</span>
                 </div>
               ) : blackout ? (
                 <div className="flex flex-col items-center py-12 gap-3 text-center">
-                  <div className="w-14 h-14 rounded-full bg-amber-100 flex items-center justify-center">
+                  <div className="w-14 h-14 rounded-full bg-amber-100 dark:bg-amber-950/40 flex items-center justify-center">
                     <CalendarDays size={24} className="text-amber-500" />
                   </div>
-                  <p className="font-semibold text-gray-700">Restaurant closed</p>
+                  <p className="font-semibold text-gray-700 dark:text-zinc-300">Restaurant closed</p>
                   <p className="text-sm text-gray-400">We&apos;re not taking bookings on this date. Please choose another day.</p>
-                  <button onClick={() => setStep("datetime")} className="mt-2 text-zinc-700 font-semibold text-sm hover:text-zinc-800 transition">← Change date</button>
+                  <button onClick={() => setStep("datetime")} className="mt-2 text-zinc-700 dark:text-zinc-300 font-semibold text-sm hover:text-zinc-800 dark:hover:text-white transition">← Change date</button>
                 </div>
               ) : availError ? (
                 <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
@@ -318,27 +318,27 @@ export default function BookPage() {
                 </div>
               ) : tables.length === 0 ? (
                 <div className="flex flex-col items-center py-12 gap-3 text-center">
-                  <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center">
+                  <div className="w-14 h-14 rounded-full bg-gray-100 dark:bg-white/5 flex items-center justify-center">
                     <UtensilsCrossed size={24} className="text-gray-400" />
                   </div>
-                  <p className="font-semibold text-gray-700">No tables available</p>
+                  <p className="font-semibold text-gray-700 dark:text-zinc-300">No tables available</p>
                   <p className="text-sm text-gray-400 max-w-xs">All tables are fully booked for this slot. Try a different time or date.</p>
-                  <button onClick={() => setStep("datetime")} className="mt-2 text-zinc-700 font-semibold text-sm hover:text-zinc-800 transition">← Change date / time</button>
+                  <button onClick={() => setStep("datetime")} className="mt-2 text-zinc-700 dark:text-zinc-300 font-semibold text-sm hover:text-zinc-800 dark:hover:text-white transition">← Change date / time</button>
                 </div>
               ) : (
                 <div className="space-y-4">
                   {/* Map ↔ list toggle — only when a floor plan with placed tables exists */}
                   {floorPlans.length > 0 && mapTables.length > 0 && (
-                    <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+                    <div className="flex items-center gap-1 bg-gray-100 dark:bg-white/5 rounded-xl p-1 w-fit">
                       <button type="button" onClick={() => setTableView("map")}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                          tableView === "map" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold ${
+                          tableView === "map" ? "bg-white dark:bg-white/10 text-gray-800 dark:text-white shadow-sm" : "text-gray-500 dark:text-zinc-400 hover:text-gray-700 dark:hover:text-zinc-200"
                         }`}>
                         <MapIcon size={13} /> Map
                       </button>
                       <button type="button" onClick={() => setTableView("list")}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                          tableView === "list" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold ${
+                          tableView === "list" ? "bg-white dark:bg-white/10 text-gray-800 dark:text-white shadow-sm" : "text-gray-500 dark:text-zinc-400 hover:text-gray-700 dark:hover:text-zinc-200"
                         }`}>
                         <LayoutGrid size={13} /> List
                       </button>
@@ -346,18 +346,13 @@ export default function BookPage() {
                   )}
 
                   {floorPlans.length > 0 && mapTables.length > 0 && tableView === "map" ? (
-                    <>
-                      <MultiFloorTableMap
-                        plans={floorPlans}
-                        tables={mapTables}
-                        selectedId={selectedTable?.id ?? null}
-                        allowVipSelect={false}
-                        onSelect={(t) => setSelectedTable({ id: t.id, label: t.label, seats: t.seats, section: t.section, isVip: t.isVip, vipPrice: t.vipPrice })}
-                      />
-                      {mapTables.some((t) => t.isVip) && (
-                        <p className="text-xs text-gray-400">👑 VIP tables are shown for reference — to reserve one, use the &ldquo;Book a table&rdquo; button at the top of the site.</p>
-                      )}
-                    </>
+                    <MultiFloorTableMap
+                      plans={floorPlans}
+                      tables={mapTables}
+                      selectedId={selectedTable?.id ?? null}
+                      allowVipSelect={false}
+                      onSelect={(t) => setSelectedTable({ id: t.id, label: t.label, seats: t.seats, section: t.section, isVip: t.isVip, vipPrice: t.vipPrice })}
+                    />
                   ) : (
                   <div className="space-y-4">
                   {Object.entries(tablesBySection).map(([section, st]) => (
@@ -368,13 +363,34 @@ export default function BookPage() {
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {st.map((t) => {
                           const sel = selectedTable?.id === t.id;
+                          // VIP tables require a paid booking fee, which /book
+                          // doesn't collect — they're shown for visibility but
+                          // can't be selected here (see the note below). Only
+                          // ReservationModal (header "Book a table") can book them.
+                          if (t.isVip) {
+                            return (
+                              <button
+                                key={t.id}
+                                type="button"
+                                disabled
+                                title="VIP table — please call us or use the header &quot;Book a table&quot; button to reserve it"
+                                className="relative flex flex-col items-center gap-1.5 py-4 px-3 rounded-xl border-2 border-amber-300 dark:border-amber-800 bg-amber-50/40 dark:bg-amber-950/20 cursor-not-allowed opacity-90"
+                              >
+                                <span className="absolute top-1.5 right-1.5 inline-flex items-center">
+                                  <Crown size={14} className="text-amber-500" />
+                                </span>
+                                <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400">{t.label}</div>
+                                <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">VIP</span>
+                              </button>
+                            );
+                          }
                           return (
                             <button key={t.id} type="button" onClick={() => setSelectedTable(t)}
-                              className={`flex flex-col items-center gap-1.5 py-4 px-3 rounded-xl border-2 transition-all ${
-                                sel ? "border-orange-500 bg-orange-50 shadow-sm" : "border-gray-200 bg-white hover:border-zinc-300"
+                              className={`flex flex-col items-center gap-1.5 py-4 px-3 rounded-xl border-2 ${
+                                sel ? "border-orange-500 bg-orange-50 shadow-sm" : "border-gray-200 dark:border-[var(--brand-border-dark)] bg-white dark:bg-transparent hover:border-zinc-300"
                               }`}>
-                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${sel ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600"}`}>{t.label}</div>
-                              <span className={`text-xs font-medium ${sel ? "text-orange-700" : "text-gray-500"}`}>Up to {t.seats} guests</span>
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${sel ? "bg-orange-500 dark:bg-orange-800/30 text-white" : "bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-zinc-300"}`}>{t.label}</div>
+                              <span className={`text-xs font-medium ${sel ? "text-orange-700" : "text-gray-500 dark:text-zinc-400"}`}>Up to {t.seats} guests</span>
                               {sel && <CheckCircle2 size={14} className="text-orange-600" />}
                             </button>
                           );
@@ -384,6 +400,12 @@ export default function BookPage() {
                   ))}
                   </div>
                   )}
+
+                  {/* Shown regardless of which view is active, whenever the
+                      current results include any VIP table. */}
+                  {(tables.some((t) => t.isVip) || mapTables.some((t) => t.isVip)) && (
+                    <p className="text-xs text-gray-400">👑 VIP tables are shown for reference — to reserve one, use the &ldquo;Book a table&rdquo; button at the top of the site.</p>
+                  )}
                 </div>
               )}
             </div>
@@ -392,7 +414,7 @@ export default function BookPage() {
           {/* Step 3: Customer details */}
           {step === "details" && (
             <form id="book-form" onSubmit={handleSubmit} className="p-5 space-y-4">
-              <div className="bg-zinc-50 border border-zinc-100 rounded-xl px-4 py-3 text-sm text-zinc-700 font-medium">
+              <div className="bg-zinc-50 dark:bg-white/5 border border-zinc-100 dark:border-[var(--brand-border-dark)] rounded-xl px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300 font-medium">
                 {selectedTable?.label} · {fmtDate(date)} · {fmt12(time)} · {partySize} guests
               </div>
               {[
@@ -401,27 +423,27 @@ export default function BookPage() {
                 { label: "Phone",     type: "tel",   value: phone, setter: setPhone, ph: "+44 7700 900123",  req: true,  isPhone: true  },
               ].map(({ label, type, value, setter, ph, req, isPhone }) => (
                 <div key={label}>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+                  <label className="block text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider mb-1">
                     {label} {req && <span className="text-red-400">*</span>}
                   </label>
                   <input type={type} inputMode={isPhone ? "tel" : undefined} autoComplete={isPhone ? "tel" : undefined} required={req} value={value} placeholder={ph}
                     onChange={(e) => setter(isPhone ? cleanPhone(e.target.value) : e.target.value)}
-                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 transition" />
+                    className="w-full border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 dark:focus:ring-zinc-500" />
                 </div>
               ))}
               <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+                <label className="block text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider mb-1">
                   Special requests <span className="text-gray-300 font-normal normal-case">(optional)</span>
                 </label>
                 <textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)}
                   placeholder="Allergies, dietary requirements, special occasion…"
-                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm resize-none focus:outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 transition" />
+                  className="w-full border border-gray-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 text-sm resize-none focus:outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-300 dark:focus:ring-zinc-500" />
               </div>
               {/* Marketing consent — PECR: opt-out offered at collection time */}
               <label className="flex items-start gap-2 cursor-pointer select-none">
                 <input type="checkbox" checked={marketingOptIn} onChange={(e) => setMarketingOptIn(e.target.checked)}
                   className="w-4 h-4 accent-orange-500 mt-0.5 shrink-0" />
-                <span className="text-xs text-gray-500">Email me offers and news. You can unsubscribe anytime.</span>
+                <span className="text-xs text-gray-500 dark:text-zinc-400">Email me offers and news. You can unsubscribe anytime.</span>
               </label>
               {submitError && (
                 <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700">
@@ -432,10 +454,10 @@ export default function BookPage() {
           )}
 
           {/* Footer nav */}
-          <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-gray-100 bg-gray-50">
+          <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-gray-100 dark:border-[var(--brand-border-dark)] bg-gray-50 dark:bg-white/5">
             {step !== "datetime" ? (
               <button type="button" onClick={() => setStep(step === "table" ? "datetime" : "table")}
-                className="flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-gray-700 transition">
+                className="flex items-center gap-1.5 text-sm font-semibold text-gray-500 dark:text-zinc-400 hover:text-gray-700 dark:hover:text-zinc-200 transition">
                 <ChevronLeft size={16} />Back
               </button>
             ) : <span />}
@@ -449,7 +471,7 @@ export default function BookPage() {
               </button>
             )}
             {step === "table" && (
-              <button type="button" disabled={!selectedTable || loadingTables || blackout}
+              <button type="button" disabled={!selectedTable || selectedTable.isVip || loadingTables || blackout}
                 onClick={() => setStep("details")}
                 className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition-all">
                 Continue<ChevronRight size={16} />

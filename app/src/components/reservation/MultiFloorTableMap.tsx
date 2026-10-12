@@ -73,13 +73,13 @@ export default function MultiFloorTableMap({
                   onClick={() => setActiveId(p.id)}
                   className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold border transition-all ${
                     isActive
-                      ? "bg-orange-500 text-white border-orange-500 shadow-sm"
-                      : "bg-white text-gray-600 border-gray-200 hover:border-orange-300 hover:text-orange-600"
+                      ? "bg-orange-500 dark:bg-orange-500/50 text-white border-orange-500 shadow-sm"
+                      : "bg-white dark:bg-white/5 text-gray-600 dark:text-zinc-300 border-gray-200 dark:border-[var(--brand-border-dark)] hover:border-orange-300 hover:text-orange-600"
                   }`}
                 >
                   <span className="max-w-[9rem] truncate" title={p.name}>{p.name}</span>
                   <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                    isActive ? "bg-white/25 text-white" : free > 0 ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-400"
+                    isActive ? "bg-white/25 text-white" : free > 0 ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400" : "bg-gray-100 dark:bg-white/10 text-gray-400 dark:text-zinc-500"
                   }`}>
                     {free > 0 ? `${free} free` : "full"}
                   </span>

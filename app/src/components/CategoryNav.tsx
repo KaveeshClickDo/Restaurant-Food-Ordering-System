@@ -19,7 +19,7 @@ export default function CategoryNav({ categories, activeId, onSelect }: Props) {
               className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-all flex items-center gap-2.5 group ${
                 activeId === cat.id
                   ? "bg-orange-50 text-orange-600 font-semibold"
-                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white"
               }`}
             >
               <span className="text-base">{cat.emoji}</span>

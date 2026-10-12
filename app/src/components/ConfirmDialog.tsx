@@ -98,7 +98,7 @@ export default function ConfirmDialog({
       aria-labelledby="confirm-dialog-title"
     >
       <div
-        className="w-full max-w-md bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden"
+        className="w-full max-w-md bg-gray-900 dark:bg-[var(--brand-surface-dark)] border border-gray-800 dark:border-[var(--brand-border-dark)] rounded-2xl shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-3 p-5 border-b border-gray-800">

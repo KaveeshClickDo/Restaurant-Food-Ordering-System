@@ -27,9 +27,9 @@ export default function RootError({
         <AlertTriangle size={28} className="text-orange-500" />
       </div>
 
-      <h1 className="text-2xl font-bold text-gray-900 mb-2">Something went wrong</h1>
+      <h1 className="text-2xl font-bold text-gray-900 dark:text-[var(--brand-text-dark)] mb-2">Something went wrong</h1>
 
-      <p className="text-gray-500 text-sm max-w-sm mb-1 leading-relaxed">
+      <p className="text-gray-500 dark:text-zinc-400 text-sm max-w-sm mb-1 leading-relaxed">
         {error.message || "An unexpected error occurred while loading this page."}
       </p>
 

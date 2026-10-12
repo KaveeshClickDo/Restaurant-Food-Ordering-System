@@ -26,7 +26,7 @@ export default function MobileBottomNav({
 
   return (
     <nav
-      className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-zinc-200/60"
+      className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white dark:bg-[var(--brand-surface-dark)] border-t border-zinc-200/60 dark:border-[var(--brand-border-dark)]"
       style={{
         boxShadow: "0 -1px 0 rgba(0,0,0,0.05), 0 -4px 20px rgba(0,0,0,0.07)",
         paddingBottom: "env(safe-area-inset-bottom, 0px)",
@@ -43,11 +43,11 @@ export default function MobileBottomNav({
                 className="flex-1 flex flex-col items-center justify-end pb-2 relative"
               >
                 <div className="relative -mt-5 mb-1">
-                  <div className="w-12 h-12 rounded-full bg-orange-500 flex items-center justify-center shadow-lg shadow-orange-500/40 border-[3px] border-white">
+                  <div className="w-12 h-12 rounded-full bg-orange-500 flex items-center justify-center shadow-lg shadow-orange-500/40 dark:shadow-orange-50 border-[3px] border-white dark:border-[var(--brand-surface-dark)]">
                     <ShoppingBag className="w-5 h-5 text-white" strokeWidth={1.8} />
                   </div>
                   {cartCount > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 min-w-[17px] h-[17px] px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center tabular-nums leading-none border border-white">
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[17px] h-[17px] px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center tabular-nums leading-none border border-white dark:border-[var(--brand-surface-dark)]">
                       {cartCount > 99 ? "99+" : cartCount}
                     </span>
                   )}
