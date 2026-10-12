@@ -49,12 +49,14 @@ import {
 
 // ─── Feature flags ────────────────────────────────────────────────────────────
 
-// Marketing tab (contacts + broadcasts) rollout flag. Set
-// NEXT_PUBLIC_FEATURE_MARKETING=off in a deploy's .env.local to hide the tab
-// entirely (sidebar item removed; ?tab=marketing deep links fall back to the
-// default tab). NEXT_PUBLIC_ values are inlined at BUILD time — changing the
-// env requires a rebuild, not just a service restart.
-const MARKETING_ENABLED = process.env.NEXT_PUBLIC_FEATURE_MARKETING !== "off";
+// Marketing tab (contacts + broadcasts) rollout flag. The feature is not
+// finished, so it is OPT-IN: the tab is hidden unless a deploy explicitly sets
+// NEXT_PUBLIC_FEATURE_MARKETING=on in its .env.local. Demo sites turn it on;
+// production sites leave it unset and never see it. Hiding removes the sidebar
+// item and makes ?tab=marketing deep links fall back to the default tab.
+// NEXT_PUBLIC_ values are inlined at BUILD time — changing the env requires a
+// rebuild (npm run build), not just a service restart.
+const MARKETING_ENABLED = process.env.NEXT_PUBLIC_FEATURE_MARKETING === "on";
 
 // ─── Navigation structure ─────────────────────────────────────────────────────
 
@@ -83,7 +85,10 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "customers", label: "Customers", icon: Users },
       // The marketing hub (contacts + broadcasts). The old "reservation-customers"
       // id is kept working as a legacy deep-link alias in the ?tab resolver.
-      // Gated behind NEXT_PUBLIC_FEATURE_MARKETING while the feature rolls out.
+      // Gated behind NEXT_PUBLIC_FEATURE_MARKETING while the feature is
+      // unfinished. Where it IS shown, contacts and the audience are free and
+      // the tab sells the email package when there isn't one — only sending is
+      // metered.
       ...(MARKETING_ENABLED ? [{ id: "marketing", label: "Marketing", icon: Megaphone }] : []),
       { id: "drivers", label: "Drivers", icon: Car },
       { id: "reservations", label: "Reservations", icon: CalendarDays },
@@ -212,7 +217,7 @@ function bannerSubtitle(
     case "collection-staff": return "Manage Collection screen login accounts and PINs — for taking pickup payments without the POS.";
     case "reservations": return settings.reservationSystem?.enabled ? "Reservations are live — customers can book tables from the website." : "Reservations are currently disabled — enable them below.";
     case "table-status": return "Live occupancy plus add / edit / delete dining tables — used by the host stand and reservations.";
-    case "marketing": return "Every customer email captured across the app — filter by source, manage opt-ins, and send broadcast campaigns.";
+    case "marketing": return "Every customer email captured across the app.";
     case "signage": return "Digital menu boards — create fullscreen poster displays for your TVs, each with its own public URL. One image shows as a poster, several loop as a slideshow.";
     case "customer-display": return "Password-protect the public order board at /customer-display. Set, change, or remove the password staff enter once per screen.";
     default: return "Manage your restaurant settings below.";
@@ -258,7 +263,7 @@ function AdminPageContent() {
               rawTab ?? "online-orders"
   ) as TabId;
   // Unknown ids (and feature-flagged tabs filtered out of NAV_GROUPS, e.g.
-  // "marketing" when NEXT_PUBLIC_FEATURE_MARKETING=off) fall back to the
+  // "marketing" when NEXT_PUBLIC_FEATURE_MARKETING isn't "on") fall back to the
   // default tab instead of rendering an empty content area.
   const initialTab: TabId = ALL_TABS.some((t) => t.id === aliasedTab) ? aliasedTab : "online-orders";
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);

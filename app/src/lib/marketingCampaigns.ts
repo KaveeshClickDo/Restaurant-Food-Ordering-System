@@ -19,7 +19,7 @@ import type { AdminSettings, ContactSource } from "@/types";
 import { applyVars, buildEmailDocument } from "./emailTemplates";
 import { supabaseAdmin } from "./supabaseAdmin";
 import { isMarketableEmail } from "./marketingContacts";
-import { sendEmail } from "./emailSender";
+import { sendMarketingBatch, type MarketingMessage } from "./marketingCloud";
 
 export interface CampaignEmail {
   subject: string;
@@ -191,9 +191,10 @@ export function buildCampaignEmail(args: {
 // behave identically. Sends are marked AFTER a successful send (at-least-once),
 // so a crash mid-batch resumes without silently dropping a recipient.
 
-const BATCH_SIZE = 12;
-const SEND_INTERVAL_MS = 500; // ~2 sends/sec — Resend's account-wide cap.
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// One HTTP call per batch, so this is bounded by payload size rather than by a
+// rate limit: each message carries its own fully-rendered HTML (~20KB), and
+// pacing against SES is the Marketing API's job, not ours.
+const BATCH_SIZE = 20;
 
 /**
  * Freeze the campaign's recipient snapshot from its audience descriptor, once.
@@ -232,11 +233,23 @@ export interface BatchOutcome {
   done: boolean;
   remaining: number;
   totals: { sent: number; failed: number; skipped: number };
+  /** The allowance ran out part-way. Recipients that weren't attempted are
+   *  still `pending`, so reopening the campaign after a top-up carries on. */
+  outOfAllowance?: boolean;
 }
 
 /**
  * Send ONE batch of a campaign's pending recipients, then roll up counters.
- * Returns whether the queue is drained (done) and the live totals.
+ *
+ * Broadcasts leave through the DirectDine Marketing API rather than this
+ * restaurant's own email provider: it checks the paid allowance, sends via
+ * Amazon SES, and counts what went out. Transactional email is untouched and
+ * still uses lib/emailSender.ts directly.
+ *
+ * Sends are marked only AFTER the API confirms them, so a crash or a network
+ * failure mid-batch leaves those recipients `pending` and the batch simply
+ * repeats. Each message carries the recipient row id as an idempotency key, so
+ * a repeat is recognised and never charged twice.
  */
 export async function processCampaignBatch(
   campaign: { id: string; subject: string; body_html: string; preview_text?: string | null },
@@ -247,47 +260,77 @@ export async function processCampaignBatch(
     .select("id, contact_id, email, name")
     .eq("campaign_id", campaign.id)
     .eq("status", "pending")
+    // Ordered so "who got the first five" has an answer. Without it Postgres
+    // returns rows in whatever order suits it, which shifts as rows are updated
+    // and rewritten — so a part-sent campaign could pick a different subset on
+    // every tick. Everyone still receives it eventually, but "why did Sam get
+    // it and not Alex" deserves a better answer than "the planner felt like it".
+    .order("id")
     .limit(BATCH_SIZE);
 
-  for (const r of batch ?? []) {
-    const { data: contact } = await supabaseAdmin
+  let outOfAllowance = false;
+
+  if (batch && batch.length > 0) {
+    // One lookup for the whole batch rather than one per recipient.
+    const contactIds = batch.map((r) => r.contact_id).filter(Boolean) as string[];
+    const { data: contactRows } = await supabaseAdmin
       .from("marketing_contacts")
-      .select("marketing_opt_in, unsubscribed_at, unsubscribe_token")
-      .eq("id", r.contact_id ?? "")
-      .maybeSingle();
+      .select("id, marketing_opt_in, unsubscribed_at, unsubscribe_token")
+      .in("id", contactIds.length > 0 ? contactIds : ["-"]);
+    const contacts = new Map((contactRows ?? []).map((c) => [c.id as string, c]));
 
-    if (!contact || contact.marketing_opt_in !== true || contact.unsubscribed_at) {
-      await supabaseAdmin.from("email_campaign_recipients")
-        .update({ status: "skipped", error: "Not opted in at send time." })
-        .eq("id", r.id);
-      continue;
+    // Suppression is re-checked HERE, at send time — someone who unsubscribed
+    // after the recipient list was frozen must not be emailed.
+    const messages: MarketingMessage[] = [];
+    for (const r of batch) {
+      const contact = contacts.get(r.contact_id ?? "");
+      if (!contact || contact.marketing_opt_in !== true || contact.unsubscribed_at) {
+        await supabaseAdmin.from("email_campaign_recipients")
+          .update({ status: "skipped", error: "Not opted in at send time." })
+          .eq("id", r.id);
+        continue;
+      }
+      const email = buildCampaignEmail({
+        subjectTemplate:     campaign.subject,
+        bodyTemplate:        campaign.body_html,
+        previewText:         campaign.preview_text ?? "",
+        recipientName:       r.name ?? "",
+        recipientEmail:      r.email,
+        unsubscribeToken:    contact.unsubscribe_token as string,
+        settings,
+        trackingRecipientId: r.id,
+      });
+      messages.push({
+        ref: r.id, to: r.email, subject: email.subject, html: email.html, headers: email.headers,
+      });
     }
 
-    const email = buildCampaignEmail({
-      subjectTemplate:     campaign.subject,
-      bodyTemplate:        campaign.body_html,
-      previewText:         campaign.preview_text ?? "",
-      recipientName:       r.name ?? "",
-      recipientEmail:      r.email,
-      unsubscribeToken:    contact.unsubscribe_token as string,
-      settings,
-      trackingRecipientId: r.id,
-    });
+    if (messages.length > 0) {
+      // Throws on transport failure — nothing is marked, so the caller retries
+      // this same batch and the recipients are still pending.
+      const result = await sendMarketingBatch({
+        campaignRef: campaign.id,
+        fromName:    settings.receiptSettings?.restaurantName?.trim() || settings.restaurant?.name || "",
+        messages,
+      });
+      outOfAllowance = result.outOfAllowance;
 
-    const result = await sendEmail({
-      to: r.email, subject: email.subject, html: email.html, headers: email.headers,
-    });
-
-    if (result.ok) {
-      await supabaseAdmin.from("email_campaign_recipients")
-        .update({ status: "sent", sent_at: new Date().toISOString(), error: null })
-        .eq("id", r.id);
-    } else {
-      await supabaseAdmin.from("email_campaign_recipients")
-        .update({ status: "failed", error: result.error ?? "Send failed." })
-        .eq("id", r.id);
+      const now = new Date().toISOString();
+      for (const a of result.accepted) {
+        await supabaseAdmin.from("email_campaign_recipients")
+          .update({ status: "sent", sent_at: now, error: null })
+          .eq("id", a.ref);
+      }
+      for (const rej of result.rejected) {
+        // Out of allowance means NOT attempted — leave it pending so a top-up
+        // resumes the campaign instead of losing the recipient.
+        if (rej.reason === "no_allowance") continue;
+        const status = rej.reason === "failed" ? "failed" : "skipped";
+        await supabaseAdmin.from("email_campaign_recipients")
+          .update({ status, error: rej.detail ?? rej.reason })
+          .eq("id", rej.ref);
+      }
     }
-    await sleep(SEND_INTERVAL_MS);
   }
 
   const { count: remaining } = await supabaseAdmin
@@ -316,5 +359,7 @@ export async function processCampaignBatch(
     ...(done ? { status: "sent", completed_at: new Date().toISOString() } : {}),
   }).eq("id", campaign.id);
 
-  return { done, remaining: remaining ?? 0, totals };
+  // Status stays 'sending' when the allowance ran out: the campaign isn't
+  // finished, it's waiting for a top-up, and its pending recipients are intact.
+  return { done, remaining: remaining ?? 0, totals, outOfAllowance };
 }
