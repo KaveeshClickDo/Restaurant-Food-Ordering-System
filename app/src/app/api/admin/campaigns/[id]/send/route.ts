@@ -13,7 +13,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { marketingSendBlockedReason } from "@/lib/marketingCloud";
+import { emailConfigured } from "@/lib/emailSender";
 import {
   ensureRecipientsFrozen, processCampaignBatch, fetchAdminSettings, type Audience,
 } from "@/lib/marketingCampaigns";
@@ -24,14 +24,10 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
   const { id } = await params;
 
-  // Broadcasts are metered by DirectDine — no package or no allowance left
-  // means nothing goes out. 402 carries `outOfAllowance` so the composer can
-  // say "paused, top up" instead of showing a generic failure.
-  const blocked = await marketingSendBlockedReason();
-  if (blocked) {
+  if (!emailConfigured()) {
     return NextResponse.json(
-      { ok: false, error: blocked.error, outOfAllowance: blocked.status === 402 },
-      { status: blocked.status },
+      { ok: false, error: "Email is not configured (set RESEND_API_KEY or SMTP_HOST)." },
+      { status: 503 },
     );
   }
 
@@ -66,15 +62,6 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     );
   }
 
-  try {
-    const outcome = await processCampaignBatch(campaign, settings);
-    return NextResponse.json({ ok: true, ...outcome });
-  } catch (err) {
-    // The Marketing API was unreachable. Nothing in this batch was marked, so
-    // the recipients are still pending — `retryable` tells the composer to back
-    // off and try the same batch again rather than failing the broadcast.
-    const message = err instanceof Error ? err.message : "Could not reach the sending service.";
-    console.error("campaigns/[id]/send:", message);
-    return NextResponse.json({ ok: false, retryable: true, error: message }, { status: 503 });
-  }
+  const outcome = await processCampaignBatch(campaign, settings);
+  return NextResponse.json({ ok: true, ...outcome });
 }

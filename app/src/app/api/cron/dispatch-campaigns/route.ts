@@ -20,7 +20,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { marketingSendBlockedReason } from "@/lib/marketingCloud";
+import { emailConfigured } from "@/lib/emailSender";
 import {
   ensureRecipientsFrozen, processCampaignBatch, fetchAdminSettings, type Audience,
 } from "@/lib/marketingCampaigns";
@@ -46,12 +46,8 @@ async function handle(req: NextRequest) {
   if (!authorised(req)) {
     return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
   }
-  // Checked at FIRE time, not schedule time: a broadcast queued last week must
-  // not go out if the allowance has since run out or the package lapsed. Due
-  // campaigns stay scheduled and are picked up again on a later tick.
-  const blocked = await marketingSendBlockedReason();
-  if (blocked) {
-    return NextResponse.json({ ok: false, error: blocked.error }, { status: blocked.status });
+  if (!emailConfigured()) {
+    return NextResponse.json({ ok: false, error: "Email not configured." }, { status: 503 });
   }
 
   const now = new Date().toISOString();
