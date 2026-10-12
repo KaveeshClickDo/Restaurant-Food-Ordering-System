@@ -253,7 +253,7 @@ export default function Cart({ onMobileClose, onOrderPlaced }: CartProps) {
                     <p className="text-amber-700 mb-2">Remove them to continue, or come back during their serving hours.</p>
                     <ul className="space-y-1">
                       {blockedLines.map((line) => (
-                        <li key={line.id} className="flex items-center justify-between gap-2 bg-white/60 rounded-lg px-2 py-1">
+                        <li key={line.id} className="flex items-center justify-between gap-2 bg-white/60 dark:bg-white/10 rounded-lg px-2 py-1">
                           <span className="truncate">{line.name}</span>
                           <button
                             onClick={() => updateQty(line.id, 0)}

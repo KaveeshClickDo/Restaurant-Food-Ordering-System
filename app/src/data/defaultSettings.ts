@@ -19,7 +19,7 @@
 
 import type {
   AdminSettings, ColorSettings, CurrencySettings, DeliveryZone, PaymentMethod,
-  PrinterSettings, ReceiptSettings, SeoSettings, TaxSettings,
+  PrinterCategory, PrinterSettings, ReceiptSettings, SeoSettings, TaxSettings,
 } from "@/types";
 import { restaurantInfo, defaultSchedule } from "@/data/restaurant";
 import { DEFAULT_FOOTER_PAGES }              from "@/data/footerPages";
@@ -75,10 +75,12 @@ export const DEFAULT_SEO: SeoSettings = {
   faviconUrl: "",
 };
 
-export const DEFAULT_PRINTER: PrinterSettings = {
-  enabled: false, name: "Kitchen Printer", connection: "network",
-  ip: "", port: 9100, bluetoothAddress: "", bluetoothName: "",
-  autoPrint: true, paperWidth: 48, allowedIps: [],
+export const DEFAULT_PRINTERS: PrinterSettings[] = [];
+
+export const DEFAULT_ACTIVE_PRINTER_BY_CATEGORY: Record<PrinterCategory, string | null> = {
+  kitchen: null,
+  pos: null,
+  online: null,
 };
 
 export const DEFAULT_SETTINGS: AdminSettings = {
@@ -91,7 +93,8 @@ export const DEFAULT_SETTINGS: AdminSettings = {
   deliveryZones: DEFAULT_DELIVERY_ZONES,
   seo: DEFAULT_SEO,
   customHeadCode: "",
-  printer: DEFAULT_PRINTER,
+  printers: DEFAULT_PRINTERS,
+  activePrinterIdByCategory: DEFAULT_ACTIVE_PRINTER_BY_CATEGORY,
   emailTemplates: DEFAULT_EMAIL_TEMPLATES,
   // Internal alerts to the restaurant. Ships disabled with no recipients so
   // upgrading an existing install never starts emailing on its own — the admin

@@ -177,9 +177,8 @@ export default function WaiterPage() {
       <SuccessView
         tableLabel={activeTable?.label}
         receipt={receipt}
-        setReceipt={setReceipt}
         onAddMore={() => setView("menu")}
-        onNewTable={() => { setActiveTable(null); setView("tables"); }}
+        onNewTable={() => { setActiveTable(null); setView("tables"); setReceipt(null); }}
       />
     );
   }
@@ -211,6 +210,7 @@ export default function WaiterPage() {
         waiterName={waiter?.name}
         onBack={() => { setActiveTable(null); setView("tables"); }}
         onSent={(r) => { setReceipt(r); setView("success"); floor.refreshOrders(); }}
+        onKitchenPrintResult={(result) => setReceipt((r) => (r ? { ...r, kitchenPrintPending: false, kitchenPrintError: result.error } : r))}
       />
     );
   }

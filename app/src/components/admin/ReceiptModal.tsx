@@ -1,8 +1,12 @@
 
+import { useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { fullOrderNumber } from "@/lib/orderNumber";
+import { parseTableLabelFromNote } from "@/lib/tableLabel";
+import { printOnlineOrderAsAdmin } from "@/lib/escpos";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { Customer, Order, OrderStatus } from "@/types";
-import { Ban, CheckCircle2, ChefHat, Circle, Package, Printer, Receipt, Truck, X } from "lucide-react";
+import { Ban, Check, CheckCircle2, ChefHat, Circle, FileDown, Loader2, Package, Printer, Receipt, Truck, X } from "lucide-react";
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
@@ -35,6 +39,12 @@ function fmtTime(iso: string) {
     return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
+// Matches escpos.ts's orderTypeLabel() and the on-screen preview below — all
+// three fulfillment types, not just Delivery/Collection.
+function orderTypeLabel(order: Order): string {
+    return order.fulfillment === "delivery" ? "Delivery" : order.fulfillment === "dine-in" ? "Dine-In" : "Collection";
+}
+
 export function buildPrintHtml(
     order: Order,
     customer: Customer,
@@ -54,6 +64,7 @@ export function buildPrintHtml(
     const tipAmount = order.tipAmount ?? 0;
     const discountAmount = order.discountAmount ?? 0;
     const discountNote = order.discountNote ?? "";
+    const tableLabel = order.fulfillment === "dine-in" ? parseTableLabelFromNote(order.note) : null;
 
     return `<!DOCTYPE html>
 <html>
@@ -73,7 +84,7 @@ export function buildPrintHtml(
     .logo{max-height:60px;max-width:160px;object-fit:contain;margin:0 auto 6px;display:block}
   </style>
 </head>
-<body onload="window.print();window.close();">
+<body>
 <div class="r">
   ${rs.showLogo && rs.logoUrl ? `<img src="${rs.logoUrl}" class="logo" alt="Logo"/>` : ""}
   <div class="c b" style="font-size:15px">${rs.restaurantName}</div>
@@ -89,7 +100,8 @@ export function buildPrintHtml(
   <div class="c sm">${fmtDate(order.date)} at ${fmtTime(order.date)}</div>
   <div class="d"></div>
   <div class="row"><span>Customer:</span><span>${customer.name}</span></div>
-  <div class="row"><span>Type:</span><span>${order.fulfillment === "delivery" ? "Delivery" : "Collection"}</span></div>
+  <div class="row"><span>Type:</span><span>${orderTypeLabel(order)}</span></div>
+  ${tableLabel ? `<div class="row"><span>Table:</span><span>${tableLabel}</span></div>` : ""}
   ${order.address ? `<div class="row"><span>Address:</span><span style="text-align:right;max-width:180px">${order.address}</span></div>` : ""}
   ${order.scheduledTime ? `<div class="row"><span>Scheduled:</span><span>${order.scheduledTime}</span></div>` : ""}
   <div class="d"></div>
@@ -114,8 +126,25 @@ export function buildPrintHtml(
   ${rs.customMessage ? `<div class="c sm" style="margin-bottom:3px;white-space:pre-wrap">${rs.customMessage}</div>` : ""}
   <div class="c sm">${rs.restaurantName}</div>
 </div>
+<script>
+  window.onafterprint = function () { window.close(); };
+  window.onload = function () { window.focus(); window.print(); };
+</script>
 </body>
 </html>`;
+}
+
+/** The VAT rate the order was charged at, worked back from its stored VAT amount
+ *  (so an old receipt keeps its rate even if the tax setting changed since). */
+export function historicalVatRate(order: Order): number {
+    const vatAmt = order.vatAmount ?? 0;
+    if (vatAmt <= 0) return 0;
+    const subtotal = order.items.reduce((s, l) => s + l.price * l.qty, 0);
+    // The base amount before store credit/gift cards are applied
+    const baseAmount = subtotal + (order.deliveryFee ?? 0) + (order.serviceFee ?? 0) - (order.couponDiscount ?? 0);
+    if (baseAmount <= 0) return 0;
+    // Inclusive: Rate = (VAT / (Gross - VAT)) * 100.  Exclusive: Rate = (VAT / Net) * 100.
+    return Math.round((order.vatInclusive ? vatAmt / (subtotal - vatAmt) : vatAmt / baseAmount) * 100);
 }
 
 // ─── Receipt Modal ────────────────────────────────────────────────────────────
@@ -148,40 +177,48 @@ export function ReceiptModal({
     const discountAmount = order.discountAmount ?? 0;
     const discountNote = order.discountNote ?? "";
 
-    // --- CALCULATE HISTORICAL VAT RATE ---
-    let calculatedVatRate = 0;
-    if (vatAmt > 0) {
-        // The base amount before store credit/gift cards are applied
-        const baseAmount = subtotal + deliveryFee + serviceFee - couponDisc;
+    const vatRate = historicalVatRate(order);
 
-        if (baseAmount > 0) {
-            if (order.vatInclusive) {
-                // Math: Rate = (VAT / (Gross - VAT)) * 100
-                calculatedVatRate = Math.round((vatAmt / (subtotal - vatAmt)) * 100);
-            } else {
-                // Math: Rate = (VAT / Net) * 100
-                calculatedVatRate = Math.round((vatAmt / baseAmount) * 100);
-            }
-        }
-    }
-    const vatRate = calculatedVatRate;
-
-    function handlePrint() {
+    function handlePdf() {
         const html = buildPrintHtml(order, customer, rs, restaurantAddress, sym, showVat);
         const win = window.open("", "_blank", "width=420,height=720");
-        if (!win) return;
+        if (!win) {
+            alert("Pop-up was blocked. Allow pop-ups for this site and try again.");
+            return;
+        }
         win.document.write(html);
         win.document.close();
     }
 
+    // "Print": sends the receipt to the active Admin Receipts printer (Admin → Integrations).
+    const [printState, setPrintState] = useState<"idle" | "busy" | "done">("idle");
+    const [noPrinterOpen, setNoPrinterOpen] = useState(false);
+
+    async function handlePrint() {
+        if (printState === "busy") return;
+        setPrintState("busy");
+        const result = await printOnlineOrderAsAdmin(order, settings, {
+            customerName: customer.name,
+            customerPhone: customer.phone,
+            heading: "RECEIPT",
+            vatRate,
+            staffName: (order as unknown as { staffName?: string }).staffName,
+        });
+        if (result.noPrinter) { setPrintState("idle"); setNoPrinterOpen(true); return; }
+        if (!result.ok) { setPrintState("idle"); alert(result.error ?? "Printing failed."); return; }
+        setPrintState("done");
+        setTimeout(() => setPrintState("idle"), 2000);
+    }
+
     return (
+        <>
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
-            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-[410px] max-h-[90vh] flex flex-col overflow-hidden">
                 {/* Header */}
                 <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
-                    <div className="flex items-center gap-2 max-w-[60%]">
+                    <div className="flex items-center gap-2 min-w-0">
                         <Receipt size={16} className="text-orange-500" />
                         <h2 title={`Receipt ${fullOrderNumber(order.id)}`} className="font-bold text-gray-900 text-sm truncate">Receipt {fullOrderNumber(order.id)}</h2>
                         {order.id?.startsWith("OFF") && (
@@ -191,9 +228,21 @@ export function ReceiptModal({
                     <div className="flex items-center gap-2">
                         <button
                             onClick={handlePrint}
-                            className="flex items-center gap-1.5 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg transition"
+                            disabled={printState === "busy"}
+                            title="Print to the Admin Receipts printer"
+                            className="flex items-center gap-1.5 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-1.5 rounded-lg transition disabled:opacity-60"
                         >
-                            <Printer size={12} /> Print
+                            {printState === "busy" ? <Loader2 size={12} className="animate-spin" />
+                                : printState === "done" ? <Check size={12} className="text-green-600" />
+                                : <Printer size={12} />}
+                            {printState === "busy" ? "Printing…" : "Print"}
+                        </button>
+                        <button
+                            onClick={handlePdf}
+                            title="Open the print window, then choose Save as PDF"
+                            className="flex items-center gap-1.5 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-1.5 rounded-lg transition"
+                        >
+                            <FileDown size={12} /> PDF
                         </button>
                         <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition">
                             <X size={13} />
@@ -236,6 +285,12 @@ export function ReceiptModal({
                             <span className="text-gray-500">Type</span>
                             <span className="font-medium">{order.fulfillment === "delivery" ? "🚚 Delivery" : order.fulfillment === 'collection' ? "🏪 Collection" : "🍽️ Dine-In"}</span>
                         </div>
+                        {order.fulfillment === "dine-in" && parseTableLabelFromNote(order.note) && (
+                            <div className="flex justify-between">
+                                <span className="text-gray-500">Table</span>
+                                <span className="font-medium">{parseTableLabelFromNote(order.note)}</span>
+                            </div>
+                        )}
                         {order.address && (
                             <div className="flex justify-between gap-4">
                                 <span className="text-gray-500 flex-shrink-0">Address</span>
@@ -378,5 +433,18 @@ export function ReceiptModal({
                 </div>
             </div>
         </div>
+
+        {/* Print clicked with no active Admin Receipts printer: say so, and offer the PDF instead. */}
+        <ConfirmDialog
+            open={noPrinterOpen}
+            title="No printer set up"
+            message="Print needs an active printer in the Admin Receipts section. Add one in Admin → Integrations → Thermal Printer and set it active. You can still save this receipt as a PDF."
+            confirmLabel="Save as PDF"
+            cancelLabel="Close"
+            tone="primary"
+            onConfirm={() => { setNoPrinterOpen(false); handlePdf(); }}
+            onCancel={() => setNoPrinterOpen(false)}
+        />
+        </>
     );
 }

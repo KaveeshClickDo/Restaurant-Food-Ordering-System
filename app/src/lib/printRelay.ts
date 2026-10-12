@@ -9,26 +9,22 @@
 
 import net from "net";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { resolvePrinters } from "@/lib/printerRecords";
 
 /**
- * F-PU-4: server-side allowlist of printer IPs.
- *
- * Sourced from app_settings.data.printer.allowedIps, with a fallback to the
- * single `printer.ip` field for backward compatibility. An empty result means
- * no printer is configured and every print request fails closed.
+ * F-PU-4: server-side allowlist of printer IPs, from every network-connection
+ * printer across both categories (resolvePrinters also covers un-migrated
+ * rows still on the old single-printer shape). Empty means every request
+ * fails closed.
  */
 async function loadAllowedPrinterIps(): Promise<Set<string>> {
   const { data } = await supabaseAdmin
     .from("app_settings").select("data").eq("id", 1).single();
-  const printer = (data?.data as { printer?: { ip?: string; allowedIps?: string[] } } | undefined)?.printer;
-  const list: string[] = [];
-  if (Array.isArray(printer?.allowedIps)) {
-    for (const v of printer.allowedIps) if (typeof v === "string" && v.trim()) list.push(v.trim());
-  }
-  if (printer?.ip && typeof printer.ip === "string" && printer.ip.trim()) {
-    list.push(printer.ip.trim());
-  }
-  return new Set(list);
+  const printers = resolvePrinters(data?.data as Record<string, unknown> | undefined);
+  const ips = printers
+    .filter((p) => p.connection === "network" && p.ip?.trim())
+    .map((p) => p.ip.trim());
+  return new Set(ips);
 }
 
 function enrichSocketError(err: NodeJS.ErrnoException, ip: string, port: number): Error {

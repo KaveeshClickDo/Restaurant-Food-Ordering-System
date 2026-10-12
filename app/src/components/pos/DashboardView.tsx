@@ -14,6 +14,7 @@ import {
 import { fmt, fmtPct, fmtDate, fmtTime, relTime } from "./_utils";
 import { buildDineInReceiptHtml, dineInRefundState, type DineInOrder } from "./_receipts";
 import { parseTableLabelFromNote } from "@/lib/tableLabel";
+import { printDineInBill } from "@/lib/posPrint";
 import {
   type POSPeriod, POS_PERIODS, getPOSDateRange, posExportCSV,
 } from "./dashboard/_helpers";
@@ -220,12 +221,23 @@ export default function DashboardView() {
     const effectiveName = appSettings.restaurant?.name || appSettings.receiptSettings.restaurantName?.trim() || settings.businessName || "Restaurant";
     const html = buildDineInReceiptHtml(order, settings, appSettings.receiptSettings, effectiveName);
     const win = window.open("", "_blank", "width=420,height=650");
-    if (!win) return;
+    if (!win) {
+      alert("Pop-up was blocked. Allow pop-ups for this site and try again.");
+      return;
+    }
     win.document.write(html);
     win.document.close();
     win.focus();
     win.print();
     win.onafterprint = () => win.close();
+  }
+
+  // Settled bills go to the Receipt / POS thermal printer, via the DineInReceiptModal's
+  // own Print button (opened from the Settled Today "Receipt" button below). Open-table
+  // "Print" stays on the browser dialog (printDineInReceipt).
+  function printDineInToPosPrinter(order: DineInOrder) {
+    const effectiveName = appSettings.restaurant?.name || appSettings.receiptSettings.restaurantName?.trim() || settings.businessName || "Restaurant";
+    return printDineInBill(order, settings, appSettings, effectiveName, appSettings.receiptSettings);
   }
 
   function openVoidModal(saleId: string) {
@@ -1760,7 +1772,7 @@ export default function DashboardView() {
                                 ))}
                               </div>
                             </div>
-                            <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                            <div className="flex flex-col sm:flex-row sm:items-start gap-2 mt-4">
                               <button
                                 onClick={() => printDineInReceipt(order)}
                                 className="flex items-center justify-center sm:justify-start gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded-xl transition-colors"
@@ -1859,13 +1871,13 @@ export default function DashboardView() {
                                 ))}
                               </div>
                             </div>
-                            <div className="flex flex-col sm:flex-row gap-2">
+                            <div className="flex flex-col sm:flex-row sm:items-start gap-2">
                               <button
-                                onClick={() => printDineInReceipt(order)}
+                                onClick={() => setViewingDineInReceipt(order)}
                                 className="flex items-center justify-center sm:justify-start gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded-xl transition-colors"
                               >
-                                <Printer size={14} />
-                                Reprint
+                                <Receipt size={14} />
+                                Receipt
                               </button>
                               <div className="flex-1 flex flex-col gap-1.5">
                                 <div className="flex flex-col sm:flex-row gap-2">
@@ -1998,6 +2010,7 @@ export default function DashboardView() {
             orderIds: [viewingDineInReceipt.id],
             paymentMethod: viewingDineInReceipt.paymentMethod as "cash" | "card" | "gift_card" | "pending",
           }}
+          thermalPrint={() => printDineInToPosPrinter(viewingDineInReceipt)}
           onClose={() => setViewingDineInReceipt(null)}
         />
       )}

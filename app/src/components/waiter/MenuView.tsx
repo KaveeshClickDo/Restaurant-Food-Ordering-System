@@ -19,7 +19,8 @@ import {
 import CollectionFooter from "@/components/collection/CollectionFooter";
 import { resolveStock, isAvailable } from "@/lib/stockUtils";
 import { getOfferUnitPrice, isOfferActive, cartLineTotal, offerBadgeLabel } from "@/lib/menuOfferUtils";
-import type { MenuItem, DiningTable } from "@/types";
+import { printOrder, resolveActivePrinter } from "@/lib/escpos";
+import type { MenuItem, DiningTable, Order } from "@/types";
 import type { WaiterCartItem, WaiterReceipt } from "./_types";
 import { fmtCur } from "./_utils";
 import ItemModal from "./ItemModal";
@@ -31,7 +32,7 @@ function isOutOfStock(item: MenuItem): boolean {
   return !isAvailable(item);
 }
 
-export default function MenuView({ table, covers, setCovers, waiterName, onBack, onSent }: {
+export default function MenuView({ table, covers, setCovers, waiterName, onBack, onSent, onKitchenPrintResult }: {
   table: DiningTable;
   covers: number;
   setCovers: (n: number) => void;
@@ -41,6 +42,9 @@ export default function MenuView({ table, covers, setCovers, waiterName, onBack,
   onBack: () => void;
   /** Order accepted by the kitchen — page shows the success screen + receipt. */
   onSent: (receipt: WaiterReceipt) => void;
+  /** Fires once the automatic kitchen print resolves, success or failure — lets the
+   *  already-open receipt modal clear its "Printing…" state. Not called when skipped. */
+  onKitchenPrintResult?: (result: { ok: boolean; error?: string }) => void;
 }) {
   // ── Menu data from AppContext (single source of truth, same as admin/online) ─
   const { menuItems, categories, settings: appSettings } = useApp();
@@ -179,14 +183,45 @@ export default function MenuView({ table, covers, setCovers, waiterName, onBack,
     }
     setSending(false);
     if (res.ok) {
+      // Kitchen ticket for this round's items only, not the whole bill.
+      // Fire-and-forget — a print failure is logged, not shown to the waiter.
+      // The note uses the same format the server stores (api/waiter/orders),
+      // so the receipt can read the table and kitchen note back out of it.
+      const noteParts = [`[WAITER] Table ${table.label}`];
+      if (covers) noteParts.push(`${covers} cover${covers !== 1 ? "s" : ""}`);
+      if (waiterName) noteParts.push(`Staff: ${waiterName}`);
+      if (kitchenNote.trim()) noteParts.push(kitchenNote.trim());
+      const roundOrder: Order = {
+        id: `RND-${table.label}-${Date.now()}`,
+        customerId: null,
+        date: new Date().toISOString(),
+        status: "pending",
+        fulfillment: "dine-in",
+        total,
+        items: cart.map((l) => ({ name: l.name + (l.note ? ` [${l.note}]` : ""), qty: l.quantity, price: l.unitPrice })),
+        note: noteParts.join(" · "),
+      };
+      // Mirrors printOrderToCategory's own skip condition, so the modal knows up
+      // front whether to show "Printing…" (result lands via onKitchenPrintResult).
+      const kitchenPrinter = resolveActivePrinter(appSettings, "kitchen");
+      const willAutoPrintKitchen = !!kitchenPrinter && kitchenPrinter.autoPrint;
+      void printOrder(roundOrder, appSettings, { categories: ["kitchen"] }).then((outcomes) => {
+        const kitchen = outcomes.find((o) => o.category === "kitchen");
+        if (kitchen && !kitchen.skipped) {
+          onKitchenPrintResult?.({ ok: kitchen.ok, error: kitchen.ok ? undefined : (kitchen.error ?? "The Kitchen printer failed.") });
+        }
+      });
+
       onSent({
         tableLabel: table.label,
         waiterName: waiterName ?? "Staff",
         date: new Date().toISOString(),
         items: cart.map((l) => ({ name: l.name, qty: l.quantity, price: l.unitPrice })),
         total,
+        covers,
         paymentMethod: "pending",
         orderIds: [],
+        kitchenPrintPending: willAutoPrintKitchen,
       });
       return;
     }

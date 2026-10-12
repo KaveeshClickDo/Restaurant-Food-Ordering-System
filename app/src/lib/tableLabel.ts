@@ -21,3 +21,15 @@ export function parseTableLabelFromNote(note: string | null | undefined): string
   const m = note.match(/Table\s+(.+?)(?: · |$)/);
   return m ? m[1].trim() : null;
 }
+
+/**
+ * The free-text kitchen note from a dine-in note: everything except the
+ * "[WAITER] Table …", "N covers" and "Staff: …" parts. Empty when there is none.
+ */
+export function parseKitchenNoteFromNote(note: string | null | undefined): string {
+  if (!note) return "";
+  return note
+    .split(" · ")
+    .filter((part) => !/^\[WAITER\] Table\b/.test(part) && !/^\d+ covers?$/.test(part) && !/^Staff: /.test(part))
+    .join(" · ");
+}

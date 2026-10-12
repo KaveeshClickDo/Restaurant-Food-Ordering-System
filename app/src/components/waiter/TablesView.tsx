@@ -16,12 +16,15 @@ import {
   UtensilsCrossed, LogOut, Users, Crown, CalendarClock, Clock,
   StickyNote, Utensils, Receipt, CheckCircle2, ChefHat,
 } from "lucide-react";
+import { useApp } from "@/context/AppContext";
+import { resolveActivePrinter } from "@/lib/escpos";
 import CollectionFooter from "@/components/collection/CollectionFooter";
 import type { WaiterStaff, DiningTable } from "@/types";
 import type { WaiterReservation, TileReservation, WaiterReceipt } from "./_types";
 import { initials, hhmmToMins, DUE_LEAD, OVERDUE_GRACE, STALE_MAX } from "./_utils";
 import type { FloorState } from "./useFloorState";
 import KitchenStatusPanel from "./KitchenStatusPanel";
+import { printWaiterReceiptToKitchen } from "./_thermalPrint";
 import ReceiptModal from "./ReceiptModal";
 
 export default function TablesView({
@@ -45,7 +48,12 @@ export default function TablesView({
   receipt: WaiterReceipt | null;
   onCloseReceipt: () => void;
 }) {
+  const { settings: appSettings } = useApp();
   const { activeOrders, reservations, occupiedLabels, readyLabels, dismissedReady } = floor;
+  const kitchenPrinter = resolveActivePrinter(appSettings, "kitchen");
+  // Auto-print off: nothing was attempted, not a failure. No printer: modal shows this itself.
+  const kitchenAutoPrintOff = !!kitchenPrinter && !kitchenPrinter.autoPrint;
+  const noKitchenPrinter = !kitchenPrinter;
 
   // table action sheet: null = closed, DiningTable = which table was tapped
   const [tableAction, setTableAction] = useState<DiningTable | null>(null);
@@ -537,7 +545,17 @@ export default function TablesView({
 
       {/* Last receipt — floats above tables view after payment */}
       {receipt && (
-        <ReceiptModal receipt={receipt} onClose={onCloseReceipt} />
+        <ReceiptModal
+          receipt={receipt}
+          onClose={onCloseReceipt}
+          thermalPrint={() => printWaiterReceiptToKitchen(receipt, appSettings)}
+          noPrinterHint="An admin can set one up in Admin → Integrations."
+          printerLabel="Kitchen"
+          autoPrintError={receipt.kitchenPrintError}
+          autoPrintOff={kitchenAutoPrintOff}
+          noPrinterConfigured={noKitchenPrinter}
+          autoPrinting={receipt.kitchenPrintPending}
+        />
       )}
     </>
   );

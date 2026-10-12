@@ -462,7 +462,7 @@ export default function MenuTab() {
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2 text-white text-xs outline-none focus:border-orange-500 placeholder-slate-500"
                 />
                 {imgErr && <p className="text-[11px] text-red-400 mt-1">{imgErr}</p>}
-                <p className="text-[11px] text-slate-500 mt-1">Max 1 MB. JPG, PNG, WebP, GIF or AVIF.</p>
+                <p className="text-[11px] text-slate-500 mt-1">Photos are resized automatically. JPG, PNG, WebP, GIF or AVIF.</p>
               </div>
 
               {/* Emoji + Name row — emoji only shown when no image */}
@@ -890,7 +890,7 @@ export default function MenuTab() {
                   className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2 text-white text-xs outline-none focus:border-orange-500 placeholder-slate-500"
                 />
                 {imgErr && <p className="text-[11px] text-red-400 mt-1">{imgErr}</p>}
-                <p className="text-[11px] text-slate-500 mt-1">Max 1 MB. JPG, PNG, WebP, GIF or AVIF.</p>
+                <p className="text-[11px] text-slate-500 mt-1">Photos are resized automatically. JPG, PNG, WebP, GIF or AVIF.</p>
               </div>
 
               <div className="flex gap-3">

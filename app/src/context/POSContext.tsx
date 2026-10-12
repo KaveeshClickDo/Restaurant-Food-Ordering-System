@@ -1461,24 +1461,21 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(payload),
       });
-      // 409 means the outbox / a retry re-sent a sale we already persisted —
-      // treat the returned `sale` as authoritative.
-      if (res.ok || res.status === 409) {
-        const json = await res.json() as { ok: boolean; sale?: POSSale };
-        if (json.sale){
-          sale = json.sale;
-
-          if (giftCard && !sale.giftCard) {
-            sale.giftCard = { code: giftCard.code, amount: giftCard.amount };
-          }
-        } 
-
-      } else {
+      // A 409 is either an idempotent replay of a sale we already persisted
+      // (the outbox / a retry re-sent it — carries `sale`) or a stock conflict
+      // (carries `error`, no `sale`) — read the body once and branch on which
+      // one actually came back, instead of trusting the status code alone.
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; sale?: POSSale; error?: string };
+      if (json.sale) {
+        sale = json.sale;
+        if (giftCard && !sale.giftCard) {
+          sale.giftCard = { code: giftCard.code, amount: giftCard.amount };
+        }
+      } else if (!res.ok) {
         // Surface the server's actual reason to the caller so the cashier sees
-        // "'Burger' is no longer available on the menu" instead of a generic
-        // network error. Stock conflicts (409 with no sale), validation 400s,
-        // permission 403s all carry a useful message in `error`.
-        const json = await res.json().catch(() => ({})) as { error?: string };
+        // "'Burger' only has 2 left in stock." instead of a generic network
+        // error. Stock conflicts (409), validation 400s, permission 403s all
+        // carry a useful message in `error`.
         serverError = json.error;
         // 4xx is expected user-input flow (item went away, insufficient stock,
         // permission denied) — log as a warning so Next.js's dev error overlay

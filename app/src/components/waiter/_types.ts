@@ -35,6 +35,7 @@ export interface WaiterReceipt {
   waiterName: string;
   date: string;                // ISO
   items: { name: string; qty: number; price: number }[];
+  covers?: number;
   /** Pre-discount/tip/service fee sum of items. Optional — when absent the receipt has no
    *  discount/tip/service fee and `total` is shown alone (back-compat). */
   subtotal?: number;
@@ -58,6 +59,9 @@ export interface WaiterReceipt {
   giftCardUsed?: number;
   paymentMethod?: "cash" | "card" | "gift_card" | "pending";
   orderIds: string[];
+  kitchenPrintError?: string;
+  /** True while the automatic kitchen print is in flight. */
+  kitchenPrintPending?: boolean;
 }
 
 // Today's reservations the waiter grid overlays on the table tiles. Shape

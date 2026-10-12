@@ -206,8 +206,12 @@ export const PosSettingsPatchSchema = z
       })
       .strict()
       .optional(),
+    // Merges into an existing "pos"-category printer by id — POS can edit/
+    // toggle one, never add/remove or touch "kitchen".
     printer: z
       .object({
+        id:               NonEmptyString,
+        category:         z.literal("pos").optional(),
         enabled:          z.boolean().optional(),
         name:             z.string().optional(),
         connection:       z.enum(["network", "usb", "bluetooth", "browser"]).optional(),
@@ -217,7 +221,19 @@ export const PosSettingsPatchSchema = z
         bluetoothName:    z.string().optional(),
         autoPrint:        z.boolean().optional(),
         paperWidth:       z.number().int().optional(),
-        allowedIps:       z.array(z.string()).optional(),
+      })
+      .strict()
+      .optional(),
+    addPrinter: z
+      .object({ id: NonEmptyString })
+      .strict()
+      .optional(),
+    removePrinterId: NonEmptyString.optional(),
+    // Sets which "pos"-category printer is active. `id: null` clears it.
+    activePrinterId: z
+      .object({
+        category: z.literal("pos"),
+        id:       z.string().nullable(),
       })
       .strict()
       .optional(),
@@ -242,6 +258,7 @@ export const PosSettingsPatchSchema = z
       .optional(),
   })
   .refine(
-    (d) => d.taxSettings !== undefined || d.printer !== undefined || d.receiptSettings !== undefined,
-    { message: "Provide taxSettings, printer and/or receiptSettings to update." },
+    (d) => d.taxSettings !== undefined || d.printer !== undefined || d.receiptSettings !== undefined
+      || d.activePrinterId !== undefined || d.addPrinter !== undefined || d.removePrinterId !== undefined,
+    { message: "Provide taxSettings, receiptSettings and/or a printer change (printer, addPrinter, removePrinterId, activePrinterId) to update." },
   );

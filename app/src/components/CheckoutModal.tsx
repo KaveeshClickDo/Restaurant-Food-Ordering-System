@@ -13,7 +13,6 @@ import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-
 import { PayPalScriptProvider, PayPalButtons } from "@paypal/react-paypal-js";
 import { useApp } from "@/context/AppContext";
 import { DeliveryZone, Order, PaymentMethod, SavedAddress } from "@/types";
-import { printOrder } from "@/lib/escpos";
 import { computeTax, taxSurcharge } from "@/lib/taxUtils";
 import { cartSubtotal } from "@/lib/menuOfferUtils";
 import { checkoutFormSchema } from "@/lib/schemas/order";
@@ -269,7 +268,6 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
   // and /api/payments/intent returns a client secret. The PaymentElement
   // attaches to this secret and confirms the charge.
   const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
-  const [pendingOrder, setPendingOrder] = useState<Order | null>(null);
 
   // PayPal session state — populated when the user picks "PayPal" and
   // /api/payments/paypal returns an order id. The PayPalButtons SDK reads
@@ -732,8 +730,6 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     cashInFlight.current = false;
     setSubmitting(false);
 
-    printOrder(newOrder, settings);
-
     // Signed-in customer: push any name/phone/address edits back to the account.
     syncAccountFromCheckout();
 
@@ -787,7 +783,6 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
         return;
       }
       setStripeClientSecret(j.clientSecret);
-      setPendingOrder(newOrder);
       setChosenMethod(method);
       // Capture the server-authoritative total so the payment screen shows the
       // real charge amount, not the client-computed preview.
@@ -819,10 +814,6 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     clearCart();
     setScheduledTime(null);
     setStripeClientSecret(null);
-
-    // Receipt printing — the order itself will arrive via Realtime when the
-    // webhook inserts it; print the in-memory copy for an immediate receipt.
-    if (pendingOrder) printOrder(pendingOrder, settings);
 
     // Signed-in customer: push any name/phone/address edits back to the account.
     syncAccountFromCheckout();
@@ -878,7 +869,6 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
         return;
       }
       setPaypalOrderId(j.paypalOrderId);
-      setPendingOrder(newOrder);
       setChosenMethod(method);
       // Capture the server-authoritative total so the payment screen shows the
       // real charge amount, not the client-computed preview.
@@ -909,10 +899,6 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
     clearCart();
     setScheduledTime(null);
     setPaypalOrderId(null);
-
-    // Receipt printing — the order itself will arrive via Realtime when the
-    // webhook inserts it; print the in-memory copy for an immediate receipt.
-    if (pendingOrder) printOrder(pendingOrder, settings);
 
     // Signed-in customer: push any name/phone/address edits back to the account.
     syncAccountFromCheckout();
@@ -954,7 +940,6 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                 // unfunded intents after a while. We just hide the UI.
                 setStep("form");
                 setStripeClientSecret(null);
-                setPendingOrder(null);
                 setAuthoritativeTotal(null);
               }}
               className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/15 transition"
@@ -1015,7 +1000,6 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
                 // PayPal order is created.
                 setStep("form");
                 setPaypalOrderId(null);
-                setPendingOrder(null);
                 setAuthoritativeTotal(null);
               }}
               className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/15 transition"
@@ -1042,7 +1026,6 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
               onCancel={() => {
                 setStep("form");
                 setPaypalOrderId(null);
-                setPendingOrder(null);
                 setAuthoritativeTotal(null);
               }}
             />

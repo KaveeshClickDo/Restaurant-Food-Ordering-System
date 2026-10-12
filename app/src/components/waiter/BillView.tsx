@@ -27,6 +27,7 @@ import type { BillOrder, WaiterReceipt } from "./_types";
 import { fmtCur } from "./_utils";
 import { buildReceiptHtml } from "./_receiptHtml";
 import ReceiptModal from "./ReceiptModal";
+import { printWaiterReceiptToPos } from "./_thermalPrint";
 import BillEmailBar from "./BillEmailBar";
 import VoidRefundModal from "./VoidRefundModal";
 import DojoChargePanel from "@/components/pos/DojoChargePanel";
@@ -300,7 +301,10 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
     const restaurantName = rs?.restaurantName?.trim() || appSettings?.restaurant?.name || "Restaurant";
     const html = buildReceiptHtml(tempReceipt, restaurantName, rs?.address ?? "", rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
     const win = window.open("", "_blank", "width=400,height=600");
-    if (!win) return;
+    if (!win) {
+      alert("Pop-up was blocked. Allow pop-ups for this site and try again.");
+      return;
+    }
     win.document.write(html);
     win.document.close();
     win.focus();
@@ -768,6 +772,9 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
             setReceipt(null);
             onExit(true);
           }}
+          thermalPrint={() => printWaiterReceiptToPos(receipt, appSettings)}
+          noPrinterHint="Ask a POS admin to set one up in Settings → Hardware."
+          printerLabel="Receipt"
           onRefund={receipt.orderIds.length > 0 ? () => {
             setVoidRefundTarget({
               mode: "refund",

@@ -5,10 +5,11 @@ import { apiBase } from "@/lib/apiBase";
 import { usePOS } from "@/context/POSContext";
 import { useApp } from "@/context/AppContext";
 import { POSSale } from "@/types/pos";
-import { Mail, CheckCircle2, RefreshCw, Printer, AlertTriangle } from "lucide-react";
+import { Mail, CheckCircle2, RefreshCw, Printer, AlertTriangle, Info, FileDown } from "lucide-react";
 import { fmt, fmtDate, fmtTime, isOfflineSale } from "./_utils";
 import { buildReceiptHtml } from "./_receipts";
-import { printPOSSale } from "@/lib/posPrint";
+import { printPOSSale, printSaleToKitchen } from "@/lib/posPrint";
+import { resolveActivePrinter } from "@/lib/escpos";
 import { isCapacitorAndroid } from "@/lib/capacitorBridge";
 
 export default function ReceiptModal(
@@ -26,6 +27,14 @@ export default function ReceiptModal(
   const [emailError, setEmailError] = useState("");
   const [printStatus, setPrintStatus] = useState<"idle" | "printing" | "ok" | "error">("idle");
   const [printError, setPrintError] = useState("");
+  const [printNoPrinter, setPrintNoPrinter] = useState(false);
+  const [kitchenError, setKitchenError] = useState("");
+  // Right after a sale, say why nothing printed automatically.
+  const posPrinter = resolveActivePrinter(appSettings, "pos");
+  const kitchenPrinter = resolveActivePrinter(appSettings, "kitchen");
+  const noReceiptPrinter = autoPrint && !posPrinter;
+  const receiptAutoPrintOff = autoPrint && !!posPrinter && !posPrinter.autoPrint;
+  const kitchenAutoPrintOff = autoPrint && !!kitchenPrinter && !kitchenPrinter.autoPrint;
   const sym = settings.currencySymbol;
   // window.print() is a no-op inside the Android WebView, so on Android we never
   // fall back to it — we surface an actionable message instead.
@@ -76,28 +85,42 @@ export default function ReceiptModal(
     }
   }
 
+  // PDF / browser print: a small window with only the receipt, then the print dialog.
+  const handlePdf = useCallback(() => {
+    const script = "<script>window.onafterprint=function(){window.close();};window.onload=function(){window.focus();window.print();};</script>";
+    const html = buildReceiptHtml(sale, settings, rs, effectiveName).replace("</body>", `${script}</body>`);
+    const win = window.open("", "_blank", "width=420,height=720");
+    if (!win) {
+      alert("Pop-up was blocked. Allow pop-ups for this site and try again.");
+      return;
+    }
+    win.document.write(html);
+    win.document.close();
+  }, [sale, settings, rs, effectiveName]);
+
   // Print to the configured thermal printer. On Android this goes straight to
   // the printer (Bluetooth / USB / direct TCP) with no server — so it works
-  // offline. "browser" mode (or a disabled printer) falls back to window.print().
+  // offline. "browser" mode uses the browser print window; with no printer, show an error.
   const handlePrint = useCallback(async () => {
     setPrintStatus("printing");
     setPrintError("");
-    const r = await printPOSSale(sale, settings, appSettings.printer, effectiveName, rs);
+    setPrintNoPrinter(false);
+    const r = await printPOSSale(sale, settings, appSettings, effectiveName, rs);
+    if (r.noPrinter) {
+      setPrintStatus("error");
+      setPrintNoPrinter(true);
+      setPrintError("No receipt printer is set up. Add one in Settings → Hardware.");
+      return;
+    }
     if (r.browser) {
-      // No thermal printer configured (or "browser" mode). On a desktop browser
-      // window.print() opens the OS print dialog; inside the Android WebView it
-      // does nothing — so on the tablet, tell the cashier what to do instead of
-      // silently failing.
+      // The browser print window does nothing inside the Android WebView — so on the
+      // tablet, tell the cashier what to do instead of silently failing.
       if (onAndroid) {
         setPrintStatus("error");
-        setPrintError(
-          appSettings.printer?.enabled
-            ? "Printer set to “browser” mode, which isn’t available on the tablet. Pick Bluetooth, USB, or Network in Settings → Hardware."
-            : "No printer configured. Set one up in Settings → Hardware.",
-        );
+        setPrintError("Printer set to “browser” mode, which isn’t available on the tablet. Pick Bluetooth, USB, or Network in Settings → Hardware.");
       } else {
         setPrintStatus("idle");
-        window.print();
+        handlePdf();
       }
       return;
     }
@@ -108,25 +131,32 @@ export default function ReceiptModal(
       setPrintStatus("error");
       setPrintError(r.error ?? "Printing failed.");
     }
-  }, [sale, settings, appSettings.printer, effectiveName, onAndroid, rs]);
+  }, [sale, settings, appSettings, effectiveName, onAndroid, rs, handlePdf]);
 
-  // Auto-print once when the receipt opens straight after a sale (autoPrint
-  // prop), but only for real thermal modes the cashier configured — never
-  // auto-trigger the browser print dialog (intrusive), and never on the
-  // dashboard's "view old receipt" path (which doesn't pass autoPrint).
+  // Runs once when the receipt opens straight after a sale (autoPrint prop),
+  // never on the dashboard's "view old receipt" path. The kitchen slip and the
+  // receipt each follow their own printer's Auto-print; browser mode is never
+  // auto-triggered (intrusive dialog).
   const autoPrinted = useRef(false);
   useEffect(() => {
     if (autoPrinted.current || !autoPrint) return;
-    const pr = appSettings.printer;
-    if (pr?.enabled && pr.autoPrint && pr.connection !== "browser") {
-      autoPrinted.current = true;
-      void handlePrint();
+    const kitchen = resolveActivePrinter(appSettings, "kitchen");
+    const pos = resolveActivePrinter(appSettings, "pos");
+    const printReceipt = !!pos?.autoPrint && pos.connection !== "browser";
+    if (!kitchen?.autoPrint && !printReceipt) return;
+    autoPrinted.current = true;
+    if (kitchen?.autoPrint) {
+      // `skipped` is not a failure.
+      void printSaleToKitchen(sale, settings, appSettings, effectiveName, rs).then((r) => {
+        if (!r.ok) setKitchenError(r.error ?? "The Kitchen printer failed.");
+      });
     }
-  }, [autoPrint, appSettings.printer, handlePrint]);
+    if (printReceipt) void handlePrint();
+  }, [autoPrint, appSettings, handlePrint, sale, settings, effectiveName, rs]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl w-full max-w-xs flex flex-col shadow-2xl overflow-hidden max-h-[95vh]">
+      <div className="bg-white rounded-2xl w-full max-w-sm flex flex-col shadow-2xl overflow-hidden max-h-[95vh]">
         <div className="p-6 font-mono text-gray-900 text-xs overflow-y-auto flex-1">
 
           {/* ── Header ───────────────────────────────────────── */}
@@ -310,16 +340,40 @@ export default function ReceiptModal(
             <p className="text-green-700 text-xs font-semibold">Receipt sent to printer.</p>
           </div>
         )}
+        {noReceiptPrinter && (
+          <InfoNote>
+            {onAndroid
+              ? "No receipt printer is set up. Set one up in Settings → Hardware to print receipts."
+              : "No receipt printer is set up, so nothing printed automatically. Tap PDF to save or print it from the browser, or set one up in Settings → Hardware."}
+          </InfoNote>
+        )}
+        {receiptAutoPrintOff && (
+          <InfoNote>
+            The Receipt printer&apos;s Auto-print is off, so the receipt was not printed. Tap Print, or turn Auto-print on in Settings → Hardware.
+          </InfoNote>
+        )}
+        {kitchenAutoPrintOff && (
+          <InfoNote>
+            The Kitchen printer&apos;s Auto-print is off, so no kitchen slip was printed. An admin can turn it on in Admin → Integrations.
+          </InfoNote>
+        )}
+        {kitchenError && (
+          <div role="alert" className="mx-4 mb-2 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            <AlertTriangle size={13} className="text-red-600 shrink-0 mt-0.5" />
+            <p className="text-red-700 text-xs break-words min-w-0">
+              <span className="font-semibold">Kitchen slip did not print — tell the kitchen.</span> {kitchenError}
+            </p>
+          </div>
+        )}
         {printStatus === "error" && (
           <div className="mx-4 mb-2 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
             <AlertTriangle size={13} className="text-red-600 shrink-0 mt-0.5" />
             <div className="min-w-0">
               <p className="text-red-700 text-xs break-all">{printError}</p>
-              {/* window.print() only works on a desktop browser, not the Android
-                  WebView — so only offer it off-Android. */}
+              {/* Browser printing does not work in the Android WebView. */}
               {!onAndroid && (
-                <button onClick={() => window.print()} className="text-red-600 text-xs font-semibold underline mt-0.5">
-                  Print via browser instead
+                <button onClick={handlePdf} className="text-red-600 text-xs font-semibold underline mt-0.5">
+                  {printNoPrinter ? "Save as PDF instead" : "Print via browser instead"}
                 </button>
               )}
             </div>
@@ -327,13 +381,22 @@ export default function ReceiptModal(
         )}
 
         {/* ── Buttons ──────────────────────────────────────────── */}
-        <div className="px-4 pb-4 grid grid-cols-2 gap-2 mt-2">
+        <div className={`px-4 pb-4 grid gap-2 mt-2 ${onAndroid ? "grid-cols-2" : "grid-cols-3"}`}>
           <button
             onClick={onClose}
             className="py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 transition-colors"
           >
             Close
           </button>
+          {!onAndroid && (
+            <button
+              onClick={handlePdf}
+              title="Open the print window, then choose Save as PDF"
+              className="py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
+            >
+              <FileDown size={14} /> PDF
+            </button>
+          )}
           <button
             onClick={handlePrint}
             disabled={printStatus === "printing"}
@@ -345,6 +408,16 @@ export default function ReceiptModal(
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Amber note (not an error). */
+function InfoNote({ children }: { children: React.ReactNode }) {
+  return (
+    <div role="status" className="mx-4 mb-2 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+      <Info size={13} className="text-amber-600 shrink-0 mt-0.5" />
+      <p className="text-amber-800 text-xs break-words min-w-0">{children}</p>
     </div>
   );
 }

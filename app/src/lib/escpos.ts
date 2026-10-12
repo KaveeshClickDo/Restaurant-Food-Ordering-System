@@ -7,9 +7,10 @@
  *  - "browser": window.print() with HTML receipt — universal fallback
  */
 
-import type { AdminSettings, Order } from "@/types";
+import type { AdminSettings, Order, PrinterCategory, PrinterSettings } from "@/types";
 import { fullOrderNumber } from "@/lib/orderNumber";
 import { apiBase } from "@/lib/apiBase";
+import { parseTableLabelFromNote, parseKitchenNoteFromNote } from "@/lib/tableLabel";
 
 // ─── ESC/POS byte constants ──────────────────────────────────────────────────
 
@@ -134,6 +135,15 @@ export class ReceiptBuilder {
       l = left.padEnd(leftWidth);
     }
     return this.line(l + right);
+  }
+
+  /**
+   * Item row that never truncates: a long name wraps onto extra lines and the
+   * price stays on the last one. Use for item names; twoCol suits short labels.
+   */
+  itemRow(left: string, right: string, width: number) {
+    for (const ln of itemRowLines(left, right, width)) this.line(ln);
+    return this;
   }
 
   /** GS V 41 03 — partial paper cut with 3-line feed */
@@ -268,10 +278,112 @@ function fmt(n: number, sym: string) {
   return `${sym}${n.toFixed(2)}`;
 }
 
+function orderTypeLabel(order: Order): string {
+  return order.fulfillment === "delivery" ? "DELIVERY" : order.fulfillment === "dine-in" ? "DINE-IN" : "COLLECTION";
+}
+
+/** Customer details that live on the customer record, not the order. */
+export interface OnlineTicketExtras {
+  customerName?: string;
+  customerPhone?: string;
+  /** Title ahead of the order number. Defaults to "ORDER"; admin receipt reprints use "RECEIPT". */
+  heading?: string;
+  /** VAT % the order was charged at, when known (old orders). Defaults to today's rate. */
+  vatRate?: number;
+  /** Who served a POS sale — printed as "Served by:" in place of the internal POS note. */
+  staffName?: string;
+}
+
+/** VAT figures for a slip. Exclusive VAT is part of the payable total, so it is always
+ *  shown; inclusive VAT is only a breakdown, shown when the admin's setting allows. */
+function vatInfo(order: Order, settings: AdminSettings, extras?: OnlineTicketExtras) {
+  const amount    = order.vatAmount ?? 0;
+  const inclusive = order.vatInclusive ?? true;
+  const rate      = extras?.vatRate && extras.vatRate > 0 ? extras.vatRate : (settings.taxSettings?.rate ?? 0);
+  const show      = amount > 0 && (!inclusive || (settings.taxSettings?.showBreakdown ?? true));
+  return { amount, inclusive, rate, show };
+}
+
+/** PAID / UNPAID line for online orders, so staff know whether to take payment. */
+function onlinePaymentLine(order: Order): string | null {
+  if (order.fulfillment === "dine-in") return null;
+  switch (order.paymentStatus) {
+    case "paid":               return "PAID";
+    case "unpaid":             return "UNPAID - collect payment";
+    case "partially_refunded": return "PAID (partly refunded)";
+    case "refunded":           return "REFUNDED";
+    default:                   return null;
+  }
+}
+
+function wrapText(text: string, width: number): string[] {
+  const out: string[] = [];
+  let line = "";
+  for (const word of text.split(/\s+/)) {
+    if (!word) continue;
+    if (line && line.length + 1 + word.length <= width) { line += ` ${word}`; continue; }
+    if (line) out.push(line);
+    line = word;
+    while (line.length > width) { out.push(line.slice(0, width)); line = line.slice(width); }
+  }
+  if (line) out.push(line);
+  return out;
+}
+
+/** One item row that wraps a long name onto extra lines, price on the last line.
+ *  (ReceiptBuilder.twoCol would cut the name off with "~".) */
+function itemRowLines(left: string, right: string, width: number): string[] {
+  const room = Math.max(8, width - right.length - 2);
+  const parts = left.length <= room ? [left] : wrapText(left, room);
+  const last = parts.pop() ?? "";
+  return [...parts, last.padEnd(width - right.length) + right];
+}
+
+/** Choices printed under an item: each variation / add-on as "+ option", then the
+ *  customer's per-item request in quotes. Online order lines keep these in
+ *  separate fields rather than in the name. */
+function itemDetailLines(item: Order["items"][number], width: number): string[] {
+  const variations = item.selectedVariations?.length
+    ? item.selectedVariations
+    : item.selectedVariation ? [item.selectedVariation] : [];
+  const options = [...variations.map((v) => v.label), ...(item.selectedAddOns ?? []).map((a) => a.name)];
+  const out: string[] = [];
+  for (const opt of options) {
+    wrapText(`+ ${opt}`, width - 2).forEach((ln, i) => out.push((i === 0 ? "  " : "    ") + ln));
+  }
+  const request = item.specialInstructions?.trim();
+  if (request) wrapText(`"${request}"`, width - 2).forEach((ln) => out.push(`  ${ln}`));
+  return out;
+}
+
+/** Customer / phone / pickup time / note lines for an online order, wrapped to
+ *  the paper width. Empty for dine-in, which has its own table + note lines. */
+function onlineDetailLines(order: Order, extras: OnlineTicketExtras | undefined, width: number): string[] {
+  if (order.fulfillment === "dine-in") return [];
+  const details: string[] = [];
+  if (extras?.customerName?.trim())  details.push(`Customer: ${extras.customerName.trim()}`);
+  if (extras?.customerPhone?.trim()) details.push(`Phone: ${extras.customerPhone.trim()}`);
+  if (order.scheduledTime?.trim())   details.push(`When: ${order.scheduledTime.trim()}`);
+  const note = order.note?.trim();
+  if (note?.startsWith("[POS]")) {
+    // Internal POS marker ("[POS] | Staff: Sam | Receipt: R1004"), not a customer note.
+    if (extras?.staffName?.trim()) details.push(`Served by: ${extras.staffName.trim()}`);
+  } else if (note) {
+    details.push(`Note: ${note}`);
+  }
+  return details.flatMap((d) => wrapText(d, width));
+}
+
 /** Build a full order receipt as ESC/POS bytes. `logoBytes` is a pre-rendered
  *  GS v 0 raster (from logoToRaster) printed above the name when Show Logo is on. */
-export function buildReceipt(order: Order, settings: AdminSettings, logoBytes?: number[] | null): number[] {
-  const W  = [32, 48].includes(settings.printer.paperWidth) ? settings.printer.paperWidth : 48;
+export function buildReceipt(
+  order: Order,
+  settings: AdminSettings,
+  printer: PrinterSettings,
+  logoBytes?: number[] | null,
+  extras?: OnlineTicketExtras,
+): number[] {
+  const W  = [32, 48].includes(printer.paperWidth) ? printer.paperWidth : 48;
   const r  = settings.restaurant;
   const rs = settings.receiptSettings;
   const sym = settings.currency?.symbol || "£";
@@ -307,16 +419,25 @@ export function buildReceipt(order: Order, settings: AdminSettings, logoBytes?: 
 
   b.align("left")
    .bold(true)
-   .line(`ORDER ${fullOrderNumber(order.id)}`)
+   .line(`${extras?.heading ?? "ORDER"} ${fullOrderNumber(order.id)}`)
    .bold(false)
    .line(`Date: ${new Date(order.date).toLocaleString("en-GB", {
      day: "2-digit", month: "short", year: "numeric",
      hour: "2-digit", minute: "2-digit",
    })}`)
-   .line(`Type: ${order.fulfillment === "delivery" ? "DELIVERY" : "COLLECTION"}`);
+   .line(`Type: ${orderTypeLabel(order)}`);
 
   if (order.address)       b.line(`To: ${order.address}`);
   if (order.paymentMethod) b.line(`Pay: ${order.paymentMethod}`);
+  const payStatus = onlinePaymentLine(order);
+  if (payStatus) b.bold(true).line(payStatus).bold(false);
+  for (const ln of onlineDetailLines(order, extras, W)) b.line(ln);
+  if (order.fulfillment === "dine-in") {
+    const table = parseTableLabelFromNote(order.note);
+    if (table) b.bold(true).line(`Table: ${table}`).bold(false);
+    const kitchenNote = parseKitchenNoteFromNote(order.note);
+    if (kitchenNote) b.line(`Note: ${kitchenNote}`);
+  }
 
   b.separator("=", W);
 
@@ -324,16 +445,14 @@ export function buildReceipt(order: Order, settings: AdminSettings, logoBytes?: 
   b.separator("-", W);
 
   for (const item of order.items) {
-    b.twoCol(`${item.name} x${item.qty}`, fmt(item.price * item.qty, sym), W);
+    b.itemRow(`${item.name} x${item.qty}`, fmt(item.price * item.qty, sym), W);
+    for (const ln of itemDetailLines(item, W)) b.line(ln);
   }
 
   b.separator("-", W);
 
   const subtotal     = order.items.reduce((s, i) => s + i.price * i.qty, 0);
-  const vatAmount    = order.vatAmount ?? 0;
-  const vatInclusive = order.vatInclusive ?? true;
-  const vatRate      = settings.taxSettings?.rate ?? 0;
-  const showVat      = vatAmount > 0 && (settings.taxSettings?.showBreakdown ?? true);
+  const { amount: vatAmount, inclusive: vatInclusive, rate: vatRate, show: showVat } = vatInfo(order, settings, extras);
 
   b.twoCol("Subtotal", fmt(subtotal, sym), W);
   if (order.deliveryFee && order.deliveryFee > 0) {
@@ -344,6 +463,10 @@ export function buildReceipt(order: Order, settings: AdminSettings, logoBytes?: 
   }
   if (order.couponDiscount && order.couponDiscount > 0) {
     b.twoCol(`Coupon (${order.couponCode ?? ""})`, `-${fmt(order.couponDiscount, sym)}`, W);
+  }
+  if (order.discountAmount && order.discountAmount > 0) {
+    const label = order.discountNote ? `Discount (${order.discountNote})` : "Discount";
+    b.twoCol(label, `-${fmt(order.discountAmount, sym)}`, W);
   }
   if (showVat) {
     const vatLabel = vatInclusive ? `Incl. VAT (${vatRate}%)` : `VAT (${vatRate}%)`;
@@ -359,8 +482,11 @@ export function buildReceipt(order: Order, settings: AdminSettings, logoBytes?: 
   if (order.tipAmount && order.tipAmount > 0) {
     b.twoCol("Tip", fmt(order.tipAmount, sym), W);
   }
-  if (order.serviceFee && order.serviceFee > 0) {
-    b.twoCol("Service Fee", fmt(order.serviceFee, sym), W);
+  if (order.giftCardUsed && order.giftCardUsed > 0) {
+    b.twoCol("Gift Card", fmt(order.giftCardUsed, sym), W);
+  }
+  if (order.storeCreditUsed && order.storeCreditUsed > 0) {
+    b.twoCol("Store credit", fmt(order.storeCreditUsed, sym), W);
   }
   if (order.changeGiven !== undefined && order.changeGiven > 0) {
     b.twoCol("Change", fmt(order.changeGiven, sym), W);
@@ -389,8 +515,8 @@ export function buildReceipt(order: Order, settings: AdminSettings, logoBytes?: 
 }
 
 /** Build a short test-connection receipt. */
-export function buildTestReceipt(settings: AdminSettings): number[] {
-  const W = [32, 48].includes(settings.printer.paperWidth) ? settings.printer.paperWidth : 48;
+export function buildTestReceipt(settings: AdminSettings, printer: PrinterSettings): number[] {
+  const W = [32, 48].includes(printer.paperWidth) ? printer.paperWidth : 48;
   const r = settings.restaurant;
   const b = new ReceiptBuilder();
 
@@ -403,7 +529,7 @@ export function buildTestReceipt(settings: AdminSettings): number[] {
    .bold(false)
    .separator("=", W)
    .line(r.name)
-   .line(`Printer: ${settings.printer.name || "Unnamed"}`)
+   .line(`Printer: ${printer.name || "Unnamed"}`)
    .line(new Date().toLocaleString("en-GB", {
      day: "2-digit", month: "short", year: "numeric",
      hour: "2-digit", minute: "2-digit",
@@ -412,8 +538,8 @@ export function buildTestReceipt(settings: AdminSettings): number[] {
    .bold(true)
    .line("Printer connected!")
    .bold(false)
-   .line(`Mode: ${settings.printer.connection ?? "network"}`)
-   .line(`Auto-print: ${settings.printer.autoPrint ? "Enabled" : "Disabled"}`)
+   .line(`Mode: ${printer.connection ?? "network"}`)
+   .line(`Auto-print: ${printer.autoPrint ? "Enabled" : "Disabled"}`)
    .line(`Paper: ${W === 48 ? "80 mm" : "58 mm"} (${W} chars)`)
    .feed(5)
    .cut();
@@ -439,8 +565,9 @@ export async function sendToPrinter(
   ip: string,
   port: number,
   endpoint: string = "/api/print",
+  maxAttempts: number = MAX_RETRIES,
 ): Promise<{ ok: boolean; error?: string }> {
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15_000);
     try {
@@ -453,13 +580,13 @@ export async function sendToPrinter(
       clearTimeout(timer);
       const data = await res.json() as { ok: boolean; error?: string };
       if (data.ok) return { ok: true };
-      if (attempt === MAX_RETRIES) return { ok: false, error: data.error };
+      if (attempt === maxAttempts) return { ok: false, error: data.error };
     } catch (err) {
       clearTimeout(timer);
       const msg = err instanceof Error && err.name === "AbortError"
         ? `Print request timed out after 15 s (attempt ${attempt})`
         : String(err);
-      if (attempt === MAX_RETRIES) return { ok: false, error: msg };
+      if (attempt === maxAttempts) return { ok: false, error: msg };
     }
     await new Promise((r) => setTimeout(r, RETRY_DELAY));
   }
@@ -642,6 +769,8 @@ function buildReceiptHTML(
 export function printReceiptBrowser(
   order: Order,
   settings: AdminSettings,
+  printer: PrinterSettings,
+  extras?: OnlineTicketExtras,
 ): { ok: boolean; error?: string } {
   if (typeof window === "undefined") {
     return { ok: false, error: "Browser print is not available server-side." };
@@ -649,7 +778,7 @@ export function printReceiptBrowser(
 
   const r   = settings.restaurant;
   const rs  = settings.receiptSettings;
-  const W   = settings.printer.paperWidth;
+  const W   = printer.paperWidth;
   const sym = settings.currency?.symbol || "£";
   const sep = "-".repeat(W);
   const dbl = "=".repeat(W);
@@ -680,36 +809,47 @@ export function printReceiptBrowser(
   if (rs?.vatNumber?.trim()) lines.push(center(`VAT: ${rs.vatNumber.trim()}`));
   lines.push(dbl);
 
-  lines.push(`ORDER ${fullOrderNumber(order.id)}`);
+  lines.push(`${extras?.heading ?? "ORDER"} ${fullOrderNumber(order.id)}`);
   lines.push(`Date: ${new Date(order.date).toLocaleString("en-GB", {
     day: "2-digit", month: "short", year: "numeric",
     hour: "2-digit", minute: "2-digit",
   })}`);
-  lines.push(`Type: ${order.fulfillment === "delivery" ? "DELIVERY" : "COLLECTION"}`);
+  lines.push(`Type: ${orderTypeLabel(order)}`);
   if (order.address)       lines.push(`To: ${order.address}`);
   if (order.paymentMethod) lines.push(`Pay: ${order.paymentMethod}`);
+  const payStatus = onlinePaymentLine(order);
+  if (payStatus) lines.push(payStatus);
+  lines.push(...onlineDetailLines(order, extras, W));
+  if (order.fulfillment === "dine-in") {
+    const table = parseTableLabelFromNote(order.note);
+    if (table) lines.push(`Table: ${table}`);
+    const kitchenNote = parseKitchenNoteFromNote(order.note);
+    if (kitchenNote) lines.push(`Note: ${kitchenNote}`);
+  }
   lines.push(dbl);
 
   lines.push(twoCol("ITEM", "PRICE"));
   lines.push(sep);
 
   for (const item of order.items) {
-    lines.push(twoCol(`${item.name} x${item.qty}`, fmt(item.price * item.qty, sym)));
+    lines.push(...itemRowLines(`${item.name} x${item.qty}`, fmt(item.price * item.qty, sym), W));
+    lines.push(...itemDetailLines(item, W));
   }
 
   lines.push(sep);
 
   const subtotal     = order.items.reduce((s, i) => s + i.price * i.qty, 0);
-  const vatAmount    = order.vatAmount ?? 0;
-  const vatInclusive = order.vatInclusive ?? true;
-  const vatRate      = settings.taxSettings?.rate ?? 0;
-  const showVat      = vatAmount > 0 && (settings.taxSettings?.showBreakdown ?? true);
+  const { amount: vatAmount, inclusive: vatInclusive, rate: vatRate, show: showVat } = vatInfo(order, settings, extras);
 
   lines.push(twoCol("Subtotal", fmt(subtotal, sym)));
   if (order.deliveryFee && order.deliveryFee > 0) lines.push(twoCol("Delivery fee", fmt(order.deliveryFee, sym)));
   if (order.serviceFee  && order.serviceFee  > 0) lines.push(twoCol("Service fee",  fmt(order.serviceFee, sym)));
   if (order.couponDiscount && order.couponDiscount > 0) {
     lines.push(twoCol(`Coupon (${order.couponCode ?? ""})`, `-${fmt(order.couponDiscount, sym)}`));
+  }
+  if (order.discountAmount && order.discountAmount > 0) {
+    const label = order.discountNote ? `Discount (${order.discountNote})` : "Discount";
+    lines.push(twoCol(label, `-${fmt(order.discountAmount, sym)}`));
   }
   if (showVat) {
     const vatLabel = vatInclusive ? `Incl. VAT (${vatRate}%)` : `VAT (${vatRate}%)`;
@@ -720,7 +860,8 @@ export function printReceiptBrowser(
   lines.push(dbl);
   lines.push(twoCol("TOTAL", fmt(order.total, sym)));
   if (order.tipAmount && order.tipAmount > 0) lines.push(twoCol("Tip", fmt(order.tipAmount, sym)));
-  if (order.serviceFee && order.serviceFee > 0) lines.push(twoCol("Service Fee", fmt(order.serviceFee, sym)));
+  if (order.giftCardUsed && order.giftCardUsed > 0) lines.push(twoCol("Gift Card", fmt(order.giftCardUsed, sym)));
+  if (order.storeCreditUsed && order.storeCreditUsed > 0) lines.push(twoCol("Store credit", fmt(order.storeCreditUsed, sym)));
   if (order.changeGiven !== undefined && order.changeGiven > 0) lines.push(twoCol("Change", fmt(order.changeGiven, sym)));
   if (showVat && vatInclusive) lines.push(center(`Prices include ${vatRate}% VAT`));
   lines.push(dbl);
@@ -738,9 +879,11 @@ export function printReceiptBrowser(
   }
   win.focus();
   setTimeout(() => {
+    win.onafterprint = () => {
+      win.close();
+      URL.revokeObjectURL(url);
+    };
     win.print();
-    win.close();
-    URL.revokeObjectURL(url);
   }, 400);
 
   return { ok: true };
@@ -748,20 +891,63 @@ export function printReceiptBrowser(
 
 // ─── Unified dispatcher ──────────────────────────────────────────────────────
 
-/**
- * Print an order receipt using the configured connection mode.
- * Optionally kicks the cash drawer after printing (for cash payments).
- * Fire-and-forget safe — logs errors to console, never throws.
- */
-export async function printOrder(
+/** The active, enabled printer for a category, or null if none is set /
+ *  the active id doesn't resolve to an enabled printer. */
+export function resolveActivePrinter(settings: AdminSettings, category: PrinterCategory): PrinterSettings | null {
+  const id = settings.activePrinterIdByCategory?.[category];
+  if (!id) return null;
+  const printer = settings.printers.find((p) => p.id === id);
+  return printer && printer.enabled ? printer : null;
+}
+
+/** Send already-built bytes (or fall back to a browser print) to one printer,
+ *  via that printer's own connection mode. Never throws. */
+async function dispatchToPrinter(
   order: Order,
   settings: AdminSettings,
-  opts: { kickDrawer?: boolean } = {},
-): Promise<void> {
-  const { printer } = settings;
-  if (!printer.enabled || !printer.autoPrint) return;
-
+  printer: PrinterSettings,
+  bytes: number[],
+): Promise<{ ok: boolean; error?: string }> {
   const mode = printer.connection ?? "network";
+
+  if (mode === "bluetooth") {
+    return sendToPrinterBluetooth(bytes, printer.bluetoothAddress ?? "");
+  }
+  if (mode === "usb") {
+    const { isCapacitorAndroid, sendUsb } = await import("./capacitorBridge");
+    return isCapacitorAndroid() ? sendUsb(bytes) : sendToPrinterUSB(bytes, { promptIfNeeded: false });
+  }
+  if (mode === "browser") {
+    return printReceiptBrowser(order, settings, printer);
+  }
+  // network — try native TCP first (Android, works offline on LAN)
+  // then fall back to /api/print server proxy
+  if (!printer.ip.trim()) {
+    return { ok: false, error: "no_ip_configured" };
+  }
+  const { sendTcpNative } = await import("./capacitorBridge");
+  const nativeResult = await sendTcpNative(printer.ip, printer.port, bytes);
+  if (nativeResult.ok || nativeResult.error !== "native_unavailable") {
+    return nativeResult;
+  }
+  return sendToPrinter(bytes, printer.ip, printer.port);
+}
+
+/** Print to one category's active printer — independent of other categories,
+ *  no auto-fallback if it's unreachable. Never throws. `skipped` is not a failure. */
+async function printOrderToCategory(
+  order: Order,
+  settings: AdminSettings,
+  category: PrinterCategory,
+  opts: { kickDrawer?: boolean },
+): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
+  const printer = resolveActivePrinter(settings, category);
+  if (!printer || !printer.autoPrint) return { ok: true, skipped: true };
+
+  // Browser mode would pop the OS print dialog on the waiter's own phone — refuse it up front.
+  if (category === "kitchen" && (printer.connection ?? "network") === "browser") {
+    return { ok: false, error: "The Kitchen printer is set to Browser print, which can't print automatically. An admin can change it in Admin → Integrations." };
+  }
 
   try {
     // Pre-render the logo raster (async) when Show Logo is on, then build the
@@ -770,43 +956,94 @@ export async function printOrder(
     const logoBytes = rs?.showLogo && rs?.logoUrl
       ? await logoToRaster(rs.logoUrl, paperDotWidth(printer.paperWidth), { dither: rs.logoDither })
       : null;
-    let bytes = buildReceipt(order, settings, logoBytes);
+    let bytes = buildReceipt(order, settings, printer, logoBytes);
 
-    // Append cash drawer kick command when requested
-    if (opts.kickDrawer) {
+    // Cash drawer lives at the counter, not the kitchen — only kick it on the
+    // "pos" category's print.
+    if (opts.kickDrawer && category === "pos") {
       const b = new ReceiptBuilder();
       b.kickDrawer();
       bytes = [...bytes, ...b.build()];
     }
 
-    let result: { ok: boolean; error?: string };
-
-    if (mode === "bluetooth") {
-      result = await sendToPrinterBluetooth(bytes, printer.bluetoothAddress ?? "");
-    } else if (mode === "usb") {
-      result = await sendToPrinterUSB(bytes, { promptIfNeeded: false });
-    } else if (mode === "browser") {
-      result = printReceiptBrowser(order, settings);
-    } else {
-      // network — try native TCP first (Android, works offline on LAN)
-      // then fall back to /api/print server proxy
-      if (!printer.ip.trim()) {
-        console.warn("[printer] Auto-print skipped — no IP configured");
-        return;
-      }
-      const { sendTcpNative } = await import("./capacitorBridge");
-      const nativeResult = await sendTcpNative(printer.ip, printer.port, bytes);
-      if (nativeResult.ok || nativeResult.error !== "native_unavailable") {
-        result = nativeResult;
-      } else {
-        result = await sendToPrinter(bytes, printer.ip, printer.port);
-      }
+    if (printer.connection === "network" && !printer.ip.trim()) {
+      console.warn(`[printer:${category}] Auto-print skipped — no IP configured`);
+      const label = category === "kitchen" ? "Kitchen" : category === "pos" ? "Receipt" : "Online";
+      return { ok: false, error: `The ${label} printer has no IP address. An admin can set it in Admin → Integrations.` };
     }
 
+    const result = await dispatchToPrinter(order, settings, printer, bytes);
     if (!result.ok && result.error !== "USB printer selection cancelled.") {
-      console.error("[printer] Print failed:", result.error);
+      console.error(`[printer:${category}] Print failed:`, result.error);
     }
+    if (result.ok) return { ok: true };
+    if (category === "kitchen" && result.error?.startsWith("No Bluetooth printer selected")) {
+      return { ok: false, error: "The Kitchen printer has no Bluetooth device chosen. An admin can set it in Admin → Integrations." };
+    }
+    return { ok: false, error: result.error };
   } catch (err) {
-    console.error("[printer] Unexpected error:", err);
+    console.error(`[printer:${category}] Unexpected error:`, err);
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Print to each requested category (default both), independently. Never throws.
+ *  Returns one outcome per requested category. */
+export async function printOrder(
+  order: Order,
+  settings: AdminSettings,
+  opts: { kickDrawer?: boolean; categories?: PrinterCategory[] } = {},
+): Promise<{ category: PrinterCategory; ok: boolean; skipped?: boolean; error?: string }[]> {
+  const categories = opts.categories ?? (["kitchen", "pos"] as const);
+  return Promise.all(categories.map(async (category) => ({ category, ...(await printOrderToCategory(order, settings, category, opts)) })));
+}
+
+/**
+ * Print one online order on demand from the admin panel (or, with `endpoint`,
+ * another staff surface), to the active printer in `category` (the "online"
+ * printer by default). It's a manual click, so Auto-print is ignored. Returns
+ * `{ noPrinter: true }` without printing when there is no active, enabled
+ * printer in that category, so the caller can tell the user to set one up. A
+ * printer that is set up but incomplete or unreachable returns an `error`
+ * message instead.
+ *
+ * `endpoint` is the server relay used for a network printer: the admin relay by
+ * default, `/api/collection/print` for the collection-staff page, `/api/print`
+ * for a POS session. `category` is the printer category to target — "online"
+ * everywhere except the POS Collection tab, which passes "pos" to use the
+ * Receipt/POS printer POS staff already manage themselves.
+ */
+export async function printOnlineOrderAsAdmin(
+  order: Order,
+  settings: AdminSettings,
+  extras?: OnlineTicketExtras,
+  endpoint: string = "/api/admin/print",
+  category: PrinterCategory = "online",
+): Promise<{ ok: boolean; error?: string; noPrinter?: boolean }> {
+  const printer = resolveActivePrinter(settings, category);
+  if (!printer) return { ok: false, noPrinter: true };
+
+  try {
+    const mode = printer.connection ?? "network";
+    if (mode === "browser") return printReceiptBrowser(order, settings, printer, extras);
+
+    const rs = settings.receiptSettings;
+    const logoBytes = rs?.showLogo && rs?.logoUrl
+      ? await logoToRaster(rs.logoUrl, paperDotWidth(printer.paperWidth), { dither: rs.logoDither })
+      : null;
+    const bytes = buildReceipt(order, settings, printer, logoBytes, extras);
+
+    if (mode === "bluetooth") return await sendToPrinterBluetooth(bytes, printer.bluetoothAddress ?? "");
+    if (mode === "usb") {
+      const { isCapacitorAndroid, sendUsb } = await import("./capacitorBridge");
+      return isCapacitorAndroid() ? sendUsb(bytes) : sendToPrinterUSB(bytes);
+    }
+    if (!printer.ip?.trim()) {
+      const categoryLabel = category === "pos" ? "Receipt" : category === "kitchen" ? "Kitchen" : "Online";
+      return { ok: false, error: `The ${categoryLabel} printer has no IP address. Set one in Admin → Integrations.` };
+    }
+    return await sendToPrinter(bytes, printer.ip.trim(), printer.port, endpoint, 1);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
