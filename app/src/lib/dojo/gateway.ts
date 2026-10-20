@@ -48,17 +48,12 @@ const SETTLED: ReadonlySet<string> = new Set([
   "Expired",
 ]);
 
-/** Statuses that still need polling. */
-export function isInFlight(status: string): boolean {
-  return status === "InitiateRequested" || status === "Initiated" || status === "CancelRequested";
-}
-
-export function isSettled(status: string): boolean {
+function isSettled(status: string): boolean {
   return SETTLED.has(status);
 }
 
 /** Was this a successful collection (funds captured or authorized)? */
-export function isSuccess(status: string): boolean {
+function isSuccess(status: string): boolean {
   return status === "Captured" || status === "Authorized" || status === "SignatureVerificationAccepted";
 }
 
@@ -99,7 +94,7 @@ export function saleResultFrom(
 }
 
 /** Build the result we persist on the sale from a settled intent + session. */
-export function toSaleResult(
+function toSaleResult(
   session: DojoTerminalSession,
   intent: DojoPaymentIntent | null,
 ): DojoSaleResult {

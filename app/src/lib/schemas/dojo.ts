@@ -37,6 +37,9 @@ export const DojoRefundSchema = z.object({
   amount: MajorAmount,
   refundReason: z.string().max(255).optional(),
   notes: z.string().max(255).optional(),
+  /** One id per refund, resent on retries: Dojo's idempotency key, so a
+   *  repeated request can't refund twice. */
+  requestId: z.string().min(8).max(64).optional(),
 });
 
 /**

@@ -29,6 +29,10 @@
 
 export type DojoMode = "off" | "mock" | "live";
 
+/** Same for sandbox and production (the key picks the environment). Fixed in
+ *  code, not configurable, so a typo can't send the API key to another host. */
+export const DOJO_API_BASE_URL = "https://api.dojo.tech";
+
 export interface DojoConfig {
   mode: DojoMode;
   baseUrl: string;
@@ -61,7 +65,8 @@ export function dojoMode(): DojoMode {
   return "off";
 }
 
-/** The POS "Pay on terminal" option is available when a mode is active. */
+/** The env master switch is on (mock or live). The admin toggle is applied on
+ *  top in effectiveFlag.ts. */
 export function isDojoEnabled(): boolean {
   return dojoMode() !== "off";
 }
@@ -77,7 +82,7 @@ export function dojoConfig(): DojoConfig {
   const softwareHouseId = env("DOJO_SOFTWARE_HOUSE_ID", "softwareHouse1");
   return {
     mode: dojoMode(),
-    baseUrl: env("DOJO_API_BASE", "https://api.dojo.tech").replace(/\/+$/, ""),
+    baseUrl: DOJO_API_BASE_URL,
     apiKey: env("DOJO_API_KEY"),
     version: env("DOJO_API_VERSION", "2026-02-27"),
     softwareHouseId,

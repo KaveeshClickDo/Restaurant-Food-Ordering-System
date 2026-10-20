@@ -11,15 +11,14 @@
  * It refuses any key that isn't a sandbox key and never prints the key. It
  * prints what Dojo actually returns (statuses with their timing, terminal
  * prompts, and any refused call), so the simulator (lib/dojo/mock.ts) can be
- * kept in line, and exits with code 1 if a must-pass check fails. Where the
- * simulator only guessed Dojo's behaviour, a difference is listed for updating
- * the mock rather than counted as a failure.
+ * kept in line, and exits with code 1 if a must-pass check fails. A terminal
+ * missing from the account is listed for Dojo rather than counted as a failure.
  */
 
 import { randomUUID } from "node:crypto";
-import { createDojoClient, DojoApiError } from "../src/lib/dojo/client";
+import { createDojoClient } from "../src/lib/dojo/client";
 import { dojoConfig } from "../src/lib/dojo/config";
-import { describeDojoError, type DojoOp } from "../src/lib/dojo/errors";
+import { DojoApiError, describeDojoError, type DojoOp } from "../src/lib/dojo/errors";
 import { DojoStartError, startTerminalPayment } from "../src/lib/dojo/flow";
 import { resolveSnapshot, type DojoGateway } from "../src/lib/dojo/gateway";
 import type { DojoPaymentIntent, DojoSaleResult, DojoSessionSnapshot, DojoTerminalSession } from "../src/lib/dojo/types";
@@ -33,7 +32,7 @@ type Section = (typeof SECTIONS)[number];
 
 type Expect = "paid" | "declined" | "expired" | "canceled" | "rejected";
 
-const MACHINES: Array<{ tid: string; expect: Expect; signature?: boolean; guess?: boolean }> = [
+const MACHINES: Array<{ tid: string; expect: Expect; signature?: boolean }> = [
   { tid: "VCMSEEKSIP0", expect: "paid" },
   { tid: "VCMSEEKSCN0", expect: "paid" },
   { tid: "VCMSEEKSIS0", expect: "paid", signature: true },
@@ -60,8 +59,7 @@ interface Run {
 }
 
 let failures = 0;
-const mockUpdates: string[] = [];
-/** Sandbox behaviour that differs from Dojo's docs or checklist: to raise with Dojo, not a failure. */
+/** Account set-up to raise with Dojo (not a failure of our code). */
 const dojoQuestions: string[] = [];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const dedupe = (xs: string[]) => xs.filter((x, i) => i === 0 || x !== xs[i - 1]);
@@ -105,14 +103,8 @@ function describeRun(run: Run): string {
   return `${base}, auth ${r.authCode ?? "none"}, ${card}${tip}`;
 }
 
-function report(run: Run, expect: Expect, guess = false): void {
-  const ok = matches(run, expect);
-  if (guess && !ok && !run.error) {
-    console.log(`  ! ${run.label}: ${describeRun(run)} (the simulator guessed ${expect})`);
-    mockUpdates.push(`${run.label}: Dojo returned ${run.status}${run.result ? " with a payment" : ""}; the mock assumes ${expect}`);
-  } else {
-    check(ok, `${run.label}: ${describeRun(run)}`);
-  }
+function report(run: Run, expect: Expect): void {
+  check(matches(run, expect), `${run.label}: ${describeRun(run)}`);
   details(run);
 }
 
@@ -289,7 +281,7 @@ async function machines(gw: DojoGateway, onAccount: Set<string>): Promise<void> 
       continue;
     }
     const run = await runSale(gw, m.tid, m.tid, { signature: m.signature });
-    report(run, m.expect, m.guess);
+    report(run, m.expect);
     if (m.tid === "VCMSEEKSIP1" && run.result) {
       check((run.result.tipAmount ?? 0) > 0, `the tip added on the machine is recorded (£${(run.result.tipAmount ?? 0).toFixed(2)})`);
     }
@@ -373,12 +365,38 @@ async function wrongKey(gw: DojoGateway): Promise<void> {
   }
 }
 
+/** Dojo's processing failure for API refunds of terminal payments on the sandbox. */
+const SANDBOX_REFUND_FAILURE = "Your refund request was not successful";
+
 /**
- * Dojo needs at least one working refund path. On the sandbox (2026-10-12) the
- * card-present ones work; refunding or reversing a terminal payment by API was
- * refused, so those are reported as questions for Dojo rather than failures.
+ * Refunds. The payment intent refund is Dojo's recommended method; on the
+ * sandbox it fails for terminal payments, and Dojo confirmed (2026-10-13) that
+ * this is a sandbox limitation and a correct request is enough for
+ * accreditation. So here it must reach Dojo's processing and fail only there:
+ * any other error means our request is wrong. Card-present refunds work on the
+ * sandbox; a matched refund carries the amount so the intent shows Refunded.
  */
 async function refunds(gw: DojoGateway): Promise<void> {
+  console.log("\n── Refund without the card (payment intent refund, Dojo's recommended method) ──");
+  const remote = await approvedSale(gw, "sale to refund remotely");
+  if (remote?.result) {
+    const pi = remote.result.paymentIntentId;
+    try {
+      await gw.createRefund({ paymentIntentId: pi, amount: 300, refundReason: "Sandbox check", idempotencyKey: randomUUID() });
+      const part = await waitForIntent(gw, pi, (i) => (i.refundedAmount ?? 0) >= 300);
+      check(part.status === "Captured", `£3.00 refunded: intent ${part.status}, refundedAmount ${part.refundedAmount ?? 0}`);
+      await gw.createRefund({ paymentIntentId: pi, amount: 700, refundReason: "Sandbox check", idempotencyKey: randomUUID() });
+      const full = await waitForIntent(gw, pi, (i) => i.status === "Refunded");
+      check(full.status === "Refunded", `the remaining £7.00 refunded: intent ${full.status}`);
+    } catch (e) {
+      const text = errorText(e, "refund");
+      check(text.includes(SANDBOX_REFUND_FAILURE),
+        text.includes(SANDBOX_REFUND_FAILURE)
+          ? `request accepted, then failed at processing as Dojo said it does on the sandbox: ${text}`
+          : `refused for another reason, so our request may be wrong: ${text}`);
+    }
+  }
+
   console.log("\n── Refunds on the card machine (customer and card present) ──");
   const sale = await approvedSale(gw, "sale to refund on the machine");
   if (sale?.result) {
@@ -387,32 +405,12 @@ async function refunds(gw: DojoGateway): Promise<void> {
     check(!matched.error && matched.status === "Captured", `matched refund: ${matched.error ?? `${matched.status} in ${matched.seconds}s`}`);
     details(matched);
     const after = await waitForIntent(gw, pi, (i) => i.status === "Refunded");
-    if (after.status === "Refunded") {
-      check(true, "the sale's payment intent then shows Refunded");
-    } else {
-      console.log(`  ! the sale's payment intent still shows ${after.status}, refundedAmount ${after.refundedAmount ?? 0} (the checklist expects Refunded)`);
-      dojoQuestions.push(`After a successful matched refund, the payment intent stays ${after.status} with refundedAmount ${after.refundedAmount ?? 0}; the go-live checklist expects Refunded.`);
-    }
+    check(after.status === "Refunded",
+      `the sale's payment intent then shows ${after.status}, refundedAmount ${after.refundedAmount ?? 0}`);
   }
   const unlinked = await runSale(gw, "unlinked refund (£10.00)", "VCMSEEKSIP0", { sessionType: "UnlinkedRefund" });
   check(!unlinked.error && unlinked.status === "Captured", `unlinked refund: ${unlinked.error ?? `${unlinked.status} in ${unlinked.seconds}s`}`);
   details(unlinked);
-
-  console.log("\n── Refund without the card (payment intent refund) ──");
-  const remote = await approvedSale(gw, "sale to refund remotely");
-  if (!remote?.result) return;
-  const pi = remote.result.paymentIntentId;
-  try {
-    await gw.createRefund({ paymentIntentId: pi, amount: 300, refundReason: "Sandbox check", idempotencyKey: randomUUID() });
-    const part = await waitForIntent(gw, pi, (i) => (i.refundedAmount ?? 0) >= 300);
-    check(part.status === "Captured", `£3.00 refunded: intent ${part.status}, refundedAmount ${part.refundedAmount ?? 0}`);
-    await gw.createRefund({ paymentIntentId: pi, amount: 700, refundReason: "Sandbox check", idempotencyKey: randomUUID() });
-    const full = await waitForIntent(gw, pi, (i) => i.status === "Refunded");
-    check(full.status === "Refunded", `the remaining £7.00 refunded: intent ${full.status}`);
-  } catch (e) {
-    console.log(`  ! refused: ${errorText(e, "refund")}`);
-    dojoQuestions.push(`Refunding a virtual-terminal payment by API is refused (${errorText(e, "refund")}); a reversal is refused too. Expected on the sandbox, and which refund path should we use for accreditation?`);
-  }
 }
 
 async function main(): Promise<void> {
@@ -449,10 +447,6 @@ async function main(): Promise<void> {
   if (wants("wrongkey")) await wrongKey(gw);
   if (wants("refunds")) await refunds(gw);
 
-  if (mockUpdates.length) {
-    console.log("\nUpdate the simulator (lib/dojo/mock.ts) to match:");
-    for (const u of mockUpdates) console.log(`  - ${u}`);
-  }
   if (dojoQuestions.length) {
     console.log("\nAsk Dojo:");
     for (const q of dojoQuestions) console.log(`  - ${q}`);

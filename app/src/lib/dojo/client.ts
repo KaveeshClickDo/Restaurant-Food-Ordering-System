@@ -9,6 +9,7 @@
  */
 
 import { dojoConfig } from "./config";
+import { DojoApiError } from "./errors";
 import type { DojoGateway } from "./gateway";
 import type {
   CreatePaymentIntentInput,
@@ -20,17 +21,6 @@ import type {
   DojoTerminalSession,
   DojoTerminalSessionDetails,
 } from "./types";
-
-export class DojoApiError extends Error {
-  status: number;
-  body: unknown;
-  constructor(status: number, message: string, body: unknown) {
-    super(message);
-    this.name = "DojoApiError";
-    this.status = status;
-    this.body = body;
-  }
-}
 
 type Method = "GET" | "POST" | "PUT" | "DELETE";
 
@@ -112,7 +102,13 @@ function sessionDetails(input: CreateTerminalSessionInput): DojoTerminalSessionD
     case "Sale":
       return { sessionType: "Sale", sale: { paymentIntentId: input.paymentIntentId! } };
     case "MatchedRefund":
-      return { sessionType: "MatchedRefund", matchedRefund: { paymentIntentId: input.paymentIntentId! } };
+      // The amount is optional in the schema, but without it the sandbox leaves
+      // the intent Captured with refundedAmount 0 (tested 2026-10-14); Dojo's own
+      // example sends it. So it is always sent when known.
+      return {
+        sessionType: "MatchedRefund",
+        matchedRefund: { paymentIntentId: input.paymentIntentId!, ...(input.amount ? { amount: input.amount } : {}) },
+      };
     case "UnlinkedRefund":
       return { sessionType: "UnlinkedRefund", unlinkedRefund: { amount: input.amount! } };
   }

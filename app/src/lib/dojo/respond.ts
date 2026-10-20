@@ -4,10 +4,8 @@
  */
 
 import { NextResponse } from "next/server";
-import { DojoApiError } from "./client";
-import { describeDojoError, type DojoOp } from "./errors";
+import { DojoApiError, DojoDisabledError, describeDojoError, type DojoOp } from "./errors";
 import { DojoStartError } from "./flow";
-import { DojoDisabledError } from "./index";
 
 /** Convert to minor units (pence) for the Dojo API. */
 export function toMinorUnits(major: number): number {

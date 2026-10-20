@@ -9,12 +9,12 @@
  * differently from what Dojo's go-live checklist expects.
  */
 
-import { DojoApiError } from "../src/lib/dojo/client";
-import { describeDojoError, type DojoOp } from "../src/lib/dojo/errors";
+import { DojoApiError, describeDojoError, type DojoOp } from "../src/lib/dojo/errors";
 import { DojoStartError, startTerminalPayment, type StartPaymentResult } from "../src/lib/dojo/flow";
 import { resolveSnapshot, type DojoGateway } from "../src/lib/dojo/gateway";
 import { createDojoMock } from "../src/lib/dojo/mock";
 import type { DojoSessionSnapshot } from "../src/lib/dojo/types";
+import { buildDojoSignature, verifyDojoSignature } from "../src/lib/dojo/webhook";
 
 const AMOUNT = { value: 1250, currencyCode: "GBP" }; // £12.50
 let failures = 0;
@@ -108,6 +108,15 @@ async function alreadyPaid(gw: DojoGateway, paidIntent: string | null): Promise<
   const again = await sale(gw, "VCMSEEKSIP0", paidIntent);
   check(again.terminalId === null && again.snapshot.done && again.snapshot.result?.paymentIntentId === paidIntent,
     "reported as paid; no second charge is started");
+
+  // A paid intent for a different amount is another payment: it must not make
+  // this one look paid.
+  const other = await startTerminalPayment(gw, {
+    sessionType: "Sale", amount: { value: 999, currencyCode: "GBP" }, terminal: "VCMSEEKSIP0", paymentIntentId: paidIntent,
+  });
+  check(other.terminalId !== null && other.paymentIntentId !== paidIntent,
+    "a different amount starts a new payment instead of reusing the paid one");
+  await finish(gw, other);
 }
 
 async function cancelling(gw: DojoGateway): Promise<void> {
@@ -171,6 +180,47 @@ async function refunds(gw: DojoGateway): Promise<void> {
   check((await gw.getPaymentIntent(pi)).status === "Captured", "a partial refund leaves the intent Captured");
   await gw.createRefund({ paymentIntentId: pi, amount: 750, refundReason: "Demo", idempotencyKey: "demo-rest" });
   check((await gw.getPaymentIntent(pi)).status === "Refunded", "refunding the rest marks it Refunded");
+
+  console.log("\n── Card-present (matched) refunds ──");
+  // Through flow.ts, as the routes do: the amount is sent, so the intent updates.
+  const paid = await finish(gw, await sale(gw, "VCMSEEKSIP0"));
+  const matched = await startTerminalPayment(gw, {
+    sessionType: "MatchedRefund", amount: AMOUNT, terminal: "VCMSEEKSIP0", paymentIntentId: paid.result!.paymentIntentId,
+  });
+  const refunded = await finish(gw, matched);
+  const after = await gw.getPaymentIntent(paid.result!.paymentIntentId);
+  check(refunded.status === "Captured" && after.status === "Refunded",
+    `with the amount: the session completes and the intent shows Refunded [${after.status}]`);
+
+  // Without the amount the sandbox leaves the intent untouched; the mock copies that.
+  const paid2 = await finish(gw, await sale(gw, "VCMSEEKSIP0"));
+  const bare = await gw.createTerminalSession({
+    terminalId: "tm_mock_VCMSEEKSIP0", sessionType: "MatchedRefund", paymentIntentId: paid2.result!.paymentIntentId,
+  });
+  await finish(gw, { terminalId: bare.terminalId, paymentIntentId: null, terminalSessionId: bare.id, snapshot: await resolveSnapshot(gw, bare) });
+  const untouched = await gw.getPaymentIntent(paid2.result!.paymentIntentId);
+  check(untouched.status === "Captured" && (untouched.refundedAmount ?? 0) === 0,
+    "without the amount: the intent stays Captured with nothing refunded, as on the sandbox");
+}
+
+function webhookSignatures(): void {
+  console.log("\n── Webhook signature check ──");
+  const saved = process.env.DOJO_WEBHOOK_SECRET;
+  const body = JSON.stringify({ id: "evt_demo", event: "payment_intent.status_updated" });
+  try {
+    process.env.DOJO_WEBHOOK_SECRET = "demo-secret";
+    const good = buildDojoSignature(body, "demo-secret");
+    check(/^sha256=([0-9A-F]{2}-){31}[0-9A-F]{2}$/.test(good), "the signature has Dojo's format (sha256= + uppercase hex joined by -)");
+    check(verifyDojoSignature(body, good), "a correctly signed body is accepted");
+    check(!verifyDojoSignature(body + " ", good), "a body changed after signing is refused");
+    check(!verifyDojoSignature(body, buildDojoSignature(body, "other-secret")), "a signature made with another secret is refused");
+    check(!verifyDojoSignature(body, null), "a request without a signature is refused");
+    delete process.env.DOJO_WEBHOOK_SECRET;
+    check(!verifyDojoSignature(body, good), "with no secret configured, everything is refused");
+  } finally {
+    if (saved === undefined) delete process.env.DOJO_WEBHOOK_SECRET;
+    else process.env.DOJO_WEBHOOK_SECRET = saved;
+  }
 }
 
 async function main(): Promise<void> {
@@ -186,6 +236,7 @@ async function main(): Promise<void> {
   await unavailableTerminals(gw);
   staffMessages();
   await refunds(gw);
+  webhookSignatures();
 
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);
   process.exit(failures === 0 ? 0 : 1);

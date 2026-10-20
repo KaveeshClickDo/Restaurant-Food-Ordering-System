@@ -31,7 +31,7 @@
  * restart, which is exactly what a simulator should do.
  */
 
-import { DojoApiError } from "./client";
+import { DojoApiError } from "./errors";
 import type { DojoGateway } from "./gateway";
 import type {
   CreatePaymentIntentInput,
@@ -170,6 +170,23 @@ function reverseIntent(paymentIntentId: string | undefined): void {
   if (pi) { pi.status = "Reversed"; pi.updatedAt = nowIso(); }
 }
 
+/** As in the sandbox (2026-10-14): a matched refund marks its intent refunded
+ *  only when the request carried the amount. */
+function applyMatchedRefund(refund: NonNullable<DojoTerminalSessionDetails["matchedRefund"]>): void {
+  const pi = intents.get(refund.paymentIntentId);
+  if (!pi || !refund.amount) return;
+  pi.refundedAmount = (pi.refundedAmount ?? 0) + refund.amount.value;
+  pi.status = pi.refundedAmount >= pi.amount.value ? "Refunded" : "Captured";
+  pi.updatedAt = nowIso();
+}
+
+/** A session succeeded: a sale captures its intent, a matched refund refunds it. */
+function settleSuccess(ms: MockSession): void {
+  const d = ms.session.details;
+  if (d.sale) captureIntent(d.sale.paymentIntentId, ms.outcome);
+  else if (d.matchedRefund) applyMatchedRefund(d.matchedRefund);
+}
+
 /** Advance a session one poll-tick toward its outcome, with the sandbox's prompts. */
 function advance(ms: MockSession): void {
   const s = ms.session;
@@ -190,7 +207,7 @@ function advance(ms: MockSession): void {
         reverseIntent(piId);
       } else if (ms.signatureDecision === true || timedOut) {
         pushStatus(s, "SignatureVerificationAccepted");
-        captureIntent(piId, ms.outcome); // the sandbox captures as the signature is accepted
+        settleSuccess(ms); // the sandbox captures as the signature is accepted
       }
       return;
     }
@@ -227,14 +244,17 @@ function advance(ms: MockSession): void {
       break;
     default:
       pushStatus(s, "Captured");
-      captureIntent(piId, ms.outcome);
+      settleSuccess(ms);
   }
 }
 
 function details(input: CreateTerminalSessionInput): DojoTerminalSessionDetails {
   switch (input.sessionType) {
     case "Sale": return { sessionType: "Sale", sale: { paymentIntentId: input.paymentIntentId! } };
-    case "MatchedRefund": return { sessionType: "MatchedRefund", matchedRefund: { paymentIntentId: input.paymentIntentId! } };
+    case "MatchedRefund": return {
+      sessionType: "MatchedRefund",
+      matchedRefund: { paymentIntentId: input.paymentIntentId!, ...(input.amount ? { amount: input.amount } : {}) },
+    };
     case "UnlinkedRefund": return { sessionType: "UnlinkedRefund", unlinkedRefund: { amount: input.amount! } };
   }
 }
@@ -290,6 +310,9 @@ export function createDojoMock(): DojoGateway {
         if (!pi) throw new DojoApiError(404, `Payment intent ${input.paymentIntentId} not found.`, null);
         if (input.sessionType === "Sale" && pi.status !== "Created") {
           throw new DojoApiError(422, `The status ${pi.status} does not allow a new sale session.`, null);
+        }
+        if (input.sessionType === "MatchedRefund" && pi.status !== "Captured") {
+          throw new DojoApiError(422, `The status ${pi.status} does not allow a refund.`, null);
         }
         pi.terminalSessionHistory = [...(pi.terminalSessionHistory ?? []), { terminalSession: { id } }];
       }

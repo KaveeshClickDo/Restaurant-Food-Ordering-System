@@ -14,7 +14,7 @@
  *   e.g. VCMSEEKSIP0) as well as by its API id (tm_…).
  */
 
-import { DojoApiError } from "./client";
+import { DojoApiError } from "./errors";
 import { isFundsTaken, saleResultFrom, toSnapshot, type DojoGateway } from "./gateway";
 import type {
   DojoCaptureMode,
@@ -69,11 +69,13 @@ export async function startTerminalPayment(
 
   if (input.sessionType === "Sale" && paymentIntentId) {
     const earlier = await findIntent(gateway, paymentIntentId);
-    if (earlier && isFundsTaken(earlier.status)) return alreadyPaid(earlier);
-    reuseIntent = earlier !== null
-      && earlier.status === "Created"
+    // Only the same charge counts: an earlier intent for a different amount is
+    // another payment, and must neither be reused nor taken as this one paid.
+    const sameCharge = earlier !== null
       && earlier.amount.value === input.amount.value
       && earlier.amount.currencyCode === input.amount.currencyCode;
+    if (sameCharge && isFundsTaken(earlier.status)) return alreadyPaid(earlier);
+    reuseIntent = sameCharge && earlier.status === "Created";
   }
 
   const terminalId = await resolveTerminalId(gateway, input.terminal);
@@ -93,7 +95,9 @@ export async function startTerminalPayment(
       terminalId,
       sessionType: input.sessionType,
       paymentIntentId,
-      amount: input.sessionType === "UnlinkedRefund" ? input.amount : undefined,
+      // Refund sessions carry the amount: required for unlinked, and for matched
+      // the only way the intent gets marked refunded (see client.ts).
+      amount: input.sessionType === "Sale" ? undefined : input.amount,
     });
     return {
       terminalId,

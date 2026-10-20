@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { verifyDojoSignature } from "@/lib/dojo/webhook";
 import { dojoConfig } from "@/lib/dojo";
+import type { DojoWebhookEvent } from "@/lib/dojo/types";
 
 export async function POST(req: NextRequest) {
   const raw = await req.text();
@@ -33,13 +34,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Webhooks not configured." }, { status: 503 });
   }
 
-  let event: {
-    id?: string;
-    event?: string;
-    data?: { paymentIntentId?: string; paymentStatus?: string };
-  };
+  let event: DojoWebhookEvent;
   try {
-    event = JSON.parse(raw);
+    event = JSON.parse(raw) as DojoWebhookEvent;
   } catch {
     return NextResponse.json({ ok: false, error: "Malformed JSON." }, { status: 400 });
   }
@@ -54,8 +51,8 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Best-effort reconcile the central dojo_payments record by payment intent id
-  // (e.g. a later Refunded/Reversed status arriving out of band).
+  // Reconcile the central dojo_payments record by payment intent id (e.g. a
+  // later Refunded/Reversed status arriving out of band).
   const piId = event.data?.paymentIntentId;
   const status = event.data?.paymentStatus;
   if (piId && status) {
@@ -63,7 +60,13 @@ export async function POST(req: NextRequest) {
       .from("dojo_payments")
       .update({ status })
       .eq("payment_intent_id", piId);
-    if (updErr) console.error("[dojo/webhook] dojo_payments reconcile:", updErr.message);
+    if (updErr) {
+      // Un-mark the event and fail, so Dojo's retry applies it instead of
+      // being skipped as a duplicate.
+      console.error("[dojo/webhook] dojo_payments reconcile:", updErr.message);
+      if (event.id) await supabaseAdmin.from("dojo_events").delete().eq("id", event.id);
+      return NextResponse.json({ ok: false, error: "Couldn't record the event." }, { status: 500 });
+    }
   }
 
   return NextResponse.json({ ok: true });

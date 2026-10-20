@@ -316,10 +316,11 @@ interface POSContextValue {
     cashTendered?: number,
     giftCard?: { code: string; amount: number },
     // Set only when the card leg was collected on an integrated Dojo terminal;
-    // the details are persisted onto the sale's dojo_* columns.
+    // the server records it in the central dojo_payments table.
     dojo?: DojoSaleResult,
   ) => Promise<{ sale: POSSale | null; error?: string }>;
-  /** True when the Dojo card-terminal flow is enabled (DOJO_MODE=mock|live). */
+  /** True when the Dojo card-terminal flow is on: DOJO_MODE (mock|live) AND
+   *  the admin toggle. */
   dojoEnabled: boolean;
   // voidSale returns `{ ok, error? }` so callers can surface the server's
   // actual reason (insufficient permission, sale already voided, refund
@@ -1358,9 +1359,10 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
 
   // ── Complete sale ─────────────────────────────────────────────────────────
   // ── Dojo card-terminal availability ──────────────────────────────────────────
-  // Reflects the server flag (DOJO_MODE). Fetched once a staff session exists so
-  // the /api/pos/dojo/config call is authenticated. Off → PaymentModal keeps the
-  // manual card confirm, i.e. today's behaviour. See lib/dojo/config.ts.
+  // Reflects the server flag (DOJO_MODE AND the admin toggle). Fetched once a
+  // staff session exists so the /api/pos/dojo/config call is authenticated.
+  // Off → PaymentModal keeps the manual card confirm, i.e. today's behaviour.
+  // See lib/dojo/effectiveFlag.ts.
   const [dojoEnabled, setDojoEnabled] = useState(false);
   useEffect(() => {
     if (!currentStaff?.id) { setDojoEnabled(false); return; }
@@ -1440,7 +1442,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       // the sale total, then stamps + redeems. total stays the full goods
       // value; the gift card covers part/all of what's owed.
       ...(giftCard ? { giftCardCode: giftCard.code, giftCardUsed: round2(giftCard.amount) } : {}),
-      // Dojo card-terminal result (server persists onto pos_sales.dojo_* columns).
+      // Dojo card-terminal result (the server records it in dojo_payments).
       ...(dojo ? { dojo } : {}),
       staffId: currentStaff?.id ?? "",
       staffName: currentStaff?.name ?? "",

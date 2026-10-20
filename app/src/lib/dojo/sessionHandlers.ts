@@ -15,7 +15,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseBody } from "@/lib/apiValidation";
 import { DojoCreateSessionSchema, DojoSignatureSchema } from "@/lib/schemas/dojo";
-import { getDojoGateway, dojoConfig, resolveSnapshot } from "@/lib/dojo";
+import { getDojoGateway, dojoConfig, resolveSnapshot, isDojoEffectivelyEnabled } from "@/lib/dojo";
 import { startTerminalPayment } from "@/lib/dojo/flow";
 import { dojoErrorResponse, toMinorUnits } from "@/lib/dojo/respond";
 
@@ -46,6 +46,15 @@ export async function handleCreateSession(req: NextRequest): Promise<NextRespons
   }
 
   try {
+    // The admin toggle hides the option in every UI; enforce it here too, so a
+    // direct call can't start a payment while it's off. Polls, signatures and
+    // cancels stay allowed, so a payment already under way can finish.
+    if (!(await isDojoEffectivelyEnabled())) {
+      return NextResponse.json(
+        { ok: false, error: "Card machine payments are switched off.", code: "disabled" },
+        { status: 503 },
+      );
+    }
     const cfg = dojoConfig();
     const started = await startTerminalPayment(getDojoGateway(), {
       sessionType,

@@ -152,6 +152,16 @@ promise staff that a late reject will undo the payment.
 **Go-live gate:** Dojo mandates **at least one working refund path** before
 approving production.
 
+**Sandbox findings (October 2026):**
+- The remote refund is Dojo's **recommended** method. On the sandbox it fails for
+  terminal payments ("Your refund request was not successful. Status: Failed."),
+  and so does a reversal. Dojo confirmed this is a sandbox limitation and that a
+  correct request is enough for accreditation.
+- **Matched refund: send `amount`** (a `Money` object, minor units) even for a
+  full refund. The schema marks it optional, but without it the sandbox leaves
+  the intent `Captured` with `refundedAmount` 0. Dojo's own example request
+  includes it.
+
 ---
 
 ## 5. Errors and the `Expired` case
@@ -187,6 +197,10 @@ which repeatedly say "using a Virtual Machine with `TID` ending in …".
 So happy path, decline, expiry, signature accept/reject/timeout and refunds are
 all testable with only a sandbox key. Generate your **own** sandbox key — the one
 in the public docs is shared.
+
+Our account has its own nine virtual terminals (`VCMSEEK…`), set up by Dojo. What
+each simulates, and what the sandbox actually returned, is in
+[README.md §6](./README.md#6-test-it-now-no-dojo-account).
 
 ---
 

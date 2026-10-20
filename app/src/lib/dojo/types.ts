@@ -138,7 +138,7 @@ export interface DojoStatusEvent {
 export interface DojoTerminalSessionDetails {
   sessionType: DojoSessionType;
   sale?: { paymentIntentId: string };
-  matchedRefund?: { paymentIntentId: string };
+  matchedRefund?: { paymentIntentId: string; amount?: DojoMoney };
   unlinkedRefund?: { amount: DojoMoney };
 }
 
@@ -159,11 +159,11 @@ export interface CreateTerminalSessionInput {
   sessionType: DojoSessionType;
   /** Required for Sale and MatchedRefund. */
   paymentIntentId?: string;
-  /** Required for UnlinkedRefund. */
+  /** Required for UnlinkedRefund; also sent for MatchedRefund (see client.ts). */
   amount?: DojoMoney;
 }
 
-// ── Refunds / captures ────────────────────────────────────────────────────────
+// ── Refunds ───────────────────────────────────────────────────────────────────
 export interface CreateRefundInput {
   paymentIntentId: string;
   amount: number;              // minor units
@@ -177,24 +177,19 @@ export interface DojoRefundResult {
   message?: string;
 }
 
-export interface DojoCaptureResult {
-  captureId: string;
-  message?: string;
-}
-
 // ── Webhook payloads ──────────────────────────────────────────────────────────
-export interface DojoPaymentIntentWebhook {
-  id: string;
-  event:
-    | "payment_intent.created"
-    | "payment_intent.status_updated"
-    | "payment_intent.send-receipt";
-  accountId: string;
-  createdAt: string;
-  data: {
-    paymentIntentId: string;
-    paymentStatus: DojoPaymentIntentStatus;
-    captureMode: DojoCaptureMode;
+/** A webhook body as the route reads it. Every field is optional: the route
+ *  only acts on what is present (payment_intent.status_updated carries both
+ *  paymentIntentId and paymentStatus). */
+export interface DojoWebhookEvent {
+  id?: string;
+  event?: string;
+  accountId?: string;
+  createdAt?: string;
+  data?: {
+    paymentIntentId?: string;
+    paymentStatus?: DojoPaymentIntentStatus;
+    captureMode?: DojoCaptureMode;
   };
 }
 

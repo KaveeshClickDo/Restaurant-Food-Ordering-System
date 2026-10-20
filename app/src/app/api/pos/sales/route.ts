@@ -26,7 +26,6 @@ import { lookupActiveGiftCard, clampGiftCardAmount, redeemGiftCardForRow } from 
 import { rewardLoyaltyPoints } from "@/lib/loyaltyUtils";
 import { rowToSale } from "@/lib/posSaleMap";
 import { recordDojoPayment } from "@/lib/dojo";
-import type { DojoSaleResult } from "@/lib/dojo/types";
 
 const POS_CUSTOMER_ID = "pos-walk-in";
 
@@ -323,7 +322,7 @@ export async function POST(req: NextRequest) {
   // collected on an integrated Dojo terminal. Recorded in the central
   // dojo_payments table AFTER the sale row is inserted (below), so it can link
   // to the sale id. Absent for cash sales and standalone-card sales.
-  const dojo = (body as unknown as { dojo?: DojoSaleResult }).dojo;
+  const dojo = parsed.data.dojo;
   // Offline clients mint their own receipt_no (per-terminal namespace).
   // Omit the field when no value supplied so the DB default fires for online sales.
   if (offlineFields.receiptNo) row.receipt_no = offlineFields.receiptNo;

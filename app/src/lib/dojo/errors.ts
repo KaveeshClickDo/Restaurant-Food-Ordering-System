@@ -1,6 +1,6 @@
 /**
- * Dojo API errors → what staff see. SERVER-SIDE ONLY, and free of Next/db
- * imports so the dojo:demo script can use it too.
+ * Dojo errors, and what staff see for them. SERVER-SIDE ONLY, and free of
+ * Next/db imports so the dojo:demo and dojo:sandbox scripts can use it too.
  *
  * Dojo's go-live checklist expects a specific message for each failure: a
  * wrong API key, an offline or unknown terminal (404), a busy terminal (409),
@@ -8,7 +8,25 @@
  * different things per operation, so the caller says which one failed.
  */
 
-import type { DojoApiError } from "./client";
+/** A call to Dojo failed: `status` is Dojo's HTTP status (0 = network). */
+export class DojoApiError extends Error {
+  status: number;
+  body: unknown;
+  constructor(status: number, message: string, body: unknown) {
+    super(message);
+    this.name = "DojoApiError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
+/** Thrown when a Dojo route is used while DOJO_MODE is off. */
+export class DojoDisabledError extends Error {
+  constructor() {
+    super("Dojo payments are not enabled (DOJO_MODE=off).");
+    this.name = "DojoDisabledError";
+  }
+}
 
 export type DojoOp = "create" | "poll" | "signature" | "cancel" | "terminals" | "refund";
 
